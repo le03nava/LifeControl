@@ -80,17 +80,26 @@ them, and nothing is rewritten behind the operator's back.
 | T1 | S1, S6, S9 | `EmployeeStatuses.isRevoked` — one rule, three projections — plus the `AGENTS.md` note | `d6b7bf8` |
 | T2 | S2, S3, S7, S8 | the two write paths enqueue on the transition; the producers refuse a revoked employee | `70026d6` |
 | T3 | S4 | the confirmation copy and its spec, both directions | `b8f0fd7` |
-| T4 | S5 | this record and the evidence | this commit |
+| T4 | S5 | this record and the evidence | `06fbb93` |
+| T5 | S1, S2, S6, S9 | the independent verifier's composition test and the `DELETE` response contract | `636caef` |
+| T6 | S4 | the copy corrected to name the approval gate the verifier measured | `1fdbcc2` |
 
 ## Delivery and slice boundary
 
-Three commits on `fix/employee-disable-revokes-access`, ordered by dependency: the derivation rule first
-(so the projections cannot disagree), the facts that produce it second, the copy last. **528 authored
-changed lines** in total, which is past the ~400-line review budget: the excess is test code that cannot be
-separated from the rule it pins (≈330 test lines against ≈175 production lines), so the slice was recorded
-rather than split into a chained PR. The backend commits are the **high-risk** ones (item 2,
-permissions/guards) and each is its own commit so a native review can take them one at a time. Nothing was
-pushed and no PR was opened: that is the human's decision.
+Seven commits on `fix/employee-disable-revokes-access` — six of behavior and verification plus this
+record — ordered by dependency: the derivation rule first (so
+the projections cannot disagree), the facts that produce it second, the copy third, and the verification's
+own findings last. **~940 authored changed lines**, of which ≈200 are production code, ≈640 tests and ≈100
+documentation — the excess over the ~400-line review budget is the test code that cannot be separated from
+the rule it pins, plus the composition test the independent verifier contributed.
+
+**Delivery strategy, stated rather than implied**: one pull request. The rule under change is a single
+security rule read in three places, so a chained split would merge a tree where either the derivation
+derives access nobody revoked or the write path requests a revocation the derivation does not honour; the
+commits are the review slices, and each is small enough to read alone. The two backend commits carry the
+high-risk item (2, permissions/guards) and a native review can take them individually. Nothing was pushed
+and no PR was opened: both are the human's decision, and if the human prefers a chain the natural split is
+`d6b7bf8` → `70026d6` → `b8f0fd7`+`1fdbcc2` → `636caef` — with the record's two docs commits alongside the slice they describe.
 
 ## Evidence
 
@@ -109,6 +118,13 @@ pushed and no PR was opened: that is the human's decision.
 | Angular suite | 185 files / 3735 tests passed |
 | Angular build | `Application bundle generation complete.` |
 | Committed Angular bytes re-verified after the `pre-commit` hook rewrote them | 50/50 in the same spec; `git diff` of the hook's rewrite reviewed |
+| Independent verification (`gentle-ai-verify`, read-only) | **S1–S9 all PASS**, each with `path:line`; 4 advisories, none blocking |
+| Verifier's baseline RED at `origin/main` | the same `DEACTIVATE` run ended with the account **enabled** and `lc-sales` still held: defect and fix both reproduced independently |
+| Composition test adopted from the verifier (`EmployeeDisableRevokesAccessCompositionTest`) | `BUILD SUCCESSFUL`, 5 probes including the P1-control that proves the probe is sensitive |
+| `EmployeeControllerTest` and the `DELETE` response contract | `BUILD SUCCESSFUL` |
+| Angular focused spec after the copy correction | 1 file / 50 tests passed |
+| RDD assessment of this candidate | `assess` → `reviewDue: false` (`under_budget`), native tier `medium`; escalated by the agent on Task Size item 2 (security), so the independent verifier ran |
+| ODD header guard | `.github/scripts/tests/odd-status-headers.test.sh` → 78 passed, 0 failed (96 records) |
 
 **Differential check**: no existing assertion was rewritten except the two `employee-list` specs that pin
 the copy this change replaces — those *are* the change, and they were updated in both directions (the new
@@ -126,6 +142,19 @@ account that means a task, an empty required set and a disabled account left alo
 guards to `isRevoked` and either generalising `TerminatedEmployeeRefusedException`'s message (it names
 `Terminated` in its wire text) or adding a sibling exception — a small, separate slice with its own
 message-contract decision, not a silent widening of this one.
+
+## Known dependencies (measured by the independent verifier, not defects of this slice)
+
+1. **The approval gate can withhold the revocation.** A diff that touches any role outside
+   `ScopeLevel.STORE` is created `APPROVAL_PENDING` (`AccessProvisioningApprovalPolicy:36`), and a position
+   template can grant `lc-company`/`lc-department`/`lc-position`, so for such a person the revocation waits
+   for a human instead of applying. The copy was corrected to say so (`T5`) rather than promise immediacy.
+2. **With the worker off nothing applies.** `WORKER_ENABLED` defaults to `false` in the base compose file,
+   so the task stays `PENDING`/`APPROVAL_PENDING`, the projection hides the roles and the token still
+   carries them. Same dependency the termination path already has; not introduced here.
+3. **`DELETE` inherits the gate's live identity-provider read inside its transaction**, so an unreachable
+   Keycloak rolls the soft delete back (503) and an unsupersedable open task answers 409. Inherent to
+   reusing the same machinery (S2); both responses are now declared on the endpoint (`T5`).
 
 ## Log
 
@@ -160,3 +189,15 @@ revocation.
 could not start the builder. `npm ci` fixed it, and the RED was still observed properly by reverting the
 component to its pre-change bytes, running the spec, and restoring the edit — the evidence row above
 records that run.
+
+**L7** (2026-10-22, after the independent verifier returned): all nine specs PASS. Three of its four
+advisories were taken into the slice rather than deferred — the copy now names the approval gate instead
+of promising an immediate revocation, the `DELETE` endpoint declares the 409 and the 503 its new path can
+answer, and its composition probe was adopted as a durable test (`T5`, `636caef`). The fourth is the
+follow-up above. It also reported two limits of its own run: the Postgres/Testcontainers concurrency
+suites were not run (needs Docker, outside its no-network rule), and it left a ~2.6 GB scratch tree under
+`/tmp`, removed here once its composition test was adopted.
+
+**L8** (2026-10-22, closing): the branch carries six commits and the tree is clean. `Risk: item 2
+(security)` — the change moves what the guards read, and the independent verifier confirmed each rule
+with its own probes, including a baseline RED at `origin/main`. Not delivered: no push, no PR, no merge.
