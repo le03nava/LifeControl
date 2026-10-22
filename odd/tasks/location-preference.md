@@ -288,6 +288,14 @@ G17 (declared, found by the same verification). The profile screen's free mode s
 `getStoreById(storeId)` (`user-profile.component.ts:278-291`) to preselect its cascade although
 `location` now carries that chain. It is a second read per screen that S1's own rationale argues
 against, it is outside S1–S11, and it is the natural next unit rather than a repair.
+*(**Repair, 2026-10-21**: taken as its own unit, `odd/tasks/profile-cascade-preselect.md` (issue
+`#521`), and measuring it to write that unit's issue found the **second half** this row could not
+see: the load also preselected **nothing**. The flat read patched `companyStoreId` alone, so the four
+ancestor controls stayed empty and every select below the company rendered disabled — each binds
+`[disabled]` to the level above — while the lists the walk had fetched were unreachable. The row's
+reason stands unchanged and is now why the fix is cheap: `location` carries the five ids, so the
+preselect patches them from the response the screen already holds and the second read is deleted,
+not replaced.)*
 
 L19 (re-gate after the repair, 2026-10-21). On `dac903a`, every command run with `set -o pipefail` so
 the exit codes are the command's and not `tail`'s: the **API full suite** at **938 suites / 3680 tests /
@@ -309,3 +317,11 @@ backend commit (`a41a6e1`) and the parent's (`243d6e1`) with identical content. 
 byte-identical to the fully re-gated `802fe80` — `git diff 802fe80..HEAD` is empty — which is why
 nothing was re-run after the merge, and a reviewer should read this pull request's diff against its
 **base branch** rather than its commit list.
+
+L21 (repair pointer, 2026-10-21). `G17` is taken as its own unit —
+`odd/tasks/profile-cascade-preselect.md`, issue `#521` — rather than repaired inside this one, which
+is what this record's own row said it should be. The row above carries the measurement that unit's
+issue found: besides the redundant read, the free mode preselected **nothing**, because the flat read
+patched `companyStoreId` alone and the four ancestor controls each drive the `[disabled]` state of the
+level below. Nothing else in this record changes: `G15` is still separate work with its own decision,
+and `S1`–`S11` stand as delivered.
