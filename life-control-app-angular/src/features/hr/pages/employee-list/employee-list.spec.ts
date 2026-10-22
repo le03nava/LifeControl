@@ -788,7 +788,7 @@ describe('EmployeeList', () => {
         data: {
           title: 'Deshabilitar empleado',
           message:
-            '¿Confirmás que querés deshabilitar a "Ana Gómez Ruiz"? Deja de aparecer en el registro y se le revoca el acceso: su cuenta y sus roles se desactivan. Podés habilitarlo más adelante y recupera el acceso según el contrato que lo cubra.',
+            '¿Confirmás que querés deshabilitar a "Ana Gómez Ruiz"? Deja de aparecer en el registro y se le revoca el acceso: su cuenta y sus roles se desactivan. Si la revocación toca roles que requieren aprobación, queda pendiente en Acceso. Podés habilitarlo más adelante y recupera el acceso según el contrato que lo cubra.',
           confirmLabel: 'Deshabilitar',
           destructive: true,
         },
@@ -812,9 +812,11 @@ describe('EmployeeList', () => {
       await settle();
 
       const [, config] = dialog.open.mock.calls[0] as [unknown, { data: { message: string } }];
-      // G41: `enabled = false` is a revocation, so the copy says so instead of denying it.
+      // G41: `enabled = false` is a revocation, so the copy says so instead of denying it, and it does not
+      // promise immediacy the approval gate can withhold (`APPROVAL_PENDING` for a non-store role).
       expect(config.data.message).toMatch(/revoca el acceso/i);
       expect(config.data.message).not.toMatch(/no revoca/i);
+      expect(config.data.message).toMatch(/queda pendiente en Acceso/i);
     });
 
     it('should disable, notify and reload when confirmed', async () => {

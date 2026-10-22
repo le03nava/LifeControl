@@ -482,7 +482,7 @@ export class EmployeeList {
     const dialogRef = this.dialog.open(ConfirmDialog, {
       data: {
         title: 'Deshabilitar empleado',
-        message: `¿Confirmás que querés deshabilitar a "${this.fullName(employee)}"? Deja de aparecer en el registro y se le revoca el acceso: su cuenta y sus roles se desactivan. Podés habilitarlo más adelante y recupera el acceso según el contrato que lo cubra.`,
+        message: `¿Confirmás que querés deshabilitar a "${this.fullName(employee)}"? Deja de aparecer en el registro y se le revoca el acceso: su cuenta y sus roles se desactivan. Si la revocación toca roles que requieren aprobación, queda pendiente en Acceso. Podés habilitarlo más adelante y recupera el acceso según el contrato que lo cubra.`,
         confirmLabel: 'Deshabilitar',
         destructive: true,
       },
