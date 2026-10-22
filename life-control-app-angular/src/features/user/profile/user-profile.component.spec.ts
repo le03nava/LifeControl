@@ -33,6 +33,7 @@ describe('UserProfileComponent', () => {
     lastName: 'Doe',
     companyStoreId: null,
     assignedStores: null,
+    location: null,
   };
 
   // T14: the four tenancy ancestors left the wire, so this fixture no longer carries them. The chain a

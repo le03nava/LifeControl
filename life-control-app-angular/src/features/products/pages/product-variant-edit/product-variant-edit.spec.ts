@@ -58,6 +58,14 @@ describe('ProductVariantEdit', () => {
       lastName: 'Ator',
       companyStoreId: 'store-1',
       assignedStores: null,
+      location: {
+        companyId: 'company-1',
+        companyCountryId: 'country-1',
+        companyRegionId: 'region-1',
+        companyZoneId: 'zone-1',
+        companyStoreId: 'store-1',
+        companyStoreName: 'Store One',
+      },
     };
   }
 

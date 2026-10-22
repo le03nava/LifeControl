@@ -97,6 +97,16 @@ describe('ProductVariantList', () => {
       lastName: 'Ator',
       companyStoreId,
       assignedStores: null,
+      location: companyStoreId
+        ? {
+            companyId: 'company-1',
+            companyCountryId: 'country-1',
+            companyRegionId: 'region-1',
+            companyZoneId: 'zone-1',
+            companyStoreId,
+            companyStoreName: 'Store One',
+          }
+        : null,
     };
   }
 

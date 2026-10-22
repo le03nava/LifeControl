@@ -3,7 +3,7 @@ import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { HttpErrorResponse } from '@angular/common/http';
 import { Observable, of, throwError } from 'rxjs';
-import { ProfileResponse } from '@features/user/profile/data/profile.models';
+import { LocationChain, ProfileResponse } from '@features/user/profile/data/profile.models';
 import { ProfileService } from '@features/user/profile/data/profile.service';
 import { VariantStoreContext } from './variant-store-context.service';
 
@@ -27,7 +27,25 @@ describe('VariantStoreContext', () => {
   let context: VariantStoreContext;
   let getProfile: ReturnType<typeof vi.fn>;
 
-  const profile = (companyStoreId: string | null): ProfileResponse => ({
+  /** A location chain for the given store, as `GET /api/profile` derives it (S1). */
+  const chain = (companyStoreId: string): LocationChain => ({
+    companyId: 'company-1',
+    companyCountryId: 'country-1',
+    companyRegionId: 'region-1',
+    companyZoneId: 'zone-1',
+    companyStoreId,
+    companyStoreName: 'Store One',
+  });
+
+  /**
+   * The profile's chain mirrors its stored store by default, which is what the wire does. `location`
+   * is overridable so a test can model S2's unusable preference: the stored id still resolves while
+   * the chain is `null` because the store is no longer covered or no longer readable.
+   */
+  const profile = (
+    companyStoreId: string | null,
+    location: LocationChain | null = companyStoreId ? chain(companyStoreId) : null,
+  ): ProfileResponse => ({
     keycloakUserId: 'user-1',
     username: 'operator',
     email: 'operator@lifecontrol.test',
@@ -35,6 +53,7 @@ describe('VariantStoreContext', () => {
     lastName: 'Ator',
     companyStoreId,
     assignedStores: null,
+    location,
   });
 
   beforeEach(() => {
@@ -92,6 +111,19 @@ describe('VariantStoreContext', () => {
     expect(context.source()).toBe('none');
     expect(context.unconfigured()).toBe(true);
     expect(context.storeError()).toBeNull();
+  });
+
+  it('should fail closed on a null location even when the profile still names a stored store (S8)', async () => {
+    // S2: `companyStoreId` keeps the resolution it always had, so it can be non-null while the chain
+    // is not — an uncovered assignment, or a store the caller can no longer read. The screen must not
+    // guess a location from the id alone.
+    getProfile.mockReturnValue(of(profile('store-stored', null)));
+
+    await resolve(null);
+
+    expect(context.storeId()).toBeNull();
+    expect(context.source()).toBe('none');
+    expect(context.unconfigured()).toBe(true);
   });
 
   it('should surface a failed profile read instead of reporting the store as unconfigured', async () => {

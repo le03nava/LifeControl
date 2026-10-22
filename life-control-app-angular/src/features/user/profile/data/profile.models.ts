@@ -31,6 +31,37 @@ export interface ProfileResponse {
    * stores; an empty array is still constrained mode.
    */
   assignedStores: AssignedStore[] | null;
+  /**
+   * The location chain of the **resolved** store preference (`S1`/`S2` of `location-preference`), or
+   * `null` when there is nothing usable to preselect: no preference, a stored store the caller's
+   * assignments no longer cover, or one the caller can no longer read.
+   *
+   * Non-optional on purpose, for the same reason as {@link assignedStores}: an optional field would
+   * make `undefined` a third state meaning "no location" by luck, and would hide a server that
+   * stopped sending the key. `companyStoreId` above and this chain can disagree — the id keeps the
+   * resolution it always had, so a `null` here with a non-null id there is a real, meaningful pair and
+   * the screens must fail closed on it (`S8`).
+   *
+   * Read-only: no field of {@link ProfileUpdateRequest} feeds it (`S3`).
+   */
+  location: LocationChain | null;
+}
+
+/**
+ * The five-level location chain of the resolved store preference, exactly as `GET /api/profile`
+ * derives it from the store itself (`S1`).
+ *
+ * Every field is non-null: the backend only returns a chain when the whole ancestry resolved, and
+ * reports `null` instead of a partial one. The ancestors carry **ids only** — no names (`S1`): a
+ * preselect is worthless without the option, so every screen already loads the catalogue it needs.
+ */
+export interface LocationChain {
+  companyId: string;
+  companyCountryId: string;
+  companyRegionId: string;
+  companyZoneId: string;
+  companyStoreId: string;
+  companyStoreName: string;
 }
 
 /**

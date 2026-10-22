@@ -75,11 +75,11 @@ the literal `Store assigned`), and keeps the assigned store's derived chain in t
 
 | ID | Spec | Route | Commit |
 | --- | --- | --- | --- |
-| T1 | S1, S2, S3 | backend: `LocationChain` in `ProfileResponse`, `resolveLocation` best-effort in `ProfileService`; RED specs first | |
-| T2 | S4, S5 | backend: `clearStorePreference` in `ProfileUpdateRequest`, refusal ordered before Keycloak | |
-| T3 | S6 | Angular: shared `LocationPreference`; the two copies delegate to it | |
-| T4 | S7 | Angular: regions preselection through `regions-page` → `regions-form`'s existing inputs | |
-| T5 | S8 | fail-closed pins on the store-scoped screens | |
+| T1 | S1, S2, S3 | backend: `LocationChain` in `ProfileResponse`, `resolveLocation` best-effort in `ProfileService`; RED specs first | `a41a6e1` |
+| T2 | S4, S5 | backend: `clearStorePreference` in `ProfileUpdateRequest`, refusal ordered before Keycloak | `a41a6e1` |
+| T3 | S6 | Angular: shared `LocationPreference`; the two copies delegate to it | this commit |
+| T4 | S7 | Angular: regions preselection through `regions-page` → `regions-form`'s existing inputs | this commit |
+| T5 | S8 | fail-closed pins on the store-scoped screens | this commit |
 | T6 | S9, S10, S11 | `/profile` as the only writer; `«— None —»`; view-mode label | |
 | T7 | S1–S11 | gates: focused suites, full suites, lint, build, differential | |
 
@@ -153,3 +153,42 @@ with the contract absent, then as 6 behavioural failures with the contract prese
 missing. The differential against the base tree, same instrumentation, shows exactly one difference for
 a `PUT` carrying the old body shape — the added `location` key — with status, request and every other
 field byte-identical.
+
+L12 (delivery strategy, 2026-10-21, recorded before the second commit rather than after it). The unit
+travels as **three chained slices**, because the first one measured **876 authored changed lines**
+against the repository's ~400-line review budget and the remainder adds two screens' worth of wiring:
+
+- **S1** = T1+T2, the backend contract — `a41a6e1`. 237 of its additions are production code (84 of
+them the new resolver), 484 are the two spec files and 155 are this record. The contract is not split
+further: cutting a single response shape across two reviews costs more than it buys.
+- **S2** = T3+T4+T5, the shared Angular `LocationPreference`, the two contexts that delegate to it and
+the regions preselection.
+- **S3** = T6, `/profile` as the only writer, «— None —» and the view-mode label.
+
+T7's gates run on every slice and once over the whole branch, since a preselect can be green per slice
+and wrong when the second writer appears.
+
+L13 (measurement and two corrections, T3-T5, 2026-10-21). The slice measured **898 insertions / 97
+deletions across 21 files** — five production files (one of them the new 187-line service) and sixteen
+spec files, two of them new. That is over the ~400-line budget again and it is declared rather than
+rounded: the shared service and its two delegates cannot be reviewed apart, because the delegates'
+whole content is the delegation. Two of the record's own premises were wrong and are corrected here:
+
+- **T4's seam was not where this record said.** `regions-page` does **not** render `regions-form`; it
+  renders `RegionsCard`. `regions-form` and its `initialCompanyId`/`initialCountryId` inputs belong to
+  `regions-edit` only. The seam actually used is the page's own `selectedCompanyId`/
+  `initialCountryId` signals, extended; `regions-form` is untouched, so no second seam was invented.
+- **The override rule is all-or-nothing, and that is now the declared reading of S6.** A route that
+  names *any* level answers the location question and the profile is not consulted for the rest,
+  because a chain stitched from two sources would pair one company's ancestors with another company's
+  store. A level the route did not name is the empty string internally and `null` on the public ids.
+
+L14 (declared coupling and open gap, T3). The service is root-scoped, so `reload()` re-runs the shared
+resolution for whichever call site asked last. Two guard rails make that safe rather than lucky: every
+resolution is keyed, so a chain resolved for `?storeId=A` is never reported to a call site asking for
+`B`, and every call site that overrides nothing shares one key, which is what keeps the profile layer a
+single read. **G14**: the only coexisting pair in the tree today — a page and its
+`product-variant-store-stock` child — resolves from the same URL value, so contention is untested; and
+`user-profile.component.spec.ts` carries `location: null` beside a stored `companyStoreId`, which is
+the legitimate S2 pair, so **S11 must put a real chain in that fixture** when the view-mode label starts
+reading `location`.
