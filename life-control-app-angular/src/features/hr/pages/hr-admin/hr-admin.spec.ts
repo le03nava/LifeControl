@@ -30,7 +30,9 @@ describe('HrAdmin', () => {
   });
 
   const cards = (): HTMLElement[] =>
-    Array.from(fixture.nativeElement.querySelectorAll('.dashboard-card') as NodeListOf<HTMLElement>);
+    Array.from(
+      fixture.nativeElement.querySelectorAll('.dashboard-card') as NodeListOf<HTMLElement>,
+    );
 
   it('should expose the three HR catalogs in the order the submenu listed them', () => {
     expect(component.cards.map((card) => card.title)).toEqual([

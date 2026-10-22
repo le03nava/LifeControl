@@ -28,13 +28,7 @@ export type AccessProvisioningTaskKind = 'ACTIVATE' | 'DEACTIVATE' | 'RECONCILE'
  * employee — while `APPLIED`, `REJECTED` and `SUPERSEDED` are terminal.
  */
 export type AccessProvisioningTaskStatus =
-  | 'PENDING'
-  | 'APPROVAL_PENDING'
-  | 'RUNNING'
-  | 'APPLIED'
-  | 'FAILED'
-  | 'REJECTED'
-  | 'SUPERSEDED';
+  'PENDING' | 'APPROVAL_PENDING' | 'RUNNING' | 'APPLIED' | 'FAILED' | 'REJECTED' | 'SUPERSEDED';
 
 /** Spanish labels for the seven task states. Keys are the server's enum names exactly. */
 export const ACCESS_TASK_STATUS_LABELS: Readonly<Record<AccessProvisioningTaskStatus, string>> = {

@@ -1,4 +1,11 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  DestroyRef,
+  computed,
+  inject,
+  signal,
+} from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
 import { rxResource, takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { HttpErrorResponse } from '@angular/common/http';
@@ -107,7 +114,8 @@ export class SeniorityLevelList {
     }
     return rows.filter(
       (level) =>
-        level.levelCode.toLowerCase().includes(term) || level.levelName.toLowerCase().includes(term),
+        level.levelCode.toLowerCase().includes(term) ||
+        level.levelName.toLowerCase().includes(term),
     );
   });
 

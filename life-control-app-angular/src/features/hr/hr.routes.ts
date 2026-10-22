@@ -109,9 +109,7 @@ export const hrRoutes: Routes = [
             // of the list, which D16 ties to this destination.
             path: ':id/settings',
             loadComponent: () =>
-              import('./pages/position-settings/position-settings').then(
-                (m) => m.PositionSettings,
-              ),
+              import('./pages/position-settings/position-settings').then((m) => m.PositionSettings),
           },
         ],
       },

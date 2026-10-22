@@ -116,11 +116,7 @@ export class PositionService {
     );
   }
 
-  updatePosition(
-    companyId: string,
-    id: string,
-    request: PositionRequest,
-  ): Observable<Position> {
+  updatePosition(companyId: string, id: string, request: PositionRequest): Observable<Position> {
     this._loading.set(true);
     this._error.set(null);
     return this.http.put<Position>(`${this.positionsUrl(companyId)}/${id}`, request).pipe(
@@ -197,10 +193,7 @@ export class PositionService {
     positionId: string,
     request: PositionSalaryBandsRequest,
   ): Observable<PositionSalaryBand[]> {
-    return this.http.put<PositionSalaryBand[]>(
-      this.salaryBandsUrl(companyId, positionId),
-      request,
-    );
+    return this.http.put<PositionSalaryBand[]>(this.salaryBandsUrl(companyId, positionId), request);
   }
 
   private salaryBandsUrl(companyId: string, positionId: string): string {

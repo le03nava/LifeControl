@@ -10,7 +10,9 @@ describe('AccessSection', () => {
   let fixture: ComponentFixture<AccessSection>;
   let component: AccessSection;
 
-  const task = (overrides: Partial<AccessProvisioningTaskView> = {}): AccessProvisioningTaskView => ({
+  const task = (
+    overrides: Partial<AccessProvisioningTaskView> = {},
+  ): AccessProvisioningTaskView => ({
     id: 'task-1',
     kind: 'ACTIVATE',
     status: 'APPROVAL_PENDING',
@@ -237,7 +239,12 @@ describe('AccessSection', () => {
   it('should render the open task with its state, reason and attempts against the ceiling', async () => {
     await setup({
       overview: overview({
-        openTask: task({ status: 'FAILED', attempts: 2, maxAttempts: 3, lastError: 'Keycloak 500' }),
+        openTask: task({
+          status: 'FAILED',
+          attempts: 2,
+          maxAttempts: 3,
+          lastError: 'Keycloak 500',
+        }),
       }),
     });
 
@@ -505,7 +512,9 @@ describe('AccessSection', () => {
   });
 
   it('should show the disabled-worker notice while a request is open too, because it will not advance on its own (T5)', async () => {
-    await setup({ overview: overview({ workerEnabled: false, openTask: task({ status: 'PENDING' }) }) });
+    await setup({
+      overview: overview({ workerEnabled: false, openTask: task({ status: 'PENDING' }) }),
+    });
 
     // A `Pendiente` task and a task nobody will ever pick up look identical: the notice is what
     // tells them apart, and it must not be gated on there being no open task.
