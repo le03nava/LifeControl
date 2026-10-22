@@ -15,6 +15,15 @@ export interface CompanyZone {
   updatedAt: string;
 }
 
+/**
+ * Body of POST/PUT .../zones.
+ *
+ * Mirrors CreateCompanyZoneRequest and UpdateCompanyZoneRequest on the API side, which declare
+ * exactly these keys. `enabled` is deliberately absent: the zone's state is owned by the server —
+ * `createZone` always stores `true`, `updateZone` never reads it — and changes only through DELETE
+ * (soft-disable) and PATCH (re-enable) on the resource. An extra key here is rejected with 400
+ * before field validation runs.
+ */
 export interface CompanyZoneRequest {
   zoneCode: string;
   zoneName: string;
@@ -44,5 +53,4 @@ export interface ZoneControl {
   zoneName: FormControl<string>;
   description: FormControl<string | null>;
   displayOrder: FormControl<number | null>;
-  enabled: FormControl<boolean>;
 }

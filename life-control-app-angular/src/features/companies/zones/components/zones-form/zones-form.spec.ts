@@ -141,10 +141,17 @@ describe('ZonesForm', () => {
       expect(orderInput).toBeTruthy();
     });
 
-    it('should render slide-toggle for enabled', () => {
+    // `enabled` is not part of the zone request contract: `createZone` always stores `true`,
+    // `updateZone` never reads it, and the state moves through DELETE (soft-disable) and PATCH
+    // (re-enable) on the resource. A toggle here was a promise no endpoint kept — it flipped a
+    // local control and then never reached the server.
+    it('should NOT render a slide-toggle for enabled', () => {
       const toggle = fixture.nativeElement.querySelector('mat-slide-toggle');
-      expect(toggle).toBeTruthy();
-      expect(toggle.textContent).toContain('Activo');
+      expect(toggle).toBeNull();
+    });
+
+    it('should not hold an enabled control in the form group', () => {
+      expect(component.formGroup.contains('enabled')).toBe(false);
     });
   });
 
@@ -249,7 +256,6 @@ describe('ZonesForm', () => {
       expect(component.formGroup.controls.zoneName.value).toBe('Downtown');
       expect(component.formGroup.controls.description.value).toBe('Zona céntrica');
       expect(component.formGroup.controls.displayOrder.value).toBe(1);
-      expect(component.formGroup.controls.enabled.value).toBe(true);
     });
 
     it('should pre-select company, country, and region from zoneToEdit', () => {
@@ -385,7 +391,6 @@ describe('ZonesForm', () => {
         zoneName: 'Downtown NY',
         description: 'Zona céntrica NY',
         displayOrder: 2,
-        enabled: false,
       });
 
       let emitted: ZoneSaveEvent | undefined;
@@ -403,6 +408,35 @@ describe('ZonesForm', () => {
       expect(emitted!.request.zoneName).toBe('Downtown NY');
       expect(emitted!.request.description).toBe('Zona céntrica NY');
       expect(emitted!.request.displayOrder).toBe(2);
+    });
+
+    // The request body is the wire contract of CreateCompanyZoneRequest /
+    // UpdateCompanyZoneRequest, which declare exactly zoneCode, zoneName, description and
+    // displayOrder. An undeclared key is refused with 400 "Malformed or unreadable request body"
+    // (spring.jackson.deserialization.fail-on-unknown-properties=true) before field validation
+    // runs, which is the defect that made the sibling regions form fix necessary.
+    it('should emit a request body with exactly the keys the API DTO declares', () => {
+      component.formGroup.patchValue({
+        zoneCode: 'US-NY',
+        zoneName: 'New York',
+        description: 'NY Zone',
+        displayOrder: 3,
+      });
+
+      let emitted: ZoneSaveEvent | undefined;
+      component.save.subscribe((ev: ZoneSaveEvent) => {
+        emitted = ev;
+      });
+
+      component.onSave();
+
+      expect(Object.keys(emitted!.request).sort()).toEqual([
+        'description',
+        'displayOrder',
+        'zoneCode',
+        'zoneName',
+      ]);
+      expect(emitted!.request).not.toHaveProperty('enabled');
     });
 
     it('should omit optional fields when not provided', () => {

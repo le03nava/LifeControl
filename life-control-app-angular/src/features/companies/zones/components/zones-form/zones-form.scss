@@ -13,11 +13,3 @@
 .selector-field {
   grid-column: 1 / -1;
 }
-
-// Toggle container — places the mat-slide-toggle in the form grid
-.toggle-container {
-  grid-column: 1 / -1;
-  display: flex;
-  align-items: center;
-  padding-block: var(--space-sm);
-}
