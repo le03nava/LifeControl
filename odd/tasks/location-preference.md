@@ -81,7 +81,7 @@ the literal `Store assigned`), and keeps the assigned store's derived chain in t
 | T4 | S7 | Angular: regions preselection through `regions-page` → `regions-form`'s existing inputs | this commit |
 | T5 | S8 | fail-closed pins on the store-scoped screens | this commit |
 | T6 | S9, S10, S11 | `/profile` as the only writer; `«— None —»`; view-mode label | this commit |
-| T7 | S1–S11 | gates: focused suites, full suites, lint, build, differential | |
+| T7 | S1–S11 | gates: focused suites, full suites, lint, build, differential | `69d3bbd` |
 
 ## Log
 
@@ -212,3 +212,28 @@ both keys and the stored preference survives. That is pre-existing and consisten
 rules are stated for the store control; it is declared rather than silently changed because it is a
 different question — the form can show *no store* while the row still holds one, and the next
 `/profile` load brings that store back. Changing it is its own decision with its own spec.
+
+L17 (gate evidence, T7, 2026-10-21). Every number below was read from a report, never from a summary
+line:
+
+- **API, full suite**: **938 suites / 3679 tests / 0 failures / 0 errors / 0 skipped**, counted from the
+  surefire XMLs under `build/test-results/test/`.
+- **Angular, the coverage gate**: **185 test files / 3719 tests passed**; statements 86.70, branches
+  85.86, functions 79.31, lines 89.31 — all above threshold, `Cobertura dentro de los umbrales. OK`.
+- **Focused specs of this unit**: 6 files / 137 tests.
+- `npm run lint` → all files pass; `npm run build` → bundle generation complete; Prettier over the
+  25 TS/HTML/SCSS files this unit changed → all matched.
+- `angular-formatting-gate.test.sh`, which `origin/main` added in PR #516 **after** this branch was cut,
+  passes on the merged tree.
+- **Merge `69d3bbd`**: conflict-free, as the pre-merge measurement predicted (zero overlap with this
+  unit's 29 files). `origin/main` did not touch `life-control-api`, which is what makes the API suite
+  from the pre-merge tree valid evidence instead of something to re-run on a busy box.
+
+G16 (evidence hygiene, found by T7 and recorded because it nearly produced a false green). The first
+full gate run piped every command into `tail`, so `$?` was `tail`'s exit code and all four `EXIT=0`
+lines meant nothing — the exact failure mode `references/worktrees.md` documents. Nothing was accepted
+on those codes: the counts were recovered from the surefire XML and the re-run used `set -o pipefail`.
+The mirror-image mistake happened in the same run: a Prettier check over *every* changed file included
+`.husky/pre-commit`, a shell script with no parser, and reported exit 2 on a file this unit never
+touched. Both are one lesson — an exit code is evidence only when the command **and its scope** are
+named.
