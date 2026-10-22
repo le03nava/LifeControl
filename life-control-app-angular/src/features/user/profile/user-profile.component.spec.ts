@@ -268,7 +268,8 @@ describe('UserProfileComponent', () => {
     // Mock CompanyStoreService
     const companyStoreServiceMock = {
       getStores: vi.fn().mockReturnValue(of(hasLocationServices ? mockStores : [])),
-      // The flat, id-addressed read the free-mode preselect now seeds from (W3/T20).
+      // The flat, id-addressed read the free-mode preselect used to seed from (`e5430b8`, W3/T20),
+      // kept on the mock so the spec can pin that the screen no longer pays for it (`G17`).
       getStoreById: vi.fn().mockReturnValue(of(mockStores[0])),
     };
 
@@ -456,17 +457,57 @@ describe('UserProfileComponent', () => {
       expect(companyCountryServiceMock.getCountries).toHaveBeenCalledWith('comp-1');
     });
 
-    it('should pre-populate the store and walk the cascade from the flat read (W3/T14/T20)', () => {
-      const { component, companyStoreServiceMock } = setup(
+    // G17: the five levels come from the chain the response already carries (`location`), so the
+    // screen neither walks the cascade by hand nor pays a second read for the chain it was handed.
+    it('preselects all five levels from the location chain (G17)', () => {
+      const { component } = setup({ edit: 'true' }, mockProfileWithLocation, true);
+
+      expect(component.form().getRawValue()).toEqual({
+        firstName: 'John',
+        lastName: 'Doe',
+        email: 'john@example.com',
+        companyId: 'comp-1',
+        companyCountryId: 'cc-1',
+        companyRegionId: 'reg-1',
+        companyZoneId: 'zone-1',
+        companyStoreId: 'store-1',
+      });
+    });
+
+    // The same defect seen from the DOM: with the ancestors unpatched the country, region, zone and
+    // store selects render disabled, because each binds `[disabled]` to the level above it.
+    it('leaves every level of the free-mode cascade enabled after the preselect (G17)', () => {
+      const { fixture } = setup({ edit: 'true' }, mockProfileWithLocation, true);
+
+      const selects = Array.from(
+        fixture.nativeElement.querySelectorAll('.mat-mdc-select'),
+      ) as HTMLElement[];
+      expect(selects.length).toBe(5);
+      expect(selects.map((select) => select.classList.contains('mat-mdc-select-disabled'))).toEqual(
+        [false, false, false, false, false],
+      );
+    });
+
+    it('issues no store read of its own for the preselect (G17)', () => {
+      const { companyStoreServiceMock } = setup({ edit: 'true' }, mockProfileWithLocation, true);
+
+      expect(companyStoreServiceMock.getStoreById).not.toHaveBeenCalled();
+    });
+
+    // S2: a stored `companyStoreId` whose chain did not resolve is a real pair, and the screen fails
+    // closed on it — no preselect, no second read, and no error the caller did not cause.
+    it('preselects nothing for the S2 pair and asks for no store (S2)', () => {
+      const { component, companyCountryServiceMock, companyStoreServiceMock } = setup(
         { edit: 'true' },
-        mockProfileWithLocation,
+        mockProfileWithUnresolvedLocation,
         true,
       );
-      const formValues = component.form().getRawValue();
-      // T14 removed the four ancestors from the wire, so the form holds the store preference and the
-      // chain is resolved from it through the flat read (T20) — which is what the assertion below pins.
-      expect(formValues.companyStoreId).toBe('store-1');
-      expect(companyStoreServiceMock.getStoreById).toHaveBeenCalledWith('store-1');
+
+      expect(component.form().getRawValue().companyId).toBeNull();
+      expect(component.form().getRawValue().companyStoreId).toBe('store-1');
+      expect(companyCountryServiceMock.getCountries).not.toHaveBeenCalled();
+      expect(companyStoreServiceMock.getStoreById).not.toHaveBeenCalled();
+      expect(component.error()).toBeNull();
     });
   });
 
@@ -515,7 +556,7 @@ describe('UserProfileComponent', () => {
         true,
       );
 
-      expect(companyStoreServiceMock.getStoreById).toHaveBeenCalledWith('store-1');
+      expect(companyStoreServiceMock.getStoreById).not.toHaveBeenCalled();
       expect(profileServiceMock.updateProfile).not.toHaveBeenCalled();
     });
 
@@ -979,8 +1020,8 @@ describe('UserProfileComponent', () => {
         'reg-1',
         'zone-1',
       );
-      // T20: the walk is seeded from the store id, not from four ancestors the profile no longer carries.
-      expect(companyStoreServiceMock.getStoreById).toHaveBeenCalledWith('store-1');
+      // T20/G17: the walk is seeded from the chain the response carries, never from a store read.
+      expect(companyStoreServiceMock.getStoreById).not.toHaveBeenCalled();
 
       const callOrder = [
         companyServiceMock.getCompanies.mock.invocationCallOrder[0],
