@@ -19,7 +19,6 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
-import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { MatIconModule } from '@angular/material/icon';
 import { CompanySelectorOption } from '../../../companies/models/company.models';
 import { CompanyCountry } from '../../../countries/models/country.models';
@@ -38,7 +37,6 @@ const ZONE_CODE_PATTERN = /^[a-zA-Z0-9-]+$/;
     MatInputModule,
     MatButtonModule,
     MatSelectModule,
-    MatSlideToggleModule,
     MatIconModule,
   ],
   templateUrl: './zones-form.html',
@@ -89,7 +87,6 @@ export class ZonesForm {
       nonNullable: false,
       validators: [Validators.min(1)],
     }),
-    enabled: new FormControl(true, { nonNullable: true }),
   });
 
   // ─── Error messages ─────────────────────────────────────────
@@ -140,7 +137,6 @@ export class ZonesForm {
         zoneName: zone.zoneName,
         description: zone.description ?? '',
         displayOrder: zone.displayOrder ?? null,
-        enabled: zone.enabled,
       });
     });
 
