@@ -100,10 +100,22 @@ public class AccessProvisioningProducer {
      * <p>The caller invokes this <b>after</b> the contract row is saved and inside the same
      * transaction, so a contract that never landed never enqueues anything.</p>
      *
+     * <p><b>A revoked employee produces nothing</b> (gap G41, record
+     * {@code employee-disable-revokes-access}): a {@code Terminated} one cannot open a contract at all
+     * ({@code ContractService} refuses it), and a <b>soft-deleted</b> one can — the very ordering G41
+     * was reachable through. Enqueueing here would supersede the open {@code DEACTIVATE} that still has
+     * to apply, and an unlinked revoked employee would even get an {@code ACTIVATE}, i.e. an account and
+     * an invitation nobody asked for. The revocation owns the fact until the flag or the status changes.</p>
+     *
      * @param companyId the company that owns the employee
-     * @param employee the employee the new contract belongs to; only its linked-account flag is read
+     * @param employee the employee the new contract belongs to; only its linked-account flag and its
+     *     revoked state are read
      */
     public void onContractActivated(UUID companyId, Employee employee) {
+        if (EmployeeStatuses.isRevoked(employee)) {
+            logNotEnqueuedForRevoked(employee, "a contract start");
+            return;
+        }
         enqueue(companyId, employee, kindFor(employee));
     }
 
@@ -124,6 +136,68 @@ public class AccessProvisioningProducer {
     }
 
     /**
+     * Produces the revocation intent a <b>soft delete</b> implies: always {@code DEACTIVATE}, exactly the
+     * intent an employment end produces, because gap <b>G41</b> made the two facts one verdict — an
+     * employee out of the registry holds no access (record {@code employee-disable-revokes-access}).
+     *
+     * <p>The caller invokes this only on the <b>transition</b> into {@code enabled = false}, so editing an
+     * already disabled employee opens no new intent.</p>
+     *
+     * <p><b>An unlinked employee produces nothing.</b> Unlike an employment end — which is a fact of the
+     * employment and is recorded even with no account, because the status change is what it says — a
+     * soft delete revokes <b>access</b>, and an employee who never got an account has none to revoke:
+     * {@code AccessProvisioningAccountService.deactivate} refuses an unlinked employee by contract, so
+     * enqueueing would be a task that can only ever end {@code FAILED}.</p>
+     *
+     * @param companyId the company that owns the employee
+     * @param employee the employee who was soft-deleted
+     */
+    public void onSoftDelete(UUID companyId, Employee employee) {
+        var linked = employee.getKeycloakUserId();
+        if (linked == null || linked.isBlank()) {
+            logger.info(
+                    "Access provisioning intent not enqueued: employee={} was soft-deleted but has no linked"
+                            + " account, so there is no access to revoke",
+                    employee.getId());
+            return;
+        }
+        enqueue(companyId, employee, AccessProvisioningTaskKind.DEACTIVATE);
+    }
+
+    /**
+     * Produces the reconciliation intent a <b>re-enable</b> implies: always {@code RECONCILE}, so the
+     * roles and the claims the soft delete removed come back from the contract that covers today — or
+     * stay empty when no contract covers it.
+     *
+     * <p><b>No kind is derived here, deliberately</b> (gap G41): {@link #kindFor(Employee)} answers
+     * {@code ACTIVATE} for an unlinked employee, and a re-enable is not the moment to create an account
+     * and send an invitation nobody asked for — the same rule {@link #onMembershipChanged(UUID, Employee)}
+     * follows. An unlinked employee therefore produces nothing: there is no account to restore, and a
+     * later contract start is the fact that activates one.</p>
+     *
+     * <p><b>A revoked employee produces nothing</b> either: after the flag was set back to {@code true}
+     * only the {@code Terminated} status can still make it revoked, and a terminated employee's roles
+     * belong to the open revocation, not to a convergence.</p>
+     *
+     * @param companyId the company that owns the employee
+     * @param employee the employee whose access was restored
+     */
+    public void onAccessRestored(UUID companyId, Employee employee) {
+        if (EmployeeStatuses.isRevoked(employee)) {
+            logNotEnqueuedForRevoked(employee, "a re-enable");
+            return;
+        }
+        var linked = employee.getKeycloakUserId();
+        if (linked == null || linked.isBlank()) {
+            logger.info(
+                    "Access provisioning intent not enqueued: employee={} has no linked account to restore",
+                    employee.getId());
+            return;
+        }
+        enqueue(companyId, employee, AccessProvisioningTaskKind.RECONCILE);
+    }
+
+    /**
      * Produces the reconciliation intent a <b>store-assignment change</b> implies: always
      * {@code RECONCILE}, and only for an employee the projection can actually converge.
      *
@@ -139,23 +213,20 @@ public class AccessProvisioningProducer {
      * refuses outright on an unlinked account. The kind is a constant because the fact is one.</p>
      *
      * <p><b>Two employees produce nothing, for two different reasons</b> (decision <b>S2</b>): an
-     * <b>unlinked</b> employee has no account to converge, and a <b>{@code Terminated}</b> one must
-     * not supersede the open {@code DEACTIVATE} that still has to apply — {@link #enqueue}
-     * supersedes an open task of a different kind, and nothing in the {@code RECONCILE} convergence
-     * disables an account ({@code AccessProvisioningAccountService.ensureAccountEnabled} no-ops for a
-     * terminated employee), so a naive {@code RECONCILE} would leave the revoked account enabled.
-     * Both guards return before {@link #enqueue}, so neither the open revocation nor the open-task
-     * read is touched.</p>
+     * <b>unlinked</b> employee has no account to converge, and a <b>revoked</b> one — {@code Terminated}
+     * or soft-deleted (gap G41) — must not supersede the open {@code DEACTIVATE} that still has to
+     * apply — {@link #enqueue} supersedes an open task of a different kind, and nothing in the
+     * {@code RECONCILE} convergence disables an account
+     * ({@code AccessProvisioningAccountService.ensureAccountEnabled} no-ops for a revoked employee), so a
+     * naive {@code RECONCILE} would leave the revoked account enabled. Both guards return before
+     * {@link #enqueue}, so neither the open revocation nor the open-task read is touched.</p>
      *
      * @param companyId the company that owns the employee
      * @param employee the employee whose store assignment changed
      */
     public void onMembershipChanged(UUID companyId, Employee employee) {
-        if (EmployeeStatuses.isTerminated(employee)) {
-            logger.info(
-                    "Access provisioning intent not enqueued: employee={} is terminated, so the open revocation"
-                            + " must not be superseded",
-                    employee.getId());
+        if (EmployeeStatuses.isRevoked(employee)) {
+            logNotEnqueuedForRevoked(employee, "a store-assignment change");
             return;
         }
 
@@ -168,6 +239,14 @@ public class AccessProvisioningProducer {
         }
 
         enqueue(companyId, employee, AccessProvisioningTaskKind.RECONCILE);
+    }
+
+    private void logNotEnqueuedForRevoked(Employee employee, String fact) {
+        logger.info(
+                "Access provisioning intent not enqueued: employee={} is revoked (terminated or soft-deleted), so"
+                        + " the open revocation must not be superseded by {}",
+                employee.getId(),
+                fact);
     }
 
     private void enqueue(UUID companyId, Employee employee, AccessProvisioningTaskKind kind) {
