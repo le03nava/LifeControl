@@ -25,6 +25,7 @@ import { ZonesCard } from '../../components/zones-card/zones-card';
 import { CompanyCountry } from '../../../countries/models/country.models';
 import { CompanyRegion } from '../../../regions/models/region.models';
 import { CompanyZone } from '../../models/zone.models';
+import { LocationPreference } from '@features/user/profile/data/location-preference.service';
 
 @Component({
   selector: 'app-zones-page',
@@ -50,6 +51,7 @@ export class ZonesPage {
   private readonly companyCountryService = inject(CompanyCountryService);
   private readonly companyRegionService = inject(CompanyRegionService);
   private readonly companyZoneService = inject(CompanyZoneService);
+  private readonly locationPreference = inject(LocationPreference);
 
   readonly companies = toSignal(
     this.companyService.getCompanySelector(0, 1000).pipe(map((page) => page.content)),
@@ -57,19 +59,24 @@ export class ZonesPage {
   );
 
   // ─── Selection state (pre-seeded from query params at construction) ───
-  readonly selectedCompanyId = signal<string | null>(
-    this.route.snapshot.queryParamMap.get('companyId'),
-  );
+  /**
+   * The ids the route itself names, captured once. When the route names any level it wins and the
+   * location preference is not consulted at all: pairing one company's id from the URL with another
+   * company's region from the preference would preselect a region the company does not have.
+   */
+  private readonly routeCompanyId = this.route.snapshot.queryParamMap.get('companyId');
+  private readonly routeCountryId = this.route.snapshot.queryParamMap.get('countryId');
+  private readonly routeRegionId = this.route.snapshot.queryParamMap.get('regionId');
+  private readonly routeCarriesIds =
+    !!this.routeCompanyId || !!this.routeCountryId || !!this.routeRegionId;
+
+  readonly selectedCompanyId = signal<string | null>(this.routeCompanyId);
   readonly selectedCountry = signal<CompanyCountry | null>(null);
   readonly selectedRegion = signal<CompanyRegion | null>(null);
 
   /** Query params captured once at construction for pre-selection. */
-  private readonly initialCountryId = signal<string | null>(
-    this.route.snapshot.queryParamMap.get('countryId'),
-  );
-  private readonly initialRegionId = signal<string | null>(
-    this.route.snapshot.queryParamMap.get('regionId'),
-  );
+  private readonly initialCountryId = signal<string | null>(this.routeCountryId);
+  private readonly initialRegionId = signal<string | null>(this.routeRegionId);
 
   // ─── Filter state ────────────────────────────────────────────
   readonly showDisabled = signal(false);
@@ -151,15 +158,36 @@ export class ZonesPage {
     return a?.id === b?.id;
   };
 
-  /** Guards so the query-param pre-selection runs exactly once per level. */
+  /** Guards so the pre-selection runs exactly once per level. */
+  private companyPreselected = false;
   private countryPreselected = false;
   private regionPreselected = false;
 
   constructor() {
-    // Pre-select the country from the query param once its countries resolve.
+    // Only a route that names nothing at all falls back to the preference.
+    if (!this.routeCarriesIds) {
+      this.locationPreference.resolve();
+    }
+
+    // Pre-select the company from the location preference once its chain resolves: the chain arrives
+    // after construction, so the route's own seed above is not enough.
     effect(() => {
-      const countryId = this.initialCountryId();
-      if (!countryId || this.countryPreselected) return;
+      if (this.routeCarriesIds || this.companyPreselected) return;
+      const companyId = this.locationPreference.companyId();
+      if (!companyId) return;
+      this.companyPreselected = true;
+      this.selectedCompanyId.set(companyId);
+    });
+
+    // Pre-select the country once its company's countries resolve: the route's id first, then the
+    // preference's. A country the company does not have is simply not found, and nothing is
+    // preselected rather than guessed.
+    effect(() => {
+      if (this.countryPreselected) return;
+      const countryId =
+        this.initialCountryId() ??
+        (this.routeCarriesIds ? null : this.locationPreference.companyCountryId());
+      if (!countryId) return;
       const country = this.countries().find((c) => c.id === countryId);
       if (country) {
         this.countryPreselected = true;
@@ -167,10 +195,14 @@ export class ZonesPage {
       }
     });
 
-    // Pre-select the region from the query param once its regions resolve.
+    // Pre-select the region once its country's regions resolve: the route's id first, then the
+    // preference's.
     effect(() => {
-      const regionId = this.initialRegionId();
-      if (!regionId || this.regionPreselected) return;
+      if (this.regionPreselected) return;
+      const regionId =
+        this.initialRegionId() ??
+        (this.routeCarriesIds ? null : this.locationPreference.companyRegionId());
+      if (!regionId) return;
       const region = this.regions().find((r) => r.id === regionId);
       if (region) {
         this.regionPreselected = true;
