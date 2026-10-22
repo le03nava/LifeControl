@@ -288,3 +288,11 @@ G17 (declared, found by the same verification). The profile screen's free mode s
 `getStoreById(storeId)` (`user-profile.component.ts:278-291`) to preselect its cascade although
 `location` now carries that chain. It is a second read per screen that S1's own rationale argues
 against, it is outside S1–S11, and it is the natural next unit rather than a repair.
+
+L19 (re-gate after the repair, 2026-10-21). On `dac903a`, every command run with `set -o pipefail` so
+the exit codes are the command's and not `tail`'s: the **API full suite** at **938 suites / 3680 tests /
+0 failures / 0 errors / 0 skipped**, counted from the surefire XMLs; `spotlessCheck` BUILD SUCCESSFUL;
+the **Angular coverage gate** at **185 test files / 3724 tests passed** with statements 86.70, branches
+85.87, functions 79.31, lines 89.32 — all above threshold; `npm run lint` and `npm run build` green. The
+repair added five specs on the Angular side and one on the API side, which is the whole of the movement
+in those totals.
