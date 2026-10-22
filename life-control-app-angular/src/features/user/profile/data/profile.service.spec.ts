@@ -136,15 +136,18 @@ describe('ProfileService', () => {
       expect(profile.email).toBe('new@example.com');
     });
 
-    it('should clear the store preference by sending null (W3/T16)', async () => {
+    // S10: the clear travels as `clearStorePreference`, never as `companyStoreId: null` — on a UUID the
+    // server cannot tell that `null` apart from an omitted key, which is the defect the field closes.
+    it('should clear the store preference through clearStorePreference (S10)', async () => {
       const update: ProfileUpdateRequest = {
-        companyStoreId: null,
+        clearStorePreference: true,
       };
 
       const updatePromise = firstValueFrom(service.updateProfile(update));
 
       const req = httpMock.expectOne((r) => r.url.includes('/profile') && r.method === 'PUT');
-      expect(req.request.body).toEqual(update);
+      expect(req.request.body).toEqual({ clearStorePreference: true });
+      expect(req.request.body).not.toHaveProperty('companyStoreId');
       req.flush(mockProfile);
 
       const profile = await updatePromise;

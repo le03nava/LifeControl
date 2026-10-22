@@ -81,14 +81,27 @@ export interface AssignedStore extends StoreAssignmentDerivedScope {
  * All fields are optional — only provided fields are updated.
  *
  * `companyStoreId` is the only location field: the four tenancy ancestors are **not writable** since
- * 2026-10-14 (W3 of `company-scope-local-fallback`, its T14). Omitting the key leaves the stored
- * preference alone; sending `null` clears it. That distinction is what makes the caller's own
- * untouched control harmless (T16) — a free-mode load can no longer reconstruct the cascade, so it
- * must not post `null` by accident.
+ * 2026-10-14 (W3 of `company-scope-local-fallback`, its T14). Omitting both location keys leaves the
+ * stored preference alone, which is what makes the caller's own untouched control harmless (T16) — a
+ * free-mode load can no longer reconstruct the cascade, so it must not clear by accident.
+ *
+ * **Clearing needs a second field, and that is measured rather than stylistic** (`S4`/`L6`):
+ * `companyStoreId` is a `UUID`, so an omitted key and an explicit `null` are the same thing on the
+ * wire, and a `null` there is exactly what an untouched control would send. `clearStorePreference`
+ * is the only unambiguous way to say *clear it*, and it must never travel together with a non-null
+ * `companyStoreId` — the server answers that pair with `400` (`S5`). Send exactly one of the two.
  */
 export interface ProfileUpdateRequest {
   firstName?: string;
   lastName?: string;
   email?: string;
+  /** Sets the stored store preference. Never sent together with {@link clearStorePreference}. */
   companyStoreId?: string | null;
+  /**
+   * Clears the stored store preference.
+   *
+   * Boxed on the server for the same reason it is optional here: an absent key arrives as `null` and
+   * means *leave it alone*, which a primitive boolean could not express (`L9`).
+   */
+  clearStorePreference?: boolean;
 }

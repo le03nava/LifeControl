@@ -80,7 +80,7 @@ the literal `Store assigned`), and keeps the assigned store's derived chain in t
 | T3 | S6 | Angular: shared `LocationPreference`; the two copies delegate to it | this commit |
 | T4 | S7 | Angular: regions preselection through `regions-page` → `regions-form`'s existing inputs | this commit |
 | T5 | S8 | fail-closed pins on the store-scoped screens | this commit |
-| T6 | S9, S10, S11 | `/profile` as the only writer; `«— None —»`; view-mode label | |
+| T6 | S9, S10, S11 | `/profile` as the only writer; `«— None —»`; view-mode label | this commit |
 | T7 | S1–S11 | gates: focused suites, full suites, lint, build, differential | |
 
 ## Log
@@ -192,3 +192,23 @@ single read. **G14**: the only coexisting pair in the tree today — a page and 
 `user-profile.component.spec.ts` carries `location: null` beside a stored `companyStoreId`, which is
 the legitimate S2 pair, so **S11 must put a real chain in that fixture** when the view-mode label starts
 reading `location`.
+
+L15 (measurement, T6, 2026-10-21). The location half of the payload now comes from one
+`storePreferencePayload()`, so `companyStoreId` and `clearStorePreference` are mutually exclusive **by
+construction** rather than by discipline — the server answers the pair with 400, so a rule a caller
+could forget was the wrong shape. The three wire states are pinned in both selectors: the free cascade
+and the constrained select each clear through their own handler, and a spec covers each. RED was six
+failing specs against 46 passing; GREEN was 52 in the component spec (46 pre-existing plus 6) and 8 in
+`profile.service.spec.ts`. One pre-existing assertion changed its meaning rather than its count: the
+test that pinned *clears by sending `null`* now pins *clears by `clearStorePreference`*, which is the
+superseded shape `L6` documented. **G14 is closed**: the component's fixture carries a real chain and
+the S2 pair (stored id, unresolved chain, row hidden) keeps its own fixture, so neither case was
+weakened to make the other work.
+
+L16 (declared gap, **G15**, found by T6 and left alone). The free mode's ancestor handlers
+(`onCompanyChange`, `onCountryChange`, `onRegionChange`, `onZoneChange`) reset the form's
+`companyStoreId` **without** setting `storeTouched`, so saving after changing only an ancestor omits
+both keys and the stored preference survives. That is pre-existing and consistent with S10, whose three
+rules are stated for the store control; it is declared rather than silently changed because it is a
+different question — the form can show *no store* while the row still holds one, and the next
+`/profile` load brings that store back. Changing it is its own decision with its own spec.
