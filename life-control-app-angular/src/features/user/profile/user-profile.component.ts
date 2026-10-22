@@ -239,7 +239,9 @@ export class UserProfileComponent implements OnInit {
       lastName: profile.lastName ?? '',
       email: profile.email ?? '',
       // T14: the four tenancy ancestors are not on the wire any more, so there is nothing to patch into
-      // the cascade. `companyStoreId` stays because it is the preference the screen reports and writes.
+      // the cascade from the profile's own fields. `companyStoreId` stays because it is the preference
+      // the screen reports and writes; the four ancestor controls are seeded from the resolved chain
+      // (`location`) by `preselectFromStoredStore`, which is the only place that knows it (`G17`).
       companyStoreId: profile.companyStoreId ?? null,
     });
   }
@@ -251,9 +253,9 @@ export class UserProfileComponent implements OnInit {
    * stored store preference.
    *
    * <p>The preselect used to read the profile's four tenancy ancestors, which `T14` removed from the
-   * wire. It now resolves them from the store id through the flat store read (`T20`): the chain has
-   * exactly one source that the caller cannot forge — the store row the server resolves and authorizes
-   * — and this is the read that replaced the ancestors `G12` had declared out of scope.</p>
+   * wire. It then resolved them from the store id through the flat store read (`T20`), which the
+   * response has carried itself since `S1` of `location-preference` — so the walk is now seeded from
+   * `location` and the flat read is gone (`G17` of that record).</p>
    */
   private initializeCascade(): void {
     this.loadingCompanies.set(true);
@@ -271,28 +273,41 @@ export class UserProfileComponent implements OnInit {
   }
 
   /**
-   * Preselects the cascade from the stored store preference, one flat read and no second guess.
+   * Preselects the whole cascade from the chain `GET /api/profile` already carries (`location`).
    *
-   * <p>Best-effort by design: a store the caller can no longer read (or a preference pointing nowhere)
-   * leaves the cascade empty and the caller walks it. Nothing here writes, so the stored preference is
-   * never touched by a load that failed to display it — the rule `T16` applies to the payload.</p>
+   * <p>`S1` of `location-preference` made that chain part of the profile response, derived on the
+   * server by `ProfileLocationResolver` from the same authorized store read this screen used to issue
+   * for itself — so patching the five levels costs no request at all, and there is one chain instead of
+   * two that could disagree.</p>
+   *
+   * <p>`G17` is what the previous shape got wrong: it pinned `companyStoreId` alone and seeded the walk
+   * from the store row, so the company control kept no value and every level below it rendered
+   * disabled, because each binds `[disabled]` to the level above. The cascade looked walkable and
+   * started blank, which is why the caller re-walked a hierarchy the stored preference already named.</p>
+   *
+   * <p>Best-effort by design: the legitimate `S2` pair — a stored `companyStoreId` whose chain did not
+   * resolve, because the store was deleted or is no longer readable — leaves the cascade empty and the
+   * caller walks it. Nothing here writes, so the stored preference is never touched by a load that
+   * failed to display it (the rule `T16` applies to the payload).</p>
    */
   private preselectFromStoredStore(): void {
-    const storeId = this.profile()?.companyStoreId;
-    if (!storeId) {
+    const chain = this.profile()?.location;
+    if (!chain) {
       return;
     }
-    this.companyStoreService
-      .getStoreById(storeId)
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: (store) => {
-          this.form().patchValue({ companyStoreId: store.id });
-          this.loadCountries(store.companyId, store.companyCountryId, store.regionId, store.zoneId);
-        },
-        // The cascade stays empty; the free-mode navigator is still walkable from the companies list.
-        error: () => undefined,
-      });
+    this.form().patchValue({
+      companyId: chain.companyId,
+      companyCountryId: chain.companyCountryId,
+      companyRegionId: chain.companyRegionId,
+      companyZoneId: chain.companyZoneId,
+      companyStoreId: chain.companyStoreId,
+    });
+    this.loadCountries(
+      chain.companyId,
+      chain.companyCountryId,
+      chain.companyRegionId,
+      chain.companyZoneId,
+    );
   }
 
   // ─── Cascading load helpers ──────────────────────────────────
