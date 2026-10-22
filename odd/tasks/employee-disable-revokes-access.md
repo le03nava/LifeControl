@@ -125,6 +125,7 @@ and no PR was opened: both are the human's decision, and if the human prefers a 
 | Angular focused spec after the copy correction | 1 file / 50 tests passed |
 | RDD assessment of this candidate | `assess` → `reviewDue: false` (`under_budget`), native tier `medium`; escalated by the agent on Task Size item 2 (security), so the independent verifier ran |
 | ODD header guard | `.github/scripts/tests/odd-status-headers.test.sh` → 78 passed, 0 failed (96 records) |
+| `./gradlew spotlessCheck` — the CI `Static analysis` job's gate | first run **failed** on the verifier's adopted test (formatting only), `spotlessApply` then `BUILD SUCCESSFUL` |
 
 **Differential check**: no existing assertion was rewritten except the two `employee-list` specs that pin
 the copy this change replaces — those *are* the change, and they were updated in both directions (the new
@@ -201,3 +202,13 @@ suites were not run (needs Docker, outside its no-network rule), and it left a ~
 **L8** (2026-10-22, closing): the branch carries six commits and the tree is clean. `Risk: item 2
 (security)` — the change moves what the guards read, and the independent verifier confirmed each rule
 with its own probes, including a baseline RED at `origin/main`. Not delivered: no push, no PR, no merge.
+
+**L9** (2026-10-22, found by CI after the pull request was opened): the `Static analysis` job runs
+`spotlessCheck`, which is not part of `./gradlew test`, so a formatting violation in the adopted
+composition test reached the remote and failed there. `spotlessApply` fixed it and `spotlessCheck` now
+passes; the lesson is that `spotlessCheck` belongs in the local gate next to the suite.
+
+**L10** (2026-10-22, delivery, superseding L8's "not delivered" for the record): issue **#533** was opened
+and approved (`status:approved`), the branch was pushed and pull request **#534** (`type:bug`) links and
+closes it. The first CI run failed `Static analysis` (spotless, L9); that is fixed. Merge remains the
+human's decision.

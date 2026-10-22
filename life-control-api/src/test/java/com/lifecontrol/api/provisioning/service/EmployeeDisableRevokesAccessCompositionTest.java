@@ -46,10 +46,17 @@ class EmployeeDisableRevokesAccessCompositionTest {
     private static final String ZONE_CLAIM = ScopeLevel.ZONE.claim();
     private static final String STORE_CLAIM = ScopeLevel.STORE.claim();
 
-    @Mock private EmployeeRepository employeeRepository;
-    @Mock private ContractRepository contractRepository;
-    @Mock private PositionRoleRepository positionRoleRepository;
-    @Mock private EmployeeStoreAssignmentRepository assignmentRepository;
+    @Mock
+    private EmployeeRepository employeeRepository;
+
+    @Mock
+    private ContractRepository contractRepository;
+
+    @Mock
+    private PositionRoleRepository positionRoleRepository;
+
+    @Mock
+    private EmployeeStoreAssignmentRepository assignmentRepository;
 
     private InMemoryIdentityProvider identityProvider;
     private AccessProvisioningAccountService accountService;
@@ -63,15 +70,20 @@ class EmployeeDisableRevokesAccessCompositionTest {
         identityProvider = new InMemoryIdentityProvider();
         var appClient = new ApplicationClientProperties(CLIENT_ID);
         var invitation = new InvitationProperties("https://app.example/activate", 43200);
-        accountService = new AccessProvisioningAccountService(
-                identityProvider, employeeRepository, appClient, invitation);
+        accountService =
+                new AccessProvisioningAccountService(identityProvider, employeeRepository, appClient, invitation);
         roleService = new AccessProvisioningRoleService(
                 identityProvider, appClient, contractRepository, positionRoleRepository);
         var membershipService = new AccessProvisioningMembershipService(identityProvider, assignmentRepository);
         handler = new AccessProvisioningWorkerHandler(accountService, roleService, membershipService);
         employeeId = UUID.randomUUID();
-        company = Company.builder().id(UUID.randomUUID()).companyKey("acme").companyName("Acme")
-                .rfc("ACM010101ABC").emailDomain("acme.com").build();
+        company = Company.builder()
+                .id(UUID.randomUUID())
+                .companyKey("acme")
+                .companyName("Acme")
+                .rfc("ACM010101ABC")
+                .emailDomain("acme.com")
+                .build();
     }
 
     private Status active() {
@@ -79,32 +91,56 @@ class EmployeeDisableRevokesAccessCompositionTest {
     }
 
     private Employee employee(boolean enabled, String keycloakUserId) {
-        return Employee.builder().id(employeeId).company(company).email(EMAIL)
-                .keycloakUserId(keycloakUserId).status(active()).enabled(enabled).build();
+        return Employee.builder()
+                .id(employeeId)
+                .company(company)
+                .email(EMAIL)
+                .keycloakUserId(keycloakUserId)
+                .status(active())
+                .enabled(enabled)
+                .build();
     }
 
     /** A covering contract whose position template still requires lc-sales: the exact G41 shape. */
     private void stubCoveringContractWithSales() {
-        var department = Department.builder().id(UUID.randomUUID()).company(company)
-                .departmentName("Operations").build();
-        var position = Position.builder().id(UUID.randomUUID()).department(department)
-                .positionName("Cashier").build();
+        var department = Department.builder()
+                .id(UUID.randomUUID())
+                .company(company)
+                .departmentName("Operations")
+                .build();
+        var position = Position.builder()
+                .id(UUID.randomUUID())
+                .department(department)
+                .positionName("Cashier")
+                .build();
         when(contractRepository.findEnabledContractCoveringDate(eq(employeeId), any(LocalDate.class)))
-                .thenReturn(List.of(Contract.builder().position(position)
-                        .startDate(LocalDate.now().minusMonths(1)).build()));
-        lenient().when(positionRoleRepository.findByPositionIdOrderByRoleNameAsc(eq(position.getId())))
-                .thenReturn(List.of(PositionRole.builder().position(position).roleName("lc-sales").enabled(true).build()));
+                .thenReturn(List.of(Contract.builder()
+                        .position(position)
+                        .startDate(LocalDate.now().minusMonths(1))
+                        .build()));
+        lenient()
+                .when(positionRoleRepository.findByPositionIdOrderByRoleNameAsc(eq(position.getId())))
+                .thenReturn(List.of(PositionRole.builder()
+                        .position(position)
+                        .roleName("lc-sales")
+                        .enabled(true)
+                        .build()));
     }
 
     private String provisionedAccount() {
         var userId = identityProvider.createAccount(EMAIL, EMAIL);
         identityProvider.seedClientRole(userId, CLIENT_ID, "lc-sales");
         identityProvider.seedClientRole(userId, CLIENT_ID, "lc-company");
-        identityProvider.seedAttribute(userId, COMPANY_CLAIM, List.of(UUID.randomUUID().toString()));
-        identityProvider.seedAttribute(userId, COUNTRY_CLAIM, List.of(UUID.randomUUID().toString()));
-        identityProvider.seedAttribute(userId, REGION_CLAIM, List.of(UUID.randomUUID().toString()));
-        identityProvider.seedAttribute(userId, ZONE_CLAIM, List.of(UUID.randomUUID().toString()));
-        identityProvider.seedAttribute(userId, STORE_CLAIM, List.of(UUID.randomUUID().toString()));
+        identityProvider.seedAttribute(
+                userId, COMPANY_CLAIM, List.of(UUID.randomUUID().toString()));
+        identityProvider.seedAttribute(
+                userId, COUNTRY_CLAIM, List.of(UUID.randomUUID().toString()));
+        identityProvider.seedAttribute(
+                userId, REGION_CLAIM, List.of(UUID.randomUUID().toString()));
+        identityProvider.seedAttribute(
+                userId, ZONE_CLAIM, List.of(UUID.randomUUID().toString()));
+        identityProvider.seedAttribute(
+                userId, STORE_CLAIM, List.of(UUID.randomUUID().toString()));
         return userId;
     }
 
@@ -159,7 +195,8 @@ class EmployeeDisableRevokesAccessCompositionTest {
     void p3() {
         var userId = provisionedAccount();
         identityProvider.disableUser(userId);
-        identityProvider.removeRoleFromUser(userId, "lc-company", com.lifecontrol.api.usersadmin.identity.RoleScope.CLIENT, CLIENT_ID);
+        identityProvider.removeRoleFromUser(
+                userId, "lc-company", com.lifecontrol.api.usersadmin.identity.RoleScope.CLIENT, CLIENT_ID);
         stubCoveringContractWithSales();
         var restored = employee(true, userId);
 
@@ -174,11 +211,19 @@ class EmployeeDisableRevokesAccessCompositionTest {
     @DisplayName("P4: isRevoked boundaries — null employee, null enabled, disabled, terminated")
     void p4() {
         assertThat(EmployeeStatuses.isRevoked(null)).isFalse();
-        assertThat(EmployeeStatuses.isRevoked(Employee.builder().id(employeeId).company(company).build()))
+        assertThat(EmployeeStatuses.isRevoked(
+                        Employee.builder().id(employeeId).company(company).build()))
                 .isFalse();
         assertThat(EmployeeStatuses.isRevoked(employee(false, null))).isTrue();
-        assertThat(EmployeeStatuses.isRevoked(Employee.builder().id(employeeId).company(company)
-                .status(Status.builder().statusName("Terminated").enabled(true).build()).enabled(true).build()))
+        assertThat(EmployeeStatuses.isRevoked(Employee.builder()
+                        .id(employeeId)
+                        .company(company)
+                        .status(Status.builder()
+                                .statusName("Terminated")
+                                .enabled(true)
+                                .build())
+                        .enabled(true)
+                        .build()))
                 .isTrue();
     }
 
