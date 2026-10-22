@@ -417,6 +417,8 @@ export class UserProfileComponent implements OnInit {
 
   /** Called when the user changes the company selector. */
   onCompanyChange(companyId: string | null): void {
+    this.markStoreClearedByAncestor();
+
     // Update the form control
     this.form().patchValue({
       companyId,
@@ -440,6 +442,8 @@ export class UserProfileComponent implements OnInit {
 
   /** Called when the user changes the country selector. */
   onCountryChange(companyCountryId: string | null): void {
+    this.markStoreClearedByAncestor();
+
     const form = this.form();
     form.patchValue({
       companyCountryId,
@@ -461,6 +465,8 @@ export class UserProfileComponent implements OnInit {
 
   /** Called when the user changes the region selector. */
   onRegionChange(regionId: string | null): void {
+    this.markStoreClearedByAncestor();
+
     const form = this.form();
     form.patchValue({
       companyRegionId: regionId,
@@ -480,6 +486,8 @@ export class UserProfileComponent implements OnInit {
 
   /** Called when the user changes the zone selector. */
   onZoneChange(zoneId: string | null): void {
+    this.markStoreClearedByAncestor();
+
     const form = this.form();
     form.patchValue({
       companyZoneId: zoneId,
@@ -493,6 +501,26 @@ export class UserProfileComponent implements OnInit {
     const regionId = form.get('companyRegionId')?.value;
     if (companyId && companyCountryId && regionId && zoneId) {
       this.loadStores(companyId, companyCountryId, regionId, zoneId);
+    }
+  }
+
+  /**
+   * Mark the preference as cleared when an ancestor change takes a store away from the form.
+   *
+   * <p>`G15` is what its absence cost: the four ancestor handlers reset `companyStoreId` and the
+   * payload is built from `storeTouched` alone (`T16`), so the reset never reached the wire. The
+   * control showed no store, the row kept the old preference, and the next `/profile` load
+   * preselected a store under an ancestry the caller had just replaced.</p>
+   *
+   * <p>Called *before* the reset, which is the only moment the value being cleared is still readable,
+   * and guarded on it: an ancestor change over an empty control has nothing to clear, so it keeps
+   * posting neither key rather than asking the server to null a column that is already null. The rule
+   * lives in one place so a fifth level cannot forget it, and it is never called from the load path —
+   * preselecting writes nothing (`S9`).</p>
+   */
+  private markStoreClearedByAncestor(): void {
+    if (this.form().get('companyStoreId')?.value) {
+      this.storeTouched.set(true);
     }
   }
 
