@@ -1,10 +1,11 @@
 # The location preference preselects the screens' selectors, derived from the store
 
-**Status**: implemented — this pull request is the **backend half**: `GET /api/profile` carries a
-`location` chain derived from the resolved store preference, `PUT /api/profile` gains
-`clearStorePreference` (the stored column could not be cleared at all before this unit), and `S3` is
-enforced by the parser rather than by an absent field. Nothing in the backend half is deferred; `S6`–
-`S11`, and tasks `T3`–`T8`, are the Angular pull request that follows in the chain.
+**Status**: implemented — `GET /api/profile` carries a `location` chain derived from the resolved store
+preference, `PUT /api/profile` gains `clearStorePreference` (the stored column could not be cleared at
+all before this unit), and one shared Angular `LocationPreference` replaces the two per-feature copies
+of the resolver. A repair closed the one defect the independent verification found: the shared
+resolution now invalidates when the preference is saved. Nothing in this unit is open; `G15` and `G17`
+are separate work.
 **Created**: 2026-10-21 · **Risk**: **3** — the profile read is shared by several screens and a
 regression in its shape is invisible to the type checker; the change adds an optional response field,
 an optional request field and one rule to an existing write, so it breaks no contract by itself.
@@ -85,14 +86,14 @@ the literal `Store assigned`), and keeps the assigned store's derived chain in t
 
 | ID | Spec | Route | Commit |
 | --- | --- | --- | --- |
-| T1 | S1, S2, S3 | backend: `LocationChain` in `ProfileResponse`, `resolveLocation` best-effort in `ProfileService`; RED specs first | this commit |
-| T2 | S4, S5 | backend: `clearStorePreference` in `ProfileUpdateRequest`, refusal ordered before Keycloak | this commit |
-| T3 | S6 | Angular: shared `LocationPreference`; the two copies delegate to it | next slice |
-| T4 | S7 | Angular: regions preselection through `regions-page` → `regions-form`'s existing inputs | next slice |
-| T5 | S8 | fail-closed pins on the store-scoped screens | next slice |
-| T6 | S9, S10, S11 | `/profile` as the only writer; `«— None —»`; view-mode label | next slice |
-| T7 | S1–S11 | gates: focused suites, full suites, lint, build, differential | next slice |
-| T8 | S3, S6, S8 | repair after independent verification: `LocationPreference.invalidate()`, the strict-Jackson pins, the three prose corrections | next slice |
+| T1 | S1, S2, S3 | backend: `LocationChain` in `ProfileResponse`, `resolveLocation` best-effort in `ProfileService`; RED specs first | `243d6e1`, the parent pull request |
+| T2 | S4, S5 | backend: `clearStorePreference` in `ProfileUpdateRequest`, refusal ordered before Keycloak | `243d6e1`, the parent pull request |
+| T3 | S6 | Angular: shared `LocationPreference`; the two copies delegate to it | this commit |
+| T4 | S7 | Angular: regions preselection through `regions-page` → `regions-form`'s existing inputs | this commit |
+| T5 | S8 | fail-closed pins on the store-scoped screens | this commit |
+| T6 | S9, S10, S11 | `/profile` as the only writer; `«— None —»`; view-mode label | this commit |
+| T7 | S1–S11 | gates: focused suites, full suites, lint, build, differential | this commit |
+| T8 | S3, S6, S8 | repair after independent verification: `LocationPreference.invalidate()`, the strict-Jackson pins, the three prose corrections | this commit |
 
 ## Log
 
@@ -302,3 +303,9 @@ shape does not, and `L12` is left as written because it records the reasoning of
 order is frozen here, before the first pull request merges**: the backend lands first and the Angular
 second — invariant 3 of `pr-chains.md`, because a child's diff carries its parent's work until the parent
 reaches `main`, so a reviewer has to know which slice they are reading.
+
+Cutting the chain re-parented the backend slice, so the child's history carries both the original
+backend commit (`a41a6e1`) and the parent's (`243d6e1`) with identical content. The **tree** is
+byte-identical to the fully re-gated `802fe80` — `git diff 802fe80..HEAD` is empty — which is why
+nothing was re-run after the merge, and a reviewer should read this pull request's diff against its
+**base branch** rather than its commit list.

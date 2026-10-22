@@ -12,7 +12,8 @@ import { MatSelect } from '@angular/material/select';
 
 import { UserProfileComponent } from './user-profile.component';
 import { ProfileService } from './data/profile.service';
-import { ProfileResponse, AssignedStore } from './data/profile.models';
+import { LocationPreference } from './data/location-preference.service';
+import { ProfileResponse, AssignedStore, LocationChain } from './data/profile.models';
 import { CompanyService } from '@features/companies/companies/data/company.service';
 import { CompanyCountryService } from '@features/companies/countries/data/company-country.service';
 import { CompanyRegionService } from '@features/companies/regions/data/company-region.service';
@@ -33,6 +34,23 @@ describe('UserProfileComponent', () => {
     lastName: 'Doe',
     companyStoreId: null,
     assignedStores: null,
+    location: null,
+  };
+
+  /**
+   * The chain `GET /api/profile` derives from the stored store (`S1`), as the response carries it.
+   *
+   * `mockProfileWithLocation` below carries it because `G14` recorded the gap: this spec held
+   * `location: null` beside a stored `companyStoreId`, so the view-mode label could not be exercised
+   * against the field it now reads (`S11`).
+   */
+  const mockLocationChain: LocationChain = {
+    companyId: 'comp-1',
+    companyCountryId: 'cc-1',
+    companyRegionId: 'reg-1',
+    companyZoneId: 'zone-1',
+    companyStoreId: 'store-1',
+    companyStoreName: 'Store One',
   };
 
   // T14: the four tenancy ancestors left the wire, so this fixture no longer carries them. The chain a
@@ -41,6 +59,17 @@ describe('UserProfileComponent', () => {
   const mockProfileWithLocation: ProfileResponse = {
     ...mockProfile,
     companyStoreId: 'store-1',
+    location: mockLocationChain,
+  };
+
+  /**
+   * The legitimate `S2` pair `L14` recorded, kept as its own fixture instead of hidden inside the one
+   * above: a stored `companyStoreId` whose chain did not resolve (not assigned any more, or no longer
+   * readable). The read still succeeds, and the screen must fail closed on the absence.
+   */
+  const mockProfileWithUnresolvedLocation: ProfileResponse = {
+    ...mockProfileWithLocation,
+    location: null,
   };
 
   /**
@@ -477,6 +506,43 @@ describe('UserProfileComponent', () => {
       expect(payload).not.toHaveProperty('companyId');
     });
 
+    // S9: the only writer is the subject, from /profile. A load that resolves a stored store patches
+    // the form and walks the cascade, and none of that may reach the API.
+    it('never writes from a load, even one that preselects a stored store (S9)', () => {
+      const { companyStoreServiceMock, profileServiceMock } = setup(
+        { edit: 'true' },
+        mockProfileWithLocation,
+        true,
+      );
+
+      expect(companyStoreServiceMock.getStoreById).toHaveBeenCalledWith('store-1');
+      expect(profileServiceMock.updateProfile).not.toHaveBeenCalled();
+    });
+
+    // S10, free mode: the store control's own `— None —` (onStoreChange(null)) is a deliberate clear,
+    // and the wire distinguishes it from an omitted key with `clearStorePreference` — never with
+    // `companyStoreId: null`, which the server cannot tell apart from an absent key.
+    it('posts clearStorePreference alone when the free-mode store select is cleared (S10)', () => {
+      const { component, profileServiceMock } = setup(
+        { edit: 'true' },
+        mockProfileWithLocation,
+        true,
+      );
+
+      component.onStoreChange(null);
+      component.save();
+
+      expect(profileServiceMock.updateProfile).toHaveBeenCalledWith({
+        firstName: 'John',
+        lastName: 'Doe',
+        email: 'john@example.com',
+        clearStorePreference: true,
+      });
+      expect(profileServiceMock.updateProfile.mock.calls[0][0]).not.toHaveProperty(
+        'companyStoreId',
+      );
+    });
+
     it('should navigate to /profile after successful save', () => {
       const { component } = setup({ edit: 'true' });
       const router = TestBed.inject(Router);
@@ -646,6 +712,51 @@ describe('UserProfileComponent', () => {
     });
   });
 
+  // ─── View-mode location row (S11) ─────────────────────────
+
+  describe('view-mode location row (S11)', () => {
+    /** The label/value pairs the view mode rendered, whitespace-normalised. */
+    function infoRows(fixture: ComponentFixture<UserProfileComponent>): [string, string][] {
+      const rows = Array.from(
+        fixture.nativeElement.querySelectorAll('.info-row') as NodeListOf<Element>,
+      );
+      return rows.map((row) => [
+        (row.querySelector('.info-label')?.textContent ?? '').replace(/\s+/g, ' ').trim(),
+        (row.querySelector('.info-value')?.textContent ?? '').replace(/\s+/g, ' ').trim(),
+      ]);
+    }
+
+    it('shows the store name the chain resolved in the free mode (S11, G14)', () => {
+      const { fixture } = setup({}, mockProfileWithLocation);
+
+      expect(infoRows(fixture)).toContainEqual(['Location', 'Store One']);
+      // The literal is gone: it could never say which store, which is the whole of S11.
+      expect(fixture.nativeElement.textContent).not.toContain('Store assigned');
+    });
+
+    it("keeps the assigned store's derived chain in the constrained mode (S11)", () => {
+      const { fixture } = setup({}, mockConstrainedProfile);
+
+      expect(infoRows(fixture)).toContainEqual([
+        'Location',
+        'Company One / Mexico / Norte / Zone One',
+      ]);
+      expect(fixture.nativeElement.textContent).not.toContain('Store assigned');
+    });
+
+    it('hides the row when the stored store has no resolved chain (S2 pair, S11)', () => {
+      const { fixture } = setup({}, mockProfileWithUnresolvedLocation);
+
+      expect(infoRows(fixture).some(([label]) => label === 'Location')).toBe(false);
+    });
+
+    it('hides the row when there is no stored preference at all', () => {
+      const { fixture } = setup({}, mockProfile);
+
+      expect(infoRows(fixture).some(([label]) => label === 'Location')).toBe(false);
+    });
+  });
+
   // ─── Constrained location mode (assignedStores) ────────────
 
   describe('constrained store selection (assignedStores)', () => {
@@ -745,8 +856,9 @@ describe('UserProfileComponent', () => {
       });
     });
 
-    // T16: a touched store posts its value — including an explicit null — and nothing else travels.
-    it('clears the store on — None — and posts it alone (W3/T16)', () => {
+    // S10, constrained mode: the same `— None —` reaches the wire through `clearStorePreference`, and
+    // `companyStoreId` is absent — sending both is a 400, so the form sends exactly one of the two.
+    it('clears the store on — None — and posts clearStorePreference alone (S10)', () => {
       const { fixture, component, profileServiceMock } = setup(
         { edit: 'true' },
         mockConstrainedProfile,
@@ -761,11 +873,14 @@ describe('UserProfileComponent', () => {
         firstName: 'John',
         lastName: 'Doe',
         email: 'john@example.com',
-        companyStoreId: null,
+        clearStorePreference: true,
       });
+      expect(profileServiceMock.updateProfile.mock.calls[0][0]).not.toHaveProperty(
+        'companyStoreId',
+      );
     });
 
-    it('posts null after pick store → pick — None —, and never a restored tuple (W3/T16 supersedes D16)', () => {
+    it('posts the clear after pick store → pick — None —, and never a restored tuple (W3/T16 supersedes D16)', () => {
       const { fixture, component, profileServiceMock } = setup(
         { edit: 'true' },
         mockConstrainedProfile,
@@ -792,8 +907,11 @@ describe('UserProfileComponent', () => {
         firstName: 'Edited',
         lastName: 'Doe',
         email: 'john@example.com',
-        companyStoreId: null,
+        clearStorePreference: true,
       });
+      expect(profileServiceMock.updateProfile.mock.calls[0][0]).not.toHaveProperty(
+        'companyStoreId',
+      );
     });
 
     it('renders the empty assigned set as a disabled select explaining the state', () => {
@@ -899,6 +1017,50 @@ describe('UserProfileComponent', () => {
         lastName: 'Doe',
         email: 'john@example.com',
       });
+    });
+  });
+
+  // ─── Announcing the write to the shared resolution (S8/S9) ──
+
+  describe('announcing the saved preference to the shared resolution (S8/S9)', () => {
+    it('should invalidate the shared location preference after a successful save, before it navigates', () => {
+      const { component, profileServiceMock } = setup({ edit: 'true' }, mockProfileWithLocation);
+      const invalidateSpy = vi.spyOn(TestBed.inject(LocationPreference), 'invalidate');
+      const navigateSpy = vi.spyOn(TestBed.inject(Router), 'navigate');
+
+      // «— None —» is the write this whole unit exists for. The shared resolution answered the
+      // `'profile'` key before it, so the one writer has to announce it: otherwise every mounted
+      // screen keeps the chain it resolved and goes on preselecting the store the caller just cleared.
+      component.onStoreChange(null);
+      component.save();
+
+      expect(profileServiceMock.updateProfile).toHaveBeenCalledWith({
+        firstName: 'John',
+        lastName: 'Doe',
+        email: 'john@example.com',
+        clearStorePreference: true,
+      });
+      expect(invalidateSpy).toHaveBeenCalledTimes(1);
+      // Before the navigation, so no screen the navigation renders can read the chain this save
+      // invalidated — the announcement cannot race the screen that acts on it.
+      expect(invalidateSpy.mock.invocationCallOrder[0]).toBeLessThan(
+        navigateSpy.mock.invocationCallOrder[0],
+      );
+    });
+
+    it('should not invalidate the shared resolution when the save failed', () => {
+      const { component, profileServiceMock } = setup({ edit: 'true' });
+      profileServiceMock.updateProfile = vi
+        .fn()
+        .mockReturnValue(throwError(() => new Error('Update failed')));
+      const invalidateSpy = vi.spyOn(TestBed.inject(LocationPreference), 'invalidate');
+
+      component.save();
+
+      expect(component.error()).toBeTruthy();
+      // The stored value did not change, so there is nothing to announce: a failed write must not cost
+      // every mounted screen the settled chain it already holds.
+      expect(invalidateSpy).not.toHaveBeenCalled();
     });
   });
 });

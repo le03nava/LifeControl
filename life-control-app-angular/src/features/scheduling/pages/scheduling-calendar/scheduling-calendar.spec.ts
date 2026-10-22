@@ -7,7 +7,7 @@ import { MatDialog } from '@angular/material/dialog';
 import { BehaviorSubject, Observable, Subject, of, throwError } from 'rxjs';
 import Keycloak from 'keycloak-js';
 import { NotificationService } from '@shared/data/notification';
-import { ProfileResponse } from '@features/user/profile/data/profile.models';
+import { LocationChain, ProfileResponse } from '@features/user/profile/data/profile.models';
 import { ProfileService } from '@features/user/profile/data/profile.service';
 import { SchedulingCalendar } from './scheduling-calendar';
 import {
@@ -93,7 +93,23 @@ describe('SchedulingCalendar', () => {
     ...overrides,
   });
 
-  const profile = (companyStoreId: string | null): ProfileResponse => ({
+  /**
+   * `location` mirrors the stored store by default. It is overridable so a test can model S2's
+   * unusable preference: the stored id still resolves while the chain is `null`.
+   */
+  const profile = (
+    companyStoreId: string | null,
+    location: LocationChain | null = companyStoreId
+      ? {
+          companyId: 'company-1',
+          companyCountryId: 'country-1',
+          companyRegionId: 'region-1',
+          companyZoneId: 'zone-1',
+          companyStoreId,
+          companyStoreName: 'Store One',
+        }
+      : null,
+  ): ProfileResponse => ({
     keycloakUserId: 'user-1',
     username: 'operator',
     email: 'operator@lifecontrol.test',
@@ -101,6 +117,7 @@ describe('SchedulingCalendar', () => {
     lastName: 'Ator',
     companyStoreId,
     assignedStores: null,
+    location,
   });
 
   const booking = (): SchedulingAppointment => ({
@@ -271,6 +288,17 @@ describe('SchedulingCalendar', () => {
       expect(text()).toContain('No hay una tienda configurada');
       expect(text()).not.toContain('No pudimos determinar la tienda');
       expect(text()).not.toContain('No hay horarios esta semana');
+      expect(calendarService.loadCalendarWeek).not.toHaveBeenCalled();
+    });
+
+    it('should issue no week read when the profile names a stored store but reports no location (S8)', async () => {
+      // S2: the stored id keeps the resolution it always had while the chain is `null` — an uncovered
+      // assignment, or a store the caller can no longer read. The week is store-scoped, so it is not read.
+      setup({ queryParams: {}, profileResult: profile('store-stored', null) });
+      await settle();
+
+      expect(text()).toContain('No hay una tienda configurada');
+      expect(text()).not.toContain('No pudimos determinar la tienda');
       expect(calendarService.loadCalendarWeek).not.toHaveBeenCalled();
     });
 

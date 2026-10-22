@@ -23,6 +23,7 @@ import { CompanyRegionService } from '../../data/company-region.service';
 import { RegionsCard } from '../../components/regions-card/regions-card';
 import { CompanyCountry } from '../../../countries/models/country.models';
 import { CompanyRegion } from '../../models/region.models';
+import { LocationPreference } from '@features/user/profile/data/location-preference.service';
 
 @Component({
   selector: 'app-regions-page',
@@ -47,6 +48,7 @@ export class RegionsPage {
   private readonly companyService = inject(CompanyService);
   private readonly companyCountryService = inject(CompanyCountryService);
   private readonly companyRegionService = inject(CompanyRegionService);
+  private readonly locationPreference = inject(LocationPreference);
 
   readonly companies = toSignal(
     this.companyService.getCompanySelector(0, 1000).pipe(map((page) => page.content)),
@@ -54,15 +56,20 @@ export class RegionsPage {
   );
 
   // ─── Selection state (pre-seeded from query params at construction) ───
-  readonly selectedCompanyId = signal<string | null>(
-    this.route.snapshot.queryParamMap.get('companyId'),
-  );
+  /**
+   * The ids the route itself names, captured once. `S7`: when the route names any level it wins and
+   * the location preference is not consulted at all — pairing one company's id from the URL with
+   * another company's country from the preference would preselect a country the company does not have.
+   */
+  private readonly routeCompanyId = this.route.snapshot.queryParamMap.get('companyId');
+  private readonly routeCountryId = this.route.snapshot.queryParamMap.get('countryId');
+  private readonly routeCarriesIds = !!this.routeCompanyId || !!this.routeCountryId;
+
+  readonly selectedCompanyId = signal<string | null>(this.routeCompanyId);
   readonly selectedCountry = signal<CompanyCountry | null>(null);
 
-  /** `countryId` query param captured once at construction for pre-selection. */
-  private readonly initialCountryId = signal<string | null>(
-    this.route.snapshot.queryParamMap.get('countryId'),
-  );
+  /** The country to preselect: the route's own id, or the preference's, captured once. */
+  private readonly initialCountryId = signal<string | null>(this.routeCountryId);
 
   // ─── Filter state ────────────────────────────────────────────
   readonly showDisabled = signal(false);
@@ -125,14 +132,37 @@ export class RegionsPage {
     return a?.id === b?.id;
   };
 
-  /** Guard so the query-param pre-selection runs exactly once. */
+  /** Guard so the location pre-selection runs exactly once. */
+  private companyPreselected = false;
+
+  /** Guard so the country pre-selection runs exactly once. */
   private countryPreselected = false;
 
   constructor() {
-    // Pre-select the country from the query param once its countries resolve.
+    // `S7`: only a route that names nothing at all falls back to the preference.
+    if (!this.routeCarriesIds) {
+      this.locationPreference.resolve();
+    }
+
+    // Pre-select the company from the location preference once its chain resolves: the chain arrives
+    // after construction, so the route's own seed above is not enough.
     effect(() => {
-      const countryId = this.initialCountryId();
-      if (!countryId || this.countryPreselected) return;
+      if (this.routeCarriesIds || this.companyPreselected) return;
+      const companyId = this.locationPreference.companyId();
+      if (!companyId) return;
+      this.companyPreselected = true;
+      this.selectedCompanyId.set(companyId);
+    });
+
+    // Pre-select the country once its company's countries resolve: the route's id first (`S7`), then
+    // the preference's. A country the company does not have is simply not found, and nothing is
+    // preselected rather than guessed (`S8`).
+    effect(() => {
+      if (this.countryPreselected) return;
+      const countryId =
+        this.initialCountryId() ??
+        (this.routeCarriesIds ? null : this.locationPreference.companyCountryId());
+      if (!countryId) return;
       const country = this.countries().find((c) => c.id === countryId);
       if (country) {
         this.countryPreselected = true;

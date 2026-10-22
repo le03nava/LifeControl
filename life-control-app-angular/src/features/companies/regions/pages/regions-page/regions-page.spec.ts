@@ -2,7 +2,7 @@ import { By } from '@angular/platform-browser';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { HttpClientTestingModule } from '@angular/common/http/testing';
 import { signal } from '@angular/core';
-import { NEVER, of } from 'rxjs';
+import { NEVER, Observable, of } from 'rxjs';
 import { ActivatedRoute, Router } from '@angular/router';
 import { RegionsPage } from './regions-page';
 import { CompanyService } from '../../../companies/data/company.service';
@@ -12,6 +12,8 @@ import { CompanyRegion } from '../../models/region.models';
 import { CompanyCountry } from '../../../countries/models/country.models';
 import { Company, Page } from '../../../companies/models/company.models';
 import { RegionsCard } from '../../components/regions-card/regions-card';
+import { LocationChain, ProfileResponse } from '@features/user/profile/data/profile.models';
+import { ProfileService } from '@features/user/profile/data/profile.service';
 
 describe('RegionsPage', () => {
   let component: RegionsPage;
@@ -157,6 +159,28 @@ describe('RegionsPage', () => {
     getCompanySelector = vi.fn().mockReturnValue(of(mockCompaniesPage));
   }
 
+  /** A location chain as `GET /api/profile` derives it (S1). */
+  const locationChain = (overrides: Partial<LocationChain> = {}): LocationChain => ({
+    companyId: 'company-1',
+    companyCountryId: 'cc-1',
+    companyRegionId: 'r-1',
+    companyZoneId: 'zone-1',
+    companyStoreId: 'store-1',
+    companyStoreName: 'Store One',
+    ...overrides,
+  });
+
+  const profileResponse = (location: LocationChain | null): ProfileResponse => ({
+    keycloakUserId: 'user-1',
+    username: 'operator',
+    email: 'operator@lifecontrol.test',
+    firstName: 'Oper',
+    lastName: 'Ator',
+    companyStoreId: location?.companyStoreId ?? null,
+    assignedStores: null,
+    location,
+  });
+
   beforeEach(async () => {
     await TestBed.configureTestingModule({
       imports: [RegionsPage, HttpClientTestingModule],
@@ -177,6 +201,12 @@ describe('RegionsPage', () => {
               },
             },
           },
+        },
+        {
+          // The page resolves its preselection through the shared location preference (T3), which reads
+          // the profile. These tests expect nothing preselected, so the default reports no chain.
+          provide: ProfileService,
+          useValue: { getProfile: () => of(profileResponse(null)) },
         },
       ],
     }).compileComponents();
@@ -596,6 +626,120 @@ describe('RegionsPage', () => {
       expect(component.countries()).toEqual([]);
       expect(component.regions()).toEqual([]);
       expect(component.filteredRegions()).toEqual([]);
+    });
+  });
+
+  // ─── Location preselection (S7) and its fail-closed counterpart (S8) ───
+
+  describe('location preselection', () => {
+    /**
+     * Rebuilds the module with the two inputs this rule reads: the route's own ids and the profile's
+     * location chain. Company, country and region services stay the shared mocks of this spec.
+     */
+    async function setup(
+      options: { query?: Record<string, string>; location?: LocationChain | null } = {},
+    ): Promise<{
+      component: RegionsPage;
+      fixture: ComponentFixture<RegionsPage>;
+      getProfile: ReturnType<typeof vi.fn>;
+    }> {
+      const query = options.query ?? {};
+      const getProfile = vi.fn((): Observable<ProfileResponse> =>
+        of(profileResponse(options.location ?? null)),
+      );
+
+      TestBed.resetTestingModule();
+      await TestBed.configureTestingModule({
+        imports: [RegionsPage, HttpClientTestingModule],
+        providers: [
+          { provide: CompanyService, useClass: MockCompanyService },
+          { provide: CompanyCountryService, useClass: MockCompanyCountryService },
+          { provide: CompanyRegionService, useClass: MockCompanyRegionService },
+          { provide: Router, useValue: { navigate: vi.fn() } },
+          {
+            provide: ActivatedRoute,
+            useValue: {
+              snapshot: {
+                queryParamMap: { get: (key: string) => query[key] ?? null },
+              },
+            },
+          },
+          { provide: ProfileService, useValue: { getProfile } },
+        ],
+      }).compileComponents();
+
+      const regionalFixture = TestBed.createComponent(RegionsPage);
+      regionalFixture.detectChanges();
+      return { component: regionalFixture.componentInstance, fixture: regionalFixture, getProfile };
+    }
+
+    async function settle(fixture: ComponentFixture<RegionsPage>): Promise<void> {
+      fixture.detectChanges();
+      await fixture.whenStable();
+      fixture.detectChanges();
+    }
+
+    it('should preselect Company and Country from the location chain when the route carries no ids (S7)', async () => {
+      const { component: page, fixture: pageFixture } = await setup({
+        location: locationChain({ companyId: 'company-1', companyCountryId: 'cc-2' }),
+      });
+
+      await settle(pageFixture);
+
+      expect(page.selectedCompanyId()).toBe('company-1');
+      expect(page.selectedCountry()?.id).toBe('cc-2');
+      // And the preselection reaches the read that hangs off it, not only the controls.
+      const regions = TestBed.inject(CompanyRegionService) as unknown as MockCompanyRegionService;
+      expect(regions.getRegions).toHaveBeenCalledWith('company-1', 'cc-2', false);
+    });
+
+    it('should keep the route ids and never consult the preference when the route carries them (S7)', async () => {
+      const {
+        component: page,
+        fixture: pageFixture,
+        getProfile,
+      } = await setup({
+        query: { companyId: 'company-1', countryId: 'cc-1' },
+        location: locationChain({ companyId: 'company-2', companyCountryId: 'cc-2' }),
+      });
+
+      await settle(pageFixture);
+
+      expect(page.selectedCompanyId()).toBe('company-1');
+      expect(page.selectedCountry()?.id).toBe('cc-1');
+      expect(getProfile).not.toHaveBeenCalled();
+    });
+
+    it("should keep the route's company and leave the country empty when the route names only one (S7)", async () => {
+      const { component: page, fixture: pageFixture } = await setup({
+        query: { companyId: 'company-1' },
+        location: locationChain({ companyId: 'company-1', companyCountryId: 'cc-2' }),
+      });
+
+      await settle(pageFixture);
+
+      expect(page.selectedCompanyId()).toBe('company-1');
+      // The route answered the company question, so the preference is not consulted for the rest.
+      expect(page.selectedCountry()).toBeNull();
+    });
+
+    it('should start with empty selectors and issue no country or region read when location is null (S8)', async () => {
+      const { component: page, fixture: pageFixture } = await setup({ location: null });
+
+      await settle(pageFixture);
+
+      expect(page.selectedCompanyId()).toBeNull();
+      expect(page.selectedCountry()).toBeNull();
+      expect(page.countries()).toEqual([]);
+      expect(page.filteredRegions()).toEqual([]);
+
+      const countries = TestBed.inject(
+        CompanyCountryService,
+      ) as unknown as MockCompanyCountryService;
+      const regions = TestBed.inject(CompanyRegionService) as unknown as MockCompanyRegionService;
+      expect(countries.getCountries).not.toHaveBeenCalled();
+      expect(regions.getRegions).not.toHaveBeenCalled();
+      expect(pageFixture.nativeElement.querySelector('.empty-prompt')).toBeTruthy();
     });
   });
 });

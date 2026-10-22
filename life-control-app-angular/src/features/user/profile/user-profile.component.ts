@@ -20,6 +20,7 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 
 import { ProfileService } from './data/profile.service';
+import { LocationPreference } from './data/location-preference.service';
 import { ProfileResponse, ProfileUpdateRequest, AssignedStore } from './data/profile.models';
 import { derivedChainLabel } from '@features/hr/models/store-assignment.models';
 import { CompanyService } from '@features/companies/companies/data/company.service';
@@ -60,6 +61,7 @@ export class UserProfileComponent implements OnInit {
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
   private readonly profileService = inject(ProfileService);
+  private readonly locationPreference = inject(LocationPreference);
   private readonly companyService = inject(CompanyService);
   private readonly companyCountryService = inject(CompanyCountryService);
   private readonly companyRegionService = inject(CompanyRegionService);
@@ -92,21 +94,31 @@ export class UserProfileComponent implements OnInit {
   readonly derivedChainLabel = derivedChainLabel;
 
   /**
-   * The location line of the view mode (`T17` of `company-scope-local-fallback`).
+   * The location line of the view mode (`T17` of `company-scope-local-fallback`, `S11` of
+   * `location-preference`).
    *
    * It used to enumerate the hierarchy from the deepest non-null ancestor — a single word derived from
    * the four scalars the response no longer carries. It reports the preference instead: in the
    * constrained mode the assigned store's own chain through `T28`'s single formatter, and in the free
-   * mode the store's presence, because the chain cannot be rebuilt without the read `G12` declares out
-   * of scope. `null` hides the row, exactly as an absent preference did before.
+   * mode the store's own name from the resolved chain (`location.companyStoreName`, `S11`), which is
+   * what replaced the `Store assigned` literal: that literal could not say which store, so it said
+   * nothing the row's label did not already say.
+   *
+   * `null` hides the row, exactly as an absent preference did before — and it stays `null` for the
+   * legitimate `S2` pair the response can carry (a stored `companyStoreId` whose chain did not
+   * resolve), because a row that announced a store it cannot name would be guessing.
    */
   readonly locationLabel = computed<string | null>(() => {
-    const storeId = this.profile()?.companyStoreId;
+    const profile = this.profile();
+    const storeId = profile?.companyStoreId;
     if (!storeId) {
       return null;
     }
     const assigned = this.assignedStores()?.find((store) => store.companyStoreId === storeId);
-    return assigned ? derivedChainLabel(assigned) : 'Store assigned';
+    if (assigned) {
+      return derivedChainLabel(assigned);
+    }
+    return profile?.location?.companyStoreName ?? null;
   });
 
   /** True while the initial profile GET is in flight. */
@@ -126,8 +138,9 @@ export class UserProfileComponent implements OnInit {
    *
    * With the four tenancy ancestors gone (T14) a free-mode load cannot reconstruct the cascade, so the
    * store control starts empty even when the row holds a preference. Posting that emptiness would be
-   * an invisible clear, so the payload **omits** `companyStoreId` unless the caller changed it —
-   * including an explicit `— None —`, which still posts `null` because it *was* a deliberate choice.
+   * an invisible clear, so the payload **omits** the location keys unless the caller changed it —
+   * including an explicit `— None —`, which is a deliberate choice and posts `clearStorePreference`
+   * (`S10`).
    */
   readonly storeTouched = signal(false);
 
@@ -481,8 +494,8 @@ export class UserProfileComponent implements OnInit {
    * `company-scope-local-fallback`): the five-field patch existed so the payload would carry the chain
    * of the store the caller chose, and `T14` removed the four fields that patch promised. The `— None —`
    * branch is the same statement now — it clears the store and marks the control touched, so the payload
-   * posts `null` deliberately instead of restoring a tuple the response no longer carries (`D16`'s rule
-   * is superseded; the server leaves an omitted key alone).</p>
+   * asks for a clear through `clearStorePreference` (`S10`) instead of restoring a tuple the response no
+   * longer carries (`D16`'s rule is superseded; the server leaves an omitted key alone).</p>
    */
   onAssignedStoreChange(companyStoreId: string | null): void {
     this.storeTouched.set(true);
@@ -515,7 +528,14 @@ export class UserProfileComponent implements OnInit {
       // T16: an untouched store leaves the KEY out instead of carrying `undefined`. The two are not the
       // same thing — `JSON.stringify` drops the undefined one, but the object the caller and the tests see
       // still has it, and a later spread would resurrect the value the server was never meant to receive.
-      ...(this.storeTouched() ? { companyStoreId: raw.companyStoreId ?? null } : {}),
+      //
+      // S10: the same rule decides *how* a touched control travels, and it is three wire states rather
+      // than three form values. A touched control holding a store posts `companyStoreId`; a touched
+      // control that is empty posts `clearStorePreference: true` and NOT `companyStoreId: null` — on a
+      // `UUID` the server cannot tell that `null` apart from an omitted key (`L6`), which is the defect
+      // the second field closes. The two keys are mutually exclusive by construction: one branch of
+      // `storePreferencePayload`, never both, because the server answers the pair with `400` (`S5`).
+      ...(this.storeTouched() ? this.storePreferencePayload(raw.companyStoreId) : {}),
     };
 
     this.profileService
@@ -526,6 +546,11 @@ export class UserProfileComponent implements OnInit {
           this.profile.set(updated);
           this.saving.set(false);
           this.saveSuccess.set(true);
+          // S8/S9: this screen is the only writer of the preference, and the one shared resolution read
+          // it before the write. Announcing it *before* navigating is what makes the announcement
+          // unraceable: the navigation is what mounts the screen that must not read the old chain, so a
+          // call placed after it could only ever run once that screen had already resolved.
+          this.locationPreference.invalidate();
           // Navigate back to view mode
           this.router.navigate(['/profile']);
         },
@@ -539,5 +564,17 @@ export class UserProfileComponent implements OnInit {
   /** Cancel editing and return to view mode. */
   cancel(): void {
     this.router.navigate(['/profile']);
+  }
+
+  /**
+   * The location half of the payload (`S10`) — the single place that decides which of the two keys
+   * travels, so the free cascade and the constrained select cannot drift apart.
+   *
+   * Only called for a touched control: an untouched one contributes no key at all (`T16`). A touched
+   * one holding a store posts that store; a touched one that is empty asks the server to clear, because
+   * `companyStoreId: null` is indistinguishable from an omitted key on the wire (`L6`).
+   */
+  private storePreferencePayload(companyStoreId: string | null): ProfileUpdateRequest {
+    return companyStoreId ? { companyStoreId } : { clearStorePreference: true };
   }
 }

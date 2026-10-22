@@ -7,7 +7,7 @@ import { Observable, Subject, of, throwError } from 'rxjs';
 import Keycloak from 'keycloak-js';
 import { ConfirmDialog } from '@shared/ui';
 import { NotificationService } from '@shared/data/notification';
-import { ProfileResponse } from '@features/user/profile/data/profile.models';
+import { LocationChain, ProfileResponse } from '@features/user/profile/data/profile.models';
 import { ProfileService } from '@features/user/profile/data/profile.service';
 import { SchedulingActivityList } from './scheduling-activity-list';
 import { SchedulingActivityService } from '../../data/scheduling-activity.service';
@@ -60,7 +60,23 @@ describe('SchedulingActivityList', () => {
     ...overrides,
   });
 
-  const profile = (companyStoreId: string | null): ProfileResponse => ({
+  /**
+   * `location` mirrors the stored store by default. It is overridable so a test can model S2's
+   * unusable preference: the stored id still resolves while the chain is `null`.
+   */
+  const profile = (
+    companyStoreId: string | null,
+    location: LocationChain | null = companyStoreId
+      ? {
+          companyId: 'company-1',
+          companyCountryId: 'country-1',
+          companyRegionId: 'region-1',
+          companyZoneId: 'zone-1',
+          companyStoreId,
+          companyStoreName: 'Store One',
+        }
+      : null,
+  ): ProfileResponse => ({
     keycloakUserId: 'user-1',
     username: 'operator',
     email: 'operator@lifecontrol.test',
@@ -68,6 +84,7 @@ describe('SchedulingActivityList', () => {
     lastName: 'Ator',
     companyStoreId,
     assignedStores: null,
+    location,
   });
 
   interface SetupOptions {
@@ -432,6 +449,17 @@ describe('SchedulingActivityList', () => {
   describe('fail-closed and list states', () => {
     it('should report a store that was never configured without reading the list', async () => {
       setup({ queryStoreId: null, profileResult: profile(null) });
+      await settle();
+
+      expect(component.storeUnconfigured()).toBe(true);
+      expect(text()).toContain('No hay una tienda configurada');
+      expect(activityService.listActivities).not.toHaveBeenCalled();
+    });
+
+    it('should issue no store-scoped read when the profile names a stored store but reports no location (S8)', async () => {
+      // S2: the stored id keeps the resolution it always had while the chain is `null` — an uncovered
+      // assignment, or a store the caller can no longer read. The screen must not reopen the list.
+      setup({ queryStoreId: null, profileResult: profile('store-stored', null) });
       await settle();
 
       expect(component.storeUnconfigured()).toBe(true);
