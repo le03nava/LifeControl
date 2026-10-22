@@ -788,7 +788,7 @@ describe('EmployeeList', () => {
         data: {
           title: 'Deshabilitar empleado',
           message:
-            '¿Confirmás que querés deshabilitar a "Ana Gómez Ruiz"? Deja de aparecer en el registro, pero se conserva y podés habilitarlo más adelante. Esto no revoca su acceso: los roles y la cuenta siguen activos hasta que cambies su estado.',
+            '¿Confirmás que querés deshabilitar a "Ana Gómez Ruiz"? Deja de aparecer en el registro y se le revoca el acceso: su cuenta y sus roles se desactivan. Podés habilitarlo más adelante y recupera el acceso según el contrato que lo cubra.',
           confirmLabel: 'Deshabilitar',
           destructive: true,
         },
@@ -804,7 +804,7 @@ describe('EmployeeList', () => {
       expect(employeeService.removeEmployee).not.toHaveBeenCalled();
     });
 
-    it('should state in the confirmation that disabling does not revoke access', async () => {
+    it('should state in the confirmation that disabling revokes access', async () => {
       setup({ queryCompanyId: 'company-1' });
       await settle();
 
@@ -812,9 +812,9 @@ describe('EmployeeList', () => {
       await settle();
 
       const [, config] = dialog.open.mock.calls[0] as [unknown, { data: { message: string } }];
-      // G41: `enabled = false` is the registry's soft delete, never a revocation.
-      expect(config.data.message).toMatch(/no revoca su acceso/i);
-      expect(config.data.message).toMatch(/cambies su estado/i);
+      // G41: `enabled = false` is a revocation, so the copy says so instead of denying it.
+      expect(config.data.message).toMatch(/revoca el acceso/i);
+      expect(config.data.message).not.toMatch(/no revoca/i);
     });
 
     it('should disable, notify and reload when confirmed', async () => {
