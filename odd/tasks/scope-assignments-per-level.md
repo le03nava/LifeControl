@@ -1,12 +1,13 @@
 # Scope assignments per level
 
-**Status**: implemented — no task of T1–T9 has landed yet; each slice updates this line to name what
-landed, so it is true at every commit that carries it. The five decisions that were open are settled
-in the log below (L5–L8); nothing is blocked and nothing is deferred beyond the two follow-ups the
-log names.
-**Created**: 2026-10-21 · **Risk**: high — item 2 (security: a new capability that grants tenancy
-scope, applied on endpoints that already decide authorization) and item 3 (the countries allow-list
-widens who may read an existing endpoint).
+**Status**: implemented — T1–T9 are on the branch in ten commits; nothing is blocked, and the three
+follow-ups the log names (migrating the store table, restricting an HR assigner to their own scope, an
+HTTP-level test of the new surface) are separate work by decision.
+
+**Created**: 2026-10-21 · **Risk**: high — item 1 (a new table whose rows feed an authorization
+decision) and item 2 (a new capability that grants tenancy scope, on an endpoint HR self-service can
+reach); the component guide's RBAC section changes under item 3, while the countries allow-list gap it
+documents is **not** widened here.
 
 ## Specs
 
@@ -60,15 +61,15 @@ of fact) is logged as a deferral, not as a gap.
 
 | ID | Task | Specs | Route | Commit |
 | --- | --- | --- | --- | --- |
-| T1 | `V26__employee_scope_assignments.sql`: four nullable node columns + `num_nonnulls(...) = 1` + four real FKs + the `(employee, level, node)` `daterange '[)'` exclusion, in V23's shape | S2, S5 | inline | |
-| T2 | `EmployeeScopeAssignment` entity + repository (`findEnabled…CoveringDate`) + `EmployeeScopeAssignmentService` (create closes the previous row for the same node, close-only mutation, company-ownership check → 404) | S2, S4 | inline | |
-| T3 | `EmployeeScopeAssignmentController`: `GET` / `POST` / `PATCH …/{id}/close` under `/api/companies/{companyId}/employees/{employeeId}/scope-assignments`, `@PreAuthorize` `lc-admin`/`lc-employee`, DTOs with the derived chain | S2, S4 | inline | |
-| T4 | Derivation: a new pure function for one scope row (node + its ancestors, never a partial chain) plus the union with `StoreScopeDerivation`; the existing function is not modified | S2, S5 | inline | |
-| T5 | `AccessProvisioningMembershipService.derivedScope` reads both sources; the read path used by the Access section keeps sharing the write path's derivation | S2 | inline | |
-| T6 | Trigger: the new service calls `AccessProvisioningProducer.onMembershipChanged`, the same hook `EmployeeStoreAssignmentService:241,287` uses | S2 | inline | |
-| T7 | Backend tests: derivation (each level, ancestor chain, union, empty case, terminated employee), service (overlap, close-once, foreign company → 404), controller (`@PreAuthorize` sets pinned) | S2, S3, S4 | inline | |
-| T8 | Frontend: wire models + service + a presentational section in the employee detail with the level fixed by the position's role, and the derived-chain column `store-assignments-section` already shows | S2 | inline | |
-| T9 | Docs: the RBAC matrix (`life-control-app-angular/AGENTS.md:904`) states that a level's role sees its whole subtree and that the scope is assigned per level | S1, S2 | inline | |
+| T1 | `V26__employee_scope_assignments.sql`: three nullable node columns + `num_nonnulls(...) = 1` + three real FKs + **three** per-level partial `daterange '[)'` exclusions, in V23's shape (see L17: the level column the plan sketched cannot carry a real FK, and one exclusion cannot span three alternative columns) | S2, S5 | inline | `a71e4d2` |
+| T2 | `EmployeeScopeAssignment` entity + repository (`findEnabled…CoveringDate`) + `EmployeeScopeAssignmentService` (create closes the previous row for the same node, close-only mutation, company-ownership check → 404) | S2, S4 | inline | `a71e4d2` `f7b8c35` |
+| T3 | `EmployeeScopeAssignmentController`: `GET` / `POST` / `PATCH …/{id}/close` under `/api/companies/{companyId}/employees/{employeeId}/scope-assignments`, `@PreAuthorize` `lc-admin`/`lc-employee`, DTOs with the derived chain | S2, S4 | inline | `f7b8c35` |
+| T4 | Derivation: a new pure function for one scope row (node + its ancestors, never a partial chain) plus the union with `StoreScopeDerivation`; the existing function is not modified | S2, S5 | inline | `e414762` |
+| T5 | `AccessProvisioningMembershipService.derivedScope` reads both sources; the read path used by the Access section keeps sharing the write path's derivation | S2 | inline | `8998ca5` |
+| T6 | Trigger: the new service calls `AccessProvisioningProducer.onMembershipChanged`, the same hook `EmployeeStoreAssignmentService:241,287` uses | S2 | inline | `f7b8c35` |
+| T7 | Backend tests: derivation (each level, ancestor chain, union, empty case, terminated employee), service (overlap, close-once, foreign company → 404), controller (`@PreAuthorize` sets pinned) | S2, S3, S4 | inline | `c55c1d7` `e414762` `f7b8c35` |
+| T8 | Frontend: wire models + service + a presentational section and its dialog in the employee detail, with the level preselected and ordered from the employee's scoped role (an affordance, **never** a gate), and the same derived-chain column `store-assignments-section` already shows | S2 | inline | `86ce5c0` `334b855` `735bbc0` |
+| T9 | Docs: the RBAC matrix (`life-control-app-angular/AGENTS.md:904`) states that a level's role sees its whole subtree and that the scope is assigned per level | S1, S2 | inline | `735bbc0` |
 
 **Invariants carried, not invented** (each one is an existing rule this unit must extend and not
 break): exactly one `company_id` in the derivation; a row contributes only while enabled and covering
@@ -162,3 +163,41 @@ a separate work unit because it changes who may read an existing endpoint.
   in this unit (the hook's prose is source-neutral, and two probes were added); the fourth is recorded
   as a deferral below. The pass found this record's own `:225` citation off by two lines, corrected in
   place — a log that cites a line is worth exactly what its last reader verified.
+- **L15** — delivery boundary, recorded because the unit is far past the review slice: nine commits,
+  **6890 authored changed lines** measured against `origin/main` plus this record's own amendment. The commits are the review units and
+  the measured sizes are `a71e4d2` 460, `c55c1d7` 643 (schema proof only), `e414762` 794, `8998ca5`
+  247, `f7b8c35` 1828, `86ce5c0` 684, `334b855` 1485, `735bbc0` 585, `a869080` 164 (ten commits). That is
+  seventeen times the ~400-line budget, and saying so is worth more than a header that pretends
+  otherwise: **this does not ship as one pull request.** The layer split that keeps each pull request
+  reviewable as a behaviour is the schema plus the write surface (`a71e4d2`, `c55c1d7`, `f7b8c35`),
+  then the claims (`e414762`, `8998ca5`), then the screens (`86ce5c0`, `334b855`, `735bbc0`), with this
+  record's commit riding the last one. The split order matters: the claims pull request must land
+  before the screens, because until the projection reads the new table an assignment changes nothing in
+  the token, and a reviewer of the screens would be reviewing a feature that does not yet work.
+- **L16** — incident, recorded because it outlives the session: `npm ci` in the frontend ran the
+  package's `prepare` script, which sets the clone-wide `core.hooksPath` to `life-control-app-angular/.husky/_`
+  and displaced the repository's own `.githooks` guard — shared by every worktree, including the
+  anchor, not just this one. Restored to `.githooks` before the first commit. The same `npm ci` also
+  means `lint-staged` rewrote frontend files during the commits, so the gates were re-run on the
+  committed tree rather than trusting the run that preceded it.
+- **L17** — two corrections to this record's own plan, made after the code proved the plan wrong, and
+  left visible rather than silently rewritten. **(1)** The Tasks table sketched "a level column plus a
+  node id"; that shape cannot exist here, because a single `scope_id` column cannot carry a real foreign
+  key to four tables, and one `EXCLUDE` cannot span three alternative node columns. What shipped is
+  three nullable node columns, each with its own foreign key and its own partial `(employee, node)`
+  window exclusion — the same referential integrity the store table has, which a generic id column
+  would have given up. **(2)** T8 said the dialog's level would be "fixed by the position's role"; what
+  shipped preselects and orders the level from the employee's scoped role and still offers all three.
+  Fixing it would have put an authorization rule in the UI that no endpoint enforces, and a node at a
+  level the employee's roles do not read is visible in the Access screen anyway, which is where the
+  effective scope is read.
+- **L18** — evidence, native assessment at close (RDD is on, `review mode status` reports "on (decided
+  by default)", both scopes unset). The first `assess` was **wrong and worth recording**: it returned 17
+  changed paths and 475 lines naming `store-areas-edit.html`, a file this branch never touches, because
+  without an explicit root it read the session's anchor and its registered worktrees instead of this
+  one. Re-run with `workspaceRoot` pointing at the worktree it returned 60 changed paths and 7402
+  changed lines, `nativeRisk: medium`, `reviewDue: false` with reason `under_budget`, so **no native
+  review lineage was started** — the contract starts one only when `reviewDue` is true or the human asks
+  for it. The tier the provider returns wins over this record's own reading, which is why the header
+  still declares item 1 and item 2 as the risks: the tier decides whether a review runs, not whether the
+  change is risky. An independent verifier ran anyway (L14) and is not replaced by any of this.
