@@ -6,9 +6,9 @@ named after that rule instead of after `Terminated`, and their tests are the bra
 Nothing is deferred.
 **Created**: 2026-10-22 · **Risk**: high — item 2 (these guards decide who can be provisioned, and the
 `deactivate` half widens a refusal into an admission)
-**Issue**: #535 · **Branch**: `fix/access-request-revoked-rule`, chained on
-`fix/employee-disable-revokes-access` @ `88acf75` (issue #533 / PR #534), which is where
-`EmployeeStatuses.isRevoked` lands.
+**Issue**: #535 · **Branch**: `fix/access-request-revoked-rule`, opened as a chained slice on
+`fix/employee-disable-revokes-access` @ `88acf75` (issue #533 / PR #534) — where `EmployeeStatuses.isRevoked`
+lands — and retargeted to `main` once that parent merged as `ca0f07b` (see the dated log).
 
 ## Specs
 
@@ -55,11 +55,11 @@ is in the pull request with its opening verdict token, and
 
 | ID | Spec | Route | Commit |
 | --- | --- | --- | --- |
-| T1 | — | Worktree `fix/access-request-revoked-rule` off the parent tip `88acf75` (`./.github/scripts/new-unit.sh`), this record, the Engram mirror and the `todo` projection | `764aa0f docs(odd): record access-request-revoked-rule` |
-| T2 | S1, S2, S3, S5 | RED first: three `AccessProvisioningRequestServiceTest` cases for a soft-deleted employee (`enabled = false`, status `Active`) — refused by `apply`, refused by `resend`, admitted by `deactivate` | `7ed5f23 test(provisioning): pin the revoked rule in the explicit request surface` |
-| T3 | S1, S2, S3 | GREEN: the three guards read `EmployeeStatuses.isRevoked` | `e5a3384 fix(provisioning): make the explicit request surface read one revocation rule` |
-| T4 | S4 | The two exception classes renamed and their messages rewritten to the rule, with every call site and test moved | `79b1b28 refactor(provisioning): name the access refusals after the rule they enforce` (ordered before the RED so the failing test states a behavior, not a missing class) |
-| T5 | S6 | Javadoc of the three methods and the two exceptions, the controller's `409` documentation, `life-control-api/AGENTS.md` | `cf936f6 docs(provisioning): state the revocation rule the guards enforce` |
+| T1 | — | Worktree `fix/access-request-revoked-rule` off the parent tip `88acf75` (`./.github/scripts/new-unit.sh`), this record, the Engram mirror and the `todo` projection | `1debc67 docs(odd): record access-request-revoked-rule` |
+| T2 | S1, S2, S3, S5 | RED first: three `AccessProvisioningRequestServiceTest` cases for a soft-deleted employee (`enabled = false`, status `Active`) — refused by `apply`, refused by `resend`, admitted by `deactivate` | `a0c779d test(provisioning): pin the revoked rule in the explicit request surface` |
+| T3 | S1, S2, S3 | GREEN: the three guards read `EmployeeStatuses.isRevoked` | `4ee0c0b fix(provisioning): make the explicit request surface read one revocation rule` |
+| T4 | S4 | The two exception classes renamed and their messages rewritten to the rule, with every call site and test moved | `8f1c7d8 refactor(provisioning): name the access refusals after the rule they enforce` (ordered before the RED so the failing test states a behavior, not a missing class) |
+| T5 | S6 | Javadoc of the three methods and the two exceptions, the controller's `409` documentation, `life-control-api/AGENTS.md` | `a2193c1 docs(provisioning): state the revocation rule the guards enforce` |
 | T6 | S7 | Gates: `spotlessCheck`/`spotbugsMain`, the focused suite, `./gradlew test`, the offline script suites | (no commit; evidence below) |
 | T7 | — | Independent read-only pass over S1–S7. **The delegation gate did not admit the `gentle-ai-verify` launch** — it requires the delegated task to declare `Risk: item N`, and it forbids retrying or adding the line to get admission — so the pass run here is the inline adversarial one the gate names as its substitute: the `isTerminated` sweep, the company-check ordering, the refused-path ordering, the RED baseline and the message truthfulness. An independent read remains available on request. | (no commit; findings below) |
 
@@ -130,10 +130,11 @@ the RED test, then the three guards.
 | Date | Command | Result |
 | --- | --- | --- |
 | 2026-10-22 | `./gradlew test --tests '*AccessProvisioningRequestServiceTest' --tests '*AccessProvisioningControllerTest' --no-daemon` (rename only, guards untouched) | `BUILD SUCCESSFUL` in 36s — the rename changes no behavior |
-| 2026-10-22 | same, with the three new cases (`7ed5f23`) | **RED**: `29 tests completed, 3 failed` — `apply`, `resend` and `deactivate` disagree with the rule |
-| 2026-10-22 | `./gradlew test --tests '*AccessProvisioningRequestServiceTest' --tests '*AccessProvisioningControllerTest' --tests '*AccessProvisioningControllerSecurityTest' --no-daemon` (guards changed, `e5a3384`) | `BUILD SUCCESSFUL` in 23s, `GRADLE_EXIT=0` |
+| 2026-10-22 | same, with the three new cases (`a0c779d`) | **RED**: `29 tests completed, 3 failed` — `apply`, `resend` and `deactivate` disagree with the rule |
+| 2026-10-22 | `./gradlew test --tests '*AccessProvisioningRequestServiceTest' --tests '*AccessProvisioningControllerTest' --tests '*AccessProvisioningControllerSecurityTest' --no-daemon` (guards changed, `4ee0c0b`) | `BUILD SUCCESSFUL` in 23s, `GRADLE_EXIT=0` |
 | 2026-10-22 | `./gradlew spotlessCheck spotbugsMain --no-daemon` | first run **FAILED**: `spotlessJavaCheck` reported two imports out of order in `AccessProvisioningControllerTest` (the rename's `Revoked*` sorts before `SelfApprovalRefusedException`). `./gradlew spotlessApply --no-daemon` fixed it; the re-run is `BUILD SUCCESSFUL`, `STATIC_EXIT=0` |
-| 2026-10-22 | `./gradlew cleanTest test --no-daemon` on `cf936f6` — forced, because a plain `test` reported `UP-TO-DATE` | `BUILD SUCCESSFUL` in 2m29s, `TEST_EXIT=0`; **941 result files, 3712 tests, 0 failures, 0 errors** |
+| 2026-10-22 | `./gradlew cleanTest test --no-daemon` on the pre-rebase head — forced, because a plain `test` reported `UP-TO-DATE` | `BUILD SUCCESSFUL` in 2m29s, `TEST_EXIT=0`; **941 result files, 3712 tests, 0 failures, 0 errors** |
+| 2026-10-23 | the parent PR **#534 merged as `ca0f07b`** and its head branch was deleted by the merge, so the chained base stopped existing. This slice was rebased onto `origin/main` (clean, 6 commits, diff unchanged at 351+/114−) and its pull request targets `main` with `Closes #535` instead of `Refs`. Every commit hash cited above is the post-rebase one |
 | 2026-10-22 | `./.github/scripts/tests/odd-status-headers.test.sh` | `checked 98 record(s); 118 claimed merge commit(s); ancestry: ran` — `78 passed, 0 failed`, exit 0 |
 
 ## Inline adversarial pass (what the delegation gate admitted instead)
