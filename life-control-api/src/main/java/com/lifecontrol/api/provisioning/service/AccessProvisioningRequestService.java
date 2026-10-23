@@ -6,8 +6,8 @@ import com.lifecontrol.api.hr.model.Employee;
 import com.lifecontrol.api.hr.repository.EmployeeRepository;
 import com.lifecontrol.api.hr.service.EmployeeStatuses;
 import com.lifecontrol.api.provisioning.exception.NoOpenAccessProvisioningTaskException;
-import com.lifecontrol.api.provisioning.exception.TerminatedEmployeeRefusedException;
-import com.lifecontrol.api.provisioning.exception.TerminatedEmployeeRequiredException;
+import com.lifecontrol.api.provisioning.exception.RevokedEmployeeRefusedException;
+import com.lifecontrol.api.provisioning.exception.RevokedEmployeeRequiredException;
 import com.lifecontrol.api.provisioning.model.AccessProvisioningTaskKind;
 import com.lifecontrol.api.provisioning.repository.AccessProvisioningTaskRepository;
 import java.util.UUID;
@@ -85,7 +85,7 @@ public class AccessProvisioningRequestService {
      * @throws org.springframework.security.access.AccessDeniedException when the current user cannot
      *     access the company
      * @throws EmployeeNotFoundException when the employee does not belong to the company
-     * @throws TerminatedEmployeeRefusedException when the employee's status is {@code Terminated}
+     * @throws RevokedEmployeeRefusedException when the employee's status is {@code Terminated}
      * @throws com.lifecontrol.api.provisioning.exception.AccessProvisioningTaskAlreadyOpenException
      *     when the employee already has an open task
      */
@@ -95,7 +95,7 @@ public class AccessProvisioningRequestService {
         var employee = requireEmployeeInCompany(companyId, employeeId);
 
         if (EmployeeStatuses.isTerminated(employee)) {
-            throw new TerminatedEmployeeRefusedException(employeeId);
+            throw new RevokedEmployeeRefusedException(employeeId);
         }
         gateService.request(companyId, employeeId, AccessProvisioningTaskKind.ACTIVATE, currentUserContext.getUserId());
     }
@@ -108,7 +108,7 @@ public class AccessProvisioningRequestService {
      * template's roles and the five claims, while the required set is derived from the current contract
      * — so for an employee who is not revoked the next fact of that same employee would grant back
      * exactly what the revocation removed, and the intent would undo itself. The refusal is a named
-     * {@link TerminatedEmployeeRequiredException} — 409 through the conflict category, record T86 — and
+     * {@link RevokedEmployeeRequiredException} — 409 through the conflict category, record T86 — and
      * it happens <b>before</b> any task row exists, the same shape {@link #apply(UUID, UUID)} applies in
      * the opposite direction (record T84).</p>
      *
@@ -120,7 +120,7 @@ public class AccessProvisioningRequestService {
      * @throws org.springframework.security.access.AccessDeniedException when the current user cannot
      *     access the company
      * @throws EmployeeNotFoundException when the employee does not belong to the company
-     * @throws TerminatedEmployeeRequiredException when the employee is not {@code Terminated}
+     * @throws RevokedEmployeeRequiredException when the employee is not {@code Terminated}
      * @throws com.lifecontrol.api.provisioning.exception.AccessProvisioningTaskAlreadyOpenException
      *     when the employee already has an open task
      */
@@ -130,7 +130,7 @@ public class AccessProvisioningRequestService {
         var employee = requireEmployeeInCompany(companyId, employeeId);
 
         if (!EmployeeStatuses.isTerminated(employee)) {
-            throw new TerminatedEmployeeRequiredException(employeeId);
+            throw new RevokedEmployeeRequiredException(employeeId);
         }
 
         gateService.request(
@@ -187,7 +187,7 @@ public class AccessProvisioningRequestService {
      * @throws org.springframework.security.access.AccessDeniedException when the current user cannot
      *     access the company
      * @throws EmployeeNotFoundException when the employee does not belong to the company
-     * @throws TerminatedEmployeeRefusedException when the employee's status is {@code Terminated}
+     * @throws RevokedEmployeeRefusedException when the employee's status is {@code Terminated}
      * @throws com.lifecontrol.api.provisioning.exception.AccountNotLinkedException when nothing is
      *     linked to send to
      */
@@ -197,7 +197,7 @@ public class AccessProvisioningRequestService {
         var employee = requireEmployeeInCompany(companyId, employeeId);
 
         if (EmployeeStatuses.isTerminated(employee)) {
-            throw new TerminatedEmployeeRefusedException(employeeId);
+            throw new RevokedEmployeeRefusedException(employeeId);
         }
         accountService.resendInvitation(employee);
     }

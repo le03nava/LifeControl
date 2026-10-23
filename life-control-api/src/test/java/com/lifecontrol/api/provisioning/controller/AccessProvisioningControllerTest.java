@@ -21,8 +21,8 @@ import com.lifecontrol.api.provisioning.dto.AccessProvisioningTaskView;
 import com.lifecontrol.api.provisioning.exception.AccountNotLinkedException;
 import com.lifecontrol.api.provisioning.exception.NoOpenAccessProvisioningTaskException;
 import com.lifecontrol.api.provisioning.exception.SelfApprovalRefusedException;
-import com.lifecontrol.api.provisioning.exception.TerminatedEmployeeRefusedException;
-import com.lifecontrol.api.provisioning.exception.TerminatedEmployeeRequiredException;
+import com.lifecontrol.api.provisioning.exception.RevokedEmployeeRefusedException;
+import com.lifecontrol.api.provisioning.exception.RevokedEmployeeRequiredException;
 import com.lifecontrol.api.provisioning.model.AccessProvisioningTaskKind;
 import com.lifecontrol.api.provisioning.model.AccessProvisioningTaskStatus;
 import com.lifecontrol.api.provisioning.service.AccessProvisioningGateService;
@@ -192,7 +192,7 @@ class AccessProvisioningControllerTest {
     @Test
     @DisplayName("should answer 409 carrying the message when the employee is Terminated")
     void applyOnATerminatedEmployeeIsRefusedWith409() throws Exception {
-        doThrow(new TerminatedEmployeeRefusedException(employeeId))
+        doThrow(new RevokedEmployeeRefusedException(employeeId))
                 .when(accessProvisioningRequestService)
                 .apply(companyId, employeeId);
 
@@ -235,7 +235,7 @@ class AccessProvisioningControllerTest {
     @Test
     @DisplayName("should answer 409 carrying the message when the employee is not Terminated")
     void deactivateOnANonTerminatedEmployeeIsRefusedWith409() throws Exception {
-        doThrow(new TerminatedEmployeeRequiredException(employeeId))
+        doThrow(new RevokedEmployeeRequiredException(employeeId))
                 .when(accessProvisioningRequestService)
                 .deactivate(companyId, employeeId);
 

@@ -20,8 +20,8 @@ import com.lifecontrol.api.hr.repository.EmployeeRepository;
 import com.lifecontrol.api.provisioning.exception.AccountNotLinkedException;
 import com.lifecontrol.api.provisioning.exception.InvalidTaskStatusTransitionException;
 import com.lifecontrol.api.provisioning.exception.NoOpenAccessProvisioningTaskException;
-import com.lifecontrol.api.provisioning.exception.TerminatedEmployeeRefusedException;
-import com.lifecontrol.api.provisioning.exception.TerminatedEmployeeRequiredException;
+import com.lifecontrol.api.provisioning.exception.RevokedEmployeeRefusedException;
+import com.lifecontrol.api.provisioning.exception.RevokedEmployeeRequiredException;
 import com.lifecontrol.api.provisioning.model.AccessProvisioningTask;
 import com.lifecontrol.api.provisioning.repository.AccessProvisioningTaskRepository;
 import com.lifecontrol.api.status.model.Status;
@@ -191,7 +191,7 @@ class AccessProvisioningRequestServiceTest {
             employeeInCompany(terminated);
 
             assertThatThrownBy(() -> service.apply(companyId, employeeId))
-                    .isInstanceOf(TerminatedEmployeeRefusedException.class)
+                    .isInstanceOf(RevokedEmployeeRefusedException.class)
                     .hasMessageContaining("Terminated");
 
             verifyNoInteractions(gateService);
@@ -203,7 +203,7 @@ class AccessProvisioningRequestServiceTest {
             employeeInCompany(terminated);
 
             assertThatThrownBy(() -> service.apply(companyId, employeeId))
-                    .isInstanceOf(TerminatedEmployeeRefusedException.class);
+                    .isInstanceOf(RevokedEmployeeRefusedException.class);
 
             verifyNoInteractions(accountService);
         }
@@ -289,7 +289,7 @@ class AccessProvisioningRequestServiceTest {
             employeeInCompany(active);
 
             assertThatThrownBy(() -> service.deactivate(companyId, employeeId))
-                    .isInstanceOf(TerminatedEmployeeRequiredException.class)
+                    .isInstanceOf(RevokedEmployeeRequiredException.class)
                     .hasMessageContaining(employeeId.toString());
 
             verifyNoInteractions(gateService, taskService, accountService);
@@ -460,7 +460,7 @@ class AccessProvisioningRequestServiceTest {
             employeeInCompany(terminated);
 
             assertThatThrownBy(() -> service.resend(companyId, employeeId))
-                    .isInstanceOf(TerminatedEmployeeRefusedException.class)
+                    .isInstanceOf(RevokedEmployeeRefusedException.class)
                     .hasMessageContaining("Terminated");
 
             verifyNoInteractions(accountService);
