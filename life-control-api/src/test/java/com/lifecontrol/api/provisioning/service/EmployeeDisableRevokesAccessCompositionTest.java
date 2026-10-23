@@ -19,6 +19,7 @@ import com.lifecontrol.api.hr.model.Position;
 import com.lifecontrol.api.hr.model.PositionRole;
 import com.lifecontrol.api.hr.repository.ContractRepository;
 import com.lifecontrol.api.hr.repository.EmployeeRepository;
+import com.lifecontrol.api.hr.repository.EmployeeScopeAssignmentRepository;
 import com.lifecontrol.api.hr.repository.EmployeeStoreAssignmentRepository;
 import com.lifecontrol.api.hr.repository.PositionRoleRepository;
 import com.lifecontrol.api.hr.service.EmployeeStatuses;
@@ -58,6 +59,9 @@ class EmployeeDisableRevokesAccessCompositionTest {
     @Mock
     private EmployeeStoreAssignmentRepository assignmentRepository;
 
+    @Mock
+    private EmployeeScopeAssignmentRepository scopeAssignmentRepository;
+
     private InMemoryIdentityProvider identityProvider;
     private AccessProvisioningAccountService accountService;
     private AccessProvisioningRoleService roleService;
@@ -74,7 +78,8 @@ class EmployeeDisableRevokesAccessCompositionTest {
                 new AccessProvisioningAccountService(identityProvider, employeeRepository, appClient, invitation);
         roleService = new AccessProvisioningRoleService(
                 identityProvider, appClient, contractRepository, positionRoleRepository);
-        var membershipService = new AccessProvisioningMembershipService(identityProvider, assignmentRepository);
+        var membershipService = new AccessProvisioningMembershipService(
+                identityProvider, assignmentRepository, scopeAssignmentRepository);
         handler = new AccessProvisioningWorkerHandler(accountService, roleService, membershipService);
         employeeId = UUID.randomUUID();
         company = Company.builder()

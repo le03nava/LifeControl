@@ -13,7 +13,7 @@ import java.util.UUID;
  * created by {@code V22__employee_access_provisioning.sql}.
  *
  * <p>The row is written in the same transaction that asserts the organisational fact — a contract
- * activation, a store-assignment change, a termination — and a worker resolves it by
+ * activation, a store- or scope-assignment change, a termination — and a worker resolves it by
  * <b>reconciling</b> Keycloak against the current truth (record T2/T4), never by replaying an
  * instruction. That is why the row carries a <b>reference</b> (the {@link #employee} and the
  * {@link #kind}) and never the role names (record T3).</p>
