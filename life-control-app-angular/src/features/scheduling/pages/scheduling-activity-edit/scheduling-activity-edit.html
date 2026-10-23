@@ -19,7 +19,7 @@
   }
 
   @if (generalError(); as saveFailure) {
-    <app-error-banner [message]="saveFailure" />
+    <app-error-banner [message]="saveFailure" [autoScroll]="true" />
   }
 
   @if (!isEditMode()) {

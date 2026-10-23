@@ -7,6 +7,10 @@ const ERROR_CASES: [status: number, message: string][] = [
   [403, 'No tenés permisos para realizar esta acción.'],
   [404, 'No se encontró el recurso solicitado.'],
   [409, 'El dato cambió mientras lo editabas. Recargá la página y volvé a intentar.'],
+  [
+    412,
+    'Otra sesión guardó este dato primero y tu cambio no se guardó. Volvé a cargar los valores actuales antes de intentar de nuevo.',
+  ],
   [500, 'Ocurrió un error en el servidor. Intentá de nuevo más tarde.'],
 ];
 
