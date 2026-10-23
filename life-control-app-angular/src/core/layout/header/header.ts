@@ -167,6 +167,19 @@ export class Header implements OnInit {
       });
     }
 
+    // Reportes is the audit trail: a read-only screen over `GET /api/activity-logs`,
+    // which is `hasRole('lc-admin')`, so the entry is offered to the same one role the
+    // route and the endpoint admit. Appended last so the entries above keep their
+    // pinned order, and its `id` is the next unused one after Recursos Humanos.
+    if (this.isAdmin()) {
+      menuItems.push({
+        id: '10',
+        routeLink: '/reports',
+        textLink: 'Reportes',
+        icon: 'assessment',
+      });
+    }
+
     return menuItems;
   });
 

@@ -622,6 +622,58 @@ const SAMPLE_SCHEDULING_ACTIVITIES: SchedulingActivityMock[] = [
   },
 ];
 
+/** One `activity_logs` row as `GET /api/activity-logs` serializes it (S3). */
+export interface ActivityLogMock {
+  id: string;
+  userId: string | null;
+  username: string | null;
+  process: string;
+  event: string;
+  httpMethod: string;
+  httpStatus: number;
+  requestPath: string;
+  ipAddress: string | null;
+  userAgent: string | null;
+  payloadJson: string | null;
+  createdAt: string;
+}
+
+/**
+ * Two audit rows for the `Reportes` screen: one with a resolved username and one
+ * that outlived its account (`username` and `userId` both `null`), so the actor
+ * fallback to an em dash is rendered by the mock too.
+ */
+const SAMPLE_ACTIVITY_LOGS: ActivityLogMock[] = [
+  {
+    id: 'e2e-activity-log-1',
+    userId: 'e2e-user-ana',
+    username: 'ana.gomez',
+    process: 'HR',
+    event: 'CREATE',
+    httpMethod: 'POST',
+    httpStatus: 201,
+    requestPath: '/api/companies/e2e-company-1/employees',
+    ipAddress: '10.0.0.7',
+    userAgent: 'playwright',
+    payloadJson: null,
+    createdAt: '2026-01-02T09:15:00',
+  },
+  {
+    id: 'e2e-activity-log-2',
+    userId: null,
+    username: null,
+    process: 'GOODSRECEIPT',
+    event: 'CREATE',
+    httpMethod: 'POST',
+    httpStatus: 409,
+    requestPath: '/api/goods-receipts',
+    ipAddress: '10.0.0.8',
+    userAgent: 'playwright',
+    payloadJson: null,
+    createdAt: '2026-01-02T10:30:00',
+  },
+];
+
 export interface ApiMockOptions {
   companies?: CompanyMock[];
   countries?: CountryMock[];
@@ -646,6 +698,8 @@ export interface ApiMockOptions {
   positionRoles?: PositionRoleMock[];
   /** The allowlist the roles editor draws its checkboxes from. */
   grantableRoles?: string[];
+  /** Audit-trail rows behind the admin-only `Reportes` screen. */
+  activityLogs?: ActivityLogMock[];
 }
 
 /**
@@ -665,6 +719,9 @@ export async function installApiMock(page: Page, options: ApiMockOptions = {}): 
   const goodsReceipts: GoodsReceiptMock[] = options.goodsReceipts
     ? [...options.goodsReceipts]
     : [...SAMPLE_GOODS_RECEIPTS];
+  const activityLogs: ActivityLogMock[] = options.activityLogs
+    ? [...options.activityLogs]
+    : [...SAMPLE_ACTIVITY_LOGS];
   const storeLocations: StoreLocationMock[] = options.storeLocations
     ? [...options.storeLocations]
     : [...SAMPLE_STORE_LOCATIONS];
@@ -1341,6 +1398,12 @@ export async function installApiMock(page: Page, options: ApiMockOptions = {}): 
       return;
     }
 
+    if (path === '/api/activity-logs' && method === 'GET') {
+      const url = new URL(request.url());
+      await fulfillJson(route, pageResponse(filterActivityLogs(activityLogs, url), url), cors);
+      return;
+    }
+
     await fulfillJson(route, { status: 404, message: 'Not found' }, cors, 404);
   });
 }
@@ -1489,6 +1552,32 @@ function shiftIsoDate(value: string, days: number): string {
   const shifted = new Date(year, month - 1, day + days);
   const pad = (part: number): string => part.toString().padStart(2, '0');
   return `${shifted.getFullYear()}-${pad(shifted.getMonth() + 1)}-${pad(shifted.getDate())}`;
+}
+
+/**
+ * Applies the six filters `GET /api/activity-logs` accepts — and no others — so the
+ * mock cannot disagree with the endpoint's contract. An absent filter matches
+ * everything; `from`/`to` compare the date part of `createdAt`.
+ */
+function filterActivityLogs(logs: ActivityLogMock[], url: URL): ActivityLogMock[] {
+  const from = url.searchParams.get('from');
+  const to = url.searchParams.get('to');
+  const process = url.searchParams.get('process');
+  const event = url.searchParams.get('event');
+  const userId = url.searchParams.get('userId');
+  const httpMethod = url.searchParams.get('httpMethod');
+
+  return logs.filter((log) => {
+    const date = log.createdAt.slice(0, 10);
+    return (
+      (!from || date >= from) &&
+      (!to || date <= to) &&
+      (!process || log.process === process) &&
+      (!event || log.event === event) &&
+      (!userId || log.userId === userId) &&
+      (!httpMethod || log.httpMethod === httpMethod)
+    );
+  });
 }
 
 function filterReceipts(receipts: GoodsReceiptMock[], url: URL): GoodsReceiptMock[] {
