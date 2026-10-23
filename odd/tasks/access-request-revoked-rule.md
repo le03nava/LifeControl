@@ -55,13 +55,13 @@ is in the pull request with its opening verdict token, and
 
 | ID | Spec | Route | Commit |
 | --- | --- | --- | --- |
-| T1 | — | Worktree `fix/access-request-revoked-rule` off the parent tip `88acf75` (`./.github/scripts/new-unit.sh`), this record, the Engram mirror and the `todo` projection | `docs(odd): record access-request-revoked-rule` |
-| T2 | S1, S2, S3, S5 | RED first: three `AccessProvisioningRequestServiceTest` cases for a soft-deleted employee (`enabled = false`, status `Active`) — refused by `apply`, refused by `resend`, admitted by `deactivate` — plus the renamed assertions of S4 | `test(provisioning): pin the revoked rule in the explicit request surface` |
-| T3 | S1, S2, S3 | GREEN: the three guards read `EmployeeStatuses.isRevoked` | `fix(provisioning): make the explicit request surface read one revocation rule` |
-| T4 | S4 | The two exception classes renamed and their messages rewritten to the rule, with every call site and test moved | (same commit as T3 — a class rename cannot be its own commit without a red tree) |
+| T1 | — | Worktree `fix/access-request-revoked-rule` off the parent tip `88acf75` (`./.github/scripts/new-unit.sh`), this record, the Engram mirror and the `todo` projection | `764aa0f docs(odd): record access-request-revoked-rule` |
+| T2 | S1, S2, S3, S5 | RED first: three `AccessProvisioningRequestServiceTest` cases for a soft-deleted employee (`enabled = false`, status `Active`) — refused by `apply`, refused by `resend`, admitted by `deactivate` | `7ed5f23 test(provisioning): pin the revoked rule in the explicit request surface` |
+| T3 | S1, S2, S3 | GREEN: the three guards read `EmployeeStatuses.isRevoked` | `e5a3384 fix(provisioning): make the explicit request surface read one revocation rule` |
+| T4 | S4 | The two exception classes renamed and their messages rewritten to the rule, with every call site and test moved | `79b1b28 refactor(provisioning): name the access refusals after the rule they enforce` (ordered before the RED so the failing test states a behavior, not a missing class) |
 | T5 | S6 | Javadoc of the three methods and the two exceptions, the controller's `409` documentation, `life-control-api/AGENTS.md` | `docs(provisioning): state the revocation rule the guards enforce` |
-| T6 | S7 | Gates: `spotlessCheck`/`spotbugsMain`, the focused suite, `./gradlew test`, the offline script suites | (no commit; evidence here) |
-| T7 | — | Independent read-only verification of S1–S7 (Task Size item 2) | (no commit; evidence here) |
+| T6 | S7 | Gates: `spotlessCheck`/`spotbugsMain`, the focused suite, `./gradlew test`, the offline script suites | (no commit; evidence below) |
+| T7 | — | Independent read-only verification of S1–S7 (Task Size item 2) | (no commit; evidence below) |
 
 ## Log
 
@@ -109,11 +109,26 @@ locally-authored copy and its specs, which are `ContractService`'s message and n
 the change is a human-facing copy correction, not a contract break. Both messages still contain
 `Terminated`, so a client that greps for it keeps working.
 
+## Doc truth found while editing the same declarations
+
+The `@ApiResponse`/`@Operation` documentation of `/apply` and `/resend` still described the
+"company without a usable email domain" refusal, which records T102/T104 deleted: measured on this
+branch, `grep -rn 'emailDomain' src/main/java/com/lifecontrol/api/provisioning/` returns nothing. The
+clauses are corrected in the same declarations this slice rewrites — leaving a false refusal documented
+while editing the sentence that lists the refusals would ship a fresh lie.
+
+## Review budget
+
+The authored diff of this slice lands slightly over the advisory ~400 lines, and the reason is named
+rather than hidden: the rename of two exception classes carries their javadoc, and splitting it into
+its own pull request would deliver a surface whose names contradict the rule it enforces in the middle
+of a chain. The mechanical half is separable at review time by commit — `refactor(provisioning)`, then
+the RED test, then the three guards.
+
 ## Commands and evidence
 
-(measured on this branch; see the dated log below)
-
-- `./gradlew test --tests '*AccessProvisioningRequestServiceTest'` — RED before the guards changed,
-  green after.
-- `./gradlew test --no-daemon` (life-control-api).
-- `./.github/scripts/tests/odd-status-headers.test.sh`.
+| Date | Command | Result |
+| --- | --- | --- |
+| 2026-10-22 | `./gradlew test --tests '*AccessProvisioningRequestServiceTest' --tests '*AccessProvisioningControllerTest' --no-daemon` (rename only, guards untouched) | `BUILD SUCCESSFUL` in 36s — the rename changes no behavior |
+| 2026-10-22 | same, with the three new cases (`7ed5f23`) | **RED**: `29 tests completed, 3 failed` — `apply`, `resend` and `deactivate` disagree with the rule |
+| 2026-10-22 | `./gradlew test --tests '*AccessProvisioningRequestServiceTest' --tests '*AccessProvisioningControllerTest' --tests '*AccessProvisioningControllerSecurityTest' --no-daemon` (guards changed, `e5a3384`) | `BUILD SUCCESSFUL` in 23s, `GRADLE_EXIT=0` |

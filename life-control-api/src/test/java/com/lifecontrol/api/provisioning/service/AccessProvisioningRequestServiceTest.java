@@ -48,10 +48,11 @@ import org.springframework.security.access.AccessDeniedException;
  * <p>What is pinned here is <b>not</b> the task the gate creates — that is
  * {@link AccessProvisioningGateServiceTest}'s subject — but the three things this class is
  * responsible for: the company check as the first statement, the two refusals that have to happen
- * <b>before</b> any task is requested (the {@code Terminated} rule of record T84 and the
- * deliverable-domain rule of record T68, both read from the same predicate the account path uses),
- * and the actor the request is recorded with — the JWT {@code sub} claim and never the username
- * (record T83), because the gate compares that value against the approving actor (rule O3).</p>
+ * <b>before</b> any task is requested (one revocation rule, {@code EmployeeStatuses.isRevoked} —
+ * {@code Terminated} or soft-deleted, records T84 and G41 — read in both directions: refused by
+ * {@code apply} and {@code resend}, required by {@code deactivate}), and the actor the request is
+ * recorded with — the JWT {@code sub} claim and never the username (record T83), because the gate
+ * compares that value against the approving actor (rule O3).</p>
  */
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
