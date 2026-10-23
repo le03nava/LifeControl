@@ -941,6 +941,55 @@ Tres capas de control independientes:
 | `lc-company-zone` | ✅ | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ |
 | `lc-company-store` | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
 
+### Qué ve cada rol: su nivel, filtrado por su claim, y todo el subárbol
+
+La jerarquía de arriba describe **qué rutas** alcanza cada rol; esto describe **qué filas** devuelve
+cada listado cuando el rol llega. La regla que el código implementa es una sola: **un rol ve su propio
+nivel filtrado por el claim de ese nivel y el subárbol entero por debajo**. Un nivel que el rol no
+tiene no filtra nada, así que el nivel superior ve el árbol completo de la empresa, y `lc-admin` no se
+filtra en ningún nivel.
+
+| Nivel listado | Servicio y método | Filtro cuando el rol es el de ese nivel |
+|---------------|-------------------|------------------------------------------|
+| Empresas | `CompanyService.findCompaniesForCurrentUser:82` | `company_id` para todo caller no-admin: es el claim que acota el árbol entero, y no hay nivel por encima que lo recorte |
+| Países | `CompanyCountryService.getCountriesByCompanyId:58-68` | `company_country_id`, y sólo si el caller **no** es admin ni `lc-company` (`BASE_ROLES` por ruta) |
+| Regiones | `CompanyRegionService.getAllRegions:74-84` | `company_region_id` (ruta: `REGION_ROLES` → admin, `lc-company`, `lc-company-country`, `lc-company-region`) |
+| Zonas | `CompanyZoneService.getAllZones:81-91` | `company_zone_id` (ruta: `ZONE_ROLES` → `REGION_ROLES` + `lc-company-zone`) |
+| Tiendas | `CompanyStoreService.getAllStores:104-115` | `company_store_id` (ruta: `STORE_ROLES` → `STORE_WRITE_ROLES` + `lc-company-store-read`) |
+
+Los roles `*-read` (`lc-company-country-read`, `lc-company-region-read`, `lc-company-zone-read`,
+`lc-company-store-read`) se filtran **exactamente igual** que su par de escritura: la única diferencia
+es que no alcanzan las rutas de escritura.
+
+> Matiz verificado en el código, pre-existente a esta unidad: el listado de **países** filtra por
+> `company_country_id` sólo para el rol de país. Un `lc-company-region` o `lc-company-zone` que llegara
+> a `GET /companies/{id}/countries` recibiría todos los países de la empresa sin filtrar; no llega
+> porque `companies.routes.ts` no declara ese endpoint para esos roles. Es una brecha de allow-list
+> conocida y diferida, no una consecuencia de este cambio.
+
+### Alcance asignado por nivel
+
+El alcance (los cinco claims `company_*` del token) tiene dos fuentes, y las dos se **unen** en la
+derivación:
+
+| Nivel | Cómo se asigna |
+|-------|----------------|
+| Empresa | **No se asigna.** Una persona pertenece a una sola empresa; `company_id` se deriva de `employees.company_id` y sigue siendo exactamente uno. |
+| País, región, zona | Se asignan **por empleado** en `employee_scope_assignments`, vía `POST` / `PATCH …/{id}/close` bajo `/api/companies/{companyId}/employees/{employeeId}/scope-assignments`. Una fila nombra **un** nodo (exactamente uno de `companyCountryId` / `companyRegionId` / `companyZoneId`), y la cadena de ancestros de ese nodo es lo que alimenta los claims. |
+| Tienda | Conserva su propia tabla, `employee_store_assignments`, sin cambios: una asignación de tienda sigue derivando tienda → zona → región → país. |
+
+**Gate de escritura**: `lc-admin` + `lc-employee`, el mismo par que `EmployeeScopeAssignmentController`
+(a su vez el mismo de `EmployeeStoreAssignmentController`). La lectura del historial es
+`isAuthenticated()`; la pantalla gatea sus controles en `EMPLOYEE_WRITE_ROLES` para no ofrecer un
+control que la API rechazaría.
+
+En la pantalla de detalle del empleado el alcance se ve y se edita en la pestaña **Alcance** (sección
+`scope-assignments-section`), al lado de **Tiendas**: una fila por asignación con su nivel, el nodo, la
+vigencia y la cadena derivada que va a llevar el token. El **nivel es una ayuda visual, no un gate**:
+el diálogo muestra los tres niveles y usa el rol de mayor alcance que el empleado ya tiene
+(`lc-company-country` → `lc-company-region` → `lc-company-zone`) sólo para preseleccionar y ordenar la
+opción. Qué nivel se puede escribir lo decide la API; la UI no inventa una regla de autorización.
+
 ### Realm Roles (legacy)
 
 Solo **Users Admin** sigue usando un realm role: sus rutas declaran `data: { role: 'admin' }`
