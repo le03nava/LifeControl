@@ -209,3 +209,17 @@ a separate work unit because it changes who may read an existing endpoint.
   first slice reports a finished feature halfway through. Merge order is the chain order, and the base
   branches must not be deleted while a child is open — the provider's automatic head-branch deletion is
   already off for this repository, so the guard is the merge step itself.
+- **L20** — correction to L19, made within the hour and left visible for the same reason as L17. L19
+  said the issue would be closed by the last pull request and that the first two would say *Part of* it.
+  CI refuted it: `A linked, approved issue` failed on `#544` and `#545`, because
+  `.github/scripts/check-issue-reference.sh:23-29` requires a **closing keyword** on the pull request
+  that targets the default branch and accepts `Refs #N` only off it — `Part of` is neither. The bodies
+  now carry `Closes #543` on `#544` (which targets `main`) and `Refs #543` on the two children. The
+  consequence is the opposite of what L19 claimed and is the provider's own semantics: **the issue
+  closes when the first slice merges**, because GitHub honours a closing keyword only for a
+  default-branch target, which is the very reason the guard accepts `Refs` off `main`.
+- **L21** — doc drift found while reading the guard, reported and not fixed here: `AGENTS.md`'s PR-label
+  table says the guard "does not validate the linked issue or the PR body". Measured today, the
+  `A linked, approved issue` job is a live gate that fails a pull request whose body carries no valid
+  reference, and it also refuses a referenced issue that is closed or lacks `status:approved`. The row
+  is wrong and belongs to a separate documentation change.
