@@ -31,6 +31,24 @@ public final class EmployeeStatuses {
     }
 
     /**
+     * Whether {@code employee} holds <b>no access</b>: the {@code Terminated} status, or the soft
+     * delete's {@code enabled = false}.
+     *
+     * <p>This is the single copy of the rule gap <b>G41</b> was about
+     * ({@code employee-disable-revokes-access}): the projection used to read the status alone, so a
+     * soft-deleted employee whose contract still covered today kept every role and claim. The two facts
+     * are one verdict — the person is out — and they are compared here so that the derivation, the
+     * gate's diff, the worker's convergence and the account half can never disagree about it.</p>
+     *
+     * <p>A null {@code enabled} is <b>not</b> a revocation on purpose: the column is
+     * {@code NOT NULL DEFAULT true} and the entity initializes it to {@code true}, so an unset flag only
+     * ever exists on a builder that has not run the field initializer, never on a loaded row.</p>
+     */
+    public static boolean isRevoked(Employee employee) {
+        return isTerminated(employee) || (employee != null && Boolean.FALSE.equals(employee.getEnabled()));
+    }
+
+    /**
      * Whether {@code status} is the {@code Terminated} row of the {@code EMPLOYEE_STATUS} family.
      *
      * <p>The same rule expressed over the {@link Status} itself, for the call sites that hold a

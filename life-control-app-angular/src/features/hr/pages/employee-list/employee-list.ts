@@ -87,11 +87,12 @@ interface StatusOption {
  * Disable is a soft delete (`enabled = false`) and is **not** the `Terminated`
  * status (`T3`): the copy says "deshabilitar", the inverse action is offered for
  * a disabled row, and neither reads nor writes the life-cycle status. The
- * confirmation also states that disabling **does not revoke access** (`G41`):
- * the projection derives the required roles from the contract and the status, so
- * a disabled employee whose contract still covers today keeps their roles, their
- * claims and their enabled account, and the copy says so instead of leaving the
- * operator to infer it from the disable's own name.
+ * confirmation states that disabling **revokes access** (`G41`, record
+ * `employee-disable-revokes-access`): the backend now derives no required roles
+ * for a soft-deleted employee and enqueues the `DEACTIVATE` that disables the
+ * account and removes its roles and claims, so the copy describes the revocation
+ * instead of denying it, and names the way back — re-enabling restores the
+ * access the covering contract grants.
  *
  * There is deliberately no position column (`G15`): `EmployeeResponse` carries
  * no position and the contracts are only reachable per employee, so the column
@@ -481,7 +482,7 @@ export class EmployeeList {
     const dialogRef = this.dialog.open(ConfirmDialog, {
       data: {
         title: 'Deshabilitar empleado',
-        message: `¿Confirmás que querés deshabilitar a "${this.fullName(employee)}"? Deja de aparecer en el registro, pero se conserva y podés habilitarlo más adelante. Esto no revoca su acceso: los roles y la cuenta siguen activos hasta que cambies su estado.`,
+        message: `¿Confirmás que querés deshabilitar a "${this.fullName(employee)}"? Deja de aparecer en el registro y se le revoca el acceso: su cuenta y sus roles se desactivan. Si la revocación toca roles que requieren aprobación, queda pendiente en Acceso. Podés habilitarlo más adelante y recupera el acceso según el contrato que lo cubra.`,
         confirmLabel: 'Deshabilitar',
         destructive: true,
       },

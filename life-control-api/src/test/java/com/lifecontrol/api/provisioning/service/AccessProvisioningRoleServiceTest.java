@@ -132,6 +132,17 @@ class AccessProvisioningRoleServiceTest {
                 .build();
     }
 
+    /** A soft-deleted employee: {@code enabled = false} and every other fact still standing (G41). */
+    private Employee disabledEmployee() {
+        return Employee.builder()
+                .id(employeeId)
+                .company(company)
+                .email("jane.doe@acme.com")
+                .keycloakUserId(KC_USER_ID)
+                .enabled(false)
+                .build();
+    }
+
     private Contract contract(Position ofPosition) {
         return Contract.builder()
                 .position(ofPosition)
@@ -275,6 +286,37 @@ class AccessProvisioningRoleServiceTest {
             verify(identityProvider).removeRoleFromUser(KC_USER_ID, "lc-sales", RoleScope.CLIENT, CLIENT_ID);
             verify(identityProvider, never()).assignRoleToUser(any(), any(), any(), any());
             verifyNoInteractions(positionRoleRepository);
+        }
+
+        @Test
+        @DisplayName("a soft-deleted employee requires nothing: every held grantable role is removed (G41)")
+        void disabledEmployeeConvergesToEmptyRequiredSet() {
+            stubContracts(contract(position));
+            stubCurrentRoles("lc-sales", "lc-company");
+
+            var result = service.convergeRoles(disabledEmployee());
+
+            assertThat(result.required()).isEmpty();
+            assertThat(result.granted()).isEmpty();
+            assertThat(result.removed()).containsExactly("lc-company", "lc-sales");
+            verify(identityProvider).removeRoleFromUser(KC_USER_ID, "lc-company", RoleScope.CLIENT, CLIENT_ID);
+            verify(identityProvider).removeRoleFromUser(KC_USER_ID, "lc-sales", RoleScope.CLIENT, CLIENT_ID);
+            verify(identityProvider, never()).assignRoleToUser(any(), any(), any(), any());
+            verifyNoInteractions(positionRoleRepository);
+        }
+
+        @Test
+        @DisplayName("the entity's default enabled=true is not a revocation")
+        void defaultEnabledFlagIsNotARevocation() {
+            stubContracts(contract(position));
+            stubTemplate(role("lc-sales", true));
+            stubCurrentRoles();
+
+            var result = service.convergeRoles(employee);
+
+            assertThat(employee.getEnabled()).isTrue();
+            assertThat(result.required()).containsExactly("lc-sales");
+            assertThat(result.granted()).containsExactly("lc-sales");
         }
 
         @Test
@@ -529,6 +571,30 @@ class AccessProvisioningRoleServiceTest {
             stubContracts(contract(position));
 
             var required = service.requiredRoles(terminatedEmployee());
+
+            assertThat(required).isEmpty();
+            verifyNoInteractions(identityProvider);
+            verifyNoInteractions(positionRoleRepository);
+        }
+
+        @Test
+        @DisplayName("a soft-deleted employee requires nothing and no template is read (G41)")
+        void disabledEmployeeRequiresNothing() {
+            stubContracts(contract(position));
+
+            var required = service.requiredRoles(disabledEmployee());
+
+            assertThat(required).isEmpty();
+            verifyNoInteractions(identityProvider);
+            verifyNoInteractions(positionRoleRepository);
+        }
+
+        @Test
+        @DisplayName("a soft-deleted employee with no covering contract requires nothing (G41)")
+        void disabledEmployeeWithNoContractRequiresNothing() {
+            stubContracts();
+
+            var required = service.requiredRoles(disabledEmployee());
 
             assertThat(required).isEmpty();
             verifyNoInteractions(identityProvider);

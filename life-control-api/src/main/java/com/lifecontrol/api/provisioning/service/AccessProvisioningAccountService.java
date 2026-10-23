@@ -175,7 +175,9 @@ public class AccessProvisioningAccountService {
 
     /**
      * Ensures the account of a <b>non-revoked</b> employee is enabled, and leaves a revoked employee's
-     * account exactly as it is.
+     * account exactly as it is. A revoked employee is a {@code Terminated} one <b>or</b> a soft-deleted
+     * one (gap G41, record {@code employee-disable-revokes-access}), the same single rule the role
+     * derivation applies.
      *
      * <p>This is the convergence half of gap G36 (records T99/T100): a rehired person stays linked —
      * the revocation is {@code disableUser} and never a delete (record T6) — and this is what turns the
@@ -194,7 +196,10 @@ public class AccessProvisioningAccountService {
      */
     @Transactional
     public void ensureAccountEnabled(Employee employee) {
-        if (EmployeeStatuses.isTerminated(employee)) {
+        // G41: a soft-deleted employee is revoked, so its account state belongs to the DEACTIVATE arm
+        // exactly as a terminated one's does. Without this the convergence that follows a revocation
+        // would reopen the door the derivation just closed.
+        if (EmployeeStatuses.isRevoked(employee)) {
             return;
         }
         var userId = employee.getKeycloakUserId();

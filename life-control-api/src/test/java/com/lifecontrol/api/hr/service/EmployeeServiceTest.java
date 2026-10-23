@@ -840,6 +840,90 @@ class EmployeeServiceTest {
             var disabledResult = employeeService.setEmployeeEnabled(companyId, employeeId, false);
             assertThat(disabledResult.enabled()).isFalse();
         }
+
+        @Test
+        @DisplayName("delete of a linked employee enqueues the access revocation (G41)")
+        void delete_LinkedEmployee_EnqueuesTheRevocation() {
+            var linked = employee(employeeId, "EMP-001", "juan.perez@example.com", true);
+            linked.linkKeycloakUser("kc-user-1");
+            companyExists();
+            when(employeeRepository.findByIdAndCompanyId(employeeId, companyId)).thenReturn(Optional.of(linked));
+            saveReturnsArgument();
+
+            employeeService.deleteEmployee(companyId, employeeId);
+
+            verify(accessProvisioningProducer).onSoftDelete(companyId, linked);
+        }
+
+        @Test
+        @DisplayName("delete of an unlinked employee still asks the producer, which owns the no-account rule (G41)")
+        void delete_UnlinkedEmployee_LeavesTheDecisionToTheProducer() {
+            var unlinked = employee(employeeId, "EMP-001", "juan.perez@example.com", true);
+            companyExists();
+            when(employeeRepository.findByIdAndCompanyId(employeeId, companyId)).thenReturn(Optional.of(unlinked));
+            saveReturnsArgument();
+
+            employeeService.deleteEmployee(companyId, employeeId);
+
+            assertThat(unlinked.getEnabled()).isFalse();
+            verify(accessProvisioningProducer).onSoftDelete(companyId, unlinked);
+        }
+
+        @Test
+        @DisplayName("re-disabling an already disabled employee writes nothing and enqueues nothing (G41)")
+        void delete_AlreadyDisabled_EnqueuesNothing() {
+            var disabled = employee(employeeId, "EMP-001", "juan.perez@example.com", false);
+            disabled.linkKeycloakUser("kc-user-1");
+            companyExists();
+            when(employeeRepository.findByIdAndCompanyId(employeeId, companyId)).thenReturn(Optional.of(disabled));
+
+            employeeService.deleteEmployee(companyId, employeeId);
+
+            verify(employeeRepository, never()).save(any());
+            verifyNoInteractions(accessProvisioningProducer);
+        }
+
+        @Test
+        @DisplayName("setEmployeeEnabled(false) enqueues the revocation on the transition (G41)")
+        void setEmployeeEnabled_DisableTransition_EnqueuesTheRevocation() {
+            var linked = employee(employeeId, "EMP-001", "juan.perez@example.com", true);
+            linked.linkKeycloakUser("kc-user-1");
+            companyExists();
+            when(employeeRepository.findByIdAndCompanyId(employeeId, companyId)).thenReturn(Optional.of(linked));
+            saveReturnsArgument();
+
+            employeeService.setEmployeeEnabled(companyId, employeeId, false);
+
+            verify(accessProvisioningProducer).onSoftDelete(companyId, linked);
+        }
+
+        @Test
+        @DisplayName("setEmployeeEnabled(true) enqueues the reconciliation on the transition (G41)")
+        void setEmployeeEnabled_ReEnable_EnqueuesTheReconciliation() {
+            var disabled = employee(employeeId, "EMP-001", "juan.perez@example.com", false);
+            disabled.linkKeycloakUser("kc-user-1");
+            companyExists();
+            when(employeeRepository.findByIdAndCompanyId(employeeId, companyId)).thenReturn(Optional.of(disabled));
+            saveReturnsArgument();
+
+            employeeService.setEmployeeEnabled(companyId, employeeId, true);
+
+            verify(accessProvisioningProducer).onAccessRestored(companyId, disabled);
+        }
+
+        @Test
+        @DisplayName("setting the value the employee already holds enqueues nothing (G41)")
+        void setEmployeeEnabled_NoTransition_EnqueuesNothing() {
+            var linked = employee(employeeId, "EMP-001", "juan.perez@example.com", true);
+            linked.linkKeycloakUser("kc-user-1");
+            companyExists();
+            when(employeeRepository.findByIdAndCompanyId(employeeId, companyId)).thenReturn(Optional.of(linked));
+            saveReturnsArgument();
+
+            employeeService.setEmployeeEnabled(companyId, employeeId, true);
+
+            verifyNoInteractions(accessProvisioningProducer);
+        }
     }
 
     @Nested

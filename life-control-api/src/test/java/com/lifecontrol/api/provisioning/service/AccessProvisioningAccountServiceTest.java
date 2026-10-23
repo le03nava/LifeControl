@@ -381,6 +381,18 @@ class AccessProvisioningAccountServiceTest {
         }
 
         @Test
+        @DisplayName("should do nothing for a soft-deleted employee, so no convergence reopens the door (G41)")
+        void doesNothingForADisabledEmployee() {
+            var revoked = employeeWithDomain("acme.com");
+            revoked.linkKeycloakUser("kc-existing");
+            revoked.setEnabled(false);
+
+            service.ensureAccountEnabled(revoked);
+
+            verifyNoInteractions(identityProvider);
+        }
+
+        @Test
         @DisplayName("should refuse by name before any identity-provider call when no account is linked")
         void refusesWhenNoAccountIsLinked() {
             assertThatThrownBy(() -> service.ensureAccountEnabled(employee))

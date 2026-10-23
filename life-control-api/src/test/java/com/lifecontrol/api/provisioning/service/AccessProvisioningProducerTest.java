@@ -111,6 +111,28 @@ class AccessProvisioningProducerTest {
         when(currentUserContext.getUserId()).thenReturn(ACTOR_SUB);
     }
 
+    /** The same linked employee, soft-deleted: {@code enabled = false} with every other fact standing. */
+    private Employee disabledCopy() {
+        var disabled = Employee.builder()
+                .id(employeeId)
+                .company(linked.getCompany())
+                .email("juan.perez@acme.com")
+                .keycloakUserId("kc-user-1")
+                .enabled(false)
+                .build();
+        return disabled;
+    }
+
+    private AccessProvisioningTask openRevocationOf(Employee ofEmployee) {
+        return AccessProvisioningTask.builder()
+                .id(OPEN_TASK_ID)
+                .employee(ofEmployee)
+                .kind(DEACTIVATE)
+                .status(PENDING)
+                .attempts(0)
+                .build();
+    }
+
     @Nested
     @DisplayName("onContractActivated")
     class ContractActivated {
@@ -147,6 +169,30 @@ class AccessProvisioningProducerTest {
             producer.onContractActivated(companyId, linked);
 
             verify(currentUserContext, never()).getUsername();
+        }
+
+        @Test
+        @DisplayName("a soft-deleted employee enqueues nothing: the revocation owns the fact (G41)")
+        void disabledEmployeeEnqueuesNothing() {
+            var disabled = disabledCopy();
+
+            producer.onContractActivated(companyId, disabled);
+
+            verifyNoInteractions(gateService);
+        }
+
+        @Test
+        @DisplayName("a soft-deleted employee never supersedes the open revocation (G41)")
+        void disabledEmployeeNeverSupersedesTheOpenRevocation() {
+            var disabled = disabledCopy();
+            when(taskRepository.findFirstByEmployeeIdAndStatusInOrderByRequestedAtDesc(
+                            employeeId, AccessProvisioningTaskService.OPEN_STATUSES))
+                    .thenReturn(Optional.of(openRevocationOf(disabled)));
+
+            producer.onContractActivated(companyId, disabled);
+
+            verifyNoInteractions(gateService);
+            verify(taskService, never()).supersede(any(), any(), any(), anyString());
         }
 
         @Test
@@ -233,9 +279,100 @@ class AccessProvisioningProducerTest {
         }
 
         @Test
+        @DisplayName("a soft-deleted employee enqueues nothing and never supersedes the open revocation (G41)")
+        void disabledEmployeeEnqueuesNothing() {
+            var disabled = disabledCopy();
+            when(taskRepository.findFirstByEmployeeIdAndStatusInOrderByRequestedAtDesc(
+                            employeeId, AccessProvisioningTaskService.OPEN_STATUSES))
+                    .thenReturn(Optional.of(openRevocationOf(disabled)));
+
+            producer.onMembershipChanged(companyId, disabled);
+
+            verifyNoInteractions(gateService);
+            verify(taskService, never()).supersede(any(), any(), any(), anyString());
+        }
+
+        @Test
         @DisplayName("records the JWT sub claim, never the username")
         void theActorIsTheSubjectClaim() {
             producer.onMembershipChanged(companyId, linked);
+
+            verify(currentUserContext, never()).getUsername();
+        }
+    }
+
+    @Nested
+    @DisplayName("onSoftDelete")
+    class SoftDelete {
+
+        @Test
+        @DisplayName("requests a DEACTIVATE for a linked employee (G41)")
+        void linkedEmployeeIsRevoked() {
+            producer.onSoftDelete(companyId, linked);
+
+            verify(gateService).request(companyId, employeeId, DEACTIVATE, ACTOR_SUB);
+        }
+
+        @Test
+        @DisplayName("an unlinked employee has no access to revoke, so nothing is enqueued (G41)")
+        void unlinkedEmployeeEnqueuesNothing() {
+            producer.onSoftDelete(companyId, unlinked);
+
+            verifyNoInteractions(gateService);
+        }
+
+        @Test
+        @DisplayName("records the JWT sub claim, never the username")
+        void theActorIsTheSubjectClaim() {
+            producer.onSoftDelete(companyId, linked);
+
+            verify(currentUserContext, never()).getUsername();
+        }
+    }
+
+    @Nested
+    @DisplayName("onAccessRestored")
+    class AccessRestored {
+
+        @Test
+        @DisplayName("requests exactly one RECONCILE for a linked employee (G41)")
+        void linkedEmployeeIsReconciled() {
+            producer.onAccessRestored(companyId, linked);
+
+            verify(gateService).request(companyId, employeeId, RECONCILE, ACTOR_SUB);
+        }
+
+        @Test
+        @DisplayName("an unlinked employee enqueues nothing: a re-enable is not the moment to create an account")
+        void unlinkedEmployeeEnqueuesNothing() {
+            producer.onAccessRestored(companyId, unlinked);
+
+            verifyNoInteractions(gateService);
+        }
+
+        @Test
+        @DisplayName("a Terminated employee enqueues nothing: the revocation owns the fact")
+        void terminatedEmployeeEnqueuesNothing() {
+            var terminated = Employee.builder()
+                    .id(employeeId)
+                    .company(linked.getCompany())
+                    .email("juan.perez@acme.com")
+                    .keycloakUserId("kc-user-1")
+                    .status(Status.builder()
+                            .statusName("Terminated")
+                            .enabled(true)
+                            .build())
+                    .build();
+
+            producer.onAccessRestored(companyId, terminated);
+
+            verifyNoInteractions(gateService);
+        }
+
+        @Test
+        @DisplayName("records the JWT sub claim, never the username")
+        void theActorIsTheSubjectClaim() {
+            producer.onAccessRestored(companyId, linked);
 
             verify(currentUserContext, never()).getUsername();
         }

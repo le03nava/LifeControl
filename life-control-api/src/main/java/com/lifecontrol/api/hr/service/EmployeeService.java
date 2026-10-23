@@ -266,6 +266,11 @@ public class EmployeeService {
      * existence probes are equally unfiltered, so the employee number can never be reused and the
      * same address is silently suffixed on the next create. {@code PATCH …/enable} is the recovery
      * path.</p>
+     *
+     * <p><b>A soft delete now revokes access</b> (gap G41, record {@code employee-disable-revokes-access}):
+     * the employee is out of the registry, so the roles, the claims and the account must not outlive the
+     * flag. The intent is produced on the transition and the producer owns what it implies — a linked
+     * account gets a {@code DEACTIVATE}, an unlinked one has no access to revoke.</p>
      */
     @Transactional
     public void deleteEmployee(UUID companyId, UUID id) {
@@ -283,6 +288,9 @@ public class EmployeeService {
         employee.setEnabled(false);
         employeeRepository.save(employee);
         logger.info("Employee soft-deleted: id={}, companyId={}", id, companyId);
+        // G41: the soft delete is a revocation, so the access intent is produced here. The producer decides
+        // whether the fact implies a task — an employee with no linked account has no access to revoke.
+        accessProvisioningProducer.onSoftDelete(companyId, employee);
     }
 
     /** Sets exactly the value it is given; it is a set, not a toggle. */
@@ -294,9 +302,20 @@ public class EmployeeService {
                 .findByIdAndCompanyId(id, companyId)
                 .orElseThrow(() -> new EmployeeNotFoundException(id));
 
+        // Read before the mutation: the access intent is produced on the transition, not on every write of
+        // an employee who already holds the value (the same rule the termination intent follows, G41).
+        var wasEnabled = Boolean.TRUE.equals(employee.getEnabled());
         employee.setEnabled(enabled);
         var saved = employeeRepository.save(employee);
         logger.info("Employee enabled={}: id={}, companyId={}", enabled, id, companyId);
+
+        if (wasEnabled != enabled) {
+            if (enabled) {
+                accessProvisioningProducer.onAccessRestored(companyId, saved);
+            } else {
+                accessProvisioningProducer.onSoftDelete(companyId, saved);
+            }
+        }
 
         return toResponse(saved);
     }

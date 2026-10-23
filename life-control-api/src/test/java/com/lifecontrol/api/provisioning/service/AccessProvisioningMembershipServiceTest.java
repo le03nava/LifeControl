@@ -187,6 +187,18 @@ class AccessProvisioningMembershipServiceTest {
                 .build();
     }
 
+    /** A soft-deleted employee: {@code enabled = false}, every other fact still standing (G41). */
+    private Employee disabledEmployee() {
+        return Employee.builder()
+                .id(employeeId)
+                .company(company)
+                .email("jane.doe@acme.com")
+                .keycloakUserId(KC_USER_ID)
+                .status(activeStatus())
+                .enabled(false)
+                .build();
+    }
+
     private Status activeStatus() {
         return Status.builder().statusName("Active").enabled(true).build();
     }
@@ -386,6 +398,19 @@ class AccessProvisioningMembershipServiceTest {
         }
 
         @Test
+        @DisplayName("a soft-deleted employee has all five keys deleted too, so the revocation removes the claims")
+        void disabledEmployeeDeletesAllFiveKeysAndWritesNothing() {
+            var scope = service.convergeMembership(disabledEmployee());
+
+            assertThat(scope.companyIds()).isEmpty();
+            assertThat(scope.companyStoreIds()).isEmpty();
+
+            verify(identityProvider, times(5)).deleteUserAttribute(eq(KC_USER_ID), anyString());
+            verify(identityProvider, never()).updateUserAttribute(any(), any(), any());
+            verifyNoInteractions(assignmentRepository);
+        }
+
+        @Test
         @DisplayName("an employee without a keycloakUserId refuses and touches nothing at all")
         void accountNotLinkedRefusesBeforeAnyCall() {
             var unlinked = Employee.builder()
@@ -497,6 +522,20 @@ class AccessProvisioningMembershipServiceTest {
         @DisplayName("returns five empty sets for a Terminated employee and writes nothing")
         void terminatedEmployeeHoldsAnEmptyScope() {
             var scope = service.deriveMembership(terminatedEmployee());
+
+            assertThat(scope.companyIds()).isEmpty();
+            assertThat(scope.companyCountryIds()).isEmpty();
+            assertThat(scope.companyRegionIds()).isEmpty();
+            assertThat(scope.companyZoneIds()).isEmpty();
+            assertThat(scope.companyStoreIds()).isEmpty();
+            verifyNoInteractions(identityProvider);
+            verifyNoInteractions(assignmentRepository);
+        }
+
+        @Test
+        @DisplayName("returns five empty sets for a soft-deleted employee and writes nothing (G41)")
+        void disabledEmployeeHoldsAnEmptyScope() {
+            var scope = service.deriveMembership(disabledEmployee());
 
             assertThat(scope.companyIds()).isEmpty();
             assertThat(scope.companyCountryIds()).isEmpty();

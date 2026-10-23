@@ -121,10 +121,18 @@ public class EmployeeController {
     @PreAuthorize("hasAnyRole('" + ADMIN + "','" + EMPLOYEE + "')")
     @Operation(
             summary = "Delete an employee",
-            description = "Soft-deletes an employee by setting enabled to false; the row is kept")
+            description = "Soft-deletes an employee by setting enabled to false; the row is kept. A soft delete"
+                    + " is a revocation: it derives no roles, no company_* claims and no enabled account, and it"
+                    + " enqueues the access DEACTIVATE the worker applies")
     @ApiResponses({
-        @ApiResponse(responseCode = "204", description = "Employee soft-deleted"),
-        @ApiResponse(responseCode = "404", description = "Employee or company not found")
+        @ApiResponse(responseCode = "204", description = "Employee soft-deleted and the revocation requested"),
+        @ApiResponse(
+                responseCode = "409",
+                description = "An access task is already open for this employee and cannot be superseded"),
+        @ApiResponse(responseCode = "404", description = "Employee or company not found"),
+        @ApiResponse(
+                responseCode = "503",
+                description = "The identity provider is unreachable, so the role diff cannot be derived")
     })
     public ResponseEntity<Void> deleteEmployee(@PathVariable UUID companyId, @PathVariable UUID id) {
         employeeService.deleteEmployee(companyId, id);
