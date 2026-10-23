@@ -1,0 +1,147 @@
+<div class="activity-log-page">
+  <app-page-header title="Reportes" subtitle="Auditoría de actividad registrada en el sistema" />
+
+  <!--
+    The six filters the endpoint accepts, and no more: date range (from/to),
+    process, event, userId and HTTP method. The three free-text ones are
+    debounced in the component; the range and the method re-read immediately.
+  -->
+  <div class="filters-section">
+    <mat-form-field appearance="outline" class="date-field" subscriptSizing="dynamic">
+      <mat-label>Desde</mat-label>
+      <input
+        matInput
+        type="date"
+        [value]="fromDate()"
+        (input)="fromDate.set($any($event.target).value)"
+      />
+    </mat-form-field>
+
+    <mat-form-field appearance="outline" class="date-field" subscriptSizing="dynamic">
+      <mat-label>Hasta</mat-label>
+      <input
+        matInput
+        type="date"
+        [value]="toDate()"
+        (input)="toDate.set($any($event.target).value)"
+      />
+    </mat-form-field>
+
+    <mat-form-field appearance="outline" class="text-field" subscriptSizing="dynamic">
+      <mat-label>Proceso</mat-label>
+      <input
+        matInput
+        type="search"
+        [value]="process()"
+        (input)="process.set($any($event.target).value)"
+      />
+    </mat-form-field>
+
+    <mat-form-field appearance="outline" class="text-field" subscriptSizing="dynamic">
+      <mat-label>Evento</mat-label>
+      <input
+        matInput
+        type="search"
+        [value]="event()"
+        (input)="event.set($any($event.target).value)"
+      />
+    </mat-form-field>
+
+    <mat-form-field appearance="outline" class="text-field" subscriptSizing="dynamic">
+      <mat-label>Usuario</mat-label>
+      <input
+        matInput
+        type="search"
+        [value]="userId()"
+        (input)="userId.set($any($event.target).value)"
+      />
+    </mat-form-field>
+
+    <mat-form-field appearance="outline" class="method-field" subscriptSizing="dynamic">
+      <mat-label>Método HTTP</mat-label>
+      <mat-select
+        [value]="httpMethod()"
+        (selectionChange)="httpMethod.set($event.value)"
+        aria-label="Método HTTP"
+      >
+        <mat-option value="">Todos</mat-option>
+        @for (method of httpMethods; track method) {
+          <mat-option [value]="method">{{ method }}</mat-option>
+        }
+      </mat-select>
+    </mat-form-field>
+  </div>
+
+  @if (loading()) {
+    <p class="loading-text">Cargando actividad...</p>
+  } @else if (error(); as err) {
+    <div class="error-state">
+      <mat-icon fontIcon="error" />
+      <p>{{ err }}</p>
+      <button mat-stroked-button type="button" (click)="retry()">Reintentar</button>
+    </div>
+  } @else if (entries().length > 0) {
+    <mat-card appearance="outlined" class="table-card">
+      <mat-card-content>
+        <table mat-table [dataSource]="entries()">
+          <ng-container matColumnDef="createdAt">
+            <th mat-header-cell *matHeaderCellDef>Fecha y hora</th>
+            <td mat-cell *matCellDef="let row">{{ row.createdAt | date: 'dd/MM/yyyy HH:mm' }}</td>
+          </ng-container>
+
+          <ng-container matColumnDef="username">
+            <th mat-header-cell *matHeaderCellDef>Usuario</th>
+            <td mat-cell *matCellDef="let row">{{ actorLabel(row) }}</td>
+          </ng-container>
+
+          <ng-container matColumnDef="process">
+            <th mat-header-cell *matHeaderCellDef>Proceso</th>
+            <td mat-cell *matCellDef="let row">{{ row.process }}</td>
+          </ng-container>
+
+          <ng-container matColumnDef="event">
+            <th mat-header-cell *matHeaderCellDef>Evento</th>
+            <td mat-cell *matCellDef="let row">{{ row.event }}</td>
+          </ng-container>
+
+          <ng-container matColumnDef="httpMethod">
+            <th mat-header-cell *matHeaderCellDef>Método</th>
+            <td mat-cell *matCellDef="let row">{{ row.httpMethod }}</td>
+          </ng-container>
+
+          <ng-container matColumnDef="httpStatus">
+            <th mat-header-cell *matHeaderCellDef>Estado</th>
+            <td mat-cell *matCellDef="let row">{{ row.httpStatus }}</td>
+          </ng-container>
+
+          <ng-container matColumnDef="requestPath">
+            <th mat-header-cell *matHeaderCellDef>Ruta</th>
+            <td mat-cell *matCellDef="let row">{{ row.requestPath }}</td>
+          </ng-container>
+
+          <ng-container matColumnDef="ipAddress">
+            <th mat-header-cell *matHeaderCellDef>IP</th>
+            <td mat-cell *matCellDef="let row">{{ row.ipAddress ?? '—' }}</td>
+          </ng-container>
+
+          <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
+          <tr mat-row *matRowDef="let row; columns: displayedColumns"></tr>
+        </table>
+      </mat-card-content>
+    </mat-card>
+
+    <mat-paginator
+      [length]="totalElements()"
+      [pageSize]="pageSize()"
+      [pageIndex]="pageIndex()"
+      [pageSizeOptions]="pageSizeOptions"
+      (page)="onPageChange($event)"
+      aria-label="Paginación de la actividad registrada"
+    />
+  } @else {
+    <div class="empty-state">
+      <mat-icon fontIcon="assessment" />
+      <h3 class="empty-title">No hay actividad registrada para estos filtros</h3>
+    </div>
+  }
+</div>
