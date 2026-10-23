@@ -628,6 +628,19 @@ describe('StoreAreasEdit', () => {
       expect(banner).toBeTruthy();
       expect(banner.textContent).toContain('Error inesperado. Intente de nuevo más tarde.');
     });
+
+    it('should scroll the error banner into view when a save fails', async () => {
+      // The banner sits above a 66-line form whose actions are at the bottom, so a failure raised
+      // from the save button can land outside the viewport: the page opts the banner into scrolling
+      // itself back into view.
+      const scrollIntoView = vi.spyOn(Element.prototype, 'scrollIntoView');
+      await setupWithCreateError('');
+
+      component.onSave({ areaCode: 'ALMACEN', areaName: 'Almacén' });
+      fixture.detectChanges();
+
+      expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' });
+    });
   });
 
   // ─── Save lifecycle, feedback and route guard ───────────────
