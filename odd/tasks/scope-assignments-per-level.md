@@ -201,3 +201,11 @@ a separate work unit because it changes who may read an existing endpoint.
   for it. The tier the provider returns wins over this record's own reading, which is why the header
   still declares item 1 and item 2 as the risks: the tier decides whether a review runs, not whether the
   change is risky. An independent verifier ran anyway (L14) and is not replaced by any of this.
+- **L19** — delivery, recorded because the chain is not derivable from a single `git log -1`: the unit
+  ships as three stacked pull requests in this order — `#544` (schema, `a71e4d2`..`c55c1d7`, base
+  `main`), `#545` (claims and the write surface, `e414762`..`f7b8c35`, base the schema branch) and
+  `#546` (screens and this record, `86ce5c0`..`2`, base the claims branch). The linked issue `#543` is
+  closed by `#546` alone; the first two say *Part of* it, because a chain that closes its issue on the
+  first slice reports a finished feature halfway through. Merge order is the chain order, and the base
+  branches must not be deleted while a child is open — the provider's automatic head-branch deletion is
+  already off for this repository, so the guard is the merge step itself.
