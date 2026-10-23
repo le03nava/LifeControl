@@ -86,10 +86,10 @@ class EmployeeSchemaMigrationIntegrationTest extends AbstractPostgresIntegration
     }
 
     @Test
-    @DisplayName("applies every migration through V27 and leaves no pending migration")
-    void flywayHeadIsV27() {
+    @DisplayName("applies every migration through V28 and leaves no pending migration")
+    void flywayHeadIsV28() {
         assertThat(flyway.info().current()).isNotNull();
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("27");
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("28");
         assertThat(flyway.info().pending()).isEmpty();
     }
 
@@ -110,6 +110,26 @@ class EmployeeSchemaMigrationIntegrationTest extends AbstractPostgresIntegration
                         + " AND table_name = 'companies' AND column_name = 'email_domain'",
                 Integer.class);
         assertThat(count).as("column companies.email_domain exists").isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("adds employees.created_by as a nullable column with no default")
+    void employeesCreatedByColumnExists() {
+        var count = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'public'"
+                        + " AND table_name = 'employees' AND column_name = 'created_by'",
+                Integer.class);
+        assertThat(count).as("column employees.created_by exists").isEqualTo(1);
+
+        // Nullable and without a default on purpose: a row whose creator was never recorded keeps
+        // NULL instead of a value nobody can prove. The migration backfills nothing.
+        var nullability = jdbcTemplate.queryForMap(
+                "SELECT is_nullable, column_default FROM information_schema.columns WHERE table_schema = 'public'"
+                        + " AND table_name = 'employees' AND column_name = 'created_by'");
+        assertThat(nullability.get("is_nullable")).as("created_by is nullable").isEqualTo("YES");
+        assertThat(nullability.get("column_default"))
+                .as("created_by has no default")
+                .isNull();
     }
 
     @Test

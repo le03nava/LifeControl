@@ -198,6 +198,11 @@ public class EmployeeService {
                 .enabled(true)
                 .build();
 
+        // Who created the employee is a write-once fact, recorded here and only here: the update, enable
+        // and soft-delete paths never call this, and the column is mapped updatable = false. The actor is
+        // the authenticated username, the same source inventory_movements.created_by uses (S2, V28).
+        employee.markCreatedBy(currentUserContext.getUsername());
+
         var saved = employeeRepository.save(employee);
         logger.info(
                 "Employee created: id={}, companyId={}, employeeNumber={}",
@@ -495,6 +500,7 @@ public class EmployeeService {
                 employee.getKeycloakUserId(),
                 employee.getEnabled(),
                 employee.getVersion(),
+                employee.getCreatedBy(),
                 employee.getCreatedAt(),
                 employee.getUpdatedAt(),
                 accessState);

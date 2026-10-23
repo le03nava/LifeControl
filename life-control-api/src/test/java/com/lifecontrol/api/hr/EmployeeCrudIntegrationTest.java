@@ -2,6 +2,7 @@ package com.lifecontrol.api.hr;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.when;
 
 import com.lifecontrol.api.common.auth.CurrentUserContext;
 import com.lifecontrol.api.company.model.Company;
@@ -162,6 +163,67 @@ class EmployeeCrudIntegrationTest extends AbstractPostgresIntegrationTest {
                     employeeService.createEmployee(companyId, request("EMP-601", "Ada", "Lovelace", null, null, null));
 
             assertThat(recreated.email()).isEqualTo("ada.lovelace2@" + COMPANY_DOMAIN);
+        }
+    }
+
+    @Nested
+    @DisplayName("created_by audit column")
+    class CreatedByTests {
+
+        @Test
+        @DisplayName("create records the authenticated actor's username as created_by")
+        void createRecordsTheActorUsername() {
+            // The mocked CurrentUserContext stands in for the JWT: getUsername() is the
+            // preferred_username claim the real context resolves.
+            when(currentUserContext.getUsername()).thenReturn("hr-operator");
+
+            var created =
+                    employeeService.createEmployee(companyId, request("EMP-CB-1", "Ada", "Lovelace", null, null, null));
+
+            assertThat(created.createdBy()).isEqualTo("hr-operator");
+            assertThat(storedCreatedBy(created.id())).isEqualTo("hr-operator");
+        }
+
+        @Test
+        @DisplayName("update changes the editable fields and leaves created_by and created_at untouched")
+        void updateLeavesCreatedByUntouched() {
+            when(currentUserContext.getUsername()).thenReturn("hr-operator");
+            var created =
+                    employeeService.createEmployee(companyId, request("EMP-CB-2", "Ada", "Lovelace", null, null, null));
+            var createdAtBefore = storedCreatedAt(created.id());
+
+            // A different actor edits the row: created_by must still name the creator.
+            when(currentUserContext.getUsername()).thenReturn("another-operator");
+            var updated = employeeService.updateEmployee(
+                    companyId, created.id(), request("EMP-CB-2", "Grace", "Hopper", null, null, null));
+
+            assertThat(updated.firstName()).isEqualTo("Grace");
+            assertThat(updated.createdBy()).isEqualTo("hr-operator");
+            assertThat(storedCreatedBy(created.id())).isEqualTo("hr-operator");
+            assertThat(storedCreatedAt(created.id())).isEqualTo(createdAtBefore);
+        }
+
+        @Test
+        @DisplayName("the enable path leaves created_by untouched")
+        void enablePathLeavesCreatedByUntouched() {
+            when(currentUserContext.getUsername()).thenReturn("hr-operator");
+            var created =
+                    employeeService.createEmployee(companyId, request("EMP-CB-3", "Ada", "Lovelace", null, null, null));
+
+            when(currentUserContext.getUsername()).thenReturn("another-operator");
+            employeeService.setEmployeeEnabled(companyId, created.id(), false);
+            employeeService.setEmployeeEnabled(companyId, created.id(), true);
+
+            assertThat(storedCreatedBy(created.id())).isEqualTo("hr-operator");
+        }
+
+        private String storedCreatedBy(UUID id) {
+            return jdbcTemplate.queryForObject("SELECT created_by FROM employees WHERE id = ?", String.class, id);
+        }
+
+        private java.time.LocalDateTime storedCreatedAt(UUID id) {
+            return jdbcTemplate.queryForObject(
+                    "SELECT created_at FROM employees WHERE id = ?", java.time.LocalDateTime.class, id);
         }
     }
 
