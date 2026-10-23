@@ -18,6 +18,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.access.AccessDeniedException;
@@ -1767,6 +1769,94 @@ class CurrentUserContextTest {
 
             assertDoesNotThrow(() -> currentUserContext.verifyCompanyStoreAccess(
                     companyId, countryId, regionId, UUID.randomUUID(), UUID.randomUUID()));
+        }
+    }
+
+    @Nested
+    @DisplayName("hasCompanyWideScope")
+    class HasCompanyWideScopeTests {
+
+        @SuppressWarnings("unchecked")
+        private void mockAuthorities(Collection<GrantedAuthority> authorities) {
+            when(authentication.getAuthorities()).thenReturn((Collection) authorities);
+        }
+
+        private void mockSingleRole(String role) {
+            mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_" + role));
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = {"lc-company", "lc-company-read", "lc-department", "lc-position"})
+        @DisplayName("is true for every role whose broadest granted scope is company")
+        void trueForCompanyLevelRoles(String role) {
+            mockSingleRole(role);
+
+            assertThat(currentUserContext.hasCompanyWideScope()).isTrue();
+        }
+
+        @ParameterizedTest
+        @ValueSource(
+                strings = {
+                    "lc-company-country",
+                    "lc-company-country-read",
+                    "lc-company-region",
+                    "lc-company-region-read",
+                    "lc-company-zone",
+                    "lc-company-zone-read",
+                    "lc-company-store",
+                    "lc-company-store-read",
+                    "lc-receiving",
+                    "lc-sales",
+                    "lc-scheduling",
+                    "lc-scheduling-read",
+                    "lc-admin",
+                    "lc-employee",
+                    "lc-employee-access",
+                    "lc-seniority-level",
+                    "other-role"
+                })
+        @DisplayName("is false for a narrower role and for a caller with no scope in range")
+        void falseWithoutACompanyLevelRole(String role) {
+            mockSingleRole(role);
+
+            assertThat(currentUserContext.hasCompanyWideScope()).isFalse();
+        }
+
+        @Test
+        @DisplayName("a company-level role outranks the narrower role that accompanies it")
+        void companyLevelRoleWinsOverNarrowerRole() {
+            mockAuthorities(List.of(
+                    (GrantedAuthority) () -> "ROLE_lc-company", (GrantedAuthority) () -> "ROLE_lc-company-region"));
+
+            assertThat(currentUserContext.hasCompanyWideScope()).isTrue();
+        }
+
+        @Test
+        @DisplayName("lc-company-read outranks the country read role that accompanies it")
+        void companyReadWinsOverCountryRead() {
+            mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_lc-company-read", (GrantedAuthority)
+                    () -> "ROLE_lc-company-country-read"));
+
+            assertThat(currentUserContext.hasCompanyWideScope()).isTrue();
+        }
+
+        @Test
+        @DisplayName("two narrow roles are still not company-wide: the broadest of them is a region")
+        void twoNarrowRolesAreNotCompanyWide() {
+            mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_lc-company-region", (GrantedAuthority)
+                    () -> "ROLE_lc-company-zone"));
+
+            assertThat(currentUserContext.hasCompanyWideScope()).isFalse();
+        }
+
+        @Test
+        @DisplayName("a functional role with no scope in range is not company-wide, so the read bounds it by claim")
+        void functionalRoleIsNotCompanyWide() {
+            mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_lc-employee"));
+
+            assertThat(currentUserContext.hasCompanyWideScope()).isFalse();
+            assertThat(currentUserContext.broadestGrantedScope(com.lifecontrol.api.common.security.ScopeLevel.STORE))
+                    .isEmpty();
         }
     }
 }
