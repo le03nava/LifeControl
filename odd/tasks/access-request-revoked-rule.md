@@ -59,9 +59,9 @@ is in the pull request with its opening verdict token, and
 | T2 | S1, S2, S3, S5 | RED first: three `AccessProvisioningRequestServiceTest` cases for a soft-deleted employee (`enabled = false`, status `Active`) — refused by `apply`, refused by `resend`, admitted by `deactivate` | `7ed5f23 test(provisioning): pin the revoked rule in the explicit request surface` |
 | T3 | S1, S2, S3 | GREEN: the three guards read `EmployeeStatuses.isRevoked` | `e5a3384 fix(provisioning): make the explicit request surface read one revocation rule` |
 | T4 | S4 | The two exception classes renamed and their messages rewritten to the rule, with every call site and test moved | `79b1b28 refactor(provisioning): name the access refusals after the rule they enforce` (ordered before the RED so the failing test states a behavior, not a missing class) |
-| T5 | S6 | Javadoc of the three methods and the two exceptions, the controller's `409` documentation, `life-control-api/AGENTS.md` | `docs(provisioning): state the revocation rule the guards enforce` |
+| T5 | S6 | Javadoc of the three methods and the two exceptions, the controller's `409` documentation, `life-control-api/AGENTS.md` | `cf936f6 docs(provisioning): state the revocation rule the guards enforce` |
 | T6 | S7 | Gates: `spotlessCheck`/`spotbugsMain`, the focused suite, `./gradlew test`, the offline script suites | (no commit; evidence below) |
-| T7 | — | Independent read-only verification of S1–S7 (Task Size item 2) | (no commit; evidence below) |
+| T7 | — | Independent read-only pass over S1–S7. **The delegation gate did not admit the `gentle-ai-verify` launch** — it requires the delegated task to declare `Risk: item N`, and it forbids retrying or adding the line to get admission — so the pass run here is the inline adversarial one the gate names as its substitute: the `isTerminated` sweep, the company-check ordering, the refused-path ordering, the RED baseline and the message truthfulness. An independent read remains available on request. | (no commit; findings below) |
 
 ## Log
 
@@ -132,3 +132,30 @@ the RED test, then the three guards.
 | 2026-10-22 | `./gradlew test --tests '*AccessProvisioningRequestServiceTest' --tests '*AccessProvisioningControllerTest' --no-daemon` (rename only, guards untouched) | `BUILD SUCCESSFUL` in 36s — the rename changes no behavior |
 | 2026-10-22 | same, with the three new cases (`7ed5f23`) | **RED**: `29 tests completed, 3 failed` — `apply`, `resend` and `deactivate` disagree with the rule |
 | 2026-10-22 | `./gradlew test --tests '*AccessProvisioningRequestServiceTest' --tests '*AccessProvisioningControllerTest' --tests '*AccessProvisioningControllerSecurityTest' --no-daemon` (guards changed, `e5a3384`) | `BUILD SUCCESSFUL` in 23s, `GRADLE_EXIT=0` |
+| 2026-10-22 | `./gradlew spotlessCheck spotbugsMain --no-daemon` | first run **FAILED**: `spotlessJavaCheck` reported two imports out of order in `AccessProvisioningControllerTest` (the rename's `Revoked*` sorts before `SelfApprovalRefusedException`). `./gradlew spotlessApply --no-daemon` fixed it; the re-run is `BUILD SUCCESSFUL`, `STATIC_EXIT=0` |
+| 2026-10-22 | `./gradlew cleanTest test --no-daemon` on `cf936f6` — forced, because a plain `test` reported `UP-TO-DATE` | `BUILD SUCCESSFUL` in 2m29s, `TEST_EXIT=0`; **941 result files, 3712 tests, 0 failures, 0 errors** |
+| 2026-10-22 | `./.github/scripts/tests/odd-status-headers.test.sh` | `checked 98 record(s); 118 claimed merge commit(s); ancestry: ran` — `78 passed, 0 failed`, exit 0 |
+
+## Inline adversarial pass (what the delegation gate admitted instead)
+
+Run against the committed tree, and every point is a check rather than a reading:
+
+1. **No leftover of the narrow rule in the provisioning surface.**
+   `grep -rn 'isTerminated' life-control-api/src/main/java` returns five production call sites outside
+   `EmployeeStatuses` itself, and none of them decides access: `EmployeeService:244,251` reads the
+   **status transition** that triggers the `DEACTIVATE` enqueue, `EmployeeService:338-342` validates the
+   termination date a write carries, and `ContractService:166` refuses a contract — a different rule over
+   a different fact, and the guardrail #534 deliberately did not add. The access-provisioning package
+   holds none.
+2. **The `deactivate` widening cannot reach another company.** `verifyCompanyAccess` is the first
+   statement, the employee is loaded through `findByIdAndCompanyId` (404 otherwise), and the endpoint
+   keeps its `@PreAuthorize` (`hasAnyRole('lc-admin','lc-employee-access')`); the diff touches none of the
+   three.
+3. **The refused paths write nothing.** `apply` throws before `gateService.request` and `resend` before
+   `accountService.resendInvitation` — both pinned by `verifyNoInteractions`, not only by the exception
+   type.
+4. **The RED is real.** The three failing cases ran against the parent's guards, not against a missing
+   class: the rename landed and the focused suite was green **before** the cases were added.
+5. **The messages stay truthful.** Both name the employee id; the refusal names both facts
+   (`Terminated or disabled`) and still contains `Terminated`, so the pre-existing assertions that grep
+   for it keep their meaning.
