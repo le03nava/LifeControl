@@ -952,7 +952,7 @@ filtra en ningún nivel.
 | Nivel listado | Servicio y método | Filtro cuando el rol es el de ese nivel |
 |---------------|-------------------|------------------------------------------|
 | Empresas | `CompanyService.findCompaniesForCurrentUser:82` | `company_id` para todo caller no-admin: es el claim que acota el árbol entero, y no hay nivel por encima que lo recorte |
-| Países | `CompanyCountryService.getCountriesByCompanyId:58-68` | `company_country_id`, y sólo si el caller **no** es admin ni `lc-company` (`BASE_ROLES` por ruta) |
+| Países | `CompanyCountryService.getCountriesByCompanyId:80-104` | `company_country_id` para todo caller cuyo alcance más ancho dentro de company→store **no** sea company; claim ausente o vacío → lista vacía. `lc-company`, `lc-company-read` y `lc-admin` ven toda la empresa |
 | Regiones | `CompanyRegionService.getAllRegions:74-84` | `company_region_id` (ruta: `REGION_ROLES` → admin, `lc-company`, `lc-company-country`, `lc-company-region`) |
 | Zonas | `CompanyZoneService.getAllZones:81-91` | `company_zone_id` (ruta: `ZONE_ROLES` → `REGION_ROLES` + `lc-company-zone`) |
 | Tiendas | `CompanyStoreService.getAllStores:104-115` | `company_store_id` (ruta: `STORE_ROLES` → `STORE_WRITE_ROLES` + `lc-company-store-read`) |
@@ -961,11 +961,15 @@ Los roles `*-read` (`lc-company-country-read`, `lc-company-region-read`, `lc-com
 `lc-company-store-read`) se filtran **exactamente igual** que su par de escritura: la única diferencia
 es que no alcanzan las rutas de escritura.
 
-> Matiz verificado en el código, pre-existente a esta unidad: el listado de **países** filtra por
-> `company_country_id` sólo para el rol de país. Un `lc-company-region` o `lc-company-zone` que llegara
-> a `GET /companies/{id}/countries` recibiría todos los países de la empresa sin filtrar; no llega
-> porque `companies.routes.ts` no declara ese endpoint para esos roles. Es una brecha de allow-list
-> conocida y diferida, no una consecuencia de este cambio.
+> Brecha de allow-list **cerrada** por la unidad `countries-list-scope-roles` (issue #548): el listado de
+> países admite ahora los roles con los que las pantallas que consumen el selector son alcanzables
+> (región, zona, tienda y sus `-read`, `lc-receiving`, `lc-employee`) y **filtra por `company_country_id`
+> a todo caller cuyo alcance más ancho dentro de company→store no sea company**, con claim ausente o
+> vacío devolviendo lista vacía y nunca la consulta sin filtrar. La decisión se lee de `ScopeLevel` vía
+> `CurrentUserContext.hasCompanyWideScope()`, no de una lista de roles: un rol nuevo en un nivel más
+> angosto queda filtrado sin editar el service. `lc-employee` es un rol funcional sin nivel en la
+> jerarquía, así que **también** se filtra por su claim: un operador de HR sin `company_country_id` ve el
+> selector vacío (decisión del dueño, 2026-10-23, contra el primer borrador que lo dejaba sin filtrar).
 
 ### Alcance asignado por nivel
 
