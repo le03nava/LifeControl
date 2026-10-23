@@ -46,6 +46,36 @@ public class CompanyCountryService {
         this.eventPublisher = eventPublisher;
     }
 
+    /**
+     * Lists the company's countries, bounded by the caller's own scope — specs S1&ndash;S3 of issue
+     * #548.
+     *
+     * <p>The branch is decided by {@link CurrentUserContext#hasCompanyWideScope()}, which reads the
+     * hierarchy declared in {@code ScopeLevel} instead of a list of role literals: a caller whose
+     * broadest granted scope <em>is</em> company ({@code lc-company}, {@code lc-company-read}) reads
+     * the whole company, and every other admitted caller reads only the relations named by their
+     * {@code company_country_id} claim. An absent or empty claim answers an empty list and never the
+     * unscoped query, which is the half that makes the widening safe: admitting region, zone, store,
+     * receiving and employee callers without this filter would hand each of them every country of the
+     * company.</p>
+     *
+     * <p>That includes {@code lc-employee}, a functional role absent from every {@code ScopeLevel}.
+     * Its own shape — no role in the hierarchy — is not company-wide, so it is bounded by its claim
+     * like any narrower caller (decision D3, reversed by the owner on 2026-10-23 against the first
+     * draft, which kept it unscoped for its assignment dialogs). The consequence is accepted and
+     * declared: an HR operator whose token carries no {@code company_country_id} reads an empty
+     * country selector instead of the company's whole catalogue.</p>
+     *
+     * <p>An administrator keeps the whole company on purpose. It is the only caller no scope check
+     * denies, so {@link CurrentUserContext#isAdmin()} stays an explicit bypass: a token that also
+     * carries a narrower role must not narrow that grant.</p>
+     *
+     * <p>A caller holding {@code lc-company-read} next to a country role reads every country: the
+     * broader grant is not narrowed by the narrower role it accompanies, the same union rule
+     * {@code verifyCompanyStoreAccess} applies to a region role accompanied by a store one. That is
+     * one behavior this unit changed, measured and declared in the record: it hands nobody a country
+     * their own token could not already read.</p>
+     */
     @Transactional(readOnly = true)
     public List<CompanyCountryResponse> getCountriesByCompanyId(UUID companyId) {
         currentUserContext.verifyCompanyAccess(companyId);
@@ -55,9 +85,7 @@ public class CompanyCountryService {
             throw new CompanyNotFoundException(companyId);
         }
 
-        if (!currentUserContext.isAdmin()
-                && !currentUserContext.hasCompanyRole()
-                && (currentUserContext.hasCompanyCountryRole() || currentUserContext.hasCompanyCountryReadRole())) {
+        if (!currentUserContext.isAdmin() && !currentUserContext.hasCompanyWideScope()) {
             var countryIds = currentUserContext.getCompanyCountryIds();
             if (countryIds.isEmpty()) {
                 return List.of();
