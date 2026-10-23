@@ -1,7 +1,9 @@
 package com.lifecontrol.api.company.controller;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -13,17 +15,24 @@ import com.lifecontrol.api.company.dto.CompanyCountryResponse;
 import com.lifecontrol.api.company.service.CompanyCountryService;
 import com.lifecontrol.api.config.ratelimit.RateLimitProperties;
 import java.time.LocalDateTime;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
@@ -135,6 +144,26 @@ class CompanyCountryControllerSecurityTest {
             when(companyCountryService.getCountriesByCompanyId(companyId)).thenReturn(List.of(buildCountryResponse()));
 
             mockMvc.perform(get(BASE_URL, companyId)).andExpect(status().isOk());
+        }
+
+        @ParameterizedTest
+        @ValueSource(
+                strings = {
+                    "lc-company-region",
+                    "lc-company-region-read",
+                    "lc-company-zone",
+                    "lc-company-zone-read",
+                    "lc-company-store",
+                    "lc-company-store-read",
+                    "lc-receiving",
+                    "lc-employee"
+                })
+        @DisplayName("returns 200 OK for every scoped consumer of a country selector")
+        void scopedConsumerRoleCanGet(String role) throws Exception {
+            when(companyCountryService.getCountriesByCompanyId(companyId)).thenReturn(List.of(buildCountryResponse()));
+
+            mockMvc.perform(get(BASE_URL, companyId).with(user("scoped-reader").roles(role)))
+                    .andExpect(status().isOk());
         }
 
         @Test
@@ -378,6 +407,80 @@ class CompanyCountryControllerSecurityTest {
         void noRoleGetsForbidden() throws Exception {
             mockMvc.perform(delete(BASE_URL + "/{id}", companyId, countryRelationId))
                     .andExpect(status().isForbidden());
+        }
+    }
+
+    // ─── Allow-list pins ─────────────────────────────────────────
+
+    /**
+     * Pins every {@code @PreAuthorize} allow-list of this controller as a set of role names, read
+     * from the annotation itself.
+     *
+     * <p>A behavior test proves one role reaches one endpoint; it cannot prove the endpoint admits
+     * <em>only</em> the intended roles. These pins fail in both directions: a role removed from an
+     * annotation and a role added to one, which is what keeps the GET widening of issue #548 from
+     * spreading to the three write endpoints ({@code S4}). The literals are deliberately not read
+     * from {@code Roles}: a pin that follows the constants cannot notice the constants changing.</p>
+     */
+    @Nested
+    @DisplayName("@PreAuthorize allow-list pins")
+    class AllowListPins {
+
+        private static final Pattern ROLE_TOKEN = Pattern.compile("'([^']+)'");
+
+        private Set<String> rolesOf(String methodName, Class<?>... parameterTypes) throws Exception {
+            var method = CompanyCountryController.class.getMethod(methodName, parameterTypes);
+            var annotation = method.getAnnotation(PreAuthorize.class);
+            assertThat(annotation)
+                    .as("%s must declare its own @PreAuthorize", methodName)
+                    .isNotNull();
+            var roles = new LinkedHashSet<String>();
+            Matcher matcher = ROLE_TOKEN.matcher(annotation.value());
+            while (matcher.find()) {
+                roles.add(matcher.group(1));
+            }
+            return roles;
+        }
+
+        @Test
+        @DisplayName("GET admits exactly the measured country-selector consumers")
+        void getAllowListIsPinned() throws Exception {
+            assertThat(rolesOf("getCompanyCountries", UUID.class))
+                    .containsExactlyInAnyOrderElementsOf(Set.of(
+                            "lc-admin",
+                            "lc-company",
+                            "lc-company-read",
+                            "lc-company-country",
+                            "lc-company-country-read",
+                            "lc-company-region",
+                            "lc-company-region-read",
+                            "lc-company-zone",
+                            "lc-company-zone-read",
+                            "lc-company-store",
+                            "lc-company-store-read",
+                            "lc-receiving",
+                            "lc-employee"));
+        }
+
+        @Test
+        @DisplayName("POST keeps the write allow-list unchanged")
+        void postAllowListIsPinned() throws Exception {
+            assertThat(rolesOf("addCompanyCountry", UUID.class, CompanyCountryRequest.class))
+                    .containsExactlyInAnyOrderElementsOf(Set.of("lc-admin", "lc-company", "lc-company-country"));
+        }
+
+        @Test
+        @DisplayName("PUT keeps the write allow-list unchanged")
+        void putAllowListIsPinned() throws Exception {
+            assertThat(rolesOf("updateCompanyCountry", UUID.class, UUID.class, CompanyCountryRequest.class))
+                    .containsExactlyInAnyOrderElementsOf(Set.of("lc-admin", "lc-company", "lc-company-country"));
+        }
+
+        @Test
+        @DisplayName("DELETE keeps the write allow-list unchanged")
+        void deleteAllowListIsPinned() throws Exception {
+            assertThat(rolesOf("removeCompanyCountry", UUID.class, UUID.class))
+                    .containsExactlyInAnyOrderElementsOf(Set.of("lc-admin", "lc-company", "lc-company-country"));
         }
     }
 }

@@ -103,6 +103,7 @@ class CompanyCountryServiceTest {
         @DisplayName("should return countries for existing company")
         void getCountriesByCompanyId_Success() {
             // Arrange
+            when(currentUserContext.hasCompanyWideScope()).thenReturn(true);
             when(companyRepository.existsById(companyId)).thenReturn(true);
             when(companyCountryRepository.findByCompanyId(companyId)).thenReturn(List.of(testCompanyCountry));
 
@@ -270,14 +271,14 @@ class CompanyCountryServiceTest {
     }
 
     @Nested
-    @DisplayName("getCountriesByCompanyId with lc-company-country role")
-    class GetCountriesByCompanyIdCountryRoleTests {
+    @DisplayName("getCountriesByCompanyId with a scope below company")
+    class GetCountriesByCompanyIdScopedTests {
 
         @Test
-        @DisplayName("should return only records matching user's company_country_id claim")
-        void getCountriesByCompanyId_CountryRole_ReturnsFilteredRecords() {
+        @DisplayName("returns only the records named by the caller's company_country_id claim")
+        void scopeBelowCompany_ReturnsFilteredRecords() {
             when(currentUserContext.isAdmin()).thenReturn(false);
-            when(currentUserContext.hasCompanyCountryRole()).thenReturn(true);
+            when(currentUserContext.hasCompanyWideScope()).thenReturn(false);
             when(currentUserContext.getCompanyCountryIds()).thenReturn(Set.of(companyCountryId));
             when(companyRepository.existsById(companyId)).thenReturn(true);
             when(companyCountryRepository.findByIdInAndCompanyId(Set.of(companyCountryId), companyId))
@@ -293,11 +294,11 @@ class CompanyCountryServiceTest {
         }
 
         @Test
-        @DisplayName("should return empty when no records match user's company_country_id claim")
-        void getCountriesByCompanyId_CountryRole_NoMatch_ReturnsEmpty() {
+        @DisplayName("returns empty when no record matches the claim")
+        void scopeBelowCompany_NoMatch_ReturnsEmpty() {
             var nonMatchingId = UUID.randomUUID();
             when(currentUserContext.isAdmin()).thenReturn(false);
-            when(currentUserContext.hasCompanyCountryRole()).thenReturn(true);
+            when(currentUserContext.hasCompanyWideScope()).thenReturn(false);
             when(currentUserContext.getCompanyCountryIds()).thenReturn(Set.of(nonMatchingId));
             when(companyRepository.existsById(companyId)).thenReturn(true);
             when(companyCountryRepository.findByIdInAndCompanyId(Set.of(nonMatchingId), companyId))
@@ -307,13 +308,14 @@ class CompanyCountryServiceTest {
 
             assertThat(result).isEmpty();
             verify(companyCountryRepository).findByIdInAndCompanyId(any(), eq(companyId));
+            verify(companyCountryRepository, never()).findByCompanyId(any());
         }
 
         @Test
-        @DisplayName("should return empty when company_country_id claim is empty")
-        void getCountriesByCompanyId_CountryRole_EmptyClaim_ReturnsEmpty() {
+        @DisplayName("returns empty when the company_country_id claim is empty, and never runs an unscoped query")
+        void scopeBelowCompany_EmptyClaim_ReturnsEmpty() {
             when(currentUserContext.isAdmin()).thenReturn(false);
-            when(currentUserContext.hasCompanyCountryRole()).thenReturn(true);
+            when(currentUserContext.hasCompanyWideScope()).thenReturn(false);
             when(currentUserContext.getCompanyCountryIds()).thenReturn(Set.of());
             when(companyRepository.existsById(companyId)).thenReturn(true);
 
@@ -407,9 +409,9 @@ class CompanyCountryServiceTest {
         }
 
         @Test
-        @DisplayName("lc-company user uses findByCompanyId in GET (not country-filtered)")
-        void getCountriesByCompanyId_CompanyRole_UsesFindByCompanyId() {
-            when(currentUserContext.hasCompanyCountryRole()).thenReturn(false);
+        @DisplayName("a company-wide caller uses findByCompanyId in GET (not country-filtered)")
+        void getCountriesByCompanyId_CompanyWideScope_UsesFindByCompanyId() {
+            when(currentUserContext.hasCompanyWideScope()).thenReturn(true);
             when(companyRepository.existsById(companyId)).thenReturn(true);
             when(companyCountryRepository.findByCompanyId(companyId)).thenReturn(List.of(testCompanyCountry));
 

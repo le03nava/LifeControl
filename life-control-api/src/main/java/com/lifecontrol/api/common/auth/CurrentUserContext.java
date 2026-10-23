@@ -354,6 +354,31 @@ public class CurrentUserContext {
         return null;
     }
 
+    /**
+     * Whether the caller's broadest granted scope within {@code [COMPANY..STORE]} <b>is</b> company.
+     *
+     * <p>A list that serves the whole company to {@code lc-company} / {@code lc-company-read} must
+     * serve every other admitted caller only the rows their own claim path bounds. This accessor is
+     * the positive form of that question, so a caller can read it as "this grant is the whole
+     * company" instead of as the absence of a narrowing role. It answers from {@link ScopeLevel}
+     * alone — never from role literals — so a role added to a level stops being company-wide
+     * automatically instead of needing a second edit here.</p>
+     *
+     * <p>{@code false} covers two shapes, and the difference matters to callers. First, the caller
+     * holds a narrower role — country, region, zone, store, or a store-scoped functional role such as
+     * {@code lc-receiving}. Second, the caller holds <em>no</em> role of this hierarchy at all, which
+     * is the shape of a functional role such as {@code lc-employee}: it has no scope to resolve, and
+     * the claim that bounds it is the one the read itself must name. A caller that must tell those
+     * two apart reads {@link #broadestGrantedScope} directly. This accessor never means
+     * "unrestricted": an administrator is the only caller no scope check denies, and that bypass is
+     * {@link #isAdmin()}, not this method.</p>
+     */
+    public boolean hasCompanyWideScope() {
+        return broadestGrantedScope(ScopeLevel.STORE)
+                .filter(level -> level == ScopeLevel.COMPANY)
+                .isPresent();
+    }
+
     private void verifyLevelsUpTo(ScopeLevel maxScope, UUID[] ids) {
         for (ScopeLevel level : ScopeLevel.companyTo(maxScope)) {
             verifyLevel(level, ids[level.ordinal()]);
