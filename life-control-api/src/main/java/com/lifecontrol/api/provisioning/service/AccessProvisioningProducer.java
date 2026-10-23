@@ -198,17 +198,28 @@ public class AccessProvisioningProducer {
     }
 
     /**
-     * Produces the reconciliation intent a <b>store-assignment change</b> implies: always
-     * {@code RECONCILE}, and only for an employee the projection can actually converge.
+     * Produces the reconciliation intent a <b>membership change</b> implies: always {@code RECONCILE},
+     * and only for an employee the projection can actually converge.
      *
-     * <p>This is the trigger <b>G38</b> was missing: the two writers of
+     * <p>It is deliberately <b>source-neutral</b>. Every writer that moves the derived scope calls
+     * this one hook — {@code EmployeeStoreAssignmentService} when a store assignment opens or closes,
+     * and {@code EmployeeScopeAssignmentService} when a country, region or zone assignment does — so
+     * neither the prose here nor the refusal log may name a source: a message that says "store" for a
+     * scope write is a log that lies about the fact it refused. The source is not lost, because the
+     * caller logs the fact with more detail one line earlier (its own INFO entry names the
+     * assignment id, the node and the dates).</p>
+     *
+     * <p>This is the trigger <b>G38</b> was missing: the writers of
      * {@code EmployeeStoreAssignmentService} save their row and return, so a change of assignment
      * moves the derivation {@code StoreScopeDerivation} computes — the five {@code company_*} claims
      * {@code CurrentUserContext} reads for scope — and nothing enqueued a convergence, leaving the
-     * claims at the old scope until another fact enqueued a task.</p>
+     * claims at the old scope until another fact enqueued a task. {@code employee-scope-assignments-per-level}
+     * widened the same gap to the per-level assignments and reused this hook rather than adding a
+     * second one, which is why the fact it serves is now "the membership changed" and not "a store
+     * assignment changed".</p>
      *
      * <p><b>No kind is derived here.</b> {@link #kindFor(Employee)} answers {@code ACTIVATE} for an
-     * unlinked employee, which is exactly wrong for this fact: an assignment change is never the
+     * unlinked employee, which is exactly wrong for this fact: a membership change is never the
      * moment to create an account and send an invitation nobody asked for, and {@code RECONCILE}
      * refuses outright on an unlinked account. The kind is a constant because the fact is one.</p>
      *
@@ -222,11 +233,11 @@ public class AccessProvisioningProducer {
      * {@link #enqueue}, so neither the open revocation nor the open-task read is touched.</p>
      *
      * @param companyId the company that owns the employee
-     * @param employee the employee whose store assignment changed
+     * @param employee the employee whose membership changed
      */
     public void onMembershipChanged(UUID companyId, Employee employee) {
         if (EmployeeStatuses.isRevoked(employee)) {
-            logNotEnqueuedForRevoked(employee, "a store-assignment change");
+            logNotEnqueuedForRevoked(employee, "a membership change");
             return;
         }
 

@@ -21,7 +21,9 @@ import com.lifecontrol.api.company.model.CompanyRegion;
 import com.lifecontrol.api.company.model.CompanyZone;
 import com.lifecontrol.api.country.model.Country;
 import com.lifecontrol.api.hr.model.Employee;
+import com.lifecontrol.api.hr.model.EmployeeScopeAssignment;
 import com.lifecontrol.api.hr.model.EmployeeStoreAssignment;
+import com.lifecontrol.api.hr.repository.EmployeeScopeAssignmentRepository;
 import com.lifecontrol.api.hr.repository.EmployeeStoreAssignmentRepository;
 import com.lifecontrol.api.hr.service.EmployeeStoreScope;
 import com.lifecontrol.api.hr.service.StoreScopeDerivation;
@@ -78,6 +80,9 @@ class AccessProvisioningMembershipServiceTest {
 
     @Mock
     private EmployeeStoreAssignmentRepository assignmentRepository;
+
+    @Mock
+    private EmployeeScopeAssignmentRepository scopeAssignmentRepository;
 
     @InjectMocks
     private AccessProvisioningMembershipService service;
@@ -167,6 +172,24 @@ class AccessProvisioningMembershipServiceTest {
                 .build();
     }
 
+    private EmployeeScopeAssignment scopeAssignment(
+            CompanyCountry companyCountry,
+            CompanyRegion companyRegion,
+            CompanyZone companyZone,
+            LocalDate validFrom,
+            LocalDate validTo,
+            boolean enabled) {
+        return EmployeeScopeAssignment.builder()
+                .id(UUID.randomUUID())
+                .companyCountry(companyCountry)
+                .companyRegion(companyRegion)
+                .companyZone(companyZone)
+                .validFrom(validFrom)
+                .validTo(validTo)
+                .enabled(enabled)
+                .build();
+    }
+
     private Employee linkedEmployee() {
         return Employee.builder()
                 .id(employeeId)
@@ -212,6 +235,18 @@ class AccessProvisioningMembershipServiceTest {
      */
     private void stubAssignments(EmployeeStoreAssignment... rows) {
         when(assignmentRepository.findEnabledAssignmentsCoveringDate(eq(employeeId), any(LocalDate.class)))
+                .thenReturn(List.of(rows));
+    }
+
+    /**
+     * Stubs the per-level finder with the declared rows, with no filter applied: the enabled and
+     * coverage filters belong to {@code ScopeAssignmentDerivation}, so an ignored row really exercises
+     * the filter here instead of being filtered away by the stub. An unstubbed call returns an empty
+     * list from Mockito's default answer, which is the "no level assigned" case the store-only
+     * fixtures rely on.
+     */
+    private void stubScopeAssignments(EmployeeScopeAssignment... rows) {
+        when(scopeAssignmentRepository.findEnabledAssignmentsCoveringDate(eq(employeeId), any(LocalDate.class)))
                 .thenReturn(List.of(rows));
     }
 
@@ -394,7 +429,7 @@ class AccessProvisioningMembershipServiceTest {
             verify(identityProvider, never()).updateUserAttribute(any(), any(), any());
             verify(identityProvider, times(5)).deleteUserAttribute(eq(KC_USER_ID), anyString());
             verifyNoMoreInteractions(identityProvider);
-            verifyNoInteractions(assignmentRepository);
+            verifyNoInteractions(assignmentRepository, scopeAssignmentRepository);
         }
 
         @Test
@@ -407,7 +442,7 @@ class AccessProvisioningMembershipServiceTest {
 
             verify(identityProvider, times(5)).deleteUserAttribute(eq(KC_USER_ID), anyString());
             verify(identityProvider, never()).updateUserAttribute(any(), any(), any());
-            verifyNoInteractions(assignmentRepository);
+            verifyNoInteractions(assignmentRepository, scopeAssignmentRepository);
         }
 
         @Test
@@ -434,7 +469,7 @@ class AccessProvisioningMembershipServiceTest {
                     .isInstanceOf(AccountNotLinkedException.class)
                     .hasMessageContaining(employeeId.toString());
 
-            verifyNoInteractions(identityProvider, assignmentRepository);
+            verifyNoInteractions(identityProvider, assignmentRepository, scopeAssignmentRepository);
         }
 
         @Test
@@ -496,6 +531,125 @@ class AccessProvisioningMembershipServiceTest {
     }
 
     @Nested
+    @DisplayName("the union of both scope sources (S5/T5)")
+    class ScopeSourceUnionTests {
+
+        @Test
+        @DisplayName("a region scope row writes country and region and deletes zone and store")
+        void regionScopeRowWritesItsOwnLevelAndItsAncestor() {
+            var companyCountry = companyCountry(company);
+            var region = region(companyCountry);
+            stubScopeAssignments(scopeAssignment(null, region, null, today().minusDays(5), null, true));
+
+            var scope = service.convergeMembership(linkedEmployee());
+
+            assertThat(scope.companyIds()).containsExactly(companyId);
+            assertThat(scope.companyCountryIds()).containsExactly(companyCountry.getId());
+            assertThat(scope.companyRegionIds()).containsExactly(region.getId());
+            assertThat(scope.companyZoneIds()).isEmpty();
+            assertThat(scope.companyStoreIds()).isEmpty();
+
+            verify(identityProvider)
+                    .updateUserAttribute(
+                            KC_USER_ID,
+                            ScopeLevel.COUNTRY.claim(),
+                            List.of(companyCountry.getId().toString()));
+            verify(identityProvider)
+                    .updateUserAttribute(
+                            KC_USER_ID,
+                            ScopeLevel.REGION.claim(),
+                            List.of(region.getId().toString()));
+            verify(identityProvider).deleteUserAttribute(KC_USER_ID, ScopeLevel.ZONE.claim());
+            verify(identityProvider).deleteUserAttribute(KC_USER_ID, ScopeLevel.STORE.claim());
+            verify(identityProvider, times(3)).updateUserAttribute(eq(KC_USER_ID), anyString(), any());
+            verify(identityProvider, times(2)).deleteUserAttribute(eq(KC_USER_ID), anyString());
+            verifyNoMoreInteractions(identityProvider);
+        }
+
+        @Test
+        @DisplayName("a zone scope row derives the whole chain it implies, through the read-only accessor too")
+        void zoneScopeRowDerivesItsWholeChain() {
+            var companyCountry = companyCountry(company);
+            var region = region(companyCountry);
+            var zone = zone(region);
+            stubScopeAssignments(scopeAssignment(null, null, zone, today().minusDays(5), null, true));
+
+            var scope = service.deriveMembership(linkedEmployee());
+
+            assertThat(scope.companyIds()).containsExactly(companyId);
+            assertThat(scope.companyCountryIds()).containsExactly(companyCountry.getId());
+            assertThat(scope.companyRegionIds()).containsExactly(region.getId());
+            assertThat(scope.companyZoneIds()).containsExactly(zone.getId());
+            verifyNoInteractions(identityProvider);
+        }
+
+        @Test
+        @DisplayName("a store assignment and a scope row produce both values at the country level, store first")
+        void bothSourcesCarryTheirOwnValuesInOrder() {
+            var storeCountry = companyCountry(company);
+            var store = store(zone(region(storeCountry)));
+            stubAssignments(assignment(store, today().minusDays(30), null, true));
+            var scopeCountry = companyCountry(company);
+            stubScopeAssignments(scopeAssignment(scopeCountry, null, null, today().minusDays(5), null, true));
+
+            var scope = service.convergeMembership(linkedEmployee());
+
+            assertThat(scope.companyIds()).containsExactly(companyId);
+            assertThat(scope.companyCountryIds()).containsExactly(storeCountry.getId(), scopeCountry.getId());
+            assertThat(scope.companyStoreIds()).containsExactly(store.getId());
+            verify(identityProvider)
+                    .updateUserAttribute(
+                            KC_USER_ID,
+                            ScopeLevel.COUNTRY.claim(),
+                            List.of(
+                                    storeCountry.getId().toString(),
+                                    scopeCountry.getId().toString()));
+        }
+
+        @Test
+        @DisplayName("a disabled, an ended and a future scope row all contribute nothing")
+        void disabledAndNonCoveringScopeRowsContributeNothing() {
+            var companyCountry = companyCountry(company);
+            stubScopeAssignments(
+                    scopeAssignment(companyCountry, null, null, today().minusDays(5), null, false),
+                    scopeAssignment(companyCountry, null, null, today().minusDays(5), today(), true),
+                    scopeAssignment(companyCountry, null, null, today().plusDays(1), null, true));
+
+            var scope = service.convergeMembership(linkedEmployee());
+
+            assertThat(scope.companyCountryIds()).isEmpty();
+            assertOnlyCompanyWritten();
+        }
+
+        @Test
+        @DisplayName("the per-level finder is queried with the same today the derivation is driven with")
+        void scopeFinderUsesTheSameToday() {
+            stubScopeAssignments();
+
+            service.convergeMembership(linkedEmployee());
+
+            var dateCaptor = ArgumentCaptor.forClass(LocalDate.class);
+            verify(scopeAssignmentRepository).findEnabledAssignmentsCoveringDate(eq(employeeId), dateCaptor.capture());
+            assertThat(dateCaptor.getValue()).isEqualTo(today());
+        }
+
+        @Test
+        @DisplayName("a Terminated employee with live scope rows has all five keys deleted and holds no scope")
+        void terminatedEmployeeIgnoresItsScopeRows() {
+            var scope = service.convergeMembership(terminatedEmployee());
+
+            assertThat(scope.companyIds()).isEmpty();
+            assertThat(scope.companyCountryIds()).isEmpty();
+            assertThat(scope.companyRegionIds()).isEmpty();
+            assertThat(scope.companyZoneIds()).isEmpty();
+            assertThat(scope.companyStoreIds()).isEmpty();
+            verify(identityProvider, times(5)).deleteUserAttribute(eq(KC_USER_ID), anyString());
+            verify(identityProvider, never()).updateUserAttribute(any(), any(), any());
+            verifyNoInteractions(assignmentRepository, scopeAssignmentRepository);
+        }
+    }
+
+    @Nested
     @DisplayName("deriveMembership (read-only accessor)")
     class DeriveMembershipTests {
 
@@ -529,7 +683,7 @@ class AccessProvisioningMembershipServiceTest {
             assertThat(scope.companyZoneIds()).isEmpty();
             assertThat(scope.companyStoreIds()).isEmpty();
             verifyNoInteractions(identityProvider);
-            verifyNoInteractions(assignmentRepository);
+            verifyNoInteractions(assignmentRepository, scopeAssignmentRepository);
         }
 
         @Test
@@ -543,7 +697,7 @@ class AccessProvisioningMembershipServiceTest {
             assertThat(scope.companyZoneIds()).isEmpty();
             assertThat(scope.companyStoreIds()).isEmpty();
             verifyNoInteractions(identityProvider);
-            verifyNoInteractions(assignmentRepository);
+            verifyNoInteractions(assignmentRepository, scopeAssignmentRepository);
         }
 
         @Test
@@ -560,7 +714,7 @@ class AccessProvisioningMembershipServiceTest {
                     .isInstanceOf(AccountNotLinkedException.class)
                     .hasMessageContaining(employeeId.toString());
 
-            verifyNoInteractions(identityProvider, assignmentRepository);
+            verifyNoInteractions(identityProvider, assignmentRepository, scopeAssignmentRepository);
         }
 
         @Test
