@@ -35,7 +35,7 @@
     <!--
       One tab per section, and `?tab=` drives the selection (`onTabChange` writes it back). The
       Accesos tab exists only for `ACCESS_READ_ROLES` (record T96): a caller without
-      `lc-admin`/`lc-employee-access` sees three tabs and issues no access request, because the
+      `lc-admin`/`lc-employee-access` sees four tabs and issues no access request, because the
       endpoint would answer 403.
     -->
     <mat-tab-group [selectedIndex]="selectedTabIndex()" (selectedIndexChange)="onTabChange($event)">
@@ -151,6 +151,29 @@
             (retry)="retryAssignments()"
             (assign)="onAssign()"
             (closeRequested)="onCloseAssignment($event)"
+          />
+        </div>
+      </mat-tab>
+
+      <!--
+        The per-level scope assignment (S2): the sibling of Tiendas. País, región and zona are
+        assignable per employee and the company level is not (one employee, one company, S3), so
+        this tab lists one row per level with the derived chain the token will carry. The write gate
+        is the pair the endpoints require (S4); the level the dialog preselects is a hint, not a gate.
+      -->
+      <mat-tab label="Alcance">
+        <div class="tab-content">
+          @if (scopeAssignmentActionError(); as scopeCloseErr) {
+            <app-error-banner [message]="scopeCloseErr" />
+          }
+          <app-scope-assignments-section
+            [assignments]="scopeAssignments()"
+            [loading]="scopeAssignmentsLoading()"
+            [error]="scopeAssignmentsError()"
+            [canWrite]="canWrite"
+            (retry)="retryScopeAssignments()"
+            (assign)="onAssignScope()"
+            (closeRequested)="onCloseScopeAssignment($event)"
           />
         </div>
       </mat-tab>
