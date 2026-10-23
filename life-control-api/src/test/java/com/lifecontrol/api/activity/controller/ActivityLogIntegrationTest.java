@@ -6,21 +6,27 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.lifecontrol.api.activity.event.ActivityLogEvent;
 import com.lifecontrol.api.activity.model.ActivityEvent;
-import com.lifecontrol.api.activity.model.ActivityProcess;
 import com.lifecontrol.api.activity.repository.ActivityEventRepository;
 import com.lifecontrol.api.activity.repository.ActivityLogRepository;
 import com.lifecontrol.api.activity.repository.ActivityProcessRepository;
+import com.lifecontrol.api.activity.service.ActivityLogService;
+import com.lifecontrol.api.activity.util.ProcessNameResolver;
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
-import java.util.List;
+import java.util.SortedSet;
+import java.util.TreeSet;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.config.BeanDefinition;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.context.annotation.ClassPathScanningCandidateComponentProvider;
+import org.springframework.core.type.filter.AnnotationTypeFilter;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
@@ -36,7 +42,7 @@ import org.springframework.web.bind.annotation.RestController;
  * <p>
  * Uses real repositories backed by PostgreSQL (Testcontainers) with Flyway
  * migrations applied. Reference data (processes and events) is seeded by Flyway
- * V3; the find-or-create calls in {@code setUp()} remain idempotent.
+ * (V3, V4, V16, V27); the find-or-create calls in {@code setUp()} cover the events only.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -83,24 +89,19 @@ class ActivityLogIntegrationTest extends AbstractPostgresIntegrationTest {
     @Autowired
     private ActivityEventRepository eventRepository;
 
+    @Autowired
+    private ActivityLogService activityLogService;
+
     @BeforeEach
     void setUp() {
         activityLogRepository.deleteAll();
 
-        // Ensure reference data exists (Flyway V3 seeds most of it; find-or-create keeps it idempotent)
-        seedReferenceData();
+        // Events only: the processes are Flyway's job (V3, V4, V16, V27), and creating them here
+        // would mask the very gap the seed-coverage guard below exists to catch.
+        seedEvents();
     }
 
-    private void seedReferenceData() {
-        if (processRepository.findByName("ACTIVITY").isEmpty()) {
-            processRepository.save(ActivityProcess.builder().name("ACTIVITY").build());
-        }
-        if (processRepository.findByName("COMPANY").isEmpty()) {
-            processRepository.save(ActivityProcess.builder().name("COMPANY").build());
-        }
-        if (processRepository.findByName("ORDER").isEmpty()) {
-            processRepository.save(ActivityProcess.builder().name("ORDER").build());
-        }
+    private void seedEvents() {
         if (eventRepository.findByName("READ").isEmpty()) {
             eventRepository.save(ActivityEvent.builder().name("READ").build());
         }
@@ -238,37 +239,83 @@ class ActivityLogIntegrationTest extends AbstractPostgresIntegrationTest {
         }
     }
 
-    // ─── V4: process seed coverage ───────────────────────────
+    // ─── Seed coverage: every controller domain ──────────────
 
     @Nested
-    @DisplayName("V4 seeds every auto-derived activity process")
+    @DisplayName("Every controller domain resolves to a seeded activity process")
     class ActivityProcessSeedTests {
 
-        @Test
-        @DisplayName("every controller domain resolves to a seeded activity process")
-        void allDerivedProcessesSeeded() {
-            var derivedProcesses = List.of(
-                    "ACTIVITY",
-                    "COMPANY",
-                    "COUNTRY",
-                    "CUSTOMER",
-                    "MEASUREUNIT",
-                    "PAYMENTMETHOD",
-                    "PRODUCT",
-                    "PROFILE",
-                    "PROMOTION",
-                    "PURCHASEORDER",
-                    "SALESORDER",
-                    "SHIFT",
-                    "STATUS",
-                    "STORE",
-                    "SUPPLIER",
-                    "USERSADMIN");
+        private static final String BASE_PACKAGE = "com.lifecontrol.api";
 
-            for (var name : derivedProcesses) {
+        /**
+         * Every process the aspect can derive from a <b>production</b> controller, computed by the
+         * same {@link ProcessNameResolver} the aspect calls. Discovered rather than listed: a
+         * hardcoded list is exactly what let {@code HR}, {@code PROVISIONING} and
+         * {@code GOODSRECEIPT} stay unseeded while this suite reported green.
+         */
+        private SortedSet<String> productionControllerProcesses() throws ClassNotFoundException {
+            var scanner = new ClassPathScanningCandidateComponentProvider(false);
+            scanner.addIncludeFilter(new AnnotationTypeFilter(RestController.class));
+
+            var processes = new TreeSet<String>();
+            for (BeanDefinition candidate : scanner.findCandidateComponents(BASE_PACKAGE)) {
+                var className = candidate.getBeanClassName();
+                if (className == null || isTestClass(className)) {
+                    continue;
+                }
+                var packageName = className.substring(0, className.lastIndexOf('.'));
+                var process = ProcessNameResolver.resolve(packageName);
+                assertThat(process)
+                        .as("controller %s must resolve to a process name", className)
+                        .isNotNull();
+                processes.add(process);
+            }
+            return processes;
+        }
+
+        private static boolean isTestClass(String className) throws ClassNotFoundException {
+            var codeSource = Class.forName(className).getProtectionDomain().getCodeSource();
+            if (codeSource == null) {
+                return false;
+            }
+            var location = codeSource.getLocation().getPath();
+            return location.contains("/test/") || location.contains("/test-classes/");
+        }
+
+        @Test
+        @DisplayName("every derived process is present in activity_processes")
+        void allDerivedProcessesSeeded() throws Exception {
+            var derived = productionControllerProcesses();
+
+            assertThat(derived)
+                    .as("no controller was discovered — the guard would be vacuous")
+                    .isNotEmpty();
+            assertThat(derived)
+                    .as("the discovery must reach the domains this guard exists for")
+                    .contains("HR", "PROVISIONING", "GOODSRECEIPT");
+
+            for (var name : derived) {
                 assertThat(processRepository.findByName(name))
-                        .as("activity process '%s' should be seeded", name)
+                        .as(
+                                "activity process '%s' should be seeded — ActivityLogService discards its "
+                                        + "entries with only a WARN",
+                                name)
                         .isPresent();
+            }
+        }
+
+        @Test
+        @DisplayName("an entry for every derived process is persisted, never discarded")
+        void entryForEveryDerivedProcessIsPersisted() throws Exception {
+            for (var name : productionControllerProcesses()) {
+                var before = activityLogRepository.count();
+
+                activityLogService.save(new ActivityLogEvent(
+                        this, "user-1", "tester", name, "READ", "GET", 200, "/api/probe", "127.0.0.1", "junit", null));
+
+                assertThat(activityLogRepository.count())
+                        .as("an activity entry for process '%s' must be persisted", name)
+                        .isEqualTo(before + 1);
             }
         }
     }

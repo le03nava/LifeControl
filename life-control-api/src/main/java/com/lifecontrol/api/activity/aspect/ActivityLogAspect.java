@@ -2,6 +2,7 @@ package com.lifecontrol.api.activity.aspect;
 
 import com.lifecontrol.api.activity.annotation.ActivityLog;
 import com.lifecontrol.api.activity.event.ActivityLogEvent;
+import com.lifecontrol.api.activity.util.ProcessNameResolver;
 import com.lifecontrol.api.common.auth.CurrentUserContext;
 import jakarta.servlet.http.HttpServletRequest;
 import java.lang.reflect.Method;
@@ -154,7 +155,7 @@ public class ActivityLogAspect {
         var declaringType = signature.getDeclaringType();
         var packageName = declaringType.getPackageName();
 
-        var processName = resolveProcessFromPackage(packageName);
+        var processName = ProcessNameResolver.resolve(packageName);
         var eventName = resolveEventFromHttpMethod(httpMethod);
 
         // Check for @ActivityLog override on the method
@@ -172,23 +173,6 @@ public class ActivityLogAspect {
         }
 
         return new ProcessEventResult(processName, eventName);
-    }
-
-    /**
-     * Extracts the domain name from the package structure.
-     * Expects the format: {@code com.lifecontrol.api.<domain>.controller...}
-     * Falls back to the segment after {@code api.} if the package doesn't
-     * follow the standard pattern.
-     */
-    private static String resolveProcessFromPackage(String packageName) {
-        var apiPrefix = "com.lifecontrol.api.";
-        if (!packageName.startsWith(apiPrefix)) {
-            return null;
-        }
-        var afterApi = packageName.substring(apiPrefix.length());
-        var dotIndex = afterApi.indexOf('.');
-        var domain = (dotIndex > 0) ? afterApi.substring(0, dotIndex) : afterApi;
-        return domain.isEmpty() ? null : domain.toUpperCase();
     }
 
     /**
