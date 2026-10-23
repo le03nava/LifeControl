@@ -26,6 +26,14 @@ vi.setConfig({ testTimeout: TEST_TIMEOUT_MS, hookTimeout: HOOK_TIMEOUT_MS });
 // (`provideZonelessChangeDetection()` in `src/app/app.config.ts`). Dropping them
 // makes the tests exercise what production runs.
 
+// jsdom does not implement Element.scrollIntoView. Stub it for the same reason as
+// window.matchMedia above: a component that scrolls an error banner into view must not throw
+// under the test runner, and a spec that asserts the scroll needs something to spy on. The
+// components keep calling it optionally, so this stub is a convenience and not the only guard.
+if (!Element.prototype.scrollIntoView) {
+  Element.prototype.scrollIntoView = (): void => undefined;
+}
+
 // Mock window.matchMedia for jsdom (not available by default)
 if (!window.matchMedia) {
   const noop = (): void => undefined;
