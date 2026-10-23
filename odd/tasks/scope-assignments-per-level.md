@@ -78,9 +78,12 @@ today; a chain that does not resolve contributes nothing rather than a partial c
 keys deleted; nothing is duplicated in the new table that the tree can answer.
 
 **Deferred, on purpose**: migrating `employee_store_assignments` into the new table as level `STORE`
-(S5); restricting an `lc-employee` assigner to nodes inside their own derived scope (L8); the
-`GET /companies/{id}/countries` allow-list gap for `lc-company-region`, which is pre-existing and stays
-a separate work unit because it changes who may read an existing endpoint.
+(S5); restricting an `lc-employee` assigner to nodes inside their own derived scope (L8).
+
+**Closed elsewhere**: the `GET /companies/{id}/countries` allow-list gap for `lc-company-region` is no
+longer open. It was carried out of this unit as its own work unit, `countries-list-scope-roles`
+(issue #548), which admits every measured consumer of a country selector and filters any caller whose
+broadest granted scope is not company by its `company_country_id` claim.
 
 ## Log
 
