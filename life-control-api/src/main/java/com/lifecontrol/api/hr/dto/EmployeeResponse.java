@@ -22,6 +22,11 @@ import java.util.UUID;
  * read on the list would be the N+1 that the batch-user-fetch gap (G3) exists to avoid. The detail
  * route is gated by {@code isAuthenticated()}, so this field is exactly as wide as the payload it
  * travels in — it adds no role name and no PII the payload did not already carry.</p>
+ *
+ * <p>{@code createdBy} is the read side of {@code employees.created_by}: the username of the actor
+ * who created the employee, or {@code null} for a row that predates the column. It is exposed
+ * <b>read-only</b> so the audit fact is verifiable through the public API; no request record carries
+ * it, so it can be read and never typed, and no update route can change it.</p>
  */
 public record EmployeeResponse(
         UUID id,
@@ -41,6 +46,7 @@ public record EmployeeResponse(
         String keycloakUserId,
         Boolean enabled,
         Long version,
+        String createdBy,
         LocalDateTime createdAt,
         LocalDateTime updatedAt,
         String accessState) {}

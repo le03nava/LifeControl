@@ -86,6 +86,7 @@ class EmployeeControllerTest {
                 null,
                 true,
                 0L,
+                "hr-operator",
                 LocalDateTime.now(),
                 LocalDateTime.now(),
                 null);
@@ -129,6 +130,7 @@ class EmployeeControllerTest {
                 testResponse.keycloakUserId(),
                 testResponse.enabled(),
                 testResponse.version(),
+                testResponse.createdBy(),
                 testResponse.createdAt(),
                 testResponse.updatedAt(),
                 accessState);
@@ -483,6 +485,7 @@ class EmployeeControllerTest {
                             disabled.keycloakUserId(),
                             false,
                             disabled.version(),
+                            disabled.createdBy(),
                             disabled.createdAt(),
                             disabled.updatedAt(),
                             disabled.accessState()));

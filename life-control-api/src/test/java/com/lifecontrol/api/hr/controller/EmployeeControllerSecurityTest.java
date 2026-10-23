@@ -112,6 +112,7 @@ class EmployeeControllerSecurityTest {
                 null,
                 true,
                 0L,
+                "hr-operator",
                 LocalDateTime.now(),
                 LocalDateTime.now(),
                 null);

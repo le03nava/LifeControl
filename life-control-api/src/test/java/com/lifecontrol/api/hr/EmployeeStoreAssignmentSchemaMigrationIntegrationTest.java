@@ -104,10 +104,10 @@ class EmployeeStoreAssignmentSchemaMigrationIntegrationTest extends AbstractPost
     }
 
     @Test
-    @DisplayName("applies every migration through V27 and leaves no pending migration")
-    void flywayHeadIsV27() {
+    @DisplayName("applies every migration through V28 and leaves no pending migration")
+    void flywayHeadIsV28() {
         assertThat(flyway.info().current()).isNotNull();
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("27");
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("28");
         assertThat(flyway.info().pending()).isEmpty();
     }
 

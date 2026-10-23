@@ -35,6 +35,15 @@ import java.util.UUID;
  * setter</b>. The builder is used only while the employee record is constructed; the named method
  * exists for the access-provisioning flow — create the Keycloak account, or link the existing one —
  * and neither is reachable from a request ({@code EmployeeRequest} carries no such field).</p>
+ *
+ * <p>{@link #createdBy} follows the same shape for a different fact: <b>who created the employee</b>
+ * (decision {@code S2}, {@code V28__employee_created_by.sql}). It has a getter and the named write
+ * path {@link #markCreatedBy(String)}, with <b>no public setter and no builder method</b>: the only
+ * caller is the employee-create path, and a builder method would let any construction site claim a
+ * creator. The fact is written <b>once</b> and has no update path — the edit, enable and status
+ * routes never touch it, and the column is mapped {@code updatable = false} so Hibernate cannot
+ * include it in an UPDATE. Rows that predate the column keep {@code null}: their creator was never
+ * recorded and is not guessed.</p>
  */
 @Entity
 @Table(name = "employees")
@@ -87,6 +96,22 @@ public class Employee extends Auditable {
 
     @Column(name = "keycloak_user_id", length = 36, unique = true)
     private String keycloakUserId;
+
+    /**
+     * Username of the actor who created this employee, or {@code null} when it was never recorded
+     * (every row that predates {@code V28}). Mapped {@code updatable = false} because the fact is
+     * write-once: Hibernate must never emit this column in an {@code UPDATE}.
+     */
+    @Column(name = "created_by", length = 255, updatable = false)
+    private String createdBy;
+
+    /**
+     * In-memory latch of the write-once rule, never persisted. It exists because the column is
+     * nullable: without it a first {@code markCreatedBy(null)} would leave the field null and a
+     * second call would look like a first one.
+     */
+    @Transient
+    private boolean createdByWritten;
 
     @Version
     @Column(name = "version", nullable = false)
@@ -173,6 +198,40 @@ public class Employee extends Auditable {
      */
     public void linkKeycloakUser(String keycloakUserId) {
         this.keycloakUserId = keycloakUserId;
+    }
+
+    /**
+     * The username of the actor who created this employee, or {@code null} when it was never
+     * recorded. There is deliberately no public setter: the fact is written only by the
+     * employee-create path, through {@link #markCreatedBy(String)}.
+     */
+    public String getCreatedBy() {
+        return createdBy;
+    }
+
+    /**
+     * Records who created this employee.
+     *
+     * <p>This is the only write path of {@code created_by}: the field has no public setter and no
+     * builder method, and no request DTO carries it, so an operator still cannot type it and an
+     * employee edit cannot rewrite it. It is named for the fact rather than for the field so it does
+     * not read as a generic setter.</p>
+     *
+     * <p>The fact is <b>write-once</b>. A second call — including one on a row loaded with a
+     * creator already recorded — is an {@link IllegalStateException} rather than a silent overwrite:
+     * the creator of a row is history, not current state.</p>
+     *
+     * @param createdBy the authenticated actor's username ({@code preferred_username}), the same
+     *     representation {@code inventory_movements.created_by} uses
+     * @throws IllegalStateException when a creator is already recorded
+     */
+    public void markCreatedBy(String createdBy) {
+        if (createdByWritten || this.createdBy != null) {
+            throw new IllegalStateException(
+                    "created_by is write-once: it records who created the employee and cannot be reassigned");
+        }
+        this.createdBy = createdBy;
+        this.createdByWritten = true;
     }
 
     public Long getVersion() {
