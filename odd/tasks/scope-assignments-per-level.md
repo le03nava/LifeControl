@@ -223,3 +223,22 @@ a separate work unit because it changes who may read an existing endpoint.
   `A linked, approved issue` job is a live gate that fails a pull request whose body carries no valid
   reference, and it also refuses a referenced issue that is closed or lacks `status:approved`. The row
   is wrong and belongs to a separate documentation change.
+- **L22** — evidence, 2026-10-23, the functional check that L14's fourth advisory said was missing. The dev
+  stack was rebuilt **from this branch** (`deploy.sh dev start` with the anchor's `VOLUMES_ROOT`, so the
+  existing data was upgraded and not re-initialised) and Flyway reported `Current version of schema
+  "public": 25` → `Migrating to version 26 - employee scope assignments` → `Successfully applied`, with
+  2 companies, 3 regions, 4 stores and 6 employees still present afterwards. A disposable fixture was
+  then built: a position granting **only** `lc-company-region`, an employee with a contract on it, and
+  two Keycloak users (an operator with `lc-admin` and the `company_id` attribute, and a subject linked
+  to the employee). `POST …/scope-assignments` returned **201**, `level: REGION`, and a derived chain of
+  Empresa Pruebas → México → Norte; the worker converged in about 30 s to
+  `company_id`/`company_country_id`/`company_region_id` = [Norte] with the zone and store keys **absent
+  rather than empty**, and those three claims appeared at the token's root. With that token the subject
+  listed **only `Norte`** from a country whose sibling region is `Sur` (200, one row), `Sur` by id was
+  **403** and `Norte` by id was **200**, while the same call as the operator returned `['Norte','Sur']`.
+  Everything was removed afterwards: 0 scope rows, 6 employees, 7 realm users.
+  **One fixture bug found on the way, recorded because it looks exactly like a product defect and is
+  not**: the first `position_roles` insert failed because the shell captured the `INSERT 0 1` tag along
+  with the id, so the position granted nothing, the worker had no role to converge, and the subject came
+  out with no client roles at all — a 403 on the region list sat next to perfectly correct claims. The
+  membership projection, which is what this unit built, was right the first time.
