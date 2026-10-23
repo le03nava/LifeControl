@@ -30,21 +30,24 @@ import org.springframework.transaction.annotation.Transactional;
  * {@code VARCHAR(36)} and rule O3 compares it against the deciding actor, so both sides have to use
  * the same basis or the comparison silently never matches.</p>
  *
- * <p><b>One refusal precedes the task, and it is the rule.</b> An employee whose employment
- * status is {@code Terminated} is refused first (record T84): the {@code ACTIVATE} kind's account
- * half would create or link the account and send the invitation, which is the opposite of what a
- * revocation is for, and it happens <b>before</b> any task row exists. The deliverable-domain
+ * <p><b>One refusal precedes the task, and it is the single revocation rule.</b> An employee for whom
+ * {@code EmployeeStatuses.isRevoked} holds — {@code Terminated}, or the soft delete's
+ * {@code enabled = false} — is refused first (records T84 and G41): the {@code ACTIVATE} kind's
+ * account half would create or link the account and send the invitation, which is the opposite of what
+ * a revocation is for, and it happens <b>before</b> any task row exists. The deliverable-domain
  * refusal of record T68 is <b>deleted</b> (records T102/T104): the invitation goes to the address the
  * account carries, so the field the company declares was never the fact that decided
  * deliverability.</p>
  *
  * <p><b>{@code deactivate} carries exactly one check, and it is the inverse of {@code apply}'s.</b>
- * Revocation requires a {@code Terminated} employee (record T101): the intent removes the template's
- * roles and the five claims, while the required set is derived from the current contract — so for an
- * employee who is not revoked the next fact of that same employee would grant back exactly what the
- * revocation removed, and the intent would undo itself. What it still does not do is consult the email
- * domain: a revocation sends no invitation, and a {@code Terminated} employee's required set is empty,
- * which is exactly the convergence O4 asks for.</p>
+ * Revocation requires a <b>revoked</b> employee (records T101 and G41): the intent removes the
+ * template's roles and the five claims, while the required set is derived from the current contract —
+ * so for an employee who still has access the next fact of that same employee would grant back exactly
+ * what the revocation removed, and the intent would undo itself. Both halves read the one predicate the
+ * derivation, the membership projection and the account half already read, so this class holds no
+ * second copy of "who is out"; what it still does not do is consult the email domain: a revocation
+ * sends no invitation, and a revoked employee's required set is empty, which is exactly the
+ * convergence O4 asks for.</p>
  *
  * <p><b>The company check is the first statement of both methods</b>, and the employee is loaded
  * through the company-scoped {@code findByIdAndCompanyId}, so a foreign or unknown employee is an
@@ -85,7 +88,8 @@ public class AccessProvisioningRequestService {
      * @throws org.springframework.security.access.AccessDeniedException when the current user cannot
      *     access the company
      * @throws EmployeeNotFoundException when the employee does not belong to the company
-     * @throws RevokedEmployeeRefusedException when the employee's status is {@code Terminated}
+     * @throws RevokedEmployeeRefusedException when the employee is revoked — {@code Terminated} or
+     *     {@code enabled = false}
      * @throws com.lifecontrol.api.provisioning.exception.AccessProvisioningTaskAlreadyOpenException
      *     when the employee already has an open task
      */
@@ -94,7 +98,7 @@ public class AccessProvisioningRequestService {
         currentUserContext.verifyCompanyAccess(companyId);
         var employee = requireEmployeeInCompany(companyId, employeeId);
 
-        if (EmployeeStatuses.isTerminated(employee)) {
+        if (EmployeeStatuses.isRevoked(employee)) {
             throw new RevokedEmployeeRefusedException(employeeId);
         }
         gateService.request(companyId, employeeId, AccessProvisioningTaskKind.ACTIVATE, currentUserContext.getUserId());
@@ -104,13 +108,19 @@ public class AccessProvisioningRequestService {
      * Requests the revocation of an employee's access: a {@code DEACTIVATE} task that disables the
      * account and then converges the roles and the claim attributes against the current truth.
      *
-     * <p><b>It requires a {@code Terminated} employee</b> (record T101). A revocation removes the
+     * <p><b>It requires a revoked employee</b> (records T101 and G41). A revocation removes the
      * template's roles and the five claims, while the required set is derived from the current contract
-     * — so for an employee who is not revoked the next fact of that same employee would grant back
+     * — so for an employee who still has access the next fact of that same employee would grant back
      * exactly what the revocation removed, and the intent would undo itself. The refusal is a named
      * {@link RevokedEmployeeRequiredException} — 409 through the conflict category, record T86 — and
      * it happens <b>before</b> any task row exists, the same shape {@link #apply(UUID, UUID)} applies in
      * the opposite direction (record T84).</p>
+     *
+     * <p><b>A soft-deleted employee is admitted, and that is the point.</b> Under G41 the premise of the
+     * guard — no access to remove — is satisfied by {@code enabled = false} just as it is by
+     * {@code Terminated}, and that employee is precisely who a revocation is for. This surface is also
+     * the fallback when the disable's own enqueue was withheld by the approval gate or the task failed,
+     * so refusing there would refuse exactly when a human is needed.</p>
      *
      * <p>It still does <b>not</b> consult the email domain: a revocation sends no invitation, so the
      * deliverability rule has nothing to decide here.</p>
@@ -120,7 +130,8 @@ public class AccessProvisioningRequestService {
      * @throws org.springframework.security.access.AccessDeniedException when the current user cannot
      *     access the company
      * @throws EmployeeNotFoundException when the employee does not belong to the company
-     * @throws RevokedEmployeeRequiredException when the employee is not {@code Terminated}
+     * @throws RevokedEmployeeRequiredException when the employee still has access, so there is no
+     *     revocation to request
      * @throws com.lifecontrol.api.provisioning.exception.AccessProvisioningTaskAlreadyOpenException
      *     when the employee already has an open task
      */
@@ -129,7 +140,7 @@ public class AccessProvisioningRequestService {
         currentUserContext.verifyCompanyAccess(companyId);
         var employee = requireEmployeeInCompany(companyId, employeeId);
 
-        if (!EmployeeStatuses.isTerminated(employee)) {
+        if (!EmployeeStatuses.isRevoked(employee)) {
             throw new RevokedEmployeeRequiredException(employeeId);
         }
 
@@ -177,8 +188,9 @@ public class AccessProvisioningRequestService {
      * emailed link — the link expires, so the screen needs a way to send another one.
      *
      * <p><b>It creates no task and moves no state</b>: the operation is a send, not a convergence, and
-     * it writes nothing this application stores. <b>A terminated employee is refused first</b>, by
-     * the same guard {@link #apply(UUID, UUID)} applies: a fresh activation link is a way back in.
+     * it writes nothing this application stores. <b>A revoked employee is refused first</b>, by
+     * the same guard {@link #apply(UUID, UUID)} applies — {@code EmployeeStatuses.isRevoked}, so the
+     * two requests cannot disagree about who is out: a fresh activation link is a way back in.
      * The remaining refusal comes from the capability it delegates to — no linked account
      * ({@link com.lifecontrol.api.provisioning.exception.AccountNotLinkedException}) — and it answers
      * <b>409</b> because it extends the conflict category (record T86), so the operator sees which one
@@ -187,7 +199,8 @@ public class AccessProvisioningRequestService {
      * @throws org.springframework.security.access.AccessDeniedException when the current user cannot
      *     access the company
      * @throws EmployeeNotFoundException when the employee does not belong to the company
-     * @throws RevokedEmployeeRefusedException when the employee's status is {@code Terminated}
+     * @throws RevokedEmployeeRefusedException when the employee is revoked — {@code Terminated} or
+     *     {@code enabled = false}
      * @throws com.lifecontrol.api.provisioning.exception.AccountNotLinkedException when nothing is
      *     linked to send to
      */
@@ -196,7 +209,7 @@ public class AccessProvisioningRequestService {
         currentUserContext.verifyCompanyAccess(companyId);
         var employee = requireEmployeeInCompany(companyId, employeeId);
 
-        if (EmployeeStatuses.isTerminated(employee)) {
+        if (EmployeeStatuses.isRevoked(employee)) {
             throw new RevokedEmployeeRefusedException(employeeId);
         }
         accountService.resendInvitation(employee);
