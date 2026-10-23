@@ -78,10 +78,10 @@ class EmployeeContractSchemaMigrationIntegrationTest extends AbstractPostgresInt
     }
 
     @Test
-    @DisplayName("applies every migration through V25 and leaves no pending migration")
-    void flywayHeadIsV25() {
+    @DisplayName("applies every migration through V26 and leaves no pending migration")
+    void flywayHeadIsV26() {
         assertThat(flyway.info().current()).isNotNull();
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("25");
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("26");
         assertThat(flyway.info().pending()).isEmpty();
     }
 
