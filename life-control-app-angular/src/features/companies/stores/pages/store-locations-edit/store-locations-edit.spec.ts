@@ -799,6 +799,18 @@ describe('StoreLocationsEdit', () => {
       expect(banner).toBeTruthy();
       expect(banner.textContent).toContain('Error inesperado. Intente de nuevo más tarde.');
     });
+
+    it('should scroll the error banner into view when a save fails', async () => {
+      // Same geometry as the areas and zones pages: the banner sits above a long form whose actions
+      // are at the bottom, so the page opts it into scrolling itself back into view on failure.
+      const scrollIntoView = vi.spyOn(Element.prototype, 'scrollIntoView');
+      await setupWithCreateError('');
+
+      component.onSave({ locationCode: 'EST-01', locationName: 'Estante 01' });
+      fixture.detectChanges();
+
+      expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' });
+    });
   });
 
   // ─── Save lifecycle, feedback and route guard ───────────────

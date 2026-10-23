@@ -26,6 +26,13 @@ export function httpErrorMessage(error: unknown): string {
       return 'No se encontró el recurso solicitado.';
     case 409:
       return 'El dato cambió mientras lo editabas. Recargá la página y volvé a intentar.';
+    case 412:
+      // A failed version precondition: another session saved first, so this write was refused
+      // instead of silently overwriting it. The store tree and scheduling activities answer 412 for
+      // exactly this, and the page that sent the write owns its own recovery copy (reload in place,
+      // or reopen from the list). The toast therefore states what happened and asks for a reload
+      // without claiming which of those two recoveries ran.
+      return 'Otra sesión guardó este dato primero y tu cambio no se guardó. Volvé a cargar los valores actuales antes de intentar de nuevo.';
     case 500:
       return 'Ocurrió un error en el servidor. Intentá de nuevo más tarde.';
     default:
