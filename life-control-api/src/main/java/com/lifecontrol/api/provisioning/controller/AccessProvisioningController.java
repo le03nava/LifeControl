@@ -78,17 +78,16 @@ public class AccessProvisioningController {
     @Operation(
             summary = "Request the access projection for an employee",
             description = "Creates the ACTIVATE task that converges the employee's account, roles and "
-                    + "claim attributes, and returns the reloaded access overview. A company without a "
-                    + "usable email domain, and a Terminated employee, are both refused by name before "
-                    + "any task is written.")
+                    + "claim attributes, and returns the reloaded access overview. A revoked employee "
+                    + "— Terminated or soft-deleted — is refused by name before any task is written.")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Access overview after the request"),
         @ApiResponse(responseCode = "403", description = "Insufficient role"),
         @ApiResponse(responseCode = "404", description = "Employee or company not found"),
         @ApiResponse(
                 responseCode = "409",
-                description = "The employee is Terminated, the company has no deliverable email domain, "
-                        + "or an open access request already exists")
+                description = "The employee is revoked (Terminated or disabled), or an open access request "
+                        + "already exists")
     })
     public ResponseEntity<AccessProvisioningOverview> apply(
             @PathVariable UUID companyId, @PathVariable UUID employeeId) {
@@ -106,7 +105,10 @@ public class AccessProvisioningController {
         @ApiResponse(responseCode = "200", description = "Access overview after the request"),
         @ApiResponse(responseCode = "403", description = "Insufficient role"),
         @ApiResponse(responseCode = "404", description = "Employee or company not found"),
-        @ApiResponse(responseCode = "409", description = "The employee already has an open access request")
+        @ApiResponse(
+                responseCode = "409",
+                description = "The employee still has access — a revocation requires a revoked employee — "
+                        + "or an open access request already exists")
     })
     public ResponseEntity<AccessProvisioningOverview> deactivate(
             @PathVariable UUID companyId, @PathVariable UUID employeeId) {
@@ -137,16 +139,15 @@ public class AccessProvisioningController {
     @Operation(
             summary = "Re-send an employee's activation invitation",
             description = "Sends the account invitation again through the identity provider's "
-                    + "execute-actions flow, and returns the reloaded access overview. An employee "
-                    + "with no linked account, and a company without a usable email domain, are both "
-                    + "refused by name.")
+                    + "execute-actions flow, and returns the reloaded access overview. A revoked "
+                    + "employee, and an employee with no linked account, are both refused by name.")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Access overview after the resend"),
         @ApiResponse(responseCode = "403", description = "Insufficient role"),
         @ApiResponse(responseCode = "404", description = "Employee or company not found"),
         @ApiResponse(
                 responseCode = "409",
-                description = "No account is linked, or the company has no deliverable email domain")
+                description = "The employee is revoked (Terminated or disabled), or no account is linked")
     })
     public ResponseEntity<AccessProvisioningOverview> resend(
             @PathVariable UUID companyId, @PathVariable UUID employeeId) {

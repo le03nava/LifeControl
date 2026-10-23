@@ -188,7 +188,8 @@ com.lifecontrol.api/
 - **Employees are the exception**: `enabled = false` on an employee is a **revocation**, not just a registry
   flag — the required-role derivation, the membership projection (`company_*` claims) and the account all
   treat it as "no access", the disable enqueues a `DEACTIVATE` intent and the re-enable reconciles it
-  (`EmployeeStatuses.isRevoked`, gap G41)
+  (`EmployeeStatuses.isRevoked`, gap G41). The explicit request surface reads that same predicate, so
+  `apply`/`resend` refuse a revoked employee and `deactivate` requires one (issue #535)
 
 ### Endpoint Map
 
