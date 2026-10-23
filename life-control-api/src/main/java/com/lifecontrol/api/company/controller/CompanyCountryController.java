@@ -5,6 +5,14 @@ import static com.lifecontrol.api.common.security.Roles.COMPANY;
 import static com.lifecontrol.api.common.security.Roles.COMPANY_COUNTRY;
 import static com.lifecontrol.api.common.security.Roles.COMPANY_COUNTRY_READ;
 import static com.lifecontrol.api.common.security.Roles.COMPANY_READ;
+import static com.lifecontrol.api.common.security.Roles.COMPANY_REGION;
+import static com.lifecontrol.api.common.security.Roles.COMPANY_REGION_READ;
+import static com.lifecontrol.api.common.security.Roles.COMPANY_STORE;
+import static com.lifecontrol.api.common.security.Roles.COMPANY_STORE_READ;
+import static com.lifecontrol.api.common.security.Roles.COMPANY_ZONE;
+import static com.lifecontrol.api.common.security.Roles.COMPANY_ZONE_READ;
+import static com.lifecontrol.api.common.security.Roles.EMPLOYEE;
+import static com.lifecontrol.api.common.security.Roles.RECEIVING;
 
 import com.lifecontrol.api.company.dto.CompanyCountryRequest;
 import com.lifecontrol.api.company.dto.CompanyCountryResponse;
@@ -37,13 +45,34 @@ public class CompanyCountryController {
         this.companyCountryService = companyCountryService;
     }
 
+    /**
+     * Lists the company's countries, bounded by the caller's own scope.
+     *
+     * <p>The allow-list is the set of <b>measured consumers</b> of a country selector — the roles
+     * whose screens or dialogs read this endpoint, taken from {@code companies.routes.ts} and
+     * {@code purchases.routes.ts} — and not the company&rarr;store hierarchy. {@code lc-sales}, and
+     * the scheduling pair, sit at the store level but no screen of theirs reads this list, so they
+     * stay out: the repo treats these lists as flat consumer sets, and a new consumer adds itself
+     * here, where the pin in {@code CompanyCountryControllerSecurityTest} fails until it does.</p>
+     *
+     * <p>Widening the allow-list without the filter would be a horizontal over-grant, which is why
+     * the two halves ship together: {@link
+     * com.lifecontrol.api.company.service.CompanyCountryService#getCountriesByCompanyId} narrows every
+     * caller whose broadest granted scope is <b>not</b> company — a functional role with no scope in
+     * the hierarchy included — to the countries named by its {@code company_country_id} claim.</p>
+     *
+     * <p>This is a read. The three write annotations below are unchanged on purpose: no new role
+     * enters them.</p>
+     */
     @GetMapping
-    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + COMPANY + "','" + COMPANY_COUNTRY + "','" + COMPANY_COUNTRY_READ
-            + "','" + COMPANY_READ + "')")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + COMPANY + "','" + COMPANY_READ + "','" + COMPANY_COUNTRY + "','"
+            + COMPANY_COUNTRY_READ + "','" + COMPANY_REGION + "','" + COMPANY_REGION_READ + "','" + COMPANY_ZONE
+            + "','" + COMPANY_ZONE_READ + "','" + COMPANY_STORE + "','" + COMPANY_STORE_READ + "','" + RECEIVING
+            + "','" + EMPLOYEE + "')")
     @Operation(
             summary = "Get countries by company",
             description =
-                    "Returns countries associated with a company. For lc-company-country and lc-company-country-read roles, results are scoped to the company_country_id values in the JWT.")
+                    "Returns countries associated with a company. A caller whose broadest granted scope is not company (a functional role with no scope in the hierarchy included) reads only the countries named by its company_country_id claim; an absent or empty claim returns an empty list. lc-company, lc-company-read and lc-admin read every country of the company.")
     public ResponseEntity<List<CompanyCountryResponse>> getCompanyCountries(@PathVariable UUID companyId) {
         return ResponseEntity.ok(companyCountryService.getCountriesByCompanyId(companyId));
     }
