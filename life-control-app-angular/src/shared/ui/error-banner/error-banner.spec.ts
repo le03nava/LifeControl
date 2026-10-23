@@ -1,4 +1,5 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ErrorBanner } from './error-banner';
 
 describe('ErrorBanner', () => {
@@ -56,5 +57,48 @@ describe('ErrorBanner', () => {
     const span = fixture.nativeElement.querySelector('.error-banner span');
     expect(span).toBeTruthy();
     expect(span.textContent).toBe('');
+  });
+
+  // ─── Opt-in scroll into view ────────────────────────────────
+  //
+  // The banner is used by more than thirty templates, most of them inside short dialogs and lists
+  // where the banner is already on screen. Scrolling is therefore opt-in: a page whose save button
+  // sits below a long form asks for it, and every other consumer keeps the behaviour it has today.
+  describe('scroll into view', () => {
+    let scrollIntoView: ReturnType<typeof vi.spyOn>;
+
+    beforeEach(() => {
+      scrollIntoView = vi.spyOn(Element.prototype, 'scrollIntoView');
+    });
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it('should not scroll by default when a message appears', () => {
+      fixture.componentRef.setInput('message', 'No se pudo guardar');
+      fixture.detectChanges();
+
+      expect(scrollIntoView).not.toHaveBeenCalled();
+    });
+
+    it('should scroll the banner into view when opted in and a message appears', () => {
+      fixture.componentRef.setInput('autoScroll', true);
+      fixture.componentRef.setInput('message', 'Otra sesión modificó esta tienda');
+      fixture.detectChanges();
+
+      expect(scrollIntoView).toHaveBeenCalledTimes(1);
+      // `nearest` is the minimal movement that makes the banner visible: it does nothing when the
+      // banner is already on screen and never pushes the form out of view to centre it.
+      expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' });
+      expect(scrollIntoView.mock.contexts[0]).toBe(fixture.nativeElement);
+    });
+
+    it('should not scroll when opted in but there is no message', () => {
+      fixture.componentRef.setInput('autoScroll', true);
+      fixture.detectChanges();
+
+      expect(scrollIntoView).not.toHaveBeenCalled();
+    });
   });
 });

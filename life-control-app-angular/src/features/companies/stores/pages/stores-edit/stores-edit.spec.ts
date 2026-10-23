@@ -402,6 +402,44 @@ describe('StoresEdit', () => {
       expect(banner.textContent).toContain('Store already exists in this zone');
     });
 
+    it('should scroll the error banner into view when a save fails', () => {
+      // Same geometry as the areas, zones and locations pages: the banner sits above a long form
+      // whose actions are at the bottom, so the page opts it into scrolling itself into view.
+      const scrollIntoView = vi.spyOn(Element.prototype, 'scrollIntoView');
+      const apiError = {
+        status: 409,
+        message: 'Store already exists in this zone',
+        path: '/api/companies/company-1/stores',
+        timestamp: '2024-01-01',
+        correlationId: 'abc',
+      };
+      const storeService = TestBed.inject(
+        CompanyStoreService,
+      ) as unknown as MockCompanyStoreService;
+      storeService.addStore = vi.fn().mockReturnValue(
+        throwError(
+          () =>
+            new HttpErrorResponse({
+              error: apiError,
+              status: 409,
+              statusText: 'Conflict',
+            }),
+        ),
+      );
+
+      const event: StoreSaveEvent = {
+        companyId: 'company-1',
+        countryId: 'cc-1',
+        regionId: 'reg-1',
+        zoneId: 'zone-1',
+        request: { storeName: 'Duplicate Store' },
+      };
+      component.onSaveStore(event);
+      fixture.detectChanges();
+
+      expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' });
+    });
+
     it('should fall back to a generic message when a non-field failure carries none', () => {
       const storeService = TestBed.inject(
         CompanyStoreService,

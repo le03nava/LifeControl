@@ -409,6 +409,20 @@ describe('SchedulingActivityEdit', () => {
       expect(text()).toContain('falló el guardado');
     });
 
+    it('should scroll the failed save banner into view', async () => {
+      // Same geometry as the store edit pages: the save action lives at the bottom of the activity
+      // form and the banner is at the top of the page, so the page opts it into scrolling itself
+      // back into view when a write fails.
+      const scrollIntoView = vi.spyOn(Element.prototype, 'scrollIntoView');
+      setup({ edit: true, updateResult: httpError(500, { message: 'falló el guardado' }) });
+      await settle();
+
+      component.onSave(formValue);
+      await settle();
+
+      expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' });
+    });
+
     it('should keep the save unavailable while the read failed and restore it after a successful retry', async () => {
       setup({
         edit: true,

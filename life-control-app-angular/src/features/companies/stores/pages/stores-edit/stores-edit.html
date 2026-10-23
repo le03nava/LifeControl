@@ -1,6 +1,6 @@
 <div class="stores-edit-page">
   @if (generalError(); as errorMsg) {
-    <app-error-banner [message]="errorMsg" />
+    <app-error-banner [message]="errorMsg" [autoScroll]="true" />
   }
 
   @if (isEditMode()) {
