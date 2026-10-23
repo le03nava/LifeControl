@@ -86,6 +86,7 @@ class AccessProvisioningRequestServiceTest {
     private UUID taskId;
     private Employee active;
     private Employee terminated;
+    private Employee softDeleted;
 
     @BeforeEach
     void setUp() {
@@ -114,6 +115,16 @@ class AccessProvisioningRequestServiceTest {
                 .email("juan.perez@acme.com")
                 .status(status("Terminated"))
                 .enabled(true)
+                .build();
+        // The soft delete's own fact: an employee who is still `Active` by status and out by
+        // `enabled = false` (gap G41). The two facts are one verdict, and these tests are what pins that
+        // the explicit surface reads it.
+        softDeleted = Employee.builder()
+                .id(employeeId)
+                .company(company)
+                .email("juan.perez@acme.com")
+                .status(status("Active"))
+                .enabled(false)
                 .build();
 
         when(currentUserContext.getUserId()).thenReturn(ACTOR_SUB);
@@ -198,8 +209,21 @@ class AccessProvisioningRequestServiceTest {
         }
 
         @Test
-        @DisplayName("does not even ask whether the address is deliverable for a Terminated employee")
-        void theTerminatedRuleRunsBeforeTheDomainRule() {
+        @DisplayName("refuses a soft-deleted employee by the same rule, before any task exists")
+        void softDeletedEmployeeIsRefusedByTheSameRule() {
+            employeeInCompany(softDeleted);
+
+            assertThatThrownBy(() -> service.apply(companyId, employeeId))
+                    .isInstanceOf(RevokedEmployeeRefusedException.class)
+                    .hasMessageContaining("revoked")
+                    .hasMessageContaining(employeeId.toString());
+
+            verifyNoInteractions(gateService, accountService);
+        }
+
+        @Test
+        @DisplayName("does not even ask whether the address is deliverable for a revoked employee")
+        void theRevocationRuleRunsBeforeTheDomainRule() {
             employeeInCompany(terminated);
 
             assertThatThrownBy(() -> service.apply(companyId, employeeId))
@@ -284,8 +308,8 @@ class AccessProvisioningRequestServiceTest {
         }
 
         @Test
-        @DisplayName("refuses an employee who is not Terminated with a named conflict, before any task exists")
-        void refusesAnEmployeeWhoIsNotTerminated() {
+        @DisplayName("refuses an employee who still has access with a named conflict, before any task exists")
+        void refusesAnEmployeeWhoStillHasAccess() {
             employeeInCompany(active);
 
             assertThatThrownBy(() -> service.deactivate(companyId, employeeId))
@@ -293,6 +317,16 @@ class AccessProvisioningRequestServiceTest {
                     .hasMessageContaining(employeeId.toString());
 
             verifyNoInteractions(gateService, taskService, accountService);
+        }
+
+        @Test
+        @DisplayName("requests the task for a soft-deleted employee: that is who a revocation is for")
+        void softDeletedEmployeeIsAdmitted() {
+            employeeInCompany(softDeleted);
+
+            service.deactivate(companyId, employeeId);
+
+            verify(gateService).request(companyId, employeeId, DEACTIVATE, ACTOR_SUB);
         }
 
         @Test
@@ -319,8 +353,8 @@ class AccessProvisioningRequestServiceTest {
     @Test
     @DisplayName("both intents scope the employee to the claimed company, never load it unscoped")
     void bothIntentsLoadTheEmployeeThroughTheCompany() {
-        // Two consecutive loads, one per intent: apply is refused for a Terminated employee (T84) and
-        // the revocation requires one (T101), so each intent needs its own status.
+        // Two consecutive loads, one per intent: apply is refused for a revoked employee and the
+        // revocation requires one, so each intent needs its own side of the same rule.
         when(employeeRepository.findByIdAndCompanyId(employeeId, companyId))
                 .thenReturn(Optional.of(active), Optional.of(terminated));
 
@@ -462,6 +496,18 @@ class AccessProvisioningRequestServiceTest {
             assertThatThrownBy(() -> service.resend(companyId, employeeId))
                     .isInstanceOf(RevokedEmployeeRefusedException.class)
                     .hasMessageContaining("Terminated");
+
+            verifyNoInteractions(accountService);
+        }
+
+        @Test
+        @DisplayName("refuses a soft-deleted employee before delegating the send")
+        void softDeletedEmployeeIsRefusedByName() {
+            employeeInCompany(softDeleted);
+
+            assertThatThrownBy(() -> service.resend(companyId, employeeId))
+                    .isInstanceOf(RevokedEmployeeRefusedException.class)
+                    .hasMessageContaining("revoked");
 
             verifyNoInteractions(accountService);
         }
