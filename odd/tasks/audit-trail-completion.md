@@ -48,16 +48,36 @@ update still leaves `created_by` and `created_at` unchanged.
 
 `T1` — Seed `HR`, `PROVISIONING`, `GOODSRECEIPT` in a new migration; replace the hardcoded process list
 in `ActivityLogIntegrationTest` with a derivation from the controller packages, so a future domain with
-no seed turns the suite red. Spec: `S1`, `S4`. Route: inline. Planeado: commit 1.
+no seed turns the suite red. Spec: `S1`, `S4`. Route: inline. Commit: `d973ec0` (slice 1).
 
 `T2` — `V28` adds `employees.created_by`; `Employee` maps it with a named write path, `EmployeeService`
 fills it from `CurrentUserContext`, `EmployeeResponse` exposes it; tests cover create, update and the
-absence of a request field. Spec: `S2`, `S4`. Route: inline. Planeado: commit 2.
+absence of a request field. Spec: `S2`, `S4`. Route: `gentle-ai-worker`. Commit: `77c3d71` (slice 2).
 
 `T3` — `@features/reports` with an admin-gated route, the activity-log screen (server pagination plus the
 six filters), a data service over `GET /api/activity-logs`, the `Reportes` entry in `header.ts` gated
-the same way, and unit tests for the gate, the filters and the paging. Spec: `S3`, `S4`. Route: inline.
-Planeado: commit 3.
+the same way, and unit tests for the gate, the filters and the paging. Spec: `S3`, `S4`. Route:
+`gentle-ai-worker`. Commits: `18a98a5`, `73eecbf`, `2945fd5`.
+
+## Delivery
+
+Five reviewable slices on `feat/audit-trail-completion`, each under or near the ~400 authored-line
+review budget, in this order. Slices 1 and 2 both move the Flyway head pin, so they cannot be reordered
+without moving it twice; slices 3-5 touch no backend file and can be dropped without affecting the
+first two. Push and pull-request creation are the maintainer's decision, not this unit's.
+
+| Slice | Commit | Lines | Content |
+| --- | --- | --- | --- |
+| 1 | `d973ec0` | 382 | `S1` — V27 seed + derived coverage guard |
+| 2 | `77c3d71` | 292 | `S2` — `employees.created_by` |
+| 3 | `18a98a5` | 276 | `S3` — the typed read path (models + service + spec) |
+| 4 | `73eecbf` | 607 | `S3` — the screen (component, template, styles, spec); irreducible: a template without its logic does not compile |
+| 5 | `2945fd5` | 207 | `S3` — the wiring where the access decision lives (route + menu + e2e mock + their specs) |
+
+Slices 3-5 are a history split of one tree that was already verified green as a single commit
+(`bc4dd00`, reflog); `git diff bc4dd00 2945fd5` is empty, so the split changed no content. The tip is
+the tree the gates ran on; the three intermediate commits were not separately exercised, and the first
+PR of the chain is where CI picks each of them up.
 
 ## Log
 
@@ -115,3 +135,32 @@ reporta y no se toca).
   `employee_store_assignments`, `employee_scope_assignments`) le ponen FK, así que el orden de clases
   decide si el `DELETE` choca con una fila huérfana. Sigue como defecto abierto de test isolation, con
   issue propia si se decide arreglarlo.
+
+`L6` — 2026-10-23, T2 ejecutado (`gentle-ai-worker`), commit `77c3d71`.
+- `V28` agrega `employees.created_by VARCHAR(255)`, nullable, sin default y **sin backfill**: las filas
+  previas quedan `NULL` porque su creador nunca se registró; un creador adivinado es peor que un `NULL`
+  honesto. Mapeada con `updatable = false` para que Hibernate no pueda emitirla en un `UPDATE`.
+- `Employee.markCreatedBy` es el único camino de escritura (sin setter público, sin builder) y lanza
+  `IllegalStateException` en la segunda llamada; un latch `@Transient` evita que un primer `NULL` parezca
+  "no escrito". Único call site: `EmployeeService.createEmployee`.
+- RED 1 (compilable): `28 tests completed, 5 failed` — columna inexistente en `information_schema` y
+  `BadSqlGrammarException: SELECT created_by FROM employees`. RED 2: `cannot find symbol: markCreatedBy`.
+  GREEN: `./gradlew test --tests "com.lifecontrol.api.hr.*"` 722 tests, 0 fallos; suite completa 3810
+  tests, 0 fallos, exit 0 (en esa corrida el flake de `EmployeeCrud` no apareció).
+- Los siete pins de la cabeza de Flyway pasan a `"28"`.
+
+`L7` — 2026-10-23, T3 ejecutado (`gentle-ai-worker`) y commiteado en `18a98a5`, `73eecbf`, `2945fd5`.
+- RED: `TS2307: Cannot find module './activity-log.service'`, `expected 8 to be 9` en `header.spec.ts`
+  (230 y 537) y `expected undefined to be defined` en el caso del menú; `5 failed | 82 passed`.
+- GREEN: `npx prettier --write` exit 0, `npm run lint` exit 0 (`All files pass linting.`), `npm run test`
+  exit 0 (`190 passed`, `3845 passed`, coverage 87.03% statements), `npm run build` exit 0.
+- **Corrección de una decisión del padre**: el handoff pedía `data: { role: 'admin' }`, la forma legacy
+  que el guard resuelve contra `realm_access.roles`. `lc-admin` es un rol de cliente de
+  `life-control-client`, así que esa forma habría rechazado a todo tenedor legítimo. La ruta usa
+  `{ roles: [LC_ADMIN], clientId }`, que es la forma que `app.routes.ts` ya usa para `/users-admin`, y el
+  `app.routes.spec.ts` la fija. Sin esa corrección el menú se veía y la pantalla respondía 403.
+- El worker no tenía `node_modules` en el worktree y creó un symlink gitignoreado al del anchor para
+  correr los gates; se borró antes del commit, así que el slice no lo incluye.
+- Reparto: el commit único de la pantalla eran 1090 líneas, por encima del presupuesto de revisión. Se
+  cortó en tres (lectura / pantalla / cableado) y el árbol quedó idéntico al verificado: `git diff
+  bc4dd00 2945fd5` vacío.

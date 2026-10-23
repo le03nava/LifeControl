@@ -1,5 +1,6 @@
 import { Routes } from '@angular/router';
 import { keycloakRoleGuard } from '@core/guards/auth-keycloak-guard';
+import { CLIENT_ID, LC_ADMIN } from '@core/security/roles';
 import { Home } from '@features/home/home';
 
 export const routes: Routes = [
@@ -41,6 +42,18 @@ export const routes: Routes = [
       import('@features/users-admin/users-admin.routes').then((m) => m.usersAdminRoutes),
     canActivate: [keycloakRoleGuard],
     data: { roles: ['lc-admin'], clientId: 'life-control-client' },
+  },
+  {
+    // The audit trail's read surface, admin-only like the endpoint itself
+    // (`GET /api/activity-logs` is `hasRole('lc-admin')`). The gate is here, on the
+    // parent, in the **client-role** shape: `keycloakRoleGuard` resolves `roles`
+    // from `resource_access[clientId]`, so a direct URL is refused for every other
+    // role. The realm-role `{ role: 'admin' }` form would refuse every real
+    // administrator instead.
+    path: 'reports',
+    loadChildren: () => import('@features/reports/reports.routes').then((m) => m.reportsRoutes),
+    canActivate: [keycloakRoleGuard],
+    data: { roles: [LC_ADMIN], clientId: CLIENT_ID },
   },
   {
     path: 'profile',

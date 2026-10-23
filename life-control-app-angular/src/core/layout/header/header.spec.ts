@@ -139,7 +139,7 @@ describe('Header', () => {
       expect(companiesItem).toBeDefined();
       expect(companiesItem?.textLink).toBe('Companies');
       expect(items.some((i) => i.routeLink === '/users-admin')).toBe(true);
-      expect(items.length).toBe(8); // Companies + Sales + Products + Stock by store + Purchases + Users Admin + Calendario y citas + Recursos Humanos
+      expect(items.length).toBe(9); // Companies + Sales + Products + Stock by store + Purchases + Users Admin + Calendario y citas + Recursos Humanos + Reportes
     });
 
     it('should NOT show Companies menu when user has no company client roles', () => {
@@ -227,7 +227,7 @@ describe('Header', () => {
       expect(component.isCompanyRole()).toBe(true);
       const items = component.items();
       expect(items.some((i) => i.routeLink === '/users-admin')).toBe(true);
-      expect(items.length).toBe(8); // Companies + Sales + Products + Stock by store + Purchases + Users Admin + Calendario y citas + Recursos Humanos
+      expect(items.length).toBe(9); // Companies + Sales + Products + Stock by store + Purchases + Users Admin + Calendario y citas + Recursos Humanos + Reportes
     });
 
     it('should NOT show Users Admin for lc-company role', () => {
@@ -534,7 +534,7 @@ describe('Header', () => {
       const items = component.items();
       const salesItem = items.find((i) => i.routeLink === '/sales');
       expect(salesItem).toBeDefined();
-      expect(items.length).toBe(8); // Companies + Sales + Products + Stock by store + Purchases + Users Admin + Calendario y citas + Recursos Humanos
+      expect(items.length).toBe(9); // Companies + Sales + Products + Stock by store + Purchases + Users Admin + Calendario y citas + Recursos Humanos + Reportes
     });
 
     it('should reset isSalesRole on AuthLogout event', () => {
@@ -859,6 +859,52 @@ describe('Header', () => {
 
       expect(component.isHr()).toBe(false);
       expect(component.items().some((i) => i.routeLink === '/hr')).toBe(false);
+    });
+  });
+
+  // ─── Reportes menu entry (activity log, lc-admin only) ────────
+
+  describe('reports menu entry', () => {
+    it('should show Reportes to lc-admin, appended after Recursos Humanos', () => {
+      const { component } = setup(['lc-admin']);
+      const items = component.items();
+      const reportsItem = items.find((i) => i.routeLink === '/reports');
+
+      expect(reportsItem).toBeDefined();
+      expect(reportsItem?.textLink).toBe('Reportes');
+      expect(reportsItem?.icon).toBe('assessment');
+      // The next unused id after `9` Recursos Humanos.
+      expect(reportsItem?.id).toBe('10');
+      // Appended, not inserted: the entries before it keep their pinned order.
+      expect(items[items.length - 1]?.routeLink).toBe('/reports');
+      expect(items.some((i) => i.routeLink === '/hr')).toBe(true);
+    });
+
+    it('should NOT show Reportes for a non-admin role', () => {
+      const { component } = setup(['lc-company']);
+
+      expect(component.isAdmin()).toBe(false);
+      expect(component.items().some((i) => i.routeLink === '/reports')).toBe(false);
+    });
+
+    it('should keep every pre-existing entry and its id in the order they had', () => {
+      // PRESERVE pin for the menu this entry was appended to: adding Reportes must
+      // not reorder, re-id or drop an entry that was already there.
+      const { component } = setup(['lc-admin']);
+      const items = component.items();
+
+      expect(items.map((i) => i.id)).toEqual(['2', '6', '3', '7', '4', '5', '8', '9', '10']);
+      expect(items.map((i) => i.routeLink)).toEqual([
+        '/companies',
+        '/sales',
+        '/products',
+        '/products/variants',
+        '/purchases',
+        '/users-admin',
+        '/scheduling/list',
+        '/hr',
+        '/reports',
+      ]);
     });
   });
 

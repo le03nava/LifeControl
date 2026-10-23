@@ -1,3 +1,4 @@
+import { keycloakRoleGuard } from '@core/guards/auth-keycloak-guard';
 import { routes } from './app.routes';
 
 describe('app.routes', () => {
@@ -56,5 +57,20 @@ describe('app.routes', () => {
     const hrRoute = routes.find((r) => r.path === 'hr');
     expect(hrRoute).toBeDefined();
     expect(hrRoute?.loadChildren).toBeDefined();
+  });
+
+  it('should gate the reports route on lc-admin with the lazy feature behind it', () => {
+    const reportsRoute = routes.find((r) => r.path === 'reports');
+
+    expect(reportsRoute).toBeDefined();
+    expect(reportsRoute?.loadChildren).toBeDefined();
+    // The guard is the one that refuses a direct URL, and its data is the client-role
+    // shape the backend's `hasRole('lc-admin')` mirrors; the realm-role `role: 'admin'`
+    // form would refuse every real administrator instead of every non-administrator.
+    expect(reportsRoute?.canActivate).toEqual([keycloakRoleGuard]);
+    expect(reportsRoute?.data).toEqual({
+      roles: ['lc-admin'],
+      clientId: 'life-control-client',
+    });
   });
 });
