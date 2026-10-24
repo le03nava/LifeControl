@@ -32,9 +32,11 @@ import org.springframework.jdbc.core.JdbcTemplate;
  * the previous contract's end date is accepted while one starting the day before is refused.</p>
  *
  * <p>Cleanup is deliberately broad, leaf-first, and unconditional over the tables this suite owns:
- * the {@code @BeforeEach} deletes every row of {@code employee_contracts}, then of
- * {@code position_salary_bands}, {@code position_roles}, {@code positions}, {@code departments},
- * {@code seniority_levels} and {@code employees}, in that order, and never touches
+ * the {@code @BeforeEach} delegates {@code employees} — and the three child tables that reference it,
+ * {@code employee_contracts}, {@code employee_store_assignments} and
+ * {@code employee_scope_assignments} — to the shared {@code deleteAllEmployees} helper (issue #562),
+ * then deletes {@code position_salary_bands}, {@code position_roles}, {@code positions},
+ * {@code departments} and {@code seniority_levels}, and never touches
  * {@code companies}, {@code statuses} or {@code status_types} (the shared fixtures other suites
  * depend on). The PostgreSQL container is shared per JVM, so a wholly owned starting state is what
  * keeps the row-count assertions deterministic; the sibling schema suites delete these same HR
@@ -62,19 +64,20 @@ class EmployeeContractSchemaMigrationIntegrationTest extends AbstractPostgresInt
 
     @BeforeEach
     void resetContractAndHrTables() {
-        // Leaf-first and unconditional: employee_contracts references employees, positions and
-        // seniority_levels; positions references departments; position_salary_bands and
-        // position_roles reference positions. Every row of these tables is deleted, not a scoped
-        // subset, so every method starts from a wholly owned state. companies, statuses and
-        // status_types are shared fixtures and are never touched here.
-        jdbcTemplate.update("DELETE FROM employee_contracts");
+        // Leaf-first and unconditional: the access-provisioning rows and the employee child tables
+        // (contracts, store assignments, scope assignments) reference employees, positions references
+        // departments, and position_salary_bands and position_roles reference positions.
+        // deleteAllEmployees owns the employee leaf order, including the three child tables that
+        // issue #562 was about; every table below is emptied wholesale, not by scoped subset, so each
+        // method starts from a wholly owned state. companies, statuses and status_types are shared
+        // fixtures and are never touched here.
+        deleteAllAccessProvisioningRows(jdbcTemplate);
+        deleteAllEmployees(jdbcTemplate);
         jdbcTemplate.update("DELETE FROM position_salary_bands");
         jdbcTemplate.update("DELETE FROM position_roles");
         jdbcTemplate.update("DELETE FROM positions");
         jdbcTemplate.update("DELETE FROM departments");
         jdbcTemplate.update("DELETE FROM seniority_levels");
-        deleteAllAccessProvisioningRows(jdbcTemplate);
-        jdbcTemplate.update("DELETE FROM employees");
     }
 
     @Test
