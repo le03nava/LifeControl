@@ -119,9 +119,9 @@ independent version updates and are not part of this record's work.
 
 | # | Gap | Why it matters |
 | --- | --- | --- |
-| G1 | A Dependabot `ignore` condition is in force for `org.springdoc:springdoc-openapi-starter-webmvc-api` (`[>= 3.a, < 4]`, reported by Dependabot in PR #204's body) although `.github/dependabot.yml` declares no `ignore` at all. | Dependabot configuration exists outside the repository file. Anyone "fixing" `dependabot.yml` would be editing a partial source of truth. |
-| G2 | Whether an `ignore` rule also suppresses security-update PRs for the ignored dependency | Blocks D2's alternative; see D2. |
-| G3 | The Dependabot dependency name that matches a Gradle plugin declaration (`id 'org.springframework.boot' version '...'`) | Needed before any `ignore` for the Boot plugin could be written correctly. |
+| G1 | A Dependabot `ignore` condition is in force for `org.springdoc:springdoc-openapi-starter-webmvc-api` (`[>= 3.a, < 4]`, reported by Dependabot in PR #204's body) although `.github/dependabot.yml` declares no `ignore` at all. **Corrected 2026-10-24: not reproducible — see `## Gap reconciliation (2026-10-24)` below.** | Dependabot configuration exists outside the repository file. Anyone "fixing" `dependabot.yml` would be editing a partial source of truth. *(That was the reading of 2026-10-03; the reconciliation below measures that no such surface exists, so the consequence does not follow.)* |
+| G2 | Whether an `ignore` rule also suppresses security-update PRs for the ignored dependency. **Re-read against the reference on 2026-10-24 and unchanged — see the reconciliation below.** | Blocks D2's alternative; see D2. |
+| G3 | The Dependabot dependency name that matches a Gradle plugin declaration (`id 'org.springframework.boot' version '...'`). **Narrowed on 2026-10-24 to the documented `groupId:artifactId` format, and still unverified for a plugin `id` — see the reconciliation below.** | Needed before any `ignore` for the Boot plugin could be written correctly. |
 | G4 | T2 and T3 above | They define the real size of the migration and were not verified. |
 
 ## Evidence log
@@ -141,3 +141,48 @@ Nothing, until the migration is scheduled. When it is, start at T1 in a worktree
 ## Header repair (2026-10-19)
 
 The `**Status**:` line above was rewritten on 2026-10-19 by `odd/tasks/odd-stale-header-reconciliation.md` (issue **#434**), where the inventory and the verification live. It used to assert a state the code has since falsified: «What remains is the whole migration, unstarted; it is a major-version migration, not a dependency bump. This header makes no claim about branch or worktree state.». The migration did get scheduled, scoped and landed — as its own record, `odd/tasks/spring-boot-4-1-migration.md` (PR **#348** `a67d1cb`, PR **#349** `43b1a7e`, 2026-10-17) — so the line now says so, maps `T1`–`T4` onto what that unit did and leaves this record's own measured contribution (`E1`–`E4`, `G1`–`G3`) standing as evidence rather than as pending work. Nothing else in this record was touched.
+
+## Gap reconciliation (2026-10-24)
+
+G1 was written the way it reads today because it was measured that way on 2026-10-03, and the risk in
+leaving it alone is not the gap itself but its wording: "Dependabot configuration exists outside the
+repository file" sends the next reader looking for a configuration surface that the tool does not have.
+This pass re-read the three gaps against the tool's own reference and against this repository's history.
+The header, `D1`–`D3`, `T1`–`T4` and `E1`–`E4` are untouched.
+
+**G1 — resolved as not reproducible.** Three measurements, none of them from memory:
+
+- The reference states where the file lives, in its own words: "You must store this file in the
+  `.github` directory of your repository in the default branch (typically `main`), at
+  `.github/dependabot.yml` or `.github/dependabot.yaml`." There is no other declarative surface for an
+  `ignore` rule.
+- `.github/dependabot.yml` in this repository has one `updates[]` entry and no `ignore` key, and
+  `git log --all -p -- .github/dependabot.yml .github/dependabot.yaml` returns **no** line adding or
+  removing an `ignore`: the file never carried one in this repository's history.
+- The body of PR #204, re-read on this date, carries no `ignore` and no version range; and the range the
+  row quotes, `[>= 3.a, < 4]`, is not the syntax the reference asks for — for Maven and Gradle it says
+  "If you want to define a range, use the standard pattern for the package manager … Maven: use
+  `[1.4,)`".
+
+So the row recorded a reading of Dependabot's pull-request text as if it were an effective rule. The
+correct action if such a line ever appears again is to read `.github/dependabot.yml` on the default
+branch; there is nowhere else to look, and this record should not imply otherwise.
+
+**G2 — unchanged, and the asymmetry that made it a gap is still there.** The reference marks
+`update-types` under `allow` with the sentence "`update-types` only affects *version* updates, not
+*security updates*", and its `update-types` paragraph under `ignore` carries no equivalent sentence. So
+the premise of `D2`'s caution holds today: it still cannot be assumed that an `ignore` leaves security
+updates for that dependency intact. `D2` stands as decided; this gap only matters to whoever reopens it.
+
+**G3 — narrowed, not closed.** The reference gives the required format for `dependency-name` per package
+manager: "Gradle and Maven | `groupId:artifactId` | `org.kohsuke:github-api`". That settles the shape for
+an ordinary dependency, but a Gradle *plugin* declared as `id 'org.springframework.boot' version '...'`
+has no manifest coordinate to match, and the reference does not say how that name resolves. Any `ignore`
+for the Boot plugin therefore still cannot be written correctly from documentation alone, and would need
+the empirical check the decision deferred rather than a guess.
+
+**What this pass does not change.** `D1`, `D2` and `D3` are decisions taken with evidence and stay as
+they are; `T1`–`T4` belong to `odd/tasks/spring-boot-4-1-migration.md`, which discharged them; and the
+`**Status**:` line already says the migration landed under that record. G2 and G3 remain the only two
+things this record would have to answer if `D2` were ever revisited, and they cost nothing while it is
+not.
