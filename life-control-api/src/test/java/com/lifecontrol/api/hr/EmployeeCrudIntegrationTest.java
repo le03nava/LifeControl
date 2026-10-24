@@ -1,6 +1,7 @@
 package com.lifecontrol.api.hr;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.when;
 
@@ -71,7 +72,7 @@ class EmployeeCrudIntegrationTest extends AbstractPostgresIntegrationTest {
         // employment ends, and that table references employees: the rows that reference them are
         // deleted first (record T90).
         deleteAllAccessProvisioningRows(jdbcTemplate);
-        jdbcTemplate.update("DELETE FROM employees");
+        deleteAllEmployees(jdbcTemplate);
         companyId = employeeCompanyId();
         activeStatusId = employeeStatusId("Active");
         inactiveStatusId = employeeStatusId("Inactive");
@@ -388,6 +389,70 @@ class EmployeeCrudIntegrationTest extends AbstractPostgresIntegrationTest {
         }
     }
 
+    @Nested
+    @DisplayName("test isolation")
+    class IsolationTests {
+
+        /**
+         * The rule, not the luck. Issue #562 was a full run where this class failed all 14 tests
+         * because another suite left a child row behind on the container it shares with every other
+         * integration class; the failure needs the right class order to surface, so a test that only
+         * runs when the order is hostile cannot guard it. This one builds the hostile state on
+         * purpose and runs the cleanup the {@code @BeforeEach} runs.
+         */
+        @Test
+        @DisplayName("the setUp cleanup removes an employee that still has contract, store and scope rows")
+        void cleanupRemovesAnEmployeeWithChildRows() {
+            var employeeId = insertEmployee("EMP-ISO-1", "iso.one@" + COMPANY_DOMAIN);
+            insertChildRows(employeeId);
+
+            assertThat(rowCount("employee_contracts")).isPositive();
+            assertThat(rowCount("employee_store_assignments")).isPositive();
+            assertThat(rowCount("employee_scope_assignments")).isPositive();
+
+            assertThatCode(() -> deleteAllEmployees(jdbcTemplate)).doesNotThrowAnyException();
+
+            assertThat(rowCount("employees")).isZero();
+            assertThat(rowCount("employee_contracts")).isZero();
+            assertThat(rowCount("employee_store_assignments")).isZero();
+            assertThat(rowCount("employee_scope_assignments")).isZero();
+        }
+
+        /**
+         * The three child tables are the whole reason the parent delete can fail; a new table that
+         * references {@code employees} would reintroduce #562 without touching this suite. The
+         * assertion is derived from the catalogue, so it fails for the table nobody remembered.
+         */
+        @Test
+        @DisplayName("every table that references employees is cleaned by the shared helper")
+        void everyReferencingTableIsCleaned() {
+            var referencing = jdbcTemplate.queryForList("""
+                    SELECT tc.table_name
+                      FROM information_schema.table_constraints tc
+                      JOIN information_schema.constraint_column_usage ccu
+                        ON ccu.constraint_name = tc.constraint_name
+                       AND ccu.constraint_schema = tc.constraint_schema
+                     WHERE tc.constraint_type = 'FOREIGN KEY'
+                       AND ccu.table_name = 'employees'
+                       AND tc.table_name <> 'employees'
+                     ORDER BY tc.table_name
+                    """, String.class);
+
+            assertThat(referencing)
+                    .as("tables with a foreign key to employees — each one must be emptied before the "
+                            + "parent delete, and a new one is the next #562")
+                    .containsExactly(
+                            "access_provisioning_tasks",
+                            "employee_contracts",
+                            "employee_scope_assignments",
+                            "employee_store_assignments");
+        }
+
+        private int rowCount(String table) {
+            return jdbcTemplate.queryForObject("SELECT count(*) FROM " + table, Integer.class);
+        }
+    }
+
     private EmployeeRequest request(
             String number,
             String firstName,
@@ -409,13 +474,99 @@ class EmployeeCrudIntegrationTest extends AbstractPostgresIntegrationTest {
                 statusId);
     }
 
-    private void insertEmployee(String number, String email) {
+    private UUID insertEmployee(String number, String email) {
+        var id = UUID.randomUUID();
         jdbcTemplate.update("""
                 INSERT INTO employees
                     (id, company_id, employee_number, first_name, paternal_last_name, email,
                      birth_date, hire_date, employment_status_id)
                 VALUES (?, ?, ?, 'Ada', 'Lovelace', ?, DATE '1990-01-01', DATE '2020-01-01', ?)
-                """, UUID.randomUUID(), companyId, number, email, activeStatusId);
+                """, id, companyId, number, email, activeStatusId);
+        return id;
+    }
+
+    /**
+     * Builds the minimal fixture graph and the three child rows that reference one employee: a
+     * contract (position + seniority), a store assignment (country -> region -> zone -> store) and a
+     * scope assignment (company country). Codes carry a random suffix so the natural keys never collide
+     * with the rows another suite left behind.
+     */
+    private void insertChildRows(UUID employeeId) {
+        // Six characters keep every generated code inside its VARCHAR(10) ceiling.
+        var suffix = employeeId.toString().substring(0, 6);
+
+        var departmentId = UUID.randomUUID();
+        jdbcTemplate.update(
+                "INSERT INTO departments (id, company_id, department_code, department_name) VALUES (?, ?, ?, ?)",
+                departmentId,
+                companyId,
+                "ISO" + suffix,
+                "Isolation " + suffix);
+        var positionId = UUID.randomUUID();
+        jdbcTemplate.update(
+                "INSERT INTO positions (id, department_id, position_code, position_name) VALUES (?, ?, ?, ?)",
+                positionId,
+                departmentId,
+                "IS" + suffix,
+                "Isolation " + suffix);
+        // rank and level_name are UNIQUE across the table, so neither can be a constant: the rank is
+        // the next free one and the name carries the suffix.
+        var nextRank =
+                jdbcTemplate.queryForObject("SELECT coalesce(max(rank), 0) + 1 FROM seniority_levels", Integer.class);
+        var seniorityId = UUID.randomUUID();
+        jdbcTemplate.update(
+                "INSERT INTO seniority_levels (id, level_code, level_name, rank) VALUES (?, ?, ?, ?)",
+                seniorityId,
+                "L" + suffix,
+                "Isolation " + suffix,
+                nextRank);
+        jdbcTemplate.update("""
+                INSERT INTO employee_contracts
+                    (employee_id, position_id, seniority_level_id, contract_type, monthly_salary, start_date)
+                VALUES (?, ?, ?, 'PERMANENT', 1000.00, DATE '2020-01-01')
+                """, employeeId, positionId, seniorityId);
+
+        var countryId = jdbcTemplate.queryForObject("""
+                SELECT c.id FROM countries c
+                 WHERE NOT EXISTS (SELECT 1 FROM company_countries cc
+                                    WHERE cc.company_id = ? AND cc.country_id = c.id)
+                 ORDER BY c.country_code LIMIT 1
+                """, UUID.class, companyId);
+        var companyCountryId = UUID.randomUUID();
+        jdbcTemplate.update(
+                "INSERT INTO company_countries (id, company_id, country_id) VALUES (?, ?, ?)",
+                companyCountryId,
+                companyId,
+                countryId);
+        var regionId = UUID.randomUUID();
+        jdbcTemplate.update(
+                "INSERT INTO company_regions (id, company_country_id, region_code, region_name) VALUES (?, ?, ?, ?)",
+                regionId,
+                companyCountryId,
+                "R" + suffix,
+                "Isolation " + suffix);
+        var zoneId = UUID.randomUUID();
+        jdbcTemplate.update(
+                "INSERT INTO company_zones (id, company_region_id, zone_code, zone_name) VALUES (?, ?, ?, ?)",
+                zoneId,
+                regionId,
+                "Z" + suffix,
+                "Isolation " + suffix);
+        var storeId = UUID.randomUUID();
+        jdbcTemplate.update(
+                "INSERT INTO company_stores (id, company_zone_id, store_name) VALUES (?, ?, ?)",
+                storeId,
+                zoneId,
+                "Isolation " + suffix);
+        jdbcTemplate.update(
+                "INSERT INTO employee_store_assignments (employee_id, company_store_id, valid_from) VALUES (?, ?, DATE '2020-01-01')",
+                employeeId,
+                storeId);
+
+        jdbcTemplate.update("""
+                INSERT INTO employee_scope_assignments (employee_id, company_country_id, valid_from)
+                VALUES (?, ?, DATE '2020-01-01')
+                """, employeeId, companyCountryId);
     }
 
     private UUID employeeCompanyId() {

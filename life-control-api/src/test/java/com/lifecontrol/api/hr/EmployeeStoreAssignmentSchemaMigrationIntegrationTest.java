@@ -99,8 +99,7 @@ class EmployeeStoreAssignmentSchemaMigrationIntegrationTest extends AbstractPost
         // touched here. The access-provisioning rows go first for the same reason as the assignments:
         // W5c's producer writes them for the facts these suites assert (record T90).
         deleteAllAccessProvisioningRows(jdbcTemplate);
-        jdbcTemplate.update("DELETE FROM employee_store_assignments");
-        jdbcTemplate.update("DELETE FROM employees");
+        deleteAllEmployees(jdbcTemplate);
     }
 
     @Test

@@ -82,7 +82,7 @@ class EmployeeSchemaMigrationIntegrationTest extends AbstractPostgresIntegration
         // The access-provisioning rows that reference an employee are deleted first, because W5c's
         // producer writes them for the facts these suites assert (record T90).
         deleteAllAccessProvisioningRows(jdbcTemplate);
-        jdbcTemplate.update("DELETE FROM employees");
+        deleteAllEmployees(jdbcTemplate);
     }
 
     @Test
