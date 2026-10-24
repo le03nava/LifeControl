@@ -27,6 +27,7 @@ import com.lifecontrol.api.product.repository.ProductRepository;
 import com.lifecontrol.api.product.repository.ProductVariantRepository;
 import com.lifecontrol.api.product.repository.ProductVariantStoreStockRepository;
 import com.lifecontrol.api.purchaseorder.dto.PurchaseOrderDetailRequest;
+import com.lifecontrol.api.purchaseorder.dto.PurchaseOrderFilter;
 import com.lifecontrol.api.purchaseorder.dto.PurchaseOrderRequest;
 import com.lifecontrol.api.purchaseorder.dto.UpdatePurchaseOrderStatusRequest;
 import com.lifecontrol.api.purchaseorder.event.PurchaseOrderCreatedEvent;
@@ -290,14 +291,14 @@ class PurchaseOrderServiceTest {
     class GetAllPurchaseOrdersTests {
 
         @Test
-        @DisplayName("should return paginated results")
+        @DisplayName("should return the unfiltered page when neither search nor filters are given")
         void returnsPaginatedResults() {
             var pageable = PageRequest.of(0, 10);
             var page = new PageImpl<>(List.of(purchaseOrder), pageable, 1);
-            when(purchaseOrderRepository.findByEnabledTrueOrderByCreatedAtDesc(pageable))
+            when(purchaseOrderRepository.findByFilters(null, null, null, null, null, null, pageable))
                     .thenReturn(page);
 
-            var result = service.getAllPurchaseOrders(pageable, null);
+            var result = service.getAllPurchaseOrders(pageable, null, PurchaseOrderFilter.NONE);
 
             assertThat(result).isNotNull();
             assertThat(result.getContent()).hasSize(1);
@@ -306,16 +307,46 @@ class PurchaseOrderServiceTest {
         }
 
         @Test
-        @DisplayName("should search by supplier or store name")
-        void searchesBySupplierOrStoreName() {
+        @DisplayName("should pass the trimmed search term to the one filtered query")
+        void passesTheTrimmedSearchTerm() {
             var pageable = PageRequest.of(0, 10);
             var page = new PageImpl<>(List.of(purchaseOrder), pageable, 1);
-            when(purchaseOrderRepository.findBySearchTerm("Test", pageable)).thenReturn(page);
+            when(purchaseOrderRepository.findByFilters("Test", null, null, null, null, null, pageable))
+                    .thenReturn(page);
 
-            var result = service.getAllPurchaseOrders(pageable, "Test");
+            var result = service.getAllPurchaseOrders(pageable, "  Test  ", PurchaseOrderFilter.NONE);
 
             assertThat(result.getContent()).hasSize(1);
-            verify(purchaseOrderRepository).findBySearchTerm("Test", pageable);
+            verify(purchaseOrderRepository).findByFilters("Test", null, null, null, null, null, pageable);
+        }
+
+        @Test
+        @DisplayName("should pass a null search when the term is blank")
+        void passesNullForBlankSearch() {
+            var pageable = PageRequest.of(0, 10);
+            var page = new PageImpl<>(List.of(purchaseOrder), pageable, 1);
+            when(purchaseOrderRepository.findByFilters(null, null, null, null, null, null, pageable))
+                    .thenReturn(page);
+
+            service.getAllPurchaseOrders(pageable, "   ", PurchaseOrderFilter.NONE);
+
+            verify(purchaseOrderRepository).findByFilters(null, null, null, null, null, null, pageable);
+        }
+
+        @Test
+        @DisplayName("should forward each of the five location filters")
+        void forwardsEveryLocationFilter() {
+            var pageable = PageRequest.of(0, 10);
+            var page = new PageImpl<>(List.of(purchaseOrder), pageable, 1);
+            var filter = new PurchaseOrderFilter(companyId, companyCountryId, regionId, zoneId, storeId);
+            when(purchaseOrderRepository.findByFilters(
+                            null, companyId, companyCountryId, regionId, zoneId, storeId, pageable))
+                    .thenReturn(page);
+
+            service.getAllPurchaseOrders(pageable, null, filter);
+
+            verify(purchaseOrderRepository)
+                    .findByFilters(null, companyId, companyCountryId, regionId, zoneId, storeId, pageable);
         }
     }
 

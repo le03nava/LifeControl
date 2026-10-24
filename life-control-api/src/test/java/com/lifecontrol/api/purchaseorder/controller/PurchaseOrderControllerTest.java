@@ -16,6 +16,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.lifecontrol.api.exception.GlobalExceptionHandler;
 import com.lifecontrol.api.purchaseorder.dto.PurchaseOrderDetailRequest;
 import com.lifecontrol.api.purchaseorder.dto.PurchaseOrderDetailResponse;
+import com.lifecontrol.api.purchaseorder.dto.PurchaseOrderFilter;
 import com.lifecontrol.api.purchaseorder.dto.PurchaseOrderRequest;
 import com.lifecontrol.api.purchaseorder.dto.PurchaseOrderResponse;
 import com.lifecontrol.api.purchaseorder.dto.UpdatePurchaseOrderStatusRequest;
@@ -129,7 +130,8 @@ class PurchaseOrderControllerTest {
         @DisplayName("should return 200 with paginated results")
         void returns200WithPage() throws Exception {
             var page = new PageImpl<>(List.of(poResponse), PageRequest.of(0, 10), 1);
-            when(purchaseOrderService.getAllPurchaseOrders(any(), eq(null))).thenReturn(page);
+            when(purchaseOrderService.getAllPurchaseOrders(any(), eq(null), eq(PurchaseOrderFilter.NONE)))
+                    .thenReturn(page);
 
             mockMvc.perform(get("/api/purchase-orders"))
                     .andExpect(status().isOk())
@@ -141,9 +143,29 @@ class PurchaseOrderControllerTest {
         @DisplayName("should support search parameter")
         void supportsSearch() throws Exception {
             var page = new PageImpl<>(List.of(poResponse), PageRequest.of(0, 10), 1);
-            when(purchaseOrderService.getAllPurchaseOrders(any(), eq("test"))).thenReturn(page);
+            when(purchaseOrderService.getAllPurchaseOrders(any(), eq("test"), eq(PurchaseOrderFilter.NONE)))
+                    .thenReturn(page);
 
             mockMvc.perform(get("/api/purchase-orders").param("search", "test"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.content[0].orderNumber").value("PO-20260603-00001"));
+        }
+
+        @Test
+        @DisplayName("should bind the five location query parameters")
+        void bindsLocationFilters() throws Exception {
+            var storeFilterId = UUID.randomUUID();
+            var filter = new PurchaseOrderFilter(companyId, companyCountryId, regionId, zoneId, storeFilterId);
+            var page = new PageImpl<>(List.of(poResponse), PageRequest.of(0, 10), 1);
+            when(purchaseOrderService.getAllPurchaseOrders(any(), eq(null), eq(filter)))
+                    .thenReturn(page);
+
+            mockMvc.perform(get("/api/purchase-orders")
+                            .param("companyId", companyId.toString())
+                            .param("companyCountryId", companyCountryId.toString())
+                            .param("regionId", regionId.toString())
+                            .param("zoneId", zoneId.toString())
+                            .param("companyStoreId", storeFilterId.toString()))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.content[0].orderNumber").value("PO-20260603-00001"));
         }
