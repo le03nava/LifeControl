@@ -42,7 +42,10 @@ import org.springframework.transaction.annotation.Transactional;
  * <p>The roles are the measured consumers of a country selector (decision D1), one case per role,
  * and the sibling cases pin the composition the endpoint already had (S3): the country roles keep
  * filtering by their claim, {@code lc-company} / {@code lc-company-read} / {@code lc-admin} keep the
- * whole company, and a foreign {@code company_id} claim is still denied.</p>
+ * whole company, and a foreign {@code company_id} claim is still denied. The last case pins the
+ * composite widening declared in {@code D5} of {@code odd/tasks/countries-list-scope-roles.md}: {@code
+ * lc-employee} accompanied by a company-level catalog role reads the whole company, and the same
+ * caller without it does not.</p>
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -235,5 +238,32 @@ class CompanyCountryScopedReadHttpIntegrationTest extends AbstractPostgresIntegr
                                 "company_country_id",
                                 claimedCountryRelationId.toString())))
                 .andExpect(status().isForbidden());
+    }
+
+    // ─── D5: the composite widening, declared and pinned ──────────────────
+
+    /**
+     * The composite shape `#549` exists to declare: `lc-employee` has no level in the hierarchy, so on
+     * its own it is bounded by its claim (the parameterized case above pins exactly that), but
+     * accompanied by a role registered at {@code ScopeLevel.COMPANY} — {@code lc-department} or
+     * {@code lc-position}, both of which are assigned manually, not from a position template — its
+     * broadest granted scope <em>is</em> company, and the whole company is what it reads.
+     *
+     * <p>Both halves run here on purpose: the widening belongs to the catalog role, not to
+     * {@code lc-employee}, and a test that asserted only the row count of the composite could not tell
+     * the difference between "the catalog role widened it" and "nothing was filtered at all".</p>
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"lc-department", "lc-position"})
+    @DisplayName("lc-employee plus a company-level catalog role reads the whole company, alone it reads its claim")
+    void employeeWithCompanyLevelCatalogRoleReadsWholeCompany(String catalogRole) throws Exception {
+        mockMvc.perform(get(BASE_URL, companyId).with(scopedToClaimedCountry("lc-employee", catalogRole)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$").value(hasSize(2)));
+
+        mockMvc.perform(get(BASE_URL, companyId).with(scopedToClaimedCountry("lc-employee")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$").value(hasSize(1)))
+                .andExpect(jsonPath("$[0].id").value(claimedCountryRelationId.toString()));
     }
 }

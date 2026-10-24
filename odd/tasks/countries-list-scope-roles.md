@@ -45,6 +45,7 @@ entran sólo en el GET de lista.
 | T5 | Docs: la fila de Países y el matiz de `life-control-app-angular/AGENTS.md`, el párrafo diferido de `odd/tasks/scope-assignments-per-level.md` | S1 | inline | this record's commit |
 | T6 | Verde medido: `./gradlew test --tests '*CompanyCountry*'` y la suite completa | S1–S4 | inline | `4225ab3` `5f9c626` |
 | T7 | Suite HTTP de aceptación sobre PostgreSQL real con `jwt()`: un caso por rol, cuerpo exacto, claim ausente → `[]`, empresa ajena → 403 | S1–S3 | inline | `5f9c626` |
+| T8 | Pin del **ensanche compuesto** (`lc-employee` + `lc-department`/`lc-position`) en la misma suite HTTP, con las dos mitades en el mismo caso, y su declaración en el javadoc del controller y en `D5` | S2, S3 | inline | this record's commit |
 
 ## Decisions
 
@@ -84,6 +85,21 @@ la puerta de atrás.
 listan sólo los nombres de escritura (`companies.routes.ts:8-10`), a diferencia de `STORE_ROLES`. Es una
 brecha de rutas del frontend, distinta de esta, y queda **fuera de alcance**: acá no se toca el
 frontend porque el caso reportado ya entra a `/companies/regions` con `lc-company-region`.
+
+**D5 — el ensanche compuesto: un rol funcional acompañado de un rol de catálogo de nivel company lee toda
+la empresa.** `lc-department` y `lc-position` están registrados en `ScopeLevel.COMPANY`
+(`ScopeLevel.java:58`), así que un caller que tenga `lc-employee` **más** uno de ellos tiene company como
+alcance más ancho y `hasCompanyWideScope()` devuelve `true`: lee los países de toda la empresa, mientras
+`lc-employee` **solo** sigue acotado por su `company_country_id` (D3). No es una violación de S2 —S2 se
+lee del alcance más ancho, que de verdad es company— ni una excepción nueva: es la regla de unión que D2
+ya aceptó, aplicada a un par que el registro no había nombrado. Lo que faltaba era **declararlo y
+fijarlo**, porque el compuesto no es rutinario: `lc-employee` no está en `GrantablePositionRoles`, así que
+se asigna a mano. Evidencia de por qué se declara y no se adivina: la verificación independiente de #548
+midió que la base `78cd866` respondía **403** a este compuesto, así que el ensanche lo causó #548;
+`CurrentUserContextTest` lo fija en el nivel unitario (`hasCompanyWideScope` en
+`trueForCompanyLevelRoles`), y `CompanyCountryScopedReadHttpIntegrationTest` lo fija ahora donde el cuerpo
+es observable. Si alguna vez se decide **filtrar** el compuesto, es una decisión propia que se escribe
+acá, no un ajuste silencioso del test.
 
 ## Log
 
@@ -127,3 +143,25 @@ allow-list crezca sin que el filtro lo acompañe.
 PR. Gates del CI del API corridos sobre los bytes finales: `spotlessCheck spotbugsMain test` →
 **964 suites / 3862 tests / 0 fallos / 0 errores / 0 skipped**. `gh pr checks` y el merge son decisión
 del dueño, no parte de esta unidad.
+
+**L9** — Segunda unidad de esta decisión. Verbatim del dueño: `si sigue con 549 y pon el estatus en
+approved` — el issue **#549** quedó aprobado (`documentation` + `status:approved`) antes de empezar, y lo
+que pide es exactamente lo que esta unidad hace: nombrar el compuesto en este registro y en el javadoc del
+controller, y fijarlo en la suite HTTP donde el cuerpo es observable, **sin** cambiar comportamiento.
+
+**L10** — Evidencia de T8. El caso nuevo corrió primero para confirmar que la conducta ya era la
+declarada —`26 tests, 0 fallos` en `CompanyCountryScopedReadHttpIntegrationTest`— porque esta unidad
+**fija** un comportamiento que existe y no lo cambia: un caso así no puede tener RED propio, así que la
+prueba de que el pin sostiene algo se hizo por mutación. Con `hasCompanyWideScope()` forzado a `false`
+(sonda temporal, revertida, comprobada con `git diff` vacío sobre `CurrentUserContext.java`), el caso nuevo
+falla en sus dos variantes —`catalogRole = "lc-department"` y `"lc-position"`— con `AssertionError` en la
+aserción `hasSize(2)` del compuesto, y vuelve a verde al revertir. Gates:
+`spotlessCheck spotbugsMain test --tests '*CompanyCountry*' --tests '*CurrentUserContextTest*'` →
+**285 tests / 60 suites / 0 fallos / 0 errores / 0 skipped**, `BUILD SUCCESSFUL`.
+
+**L11** — Entrega. Un solo commit de review: `8a4622d` (`test(countries): pin the composite widening of
+the countries list`), **71 líneas autoradas** sobre `origin/main` `54ab66c`. Va como **PR #565**
+(`type:chore`, `Closes #549`), con el issue **#549** aprobado antes de abrirlo. CI del PR: **5/5 verde** —
+`A linked, approved issue`, `Exactly one type:* label`, `Check`, `Static analysis`, `Test`. Este renglón es
+la evidencia de entrega; el header del registro no afirma nada sobre push, PR ni merge, y no hace falta que
+lo haga.

@@ -63,6 +63,14 @@ public class CompanyCountryController {
      *
      * <p>This is a read. The three write annotations below are unchanged on purpose: no new role
      * enters them.</p>
+     *
+     * <p>A role registered at {@code ScopeLevel.COMPANY} widens whatever travels with it: {@code
+     * lc-department} and {@code lc-position} are registered at that level, so a caller holding {@code
+     * lc-employee} <b>plus</b> one of them has company as its broadest granted scope and reads every
+     * country of the company, while {@code lc-employee} alone stays bounded by its {@code
+     * company_country_id} claim. That composite is declared, not left to be rediscovered: it is decision
+     * {@code D5} of {@code odd/tasks/countries-list-scope-roles.md}, and {@code
+     * CompanyCountryScopedReadHttpIntegrationTest} measures both of its halves.</p>
      */
     @GetMapping
     @PreAuthorize("hasAnyRole('" + ADMIN + "','" + COMPANY + "','" + COMPANY_READ + "','" + COMPANY_COUNTRY + "','"
