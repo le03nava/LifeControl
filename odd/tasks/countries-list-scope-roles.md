@@ -158,3 +158,10 @@ falla en sus dos variantes —`catalogRole = "lc-department"` y `"lc-position"`�
 aserción `hasSize(2)` del compuesto, y vuelve a verde al revertir. Gates:
 `spotlessCheck spotbugsMain test --tests '*CompanyCountry*' --tests '*CurrentUserContextTest*'` →
 **285 tests / 60 suites / 0 fallos / 0 errores / 0 skipped**, `BUILD SUCCESSFUL`.
+
+**L11** — Entrega. Un solo commit de review: `8a4622d` (`test(countries): pin the composite widening of
+the countries list`), **71 líneas autoradas** sobre `origin/main` `54ab66c`. Va como **PR #565**
+(`type:chore`, `Closes #549`), con el issue **#549** aprobado antes de abrirlo. CI del PR: **5/5 verde** —
+`A linked, approved issue`, `Exactly one type:* label`, `Check`, `Static analysis`, `Test`. Este renglón es
+la evidencia de entrega; el header del registro no afirma nada sobre push, PR ni merge, y no hace falta que
+lo haga.
