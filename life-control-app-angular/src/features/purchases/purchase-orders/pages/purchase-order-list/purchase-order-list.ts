@@ -5,6 +5,7 @@ import {
   effect,
   inject,
   signal,
+  untracked,
 } from '@angular/core';
 import { rxResource } from '@angular/core/rxjs-interop';
 import { Router } from '@angular/router';
@@ -13,6 +14,8 @@ import { PageHeader } from '@shared/ui';
 import { httpErrorMessage } from '@shared/data';
 import { PurchaseOrderService } from '../../data/purchase-order.service';
 import { StatusChip } from '../../components/status-chip/status-chip';
+import { PurchaseOrderLocationFilter } from '../../components/location-filter/location-filter';
+import type { PurchaseOrderLocationSelection } from '../../models/purchase-order-location-filter.models';
 import { MatTableModule } from '@angular/material/table';
 import { MatIconModule } from '@angular/material/icon';
 import { MatPaginatorModule } from '@angular/material/paginator';
@@ -29,6 +32,7 @@ import { MatCardModule } from '@angular/material/card';
     PageHeader,
     DatePipe,
     StatusChip,
+    PurchaseOrderLocationFilter,
     MatTableModule,
     MatIconModule,
     MatPaginatorModule,
@@ -52,19 +56,48 @@ export class PurchaseOrderList {
   readonly searchQuery = signal('');
   private readonly _debouncedSearch = signal('');
 
-  // rxResource: auto-fetches when params change
+  /**
+   * The cascade's current selection. `null` until the filter component emits for the first time, so
+   * the list cannot be fetched with a stale or half-resolved location.
+   */
+  readonly location = signal<PurchaseOrderLocationSelection | null>(null);
+
+  /**
+   * Empresa, País y Región are the only required levels: they are what turns the list into one
+   * region's orders. Zona and Tienda stay optional, so they never gate the read.
+   */
+  readonly hasRequiredLocation = computed(() => {
+    const location = this.location();
+    return !!location?.companyId && !!location?.companyCountryId && !!location?.regionId;
+  });
+
+  // rxResource: auto-fetches when params change, and stays idle until the required levels are chosen
   readonly ordersResource = rxResource({
-    params: () => ({
-      page: this.pageIndex(),
-      size: this.pageSize(),
-      search: this._debouncedSearch(),
-    }),
+    params: () => {
+      const location = this.location();
+      if (!this.hasRequiredLocation() || !location) return undefined;
+      return {
+        page: this.pageIndex(),
+        size: this.pageSize(),
+        query: {
+          search: this._debouncedSearch(),
+          companyId: location.companyId,
+          companyCountryId: location.companyCountryId,
+          regionId: location.regionId,
+          zoneId: location.zoneId,
+          companyStoreId: location.companyStoreId,
+        },
+      };
+    },
     stream: ({ params }) =>
-      this.purchaseOrderService.getPurchaseOrders(
-        params.page,
-        params.size,
-        params.search || undefined,
-      ),
+      this.purchaseOrderService.getPurchaseOrders(params.page, params.size, {
+        search: params.query.search || undefined,
+        companyId: params.query.companyId || undefined,
+        companyCountryId: params.query.companyCountryId || undefined,
+        regionId: params.query.regionId || undefined,
+        zoneId: params.query.zoneId || undefined,
+        companyStoreId: params.query.companyStoreId || undefined,
+      }),
   });
 
   // Computed helpers
@@ -96,13 +129,21 @@ export class PurchaseOrderList {
       onCleanup(() => clearTimeout(timer));
     });
 
-    // Reset page to 0 when debounced search changes
+    // Back to the first page whenever the applied filters change. `pageIndex` is read untracked: a
+    // tracked read would make this effect its own trigger and every page change would snap back to 0.
     effect(() => {
       this._debouncedSearch();
-      if (this.pageIndex() !== 0) {
-        this.pageIndex.set(0);
-      }
+      this.location();
+      untracked(() => {
+        if (this.pageIndex() !== 0) {
+          this.pageIndex.set(0);
+        }
+      });
     });
+  }
+
+  onLocationChange(selection: PurchaseOrderLocationSelection): void {
+    this.location.set(selection);
   }
 
   editOrder(id: string): void {

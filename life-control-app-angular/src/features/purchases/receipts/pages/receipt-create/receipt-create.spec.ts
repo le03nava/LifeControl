@@ -267,7 +267,9 @@ describe('ReceiptCreate', () => {
   describe('order picker', () => {
     it('should fetch the first purchase-order page on init', async () => {
       await createPicker();
-      expect(purchaseOrderService.getPurchaseOrders).toHaveBeenCalledWith(0, 12, undefined);
+      expect(purchaseOrderService.getPurchaseOrders).toHaveBeenCalledWith(0, 12, {
+        search: undefined,
+      });
     });
 
     it('should render one row per order', async () => {
