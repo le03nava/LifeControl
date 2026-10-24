@@ -156,6 +156,11 @@
                   the next level.
                 </p>
 
+                <!-- A failed cascade read says so, instead of leaving an empty combo behind (#550). -->
+                @if (locationError()) {
+                  <app-error-banner [message]="locationError()" />
+                }
+
                 <!-- Company -->
                 <mat-form-field appearance="outline" class="form-field form-field--full">
                   <mat-label>Company</mat-label>
