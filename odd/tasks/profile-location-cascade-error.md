@@ -84,3 +84,10 @@ commits citados, `ancestry: ran`).
 para el caso `200`-con-lista-vacía: ese caller no recibió un error, y decirle que algo falló sería
 mentirle; el costo sigue declarado en `CompanyCountryService.getCountriesByCompanyId` y en la nota de
 Países de `life-control-app-angular/AGENTS.md`.
+
+**2026-10-23 — entrega.** Unidad de un solo commit de review: `6758a23` (`fix(profile): surface a failed
+location cascade instead of an empty selector`), **237 líneas autoradas** sobre `origin/main` `9c9a03f`,
+muy por debajo del presupuesto de ~400. Va como **PR #564** (`type:bug`, `Closes #550`), con el issue
+**#550** aprobado (`status:approved`) antes de abrirlo, que es lo que exige la plantilla. Este renglón es
+evidencia de entrega: el header de arriba no afirma nada sobre push, PR ni merge, y no hace falta que lo
+haga.
