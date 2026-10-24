@@ -77,7 +77,26 @@ regla es explícita: paginar mantiene la página; cambiar `search`, ubicación, 
   los filtros vuelve a la 0; el spec se reescribe sobre eso (incluido el caso que prueba `S7` en RED).
   Commit: `feat(web): gate the purchase order list on company, country and region`.
 - **T6** gates: `./gradlew spotlessCheck spotbugsMain test` (API) y `npm run lint`, `npm run build`,
-  `npm test` (Angular), más el chequeo diferencial de S5 sobre la consulta anterior. Sin commit propio.
+  `npm run test:coverage:check` (Angular), más el chequeo diferencial de S5 sobre la consulta anterior.
+  Sin commit propio.
+
+### Delivery: cadena con rama tracker (`chain_strategy=feature-branch-chain`)
+
+Elegido por el usuario el 2026-10-24, al pasar la rama las ~400 líneas autoradas del presupuesto de
+`CONTRIBUTING.md` (§3). Un solo corte cohesivo no alcanza: ninguna slice entra en 400 sin separar los
+tests del comportamiento que prueban, así que el corte es por unidad entregable y cada PR se lee solo.
+Total: ~2.200 líneas autoradas en 26 archivos.
+
+| Slice | Alcance | Commits | Depende de |
+| --- | --- | --- | --- |
+| 1 | Registro ODD + `GET /api/purchase-orders` con los cinco filtros y sus suites (unitaria e integración) | `docs(odd): record…`, `feat(api): filter…`, `test(api): pin the list filters…`, `test(api): pin the null-search…` | — (base `origin/main`) |
+| 2 | Componente `PurchaseOrderLocationFilter` (cascada + preferencia) con su spec y sus modelos 📍 | `feat(web): add the location filter component…` | slice 1 |
+| 3 | Página `/purchases/orders`: compuerta de S2, aviso, buscador deshabilitado, servicio con los params y sus dos callers | `feat(web): gate the purchase order list…` | slice 2 |
+
+Nada de esto autoriza push, apertura de PR ni merge: la elección es de estrategia, y esos pasos siguen
+siendo decisión del usuario. Fuera de alcance en las tres slices: alinear el listado al `ScopeLevel`
+del token (`L4`), el mock E2E del listado (`L7`) y el placeholder del buscador que promete número de
+orden (`S5`).
 
 ## Log
 
