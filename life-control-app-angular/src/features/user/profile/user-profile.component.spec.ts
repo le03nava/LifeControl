@@ -824,6 +824,91 @@ describe('UserProfileComponent', () => {
     });
   });
 
+  // ─── Location cascade error state (#550) ─────────────────
+
+  /**
+   * `S1` of `odd/tasks/profile-location-cascade-error.md`: a read of the cascade that fails shows a
+   * message instead of an empty combo that reads like "this company has no countries".
+   *
+   * The 403 is the reachable case, not a hypothetical one: `/profile` admits any authenticated caller
+   * (`app.routes.ts`), while the countries allow-list and the region/zone/store ones differ, so the
+   * same caller is admitted one level and denied the next.
+   */
+  describe('location cascade errors (#550)', () => {
+    const forbidden = { status: 403 };
+
+    it('should message a forbidden country list and render it through the ErrorBanner', () => {
+      const { component, fixture, companyCountryServiceMock } = setup({ edit: 'true' });
+      companyCountryServiceMock.getCountries = vi.fn().mockReturnValue(throwError(() => forbidden));
+
+      component.onCompanyChange('comp-1');
+      fixture.detectChanges();
+
+      expect(component.locationError()).toBeTruthy();
+      const banner = fixture.nativeElement.querySelector('app-error-banner');
+      expect(banner).not.toBeNull();
+      expect(banner.textContent).toContain(component.locationError());
+      // The profile's own load/save state is untouched by a cascade failure.
+      expect(component.error()).toBeNull();
+    });
+
+    it('should name the missing access on a 403 instead of a retry message', () => {
+      const { component, companyCountryServiceMock } = setup({ edit: 'true' });
+      companyCountryServiceMock.getCountries = vi.fn().mockReturnValue(throwError(() => forbidden));
+
+      component.onCompanyChange('comp-1');
+
+      expect(component.locationError()).toMatch(/access/i);
+    });
+
+    it('should message a generic failure without blaming permissions', () => {
+      const { component, companyCountryServiceMock } = setup({ edit: 'true' });
+      companyCountryServiceMock.getCountries = vi
+        .fn()
+        .mockReturnValue(throwError(() => ({ status: 500 })));
+
+      component.onCompanyChange('comp-1');
+
+      expect(component.locationError()).toBeTruthy();
+      expect(component.locationError()).not.toMatch(/access/i);
+    });
+
+    it('should message a forbidden region list, one level below an admitted country list', () => {
+      const { component, companyRegionServiceMock } = setup({ edit: 'true' }, mockProfile, true);
+      companyRegionServiceMock.getRegions = vi.fn().mockReturnValue(throwError(() => forbidden));
+
+      component.form().patchValue({ companyId: 'comp-1' });
+      component.onCountryChange('cc-1');
+
+      expect(component.locationError()).toBeTruthy();
+    });
+
+    it('should not message a cascade that loaded', () => {
+      const { component, fixture } = setup({ edit: 'true' }, mockProfile, true);
+
+      component.onCompanyChange('comp-1');
+      fixture.detectChanges();
+
+      expect(component.locationError()).toBeNull();
+      expect(fixture.nativeElement.querySelector('app-error-banner')).toBeNull();
+    });
+
+    it('should clear the message when another company loads successfully', () => {
+      const { component, companyCountryServiceMock } = setup({ edit: 'true' });
+      companyCountryServiceMock.getCountries = vi
+        .fn()
+        .mockReturnValueOnce(throwError(() => forbidden))
+        .mockReturnValue(of(mockCountries));
+
+      component.onCompanyChange('comp-1');
+      expect(component.locationError()).toBeTruthy();
+
+      component.onCompanyChange('comp-2');
+
+      expect(component.locationError()).toBeNull();
+    });
+  });
+
   // ─── View-mode location row (S11) ─────────────────────────
 
   describe('view-mode location row (S11)', () => {

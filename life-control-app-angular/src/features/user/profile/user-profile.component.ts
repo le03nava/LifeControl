@@ -158,6 +158,16 @@ export class UserProfileComponent implements OnInit {
   readonly loadingZones = signal(false);
   readonly loadingStores = signal(false);
 
+  /**
+   * Message for a location cascade read that failed (`S1`–`S3`, `#550`).
+   *
+   * Kept apart from `error()`, which is the profile load/save state: a cascade failure names one level
+   * of the location walk, and reporting it in the page-wide banner would claim the profile itself could
+   * not be loaded or saved. Silent is what `#550` reported — a `403` on the country list rendered an
+   * empty combo, indistinguishable from a company with no countries.
+   */
+  readonly locationError = signal<string | null>(null);
+
   // ─── Form ──────────────────────────────────────────────────────
 
   readonly form = signal<FormGroup>(this.buildForm());
@@ -313,6 +323,21 @@ export class UserProfileComponent implements OnInit {
   // ─── Cascading load helpers ──────────────────────────────────
 
   /**
+   * The message a failed cascade read leaves (`S2`).
+   *
+   * A `403` is a different diagnosis from a transient failure and it is the reachable one here: the
+   * country list and the region/zone/store lists admit different roles, so the same caller is admitted
+   * one level and denied the next. Naming the missing access is what stops the empty combo from reading
+   * as "this company has no countries".
+   */
+  private locationErrorMessage(failure: unknown): string {
+    const status = (failure as { status?: number } | null)?.status;
+    return status === 403
+      ? 'You do not have access to this location level. Ask an administrator for access, or choose another company.'
+      : 'Failed to load the location options. Please try again.';
+  }
+
+  /**
    * Load countries for the given company, then optionally cascade to regions
    * if a specific country is already selected.
    */
@@ -322,6 +347,7 @@ export class UserProfileComponent implements OnInit {
     targetRegionId?: string,
     targetZoneId?: string,
   ): void {
+    this.locationError.set(null);
     this.loadingCountries.set(true);
     this.companyCountryService
       .getCountries(companyId)
@@ -336,7 +362,10 @@ export class UserProfileComponent implements OnInit {
             this.loadRegions(companyId, targetCountryId, targetRegionId, targetZoneId);
           }
         },
-        error: () => this.loadingCountries.set(false),
+        error: (failure) => {
+          this.loadingCountries.set(false);
+          this.locationError.set(this.locationErrorMessage(failure));
+        },
       });
   }
 
@@ -350,6 +379,7 @@ export class UserProfileComponent implements OnInit {
     targetRegionId?: string,
     targetZoneId?: string,
   ): void {
+    this.locationError.set(null);
     this.loadingRegions.set(true);
     this.companyRegionService
       .getRegions(companyId, countryId)
@@ -364,7 +394,10 @@ export class UserProfileComponent implements OnInit {
             this.loadZones(companyId, countryId, targetRegionId, targetZoneId);
           }
         },
-        error: () => this.loadingRegions.set(false),
+        error: (failure) => {
+          this.loadingRegions.set(false);
+          this.locationError.set(this.locationErrorMessage(failure));
+        },
       });
   }
 
@@ -378,6 +411,7 @@ export class UserProfileComponent implements OnInit {
     regionId: string,
     targetZoneId?: string,
   ): void {
+    this.locationError.set(null);
     this.loadingZones.set(true);
     this.companyZoneService
       .getZones(companyId, countryId, regionId)
@@ -392,7 +426,10 @@ export class UserProfileComponent implements OnInit {
             this.loadStores(companyId, countryId, regionId, targetZoneId);
           }
         },
-        error: () => this.loadingZones.set(false),
+        error: (failure) => {
+          this.loadingZones.set(false);
+          this.locationError.set(this.locationErrorMessage(failure));
+        },
       });
   }
 
@@ -400,6 +437,7 @@ export class UserProfileComponent implements OnInit {
    * Load stores for the given company+country+region+zone.
    */
   private loadStores(companyId: string, countryId: string, regionId: string, zoneId: string): void {
+    this.locationError.set(null);
     this.loadingStores.set(true);
     this.companyStoreService
       .getStores(companyId, countryId, regionId, zoneId)
@@ -409,7 +447,10 @@ export class UserProfileComponent implements OnInit {
           this.stores.set(stores);
           this.loadingStores.set(false);
         },
-        error: () => this.loadingStores.set(false),
+        error: (failure) => {
+          this.loadingStores.set(false);
+          this.locationError.set(this.locationErrorMessage(failure));
+        },
       });
   }
 

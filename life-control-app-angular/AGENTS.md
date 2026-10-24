@@ -971,6 +971,18 @@ es que no alcanzan las rutas de escritura.
 > jerarquía, así que **también** se filtra por su claim: un operador de HR sin `company_country_id` ve el
 > selector vacío (decisión del dueño, 2026-10-23, contra el primer borrador que lo dejaba sin filtrar).
 
+> **El listado de países tiene un consumidor fuera de las pantallas de compañía: `/profile`.** La sección
+> *Location Preferences* del perfil camina la misma cascada país→región→zona→tienda para que la persona
+> fije su preferencia de ubicación, y `/profile` lo alcanza **cualquier caller autenticado**
+> (`app.routes.ts:58-63`, `keycloakRoleGuard` sin `data.roles`). Como la allow-list de países, la de
+> regiones no admiten los mismos roles —`lc-employee` y `lc-receiving` están en
+> `CompanyCountryController:68-70` y **no** en `CompanyRegionController:38-39`—, el mismo caller recibe `200`
+> filtrado en un nivel y `403` en el siguiente. La página **muestra ese fallo** en vez de dejar el combo
+> vacío (`S1`–`S3` de `odd/tasks/profile-location-cascade-error.md`, issue #550): el defecto era el
+> silencio, no la falta de acceso. Ampliar la allow-list se descartó a propósito: no cerraría el otro
+> caso —un caller admitido **sin** `company_country_id` recibe `200` con lista vacía— y el conjunto
+> admitido sigue siendo el de consumidores medidos.
+
 ### Alcance asignado por nivel
 
 El alcance (los cinco claims `company_*` del token) tiene dos fuentes, y las dos se **unen** en la
