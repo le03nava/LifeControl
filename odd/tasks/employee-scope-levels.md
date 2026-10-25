@@ -1,6 +1,6 @@
 # Employee scope levels
 
-**Status**: implemented — T1–T13 are on this branch; nothing is blocked, and the follow-ups the log
+**Status**: implemented — T1–T14 are on this branch; nothing is blocked, and the follow-ups the log
 names (renaming `EmployeeStoreScope`, restricting an HR assigner to their own scope) are separate work
 by decision. The work ships as three reviewable slices and three chained PRs (L5).
 
@@ -75,8 +75,13 @@ second write fails, and still points at the tab that can retry it — now `Alcan
 **S10 — The profile's assigned-store selector keeps working.** `ProfileService` reads the employee's
 current stores from the scope table; the response shape the profile renders does not change.
 
-**S11 — Docs follow the behavior.** The frontend and backend component guides describe the merged tab,
-the four assignable levels and the derived company root; no guide keeps naming a `Tiendas` tab.
+**S11 — Docs follow the behavior.** The guide that documents this surface is the frontend one
+(`life-control-app-angular/AGENTS.md`), which carries the RBAC matrix and the scope section: after this
+unit it describes the merged tab, the four assignable levels and the derived company root, and it no
+longer names a `Tiendas` tab. The backend component guide has **no** section for this surface and gains
+none — measured, a grep for the tab, the route, the table and the retired classes over
+`life-control-api/AGENTS.md` returns nothing, so there is nothing to correct there, and writing a new
+section would be a claim rather than a correction (L8).
 
 ## Tasks
 
@@ -95,6 +100,7 @@ the four assignable levels and the derived company root; no guide keeps naming a
 | T11 | `contract-dialog` through the scope service; delete the store section, dialog, service and models | S1, S9 | inline | `e57802c2` |
 | T12 | Cleanup: `V33` drops `employee_store_assignments`, delete the store entity/repository/service/controller/DTOs, `StoreScopeDerivation` and the union | S2, S5, S8 | inline | `3bf16b24` |
 | T13 | Docs and this record | S11 | inline | `this commit` |
+| T14 | Restore the two coverage rules the retired suites had and nothing covered after them (a store row whose chain does not resolve; the store level over HTTP), plus the disabled-duplicate backfill case and the store create/close service cases | S2, S5, S6, S7 | inline | `this commit` |
 
 **Invariants carried, not invented**: exactly one `company_id` in the derivation; a row contributes
 only while enabled and covering today; a chain that does not resolve contributes nothing; an empty
@@ -144,3 +150,23 @@ consequence of `scope-assignments-per-level` L8).
   already red behind V32; they now pin the head it is. `EmployeeStoreScope` still says "store" in its
   name while it carries all five levels; the rename is deferred on purpose, because it touches every
   call site and changes no behaviour.
+- **L8** — requirement correction, S11: the spec as first written asked **both** component guides to
+  describe the surface. Measured, the backend guide never documented it — no section names the scope
+  table, the route or the tab — so the spec now states what the unit actually owes: the frontend guide
+  corrected, the backend guide untouched. Recorded rather than silently dropped, and no new
+  documentation section was invented to satisfy a spec that had overreached.
+- **L9** — evidence, independent verification. The verifier returned PASS on S1–S10 and FAIL on S11's
+  backend half (resolved in L8), and found two rules that the retired store suites had covered and that
+  nothing covered afterwards: a store row whose chain does not resolve contributes nothing, and the
+  store level over HTTP (201 with its level, name and derived chain; a store of another company is a
+  404 that writes nothing; an overlap is a 409). `T14` restores both, plus the disabled-duplicate
+  backfill case the row-count guard's own comment claims is safe and the store create/close service
+  cases. It also reported, and this record keeps: no assertion anywhere in the diff was weakened; the
+  frontend commit's `Risk: none` holds (no remaining importer, the URL alias resolves); the repointed
+  provisioning driver's payload binds `ScopeAssignmentRequest` so the API would accept it, with its
+  runtime still unproven; and its own `npm test` run showed a dozen files failing one test each while
+  the backend suite ran concurrently, with `employee-detail.spec.ts` passing 79/79 in isolation —
+  load-sensitive duration, not a reproducible defect, and the clean 192-file run recorded in L6 stands.
+  Final counts after T14: backend `./gradlew test --tests 'com.lifecontrol.api.hr.*' --tests
+  'com.lifecontrol.api.profile.*' --tests 'com.lifecontrol.api.provisioning.*'` → 1090 tests, 0
+  failures, and `./gradlew spotlessCheck` → clean.
