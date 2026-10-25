@@ -18,9 +18,8 @@ import {
   ContractDialog,
   ContractDialogResult,
 } from '../../components/contract-dialog/contract-dialog';
-import { StoreAssignmentService } from '../../data/store-assignment.service';
-import { StoreAssignment } from '../../models/store-assignment.models';
 import { ScopeAssignmentService } from '../../data/scope-assignment.service';
+import { ScopeAssignmentsSection } from '../../components/scope-assignments-section/scope-assignments-section';
 import { ScopeAssignment } from '../../models/scope-assignment.models';
 import { AccessProvisioningService } from '../../data/access-provisioning.service';
 import {
@@ -32,10 +31,6 @@ import {
   AccessReviewDialogResult,
 } from '../../components/access-review-dialog/access-review-dialog';
 import { AccessSection } from '../../components/access-section/access-section';
-import {
-  StoreAssignmentDialog,
-  StoreAssignmentDialogResult,
-} from '../../components/store-assignment-dialog/store-assignment-dialog';
 import {
   ScopeAssignmentDialog,
   ScopeAssignmentDialogResult,
@@ -70,11 +65,6 @@ describe('EmployeeDetail', () => {
     getCompanyById: ReturnType<typeof vi.fn>;
   };
   let contractService: { getContracts: ReturnType<typeof vi.fn> };
-  let assignmentService: {
-    getAssignments: ReturnType<typeof vi.fn>;
-    closeAssignment: ReturnType<typeof vi.fn>;
-    error: ReturnType<typeof vi.fn>;
-  };
   let accessService: {
     getOverview: ReturnType<typeof vi.fn>;
     apply: ReturnType<typeof vi.fn>;
@@ -157,33 +147,14 @@ describe('EmployeeDetail', () => {
     ...overrides,
   });
 
-  const assignment = (overrides: Partial<StoreAssignment> = {}): StoreAssignment => ({
-    id: 'assignment-1',
-    companyStoreId: 'store-1',
-    companyStoreName: 'Tienda Centro',
-    validFrom: '2024-01-01',
-    validTo: null,
-    enabled: true,
-    derived: {
-      companyId: 'company-1',
-      companyName: 'Acme Corp',
-      companyCountryId: 'company-country-1',
-      companyCountryName: 'México',
-      companyRegionId: 'region-1',
-      companyRegionName: 'Centro',
-      companyZoneId: 'zone-1',
-      companyZoneName: 'Zona Norte',
-    },
-    ...overrides,
-  });
-
-  /** One row of the per-level scope history (S2); a zone assignment by default. */
+  /** One row of the merged scope history (S2); a zone assignment by default. */
   const scopeAssignment = (overrides: Partial<ScopeAssignment> = {}): ScopeAssignment => ({
     id: 'scope-assignment-1',
     level: 'ZONE',
     companyCountryId: 'company-country-1',
     companyRegionId: 'region-1',
     companyZoneId: 'zone-1',
+    companyStoreId: null,
     nodeName: 'Zona Norte',
     validFrom: '2024-01-01',
     validTo: null,
@@ -250,18 +221,10 @@ describe('EmployeeDetail', () => {
     employeeError?: HttpErrorResponse;
     contracts?: Contract[];
     contractsError?: HttpErrorResponse;
-    assignments?: StoreAssignment[];
-    assignmentsError?: HttpErrorResponse;
-    /** What a close write resolves with, or rejects with. */
-    closeError?: HttpErrorResponse;
-    /** What the assignment service's own error signal holds after a failed write. */
-    assignmentWriteError?: string | null;
     roles?: string[];
     /** What the contract dialog closes with; `undefined` is a bare dismissal. */
     dialogResult?: ContractDialogResult | undefined;
-    /** What the assign dialog closes with; `undefined` is a bare dismissal. */
-    assignmentDialogResult?: StoreAssignmentDialogResult;
-    /** The employee's per-level scope history, or the error its read fails with. */
+    /** The employee's merged scope history, or the error its read fails with. */
     scopeAssignments?: ScopeAssignment[];
     scopeAssignmentsError?: HttpErrorResponse;
     /** What the scope close write resolves with, or rejects with. */
@@ -323,19 +286,6 @@ describe('EmployeeDetail', () => {
           : of(options.contracts ?? [contract()]),
       ),
     };
-    assignmentService = {
-      getAssignments: vi.fn(() =>
-        options.assignmentsError
-          ? throwError(() => options.assignmentsError)
-          : of(options.assignments ?? [assignment()]),
-      ),
-      closeAssignment: vi.fn(() =>
-        options.closeError
-          ? throwError(() => options.closeError)
-          : of(assignment({ validTo: isoDaysFromToday(0) })),
-      ),
-      error: vi.fn(() => options.assignmentWriteError ?? null),
-    };
     scopeAssignmentService = {
       getAssignments: vi.fn(() =>
         options.scopeAssignmentsError
@@ -375,9 +325,6 @@ describe('EmployeeDetail', () => {
           if (component === ConfirmDialog) {
             return of(options.dialogConfirmed ?? false);
           }
-          if (component === StoreAssignmentDialog) {
-            return of(options.assignmentDialogResult);
-          }
           if (component === ScopeAssignmentDialog) {
             return of(options.scopeAssignmentDialogResult);
           }
@@ -403,7 +350,6 @@ describe('EmployeeDetail', () => {
         { provide: ANIMATION_MODULE_TYPE, useValue: 'NoopAnimations' },
         { provide: EmployeeService, useValue: employeeService },
         { provide: ContractService, useValue: contractService },
-        { provide: StoreAssignmentService, useValue: assignmentService },
         { provide: ScopeAssignmentService, useValue: scopeAssignmentService },
         { provide: AccessProvisioningService, useValue: accessService },
         { provide: MatDialog, useValue: dialog },
@@ -511,21 +457,20 @@ describe('EmployeeDetail', () => {
 
     expect(employeeService.getEmployee).not.toHaveBeenCalled();
     expect(contractService.getContracts).not.toHaveBeenCalled();
-    expect(assignmentService.getAssignments).not.toHaveBeenCalled();
     expect(scopeAssignmentService.getAssignments).not.toHaveBeenCalled();
     expect(accessService.getOverview).not.toHaveBeenCalled();
     expect(text()).toContain('Seleccioná una empresa');
   });
 
-  it('should fetch the employee, its contracts and its store assignments for the route id', async () => {
+  it('should fetch the employee, its contracts and its single scope-assignment history', async () => {
     setup({ id: 'emp-9', companyId: 'company-1' });
     await settle();
 
     expect(employeeService.getEmployee).toHaveBeenCalledWith('company-1', 'emp-9');
     expect(contractService.getContracts).toHaveBeenCalledWith('company-1', 'emp-9');
-    // The history is the whole record, so the soft-deleted rows are asked for explicitly.
-    expect(assignmentService.getAssignments).toHaveBeenCalledWith('company-1', 'emp-9', true);
-    // S2: the per-level scope history, asked for whole for the same reason.
+    // S1/S2: the store is a level of the one scope history, so the merged tab is fed by one read,
+    // asked for whole (includeDisabled) because a soft-deleted row is part of the record.
+    expect(scopeAssignmentService.getAssignments).toHaveBeenCalledTimes(1);
     expect(scopeAssignmentService.getAssignments).toHaveBeenCalledWith('company-1', 'emp-9', true);
   });
 
@@ -759,11 +704,12 @@ describe('EmployeeDetail', () => {
 
     const ACCESS_WRITER = [...WRITE_ROLES, ...ACCESS_ROLES];
 
-    it('should render the five section tabs in the order the page declares them', async () => {
+    it('should render the four section tabs in the order the page declares them', async () => {
       setup({ id: 'emp-1', companyId: 'company-1', roles: ACCESS_WRITER });
       await settle();
 
-      expect(tabLabels()).toEqual(['Detalle', 'Contratos', 'Tiendas', 'Alcance', 'Accesos']);
+      // S1: `Tiendas` and `Alcance` are one tab, so the list lost a member instead of gaining one.
+      expect(tabLabels()).toEqual(['Detalle', 'Contratos', 'Alcance', 'Accesos']);
     });
 
     it('should render each section inside its own tab', async () => {
@@ -771,7 +717,6 @@ describe('EmployeeDetail', () => {
         id: 'emp-1',
         companyId: 'company-1',
         roles: ACCESS_WRITER,
-        assignments: [assignment()],
         accessOverview: accessOverview(),
       });
       await settle();
@@ -783,14 +728,11 @@ describe('EmployeeDetail', () => {
       await openTab('Contratos');
       expect(tabBody(1).querySelector('app-contract-history')).not.toBeNull();
 
-      await openTab('Tiendas');
-      expect(tabBody(2).querySelector('app-store-assignments-section')).not.toBeNull();
-
       await openTab('Alcance');
-      expect(tabBody(3).querySelector('app-scope-assignments-section')).not.toBeNull();
+      expect(tabBody(2).querySelector('app-scope-assignments-section')).not.toBeNull();
 
       await openTab('Accesos');
-      expect(tabBody(4).querySelector('app-access-section')).not.toBeNull();
+      expect(tabBody(3).querySelector('app-access-section')).not.toBeNull();
     });
 
     it('should keep the contract write actions in the Contratos tab', async () => {
@@ -842,7 +784,7 @@ describe('EmployeeDetail', () => {
       setup({ id: 'emp-1', companyId: 'company-1', roles: READ_ROLES });
       await settle();
 
-      expect(tabLabels()).toEqual(['Detalle', 'Contratos', 'Tiendas', 'Alcance']);
+      expect(tabLabels()).toEqual(['Detalle', 'Contratos', 'Alcance']);
       expect(accessService.getOverview).not.toHaveBeenCalled();
     });
 
@@ -853,11 +795,20 @@ describe('EmployeeDetail', () => {
       expect(activeTabLabel()).toBe('Detalle');
     });
 
-    it('should open the tab named by ?tab=', async () => {
+    it('should open Alcance for the pre-merge ?tab=tiendas deep link', async () => {
+      // S1: `tiendas` stopped being a tab, so the deep link has to land on the tab that can act
+      // instead of falling back to Detalle.
       setup({ id: 'emp-1', companyId: 'company-1', tab: 'tiendas' });
       await settle();
 
-      expect(activeTabLabel()).toBe('Tiendas');
+      expect(activeTabLabel()).toBe('Alcance');
+    });
+
+    it('should open the tab named by ?tab=', async () => {
+      setup({ id: 'emp-1', companyId: 'company-1', tab: 'contratos' });
+      await settle();
+
+      expect(activeTabLabel()).toBe('Contratos');
     });
 
     it('should fall back to Detalle for an unknown ?tab=', async () => {
@@ -984,16 +935,19 @@ describe('EmployeeDetail', () => {
     });
     await settle();
     expect(contractService.getContracts).toHaveBeenCalledTimes(1);
-    expect(assignmentService.getAssignments).toHaveBeenCalledTimes(1);
+    expect(scopeAssignmentService.getAssignments).toHaveBeenCalledTimes(1);
 
     component.onNewContract();
     await settle();
 
     expect(contractService.getContracts).toHaveBeenCalledTimes(2);
-    expect(assignmentService.getAssignments).toHaveBeenCalledTimes(2);
+    expect(scopeAssignmentService.getAssignments).toHaveBeenCalledTimes(2);
     await openTab('Contratos');
     expect(text()).toContain('El contrato quedó creado');
     expect(text()).toContain('Ya existe una asignación en esa tienda que se superpone');
+    // S9: the retry path the message points at is the merged tab, not the retired `Tiendas` one.
+    expect(text()).toContain('desde la pestaña «Alcance»');
+    expect(text()).not.toContain('«Tiendas»');
   });
 
   it('should reload both sections when the act created the contract and the assignment (D8)', async () => {
@@ -1004,18 +958,18 @@ describe('EmployeeDetail', () => {
       dialogResult: {
         outcome: 'created',
         contract: contract({ id: 'contract-new' }),
-        assignment: assignment({ id: 'assignment-new' }),
+        assignment: scopeAssignment({ id: 'scope-assignment-new', level: 'STORE' }),
       },
     });
     await settle();
     expect(contractService.getContracts).toHaveBeenCalledTimes(1);
-    expect(assignmentService.getAssignments).toHaveBeenCalledTimes(1);
+    expect(scopeAssignmentService.getAssignments).toHaveBeenCalledTimes(1);
 
     component.onNewContract();
     await settle();
 
     expect(contractService.getContracts).toHaveBeenCalledTimes(2);
-    expect(assignmentService.getAssignments).toHaveBeenCalledTimes(2);
+    expect(scopeAssignmentService.getAssignments).toHaveBeenCalledTimes(2);
     expect(text()).not.toContain('El contrato quedó creado');
   });
 
@@ -1027,17 +981,17 @@ describe('EmployeeDetail', () => {
       dialogResult: { outcome: 'created', contract: contract({ id: 'contract-new' }) },
     });
     await settle();
-    expect(assignmentService.getAssignments).toHaveBeenCalledTimes(1);
+    expect(scopeAssignmentService.getAssignments).toHaveBeenCalledTimes(1);
 
     component.onNewContract();
     await settle();
 
     expect(contractService.getContracts).toHaveBeenCalledTimes(2);
-    expect(assignmentService.getAssignments).toHaveBeenCalledTimes(1);
+    expect(scopeAssignmentService.getAssignments).toHaveBeenCalledTimes(1);
     expect(text()).not.toContain('El contrato quedó creado');
   });
 
-  it('should clear the partial message once the W3a retry assigns the store', async () => {
+  it('should clear the partial message once the merged assign dialog writes the store', async () => {
     setup({
       id: 'emp-1',
       companyId: 'company-1',
@@ -1054,12 +1008,12 @@ describe('EmployeeDetail', () => {
     await openTab('Contratos');
     expect(text()).toContain('El contrato quedó creado');
 
-    // The retry path D9 names: the assign dialog of the `Tiendas` tab.
-    assignmentService.getAssignments.mockImplementation(() => of([assignment()]));
+    // The retry path S9 names: the assign dialog of the `Alcance` tab.
+    scopeAssignmentService.getAssignments.mockImplementation(() => of([scopeAssignment()]));
     dialog.open.mockImplementation((opened: unknown) => ({
       afterClosed: () => of(opened === ConfirmDialog ? false : { outcome: 'created' }),
     }));
-    component.onAssign();
+    component.onAssignScope();
     await settle();
 
     expect(text()).not.toContain('El contrato quedó creado');
@@ -1098,211 +1052,14 @@ describe('EmployeeDetail', () => {
     expect(config.data).toMatchObject({ mode: 'close', companyId: 'company-1' });
   });
 
-  describe('store assignments', () => {
-    it('should render the section with the store, the validity and the derived chain', async () => {
-      setup({ id: 'emp-1', companyId: 'company-1', assignments: [assignment()] });
-      await settle();
-      await openTab('Tiendas');
-
-      expect(text()).toContain('Tienda Centro');
-      expect(text()).toContain('2024-01-01 – Sin fecha de fin');
-      expect(text()).toContain('Acme Corp / México / Centro / Zona Norte');
-      expect(text()).toContain('Abierta');
-    });
-
-    it('should render the empty assignments state in Spanish', async () => {
-      setup({ id: 'emp-1', companyId: 'company-1', assignments: [] });
-      await settle();
-      await openTab('Tiendas');
-
-      expect(text()).toContain('No hay tiendas asignadas para este empleado');
-    });
-
-    it('should keep the rest of the page standing when only the assignments read fails', async () => {
-      setup({
-        id: 'emp-1',
-        companyId: 'company-1',
-        assignmentsError: new HttpErrorResponse({ status: 500 }),
-      });
-      await settle();
-
-      // The other tabs still stand: the employee card and the contract history are untouched.
-      expect(text()).toContain('Ana Gómez Ruiz');
-      await openTab('Contratos');
-      expect(text()).toContain('Analista Senior');
-
-      // Tiendas shows the failure and offers its own retry.
-      await openTab('Tiendas');
-      expect(text()).toContain('Ocurrió un error en el servidor');
-      expect(retryButton()).not.toBeNull();
-    });
-
-    it('should retry only the assignments read from the section error', async () => {
-      setup({
-        id: 'emp-1',
-        companyId: 'company-1',
-        assignmentsError: new HttpErrorResponse({ status: 500 }),
-      });
-      await settle();
-
-      expect(employeeService.getEmployee).toHaveBeenCalledTimes(1);
-      expect(contractService.getContracts).toHaveBeenCalledTimes(1);
-      expect(assignmentService.getAssignments).toHaveBeenCalledTimes(1);
-
-      assignmentService.getAssignments.mockImplementation(() => of([assignment()]));
-      await openTab('Tiendas');
-      retryButton()?.click();
-      await settle();
-
-      expect(employeeService.getEmployee).toHaveBeenCalledTimes(1);
-      expect(contractService.getContracts).toHaveBeenCalledTimes(1);
-      expect(assignmentService.getAssignments).toHaveBeenCalledTimes(2);
-      expect(text()).toContain('Tienda Centro');
-    });
-
-    it('should offer no assignment write control to a caller without a write role', async () => {
-      setup({ id: 'emp-1', companyId: 'company-1', roles: READ_ROLES });
-      await settle();
-
-      expect(text()).not.toContain('Asignar tienda');
-      expect(text()).not.toContain('Cerrar');
-
-      component.onAssign();
-      component.onCloseAssignment(assignment());
-      expect(dialog.open).not.toHaveBeenCalled();
-    });
-
-    it('should open the assign dialog with the company and the employee, and no store tree', async () => {
-      setup({
-        id: 'emp-1',
-        companyId: 'company-1',
-        roles: WRITE_ROLES,
-        assignmentDialogResult: null,
-      });
-      await settle();
-      await openTab('Tiendas');
-
-      expect(text()).toContain('Asignar tienda');
-      component.onAssign();
-
-      expect(dialog.open).toHaveBeenCalledTimes(1);
-      const [opened, config] = dialog.open.mock.calls[0] as [unknown, { data: unknown }];
-      expect(opened).toBe(StoreAssignmentDialog);
-      // T16: the company arrives as an input, so the dialog needs nothing else to walk the tree.
-      expect(config.data).toEqual({ companyId: 'company-1', employeeId: 'emp-1' });
-    });
-
-    it('should reload the assignments after a created assignment and nothing else', async () => {
-      setup({
-        id: 'emp-1',
-        companyId: 'company-1',
-        roles: WRITE_ROLES,
-        assignmentDialogResult: {
-          outcome: 'created',
-          assignment: assignment({ id: 'assignment-new' }),
-        },
-      });
-      await settle();
-      expect(assignmentService.getAssignments).toHaveBeenCalledTimes(1);
-
-      component.onAssign();
-      await settle();
-
-      expect(assignmentService.getAssignments).toHaveBeenCalledTimes(2);
-      expect(assignmentService.closeAssignment).not.toHaveBeenCalled();
-      expect(contractService.getContracts).toHaveBeenCalledTimes(1);
-      expect(employeeService.getEmployee).toHaveBeenCalledTimes(1);
-    });
-
-    it('should treat an undefined assign dialog close as no write', async () => {
-      setup({
-        id: 'emp-1',
-        companyId: 'company-1',
-        roles: WRITE_ROLES,
-        assignmentDialogResult: undefined,
-      });
-      await settle();
-
-      component.onAssign();
-      await settle();
-
-      expect(assignmentService.getAssignments).toHaveBeenCalledTimes(1);
-    });
-
-    it('should ask the shared ConfirmDialog before closing an assignment', async () => {
-      setup({
-        id: 'emp-1',
-        companyId: 'company-1',
-        roles: WRITE_ROLES,
-        dialogConfirmed: false,
-      });
-      await settle();
-
-      component.onCloseAssignment(assignment({ id: 'assignment-9' }));
-      await settle();
-
-      expect(dialog.open).toHaveBeenCalledWith(
-        ConfirmDialog,
-        expect.objectContaining({
-          data: expect.objectContaining({
-            title: 'Cerrar asignación de tienda',
-            confirmLabel: 'Cerrar asignación',
-            destructive: true,
-          }),
-        }),
-      );
-      // Dismissed: nothing is written and nothing is reloaded.
-      expect(assignmentService.closeAssignment).not.toHaveBeenCalled();
-      expect(assignmentService.getAssignments).toHaveBeenCalledTimes(1);
-    });
-
-    it('should close the assignment after the confirmation and reload the list', async () => {
-      setup({
-        id: 'emp-1',
-        companyId: 'company-1',
-        roles: WRITE_ROLES,
-        dialogConfirmed: true,
-      });
-      await settle();
-
-      component.onCloseAssignment(assignment({ id: 'assignment-9' }));
-      await settle();
-
-      expect(assignmentService.closeAssignment).toHaveBeenCalledWith(
-        'company-1',
-        'emp-1',
-        'assignment-9',
-      );
-      expect(assignmentService.getAssignments).toHaveBeenCalledTimes(2);
-      expect(contractService.getContracts).toHaveBeenCalledTimes(1);
-    });
-
-    it('should show the mapped service message when the close fails and not reload', async () => {
-      setup({
-        id: 'emp-1',
-        companyId: 'company-1',
-        roles: WRITE_ROLES,
-        dialogConfirmed: true,
-        closeError: new HttpErrorResponse({ status: 409 }),
-        assignmentWriteError: 'La asignación ya está cerrada',
-      });
-      await settle();
-
-      component.onCloseAssignment(assignment());
-      await settle();
-      await openTab('Tiendas');
-
-      expect(text()).toContain('La asignación ya está cerrada');
-      expect(assignmentService.getAssignments).toHaveBeenCalledTimes(1);
-    });
-  });
-
   describe('scope assignments', () => {
-    it('should render the section with the level, the node, the validity and the derived chain', async () => {
+    it('should render the merged section with the company root, the level, the node, the validity and the derived chain', async () => {
       setup({ id: 'emp-1', companyId: 'company-1', scopeAssignments: [scopeAssignment()] });
       await settle();
       await openTab('Alcance');
 
+      // S3: the company is the derived root of the tree, rendered and never assigned.
+      expect(text()).toContain('Empresa');
       expect(text()).toContain('Zona');
       expect(text()).toContain('Zona Norte');
       expect(text()).toContain('2024-01-01 – Sin fecha de fin');
@@ -1310,12 +1067,32 @@ describe('EmployeeDetail', () => {
       expect(text()).toContain('Abierta');
     });
 
-    it('should say that no scope is assigned yet instead of only that there are no rows', async () => {
+    it('should render a store row in the one table, because the store is a level of Alcance', async () => {
+      setup({
+        id: 'emp-1',
+        companyId: 'company-1',
+        scopeAssignments: [
+          scopeAssignment({
+            id: 'scope-assignment-store',
+            level: 'STORE',
+            companyStoreId: 'store-1',
+            nodeName: 'Tienda Centro',
+          }),
+        ],
+      });
+      await settle();
+      await openTab('Alcance');
+
+      expect(text()).toContain('Tienda');
+      expect(text()).toContain('Tienda Centro');
+    });
+
+    it('should say that no level is assigned yet instead of only that there are no rows', async () => {
       setup({ id: 'emp-1', companyId: 'company-1', scopeAssignments: [] });
       await settle();
       await openTab('Alcance');
 
-      expect(text()).toContain('Este empleado todavía no tiene alcance asignado');
+      expect(text()).toContain('ningún nivel de alcance asignado');
     });
 
     it('should keep the rest of the page standing when only the scope read fails', async () => {
@@ -1326,10 +1103,10 @@ describe('EmployeeDetail', () => {
       });
       await settle();
 
-      // The other tabs still stand: the employee card and the store history are untouched.
+      // The other tabs still stand: the employee card and the contract history are untouched.
       expect(text()).toContain('Ana Gómez Ruiz');
-      await openTab('Tiendas');
-      expect(text()).toContain('Tienda Centro');
+      await openTab('Contratos');
+      expect(text()).toContain('Analista Senior');
 
       // Alcance shows the failure and offers its own retry.
       await openTab('Alcance');
@@ -1346,8 +1123,8 @@ describe('EmployeeDetail', () => {
       await settle();
 
       expect(employeeService.getEmployee).toHaveBeenCalledTimes(1);
+      expect(contractService.getContracts).toHaveBeenCalledTimes(1);
       expect(scopeAssignmentService.getAssignments).toHaveBeenCalledTimes(1);
-      expect(assignmentService.getAssignments).toHaveBeenCalledTimes(1);
 
       scopeAssignmentService.getAssignments.mockImplementation(() => of([scopeAssignment()]));
       await openTab('Alcance');
@@ -1355,9 +1132,19 @@ describe('EmployeeDetail', () => {
       await settle();
 
       expect(employeeService.getEmployee).toHaveBeenCalledTimes(1);
-      expect(assignmentService.getAssignments).toHaveBeenCalledTimes(1);
+      expect(contractService.getContracts).toHaveBeenCalledTimes(1);
       expect(scopeAssignmentService.getAssignments).toHaveBeenCalledTimes(2);
       expect(text()).toContain('Zona Norte');
+    });
+
+    it('should pass the selected company name to the section as the derived root', async () => {
+      setup({ id: 'emp-1', companyId: 'company-1' });
+      await settle();
+      await openTab('Alcance');
+
+      const section = fixture.debugElement.query(By.directive(ScopeAssignmentsSection))
+        .componentInstance as ScopeAssignmentsSection;
+      expect(section.companyName()).toBe('Acme Corp');
     });
 
     it('should offer no scope write control to a caller without a write role', async () => {
@@ -1420,7 +1207,7 @@ describe('EmployeeDetail', () => {
         unknown,
         { data: { employeeRoles: unknown } },
       ];
-      // No access read means no role names: the dialog offers the three levels with no hint.
+      // No access read means no role names: the dialog offers the four levels with no hint.
       expect(config.data.employeeRoles).toEqual([]);
     });
 
@@ -1442,7 +1229,6 @@ describe('EmployeeDetail', () => {
 
       expect(scopeAssignmentService.getAssignments).toHaveBeenCalledTimes(2);
       expect(scopeAssignmentService.closeAssignment).not.toHaveBeenCalled();
-      expect(assignmentService.getAssignments).toHaveBeenCalledTimes(1);
       expect(contractService.getContracts).toHaveBeenCalledTimes(1);
     });
 
@@ -1501,7 +1287,6 @@ describe('EmployeeDetail', () => {
         'scope-assignment-9',
       );
       expect(scopeAssignmentService.getAssignments).toHaveBeenCalledTimes(2);
-      expect(assignmentService.getAssignments).toHaveBeenCalledTimes(1);
     });
 
     it('should show the mapped service message when the scope close fails and not reload', async () => {
@@ -1553,12 +1338,10 @@ describe('EmployeeDetail', () => {
       });
       await settle();
 
-      // The other tabs still stand: the employee card, the contracts and the stores are untouched.
+      // The other tabs still stand: the employee card and the contracts are untouched.
       expect(text()).toContain('Ana Gómez Ruiz');
       await openTab('Contratos');
       expect(text()).toContain('Analista Senior');
-      await openTab('Tiendas');
-      expect(text()).toContain('Tienda Centro');
 
       // Accesos shows the failure and offers its own retry.
       await openTab('Accesos');
@@ -1576,7 +1359,7 @@ describe('EmployeeDetail', () => {
 
       expect(employeeService.getEmployee).toHaveBeenCalledTimes(1);
       expect(contractService.getContracts).toHaveBeenCalledTimes(1);
-      expect(assignmentService.getAssignments).toHaveBeenCalledTimes(1);
+      expect(scopeAssignmentService.getAssignments).toHaveBeenCalledTimes(1);
       expect(accessService.getOverview).toHaveBeenCalledTimes(1);
 
       accessService.getOverview.mockImplementation(() => of(accessOverview()));
@@ -1586,7 +1369,7 @@ describe('EmployeeDetail', () => {
 
       expect(employeeService.getEmployee).toHaveBeenCalledTimes(1);
       expect(contractService.getContracts).toHaveBeenCalledTimes(1);
-      expect(assignmentService.getAssignments).toHaveBeenCalledTimes(1);
+      expect(scopeAssignmentService.getAssignments).toHaveBeenCalledTimes(1);
       expect(accessService.getOverview).toHaveBeenCalledTimes(2);
       expect(text()).toContain('Cuenta vinculada');
     });
@@ -1947,8 +1730,12 @@ describe('EmployeeDetail', () => {
 });
 
 /**
- * T17's pin: the store-assignment write actions gate on `EMPLOYEE_WRITE_ROLES`, and that list must
- * stay equal to the `@PreAuthorize` pair of the controller's two write routes.
+ * The write-role pin: the scope write actions gate on `EMPLOYEE_WRITE_ROLES`, and that list must
+ * stay equal to the `@PreAuthorize` pair of `EmployeeScopeAssignmentController`'s two write routes.
+ *
+ * The pin follows the write surface the app actually calls. It used to read
+ * `EmployeeStoreAssignmentController`, whose route this unit retires from the frontend, so keeping it
+ * there would have pinned a button nobody renders against an endpoint nobody calls.
  *
  * This is the `KeycloakClaimMapperCoverageTest` idiom — the coupling is read from the backend source
  * instead of restated here, so the two truths cannot drift silently: a new role on the endpoints, a
@@ -1960,9 +1747,9 @@ describe('EmployeeDetail', () => {
  * Angular project root, exactly as `shared/constants/breakpoints.spec.ts` does, because the runner
  * bundles the specs for the browser platform where a static `node:*` import cannot resolve.
  */
-describe('store assignment write-role pin (T17)', () => {
+describe('scope assignment write-role pin (S7)', () => {
   const CONTROLLER_SOURCE =
-    '../life-control-api/src/main/java/com/lifecontrol/api/hr/controller/EmployeeStoreAssignmentController.java';
+    '../life-control-api/src/main/java/com/lifecontrol/api/hr/controller/EmployeeScopeAssignmentController.java';
   const ROLES_SOURCE =
     '../life-control-api/src/main/java/com/lifecontrol/api/common/security/Roles.java';
 

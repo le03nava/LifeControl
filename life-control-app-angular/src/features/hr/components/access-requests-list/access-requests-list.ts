@@ -11,7 +11,7 @@ import { composeEmployeeFullName } from './employee-name';
 /**
  * The **Solicitudes** list: a company's pending access decisions, oldest first (record T94).
  *
- * A **presentational** component in `access-section`'s and `store-assignments-section`'s shape: it
+ * A **presentational** component in `access-section`'s and `scope-assignments-section`'s shape: it
  * takes the rows and the section's own loading and error state and emits the two intents the page
  * acts on (`retry` for the failed read, `reviewRequested` for a row the operator wants to decide). It
  * owns no HTTP access and no dialog: the page fetches the employee's overview and opens the shared

@@ -7,6 +7,43 @@
   width: 100%;
 }
 
+/*
+ * The derived company root: a row-shaped block above the table that is deliberately not a table row
+ * — it carries no validity, no status and no action, because it is the employee's own company and
+ * there is nothing about it to assign.
+ */
+.company-root {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-md);
+  background-color: var(--mat-sys-surface-variant);
+}
+
+.company-root-level {
+  font-size: 0.75rem;
+  color: var(--mat-sys-on-surface-variant);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.company-root-name {
+  font-weight: 500;
+}
+
+.company-root-note {
+  font-size: 0.75rem;
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.scope-not-permission {
+  margin: 0 0 var(--space-md);
+  font-size: 0.875rem;
+  color: var(--mat-sys-on-surface-variant);
+}
+
 .actions-row {
   display: flex;
   justify-content: flex-end;

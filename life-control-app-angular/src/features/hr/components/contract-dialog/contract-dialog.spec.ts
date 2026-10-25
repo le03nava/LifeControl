@@ -21,11 +21,11 @@ import {
 import { ContractService } from '../../data/contract.service';
 import { PositionService } from '../../data/position.service';
 import { SeniorityLevelService } from '../../data/seniority-level.service';
-import { StoreAssignmentService } from '../../data/store-assignment.service';
+import { ScopeAssignmentService } from '../../data/scope-assignment.service';
 import { Contract } from '../../models/contract.models';
 import { Position, PositionSalaryBand } from '../../models/position.models';
 import { SeniorityLevel } from '../../models/seniority-level.models';
-import { StoreAssignment } from '../../models/store-assignment.models';
+import { ScopeAssignment } from '../../models/scope-assignment.models';
 import { Employee } from '../../models/employee.models';
 
 /** An ISO date `days` away from today, in local time (month/year rollover included). */
@@ -209,10 +209,15 @@ describe('ContractDialog', () => {
   /** A second store, so a store reload is a real value change. */
   const otherStore: CompanyStore = { ...store, id: 'store-2', storeName: 'Tienda Sur' };
 
-  const createdAssignment: StoreAssignment = {
+  /** The store level row the second half of the activation act writes. */
+  const createdAssignment: ScopeAssignment = {
     id: 'assignment-1',
+    level: 'STORE',
+    companyCountryId: 'company-country-1',
+    companyRegionId: 'region-1',
+    companyZoneId: 'zone-1',
     companyStoreId: 'store-1',
-    companyStoreName: 'Tienda Centro',
+    nodeName: 'Tienda Centro',
     validFrom: '2026-03-01',
     validTo: null,
     enabled: true,
@@ -382,7 +387,7 @@ describe('ContractDialog', () => {
         { provide: ContractService, useValue: contractService },
         { provide: PositionService, useValue: positionService },
         { provide: SeniorityLevelService, useValue: seniorityLevelService },
-        { provide: StoreAssignmentService, useValue: assignmentService },
+        { provide: ScopeAssignmentService, useValue: assignmentService },
         { provide: CompanyCountryService, useValue: countryService },
         { provide: CompanyRegionService, useValue: regionService },
         { provide: CompanyZoneService, useValue: zoneService },
