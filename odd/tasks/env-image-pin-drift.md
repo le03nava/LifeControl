@@ -179,6 +179,11 @@ Its wiring is pinned by the suite instead — the report appears in the `start)`
 `build_services`, and the case is otherwise unchanged with `SKIP_BUILD=true` (the report runs before that
 branch, and skipping the build skips only the build).
 
+**2026-10-25 — the final gates, after the third round of corrections.** **19 suites, 0 failing** —
+`env-image-pin-drift` **44/0** and `validate-env-strict-pins` **25/0** — ShellCheck over **27** files under
+`docker/scripts` → exit 0, no output, and the live runs unchanged: `dev` 9 compared, `staging` 7, `prod` 6,
+every one aligned and exit **0** with and without `--strict-pins`.
+
 **2026-10-25 — the offline gates.** The new suite, every suite in `docker/scripts/tests/` and the ShellCheck
 gate exactly as `docker-build-integrity.yml` runs it, all from this worktree: **19 suites, 0 failing** —
 `env-image-pin-drift` 38/0 and `validate-env-strict-pins` 20/0 among them, and `image-pins` 82/0, which is
@@ -206,3 +211,34 @@ The verifier's non-blocking findings reproduced the free probes behind every cla
 differential against the baseline `deploy.sh` @ `43c370c3` with `build`/`start`/`health` stubbed: the report
 prints before `MARK build_services`, `SKIP_BUILD=true` reaches `start_services` exactly as before plus the
 three report lines, and `build`/`up`/`status` print no report at all.
+
+**2026-10-25 — a second verification round, on the fixes themselves, and three more corrections.** Asking a
+fresh verifier to attack the *fixes* rather than the unit paid twice over: it measured two defects of the
+normalisation and one unrequested contract change, and all three were fixed before delivery.
+
+- **B1, a false positive with real consequences**: `LOKI_IMAGE="grafana/loki:3.7.8" # keep pinned` read as
+drift, because the value stopped being quoted once the comment was attached — `--strict-pins` would have
+failed a correct file. The value is now read up to its closing quote, so anything after it is not part of it.
+- **B2, a false negative with worse consequences**: the *declaration* guard was still the old `^KEY=` grep, so
+`export KEY=v`, `KEY = v` and an indented `  KEY=v` were read correctly by the value reader and then skipped as
+undeclared — the report printed `same image versions (1 compared)` while the stack would have run the old
+image, with `--strict-pins` exiting **0**. One pattern now drives both readers, so they cannot disagree again.
+It also settles the empty value: `${KEY:-default}` substitutes on empty, so a declared-but-empty pin runs the
+pinned compose default and is not drift.
+- **A1, an unrequested contract change**: parsing the arguments had made `-h`/`--help` exit 0 (baseline: 1,
+as an invalid environment) and made `validate-env.sh dev staging` validate staging instead of the first
+positional. Both are back to baseline; `--strict-pins` is the only token this unit adds. The native review's
+two CRITICAL findings sat on exactly those lines and were refuted by its refuter, which is the same signal
+from a different direction.
+
+Each correction ships with its own assertion, and the suite is 44/0 (was 38/0) and 25/0 (was 20/0). The RED
+for the three key spellings was observed on the pre-fix tree — `expected 1, got 0` three times — before the
+shared pattern replaced the grep.
+
+**2026-10-25 — the native review.** Lineage `review-467c9f6596dfc33f`, tier **high** (executable-mode change,
+shell process, shell source), four lenses — `risk`, `resilience`, `readability`, `reliability` — 7 paths and
+855 changed lines frozen. The reviewer group ran (4 model runs, ~63 KB of prompt each) and asked for a
+refuter (1 run); the verdict was **approved**, with six findings all `informational`, two of them CRITICAL and
+`refuted` by that refuter. Authority **burned** by the exact acknowledgement. The two refuted findings pointed
+at the argument-parsing lines, which is where advisory A1 above found a real, smaller problem — the review is
+an outside view, not a substitute for the verification that found it.
