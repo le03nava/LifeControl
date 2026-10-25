@@ -9,16 +9,16 @@
 # access-provisioning worker shipped OFF in every environment with nobody able to see it:
 # `WORKER_ENABLED` was one of the 16 keys `docker/.env.dev` did not carry.
 #
-# Measured on this tree, not inferred: the template declares 95 keys, 87 of them are bound
-# by a `${KEY:-...}` / `${KEY:?...}` interpolation in `docker-compose*.yml`, and exactly 7
-# are not — the five `SMTP_*` keys (read by `keycloak-setup.sh`'s `get_env`), `ENVIRONMENT`
-# (`validate-env.sh`'s `REQUIRED_VARS`) and `CIRCUIT_BREAKER_*` (the api-gateway's Spring
-# properties). Those seven are **allowlisted with their reader, never deleted**: "no compose
-# reference" does not mean "unused" — `CIRCUIT_BREAKER_WINDOW_SIZE` was wrongly called a dead
-# key once, and this test asserts the consumer instead of assuming there is none. The count
-# went from 8 to 7 when `GF_AUTH_ANONYMOUS_ORG_ROLE` left the template with the rest of the
-# Grafana auth block: the compose files never forwarded that one, and two of its siblings that
-# they do forward are now pinned as compose-internal keys instead of operator knobs.
+# Measured on this tree, not inferred: the template declares 96 keys, 92 of them are bound
+# by a `${KEY:-...}` / `${KEY:?...}` interpolation in `docker-compose*.yml`, and exactly 4
+# are not — `SMTP_STARTTLS` and `SMTP_AUTH` (read by `keycloak-setup.sh`'s `get_env`),
+# `ENVIRONMENT` (`validate-env.sh`'s `REQUIRED_VARS`) and `CIRCUIT_BREAKER_WINDOW_SIZE` (the
+# api-gateway's Spring properties). Those four are **allowlisted with their reader, never
+# deleted**: "no compose reference" does not mean "unused" — `CIRCUIT_BREAKER_WINDOW_SIZE` was
+# wrongly called a dead key once, and this test asserts the consumer instead of assuming there
+# is none. The count fell 8 -> 7 -> 4: `GF_AUTH_ANONYMOUS_ORG_ROLE` left with the Grafana auth
+# block, and `SMTP_HOST`/`SMTP_PORT`/`SMTP_FROM` gained a compose binding when Grafana's alert
+# emails started riding the same relay declaration Keycloak reads.
 #
 # The test also pins the two halves of the fix:
 #
@@ -213,7 +213,7 @@ allowlist_reader() {
 # The frozen allowlist: the keys measured to have no compose binding, each with the reader
 # that consumes it. Adding a key here is a reviewed decision, exactly like bumping a pin in
 # image-pins.test.sh.
-ALLOWLISTED_KEYS="SMTP_HOST SMTP_PORT SMTP_FROM SMTP_STARTTLS SMTP_AUTH ENVIRONMENT CIRCUIT_BREAKER_WINDOW_SIZE"
+ALLOWLISTED_KEYS="SMTP_STARTTLS SMTP_AUTH ENVIRONMENT CIRCUIT_BREAKER_WINDOW_SIZE"
 
 # Compose-internal keys: interpolated between compose services (or by the build), never an
 # operator knob, so they deliberately do not live in .env.template (image-pins.test.sh pins

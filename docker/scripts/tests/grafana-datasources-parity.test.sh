@@ -22,11 +22,12 @@
 #
 # Why (4) matters here, and why this suite is the counterpart of the dashboards: the provisioned
 # dashboards in `docker/config/grafana/dashboards/json/` deliberately carry no `datasource` block,
-# so every panel queries Grafana's **default** datasource. A pinned uid would not work either:
-# Grafana assigns a provisioned datasource a random uid per instance, so a uid written into a
-# dashboard reads "Datasource not found" in any environment whose Grafana volume was provisioned
-# earlier. Leaving the panels unqualified and pinning the default here is what keeps one dashboard
-# file valid in dev, staging and prod.
+# so every panel queries Grafana's **default** datasource. The three datasources now declare
+# explicit uids, because an alert rule cannot omit its datasource and the alerting provisioning
+# references one by uid; the dashboards still omit it on purpose, so a host whose Grafana volume
+# was provisioned before those uids existed keeps rendering panels (they resolve to the default)
+# while its rule fails loudly instead. Leaving the panels unqualified and pinning the default here
+# is what keeps one dashboard file valid in dev, staging and prod.
 #
 # A suite that would pass over an empty file is not acceptable: the file has to declare at least
 # one datasource, and a file that declares none fails loudly below.

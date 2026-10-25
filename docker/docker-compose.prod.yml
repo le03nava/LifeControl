@@ -259,15 +259,32 @@ services:
       GF_AUTH_BASIC_ENABLED: ${GF_AUTH_BASIC_ENABLED:-true}
       GF_AUTH_DISABLE_LOGIN_FORM: ${GF_AUTH_DISABLE_LOGIN_FORM:-false}
       GF_SECURITY_ADMIN_USER: ${GF_SECURITY_ADMIN_USER:-admin}
+      # SMTP for the alert rule's email contact point -- see docker-compose.yml for why there is no
+      # GF_SMTP_PORT (Grafana has no such setting; smtp.host carries host:port) and why the
+      # password is not here. In prod the relay is NOT the dev mail catcher: these defaults are the
+      # template's dev values, and docker/scripts/keycloak-setup.sh already refuses to run in prod
+      # while SMTP_HOST still says `mailpit`. Grafana cannot refuse (dashboards must keep serving),
+      # so the entrypoint warns on stderr at every start until SMTP_HOST names a real relay.
+      GF_SMTP_ENABLED: ${GF_SMTP_ENABLED:-true}
+      GF_SMTP_HOST: ${SMTP_HOST:-mailpit}:${SMTP_PORT:-1025}
+      GF_SMTP_FROM_ADDRESS: ${SMTP_FROM:-no-reply@lifecontrol.local}
+      GF_SMTP_FROM_NAME: ${GF_SMTP_FROM_NAME:-LifeControl}
+      GF_SMTP_USER: ${SMTP_USER:-}
+      GRAFANA_ALERT_EMAIL: ${GRAFANA_ALERT_EMAIL:-alerts@lifecontrol.local}
     volumes:
       - ./entrypoints/grafana-entrypoint.sh:/usr/local/bin/lc-grafana-entrypoint.sh:ro
       - ./secrets/grafana_admin_password:/run/secrets/grafana_admin_password:ro
+      # Optional, read by the entrypoint only when GF_SMTP_USER is set; see docker-compose.yml.
+      - ./secrets/smtp_password:/run/secrets/smtp_password:ro
       - ${VOLUMES_ROOT:?VOLUMES_ROOT must be set}/grafana/config:/etc/grafana/provisioning/datasources:ro
       # From the repository, not from $VOLUMES_ROOT: a fresh prod volume would otherwise start
       # Grafana with zero dashboards and every panel would have to be drawn by hand into a volume
       # that is never versioned. Read-only, with allowUiUpdates: false in the provider file, so the
       # JSON in the repository stays the only source of truth.
       - ./config/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      # The contact point, the notification policy and the rule, from the repository: a prod volume
+      # is never versioned, and a rule that lives only there is a rule nobody reviewed.
+      - ./config/grafana/alerting:/etc/grafana/provisioning/alerting:ro
       - grafana_data:/var/lib/grafana
     networks:
       - default

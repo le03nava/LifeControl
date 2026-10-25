@@ -37,9 +37,10 @@
 #       run through `/api/v1/query` on that stack. A dashboard whose query matches nothing is worse
 #       than no dashboard, and this suite cannot reach Prometheus on its own, so the names are the
 #       frozen part: a new metric means editing the list below, deliberately.
-#   (g) no alert rule is provisioned, on purpose. The thresholds in decision D4 are starting numbers
-#       and the notification channel is a decision the record still owes; a rule nobody receives is
-#       exactly the kind of decoration this unit exists to remove.
+#   (g) no *dashboard panel* carries an alert rule. The first alert rule exists since T10, but it is
+#       provisioned from `docker/config/grafana/alerting/`, not from a panel: a panel-embedded alert
+#       lives in the volume, and `grafana-alerting.test.sh` is the suite that guards the provisioned
+#       one.
 #
 # JSON is parsed with `python3 -`. Why: `docker/scripts/` assumes no `jq` (verify-provisioning-flow.sh
 # says so explicitly, and its JSON helpers are grep/sed), and a grep-based structural check cannot
@@ -546,23 +547,26 @@ if [ "$METRIC_REFS" -eq 0 ]; then
 fi
 
 # ------------------------------------------
-# 7. No alert rule is provisioned, deliberately.
+# 7. No dashboard panel carries an alert rule. The rule that does exist is provisioned from
+#    docker/config/grafana/alerting/ (T10), which grafana-alerting.test.sh guards; this suite keeps
+#    the dashboards free of them, because a panel-embedded alert lives in the volume instead of in a
+#    reviewed file.
 # ------------------------------------------
 DASHBOARD_ALERTS=0
 while IFS=$'\t' read -r kind field_a field_b; do
 	[ "$kind" = "ALERT" ] || continue
 	DASHBOARD_ALERTS=$((DASHBOARD_ALERTS + 1))
-	fail "dashboard '$field_a', panel '$field_b': carries an alert rule; the notification channel is still an open decision in the record"
+	fail "dashboard '$field_a', panel '$field_b': carries an alert rule; alerting is provisioned from docker/config/grafana/alerting/ and a panel alert would live only in the volume"
 done <<< "$PY_OUT"
 
 if [ "$DASHBOARD_ALERTS" -eq 0 ]; then
-	pass "no dashboard carries an alert rule (the notification channel is an open decision, so a rule would reach nobody)"
+	pass "no dashboard carries an alert rule (the rule is provisioned from alerting/, never from a panel)"
 fi
 
 if [ -d "$DOCKER_DIR/config/grafana/alerting" ]; then
-	fail "docker/config/grafana/alerting exists: alert provisioning brings contact points, and the channel is still an open decision"
+	pass "docker/config/grafana/alerting exists: alerting is provisioned from the repository, through its own directory and not through dashboard panels"
 else
-	pass "docker/config/grafana/alerting does not exist (no contact point is declared anywhere in this stack)"
+	fail "docker/config/grafana/alerting no longer exists: the contact point, the notification policy and the alert rule are provisioned from there, so removing the directory removes the only notification this stack has"
 fi
 
 printf '\n%d passed, %d failed\n' "$PASS_COUNT" "$FAIL_COUNT"
