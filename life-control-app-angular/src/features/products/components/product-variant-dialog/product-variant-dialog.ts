@@ -14,7 +14,12 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ApiError } from '@shared/models';
 import { httpErrorMessage } from '@shared/data';
 import { ProductVariantService } from '../../data/product-variant.service';
-import { ProductVariant, ProductVariantRequest } from '../../models/product-variant.models';
+import { MeasureUnitService } from '../../data/measure-unit.service';
+import {
+  MeasureUnit,
+  ProductVariant,
+  ProductVariantRequest,
+} from '../../models/product-variant.models';
 import {
   ProductVariantControl,
   ProductVariantForm,
@@ -24,14 +29,18 @@ import { ErrorBanner, ConfirmDialog } from '@shared/ui';
 /**
  * The single message for a 409 on the global definition.
  *
- * The backend answers 409 for a duplicate barcode AND for a duplicate variant
- * name within the product, and it sends no field attribution in either case.
- * Naming both possibilities is the only honest copy: guessing which field
- * collided would present a fact the server never sent. Kept form-level on
- * purpose — never bound to a single control.
+ * The backend answers 409 for a duplicate barcode or variant name within the product AND
+ * for a refused measure-unit change: once the variant already holds stock or ledger
+ * movements the unit is frozen (`D3`), because changing it would silently rewrite the
+ * meaning of every stored balance. The server sends no field attribution for either cause,
+ * so naming both is the only honest copy: guessing which one happened would present a fact
+ * nobody sent, and echoing the server's own message is worse — the API speaks English and
+ * this screen speaks Spanish. Kept form-level on purpose — never bound to a single control.
  */
-const VARIANT_DUPLICATE_MESSAGE =
-  'Ya tenés una variante con ese código de barras o ese nombre para este producto';
+const VARIANT_CONFLICT_MESSAGE =
+  'No se pudo guardar: ya tenés una variante con ese código de barras o ese nombre para este ' +
+  'producto, o la variante ya tiene stock o movimientos de inventario que no permiten cambiar ' +
+  'la unidad de medida';
 
 /** Payload the opener passes to {@link ProductVariantDialog}. */
 export interface ProductVariantDialogData {
@@ -45,11 +54,18 @@ export interface ProductVariantDialogData {
  *
  * Replaces the routed create/edit screen for the definition: it owns the write and
  * closes with the saved entity (or `null` on cancel), so the list only has to reload
- * on a truthy result (D22). It edits `barCode` + `variantName` and nothing else —
- * the per-store stock and prices panel stays on the store-scoped page (D8/D18).
+ * on a truthy result (D22). It edits `barCode` + `variantName` + `measureUnitId` and
+ * nothing else — the per-store stock and prices panel stays on the store-scoped page
+ * (D8/D18).
  *
  * It holds no `ActivatedRoute`, no `Router` and no store handling: the opener passes
  * the owning product and, in edit mode, the row.
+ *
+ * The measure-unit catalog is read **once per dialog** here, not by the form and not by
+ * the picker: the form is presentational, and reading it lower would multiply the
+ * request by every place the form is reused. A failed read leaves the catalog empty, so
+ * the picker offers only "Sin unidad" and the operator can still save — the unit is
+ * optional (S1) — instead of losing a valid write to a catalog outage.
  *
  * In create mode it also offers "Guardar y agregar otra": a successful write resets the
  * group in place and keeps the dialog open for the next variant (D32). The dialog
@@ -69,6 +85,7 @@ export class ProductVariantDialog {
     inject<MatDialogRef<ProductVariantDialog, ProductVariant | null>>(MatDialogRef);
   private readonly fb = inject(NonNullableFormBuilder);
   private readonly productVariantService = inject(ProductVariantService);
+  private readonly measureUnitService = inject(MeasureUnitService);
   private readonly dialog = inject(MatDialog);
   private readonly destroyRef = inject(DestroyRef);
 
@@ -79,6 +96,8 @@ export class ProductVariantDialog {
   readonly definitionForm = signal<FormGroup<ProductVariantControl>>(
     this.data.variant ? this.buildFormFromVariant(this.data.variant) : this.createForm(),
   );
+  /** The enabled unit catalog, offered whole: never narrowed by `unitType` (S4). */
+  readonly measureUnits = signal<MeasureUnit[]>([]);
   readonly serverErrors = signal<Record<string, string>>({});
   /** Write failures shown in the banner; the dialog stays open. */
   readonly generalError = signal<string | null>(null);
@@ -103,6 +122,17 @@ export class ProductVariantDialog {
   readonly formDirty = this.dirty.asReadonly();
 
   constructor() {
+    // One catalog read per dialog: the picker is offered whatever the catalog holds (S4).
+    // A failure leaves the list empty on purpose — the unit is optional, so a catalog
+    // outage must not block saving a barcode and a name.
+    this.measureUnitService
+      .getMeasureUnits()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (units) => this.measureUnits.set(units),
+        error: () => this.measureUnits.set([]),
+      });
+
     // Only operator edits reach this: the form is built from the loaded variant and is
     // never patched afterwards, the add-another reset clears it with `emitEvent: false`
     // (which is exactly why it does not re-arm this signal), and the child form applies
@@ -158,7 +188,12 @@ export class ProductVariantDialog {
   private resetForNextEntry(): void {
     // `emitEvent: false` is load-bearing: a plain `reset()` emits `valueChanges`,
     // which would immediately re-arm `dirty` and therefore `disableClose`.
-    this.definitionForm().reset({ barCode: '', variantName: '' }, { emitEvent: false });
+    // `measureUnitId` resets to `null` like the rest: the next variant starts with no
+    // unit declared, and the operator picks one only if it applies.
+    this.definitionForm().reset(
+      { barCode: '', variantName: '', measureUnitId: null },
+      { emitEvent: false },
+    );
     this.dirty.set(false);
     // A stale server error must not survive into the next entry: clear the banner and
     // the field map, and let the form's effect strip the applied `serverError` keys.
@@ -201,6 +236,7 @@ export class ProductVariantDialog {
         Validators.required,
         Validators.maxLength(255),
       ]),
+      measureUnitId: this.fb.control<string | null>(variant.measureUnitId ?? null),
     });
   }
 
@@ -208,6 +244,7 @@ export class ProductVariantDialog {
     return this.fb.group({
       barCode: this.fb.control('', [Validators.required, Validators.maxLength(100)]),
       variantName: this.fb.control('', [Validators.required, Validators.maxLength(255)]),
+      measureUnitId: this.fb.control<string | null>(null),
     });
   }
 
@@ -219,9 +256,9 @@ export class ProductVariantDialog {
       return;
     }
 
-    // The 409 collision carries no field attribution, so it becomes one
-    // form-level banner naming both uniqueness rules the backend enforces.
+    // The 409 carries no field attribution, so it becomes one form-level banner naming
+    // both uniqueness rules the backend enforces and the frozen-unit guard.
     this.serverErrors.set({});
-    this.generalError.set(err.status === 409 ? VARIANT_DUPLICATE_MESSAGE : httpErrorMessage(err));
+    this.generalError.set(err.status === 409 ? VARIANT_CONFLICT_MESSAGE : httpErrorMessage(err));
   }
 }
