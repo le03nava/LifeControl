@@ -252,7 +252,7 @@
                     matInput
                     type="number"
                     min="0"
-                    step="1"
+                    step="0.01"
                     [value]="draft.quantity"
                     (input)="onQuantityInput(i, $any($event.target).value)"
                     [attr.aria-label]="'Cantidad a recibir de ' + draft.productName"
