@@ -2,6 +2,7 @@ package com.lifecontrol.api.product.repository;
 
 import com.lifecontrol.api.product.model.ProductVariantStoreStock;
 import jakarta.persistence.LockModeType;
+import java.math.BigDecimal;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -30,6 +31,18 @@ public interface ProductVariantStoreStockRepository extends JpaRepository<Produc
 
     /** Store membership probe: does this variant exist operationally in this store? */
     boolean existsByProductVariantIdAndCompanyStoreId(UUID productVariantId, UUID companyStoreId);
+
+    /**
+     * Whether the variant holds stock different from the given value in <strong>any</strong> store, used
+     * by the measure-unit guard of decision D3.
+     *
+     * <p>The guard reads it with {@link BigDecimal#ZERO}, so both a positive and a negative balance block
+     * the change: either one is quantity that already carries a unit meaning, and re-expressing it would
+     * reinterpret stored numbers that have no unit of their own. A row whose {@code stock} is exactly
+     * {@code 0} is deliberately <strong>not</strong> a history — it is the column default of a row that
+     * was never filled.</p>
+     */
+    boolean existsByProductVariantIdAndStockNot(UUID productVariantId, BigDecimal stock);
 
     /**
      * Pessimistic write lock on the {@code (variant, store)} stock row, mirroring

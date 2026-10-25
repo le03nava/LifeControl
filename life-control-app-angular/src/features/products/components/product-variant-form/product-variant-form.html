@@ -28,6 +28,23 @@
       }
     </mat-form-field>
 
+    <!--
+      Every unit the catalog returned, with no filter by `unitType` or by the product's
+      `productType` (S4). The first option clears the field to `null`, which is a valid
+      answer: a variant with no unit declared keeps working as it did before the relation.
+    -->
+    <mat-form-field appearance="outline">
+      <mat-label>Unidad de medida</mat-label>
+      <mat-select formControlName="measureUnitId" placeholder="Sin unidad">
+        <mat-option [value]="null">Sin unidad</mat-option>
+        @for (unit of measureUnits(); track unit.id) {
+          <mat-option [value]="unit.id">
+            {{ unit.measureUnitShortName }} — {{ unit.measureUnitName }}
+          </mat-option>
+        }
+      </mat-select>
+    </mat-form-field>
+
     <div class="form-actions">
       <button mat-button type="button" (click)="onCancel()">Cancelar</button>
       @if (!editMode()) {
