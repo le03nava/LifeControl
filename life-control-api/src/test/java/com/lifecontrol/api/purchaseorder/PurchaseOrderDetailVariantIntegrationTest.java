@@ -298,6 +298,34 @@ class PurchaseOrderDetailVariantIntegrationTest extends AbstractPostgresIntegrat
     }
 
     /**
+     * Builds a create payload whose header is valid and whose single nested line carries every
+     * field the service dereferences, so a 201 is the full success path of the create route.
+     *
+     * <p>The line carries {@code statusId} on purpose: the create route passes the value straight
+     * to {@code findById} with no default (unlike the update route, which falls back to
+     * {@code Pending}), so an omitted status is a 500 of its own and would mask the defect this
+     * test exists for. That missing fallback is a separate defect, measured but not fixed here.</p>
+     */
+    private String orderPayloadWithNestedLine(UUID productId, UUID productVariantId) throws Exception {
+        var line = new LinkedHashMap<String, Object>();
+        line.put("productId", productId.toString());
+        line.put("productVariantId", productVariantId.toString());
+        line.put("quantity", new BigDecimal("2.5"));
+        line.put("unitPrice", new BigDecimal("15.00"));
+        line.put("comments", "Nested create line");
+        line.put("statusId", pendingDetailStatusId.toString());
+
+        var payload = new LinkedHashMap<String, Object>();
+        payload.put("supplierId", supplierId.toString());
+        payload.put("companyStoreId", storeId.toString());
+        payload.put("paymentMethodId", paymentMethodId.toString());
+        payload.put("statusId", draftStatusId.toString());
+        payload.put("comments", "Nested create persistence");
+        payload.put("details", List.of(line));
+        return objectMapper.writeValueAsString(payload);
+    }
+
+    /**
      * Builds a valid header whose {@code details} list holds a single JSON null entry.
      * Before the container-element constraint the service dereferenced it and answered 500.
      */
@@ -662,6 +690,63 @@ class PurchaseOrderDetailVariantIntegrationTest extends AbstractPostgresIntegrat
                     .isPresent();
             assertThat(purchaseOrderDetailRepository.findByPurchaseOrderIdAndEnabledTrue(purchaseOrderId))
                     .isEmpty();
+        }
+    }
+
+    @Nested
+    @DisplayName("nested lines on the order create route")
+    class NestedDetailPersistenceTests {
+
+        /**
+         * The create route answers 201 with the lines it built in memory. If it does not persist
+         * them, the response is the only place they ever exist: the read route returns an empty
+         * list right after a success, and the caller has no way to learn that its lines were lost.
+         */
+        @Test
+        @DisplayName("should persist the nested line the create response reports, so the read route returns it")
+        void createWithNestedLinePersistsWhatItReports() throws Exception {
+            var product = createProduct();
+            var variant = createVariant(product.getId(), storeId);
+
+            var created = mockMvc.perform(post("/api/purchase-orders")
+                            .with(jwt().authorities(ROLE_LC_ADMIN))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(orderPayloadWithNestedLine(product.getId(), variant.getId())))
+                    .andExpect(status().isCreated())
+                    .andExpect(jsonPath("$.details.length()").value(1))
+                    .andExpect(jsonPath("$.details[0].productId")
+                            .value(product.getId().toString()))
+                    .andExpect(jsonPath("$.details[0].quantity").value(2.5))
+                    .andReturn();
+
+            var purchaseOrderId = UUID.fromString(objectMapper
+                    .readTree(created.getResponse().getContentAsString())
+                    .get("id")
+                    .asText());
+
+            var listed = mockMvc.perform(get("/api/purchase-orders/{id}/details", purchaseOrderId)
+                            .with(jwt().authorities(ROLE_LC_ADMIN)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.length()").value(1))
+                    .andExpect(jsonPath("$[0].productId").value(product.getId().toString()))
+                    .andExpect(jsonPath("$[0].productVariantId")
+                            .value(variant.getId().toString()))
+                    .andExpect(jsonPath("$[0].quantity").value(2.5))
+                    .andReturn();
+
+            var line = objectMapper
+                    .readTree(listed.getResponse().getContentAsString())
+                    .get(0);
+            assertThat(line.get("unitPrice").decimalValue())
+                    .as("unit price of the line the read route returns")
+                    .isEqualByComparingTo("15.00");
+            assertThat(line.get("total").decimalValue())
+                    .as("line total of the line the read route returns")
+                    .isEqualByComparingTo("37.50");
+
+            assertThat(purchaseOrderDetailRepository.findByPurchaseOrderIdAndEnabledTrue(purchaseOrderId))
+                    .as("persisted lines of the order the create route reported")
+                    .hasSize(1);
         }
     }
 

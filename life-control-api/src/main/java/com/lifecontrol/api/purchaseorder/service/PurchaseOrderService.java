@@ -46,6 +46,7 @@ import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -185,7 +186,10 @@ public class PurchaseOrderService {
                 .enabled(true)
                 .build();
 
-        // Process details
+        // Build the lines first: a line cannot be written before the order it belongs to has an id.
+        // The collection maps the inverse side ({@code mappedBy}), so adding to it never writes a
+        // row, and the 201 would then report lines no read route can return.
+        var newDetails = new ArrayList<PurchaseOrderDetail>();
         if (request.details() != null && !request.details().isEmpty()) {
             var companyStoreId = store.getId();
             for (var detailReq : request.details()) {
@@ -207,11 +211,18 @@ public class PurchaseOrderService {
                         .status(detailStatus)
                         .enabled(true)
                         .build();
-                po.getDetails().add(detail);
+                newDetails.add(detail);
             }
         }
 
         var saved = purchaseOrderRepository.save(po);
+
+        // Persist the lines with the same explicit save the update route already uses, so both
+        // write routes agree on what a successful response means (issue #593).
+        if (!newDetails.isEmpty()) {
+            detailRepository.saveAll(newDetails);
+            saved.getDetails().addAll(newDetails);
+        }
         logger.info("Purchase order created: id={}, orderNumber={}", saved.getId(), saved.getOrderNumber());
 
         eventPublisher.publishEvent(new PurchaseOrderCreatedEvent(
