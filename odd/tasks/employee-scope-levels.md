@@ -189,3 +189,14 @@ consequence of `scope-assignments-per-level` L8).
   behaviour was re-verified by assertion, and the hashes cited above are the ones the branches carry
   after the rewrite. The lesson this unit pays for: `spotlessCheck` belongs to the slice that adds the
   line, so a slice boundary must be checked per slice, not only at the branch tip.
+- **L12** — evidence, the second CI defect and how the chain was repaired without rewriting published
+  history. After `L11`, slice 1's `Static analysis` still failed: three suites it inherits from `main`
+  (the store façade's HTTP, CRUD and service specs) no longer matched the formatter, and they are
+  **deleted** by slice 3 — which is precisely why the branch tip looked clean while the slice did not.
+  The repair keeps every published commit: a `style(hr)` commit formats those three files at slice 1, and
+  each child merges its parent (`feat/employee-scope-alcance-tab` then
+  `refactor/employee-scope-store-retirement`), so all three tips are formatter-clean with fast-forward
+  pushes only. The two modify/delete conflicts in the last merge were resolved by keeping the deletion,
+  which is what that slice is for, and the merged tree is **identical** to the verified pre-merge tip
+  (`git diff` prints nothing), so no code was re-verified by assertion. The rule this unit pays for
+  twice: formatter cleanliness is a per-slice property, so it is checked at each slice's own tip.
