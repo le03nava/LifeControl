@@ -520,6 +520,40 @@ class ProductVariantStoreStockWriteIntegrationTest extends AbstractPostgresInteg
             assertThat(movementsOf(bareVariantId)).hasSize(1);
             assertInvariant(bareVariantId, storeAId);
         }
+
+        /**
+         * D3's two guards read these probes, and a mock cannot prove them: both are derived queries
+         * over real rows — the stock floor over {@code product_variant_store_stock} and the ledger
+         * existence over {@code inventory_movements}.
+         */
+        @Test
+        @DisplayName("D3: the probes see the stock floor and the ledger row a stock edit produces")
+        void measureUnitProbesSeeTheStockFloorAndTheLedger() throws Exception {
+            // A variant nobody wrote to has neither: its first unit declaration stays allowed.
+            assertThat(productVariantStoreStockRepository.existsByProductVariantIdAndStockNot(
+                            sharedVariantId, BigDecimal.ZERO))
+                    .isFalse();
+            assertThat(inventoryMovementRepository.existsByProductVariantId(sharedVariantId))
+                    .isFalse();
+
+            writeStock(bareVariantId, storeAId, "3");
+
+            assertThat(productVariantStoreStockRepository.existsByProductVariantIdAndStockNot(
+                            bareVariantId, BigDecimal.ZERO))
+                    .isTrue();
+            assertThat(inventoryMovementRepository.existsByProductVariantId(bareVariantId))
+                    .isTrue();
+
+            // Back to zero: the aggregate no longer claims quantity, but the ledger row remains, so
+            // the unit still cannot be swapped. Both halves are what D3 refuses on.
+            writeStock(bareVariantId, storeAId, "0");
+
+            assertThat(productVariantStoreStockRepository.existsByProductVariantIdAndStockNot(
+                            bareVariantId, BigDecimal.ZERO))
+                    .isFalse();
+            assertThat(inventoryMovementRepository.existsByProductVariantId(bareVariantId))
+                    .isTrue();
+        }
     }
 
     // ─────────────────────────── helpers ───────────────────────────

@@ -47,6 +47,7 @@ describe('ProductVariantEdit', () => {
     costPrice: null,
     stock: null,
     enabled: true,
+    measureUnitId: null,
   };
 
   function profileResponse(): ProfileResponse {

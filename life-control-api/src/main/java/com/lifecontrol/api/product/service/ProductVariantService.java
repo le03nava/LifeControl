@@ -1,13 +1,20 @@
 package com.lifecontrol.api.product.service;
 
 import com.lifecontrol.api.common.auth.CurrentUserContext;
+import com.lifecontrol.api.inventory.repository.InventoryMovementRepository;
 import com.lifecontrol.api.inventory.service.InventoryService;
+import com.lifecontrol.api.measureunit.exception.MeasureUnitNotFoundException;
+import com.lifecontrol.api.measureunit.model.MeasureUnit;
+import com.lifecontrol.api.measureunit.repository.MeasureUnitRepository;
 import com.lifecontrol.api.product.dto.ProductVariantRequest;
 import com.lifecontrol.api.product.dto.ProductVariantResponse;
 import com.lifecontrol.api.product.dto.ProductVariantSearchResponse;
 import com.lifecontrol.api.product.dto.ProductVariantStoreStockRequest;
 import com.lifecontrol.api.product.dto.ProductVariantStoreStockResponse;
+import com.lifecontrol.api.product.exception.DisabledMeasureUnitException;
 import com.lifecontrol.api.product.exception.DuplicateProductVariantException;
+import com.lifecontrol.api.product.exception.MeasureUnitChangeNotAllowedException;
+import com.lifecontrol.api.product.exception.MeasureUnitTypeMismatchException;
 import com.lifecontrol.api.product.exception.ProductNotFoundException;
 import com.lifecontrol.api.product.exception.ProductVariantNotFoundException;
 import com.lifecontrol.api.product.model.Product;
@@ -20,6 +27,7 @@ import com.lifecontrol.api.store.exception.CompanyStoreNotFoundException;
 import com.lifecontrol.api.store.model.CompanyStore;
 import com.lifecontrol.api.store.repository.CompanyStoreRepository;
 import java.math.BigDecimal;
+import java.util.Objects;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -35,6 +43,11 @@ import org.springframework.transaction.annotation.Transactional;
  * live per store in {@code product_variant_store_stock} and are written through
  * {@link #upsertStoreStock(UUID, UUID, ProductVariantStoreStockRequest)}, the second write endpoint
  * of decision D6(b).</p>
+ *
+ * <p>Both write paths also carry the variant's measure unit (V29): the request names a unit id, this
+ * service resolves it against the catalog and applies the two guards that keep the stored quantities
+ * readable — {@code unit_type} coherence inside the product (D4) and immutability once the variant
+ * acquired a quantity meaning (D3).</p>
  */
 @Service
 public class ProductVariantService {
@@ -47,6 +60,8 @@ public class ProductVariantService {
     private final CompanyStoreRepository companyStoreRepository;
     private final CurrentUserContext currentUserContext;
     private final InventoryService inventoryService;
+    private final MeasureUnitRepository measureUnitRepository;
+    private final InventoryMovementRepository inventoryMovementRepository;
 
     public ProductVariantService(
             ProductVariantRepository productVariantRepository,
@@ -54,13 +69,17 @@ public class ProductVariantService {
             ProductRepository productRepository,
             CompanyStoreRepository companyStoreRepository,
             CurrentUserContext currentUserContext,
-            InventoryService inventoryService) {
+            InventoryService inventoryService,
+            MeasureUnitRepository measureUnitRepository,
+            InventoryMovementRepository inventoryMovementRepository) {
         this.productVariantRepository = productVariantRepository;
         this.productVariantStoreStockRepository = productVariantStoreStockRepository;
         this.productRepository = productRepository;
         this.companyStoreRepository = companyStoreRepository;
         this.currentUserContext = currentUserContext;
         this.inventoryService = inventoryService;
+        this.measureUnitRepository = measureUnitRepository;
+        this.inventoryMovementRepository = inventoryMovementRepository;
     }
 
     @Transactional(readOnly = true)
@@ -135,6 +154,10 @@ public class ProductVariantService {
      * @throws ProductNotFoundException when the product does not exist
      * @throws DuplicateProductVariantException when the barcode or the (product, name) pair already
      *     exists
+     * @throws MeasureUnitNotFoundException when the named measure unit does not exist (404)
+     * @throws DisabledMeasureUnitException when the named measure unit is soft-deleted (400)
+     * @throws MeasureUnitTypeMismatchException when the unit's type contradicts the product's other
+     *     variants (400)
      */
     @Transactional
     public ProductVariantResponse createVariant(UUID productId, ProductVariantRequest request) {
@@ -155,8 +178,12 @@ public class ProductVariantService {
                     "Product variant with name " + request.variantName() + " already exists for product " + productId);
         }
 
+        // No variant is excluded on create: the type gate reads the product's other variants only.
+        var measureUnit = validateMeasureUnit(productId, null, request.measureUnitId());
+
         var variant = ProductVariant.builder()
                 .productId(productId)
+                .measureUnitId(measureUnit == null ? null : measureUnit.getId())
                 .barCode(request.barCode())
                 .variantName(request.variantName())
                 .enabled(true)
@@ -168,6 +195,23 @@ public class ProductVariantService {
         return toResponse(saved, product.getSku());
     }
 
+    /**
+     * Updates the GLOBAL definition of a variant, including the measure unit it declares.
+     *
+     * <p>The unit and its two guards are validated <strong>before</strong> any setter runs, so a
+     * refused write leaves the entity exactly as it was.</p>
+     *
+     * @throws ProductNotFoundException when the product does not exist
+     * @throws ProductVariantNotFoundException when the variant does not exist for that product
+     * @throws DuplicateProductVariantException when the barcode or the (product, name) pair already
+     *     belongs to another variant
+     * @throws MeasureUnitNotFoundException when the named measure unit does not exist (404)
+     * @throws DisabledMeasureUnitException when the named measure unit is soft-deleted (400)
+     * @throws MeasureUnitTypeMismatchException when the unit's type contradicts the product's other
+     *     variants (400)
+     * @throws MeasureUnitChangeNotAllowedException when the variant already holds stock or ledger
+     *     movements and the unit would change (409)
+     */
     @Transactional
     public ProductVariantResponse updateVariant(UUID productId, UUID variantId, ProductVariantRequest request) {
         var product = validateProductExists(productId);
@@ -188,8 +232,14 @@ public class ProductVariantService {
                     "Product variant with name " + request.variantName() + " already exists for product " + productId);
         }
 
+        // Validation order matters: existence/enabled (404/400) and the D4 type gate (400) run before
+        // the D3 state conflict (409), so a request that is not even valid never reports a conflict.
+        var measureUnit = validateMeasureUnit(productId, variantId, request.measureUnitId());
+        verifyMeasureUnitChangeAllowed(variant, measureUnit == null ? null : measureUnit.getId());
+
         variant.setBarCode(request.barCode());
         variant.setVariantName(request.variantName());
+        variant.setMeasureUnitId(measureUnit == null ? null : measureUnit.getId());
 
         var updated = productVariantRepository.save(variant);
         logger.info("Product variant updated: id={}", variantId);
@@ -362,6 +412,89 @@ public class ProductVariantService {
                 .orElseThrow(() -> new ProductVariantNotFoundException(variantId));
     }
 
+    /**
+     * Resolves the measure unit a write names and validates it: it must exist (404), it must be
+     * enabled (400) and, when it exists, it must agree with the {@code unit_type} already in use by
+     * the product's other variants (D4).
+     *
+     * <p>Returns {@code null} when the request omits the unit, which is what keeps the pre-V29
+     * behavior exactly as it was (S7): a variant whose unit is not declared simply carries none, and
+     * neither the catalog nor the type gate is read.</p>
+     *
+     * @param excludedVariantId the variant being updated, excluded from the type gate so it cannot
+     *     contradict itself; {@code null} on create
+     */
+    private MeasureUnit validateMeasureUnit(UUID productId, UUID excludedVariantId, UUID measureUnitId) {
+        if (measureUnitId == null) {
+            return null;
+        }
+
+        var measureUnit = measureUnitRepository
+                .findById(measureUnitId)
+                .orElseThrow(() -> new MeasureUnitNotFoundException(measureUnitId));
+        if (!Boolean.TRUE.equals(measureUnit.getEnabled())) {
+            throw new DisabledMeasureUnitException(measureUnit);
+        }
+
+        verifyMeasureUnitTypeCoherence(productId, excludedVariantId, measureUnit);
+        return measureUnit;
+    }
+
+    /**
+     * D4: a product cannot mix {@code PRODUCT} and {@code SERVICE} units across its variants.
+     *
+     * <p>The types in use come from the product's own variants, and the variant being updated is
+     * excluded so its current unit is not counted as somebody else's. An empty result means no
+     * constraint: a product whose variants declare no unit accepts the first unit of either type. The
+     * type is not derived from {@code products.product_type}, which is free text.</p>
+     */
+    private void verifyMeasureUnitTypeCoherence(UUID productId, UUID excludedVariantId, MeasureUnit measureUnit) {
+        var typesInUse = excludedVariantId == null
+                ? productVariantRepository.findUsedMeasureUnitTypesByProductId(productId)
+                : productVariantRepository.findUsedMeasureUnitTypesByProductIdExcludingVariantId(
+                        productId, excludedVariantId);
+
+        for (var typeInUse : typesInUse) {
+            if (typeInUse != measureUnit.getUnitType()) {
+                throw new MeasureUnitTypeMismatchException(productId, measureUnit.getUnitType(), typeInUse);
+            }
+        }
+    }
+
+    /**
+     * D3: the unit may be set on create and changed afterwards only while the variant holds no
+     * quantity meaning.
+     *
+     * <p>Three cases, and the asymmetry between the first two is deliberate and load-bearing. An
+     * <strong>unchanged</strong> value is allowed. {@code null -> unit} is <strong>always</strong>
+     * allowed, even with stock or movements: it is the first declaration, so it reinterprets nothing
+     * that claimed otherwise, and the whole pre-V29 catalog is {@code null} and carries stock, so
+     * blocking it would make the feature unusable on existing data. <strong>Any other</strong>
+     * transition — including {@code unit -> null} and {@code unit A -> unit B} — is allowed only when
+     * no store row holds stock above zero (a {@code stock} of exactly {@code 0} is not a history: it
+     * is the default of a row that was never filled) and {@code inventory_movements} has no row for
+     * the variant. Otherwise the write is refused with 409 and the entity is left untouched.</p>
+     */
+    private void verifyMeasureUnitChangeAllowed(ProductVariant variant, UUID newMeasureUnitId) {
+        var currentMeasureUnitId = variant.getMeasureUnitId();
+        if (Objects.equals(currentMeasureUnitId, newMeasureUnitId)) {
+            return;
+        }
+        if (currentMeasureUnitId == null) {
+            // First declaration (null -> unit): nothing stored was ever expressed in another unit.
+            return;
+        }
+
+        if (productVariantStoreStockRepository.existsByProductVariantIdAndStockNot(variant.getId(), BigDecimal.ZERO)) {
+            throw new MeasureUnitChangeNotAllowedException(
+                    variant.getId(), "it holds a non-zero stock balance in at least one store");
+        }
+        if (inventoryMovementRepository.existsByProductVariantId(variant.getId())) {
+            throw new MeasureUnitChangeNotAllowedException(
+                    variant.getId(), "the inventory ledger already holds movements for it");
+        }
+    }
+
     private ProductVariantResponse toResponse(ProductVariant variant, String productSku) {
         return new ProductVariantResponse(
                 variant.getId(),
@@ -375,7 +508,8 @@ public class ProductVariantService {
                 null,
                 variant.getEnabled(),
                 variant.getCreatedAt(),
-                variant.getUpdatedAt());
+                variant.getUpdatedAt(),
+                variant.getMeasureUnitId());
     }
 
     private ProductVariantStoreStockResponse toStoreResponse(ProductVariantStoreStock row, BigDecimal stock) {
