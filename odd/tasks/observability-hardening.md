@@ -131,7 +131,7 @@ OTLP migration, and `tempo-receivers.test.sh` is the only suite guarding any par
 | T5 | Make the API's prod sampling read the environment variable and make `LOG_LEVEL` reach the root logger; pin both with a properties suite (S6, S7). | S6, S7 | inline | — |
 | T6 | Remove the Grafana auth block from the template, pin the two keys production does forward as compose-internal, and extend `image-pins.test.sh` with per-environment pin parity plus the guard that the block cannot come back (S8, S9). | S8, S9 | worker + parent | — |
 | T7 | Provision the first dashboards from the repository — a file provider plus service-health and saturation dashboards, mounted read-only instead of installed into the volume — and pin them with a suite (S10). The alert rule is split out as T10 because it needs a notification channel Decision D5 does not yet name. | S10 | worker + parent | — |
-| T8a | Add the datastore exporters to compose and Prometheus — two PostgreSQL exporters (postgres_exporter measures one DSN per process) plus one Redis exporter, loopback-only host ports, passwords through the mounted secret files, and their image pins in the frozen table (S11, exporters clause). | S11 | worker + parent | — |
+| T8a | Add the datastore exporters to compose and Prometheus — two PostgreSQL exporters (postgres_exporter measures one DSN per process) plus one Redis exporter, loopback-only host ports, passwords through the mounted secret files, and their image pins in the frozen table (S11, exporters clause). | S11 | worker + parent | `2f58dcf` |
 | T8b | Publish the access-provisioning queue as Micrometer gauges — one series per task state plus the age of the oldest `PENDING` row, refreshed every 15s from two read-only repository queries, with no new dependency (S11, worker clause). | S11 | worker | — |
 | T10 | Provision the first alert rule on the server-error ratio once a notification channel exists (Decision D5). Provisioning a rule with no contact point would fire into nothing, which is the class of configuration this unit removes. | S10 | — | — |
 | T9 | Correct the `AGENTS.md` Observability table and add the two cross-file parity suites for `prometheus.yml` and `datasources.yml` (S12). | S12 | inline | — |
@@ -307,3 +307,20 @@ named five suites explicitly, so the four suites this unit added would have run 
 It now loops over every `docker/scripts/tests/*.test.sh`, prints how many it found, and fails when the glob
 matches nothing, so a suite is wired by existing. Verified after the change: 13/13 docker suites pass
 (`grafana-provisioning` 31) and 11/11 `.github` suites pass, including the workflow trigger-parity one.
+
+**L17 — slice 7 (T8b) closes the last invisible signal in the repository.** The provisioning worker mutates
+Keycloak with nobody watching and its only output was log lines: `grep -rl 'MeterRegistry|Counter|Gauge'` over
+`life-control-api/src/main/java` returned nothing. It now publishes `access_provisioning_tasks{state}` for all
+seven states of `AccessProvisioningTaskStatus` plus `access_provisioning_oldest_pending_age_seconds`, refreshed
+every 15s from two read-only queries (one grouped COUNT, one MIN) that are the only repository surface added —
+the diff on the repository file is additive, 64 lines and no deletions. Three decisions the worker made and
+justified rather than guessed: its own daemon thread instead of `@Scheduled` (Spring scheduling is enabled only
+by the config gated on the worker switch, and re-enabling it for a metric would resurrect the always-ticking
+scheduler that config refuses), cached cells instead of a scrape-time supplier (so `/actuator/prometheus` never
+runs SQL), and no gating on `WORKER_ENABLED` (the queue is a table, not a thread, and the switch being off is
+exactly when a growing queue matters). The age is measured from `requested_at`, not `next_attempt_at`: the
+latter is a deadline the worker writes itself, so measuring from it would report a healthy retry backoff as a
+wait — and the class javadoc says the consequence out loud, that an alert threshold below
+`WORKER_MAX_DELAY_SECONDS` would fire on correct behaviour. Parent-side verification: the suite is 12/12 green;
+the worker ran 399 tests across the provisioning and config packages, including the seven PostgreSQL
+integration suites, and the repository's structural off-state test is untouched.
