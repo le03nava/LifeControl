@@ -45,12 +45,11 @@
 
 Two commits, one delivery unit: `318aa74` is the API (migration, model, service, guards, tests) and `c1f217f` is the ABM (model, catalog service, select, dialog, tests). Measured with the harness's own counter: **1552 authored changed lines** across the two, of which roughly 800 are tests. That is **~3.9× the ~400-line review advisory**, and the split is the API/ABM boundary rather than a 400-line boundary: no smaller slice leaves `main` compiling *and* green, because the response record, its JPQL constructor and `toResponse` change together.
 
-This is the point where the delivery strategy has to be chosen, and it is the maintainer's call, not the implementation's:
+**Chosen: two chained pull requests**, the API first and the ABM stacked on it. The split is the API/ABM boundary rather than a 400-line boundary: no smaller slice leaves `main` compiling *and* green, because the response record, its JPQL constructor and `toResponse` change together, and splitting the guards from the relation they guard would publish a column nothing validates.
 
-1. **One pull request** carrying both commits — honest about a single coherent feature, but ~1552 lines to review.
-2. **Two chained pull requests** (`chained-pr`): the API first, then the ABM on top, each reviewable alone because the ABM only consumes the contract the first one publishes.
+The child is based on the parent branch on purpose. Its diff therefore carries the parent's commit too, and the merge order is frozen: the API lands first, then the child is retargeted to `main`. Both branches stay alive until that retarget happens — see `references/pr-chains.md`, which exists because deleting a base branch closes its open child irreversibly.
 
-The record travels in whichever pull request closes the unit.
+The record travels in the second pull request, the one that closes the unit.
 
 ## Log
 
@@ -76,3 +75,4 @@ The record travels in whichever pull request closes the unit.
 - 2026-10-24 — **RED before GREEN, Angular**: the three new/updated specs failed to build with `TS2305`/`TS2307`/`TS2339` before the implementation existed; after it, the focused run was 71/71 and the feature suite 500/500.
 - 2026-10-24 — **Differential check (documented, not a CLI run)**: the backend suites that share the touched code (`ProductVariantServiceTest`, `ProductVariantControllerTest`, `ProductVariantStoreFilterIntegrationTest`, `ProductVariantStoreStockWriteIntegrationTest`) keep their pre-existing assertions and add the new field to their fixtures; on the Angular side the payload-equality assertions in the form/dialog/variant-service specs are the differential check, since the change is client-side and has no CLI surface to run against the base commit.
 - 2026-10-24 — Two integration tests were added beyond the literal task list because two of the new reads are raw HQL and derived-query semantics over real rows, which a mock cannot prove: the `unit_type` gate against real SQL, and both `D3` probes driven by a real stock edit (`0 -> 3 -> 0`) and a real ledger row. Fixtures are throwaway rows removed in teardown.
+- 2026-10-24 — **Delivery slices decided by the maintainer: two chained pull requests.** Two approved issues were opened, one per slice — `#568` for the API relation and `#569` for the ABM — because the label guard validates a linked, approved issue per pull request and a closed issue cannot be linked by the second one. Pull requests: `#570` (API, base `main`) and `#571` (ABM, base `feat/product-variant-measure-unit-api`, stacked). Merge order is frozen: `#570` first, then `#571` is retargeted to `main`.
