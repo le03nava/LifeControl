@@ -192,11 +192,23 @@ public class PurchaseOrderService {
         var newDetails = new ArrayList<PurchaseOrderDetail>();
         if (request.details() != null && !request.details().isEmpty()) {
             var companyStoreId = store.getId();
+            // A line may omit statusId: the field is optional on the DTO, and the update route
+            // already answers such a line with the PENDING default. Both write routes take the same
+            // DTO, so the create route resolves the same default instead of passing the null id to
+            // findById, which answered 500 on a payload the contract accepts (issue #605).
+            var defaultDetailStatus = request.details().stream().anyMatch(line -> line.statusId() == null)
+                    ? statusRepository
+                            .findByTypeNameAndStatusName("PURCHASE_ORDER_DETAIL", "Pending")
+                            .orElseThrow(() -> new StatusNotFoundException(
+                                    "Default status 'Pending' not found for PURCHASE_ORDER_DETAIL type"))
+                    : null;
             for (var detailReq : request.details()) {
                 var product = validateProductExists(detailReq.productId());
                 var productVariant = resolveProductVariant(detailReq.productVariantId(), product, companyStoreId);
-                var detailStatus = StatusValidator.requireStatusOfType(
-                        statusRepository, detailReq.statusId(), "PURCHASE_ORDER_DETAIL");
+                var detailStatus = detailReq.statusId() != null
+                        ? StatusValidator.requireStatusOfType(
+                                statusRepository, detailReq.statusId(), "PURCHASE_ORDER_DETAIL")
+                        : defaultDetailStatus;
                 var total = lineTotal(detailReq.unitPrice(), detailReq.quantity());
 
                 var detail = PurchaseOrderDetail.builder()
