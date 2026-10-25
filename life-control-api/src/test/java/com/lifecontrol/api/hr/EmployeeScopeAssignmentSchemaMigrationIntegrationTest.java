@@ -524,7 +524,8 @@ class EmployeeScopeAssignmentSchemaMigrationIntegrationTest extends AbstractPost
     @DisplayName("the covering-date finder resolves a store row's chain down to the company name")
     void coveringDateFinderResolvesAStoreRowChain() {
         var fixtures = fixtures();
-        insertStoreAssignment(fixtures.employeeId(), fixtures.storeId(), LocalDate.now().minusDays(10), null, true);
+        insertStoreAssignment(
+                fixtures.employeeId(), fixtures.storeId(), LocalDate.now().minusDays(10), null, true);
 
         var covering = employeeScopeAssignmentRepository.findEnabledAssignmentsCoveringDate(
                 fixtures.employeeId(), LocalDate.now());
@@ -535,10 +536,7 @@ class EmployeeScopeAssignmentSchemaMigrationIntegrationTest extends AbstractPost
         // graph walks the store chain, which is what the derivation reads on every request.
         assertThat(row.getCompanyStore().getId()).isEqualTo(fixtures.storeId());
         assertThat(row.getCompanyStore().getCompanyZone().getId()).isEqualTo(fixtures.zoneId());
-        assertThat(row.getCompanyStore()
-                        .getCompanyZone()
-                        .getCompanyRegion()
-                        .getId())
+        assertThat(row.getCompanyStore().getCompanyZone().getCompanyRegion().getId())
                 .isEqualTo(fixtures.regionId());
         assertThat(row.getCompanyStore()
                         .getCompanyZone()
@@ -561,8 +559,7 @@ class EmployeeScopeAssignmentSchemaMigrationIntegrationTest extends AbstractPost
     void predecessorFinderMatchesAStoreId() {
         var fixtures = fixtures();
         insertStoreAssignment(fixtures.employeeId(), fixtures.storeId(), LocalDate.of(2026, 1, 1), null, true);
-        insertStoreAssignment(
-                fixtures.employeeId(), fixtures.otherStoreId(), LocalDate.of(2026, 1, 1), null, true);
+        insertStoreAssignment(fixtures.employeeId(), fixtures.otherStoreId(), LocalDate.of(2026, 1, 1), null, true);
 
         var rows = employeeScopeAssignmentRepository.findEnabledAssignmentForNodeCoveringDate(
                 fixtures.employeeId(), fixtures.storeId(), LocalDate.of(2026, 3, 1));

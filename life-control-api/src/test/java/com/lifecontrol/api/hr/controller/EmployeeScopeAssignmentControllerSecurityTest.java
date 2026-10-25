@@ -85,7 +85,7 @@ class EmployeeScopeAssignmentControllerSecurityTest {
     private final UUID assignmentId = UUID.randomUUID();
 
     private ScopeAssignmentRequest buildRequest() {
-        return new ScopeAssignmentRequest(null, UUID.randomUUID(), null, LocalDate.of(2026, 1, 1));
+        return new ScopeAssignmentRequest(null, UUID.randomUUID(), null, null, LocalDate.of(2026, 1, 1));
     }
 
     private ScopeAssignmentResponse buildResponse() {
@@ -94,6 +94,7 @@ class EmployeeScopeAssignmentControllerSecurityTest {
                 ScopeLevel.REGION,
                 null,
                 UUID.randomUUID(),
+                null,
                 null,
                 "Region",
                 LocalDate.of(2026, 1, 1),
