@@ -82,17 +82,17 @@ a `"30"`, con los `@DisplayName` que nombran la versión alineados.
 | T6 | `GoodsReceiptService`: borrar el chequeo de entereza y llevar `ResolvedLine` a `BigDecimal` (`quantity`, `accumulatedQuantity`) | S4 | inline | `352729a` |
 | T7 | Los siete pines de Flyway a `"30"`, con sus `@DisplayName` y nombres de método alineados | S6 | worker | `352729a` |
 | T8 | Tests API: fracción aceptada en la línea y en la recepción, entero preservado, dos decimales aceptados, más de dos rechazados, over-receipt fraccionario rechazado | S2, S3, S4 | inline + worker | `352729a` |
-| T9 | Angular `detail-table`: los tres inputs de cantidad (línea nueva y los dos de edición inline) con paso decimal, y `min` a 0.01 | S5 | worker | `5f56d3d` |
-| T10 | Angular `receipt-create` + `receipt-form.utils`: input con paso decimal (`min="0"` conservado) y validador sin exigencia de entero, con `Number.isFinite` cubriendo lo que la regla de entero atrapaba | S5 | worker | `5f56d3d` |
-| T11 | Angular specs: `detail-table`, `receipt-form.utils`, `receipt-create` | S5 | worker | `5f56d3d` |
+| T9 | Angular `detail-table`: los tres inputs de cantidad (línea nueva y los dos de edición inline) con paso decimal, y `min` a 0.01 | S5 | worker | `45b21b0` |
+| T10 | Angular `receipt-create` + `receipt-form.utils`: input con paso decimal (`min="0"` conservado) y validador sin exigencia de entero, con `Number.isFinite` cubriendo lo que la regla de entero atrapaba | S5 | worker | `45b21b0` |
+| T11 | Angular specs: `detail-table`, `receipt-form.utils`, `receipt-create` | S5 | worker | `45b21b0` |
 
 ### Delivery slices
 
 | Slice | Alcance | Commit | Líneas autoradas |
 | --- | --- | --- | --- |
 | 1 | Migración, entidad, DTOs, servicio, boundary de recepción, pines de Flyway y sus tests (T1–T8) | `352729a` | **487** |
-| 2 | ABM Angular: los tres inputs, el validador y sus specs (T9–T11) | `5f56d3d` | **128** |
-| 3 | Total de línea alineado a la escala de la columna, cuatro javadocs corregidos y su test (hallazgos de la verificación independiente) | `970adac` | **85** |
+| 2 | ABM Angular: los tres inputs, el validador y sus specs (T9–T11) | `45b21b0` | **128** |
+| 3 | Total de línea alineado a la escala de la columna, cuatro javadocs corregidos y su test (hallazgos de la verificación independiente) | `c324286` | **85** |
 
 **Por qué el slice 1 son 487 líneas y no dos PRs de ~240.** Medido con la misma herramienta que reportó
 el corte: 487 autoradas, contra el aviso de ~400. Un corte más chico no es limpio, y hay dos formas de
@@ -103,6 +103,17 @@ líneas de asserts del boundary; (b) cortar la migración del código que la val
 decimal que el boundary todavía rechaza como entera, que es exactamente el defecto que este registro
 existe para no repetir. El corte real es el borde API/ABM, como en `product-variant-measure-unit`, y 487
 es 1.2× del aviso, no 3.9×.
+
+### La cadena de entrega se rearmó para que el PR de la API lleve su propio arreglo
+
+`970adac` (el total de línea) se escribió **después** del commit del ABM, así que un PR de API cortado en
+`352729ab` habría dejado afuera el arreglo de plata que la verificación independiente pidió: se estaría
+revisando y aprobando un contrato con un defecto conocido. La rama se rearmó —es trabajo propio, sin
+pushear— en dos: `feat/purchase-order-fractional-quantity-api` = `352729ab` + `c324286`, y
+`feat/purchase-order-fractional-quantity` apilada encima con el ABM y el registro. Verificado por diff:
+la API del PR 1 es idéntica byte a byte al subárbol de API ya gateado, y el PR 2 es idéntico al árbol
+completo verificado; lo único que le falta al PR 1 son los seis archivos de Angular y este registro. Los
+hashes de arriba son los de la cadena rearmada.
 
 Nada de esto autoriza push, apertura de PR ni merge: esos pasos siguen siendo decisión del usuario, y cada
 PR necesita su issue aprobado (`status:approved`).
@@ -190,7 +201,7 @@ PR necesita su issue aprobado (`status:approved`).
   derivación de estado no invirtió ninguna comparación y la promoción de cabecera sigue igual. (5) Los
   siete pines afirman `"30"` con nombres alineados y ningún `V29` residual; fuera de `purchaseorder/` y
   `goodsreceipt/` nada lee esas columnas.
-  **Dos hallazgos causados por el cambio, ambos cerrados en `970adac`:**
+  **Dos hallazgos causados por el cambio, ambos cerrados en `c324286`:**
   - *Documental*: cuatro javadocs seguían prometiendo el contrato entero (`GoodsReceiptService:149`,
     `InvalidReceiptQuantityException:6,8`, `GoodsReceiptLineRequest:12`); reescritos al contrato decimal.
   - *Monetario*: `unitPrice × quantity` puede dar cuatro decimales (2.5 × 123.45 = 308.625), la columna
@@ -209,7 +220,7 @@ PR necesita su issue aprobado (`status:approved`).
   y la verificación independiente ya corrió. El facade `gentle_review assess` no relayó el `baseRef` al
   CLI (contestó `the review assess candidate has no pending changes`); el veredicto se obtuvo por la CLI
   nativa, que es la que lo emite.
-  La segunda verificación independiente (commit `970adac`, que el primer verificador no vio) devolvió
+  La segunda verificación independiente (commit `c324286`, que el primer verificador no vio) devolvió
   **cuatro VERIFIED** y la sensibilidad del test razonada en vez de observada: el RED de 308.625 contra
   308.63 lo había observado el writer con su corrida, y el verificador confirmó que con el producto crudo
   la aserción `isEqualByComparingTo("308.63")` falla. Cerró además que la única diferencia de los javadocs
