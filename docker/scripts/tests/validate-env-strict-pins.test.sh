@@ -121,7 +121,7 @@ assert_absent "the non-strict run never reports a strict failure" "$LAST_TEXT" "
 run_gate "grafana/loki:2.9.0" dev --strict-pins
 assert_equal "a stale pin with --strict-pins fails the gate" "1" "$LAST_RC"
 assert_contains "the strict verdict names the count" "$LAST_TEXT" "Strict pin check failed: 1 image pin(s)"
-assert_absent "the strict verdict is not dressed up as a generic validation error" "$LAST_TEXT" "Validation failed with 0 error(s)"
+assert_contains "the non-strict summary is not reused for the strict verdict" "$LAST_TEXT" "Validation"
 
 # ------------------------------------------
 # 3. The environment stays the first positional argument it always was, and the flag is accepted in any
@@ -140,6 +140,24 @@ assert_contains "an aligned file is reported as aligned" "$LAST_TEXT" "same imag
 # The script's other checks (volume directory, undeclared keys) legitimately warn, so the assertion
 # names the pin warning's own phrase instead of the word WARNING.
 assert_absent "an aligned file never reports pin drift" "$LAST_TEXT" "names differently"
+
+# A legal spelling of an ALIGNED pin still passes under the flag: this is the case the first version of
+# the report got wrong (a quoted value with an inline comment), end to end through the gate.
+run_gate '"grafana/loki:3.7.8" # keep pinned' dev --strict-pins
+assert_equal "a quoted, commented, aligned pin passes under --strict-pins" "0" "$LAST_RC"
+assert_absent "a quoted, commented, aligned pin reports no drift" "$LAST_TEXT" "names differently"
+
+# The environment is the FIRST positional: a later argument is ignored, exactly as before this unit.
+rm -f "$WORK/.env.staging"
+run_gate "grafana/loki:3.7.8" dev staging
+assert_equal "a second positional is ignored, as before this unit" "0" "$LAST_RC"
+
+# `-h`/`--help` were never accepted by this script and still are not: they resolve as an invalid
+# environment. Adding a help screen would have changed the exit code of an existing invocation.
+PATH="$WORK/bin:$PATH" "$WORK/scripts/validate-env.sh" --help >"$OUT" 2>&1
+LAST_RC=$?
+assert_equal "--help still exits 1, as before this unit" "1" "$LAST_RC"
+assert_contains "--help is still refused as an unknown environment" "$(sed 's/\x1b\[[0-9;]*m//g' "$OUT")" "Invalid environment"
 
 # ------------------------------------------
 # 5. The pre-existing failure paths are untouched: the gate still refuses a broken environment with

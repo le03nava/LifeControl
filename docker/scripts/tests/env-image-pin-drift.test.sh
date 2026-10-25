@@ -143,6 +143,32 @@ printf 'LOKI_IMAGE="grafana/loki:3.7.8 # not a comment"\n' >"$in_quotes"
 run_report "$in_quotes" "$tpl"
 assert_equal "a '#' inside quotes stays part of the value" "1" "$STALE_IMAGE_PIN_COUNT"
 
+# A quoted value followed by an inline comment is legal: compose reads `VAL`, not `"VAL"`.
+# Measured with `docker compose config`. The first version of this suite missed it, and the report
+# called a correct file divergent -- which `--strict-pins` would have failed.
+q_comment="$TMP_BASE/.env.q-comment"
+for quoted in '"grafana/loki:3.7.8" # keep pinned' "'grafana/loki:3.7.8' # keep pinned"; do
+	printf 'LOKI_IMAGE=%s\n' "$quoted" >"$q_comment"
+	run_report "$q_comment" "$tpl"
+	assert_equal "a quoted pin with an inline comment is not drift ($quoted)" "0" "$STALE_IMAGE_PIN_COUNT"
+done
+
+# The key side: compose reads `export KEY=v`, `KEY = v` and an indented `KEY=v`. Missing any of them
+# is a false NEGATIVE -- the key looks undeclared, is skipped, and the report claims alignment for a
+# file that pins an older image. Measured with `docker compose config` on all three forms.
+for form in 'export LOKI_IMAGE=grafana/loki:2.9.0' 'LOKI_IMAGE = grafana/loki:2.9.0' '  LOKI_IMAGE=grafana/loki:2.9.0'; do
+	printf '%s\n' "$form" >"$TMP_BASE/.env.form"
+	run_report "$TMP_BASE/.env.form" "$tpl"
+	assert_equal "a divergent pin written as '$form' is reported" "1" "$STALE_IMAGE_PIN_COUNT"
+done
+
+# An empty value is not drift either: the compose files use `${KEY:-default}`, which substitutes on
+# empty as well as on unset, so the pinned default runs -- and that default is pinned against the
+# template by image-pins.test.sh.
+printf 'LOKI_IMAGE=\n' >"$TMP_BASE/.env.empty"
+run_report "$TMP_BASE/.env.empty" "$tpl"
+assert_equal "an empty value is not drift: the compose default runs" "0" "$STALE_IMAGE_PIN_COUNT"
+
 # ------------------------------------------
 # 4. Only `*_IMAGE` keys are compared, and only the ones the env file declares.
 #    Ports and limits legitimately differ per environment; an undeclared pin runs the compose default,

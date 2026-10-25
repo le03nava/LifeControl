@@ -218,24 +218,64 @@ report_missing_env_keys() {
 # Stale image pin report (read-only)
 # ------------------------------------------
 
-# The value a `KEY=value` line gives a key in an env-style file, last line winning (the same
+# The regex that matches a declaration of one key in an env-style file, as compose matches it:
+# optional leading whitespace, an optional `export `, and optional whitespace around the `=`.
+#
+# The two readers below take this string instead of each spelling the pattern themselves: they must
+# agree on what "declared" means, and the first version of this code did not -- fixing the value
+# reader alone left the declaration guard on the old `^KEY=` form, so `export KEY=v` and `KEY = v`
+# were read correctly and then skipped as undeclared, which is a false NEGATIVE that hides real drift.
+#
+# Usage: env_key_declaration_pattern <key>
+env_key_declaration_pattern() {
+	printf '^[[:space:]]*(export[[:space:]]+)?%s[[:space:]]*=' "$1"
+}
+
+# The value a `KEY=value` line gives a key in an env-style file, last declaration winning (the same
 # precedence --env-file applies). Reads an arbitrary file, unlike get_env_var, which is bound to
-# ENV_FILE. A trailing CR is stripped so an env file edited on Windows does not read as a different
-# value from the template it agrees with.
+# ENV_FILE. Prints nothing when the file does not declare the key.
 #
 # Usage: env_file_value <file> <key>
 env_file_value() {
 	local file="$1"
 	local key="$2"
 	local value
-	value="$(grep -E "^${key}=" "$file" 2>/dev/null | tail -1 | cut -d= -f2- || true)"
+	value="$(awk -v pattern="$(env_key_declaration_pattern "$key")" '
+		{
+			line = $0
+			sub(/\r$/, "", line)
+			if (line ~ pattern) {
+				sub(pattern, "", line)
+				value = line
+			}
+		}
+		END { printf "%s", value }
+	' "$file" 2>/dev/null || true)"
 	normalize_env_value "$value"
 }
 
-# The value compose actually reads from an env-file line: surrounding whitespace trimmed, a fully
-# quoted value unwrapped (`LOKI_IMAGE="grafana/loki:3.7.8"` pins the same image as the bare form),
-# and an inline ` # comment` dropped when it follows whitespace -- inside quotes it stays part of the
-# value, which is why the quoted case is handled first.
+# 0 when the file declares the key at all, whatever its value -- including an empty one. Same pattern,
+# same file, same answer as env_file_value.
+#
+# Usage: env_file_declares_key <file> <key>
+env_file_declares_key() {
+	local file="$1"
+	local key="$2"
+	awk -v pattern="$(env_key_declaration_pattern "$key")" '
+		{
+			line = $0
+			sub(/\r$/, "", line)
+			if (line ~ pattern) { found = 1; exit }
+		}
+		END { exit(found ? 0 : 1) }
+	' "$file" 2>/dev/null
+}
+
+# The value compose actually reads from an env-file line: surrounding whitespace trimmed, a quoted
+# value unwrapped (`LOKI_IMAGE="grafana/loki:3.7.8"` pins the same image as the bare form, with or
+# without a trailing ` # comment`) and an inline ` # comment` dropped when it follows whitespace --
+# inside quotes it stays part of the value, which is why a quoted value is read up to its closing
+# quote and stops there.
 #
 # This exists because comparing raw text reports a legal spelling as drift, and `--strict-pins` would
 # then fail a file that is correct. A report that cries wolf on a quoted value is a report that gets
@@ -248,9 +288,20 @@ normalize_env_value() {
 	value="${value#"${value%%[![:space:]]*}"}"
 	value="${value%"${value##*[![:space:]]}"}"
 	case "$value" in
-	\"*\") value="${value:1:${#value}-2}" ;;
-	\'*\') value="${value:1:${#value}-2}" ;;
-	*) value="${value%%[[:space:]]#*}" ;;
+	\"*)
+		# Quoted: the value is what is between the quotes; anything after the closing quote
+		# (an inline comment in practice) is not part of it.
+		value="${value#\"}"
+		value="${value%%\"*}"
+		;;
+	\'*)
+		value="${value#\'}"
+		value="${value%%\'*}"
+		;;
+	*)
+		value="${value%%[[:space:]]#*}"
+		value="${value%"${value##*[![:space:]]}"}"
+		;;
 	esac
 	printf '%s' "${value%$'\r'}"
 }
@@ -306,9 +357,13 @@ report_stale_image_pins() {
 	local -a stale_keys=() stale_env=() stale_template=()
 	while IFS= read -r key; do
 		[ -n "$key" ] || continue
-		grep -qE "^${key}=" "$env_file" 2>/dev/null || continue
-		compared=$((compared + 1))
+		env_file_declares_key "$env_file" "$key" || continue
 		env_value="$(env_file_value "$env_file" "$key")"
+		# A declared-but-empty value is not drift: the compose files use `${KEY:-default}`, which
+		# substitutes on empty as well as on unset, so the pinned default is what would run -- and
+		# image-pins.test.sh pins every compose default against this template.
+		[ -n "$env_value" ] || continue
+		compared=$((compared + 1))
 		template_value="$(env_file_value "$template" "$key")"
 		if [ "$env_value" != "$template_value" ]; then
 			stale_keys+=("$key")

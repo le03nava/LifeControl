@@ -8,28 +8,22 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/_common.sh"
 
-usage() {
-	echo "Usage: $0 [dev|staging|prod] [--strict-pins]"
-	echo ""
-	echo "  <env>          environment to validate (default: dev)"
-	echo "  --strict-pins  exit non-zero when an image pin in the env file diverges from"
-	echo "                 docker/.env.template. Without it the divergence is a warning:"
-	echo "                 this script gates the production start and cannot fail on drift alone."
-}
-
 # Arguments: [env] [--strict-pins]. The environment stays the first positional argument it always
-# was, so every existing caller (`validate-env.sh prod`, `cd docker && ./scripts/validate-env.sh`)
-# keeps working unchanged.
+# was, and `resolve_compose_env "${1:-dev}"` ignored anything after it -- that contract is preserved,
+# including for `-h`/`--help`, which this script has never accepted: they resolve as an invalid
+# environment here exactly as they did before this unit. `--strict-pins` is the only new token.
 ENV_ARG=""
 STRICT_PINS=0
+env_taken=0
 for arg in "$@"; do
 	case "$arg" in
 	--strict-pins) STRICT_PINS=1 ;;
-	-h | --help)
-		usage
-		exit 0
+	*)
+		if [ "$env_taken" -eq 0 ]; then
+			ENV_ARG="$arg"
+		fi
+		env_taken=1
 		;;
-	*) ENV_ARG="$arg" ;;
 	esac
 done
 
