@@ -93,8 +93,7 @@ class EmployeeStoreAssignmentServiceTest {
     }
 
     private DerivedScopeChain chain() {
-        return new DerivedScopeChain(
-                companyId, "Acme", companyCountryId, "México", regionId, "Region", zoneId, "Zone");
+        return new DerivedScopeChain(companyId, "Acme", companyCountryId, "México", regionId, "Region", zoneId, "Zone");
     }
 
     private ScopeAssignmentResponse storeRow() {
@@ -228,7 +227,9 @@ class EmployeeStoreAssignmentServiceTest {
                     .isInstanceOf(StoreAssignmentNotFoundException.class);
 
             verify(employeeScopeAssignmentService, never()).closeAssignment(any(), any(), any(), any());
-            assertThat(countryAssignment.getValidTo()).as("the refused close writes nothing").isNull();
+            assertThat(countryAssignment.getValidTo())
+                    .as("the refused close writes nothing")
+                    .isNull();
         }
 
         @Test
