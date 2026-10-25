@@ -397,3 +397,26 @@ later. The commit was amended, the eight descendants replayed on top, and the ni
 Every hash in this record was rewritten by that replay, which is why the Tasks table and this log name the new
 ones; the tips' own hashes stay derived, never stored. The lesson is cheap: run the pinned shellcheck image over
 **every** file the CI glob will touch before opening a chain, not only over the files a slice happens to add.
+
+**L23 — CI found two defects that a local run could not, and both were mine.** They are worth recording
+because they share one shape: the change was correct in the environment I measured and wrong in the one that
+does not have my machine's services running.
+
+- **The gateway's Loki appender made the suite depend on a running log store.** `Check` failed on slice 3 with
+  `SecurityConfigTests` unable to load its context: `Logback configuration error detected`, caused by the
+  appender's failed sends landing in logback's `StatusManager` and Spring Boot raising the error when a later
+  test context initializes logging. Reproduced locally by pointing `LOKI_URL` at a closed port. The fix is the
+  file the API already shipped for exactly this reason — `api-gateway/src/test/resources/logback-test.xml`,
+  console only — and the appender stays pinned by the file test that parses the shipped XML instead of needing
+  Loki. The convention existed in this repository; the new module did not follow it, and no local run could
+  have said so because Loki was running here.
+- **A one-element loop is a shellcheck warning.** Removing `GF_AUTH_ANONYMOUS_ORG_ROLE` from the template left
+  `for key in CIRCUIT_BREAKER_WINDOW_SIZE; do`, and `SC2043` fails the docker job that runs every suite plus
+  shellcheck over `docker/scripts`. My own shellcheck sweep missed it because the `find` I wrote had two `-o`
+  clauses without a group, so it silently checked a shorter list than the CI glob.
+
+Both fixes were pushed as ordinary commits on the affected slice branches — the appender fix on slice 3, the
+loop fix on slices 4 to 9 — so no ref was rewritten and each pull request's own diff stays its slice. The
+lesson is the same one `L21` drew and this slice paid for again: the local environment answers a different
+question than CI, so the gate to trust is the one that runs without my services, with the exact file list CI
+uses.
