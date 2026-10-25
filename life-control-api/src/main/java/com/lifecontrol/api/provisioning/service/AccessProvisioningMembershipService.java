@@ -3,11 +3,9 @@ package com.lifecontrol.api.provisioning.service;
 import com.lifecontrol.api.common.security.ScopeLevel;
 import com.lifecontrol.api.hr.model.Employee;
 import com.lifecontrol.api.hr.repository.EmployeeScopeAssignmentRepository;
-import com.lifecontrol.api.hr.repository.EmployeeStoreAssignmentRepository;
 import com.lifecontrol.api.hr.service.EmployeeStatuses;
 import com.lifecontrol.api.hr.service.EmployeeStoreScope;
 import com.lifecontrol.api.hr.service.ScopeAssignmentDerivation;
-import com.lifecontrol.api.hr.service.StoreScopeDerivation;
 import com.lifecontrol.api.provisioning.exception.AccountNotLinkedException;
 import com.lifecontrol.api.provisioning.exception.CompanyScopeInvariantException;
 import com.lifecontrol.api.usersadmin.identity.IdentityProvider;
@@ -23,12 +21,13 @@ import org.springframework.transaction.annotation.Transactional;
  * top-level, multivalued {@code company_*} user attributes of an employee's Keycloak account from the
  * employee's scope, and delete them when employment ends.
  *
- * <p>The scope has <b>two</b> sources and this class reads both in one derivation: the store
- * assignments (V23, {@link StoreScopeDerivation}) and the per-level country/region/zone assignments
- * (V26, {@link ScopeAssignmentDerivation}). They are folded together by
- * {@link ScopeAssignmentDerivation#union}, so this write path and the Access section's read path can
- * never disagree about the scope a person holds — there is one derivation, not a read copy, and
- * neither source is read twice.</p>
+ * <p>The scope has <b>one</b> source and this class reads it once: the per-level assignment table
+ * (V26, widened to the store level by V32) through {@link ScopeAssignmentDerivation}. The store used
+ * to be a second source — {@code employee_store_assignments} through {@code StoreScopeDerivation},
+ * folded in by {@code ScopeAssignmentDerivation#union} — and V32 made the store a level of the same
+ * table, so there is one derivation and no union. That is what keeps this write path and the Access
+ * section's read path from disagreeing about the scope a person holds: there is one derivation, not a
+ * read copy, and the source is read once.</p>
  * <p>It is a capability with <b>no endpoint, no scheduler, no migration and no task write</b>: its
  * caller is the access-provisioning worker (W4). It <b>persists nothing</b> — no table, no migration
  * and no snapshot; writing the applied-membership snapshot is W4's job (records T32/T40). The five
@@ -69,15 +68,11 @@ public class AccessProvisioningMembershipService {
             new EmployeeStoreScope(Set.of(), Set.of(), Set.of(), Set.of(), Set.of());
 
     private final IdentityProvider identityProvider;
-    private final EmployeeStoreAssignmentRepository assignmentRepository;
     private final EmployeeScopeAssignmentRepository scopeAssignmentRepository;
 
     public AccessProvisioningMembershipService(
-            IdentityProvider identityProvider,
-            EmployeeStoreAssignmentRepository assignmentRepository,
-            EmployeeScopeAssignmentRepository scopeAssignmentRepository) {
+            IdentityProvider identityProvider, EmployeeScopeAssignmentRepository scopeAssignmentRepository) {
         this.identityProvider = identityProvider;
-        this.assignmentRepository = assignmentRepository;
         this.scopeAssignmentRepository = scopeAssignmentRepository;
     }
 
@@ -166,8 +161,8 @@ public class AccessProvisioningMembershipService {
      * <b>revoked</b> employee — {@code Terminated} or soft-deleted (gap G41, record
      * {@code employee-disable-revokes-access}) — <b>before</b> reading either source (the write path's
      * {@code converge} then deletes all five keys because every set is empty), and otherwise derives the
-     * store scope and the per-level scope from today's covering assignments, unions them, and fails
-     * closed when the result is not exactly one company id.
+     * scope from today's covering assignments and fails closed when the result is not exactly one
+     * company id.
      */
     private EmployeeStoreScope derivedScope(Employee employee) {
         if (EmployeeStatuses.isRevoked(employee)) {
@@ -176,13 +171,8 @@ public class AccessProvisioningMembershipService {
 
         var today = LocalDate.now();
         var companyId = employee.getCompany().getId();
-        var storeScope = StoreScopeDerivation.derive(
-                companyId, assignmentRepository.findEnabledAssignmentsCoveringDate(employee.getId(), today), today);
-        var levelScope = ScopeAssignmentDerivation.derive(
-                companyId,
-                scopeAssignmentRepository.findEnabledAssignmentsCoveringDate(employee.getId(), today),
-                today);
-        var scope = ScopeAssignmentDerivation.union(storeScope, levelScope);
+        var scope = ScopeAssignmentDerivation.derive(
+                companyId, scopeAssignmentRepository.findEnabledAssignmentsCoveringDate(employee.getId(), today), today);
 
         if (scope.companyIds().size() != 1) {
             throw new CompanyScopeInvariantException("Membership projection refused for employee " + employee.getId()

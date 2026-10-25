@@ -35,6 +35,8 @@ import com.lifecontrol.api.hr.repository.EmployeeScopeAssignmentRepository;
 import com.lifecontrol.api.provisioning.service.AccessProvisioningProducer;
 import com.lifecontrol.api.status.model.Status;
 import com.lifecontrol.api.status.model.StatusType;
+import com.lifecontrol.api.store.model.CompanyStore;
+import com.lifecontrol.api.store.repository.CompanyStoreRepository;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
@@ -83,6 +85,9 @@ class EmployeeScopeAssignmentServiceTest {
 
     @Mock
     private CompanyZoneRepository companyZoneRepository;
+
+    @Mock
+    private CompanyStoreRepository companyStoreRepository;
 
     @Mock
     private CurrentUserContext currentUserContext;
@@ -213,12 +218,25 @@ class EmployeeScopeAssignmentServiceTest {
             LocalDate validFrom,
             LocalDate validTo,
             boolean enabled) {
+        return assignment(id, companyCountry, companyRegion, companyZone, null, validFrom, validTo, enabled);
+    }
+
+    private EmployeeScopeAssignment assignment(
+            UUID id,
+            CompanyCountry companyCountry,
+            CompanyRegion companyRegion,
+            CompanyZone companyZone,
+            CompanyStore companyStore,
+            LocalDate validFrom,
+            LocalDate validTo,
+            boolean enabled) {
         return EmployeeScopeAssignment.builder()
                 .id(id)
                 .employee(testEmployee)
                 .companyCountry(companyCountry)
                 .companyRegion(companyRegion)
                 .companyZone(companyZone)
+                .companyStore(companyStore)
                 .validFrom(validFrom)
                 .validTo(validTo)
                 .enabled(enabled)
@@ -263,7 +281,7 @@ class EmployeeScopeAssignmentServiceTest {
             saveReturnsArgument();
 
             service.createAssignment(
-                    companyId, employeeId, new ScopeAssignmentRequest(null, testRegion.getId(), null, START));
+                    companyId, employeeId, new ScopeAssignmentRequest(null, testRegion.getId(), null, null, START));
 
             InOrder inOrder = inOrder(currentUserContext, companyRepository);
             inOrder.verify(currentUserContext).verifyCompanyAccess(companyId);
@@ -316,7 +334,7 @@ class EmployeeScopeAssignmentServiceTest {
             when(employeeRepository.findByIdAndCompanyId(employeeId, companyId)).thenReturn(Optional.empty());
 
             assertThatThrownBy(() -> service.createAssignment(
-                            companyId, employeeId, new ScopeAssignmentRequest(null, testRegion.getId(), null, START)))
+                            companyId, employeeId, new ScopeAssignmentRequest(null, testRegion.getId(), null, null, START)))
                     .isInstanceOf(EmployeeNotFoundException.class);
             verify(companyRegionRepository, never()).findById(any());
             verify(employeeScopeAssignmentRepository, never()).save(any());
@@ -333,7 +351,7 @@ class EmployeeScopeAssignmentServiceTest {
             employeeExists();
 
             assertThatThrownBy(() -> service.createAssignment(
-                            companyId, employeeId, new ScopeAssignmentRequest(null, null, null, START)))
+                            companyId, employeeId, new ScopeAssignmentRequest(null, null, null, null, START)))
                     .isInstanceOf(IllegalArgumentException.class)
                     .hasMessageContaining("exactly one");
             verify(employeeScopeAssignmentRepository, never()).save(any());
@@ -347,7 +365,7 @@ class EmployeeScopeAssignmentServiceTest {
             assertThatThrownBy(() -> service.createAssignment(
                             companyId,
                             employeeId,
-                            new ScopeAssignmentRequest(testCompanyCountry.getId(), testRegion.getId(), null, START)))
+                            new ScopeAssignmentRequest(testCompanyCountry.getId(), testRegion.getId(), null, null, START)))
                     .isInstanceOf(IllegalArgumentException.class)
                     .hasMessageContaining("exactly one");
             verify(employeeScopeAssignmentRepository, never()).save(any());
@@ -368,7 +386,7 @@ class EmployeeScopeAssignmentServiceTest {
             assertThatThrownBy(() -> service.createAssignment(
                             companyId,
                             employeeId,
-                            new ScopeAssignmentRequest(foreignCountry.getId(), null, null, START)))
+                            new ScopeAssignmentRequest(foreignCountry.getId(), null, null, null, START)))
                     .isInstanceOf(CompanyCountryNotFoundException.class);
             verify(employeeScopeAssignmentRepository, never()).save(any());
         }
@@ -390,7 +408,7 @@ class EmployeeScopeAssignmentServiceTest {
             assertThatThrownBy(() -> service.createAssignment(
                             companyId,
                             employeeId,
-                            new ScopeAssignmentRequest(null, foreignRegion.getId(), null, START)))
+                            new ScopeAssignmentRequest(null, foreignRegion.getId(), null, null, START)))
                     .isInstanceOf(CompanyRegionNotFoundException.class);
             verify(employeeScopeAssignmentRepository, never()).save(any());
         }
@@ -415,7 +433,7 @@ class EmployeeScopeAssignmentServiceTest {
             when(companyZoneRepository.findById(foreignZone.getId())).thenReturn(Optional.of(foreignZone));
 
             assertThatThrownBy(() -> service.createAssignment(
-                            companyId, employeeId, new ScopeAssignmentRequest(null, null, foreignZone.getId(), START)))
+                            companyId, employeeId, new ScopeAssignmentRequest(null, null, foreignZone.getId(), null, START)))
                     .isInstanceOf(CompanyZoneNotFoundException.class);
             verify(employeeScopeAssignmentRepository, never()).save(any());
             verify(employeeScopeAssignmentRepository, never())
@@ -430,7 +448,7 @@ class EmployeeScopeAssignmentServiceTest {
             when(companyZoneRepository.findById(unknownZoneId)).thenReturn(Optional.empty());
 
             assertThatThrownBy(() -> service.createAssignment(
-                            companyId, employeeId, new ScopeAssignmentRequest(null, null, unknownZoneId, START)))
+                            companyId, employeeId, new ScopeAssignmentRequest(null, null, unknownZoneId, null, START)))
                     .isInstanceOf(CompanyZoneNotFoundException.class);
             verify(employeeScopeAssignmentRepository, never()).save(any());
         }
@@ -449,7 +467,7 @@ class EmployeeScopeAssignmentServiceTest {
             saveReturnsArgument();
 
             service.createAssignment(
-                    companyId, employeeId, new ScopeAssignmentRequest(null, testRegion.getId(), null, START));
+                    companyId, employeeId, new ScopeAssignmentRequest(null, testRegion.getId(), null, null, START));
 
             verify(employeeScopeAssignmentRepository)
                     .findEnabledAssignmentForNodeCoveringDate(employeeId, testRegion.getId(), START);
@@ -469,7 +487,7 @@ class EmployeeScopeAssignmentServiceTest {
             saveReturnsArgument();
 
             service.createAssignment(
-                    companyId, employeeId, new ScopeAssignmentRequest(null, testRegion.getId(), null, START));
+                    companyId, employeeId, new ScopeAssignmentRequest(null, testRegion.getId(), null, null, START));
 
             // The column is exclusive, so storing the successor's validFrom as the predecessor's bound
             // makes the predecessor's last covered day START - 1: no gap and no overlap.
@@ -491,7 +509,7 @@ class EmployeeScopeAssignmentServiceTest {
                     .thenReturn(List.of(predecessor));
 
             assertThatThrownBy(() -> service.createAssignment(
-                            companyId, employeeId, new ScopeAssignmentRequest(null, testRegion.getId(), null, START)))
+                            companyId, employeeId, new ScopeAssignmentRequest(null, testRegion.getId(), null, null, START)))
                     .isInstanceOf(IllegalArgumentException.class)
                     .hasMessageContaining("previous assignment");
 
@@ -520,7 +538,7 @@ class EmployeeScopeAssignmentServiceTest {
             saveReturnsArgument();
 
             service.createAssignment(
-                    companyId, employeeId, new ScopeAssignmentRequest(null, otherRegion.getId(), null, START));
+                    companyId, employeeId, new ScopeAssignmentRequest(null, otherRegion.getId(), null, null, START));
 
             // The finder is scoped to the requested node, so the other node's live row is never touched.
             assertThat(otherPredecessor.getValidTo()).isNull();
@@ -539,7 +557,7 @@ class EmployeeScopeAssignmentServiceTest {
             var future = LocalDate.now().plusDays(30);
 
             var result = service.createAssignment(
-                    companyId, employeeId, new ScopeAssignmentRequest(null, testRegion.getId(), null, future));
+                    companyId, employeeId, new ScopeAssignmentRequest(null, testRegion.getId(), null, null, future));
 
             assertThat(result.validFrom()).isEqualTo(future);
             assertThat(result.validTo()).isNull();
@@ -560,7 +578,7 @@ class EmployeeScopeAssignmentServiceTest {
             saveReturnsArgument();
 
             var result = service.createAssignment(
-                    companyId, employeeId, new ScopeAssignmentRequest(null, testRegion.getId(), null, START));
+                    companyId, employeeId, new ScopeAssignmentRequest(null, testRegion.getId(), null, null, START));
 
             assertThat(result.id()).isNotNull();
             assertThat(result.level()).isEqualTo(ScopeLevel.REGION);
@@ -590,7 +608,7 @@ class EmployeeScopeAssignmentServiceTest {
             saveReturnsArgument();
 
             var result = service.createAssignment(
-                    companyId, employeeId, new ScopeAssignmentRequest(testCompanyCountry.getId(), null, null, START));
+                    companyId, employeeId, new ScopeAssignmentRequest(testCompanyCountry.getId(), null, null, null, START));
 
             assertThat(result.level()).isEqualTo(ScopeLevel.COUNTRY);
             assertThat(result.companyCountryId()).isEqualTo(testCompanyCountry.getId());
@@ -609,7 +627,7 @@ class EmployeeScopeAssignmentServiceTest {
             saveReturnsArgument();
 
             var result = service.createAssignment(
-                    companyId, employeeId, new ScopeAssignmentRequest(null, null, testZone.getId(), START));
+                    companyId, employeeId, new ScopeAssignmentRequest(null, null, testZone.getId(), null, START));
 
             assertThat(result.level()).isEqualTo(ScopeLevel.ZONE);
             assertThat(result.companyZoneId()).isEqualTo(testZone.getId());
@@ -726,7 +744,7 @@ class EmployeeScopeAssignmentServiceTest {
             saveReturnsArgument();
 
             service.createAssignment(
-                    companyId, employeeId, new ScopeAssignmentRequest(null, testRegion.getId(), null, START));
+                    companyId, employeeId, new ScopeAssignmentRequest(null, testRegion.getId(), null, null, START));
 
             verify(accessProvisioningProducer).onMembershipChanged(companyId, testEmployee);
         }
@@ -755,7 +773,7 @@ class EmployeeScopeAssignmentServiceTest {
                     .thenReturn(List.of(regionRow(START, null)));
 
             assertThatThrownBy(() -> service.createAssignment(
-                            companyId, employeeId, new ScopeAssignmentRequest(null, testRegion.getId(), null, START)))
+                            companyId, employeeId, new ScopeAssignmentRequest(null, testRegion.getId(), null, null, START)))
                     .isInstanceOf(IllegalArgumentException.class);
 
             verify(accessProvisioningProducer, never()).onMembershipChanged(any(), any());
