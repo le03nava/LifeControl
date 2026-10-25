@@ -585,6 +585,57 @@ class PurchaseOrderDetailVariantIntegrationTest extends AbstractPostgresIntegrat
     }
 
     @Nested
+    @DisplayName("unit price scale")
+    class UnitPriceScaleTests {
+
+        /** Raw JSON, so the price reaches the boundary spelled exactly as the client sent it. */
+        private String detailPayloadWithPrice(UUID productId, UUID variantId, String unitPrice) {
+            return "{\"productId\":\"" + productId
+                    + "\",\"productVariantId\":\"" + variantId
+                    + "\",\"quantity\":2"
+                    + ",\"unitPrice\":" + unitPrice
+                    + ",\"comments\":\"Price scale line\""
+                    + ",\"statusId\":\"" + pendingDetailStatusId + "\"}";
+        }
+
+        @Test
+        @DisplayName("should reject a unit price with more than two decimals with 400 and persist nothing")
+        void moreThanTwoDecimalsRejected() throws Exception {
+            var product = createProduct();
+            var variant = createVariant(product.getId(), storeId);
+            var purchaseOrderId = createEmptyPurchaseOrder();
+
+            mockMvc.perform(post("/api/purchase-orders/{id}/details", purchaseOrderId)
+                            .with(jwt().authorities(ROLE_LC_ADMIN))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(detailPayloadWithPrice(product.getId(), variant.getId(), "12.345")))
+                    .andExpect(status().isBadRequest());
+
+            assertThat(purchaseOrderDetailRepository.findByPurchaseOrderIdAndEnabledTrue(purchaseOrderId))
+                    .isEmpty();
+        }
+
+        @Test
+        @DisplayName("should keep accepting a two-decimal unit price and persist the value it echoes")
+        void twoDecimalPriceUnchanged() throws Exception {
+            var product = createProduct();
+            var variant = createVariant(product.getId(), storeId);
+            var purchaseOrderId = createEmptyPurchaseOrder();
+
+            mockMvc.perform(post("/api/purchase-orders/{id}/details", purchaseOrderId)
+                            .with(jwt().authorities(ROLE_LC_ADMIN))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(detailPayloadWithPrice(product.getId(), variant.getId(), "123.45")))
+                    .andExpect(status().isCreated())
+                    .andExpect(jsonPath("$.unitPrice").value(123.45));
+
+            var persisted = purchaseOrderDetailRepository.findByPurchaseOrderIdAndEnabledTrue(purchaseOrderId);
+            assertThat(persisted).hasSize(1);
+            assertThat(persisted.getFirst().getUnitPrice()).isEqualByComparingTo("123.45");
+        }
+    }
+
+    @Nested
     @DisplayName("missing variant contract")
     class MissingVariantContractTests {
 

@@ -18,6 +18,7 @@ public record PurchaseOrderDetailRequest(
 
         @NotNull(message = "unitPrice is required")
         @DecimalMin(value = "0.01", message = "unitPrice must be greater than or equal to 0.01")
+        @Digits(integer = 10, fraction = 2, message = "unitPrice must have at most two decimals")
         BigDecimal unitPrice,
 
         String comments,
