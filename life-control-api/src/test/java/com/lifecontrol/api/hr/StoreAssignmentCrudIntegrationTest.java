@@ -15,7 +15,7 @@ import com.lifecontrol.api.country.repository.CountryRepository;
 import com.lifecontrol.api.exception.ConflictException;
 import com.lifecontrol.api.hr.dto.CloseStoreAssignmentRequest;
 import com.lifecontrol.api.hr.dto.StoreAssignmentRequest;
-import com.lifecontrol.api.hr.repository.EmployeeStoreAssignmentRepository;
+import com.lifecontrol.api.hr.repository.EmployeeScopeAssignmentRepository;
 import com.lifecontrol.api.hr.service.EmployeeStoreAssignmentService;
 import com.lifecontrol.api.store.exception.CompanyStoreNotFoundException;
 import com.lifecontrol.api.store.model.CompanyStore;
@@ -42,27 +42,29 @@ import org.springframework.web.context.request.ServletRequestAttributes;
 
 /**
  * Persistence-level verification of the store-assignment write and close paths against real
- * PostgreSQL, with the V23 schema applied by Flyway and {@code ddl-auto=validate}.
+ * PostgreSQL, with the schema applied by Flyway and {@code ddl-auto=validate}.
  *
- * <p>W1b owns no controller, so — unlike {@code ContractCrudIntegrationTest} — this suite drives
- * {@link EmployeeStoreAssignmentService} directly. It binds a request and an admin JWT the way
- * {@code GoodsReceiptIntegrationTest} does, because the service reads the request-scoped
- * {@code CurrentUserContext}: the admin authority makes {@code verifyCompanyAccess} a pass-through,
- * so what this suite proves is the persistence and the transaction, not the authorization rule
- * (that is pinned by {@code EmployeeStoreAssignmentServiceTest}).</p>
+ * <p>This suite drives {@link EmployeeStoreAssignmentService} directly. It binds a request and an
+ * admin JWT the way {@code GoodsReceiptIntegrationTest} does, because the delegation it exercises
+ * reads the request-scoped {@code CurrentUserContext}: the admin authority makes
+ * {@code verifyCompanyAccess} a pass-through, so what this suite proves is the persistence and the
+ * transaction, not the authorization rule (that is pinned by
+ * {@code EmployeeScopeAssignmentServiceTest} and the controller slices).</p>
  *
  * <p>The load-bearing assertion is the handover: opening a second assignment for the same store
  * must leave <b>no coverage hole</b>, so it closes the predecessor by writing the successor's
  * {@code validFrom} verbatim as the predecessor's exclusive stored bound (T4/D5), and the
  * successor's first covered day is exactly the predecessor's last covered day + 1. The close path
- * and the same-company 404 (T8) are proven too. The partial exclusion constraint's refusal matrix
- * (the named constraint at the SQL level, the HTTP layer) deliberately belongs to W2.</p>
+ * and the same-company 404 (T8) are proven too. Since {@code V32} the route is a compatibility
+ * façade, so these rows are read back from {@code employee_scope_assignments} — the table that
+ * actually feeds the claims — and the assertions are what proves the façade writes there and not
+ * into the old table, where a write would have been accepted and granted nothing.</p>
  *
- * <p>Cleanup is leaf-first and scoped: the {@code @BeforeEach} and {@code @AfterEach} delete every
- * row of {@code employee_store_assignments} (a table this feature solely owns) and the employees of
- * the two companies this suite creates. It never runs a blanket {@code DELETE FROM employees},
- * which would collide with the rows other shared-container suites leave behind. The store tree and
- * the {@code companies} rows are find-or-create fixtures, never deleted.</p>
+ * <p>Cleanup is leaf-first and scoped: the {@code @BeforeEach} and {@code @AfterEach} delete the
+ * {@code employee_scope_assignments} rows of the two companies' employees and then those employees.
+ * It never runs a blanket {@code DELETE FROM employees}, which would collide with the rows other
+ * shared-container suites leave behind. The store tree and the {@code companies} rows are
+ * find-or-create fixtures, never deleted.</p>
  */
 @SpringBootTest
 @DisplayName("Store Assignment CRUD Integration Tests")
@@ -86,7 +88,7 @@ class StoreAssignmentCrudIntegrationTest extends AbstractPostgresIntegrationTest
     private EmployeeStoreAssignmentService service;
 
     @Autowired
-    private EmployeeStoreAssignmentRepository assignmentRepository;
+    private EmployeeScopeAssignmentRepository assignmentRepository;
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
@@ -145,12 +147,21 @@ class StoreAssignmentCrudIntegrationTest extends AbstractPostgresIntegrationTest
     }
 
     /**
-     * Deletes the rows this feature owns, leaf-first: every assignment (this table is the feature's
-     * own) and only the employees of the two companies this suite creates, so the shared container's
-     * rows — and the provisioning rows other suites leave behind — are never touched.
+     * Deletes the rows this feature owns, leaf-first: the assignments of the two companies' employees
+     * and then those employees, so the shared container's rows — and the provisioning rows other suites
+     * leave behind — are never touched.
+     *
+     * <p>Since V32 the route writes {@code employee_scope_assignments} and only that table, so the
+     * cleanup follows the code: a scoped delete of the scope rows keeps the unscoped
+     * {@code DELETE FROM employees} out of this suite exactly as before.</p>
      */
     private void cleanOwnedRows() {
-        jdbcTemplate.update("DELETE FROM employee_store_assignments");
+        jdbcTemplate.update("""
+                DELETE FROM employee_scope_assignments a
+                USING employees e
+                WHERE a.employee_id = e.id AND e.company_id IN
+                    (SELECT id FROM companies WHERE company_key IN (?, ?))
+                """, COMPANY_KEY, OTHER_COMPANY_KEY);
         jdbcTemplate.update("""
                 DELETE FROM employees WHERE company_id IN
                     (SELECT id FROM companies WHERE company_key IN (?, ?))
@@ -244,9 +255,12 @@ class StoreAssignmentCrudIntegrationTest extends AbstractPostgresIntegrationTest
         return id;
     }
 
+    /** The employee's STORE rows: the scope table holds every level, the route answers about stores. */
     private int countAssignments(UUID employee) {
         return jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) FROM employee_store_assignments WHERE employee_id = ?", Integer.class, employee);
+                "SELECT COUNT(*) FROM employee_scope_assignments WHERE employee_id = ? AND company_store_id IS NOT NULL",
+                Integer.class,
+                employee);
     }
 
     @Nested
@@ -379,7 +393,8 @@ class StoreAssignmentCrudIntegrationTest extends AbstractPostgresIntegrationTest
         void listExcludesDisabledWhenAsked() {
             var created = service.createAssignment(
                     companyId, employeeId, new StoreAssignmentRequest(storeOneId, LocalDate.of(2026, 1, 1)));
-            jdbcTemplate.update("UPDATE employee_store_assignments SET enabled = false WHERE id = ?", created.id());
+            jdbcTemplate.update(
+                    "UPDATE employee_scope_assignments SET enabled = false WHERE id = ?", created.id());
 
             assertThat(service.getAssignments(companyId, employeeId, false)).isEmpty();
             assertThat(service.getAssignments(companyId, employeeId, true)).hasSize(1);
