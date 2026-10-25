@@ -18,6 +18,15 @@ import java.util.UUID;
  * (D2), and {@code (product_id, variant_name)} is unique (D3). The entity deliberately carries no
  * {@code sku}: the variant sku was removed by decision D2, and the product sku is the only sku
  * that remains.</p>
+ *
+ * <p>{@code measureUnitId} is the unit every quantity of this variant is expressed in (V29). It
+ * lives here and not on {@link Product} because the same article is legitimately sold in pieces and
+ * in kilograms, and only the variant — the sellable thing that owns the barcode and the per-store
+ * price row — can carry one unit. It is nullable: a variant whose unit was never declared keeps
+ * {@code null}, which is the behavior every variant had before the column existed. It is a plain
+ * UUID, like the other foreign keys of the model, and the service refuses to change it once the
+ * variant holds stock or ledger movements: the stored numbers carry no unit of their own, so
+ * reinterpreting them silently is the one thing this column must never allow.</p>
  */
 @Entity
 @Table(name = "product_variants")
@@ -29,6 +38,9 @@ public class ProductVariant extends Auditable {
 
     @Column(name = "product_id", nullable = false)
     private UUID productId;
+
+    @Column(name = "measure_unit_id")
+    private UUID measureUnitId;
 
     @Column(name = "bar_code", nullable = false, length = 100)
     private String barCode;
@@ -51,6 +63,10 @@ public class ProductVariant extends Auditable {
         return productId;
     }
 
+    public UUID getMeasureUnitId() {
+        return measureUnitId;
+    }
+
     public String getBarCode() {
         return barCode;
     }
@@ -70,6 +86,10 @@ public class ProductVariant extends Auditable {
 
     public void setProductId(UUID productId) {
         this.productId = productId;
+    }
+
+    public void setMeasureUnitId(UUID measureUnitId) {
+        this.measureUnitId = measureUnitId;
     }
 
     public void setBarCode(String barCode) {
@@ -99,6 +119,11 @@ public class ProductVariant extends Auditable {
 
         public Builder productId(UUID productId) {
             variant.productId = productId;
+            return this;
+        }
+
+        public Builder measureUnitId(UUID measureUnitId) {
+            variant.measureUnitId = measureUnitId;
             return this;
         }
 

@@ -16,6 +16,7 @@ const variantA: ProductVariant = {
   costPrice: 80,
   stock: 10,
   enabled: true,
+  measureUnitId: null,
 };
 
 const variantB: ProductVariant = {
@@ -29,6 +30,7 @@ const variantB: ProductVariant = {
   costPrice: 140,
   stock: 4,
   enabled: true,
+  measureUnitId: null,
 };
 
 function variantPage(
