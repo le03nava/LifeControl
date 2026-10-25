@@ -54,7 +54,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 /**
  * Unit spec of {@link EmployeeScopeAssignmentService}, the Mockito shape
- * {@code EmployeeStoreAssignmentServiceTest} establishes for the neighbouring HR service.
+ * {@code ContractServiceTest} establishes for the neighbouring HR service.
  *
  * <p>Every rule the record puts on the service is pinned here: the company-scope-first order, the
  * exactly-one-node refusal, the same-company node refusal (a 404 naming the level), the
@@ -334,7 +334,9 @@ class EmployeeScopeAssignmentServiceTest {
             when(employeeRepository.findByIdAndCompanyId(employeeId, companyId)).thenReturn(Optional.empty());
 
             assertThatThrownBy(() -> service.createAssignment(
-                            companyId, employeeId, new ScopeAssignmentRequest(null, testRegion.getId(), null, null, START)))
+                            companyId,
+                            employeeId,
+                            new ScopeAssignmentRequest(null, testRegion.getId(), null, null, START)))
                     .isInstanceOf(EmployeeNotFoundException.class);
             verify(companyRegionRepository, never()).findById(any());
             verify(employeeScopeAssignmentRepository, never()).save(any());
@@ -365,7 +367,8 @@ class EmployeeScopeAssignmentServiceTest {
             assertThatThrownBy(() -> service.createAssignment(
                             companyId,
                             employeeId,
-                            new ScopeAssignmentRequest(testCompanyCountry.getId(), testRegion.getId(), null, null, START)))
+                            new ScopeAssignmentRequest(
+                                    testCompanyCountry.getId(), testRegion.getId(), null, null, START)))
                     .isInstanceOf(IllegalArgumentException.class)
                     .hasMessageContaining("exactly one");
             verify(employeeScopeAssignmentRepository, never()).save(any());
@@ -433,7 +436,9 @@ class EmployeeScopeAssignmentServiceTest {
             when(companyZoneRepository.findById(foreignZone.getId())).thenReturn(Optional.of(foreignZone));
 
             assertThatThrownBy(() -> service.createAssignment(
-                            companyId, employeeId, new ScopeAssignmentRequest(null, null, foreignZone.getId(), null, START)))
+                            companyId,
+                            employeeId,
+                            new ScopeAssignmentRequest(null, null, foreignZone.getId(), null, START)))
                     .isInstanceOf(CompanyZoneNotFoundException.class);
             verify(employeeScopeAssignmentRepository, never()).save(any());
             verify(employeeScopeAssignmentRepository, never())
@@ -509,7 +514,9 @@ class EmployeeScopeAssignmentServiceTest {
                     .thenReturn(List.of(predecessor));
 
             assertThatThrownBy(() -> service.createAssignment(
-                            companyId, employeeId, new ScopeAssignmentRequest(null, testRegion.getId(), null, null, START)))
+                            companyId,
+                            employeeId,
+                            new ScopeAssignmentRequest(null, testRegion.getId(), null, null, START)))
                     .isInstanceOf(IllegalArgumentException.class)
                     .hasMessageContaining("previous assignment");
 
@@ -608,7 +615,9 @@ class EmployeeScopeAssignmentServiceTest {
             saveReturnsArgument();
 
             var result = service.createAssignment(
-                    companyId, employeeId, new ScopeAssignmentRequest(testCompanyCountry.getId(), null, null, null, START));
+                    companyId,
+                    employeeId,
+                    new ScopeAssignmentRequest(testCompanyCountry.getId(), null, null, null, START));
 
             assertThat(result.level()).isEqualTo(ScopeLevel.COUNTRY);
             assertThat(result.companyCountryId()).isEqualTo(testCompanyCountry.getId());
@@ -773,7 +782,9 @@ class EmployeeScopeAssignmentServiceTest {
                     .thenReturn(List.of(regionRow(START, null)));
 
             assertThatThrownBy(() -> service.createAssignment(
-                            companyId, employeeId, new ScopeAssignmentRequest(null, testRegion.getId(), null, null, START)))
+                            companyId,
+                            employeeId,
+                            new ScopeAssignmentRequest(null, testRegion.getId(), null, null, START)))
                     .isInstanceOf(IllegalArgumentException.class);
 
             verify(accessProvisioningProducer, never()).onMembershipChanged(any(), any());

@@ -22,12 +22,12 @@ import org.springframework.transaction.annotation.Transactional;
  * employee's scope, and delete them when employment ends.
  *
  * <p>The scope has <b>one</b> source and this class reads it once: the per-level assignment table
- * (V26, widened to the store level by V32) through {@link ScopeAssignmentDerivation}. The store used
- * to be a second source — {@code employee_store_assignments} through {@code StoreScopeDerivation},
- * folded in by {@code ScopeAssignmentDerivation#union} — and V32 made the store a level of the same
- * table, so there is one derivation and no union. That is what keeps this write path and the Access
- * section's read path from disagreeing about the scope a person holds: there is one derivation, not a
- * read copy, and the source is read once.</p>
+ * (V26, widened to the store level by V32, and the retired store table dropped by V33) through
+ * {@link ScopeAssignmentDerivation}. The store used to be a second source — its own table, through its
+ * own derivation, folded in by a union — and V32 made the store a level of the same table, so there is
+ * one derivation and no union. That is what keeps this write path and the Access section's read path
+ * from disagreeing about the scope a person holds: there is one derivation, not a read copy, and the
+ * source is read once.</p>
  * <p>It is a capability with <b>no endpoint, no scheduler, no migration and no task write</b>: its
  * caller is the access-provisioning worker (W4). It <b>persists nothing</b> — no table, no migration
  * and no snapshot; writing the applied-membership snapshot is W4's job (records T32/T40). The five
@@ -86,9 +86,8 @@ public class AccessProvisioningMembershipService {
      *   <li><b>Employment ended.</b> A {@code Terminated} employee ({@link EmployeeStatuses}) has all
      *       five keys deleted and nothing written, and the method returns an empty scope: the
      *       attributes are removed when employment ends, and the derivation is not even read.</li>
-     *   <li><b>Derive.</b> {@link LocalDate#now()} is read once and passed to both covering-date
-     *       finders and to both derivations, whose results are folded by
-     *       {@link ScopeAssignmentDerivation#union}.</li>
+     *   <li><b>Derive.</b> {@link LocalDate#now()} is read once and passed to the covering-date finder
+     *       and to the derivation.</li>
      *   <li><b>Fail closed.</b> A derived {@code companyIds} whose size is not exactly one throws
      *       {@link CompanyScopeInvariantException} <b>before</b> the first write, so a scope this
      *       projection cannot justify is never published (T1/T39).</li>
@@ -159,10 +158,10 @@ public class AccessProvisioningMembershipService {
      * The single derivation both {@link #convergeMembership(Employee)} and
      * {@link #deriveMembership(Employee)} share. It never writes: it returns five empty sets for a
      * <b>revoked</b> employee — {@code Terminated} or soft-deleted (gap G41, record
-     * {@code employee-disable-revokes-access}) — <b>before</b> reading either source (the write path's
-     * {@code converge} then deletes all five keys because every set is empty), and otherwise derives the
-     * scope from today's covering assignments and fails closed when the result is not exactly one
-     * company id.
+     * {@code employee-disable-revokes-access}) — <b>before</b> reading the assignment source (the write
+     * path's {@code converge} then deletes all five keys because every set is empty), and otherwise
+     * derives the scope from today's covering assignments and fails closed when the result is not
+     * exactly one company id.
      */
     private EmployeeStoreScope derivedScope(Employee employee) {
         if (EmployeeStatuses.isRevoked(employee)) {
@@ -172,7 +171,9 @@ public class AccessProvisioningMembershipService {
         var today = LocalDate.now();
         var companyId = employee.getCompany().getId();
         var scope = ScopeAssignmentDerivation.derive(
-                companyId, scopeAssignmentRepository.findEnabledAssignmentsCoveringDate(employee.getId(), today), today);
+                companyId,
+                scopeAssignmentRepository.findEnabledAssignmentsCoveringDate(employee.getId(), today),
+                today);
 
         if (scope.companyIds().size() != 1) {
             throw new CompanyScopeInvariantException("Membership projection refused for employee " + employee.getId()

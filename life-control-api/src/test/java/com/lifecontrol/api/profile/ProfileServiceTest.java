@@ -9,11 +9,12 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.lifecontrol.api.common.auth.CurrentUserContext;
+import com.lifecontrol.api.common.security.ScopeLevel;
 import com.lifecontrol.api.exception.ResourceNotFoundException;
-import com.lifecontrol.api.hr.dto.StoreAssignmentResponse;
+import com.lifecontrol.api.hr.dto.ScopeAssignmentResponse;
 import com.lifecontrol.api.hr.model.Employee;
 import com.lifecontrol.api.hr.repository.EmployeeRepository;
-import com.lifecontrol.api.hr.service.EmployeeStoreAssignmentService;
+import com.lifecontrol.api.hr.service.EmployeeScopeAssignmentService;
 import com.lifecontrol.api.profile.dto.ProfileUpdateRequest;
 import com.lifecontrol.api.store.dto.CompanyStoreResponse;
 import com.lifecontrol.api.store.exception.CompanyStoreNotFoundException;
@@ -62,7 +63,7 @@ class ProfileServiceTest {
     private EmployeeRepository employeeRepository;
 
     @Mock
-    private EmployeeStoreAssignmentService employeeStoreAssignmentService;
+    private EmployeeScopeAssignmentService employeeScopeAssignmentService;
 
     @Mock
     private CompanyStoreService companyStoreService;
@@ -85,7 +86,7 @@ class ProfileServiceTest {
                 identityProvider,
                 userPreferencesRepository,
                 employeeRepository,
-                employeeStoreAssignmentService,
+                employeeScopeAssignmentService,
                 new ProfileLocationResolver(companyStoreService));
 
         when(currentUserContext.getUserId()).thenReturn(USER_ID);
@@ -322,15 +323,19 @@ class ProfileServiceTest {
                 storeId, companyId, countryId, regionId, zoneId, storeName, null, null, null, true, null, null, 0L);
     }
 
-    private static StoreAssignmentResponse assignedStoreResponse(UUID companyStoreId) {
-        return new StoreAssignmentResponse(
+    private static ScopeAssignmentResponse assignedStoreResponse(UUID companyStoreId) {
+        return new ScopeAssignmentResponse(
                 UUID.randomUUID(),
+                ScopeLevel.STORE,
+                null,
+                null,
+                null,
                 companyStoreId,
                 "Assigned Store",
                 LocalDate.now().minusDays(30),
                 null,
                 true,
-                new StoreAssignmentResponse.DerivedStoreScope(
+                new ScopeAssignmentResponse.DerivedScopeChain(
                         UUID.randomUUID(),
                         "Assigned Company",
                         UUID.randomUUID(),
@@ -350,7 +355,7 @@ class ProfileServiceTest {
         void updateProfile_assignedStore_isAccepted() {
             var assignedStoreId = UUID.randomUUID();
             when(employeeRepository.findByKeycloakUserId(USER_ID)).thenReturn(Optional.of(employeeRow()));
-            when(employeeStoreAssignmentService.getCurrentAssignmentsForEmployee(EMPLOYEE_ID))
+            when(employeeScopeAssignmentService.getCurrentStoreAssignments(EMPLOYEE_ID))
                     .thenReturn(List.of(assignedStoreResponse(assignedStoreId)));
             var prefs = UserPreferences.builder().keycloakUserId(USER_ID).build();
             when(userPreferencesRepository.findByKeycloakUserId(USER_ID)).thenReturn(Optional.of(prefs));
@@ -370,7 +375,7 @@ class ProfileServiceTest {
             var requestedStoreId = UUID.randomUUID();
             var otherAssignedStoreId = UUID.randomUUID();
             when(employeeRepository.findByKeycloakUserId(USER_ID)).thenReturn(Optional.of(employeeRow()));
-            when(employeeStoreAssignmentService.getCurrentAssignmentsForEmployee(EMPLOYEE_ID))
+            when(employeeScopeAssignmentService.getCurrentStoreAssignments(EMPLOYEE_ID))
                     .thenReturn(List.of(assignedStoreResponse(otherAssignedStoreId)));
 
             var request = new ProfileUpdateRequest("NewFirst", null, null, requestedStoreId, false);
@@ -389,7 +394,7 @@ class ProfileServiceTest {
         void updateProfile_employeeWithNoAssignments_refusesTheStore() {
             var requestedStoreId = UUID.randomUUID();
             when(employeeRepository.findByKeycloakUserId(USER_ID)).thenReturn(Optional.of(employeeRow()));
-            when(employeeStoreAssignmentService.getCurrentAssignmentsForEmployee(EMPLOYEE_ID))
+            when(employeeScopeAssignmentService.getCurrentStoreAssignments(EMPLOYEE_ID))
                     .thenReturn(List.of());
 
             var request = new ProfileUpdateRequest(null, null, null, requestedStoreId, false);
@@ -405,7 +410,7 @@ class ProfileServiceTest {
         void updateProfile_cascadeFieldsAreNotConstrained() {
             var assignedStoreId = UUID.randomUUID();
             when(employeeRepository.findByKeycloakUserId(USER_ID)).thenReturn(Optional.of(employeeRow()));
-            when(employeeStoreAssignmentService.getCurrentAssignmentsForEmployee(EMPLOYEE_ID))
+            when(employeeScopeAssignmentService.getCurrentStoreAssignments(EMPLOYEE_ID))
                     .thenReturn(List.of(assignedStoreResponse(assignedStoreId)));
             var prefs = UserPreferences.builder().keycloakUserId(USER_ID).build();
             when(userPreferencesRepository.findByKeycloakUserId(USER_ID)).thenReturn(Optional.of(prefs));
@@ -432,7 +437,7 @@ class ProfileServiceTest {
             var countryId = UUID.randomUUID();
             var companyId = UUID.randomUUID();
             when(employeeRepository.findByKeycloakUserId(USER_ID)).thenReturn(Optional.of(employeeRow()));
-            when(employeeStoreAssignmentService.getCurrentAssignmentsForEmployee(EMPLOYEE_ID))
+            when(employeeScopeAssignmentService.getCurrentStoreAssignments(EMPLOYEE_ID))
                     .thenReturn(List.of(assignedStoreResponse(assignedStoreId)));
             // A chain the subject typed while the profile screen still offered it: the update writes the
             // store and leaves every one of these columns untouched (T14), and cleans none of them (T18).
@@ -466,7 +471,7 @@ class ProfileServiceTest {
 
             assertThat(result.companyStoreId()).isEqualTo(storeId);
             assertThat(result.assignedStores()).isNull();
-            verify(employeeStoreAssignmentService, never()).getCurrentAssignmentsForEmployee(any());
+            verify(employeeScopeAssignmentService, never()).getCurrentStoreAssignments(any());
         }
     }
 
@@ -480,7 +485,7 @@ class ProfileServiceTest {
             var staleStoreId = UUID.randomUUID();
             var assignedStoreId = UUID.randomUUID();
             when(employeeRepository.findByKeycloakUserId(USER_ID)).thenReturn(Optional.of(employeeRow()));
-            when(employeeStoreAssignmentService.getCurrentAssignmentsForEmployee(EMPLOYEE_ID))
+            when(employeeScopeAssignmentService.getCurrentStoreAssignments(EMPLOYEE_ID))
                     .thenReturn(List.of(assignedStoreResponse(assignedStoreId)));
             var prefs = UserPreferences.builder()
                     .keycloakUserId(USER_ID)
@@ -500,7 +505,7 @@ class ProfileServiceTest {
         void getProfile_storedStoreStillAssigned_returnsTheStoredValue() {
             var assignedStoreId = UUID.randomUUID();
             when(employeeRepository.findByKeycloakUserId(USER_ID)).thenReturn(Optional.of(employeeRow()));
-            when(employeeStoreAssignmentService.getCurrentAssignmentsForEmployee(EMPLOYEE_ID))
+            when(employeeScopeAssignmentService.getCurrentStoreAssignments(EMPLOYEE_ID))
                     .thenReturn(List.of(assignedStoreResponse(assignedStoreId)));
             var prefs = UserPreferences.builder()
                     .keycloakUserId(USER_ID)
@@ -511,6 +516,46 @@ class ProfileServiceTest {
             var result = profileService.getProfile();
 
             assertThat(result.companyStoreId()).isEqualTo(assignedStoreId);
+        }
+
+        @Test
+        @DisplayName("a scope row of another level is not rendered as an assigned store")
+        void getProfile_nonStoreScopeRow_isNotRenderedAsAnAssignedStore() {
+            var assignedStoreId = UUID.randomUUID();
+            var regionId = UUID.randomUUID();
+            when(employeeRepository.findByKeycloakUserId(USER_ID)).thenReturn(Optional.of(employeeRow()));
+            when(employeeScopeAssignmentService.getCurrentStoreAssignments(EMPLOYEE_ID))
+                    .thenReturn(List.of(
+                            assignedStoreResponse(assignedStoreId),
+                            new ScopeAssignmentResponse(
+                                    UUID.randomUUID(),
+                                    ScopeLevel.REGION,
+                                    null,
+                                    regionId,
+                                    null,
+                                    null,
+                                    "Some Region",
+                                    LocalDate.now().minusDays(1),
+                                    null,
+                                    true,
+                                    new ScopeAssignmentResponse.DerivedScopeChain(
+                                            UUID.randomUUID(),
+                                            "Some Company",
+                                            UUID.randomUUID(),
+                                            "Some Country",
+                                            regionId,
+                                            "Some Region",
+                                            null,
+                                            null))));
+            var prefs = UserPreferences.builder().keycloakUserId(USER_ID).build();
+            when(userPreferencesRepository.findByKeycloakUserId(USER_ID)).thenReturn(Optional.of(prefs));
+
+            var result = profileService.getProfile();
+
+            assertThat(result.assignedStores())
+                    .as("the response describes stores, so a region row is dropped instead of rendered")
+                    .hasSize(1);
+            assertThat(result.assignedStores().get(0).companyStoreId()).isEqualTo(assignedStoreId);
         }
 
         @Test
@@ -527,7 +572,7 @@ class ProfileServiceTest {
 
             assertThat(result.companyStoreId()).isEqualTo(storeId);
             assertThat(result.assignedStores()).isNull();
-            verify(employeeStoreAssignmentService, never()).getCurrentAssignmentsForEmployee(any());
+            verify(employeeScopeAssignmentService, never()).getCurrentStoreAssignments(any());
         }
 
         @Test
@@ -536,7 +581,7 @@ class ProfileServiceTest {
             var staleStoreId = UUID.randomUUID();
             var assignedStoreId = UUID.randomUUID();
             when(employeeRepository.findByKeycloakUserId(USER_ID)).thenReturn(Optional.of(employeeRow()));
-            when(employeeStoreAssignmentService.getCurrentAssignmentsForEmployee(EMPLOYEE_ID))
+            when(employeeScopeAssignmentService.getCurrentStoreAssignments(EMPLOYEE_ID))
                     .thenReturn(List.of(assignedStoreResponse(assignedStoreId)));
             var prefs = UserPreferences.builder()
                     .keycloakUserId(USER_ID)
@@ -561,17 +606,21 @@ class ProfileServiceTest {
             var countryId = UUID.randomUUID();
             var regionId = UUID.randomUUID();
             var zoneId = UUID.randomUUID();
-            var assignment = new StoreAssignmentResponse(
+            var assignment = new ScopeAssignmentResponse(
                     UUID.randomUUID(),
+                    ScopeLevel.STORE,
+                    null,
+                    null,
+                    null,
                     storeId,
                     "Main Store",
                     LocalDate.now().minusDays(1),
                     null,
                     true,
-                    new StoreAssignmentResponse.DerivedStoreScope(
+                    new ScopeAssignmentResponse.DerivedScopeChain(
                             companyId, "Acme", countryId, "México", regionId, "North", zoneId, "Zone 1"));
             when(employeeRepository.findByKeycloakUserId(USER_ID)).thenReturn(Optional.of(employeeRow()));
-            when(employeeStoreAssignmentService.getCurrentAssignmentsForEmployee(EMPLOYEE_ID))
+            when(employeeScopeAssignmentService.getCurrentStoreAssignments(EMPLOYEE_ID))
                     .thenReturn(List.of(assignment));
             var prefs = UserPreferences.builder().keycloakUserId(USER_ID).build();
             when(userPreferencesRepository.findByKeycloakUserId(USER_ID)).thenReturn(Optional.of(prefs));
@@ -596,7 +645,7 @@ class ProfileServiceTest {
         void getProfile_existingRow_writesNothing() {
             var assignedStoreId = UUID.randomUUID();
             when(employeeRepository.findByKeycloakUserId(USER_ID)).thenReturn(Optional.of(employeeRow()));
-            when(employeeStoreAssignmentService.getCurrentAssignmentsForEmployee(EMPLOYEE_ID))
+            when(employeeScopeAssignmentService.getCurrentStoreAssignments(EMPLOYEE_ID))
                     .thenReturn(List.of(assignedStoreResponse(assignedStoreId)));
             var prefs = UserPreferences.builder()
                     .keycloakUserId(USER_ID)
@@ -615,7 +664,7 @@ class ProfileServiceTest {
         void getProfile_storedStoreResolvedToNull_writesNothing() {
             var staleStoreId = UUID.randomUUID();
             when(employeeRepository.findByKeycloakUserId(USER_ID)).thenReturn(Optional.of(employeeRow()));
-            when(employeeStoreAssignmentService.getCurrentAssignmentsForEmployee(EMPLOYEE_ID))
+            when(employeeScopeAssignmentService.getCurrentStoreAssignments(EMPLOYEE_ID))
                     .thenReturn(List.of());
             var prefs = UserPreferences.builder()
                     .keycloakUserId(USER_ID)
@@ -636,7 +685,7 @@ class ProfileServiceTest {
         void getProfile_employeeWithRowAndNoAssignments_returnsEmptyAssignedStores() {
             var staleStoreId = UUID.randomUUID();
             when(employeeRepository.findByKeycloakUserId(USER_ID)).thenReturn(Optional.of(employeeRow()));
-            when(employeeStoreAssignmentService.getCurrentAssignmentsForEmployee(EMPLOYEE_ID))
+            when(employeeScopeAssignmentService.getCurrentStoreAssignments(EMPLOYEE_ID))
                     .thenReturn(List.of());
             var prefs = UserPreferences.builder()
                     .keycloakUserId(USER_ID)
@@ -668,7 +717,7 @@ class ProfileServiceTest {
             var regionId = UUID.randomUUID();
             var zoneId = UUID.randomUUID();
             when(employeeRepository.findByKeycloakUserId(USER_ID)).thenReturn(Optional.of(employeeRow()));
-            when(employeeStoreAssignmentService.getCurrentAssignmentsForEmployee(EMPLOYEE_ID))
+            when(employeeScopeAssignmentService.getCurrentStoreAssignments(EMPLOYEE_ID))
                     .thenReturn(List.of(assignedStoreResponse(storeId)));
             var prefs = UserPreferences.builder()
                     .keycloakUserId(USER_ID)
@@ -698,7 +747,7 @@ class ProfileServiceTest {
         void getProfile_noStorePreference_leavesLocationNull() {
             var assignedStoreId = UUID.randomUUID();
             when(employeeRepository.findByKeycloakUserId(USER_ID)).thenReturn(Optional.of(employeeRow()));
-            when(employeeStoreAssignmentService.getCurrentAssignmentsForEmployee(EMPLOYEE_ID))
+            when(employeeScopeAssignmentService.getCurrentStoreAssignments(EMPLOYEE_ID))
                     .thenReturn(List.of(assignedStoreResponse(assignedStoreId)));
             var prefs = UserPreferences.builder().keycloakUserId(USER_ID).build();
             when(userPreferencesRepository.findByKeycloakUserId(USER_ID)).thenReturn(Optional.of(prefs));
@@ -717,7 +766,7 @@ class ProfileServiceTest {
             var staleStoreId = UUID.randomUUID();
             var assignedStoreId = UUID.randomUUID();
             when(employeeRepository.findByKeycloakUserId(USER_ID)).thenReturn(Optional.of(employeeRow()));
-            when(employeeStoreAssignmentService.getCurrentAssignmentsForEmployee(EMPLOYEE_ID))
+            when(employeeScopeAssignmentService.getCurrentStoreAssignments(EMPLOYEE_ID))
                     .thenReturn(List.of(assignedStoreResponse(assignedStoreId)));
             var prefs = UserPreferences.builder()
                     .keycloakUserId(USER_ID)
@@ -737,7 +786,7 @@ class ProfileServiceTest {
         void getProfile_storeNoLongerReadable_stillAnswersTheProfile() {
             var storeId = UUID.randomUUID();
             when(employeeRepository.findByKeycloakUserId(USER_ID)).thenReturn(Optional.of(employeeRow()));
-            when(employeeStoreAssignmentService.getCurrentAssignmentsForEmployee(EMPLOYEE_ID))
+            when(employeeScopeAssignmentService.getCurrentStoreAssignments(EMPLOYEE_ID))
                     .thenReturn(List.of(assignedStoreResponse(storeId)));
             var prefs = UserPreferences.builder()
                     .keycloakUserId(USER_ID)
@@ -765,7 +814,7 @@ class ProfileServiceTest {
         void getProfile_storeReadDenied_leavesLocationNull() {
             var storeId = UUID.randomUUID();
             when(employeeRepository.findByKeycloakUserId(USER_ID)).thenReturn(Optional.of(employeeRow()));
-            when(employeeStoreAssignmentService.getCurrentAssignmentsForEmployee(EMPLOYEE_ID))
+            when(employeeScopeAssignmentService.getCurrentStoreAssignments(EMPLOYEE_ID))
                     .thenReturn(List.of(assignedStoreResponse(storeId)));
             var prefs = UserPreferences.builder()
                     .keycloakUserId(USER_ID)
@@ -790,7 +839,7 @@ class ProfileServiceTest {
             var regionId = UUID.randomUUID();
             var zoneId = UUID.randomUUID();
             when(employeeRepository.findByKeycloakUserId(USER_ID)).thenReturn(Optional.of(employeeRow()));
-            when(employeeStoreAssignmentService.getCurrentAssignmentsForEmployee(EMPLOYEE_ID))
+            when(employeeScopeAssignmentService.getCurrentStoreAssignments(EMPLOYEE_ID))
                     .thenReturn(List.of(assignedStoreResponse(storeId)));
             var prefs = UserPreferences.builder().keycloakUserId(USER_ID).build();
             when(userPreferencesRepository.findByKeycloakUserId(USER_ID)).thenReturn(Optional.of(prefs));

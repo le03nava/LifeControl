@@ -50,6 +50,9 @@ import org.springframework.jdbc.datasource.DriverManagerDataSource;
 @DisplayName("Employee Store Scope Backfill (V32) Integration Tests")
 class EmployeeStoreScopeBackfillMigrationIntegrationTest extends AbstractPostgresIntegrationTest {
 
+    /** The migration that copies, and the head this suite stops at: V33 drops the source table. */
+    private static final String V32 = "32";
+
     private static final String SOURCE_TABLE = "employee_store_assignments";
     private static final String TARGET_TABLE = "employee_scope_assignments";
 
@@ -67,8 +70,8 @@ class EmployeeStoreScopeBackfillMigrationIntegrationTest extends AbstractPostgre
         databaseName = "scratch_v32_" + UUID.randomUUID().toString().replace("-", "");
         createDatabase(databaseName);
         jdbcUrl = jdbcUrlFor(databaseName);
-        jdbcTemplate = new JdbcTemplate(
-                new DriverManagerDataSource(jdbcUrl, POSTGRES.getUsername(), POSTGRES.getPassword()));
+        jdbcTemplate =
+                new JdbcTemplate(new DriverManagerDataSource(jdbcUrl, POSTGRES.getUsername(), POSTGRES.getPassword()));
     }
 
     @AfterEach
@@ -79,7 +82,7 @@ class EmployeeStoreScopeBackfillMigrationIntegrationTest extends AbstractPostgre
         // FORCE terminates any leftover session (PostgreSQL 13+), so a connection the pool did not
         // return cannot turn this cleanup into a failure that hides the test's own result.
         try (var connection =
-                DriverManager.getConnection(adminJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
+                        DriverManager.getConnection(adminJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
                 var statement = connection.createStatement()) {
             statement.execute("DROP DATABASE IF EXISTS " + databaseName + " WITH (FORCE)");
         } catch (Exception e) {
@@ -100,7 +103,7 @@ class EmployeeStoreScopeBackfillMigrationIntegrationTest extends AbstractPostgre
                 .as("the fixture wrote one open-ended and one closed store assignment at V31")
                 .hasSize(2);
 
-        migrateToHead();
+        migrateTo(V32);
 
         var targetRows = readTargetRows();
         assertThat(targetRows)
@@ -132,11 +135,13 @@ class EmployeeStoreScopeBackfillMigrationIntegrationTest extends AbstractPostgre
     void copiesTheCloseStateVerbatim() {
         migrateTo("31");
         var seeded = seedStoreAssignments();
-        migrateToHead();
+        migrateTo(V32);
 
         var byId = readTargetRows().stream().collect(Collectors.toMap(Row::id, row -> row));
 
-        assertThat(byId.get(seeded.openId()).validTo()).as("open-ended stays open-ended").isNull();
+        assertThat(byId.get(seeded.openId()).validTo())
+                .as("open-ended stays open-ended")
+                .isNull();
         assertThat(byId.get(seeded.openId()).enabled()).isTrue();
         assertThat(byId.get(seeded.openId()).validFrom()).isEqualTo(LocalDate.of(2026, 1, 1));
 
@@ -155,16 +160,6 @@ class EmployeeStoreScopeBackfillMigrationIntegrationTest extends AbstractPostgre
         flyway(target).migrate();
     }
 
-    private void migrateToHead() {
-        Flyway.configure()
-                .dataSource(jdbcUrl, POSTGRES.getUsername(), POSTGRES.getPassword())
-                .locations("classpath:db/migration")
-                .baselineOnMigrate(true)
-                .baselineVersion("1")
-                .load()
-                .migrate();
-    }
-
     private Flyway flyway(String target) {
         return Flyway.configure()
                 .dataSource(jdbcUrl, POSTGRES.getUsername(), POSTGRES.getPassword())
@@ -177,7 +172,7 @@ class EmployeeStoreScopeBackfillMigrationIntegrationTest extends AbstractPostgre
 
     private void createDatabase(String name) throws Exception {
         try (var connection =
-                DriverManager.getConnection(adminJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
+                        DriverManager.getConnection(adminJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
                 var statement = connection.createStatement()) {
             statement.execute("CREATE DATABASE " + name);
         }
@@ -202,24 +197,19 @@ class EmployeeStoreScopeBackfillMigrationIntegrationTest extends AbstractPostgre
     private record Seeded(UUID openId, UUID closedId, UUID storeId) {}
 
     private Seeded seedStoreAssignments() {
-        var countryId = jdbcTemplate.queryForObject(
-                "SELECT id FROM countries WHERE country_code = 'MX'", UUID.class);
-        var statusId = jdbcTemplate.queryForObject(
-                """
+        var countryId = jdbcTemplate.queryForObject("SELECT id FROM countries WHERE country_code = 'MX'", UUID.class);
+        var statusId = jdbcTemplate.queryForObject("""
                 SELECT s.id FROM statuses s
                 JOIN status_types st ON st.id = s.status_type_id
                 WHERE LOWER(st.status_type_name) = LOWER('EMPLOYEE_STATUS')
                   AND LOWER(s.status_name) = LOWER('Active')
-                """,
-                UUID.class);
+                """, UUID.class);
 
         var companyId = UUID.randomUUID();
-        jdbcTemplate.update(
-                """
+        jdbcTemplate.update("""
                 INSERT INTO companies (id, company_key, company_name, rfc, enabled)
                 VALUES (?, 'V32-BACKFILL', 'V32 Backfill Company', 'V32BF010101AB', true)
-                """,
-                companyId);
+                """, companyId);
 
         var companyCountryId = UUID.randomUUID();
         jdbcTemplate.update(
@@ -229,22 +219,16 @@ class EmployeeStoreScopeBackfillMigrationIntegrationTest extends AbstractPostgre
                 countryId);
 
         var regionId = UUID.randomUUID();
-        jdbcTemplate.update(
-                """
+        jdbcTemplate.update("""
                 INSERT INTO company_regions (id, company_country_id, region_code, region_name, enabled)
                 VALUES (?, ?, 'V32R', 'V32 Backfill Region', true)
-                """,
-                regionId,
-                companyCountryId);
+                """, regionId, companyCountryId);
 
         var zoneId = UUID.randomUUID();
-        jdbcTemplate.update(
-                """
+        jdbcTemplate.update("""
                 INSERT INTO company_zones (id, company_region_id, zone_code, zone_name, enabled)
                 VALUES (?, ?, 'V32Z', 'V32 Backfill Zone', true)
-                """,
-                zoneId,
-                regionId);
+                """, zoneId, regionId);
 
         var storeId = UUID.randomUUID();
         jdbcTemplate.update(
@@ -254,17 +238,13 @@ class EmployeeStoreScopeBackfillMigrationIntegrationTest extends AbstractPostgre
                 "V32 Backfill Store");
 
         var employeeId = UUID.randomUUID();
-        jdbcTemplate.update(
-                """
+        jdbcTemplate.update("""
                 INSERT INTO employees
                     (id, company_id, employee_number, first_name, paternal_last_name, email,
                      birth_date, hire_date, employment_status_id)
                 VALUES (?, ?, 'EMP-V32-BF-1', 'Ada', 'Lovelace', 'v32.backfill@example.com',
                         DATE '1990-01-01', DATE '2020-01-01', ?)
-                """,
-                employeeId,
-                companyId,
-                statusId);
+                """, employeeId, companyId, statusId);
 
         var openId = UUID.randomUUID();
         insertSourceRow(openId, employeeId, storeId, LocalDate.of(2026, 1, 1), null, OPEN_CREATED_AT, OPEN_UPDATED_AT);

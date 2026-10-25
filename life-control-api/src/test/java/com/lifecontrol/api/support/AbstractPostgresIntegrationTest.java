@@ -67,9 +67,9 @@ public abstract class AbstractPostgresIntegrationTest {
      * Deletes every employee, leaf-first, for the suites whose own cleanup is an <b>unscoped</b>
      * {@code DELETE FROM employees}.
      *
-     * <p>Three tables reference {@code employees(id)} and every one of them blocks that delete while a
-     * row survives: {@code employee_contracts} (V21), {@code employee_store_assignments} (V23) and
-     * {@code employee_scope_assignments} (V26). The container is started once per JVM, so a row another
+     * <p>Two tables reference {@code employees(id)} and every one of them blocks that delete while a
+     * row survives: {@code employee_contracts} (V21) and {@code employee_scope_assignments} (V26). The
+     * container is started once per JVM, so a row another
      * suite left behind is enough to fail this suite's cleanup — issue #562, where a full run failed all
      * 14 tests of {@code EmployeeCrudIntegrationTest} with a {@code DataIntegrityViolationException}
      * while the class passed on its own.</p>
@@ -81,7 +81,6 @@ public abstract class AbstractPostgresIntegrationTest {
      */
     protected static void deleteAllEmployees(JdbcTemplate jdbcTemplate) {
         jdbcTemplate.update("DELETE FROM employee_contracts");
-        jdbcTemplate.update("DELETE FROM employee_store_assignments");
         jdbcTemplate.update("DELETE FROM employee_scope_assignments");
         jdbcTemplate.update("DELETE FROM employees");
     }

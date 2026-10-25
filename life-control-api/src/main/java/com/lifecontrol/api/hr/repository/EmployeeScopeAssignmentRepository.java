@@ -14,8 +14,7 @@ import org.springframework.stereotype.Repository;
  * Persistence access for the per-level scope-assignment history of an employee.
  *
  * <p>Both finds and the history read are employee-scoped, and the employee is resolved through a
- * company-scoped query first, so a foreign employee is already a 404 before either method runs — the
- * same convention {@link EmployeeStoreAssignmentRepository} states.</p>
+ * company-scoped query first, so a foreign employee is already a 404 before either method runs.</p>
  *
  * <p>Every comparison uses a <b>strict</b> upper bound ({@code validTo > date}) because the column is
  * exclusive: {@code daterange(valid_from, valid_to, '[)')} means the stored {@code validTo} is the

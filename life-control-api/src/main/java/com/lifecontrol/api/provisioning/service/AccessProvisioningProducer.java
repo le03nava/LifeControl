@@ -202,18 +202,17 @@ public class AccessProvisioningProducer {
      * and only for an employee the projection can actually converge.
      *
      * <p>It is deliberately <b>source-neutral</b>. Every writer that moves the derived scope calls
-     * this one hook — {@code EmployeeStoreAssignmentService} when a store assignment opens or closes,
-     * and {@code EmployeeScopeAssignmentService} when a country, region or zone assignment does — so
-     * neither the prose here nor the refusal log may name a source: a message that says "store" for a
-     * scope write is a log that lies about the fact it refused. The source is not lost, because the
-     * caller logs the fact with more detail one line earlier (its own INFO entry names the
-     * assignment id, the node and the dates).</p>
+     * this one hook — {@code EmployeeScopeAssignmentService} when a country, region, zone or store
+     * assignment opens or closes — so neither the prose here nor the refusal log may name a source: a
+     * message that says "store" for a scope write is a log that lies about the fact it refused. The
+     * source is not lost, because the caller logs the fact with more detail one line earlier (its own
+     * INFO entry names the assignment id, the node and the dates).</p>
      *
      * <p>This is the trigger <b>G38</b> was missing: the writers of
-     * {@code EmployeeStoreAssignmentService} save their row and return, so a change of assignment
-     * moves the derivation {@code StoreScopeDerivation} computes — the five {@code company_*} claims
-     * {@code CurrentUserContext} reads for scope — and nothing enqueued a convergence, leaving the
-     * claims at the old scope until another fact enqueued a task. {@code employee-scope-assignments-per-level}
+     * {@code EmployeeScopeAssignmentService} save their row and return, so a change of assignment
+     * moves the derivation {@code ScopeAssignmentDerivation} computes — the five {@code company_*}
+     * claims {@code CurrentUserContext} reads for scope — and nothing enqueued a convergence, leaving
+     * the claims at the old scope until another fact enqueued a task. {@code employee-scope-assignments-per-level}
      * widened the same gap to the per-level assignments and reused this hook rather than adding a
      * second one, which is why the fact it serves is now "the membership changed" and not "a store
      * assignment changed".</p>
