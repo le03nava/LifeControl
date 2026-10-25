@@ -320,13 +320,10 @@ class EmployeeStoreAssignmentHttpIntegrationTest extends AbstractPostgresIntegra
     }
 
     private void disableAssignmentAt(LocalDate validFrom) {
-        jdbcTemplate.update(
-                """
+        jdbcTemplate.update("""
                 UPDATE employee_scope_assignments SET enabled = false
                 WHERE employee_id = ? AND valid_from = ? AND company_store_id IS NOT NULL
-                """,
-                employeeId,
-                validFrom);
+                """, employeeId, validFrom);
     }
 
     private LocalDate storedValidToAt(LocalDate validFrom) {
@@ -334,10 +331,7 @@ class EmployeeStoreAssignmentHttpIntegrationTest extends AbstractPostgresIntegra
                 """
                 SELECT valid_to FROM employee_scope_assignments
                 WHERE employee_id = ? AND valid_from = ? AND company_store_id IS NOT NULL
-                """,
-                (rs, rowNum) -> rs.getObject("valid_to", LocalDate.class),
-                employeeId,
-                validFrom);
+                """, (rs, rowNum) -> rs.getObject("valid_to", LocalDate.class), employeeId, validFrom);
     }
 
     @Nested

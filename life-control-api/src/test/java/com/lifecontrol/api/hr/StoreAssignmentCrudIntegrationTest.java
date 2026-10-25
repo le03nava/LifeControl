@@ -393,8 +393,7 @@ class StoreAssignmentCrudIntegrationTest extends AbstractPostgresIntegrationTest
         void listExcludesDisabledWhenAsked() {
             var created = service.createAssignment(
                     companyId, employeeId, new StoreAssignmentRequest(storeOneId, LocalDate.of(2026, 1, 1)));
-            jdbcTemplate.update(
-                    "UPDATE employee_scope_assignments SET enabled = false WHERE id = ?", created.id());
+            jdbcTemplate.update("UPDATE employee_scope_assignments SET enabled = false WHERE id = ?", created.id());
 
             assertThat(service.getAssignments(companyId, employeeId, false)).isEmpty();
             assertThat(service.getAssignments(companyId, employeeId, true)).hasSize(1);
