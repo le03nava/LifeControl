@@ -27,7 +27,7 @@ function isTerminatedStatus(statusName: string | null): boolean {
 /**
  * The **Acceso** section of the employee detail.
  *
- * A **presentational** component in `store-assignments-section`'s shape: it takes the overview, the
+ * A **presentational** component in `scope-assignments-section`'s shape: it takes the overview, the
  * section's own loading and error state, whether the caller may write and the caller's own `sub`,
  * and it emits the intents the page acts on (`retry` for the failed read, `apply`, `deactivate`,
  * `retryRequest`, `resend` and `decisionRequested`). It owns no HTTP access and no dialog: the page

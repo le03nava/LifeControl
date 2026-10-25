@@ -1,5 +1,5 @@
 /**
- * Wire models of an employee's per-level scope-assignment history.
+ * Wire models of an employee's scope-assignment history.
  *
  * They mirror the three backend DTOs exactly: `ScopeAssignmentRequest` is the create payload (the
  * one node the person is assigned and the first day covered, and **no** end date), the optional body
@@ -7,11 +7,13 @@
  * the record defines no `PUT` and no `DELETE`, so a move is a new assignment and a mistake is
  * closed.
  *
- * The **level** is the shape of the payload rather than a field of it: exactly one of the three node
+ * The **level** is the shape of the payload rather than a field of it: exactly one of the four node
  * ids is present, which the service validates and the database enforces. On the read side the level
  * comes back as the backend's own `ScopeLevel` name — the same level the claim is declared under —
- * so the three values here are `'COUNTRY' | 'REGION' | 'ZONE'` and a store keeps its own,
- * pre-existing assignment table (`employee_store_assignments`).
+ * so the four values here are `'COUNTRY' | 'REGION' | 'ZONE' | 'STORE'` and one row shape carries
+ * them all. The company is **not** one of them: it has no node column and no assignable row, because
+ * `company_id` is required, exactly one, and comes from `employees.company_id`. The screen renders
+ * it as the derived root of the tree instead (see `ScopeAssignmentsSection`).
  *
  * Dates are the wire's ISO strings, like `employees.termination_date`. `validTo` is the **last day
  * covered**, inclusive — an open-ended assignment is `null`, and `null` is **not** the same fact as
@@ -33,6 +35,8 @@ export interface ScopeAssignment {
   companyCountryId: string | null;
   companyRegionId: string | null;
   companyZoneId: string | null;
+  /** The store's id for a `STORE` row, `null` at every level above it. */
+  companyStoreId: string | null;
   /** The assigned node's own name; the chain below carries its ancestors' names. */
   nodeName: string;
   /** The first day covered. May be in the future: a future row derives nothing until it covers today. */
@@ -44,21 +48,28 @@ export interface ScopeAssignment {
   derived: ScopeAssignmentDerivedScope;
 }
 
-/** The three levels a scope assignment can name. Company is not one: one employee, one company. */
-export type ScopeAssignmentLevel = 'COUNTRY' | 'REGION' | 'ZONE';
+/**
+ * The four levels a scope assignment can name, in the order the tree descends.
+ *
+ * The store is the fourth level of this table rather than a table of its own: one row per assigned
+ * store, closed and derived exactly like the three levels above it. Company is not a level — one
+ * employee, one company, and a company row would be a second copy of a fact the employee carries.
+ */
+export type ScopeAssignmentLevel = 'COUNTRY' | 'REGION' | 'ZONE' | 'STORE';
 
-/** The three assignable levels, in the order the tree descends. */
+/** The four assignable levels, in the order the tree descends. */
 export const SCOPE_ASSIGNMENT_LEVELS: readonly ScopeAssignmentLevel[] = [
   'COUNTRY',
   'REGION',
   'ZONE',
+  'STORE',
 ];
 
 /**
  * The ancestor chain of the assigned node, as the token will carry it.
  *
  * A country row resolves company and country and leaves region and zone `null`; a region row adds
- * its region; a zone row adds all three.
+ * its region; a zone row adds all three; a store row adds the store's own zone on top of that chain.
  */
 export interface ScopeAssignmentDerivedScope {
   companyId: string | null;
@@ -83,6 +94,7 @@ export interface ScopeAssignmentRequest {
   companyCountryId?: string;
   companyRegionId?: string;
   companyZoneId?: string;
+  companyStoreId?: string;
   validFrom: string;
 }
 
@@ -144,6 +156,8 @@ export function scopeAssignmentLevelLabel(level: ScopeAssignmentLevel): string {
       return 'Región';
     case 'ZONE':
       return 'Zona';
+    case 'STORE':
+      return 'Tienda';
     default:
       return 'País';
   }

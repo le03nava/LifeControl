@@ -27,6 +27,7 @@ describe('ScopeAssignmentsSection', () => {
     companyCountryId: 'company-country-1',
     companyRegionId: 'region-1',
     companyZoneId: 'zone-1',
+    companyStoreId: null,
     nodeName: 'Zona Norte',
     validFrom: '2026-01-01',
     validTo: null,
@@ -40,6 +41,8 @@ describe('ScopeAssignmentsSection', () => {
     loading?: boolean;
     error?: string | null;
     canWrite?: boolean;
+    /** The derived company root's name; `null` while the page has not resolved the company. */
+    companyName?: string | null;
   }
 
   /**
@@ -57,6 +60,7 @@ describe('ScopeAssignmentsSection', () => {
     fixture.componentRef.setInput('loading', options.loading ?? false);
     fixture.componentRef.setInput('error', options.error ?? null);
     fixture.componentRef.setInput('canWrite', options.canWrite ?? false);
+    fixture.componentRef.setInput('companyName', options.companyName ?? 'Acme Corp');
     fixture.detectChanges();
     await fixture.whenStable();
     fixture.detectChanges();
@@ -82,6 +86,11 @@ describe('ScopeAssignmentsSection', () => {
     return Array.from(
       element().querySelectorAll(`td.mat-mdc-cell:nth-child(${columnIndex + 1})`),
     ).map((td) => td.textContent?.trim() ?? '');
+  }
+
+  /** The derived company root row above the table. */
+  function companyRoot(): HTMLElement | null {
+    return element().querySelector<HTMLElement>('.company-root');
   }
 
   it('should create and render without an HTTP client or a dialog provider', async () => {
@@ -116,6 +125,72 @@ describe('ScopeAssignmentsSection', () => {
 
     expect(cellTextsOf(0)).toEqual(['Región', 'País']);
     expect(cellTextsOf(1)).toEqual(['Centro', 'México']);
+  });
+
+  it('should label a store row as Tienda and render the store as the node', async () => {
+    await setup({
+      assignments: [
+        assignment({
+          id: 'assignment-store',
+          level: 'STORE',
+          companyStoreId: 'store-1',
+          nodeName: 'Tienda Centro',
+        }),
+      ],
+    });
+
+    expect(cellTextsOf(0)).toEqual(['Tienda']);
+    expect(cellTextsOf(1)).toEqual(['Tienda Centro']);
+    expect(text()).toContain('Acme Corp / México / Centro / Zona Norte');
+  });
+
+  it('should render the four assignable levels in one table', async () => {
+    await setup({
+      assignments: [
+        assignment({ id: 'a-country', level: 'COUNTRY', nodeName: 'México' }),
+        assignment({ id: 'a-region', level: 'REGION', nodeName: 'Centro' }),
+        assignment({ id: 'a-zone', level: 'ZONE', nodeName: 'Zona Norte' }),
+        assignment({
+          id: 'a-store',
+          level: 'STORE',
+          companyStoreId: 'store-1',
+          nodeName: 'Tienda Centro',
+        }),
+      ],
+    });
+
+    expect(cellTextsOf(0)).toEqual(['País', 'Región', 'Zona', 'Tienda']);
+  });
+
+  it('should render the company as the derived root row above the table', async () => {
+    await setup({ assignments: [assignment()], companyName: 'Acme Corp' });
+
+    const root = companyRoot();
+    expect(root).not.toBeNull();
+    expect(root?.textContent).toContain('Empresa');
+    expect(root?.textContent).toContain('Acme Corp');
+    // S3: the root is derived from the employee, so the screen renders no control for it.
+    expect(root?.textContent).toContain('no es una asignación');
+    expect(root?.querySelectorAll('button')).toHaveLength(0);
+  });
+
+  it('should render the company root even when nothing is assigned yet', async () => {
+    // The root is what makes "the tree starts at the company" and "nothing was assigned yet" stop
+    // looking the same, so the empty state must not drop it.
+    await setup({ assignments: [], companyName: 'Acme Corp' });
+
+    expect(companyRoot()).not.toBeNull();
+    expect(text()).toContain('Acme Corp');
+    expect(text()).toContain('ningún nivel de alcance asignado');
+  });
+
+  it('should state that the assignment bounds the scope and the role is what enables access', async () => {
+    // S4: the tab shows a tenancy, not a permission. The section says so once, not in every cell.
+    await setup({ assignments: [assignment()] });
+
+    expect(text()).toContain(
+      'La asignación limita el alcance del empleado; es el rol el que habilita el acceso',
+    );
   });
 
   it('should render the rows in the order they arrive, without re-sorting them', async () => {
@@ -168,17 +243,21 @@ describe('ScopeAssignmentsSection', () => {
     expect(text()).not.toContain('Zona Norte');
   });
 
-  it('should say that no scope is assigned yet, not merely that there are no rows', async () => {
+  it('should say that no level is assigned yet and that a scoped role then sees nothing', async () => {
     await setup({ assignments: [] });
 
-    expect(text()).toContain('Este empleado todavía no tiene alcance asignado');
+    expect(text()).toContain('ningún nivel de alcance asignado');
+    // The empty state names the consequence instead of only the empty table.
+    expect(text()).toContain('un rol de alcance no ve ningún dato del árbol');
+    // ...and it must not turn the derived company root into a source of access.
+    expect(text()).toContain('no otorga acceso por sí sola');
   });
 
   it('should render the error state and emit retry', async () => {
     await setup({ error: 'Error al cargar el alcance asignado' });
 
     expect(text()).toContain('Error al cargar el alcance asignado');
-    expect(text()).not.toContain('todavía no tiene alcance asignado');
+    expect(text()).not.toContain('ningún nivel de alcance asignado');
 
     const retry = vi.fn();
     component.retry.subscribe(retry);

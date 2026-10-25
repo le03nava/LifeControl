@@ -12,15 +12,24 @@ import {
 } from '../../models/scope-assignment.models';
 
 /**
- * The **Alcance asignado** history of one employee: the per-level (country, region, zone) scope
- * assignments, one row each.
+ * The **Alcance** of one employee: the company it derives from, and the country / region / zone /
+ * store assignments it is bounded by, one row each.
  *
- * A **presentational** component in `store-assignments-section`'s shape: it takes the rows, the
+ * It is the **one** assignment surface of the detail screen: what used to be a `Tiendas` tab and an
+ * `Alcance` tab is this component, because a store is a level of the same tree and two tabs made two
+ * answers to one question.
+ *
+ * The company is rendered as the **derived root** and never as a row: `company_id` is required,
+ * exactly one, and comes from the employee, so there is no company assignment to write and no
+ * control to offer. Rendering it is what makes "the tree starts at the company" and "nothing was
+ * assigned yet" stop looking the same — which is why the root is drawn above the table **and** in
+ * the empty state.
+ *
+ * A **presentational** component in the shape the access section shares: it takes the rows, the
  * section's own loading and error state, and whether the caller may write, and it emits the three
  * intents the page acts on (`retry`, `assign`, `closeRequested`). It owns no HTTP access, no dialog
  * and no write: the page opens the assign dialog and the shared `ConfirmDialog`, performs the write
- * and reloads — the "the page opens, the dialog writes, the page reloads" shape the store section
- * documents. An `HttpClient` or `MatDialog` in here would be the coupling that split exists to
+ * and reloads. An `HttpClient` or `MatDialog` in here would be the coupling that split exists to
  * prevent.
  *
  * Each row shows **which level** it assigns, the assigned node's name, its covered range (an
@@ -28,6 +37,11 @@ import {
  * zone chain the token will carry, and the row's status. The chain is the record's own reason for
  * the section: the operator should see what they are granting. A level the chain cannot resolve
  * stays in place as an em dash, because the chain's meaning is positional.
+ *
+ * The section also says, once and in words, what the table means: **the assignment bounds the
+ * tenancy, the role is what enables access**. A scoped role with no assignment sees nothing, and
+ * `lc-company` needs no assignment at all — so a reader who takes the table for a permission list
+ * would read it exactly backwards.
  *
  * The whole history is rendered, closed and soft-deleted rows included, and each row says which of
  * the three it is: an assignment is the record of when someone stopped being scoped somewhere, so
@@ -50,13 +64,22 @@ export class ScopeAssignmentsSection {
   /** The employee's scope-assignment history, as the API orders it (newest first). */
   readonly assignments = input<ScopeAssignment[]>([]);
 
+  /**
+   * The name of the company the employee belongs to, rendered as the derived root of the tree.
+   *
+   * Required, and nullable, because the value is the page's (it resolves the company for its own
+   * selector): a root with no name is a company that has not been resolved yet, never a company that
+   * does not exist.
+   */
+  readonly companyName = input.required<string | null>();
+
   /** The section's own read state; the page resolves it from its resource. */
   readonly loading = input(false);
   readonly error = input<string | null>(null);
 
   /**
    * Whether the caller may write. Decided by the page on `EMPLOYEE_WRITE_ROLES`, the pair the
-   * endpoints themselves require — the same pair the store assignments use.
+   * endpoints themselves require.
    */
   readonly canWrite = input(false);
 

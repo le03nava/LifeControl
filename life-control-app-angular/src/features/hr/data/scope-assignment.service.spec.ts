@@ -21,6 +21,7 @@ describe('ScopeAssignmentService', () => {
       companyCountryId: 'company-country-1',
       companyRegionId: 'region-1',
       companyZoneId: null,
+      companyStoreId: null,
       nodeName: 'Centro',
       validFrom: '2026-01-01',
       validTo: null,
@@ -42,6 +43,7 @@ describe('ScopeAssignmentService', () => {
       companyCountryId: 'company-country-1',
       companyRegionId: null,
       companyZoneId: null,
+      companyStoreId: null,
       nodeName: 'México',
       validFrom: '2024-01-01',
       validTo: '2025-12-31',
@@ -183,6 +185,39 @@ describe('ScopeAssignmentService', () => {
       await expect(promise).resolves.toEqual(created);
       // The API orders newest first, so a freshly created assignment goes to the front.
       expect(service.assignments()).toEqual([created, ...mockAssignments]);
+    });
+
+    it('should carry a store id as the one node of a store assignment', async () => {
+      const promise = firstValueFrom(
+        service.createAssignment(companyId, employeeId, {
+          companyStoreId: 'store-1',
+          validFrom: '2026-01-01',
+        }),
+      );
+
+      const req = httpMock.expectOne((r) => r.url === assignmentsUrl && r.method === 'POST');
+      // S2: the store travels through the very same create route, as this table's fourth level.
+      expect(req.request.body).toEqual({ companyStoreId: 'store-1', validFrom: '2026-01-01' });
+      req.flush(mockAssignments[0]);
+
+      await promise;
+    });
+
+    it('should map a store that belongs to another company to the same not-found message', async () => {
+      // The one 404 covers "employee or node": a foreign store id is unknown to this company, and the
+      // screen must not learn which of the two it was.
+      const promise = firstValueFrom(
+        service.createAssignment(companyId, employeeId, {
+          companyStoreId: 'store-from-another-company',
+          validFrom: '2026-01-01',
+        }),
+      );
+      httpMock
+        .expectOne((r) => r.url === assignmentsUrl && r.method === 'POST')
+        .flush({ status: 404 }, { status: 404, statusText: 'Not Found' });
+
+      await expect(promise).rejects.toMatchObject({ status: 404 });
+      expect(service.error()).toBe('No se encontró el empleado o el nodo');
     });
 
     it('should map a 400 to the invalid-payload message', async () => {

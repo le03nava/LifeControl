@@ -6,10 +6,12 @@ import { of, Subject, throwError } from 'rxjs';
 import { CompanyCountry } from '@features/companies/countries/models/country.models';
 import { CompanyRegion } from '@features/companies/regions/models/region.models';
 import { CompanyZone } from '@features/companies/zones/models/zone.models';
+import { CompanyStore } from '@features/companies/stores/models/store.models';
 import { CompanyCountryService } from '@features/companies/countries/data/company-country.service';
 import { CompanyRegionService } from '@features/companies/regions/data/company-region.service';
 import { CompanyZoneService } from '@features/companies/zones/data/company-zone.service';
-import { LC_COMPANY_COUNTRY, LC_COMPANY_ZONE } from '@core/security/roles';
+import { CompanyStoreService } from '@features/companies/stores/data/company-store.service';
+import { LC_COMPANY_COUNTRY, LC_COMPANY_STORE, LC_COMPANY_ZONE } from '@core/security/roles';
 import {
   ScopeAssignmentDialog,
   ScopeAssignmentDialogData,
@@ -30,6 +32,7 @@ describe('ScopeAssignmentDialog', () => {
   let countryService: { getCountries: ReturnType<typeof vi.fn> };
   let regionService: { getRegions: ReturnType<typeof vi.fn> };
   let zoneService: { getZones: ReturnType<typeof vi.fn> };
+  let storeService: { getStores: ReturnType<typeof vi.fn> };
 
   const companyId = 'company-1';
 
@@ -92,12 +95,29 @@ describe('ScopeAssignmentDialog', () => {
     zoneName: 'Zona Sur',
   };
 
+  const store: CompanyStore = {
+    id: 'store-1',
+    companyId,
+    companyCountryId: 'company-country-1',
+    regionId: 'region-1',
+    zoneId: 'zone-1',
+    storeName: 'Tienda Centro',
+    enabled: true,
+    createdAt: '2026-01-01T00:00:00',
+    updatedAt: '2026-01-01T00:00:00',
+    version: 0,
+  };
+
+  /** A second store, so a store reload is a real value change. */
+  const otherStore: CompanyStore = { ...store, id: 'store-2', storeName: 'Tienda Sur' };
+
   const created: ScopeAssignment = {
     id: 'scope-assignment-1',
     level: 'ZONE',
     companyCountryId: 'company-country-1',
     companyRegionId: 'region-1',
     companyZoneId: 'zone-1',
+    companyStoreId: null,
     nodeName: 'Zona Norte',
     validFrom: '2026-01-01',
     validTo: null,
@@ -119,6 +139,8 @@ describe('ScopeAssignmentDialog', () => {
     countriesError?: HttpErrorResponse;
     regions?: CompanyRegion[];
     zones?: CompanyZone[];
+    stores?: CompanyStore[];
+    storesError?: HttpErrorResponse;
     createResult?: ScopeAssignment;
     createError?: HttpErrorResponse;
     /** The employee's own role names, the hint the dialog orders the level choice with. */
@@ -154,6 +176,13 @@ describe('ScopeAssignmentDialog', () => {
         of(options.zones ?? (regionId === 'region-2' ? [otherZone] : [zone])),
       ),
     };
+    storeService = {
+      getStores: vi.fn(() =>
+        options.storesError
+          ? throwError(() => options.storesError)
+          : of(options.stores ?? [store, otherStore]),
+      ),
+    };
 
     const data: ScopeAssignmentDialogData = {
       companyId,
@@ -172,6 +201,7 @@ describe('ScopeAssignmentDialog', () => {
         { provide: CompanyCountryService, useValue: countryService },
         { provide: CompanyRegionService, useValue: regionService },
         { provide: CompanyZoneService, useValue: zoneService },
+        { provide: CompanyStoreService, useValue: storeService },
       ],
     });
 
@@ -203,6 +233,15 @@ describe('ScopeAssignmentDialog', () => {
     component.form.controls.zoneId.setValue('zone-1');
   }
 
+  /** Walks the four-step cascade down to a store, the way the operator does. */
+  function chooseStore(): void {
+    component.onLevelChange('STORE');
+    component.form.controls.companyCountryId.setValue('company-country-1');
+    component.form.controls.regionId.setValue('region-1');
+    component.form.controls.zoneId.setValue('zone-1');
+    component.form.controls.companyStoreId.setValue('store-1');
+  }
+
   it('should load the company countries on open, with the company shown and not chosen', async () => {
     await setup();
 
@@ -213,41 +252,52 @@ describe('ScopeAssignmentDialog', () => {
     expect(component.form.contains('companyId')).toBe(false);
   });
 
-  it('should offer the three levels, and the company level is not one of them', async () => {
+  it('should offer the four levels, and the company level is not one of them', async () => {
     await setup();
 
-    expect(component.levels).toEqual(['COUNTRY', 'REGION', 'ZONE']);
+    expect(component.levels).toEqual(['COUNTRY', 'REGION', 'ZONE', 'STORE']);
   });
 
   it('should preselect and list first the level the employee highest role suggests', async () => {
     await setup({ employeeRoles: [LC_COMPANY_ZONE] });
 
     expect(component.level()).toBe('ZONE');
-    expect(component.levels).toEqual(['ZONE', 'COUNTRY', 'REGION']);
+    expect(component.levels).toEqual(['ZONE', 'COUNTRY', 'REGION', 'STORE']);
+  });
+
+  it('should suggest a store for an employee whose only scoped role is the store one', async () => {
+    await setup({ employeeRoles: [LC_COMPANY_STORE] });
+
+    expect(component.level()).toBe('STORE');
+    expect(component.levels).toEqual(['STORE', 'COUNTRY', 'REGION', 'ZONE']);
   });
 
   it('should still offer every level when the roles suggest one', async () => {
     await setup({ employeeRoles: [LC_COMPANY_COUNTRY] });
 
-    expect(component.levels).toEqual(['COUNTRY', 'REGION', 'ZONE']);
+    expect(component.levels).toEqual(['COUNTRY', 'REGION', 'ZONE', 'STORE']);
     // The suggestion is an affordance, not a gate: the deeper levels are offered anyway.
-    component.onLevelChange('ZONE');
-    expect(component.level()).toBe('ZONE');
+    component.onLevelChange('STORE');
+    expect(component.level()).toBe('STORE');
   });
 
-  it('should offer all three levels with no preselection hint when the employee holds no scoped role', async () => {
+  it('should offer all four levels with no preselection hint when the employee holds no scoped role', async () => {
     await setup({ employeeRoles: [] });
 
     expect(component.level()).toBe('COUNTRY');
-    expect(component.levels).toEqual(['COUNTRY', 'REGION', 'ZONE']);
+    expect(component.levels).toEqual(['COUNTRY', 'REGION', 'ZONE', 'STORE']);
   });
 
   it('suggestedLevelFromRoles should pick the highest scoped role and ignore the rest', () => {
     expect(suggestedLevelFromRoles([LC_COMPANY_COUNTRY, LC_COMPANY_ZONE])).toBe('COUNTRY');
     expect(suggestedLevelFromRoles([LC_COMPANY_ZONE])).toBe('ZONE');
+    // The store hint is the **last** check: the broadest scoped role wins, so a store role never
+    // narrows a person the API bounds by a country, a region or a zone.
+    expect(suggestedLevelFromRoles([LC_COMPANY_ZONE, LC_COMPANY_STORE])).toBe('ZONE');
+    expect(suggestedLevelFromRoles([LC_COMPANY_STORE])).toBe('STORE');
     // `lc-company` bounds by the company claim: an assignment is not what it needs.
     expect(suggestedLevelFromRoles(['lc-company', 'lc-admin'])).toBeNull();
-    expect(orderedLevels(null)).toEqual(['COUNTRY', 'REGION', 'ZONE']);
+    expect(orderedLevels(null)).toEqual(['COUNTRY', 'REGION', 'ZONE', 'STORE']);
   });
 
   it('should load the regions of the chosen country from the country join id', async () => {
@@ -271,13 +321,14 @@ describe('ScopeAssignmentDialog', () => {
     expect(component.zones()).toEqual([zone]);
   });
 
-  it('should hide the region and zone controls for a country assignment', async () => {
+  it('should hide the region, zone and store controls for a country assignment', async () => {
     await setup();
     settle();
 
     expect(component.form.controls.regionId.hasError('required')).toBe(false);
     expect(element().querySelector('mat-select[formcontrolname="regionId"]')).toBeNull();
     expect(element().querySelector('mat-select[formcontrolname="zoneId"]')).toBeNull();
+    expect(element().querySelector('mat-select[formcontrolname="companyStoreId"]')).toBeNull();
   });
 
   it('should require the region but not the zone for a region assignment', async () => {
@@ -297,6 +348,62 @@ describe('ScopeAssignmentDialog', () => {
 
     expect(component.form.controls.zoneId.hasError('required')).toBe(true);
     expect(element().querySelector('mat-select[formcontrolname="zoneId"]')).not.toBeNull();
+    // The store belongs to a deeper level: it stays hidden and unrequired.
+    expect(component.form.controls.companyStoreId.hasError('required')).toBe(false);
+    expect(element().querySelector('mat-select[formcontrolname="companyStoreId"]')).toBeNull();
+  });
+
+  it('should require the whole four-step cascade for a store assignment', async () => {
+    await setup();
+    component.onLevelChange('STORE');
+    settle();
+
+    expect(component.form.controls.companyCountryId.hasError('required')).toBe(true);
+    expect(component.form.controls.regionId.hasError('required')).toBe(true);
+    expect(component.form.controls.zoneId.hasError('required')).toBe(true);
+    expect(component.form.controls.companyStoreId.hasError('required')).toBe(true);
+    expect(element().querySelector('mat-select[formcontrolname="regionId"]')).not.toBeNull();
+    expect(element().querySelector('mat-select[formcontrolname="zoneId"]')).not.toBeNull();
+    expect(element().querySelector('mat-select[formcontrolname="companyStoreId"]')).not.toBeNull();
+  });
+
+  it('should load the stores of the chosen zone carrying the whole parent chain', async () => {
+    await setup();
+    component.onLevelChange('STORE');
+    component.form.controls.companyCountryId.setValue('company-country-1');
+    component.form.controls.regionId.setValue('region-1');
+
+    component.form.controls.zoneId.setValue('zone-1');
+
+    expect(storeService.getStores).toHaveBeenCalledWith(
+      companyId,
+      'company-country-1',
+      'region-1',
+      'zone-1',
+    );
+    expect(component.stores()).toEqual([store, otherStore]);
+  });
+
+  it('should reset the store when the zone changes', async () => {
+    await setup();
+    chooseStore();
+    expect(component.stores()).toEqual([store, otherStore]);
+
+    component.form.controls.zoneId.setValue('zone-2');
+
+    expect(component.form.controls.companyStoreId.value).toBe('');
+  });
+
+  it('should clear the store when the level stops needing it', async () => {
+    await setup();
+    chooseStore();
+    expect(component.form.controls.companyStoreId.value).toBe('store-1');
+
+    component.onLevelChange('ZONE');
+
+    // The form can never submit a store id the chosen level does not name.
+    expect(component.form.controls.companyStoreId.value).toBe('');
+    expect(component.stores()).toEqual([]);
   });
 
   it('should reset every dependent level when the country changes', async () => {
@@ -397,6 +504,27 @@ describe('ScopeAssignmentDialog', () => {
     expect(request).toEqual({ companyZoneId: 'zone-1', validFrom: '2026-01-01' });
     expect(request['companyCountryId']).toBeUndefined();
     expect(request['companyRegionId']).toBeUndefined();
+    expect(request['companyStoreId']).toBeUndefined();
+  });
+
+  it('should POST only the store id for a store assignment, with no leftover ancestor ids', async () => {
+    await setup();
+    chooseStore();
+    component.form.controls.validFrom.setValue('2026-01-01');
+
+    component.onSubmit();
+
+    const [, , request] = assignmentService.createAssignment.mock.calls[0] as [
+      string,
+      string,
+      Record<string, unknown>,
+    ];
+    // S7: the level is the shape of the payload, so exactly one node id travels.
+    expect(request).toEqual({ companyStoreId: 'store-1', validFrom: '2026-01-01' });
+    expect(request['companyCountryId']).toBeUndefined();
+    expect(request['companyRegionId']).toBeUndefined();
+    expect(request['companyZoneId']).toBeUndefined();
+    expect(dialogRef.close).toHaveBeenCalledWith({ outcome: 'created', assignment: created });
   });
 
   it('should keep the dialog open and show the server envelope message when the write fails', async () => {

@@ -1,4 +1,4 @@
-import type { StoreAssignmentDerivedScope } from '@features/hr/models/store-assignment.models';
+import type { ScopeAssignmentDerivedScope } from '@features/hr/models/scope-assignment.models';
 
 /**
  * Response from GET /api/profile
@@ -69,11 +69,11 @@ export interface LocationChain {
 /**
  * One store the caller is currently assigned to, with the chain derived from it (`T28`).
  *
- * It extends {@link StoreAssignmentDerivedScope} so the option label and the tuple the screen
+ * It extends {@link ScopeAssignmentDerivedScope} so the option label and the tuple the screen
  * posts reuse the HR shape and its `derivedChainLabel()` helper instead of a second formatter —
  * the chain has one truth.
  */
-export interface AssignedStore extends StoreAssignmentDerivedScope {
+export interface AssignedStore extends ScopeAssignmentDerivedScope {
   companyStoreId: string;
   companyStoreName: string;
 }

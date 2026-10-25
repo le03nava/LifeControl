@@ -985,26 +985,40 @@ es que no alcanzan las rutas de escritura.
 
 ### Alcance asignado por nivel
 
-El alcance (los cinco claims `company_*` del token) tiene dos fuentes, y las dos se **unen** en la
-derivación:
+El alcance (los cinco claims `company_*` del token) sale de **una sola tabla**,
+`employee_scope_assignments`, y ese es el único lugar donde se asigna:
 
 | Nivel | Cómo se asigna |
 |-------|----------------|
-| Empresa | **No se asigna.** Una persona pertenece a una sola empresa; `company_id` se deriva de `employees.company_id` y sigue siendo exactamente uno. |
-| País, región, zona | Se asignan **por empleado** en `employee_scope_assignments`, vía `POST` / `PATCH …/{id}/close` bajo `/api/companies/{companyId}/employees/{employeeId}/scope-assignments`. Una fila nombra **un** nodo (exactamente uno de `companyCountryId` / `companyRegionId` / `companyZoneId`), y la cadena de ancestros de ese nodo es lo que alimenta los claims. |
-| Tienda | Conserva su propia tabla, `employee_store_assignments`, sin cambios: una asignación de tienda sigue derivando tienda → zona → región → país. |
+| Empresa | **No se asigna.** Una persona pertenece a una sola empresa; `company_id` se deriva de `employees.company_id` y sigue siendo exactamente uno. La pantalla la muestra como la **raíz derivada** del árbol, no como una fila asignable: no hay columna de empresa, ni fila de nivel empresa, ni opción en el diálogo. |
+| País, región, zona, tienda | Se asignan **por empleado** en `employee_scope_assignments`, vía `POST` / `PATCH …/{id}/close` bajo `/api/companies/{companyId}/employees/{employeeId}/scope-assignments`. Una fila nombra **un** nodo (exactamente uno de `companyCountryId` / `companyRegionId` / `companyZoneId` / `companyStoreId`), y la cadena de ancestros de ese nodo es lo que alimenta los claims. Una asignación de tienda deriva tienda → zona → región → país, y se cierra igual que cualquier otro nivel. |
 
-**Gate de escritura**: `lc-admin` + `lc-employee`, el mismo par que `EmployeeScopeAssignmentController`
-(a su vez el mismo de `EmployeeStoreAssignmentController`). La lectura del historial es
-`isAuthenticated()`; la pantalla gatea sus controles en `EMPLOYEE_WRITE_ROLES` para no ofrecer un
-control que la API rechazaría.
+**Gate de escritura**: `lc-admin` + `lc-employee`, el mismo par de `EmployeeScopeAssignmentController`.
+La lectura del historial es `isAuthenticated()`; la pantalla gatea sus controles en
+`EMPLOYEE_WRITE_ROLES` para no ofrecer un control que la API rechazaría.
 
-En la pantalla de detalle del empleado el alcance se ve y se edita en la pestaña **Alcance** (sección
-`scope-assignments-section`), al lado de **Tiendas**: una fila por asignación con su nivel, el nodo, la
-vigencia y la cadena derivada que va a llevar el token. El **nivel es una ayuda visual, no un gate**:
-el diálogo muestra los tres niveles y usa el rol de mayor alcance que el empleado ya tiene
-(`lc-company-country` → `lc-company-region` → `lc-company-zone`) sólo para preseleccionar y ordenar la
-opción. Qué nivel se puede escribir lo decide la API; la UI no inventa una regla de autorización.
+En la pantalla de detalle del empleado el alcance se ve y se edita en **una sola pestaña, `Alcance`**
+(sección `scope-assignments-section`): una fila por asignación con su nivel, el nodo, la vigencia y la
+cadena derivada que va a llevar el token, más la empresa como raíz derivada arriba de la tabla. La
+pestaña `Tiendas` ya no existe — la tienda es el cuarto nivel de `Alcance` — y `?tab=tiendas` resuelve
+a `alcance` para que los links viejos aterricen donde todavía se puede actuar.
+
+El **nivel es una ayuda visual, no un gate**: el diálogo `scope-assignment-dialog` ofrece siempre los
+cuatro niveles (`País`, `Región`, `Zona`, `Tienda`) y usa el rol de mayor alcance que el empleado ya
+tiene (`lc-company-country` → `lc-company-region` → `lc-company-zone` → `lc-company-store`, en ese
+orden) sólo para preseleccionar y ordenar la opción. Elegir un nivel oculta y limpia los niveles de
+abajo, así que el formulario nunca manda dos ids de nodo. Qué nivel se puede escribir lo decide la API;
+la UI no inventa una regla de autorización.
+
+**Alcance no es permiso**: la asignación acota la tenencia del empleado, y es el rol el que habilita el
+acceso. Un rol de alcance sin asignación no ve ningún dato del árbol, y `lc-company` no necesita
+asignación porque el claim de empresa ya lo acota. La sección lo dice en palabras para que la tabla no
+se lea al revés.
+
+**Una sola lectura y un solo diálogo**: el detalle del empleado lee el historial de alcance una vez
+(incluyendo las filas soft-deleted) y abre este diálogo para los cuatro niveles. El picker opcional del
+diálogo de contrato escribe por el mismo `ScopeAssignmentService` con `companyStoreId`; ya no existe
+un cliente para `/store-assignments`.
 
 ### Realm Roles (legacy)
 
