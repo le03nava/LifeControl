@@ -45,7 +45,10 @@ import tools.jackson.databind.ObjectMapper;
 
 /**
  * HTTP-level verification of the store-assignment read, create and close routes against real
- * PostgreSQL, with the V23 schema applied by Flyway and {@code ddl-auto=validate}.
+ * PostgreSQL, with the schema applied by Flyway and {@code ddl-auto=validate}. Since {@code V32} the
+ * route is a compatibility façade over {@code employee_scope_assignments}, so every assertion here is
+ * made against that table: the wire contract is unchanged (S8) and what changed is where the rows
+ * live.
  *
  * <p>The requests carry a real {@code jwt()} whose claims {@code CurrentUserContext} reads from the
  * security context — the admin authority short-circuits {@code verifyCompanyAccess}, and the
@@ -63,8 +66,8 @@ import tools.jackson.databind.ObjectMapper;
  * inverted-date 400, the already-closed 409 and the foreign-assignment 404, all of them measured
  * against the service as it is rather than asserted from the brief.</p>
  *
- * <p>Cleanup is scoped: every row of {@code employee_store_assignments} (this feature's own table)
- * and the employees of the two companies this suite creates. The store tree and the {@code companies}
+ * <p>Cleanup is scoped: the {@code employee_scope_assignments} rows of the two companies this suite
+ * creates, and then those employees. The store tree and the {@code companies}
  * rows are find-or-create fixtures and are never deleted, so the shared container's rows survive.</p>
  */
 @SpringBootTest
@@ -145,9 +148,20 @@ class EmployeeStoreAssignmentHttpIntegrationTest extends AbstractPostgresIntegra
         cleanOwnedRows();
     }
 
-    /** Deletes the rows this feature owns, leaf-first, and only the employees this suite creates. */
+    /**
+     * Deletes the rows this feature owns, leaf-first, and only the employees this suite creates.
+     *
+     * <p>Since {@code V32} the route writes {@code employee_scope_assignments} and reads back only its
+     * {@code STORE} rows, so the cleanup targets that table — scoped to the two companies' employees,
+     * never a blanket delete.</p>
+     */
     private void cleanOwnedRows() {
-        jdbcTemplate.update("DELETE FROM employee_store_assignments");
+        jdbcTemplate.update("""
+                DELETE FROM employee_scope_assignments a
+                USING employees e
+                WHERE a.employee_id = e.id AND e.company_id IN
+                    (SELECT id FROM companies WHERE company_key IN (?, ?))
+                """, COMPANY_KEY, OTHER_COMPANY_KEY);
         jdbcTemplate.update("""
                 DELETE FROM employees WHERE company_id IN
                     (SELECT id FROM companies WHERE company_key IN (?, ?))
@@ -297,24 +311,27 @@ class EmployeeStoreAssignmentHttpIntegrationTest extends AbstractPostgresIntegra
         return UUID.fromString(objectMapper.readTree(body).get("id").asText());
     }
 
+    /** The employee's STORE rows: the scope table holds every level, the route answers about stores. */
     private int countAssignments(UUID employee) {
         return jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) FROM employee_store_assignments WHERE employee_id = ?", Integer.class, employee);
+                "SELECT COUNT(*) FROM employee_scope_assignments WHERE employee_id = ? AND company_store_id IS NOT NULL",
+                Integer.class,
+                employee);
     }
 
     private void disableAssignmentAt(LocalDate validFrom) {
-        jdbcTemplate.update(
-                "UPDATE employee_store_assignments SET enabled = false WHERE employee_id = ? AND valid_from = ?",
-                employeeId,
-                validFrom);
+        jdbcTemplate.update("""
+                UPDATE employee_scope_assignments SET enabled = false
+                WHERE employee_id = ? AND valid_from = ? AND company_store_id IS NOT NULL
+                """, employeeId, validFrom);
     }
 
     private LocalDate storedValidToAt(LocalDate validFrom) {
         return jdbcTemplate.queryForObject(
-                "SELECT valid_to FROM employee_store_assignments WHERE employee_id = ? AND valid_from = ?",
-                (rs, rowNum) -> rs.getObject("valid_to", LocalDate.class),
-                employeeId,
-                validFrom);
+                """
+                SELECT valid_to FROM employee_scope_assignments
+                WHERE employee_id = ? AND valid_from = ? AND company_store_id IS NOT NULL
+                """, (rs, rowNum) -> rs.getObject("valid_to", LocalDate.class), employeeId, validFrom);
     }
 
     @Nested
@@ -671,7 +688,7 @@ class EmployeeStoreAssignmentHttpIntegrationTest extends AbstractPostgresIntegra
                     .andExpect(status().isNotFound());
 
             assertThat(jdbcTemplate.queryForObject(
-                            "SELECT COUNT(*) FROM employee_store_assignments WHERE id = ? AND valid_to IS NULL",
+                            "SELECT COUNT(*) FROM employee_scope_assignments WHERE id = ? AND valid_to IS NULL",
                             Integer.class,
                             foreignId))
                     .as("the foreign assignment stays open")

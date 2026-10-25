@@ -13,6 +13,8 @@ import com.lifecontrol.api.company.repository.CompanyRepository;
 import com.lifecontrol.api.company.repository.CompanyZoneRepository;
 import com.lifecontrol.api.country.repository.CountryRepository;
 import com.lifecontrol.api.hr.repository.EmployeeScopeAssignmentRepository;
+import com.lifecontrol.api.store.model.CompanyStore;
+import com.lifecontrol.api.store.repository.CompanyStoreRepository;
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
 import java.time.LocalDate;
 import java.util.UUID;
@@ -28,19 +30,22 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
- * Persistence-level verification of {@code V26__employee_scope_assignments.sql} against real
- * PostgreSQL with Flyway enabled and {@code ddl-auto=validate}, so a green run proves the
- * scope-assignment schema landed exactly as the migration declares it and that the entity maps to it.
+ * Persistence-level verification of {@code V26__employee_scope_assignments.sql} and of
+ * {@code V32__employee_scope_assignments_store_level.sql} against real PostgreSQL with Flyway enabled
+ * and {@code ddl-auto=validate}, so a green run proves the scope-assignment schema landed exactly as
+ * the migrations declare it and that the entity maps to it.
  *
  * <p>The service layer cannot prove these guarantees: they are enforced by the database itself. This
- * suite pins the table's columns and their types, the three <b>partial exclusion constraints</b> (one
- * per node column, because a single {@code EXCLUDE} cannot span three alternative columns),
+ * suite pins the table's columns and their types (including the {@code company_store_id} column V32
+ * adds), the four <b>partial exclusion constraints</b> (one per node column, because a single
+ * {@code EXCLUDE} cannot span four alternative columns),
  * {@code ck_employee_scope_assignments_one_node}, {@code ck_employee_scope_assignments_dates} and the
- * four named indexes. The load-bearing facts are behavioural: an overlapping enabled assignment for
+ * five named indexes. The load-bearing facts are behavioural: an overlapping enabled assignment for
  * the same node is refused while an adjacent one is accepted ({@code '[)'}), a soft-deleted row stops
  * blocking its replacement (the partial {@code WHERE}), two different nodes of one employee may
- * overlap (the invariant is per node, not per employee), and a row must set exactly one node column.
- * The constraints need the {@code btree_gist} extension that V21 installs.</p>
+ * overlap (the invariant is per node, not per employee — and that now includes a store row next to a
+ * zone row), and a row must set exactly one node column, which after V32 is one of four. The
+ * constraints need the {@code btree_gist} extension that V21 installs.</p>
  *
  * <p>Cleanup is unconditional over the two tables this suite owns, in {@code @BeforeEach} <b>and</b>
  * {@code @AfterEach}: {@code employee_scope_assignments} references {@code employees}, so a row left
@@ -58,6 +63,8 @@ class EmployeeScopeAssignmentSchemaMigrationIntegrationTest extends AbstractPost
     private static final String FIRST_REGION_CODE = "ESPA";
     private static final String FIRST_ZONE_CODE = "ESPA";
     private static final String SECOND_ZONE_CODE = "ESPB";
+    private static final String STORE_NAME = "Employee Scope Store A";
+    private static final String SECOND_STORE_NAME = "Employee Scope Store B";
 
     @Autowired
     private Flyway flyway;
@@ -79,6 +86,9 @@ class EmployeeScopeAssignmentSchemaMigrationIntegrationTest extends AbstractPost
 
     @Autowired
     private CompanyZoneRepository companyZoneRepository;
+
+    @Autowired
+    private CompanyStoreRepository companyStoreRepository;
 
     @Autowired
     private EmployeeScopeAssignmentRepository employeeScopeAssignmentRepository;
@@ -116,15 +126,15 @@ class EmployeeScopeAssignmentSchemaMigrationIntegrationTest extends AbstractPost
     }
 
     @Test
-    @DisplayName("applies every migration through V31 and leaves no pending migration")
-    void flywayHeadIsV31() {
+    @DisplayName("applies every migration through V32 and leaves no pending migration")
+    void flywayHeadIsV32() {
         assertThat(flyway.info().current()).isNotNull();
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("31");
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("32");
         assertThat(flyway.info().pending()).isEmpty();
     }
 
     @Test
-    @DisplayName("creates employee_scope_assignments with its nine columns, their types and nullability")
+    @DisplayName("creates employee_scope_assignments with its ten columns, their types and nullability")
     void tableHasItsColumnsAndTypes() {
         var columns = jdbcTemplate.query(
                 """
@@ -142,6 +152,7 @@ class EmployeeScopeAssignmentSchemaMigrationIntegrationTest extends AbstractPost
                         new ColumnType("company_country_id", "uuid", "YES"),
                         new ColumnType("company_region_id", "uuid", "YES"),
                         new ColumnType("company_zone_id", "uuid", "YES"),
+                        new ColumnType("company_store_id", "uuid", "YES"),
                         new ColumnType("valid_from", "date", "NO"),
                         new ColumnType("valid_to", "date", "YES"),
                         new ColumnType("enabled", "boolean", "NO"),
@@ -150,7 +161,7 @@ class EmployeeScopeAssignmentSchemaMigrationIntegrationTest extends AbstractPost
     }
 
     @Test
-    @DisplayName("carries three named EXCLUDE constraints, one per node column, plus the two named CHECKs")
+    @DisplayName("carries four named EXCLUDE constraints, one per node column, plus the two named CHECKs")
     void namedConstraintsExist() {
         var constraints = jdbcTemplate.query(
                 """
@@ -162,7 +173,8 @@ class EmployeeScopeAssignmentSchemaMigrationIntegrationTest extends AbstractPost
                                     'ck_employee_scope_assignments_one_node',
                                     'ex_employee_scope_assignments_country_no_overlap',
                                     'ex_employee_scope_assignments_region_no_overlap',
-                                    'ex_employee_scope_assignments_zone_no_overlap')
+                                    'ex_employee_scope_assignments_zone_no_overlap',
+                                    'ex_employee_scope_assignments_store_no_overlap')
                 """, (rs, rowNum) -> new ConstraintType(rs.getString("conname"), rs.getString("contype")));
 
         assertThat(constraints)
@@ -172,11 +184,12 @@ class EmployeeScopeAssignmentSchemaMigrationIntegrationTest extends AbstractPost
                         new ConstraintType("ck_employee_scope_assignments_one_node", "c"),
                         new ConstraintType("ex_employee_scope_assignments_country_no_overlap", "x"),
                         new ConstraintType("ex_employee_scope_assignments_region_no_overlap", "x"),
-                        new ConstraintType("ex_employee_scope_assignments_zone_no_overlap", "x"));
+                        new ConstraintType("ex_employee_scope_assignments_zone_no_overlap", "x"),
+                        new ConstraintType("ex_employee_scope_assignments_store_no_overlap", "x"));
     }
 
     @Test
-    @DisplayName("creates the four named indexes of employee_scope_assignments")
+    @DisplayName("creates the five named indexes of employee_scope_assignments")
     void indexesExist() {
         var indexes = jdbcTemplate.query("""
                 SELECT indexname FROM pg_indexes
@@ -184,7 +197,8 @@ class EmployeeScopeAssignmentSchemaMigrationIntegrationTest extends AbstractPost
                   AND indexname IN ('idx_employee_scope_assignments_employee_id',
                                     'idx_employee_scope_assignments_company_country_id',
                                     'idx_employee_scope_assignments_company_region_id',
-                                    'idx_employee_scope_assignments_company_zone_id')
+                                    'idx_employee_scope_assignments_company_zone_id',
+                                    'idx_employee_scope_assignments_company_store_id')
                 """, (rs, rowNum) -> rs.getString("indexname"));
 
         assertThat(indexes)
@@ -193,7 +207,8 @@ class EmployeeScopeAssignmentSchemaMigrationIntegrationTest extends AbstractPost
                         "idx_employee_scope_assignments_employee_id",
                         "idx_employee_scope_assignments_company_country_id",
                         "idx_employee_scope_assignments_company_region_id",
-                        "idx_employee_scope_assignments_company_zone_id");
+                        "idx_employee_scope_assignments_company_zone_id",
+                        "idx_employee_scope_assignments_company_store_id");
     }
 
     @Test
@@ -259,6 +274,27 @@ class EmployeeScopeAssignmentSchemaMigrationIntegrationTest extends AbstractPost
                 UUID.randomUUID(),
                 fixtures.employeeId(),
                 fixtures.regionId());
+
+        assertThat(countAssignments(fixtures.employeeId())).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("the store level has its own constraint: an overlapping store assignment is refused")
+    void overlappingStoreAssignmentIsRefusedByItsOwnConstraint() {
+        var fixtures = fixtures();
+        insertStoreAssignment(
+                fixtures.employeeId(), fixtures.storeId(), LocalDate.of(2026, 1, 1), LocalDate.of(2026, 6, 30), true);
+
+        assertViolatesConstraint(
+                "ex_employee_scope_assignments_store_no_overlap",
+                """
+                INSERT INTO employee_scope_assignments
+                    (id, employee_id, company_store_id, valid_from, valid_to, enabled)
+                VALUES (?, ?, ?, DATE '2026-06-01', NULL, true)
+                """,
+                UUID.randomUUID(),
+                fixtures.employeeId(),
+                fixtures.storeId());
 
         assertThat(countAssignments(fixtures.employeeId())).isEqualTo(1);
     }
@@ -350,6 +386,23 @@ class EmployeeScopeAssignmentSchemaMigrationIntegrationTest extends AbstractPost
     }
 
     @Test
+    @DisplayName("a store row and a zone row of one employee never block each other, even on the same window")
+    void aStoreRowAndAZoneRowDoNotBlockEachOther() {
+        var fixtures = fixtures();
+        // The store row's chain already implies the zone, so this is the case where the two rows
+        // describe overlapping tenancy through different columns: the invariant is per (employee, node),
+        // and each level's exclusion constraint only looks at its own column.
+        insertZoneAssignment(
+                fixtures.employeeId(), fixtures.zoneId(), LocalDate.of(2026, 1, 1), LocalDate.of(2026, 12, 31), true);
+        insertStoreAssignment(
+                fixtures.employeeId(), fixtures.storeId(), LocalDate.of(2026, 1, 1), LocalDate.of(2026, 12, 31), true);
+
+        assertThat(countAssignments(fixtures.employeeId()))
+                .as("a zone assignment and a store assignment of the same employee are two legal rows")
+                .isEqualTo(2);
+    }
+
+    @Test
     @DisplayName("ck_employee_scope_assignments_one_node refuses zero nodes and two nodes")
     void oneNodeConstraintIsEnforced() {
         var fixtures = fixtures();
@@ -373,11 +426,28 @@ class EmployeeScopeAssignmentSchemaMigrationIntegrationTest extends AbstractPost
                 fixtures.companyCountryId(),
                 fixtures.zoneId());
 
+        // The fourth column joined the same CHECK in V32, so a store row plus a second node is refused
+        // exactly like any other two-node row: the level is the row's shape, and there is one of them.
+        assertViolatesConstraint(
+                "ck_employee_scope_assignments_one_node",
+                """
+                INSERT INTO employee_scope_assignments
+                    (id, employee_id, company_zone_id, company_store_id, valid_from, enabled)
+                VALUES (?, ?, ?, ?, DATE '2026-01-01', true)
+                """,
+                UUID.randomUUID(),
+                fixtures.employeeId(),
+                fixtures.zoneId(),
+                fixtures.storeId());
+
         assertThat(countAssignments(fixtures.employeeId())).isZero();
 
-        // The boundary: exactly one node is accepted, which is what makes the level the row's shape.
+        // The boundary: exactly one node is accepted, which is what makes the level the row's shape —
+        // and the store is one of the four it can be.
         insertZoneAssignment(fixtures.employeeId(), fixtures.zoneId(), LocalDate.of(2026, 1, 1), null, true);
         assertThat(countAssignments(fixtures.employeeId())).isEqualTo(1);
+        insertStoreAssignment(fixtures.employeeId(), fixtures.storeId(), LocalDate.of(2026, 1, 1), null, true);
+        assertThat(countAssignments(fixtures.employeeId())).isEqualTo(2);
     }
 
     @Test
@@ -448,6 +518,56 @@ class EmployeeScopeAssignmentSchemaMigrationIntegrationTest extends AbstractPost
                         .getCountry()
                         .getCountryName())
                 .isNotNull();
+    }
+
+    @Test
+    @DisplayName("the covering-date finder resolves a store row's chain down to the company name")
+    void coveringDateFinderResolvesAStoreRowChain() {
+        var fixtures = fixtures();
+        insertStoreAssignment(
+                fixtures.employeeId(), fixtures.storeId(), LocalDate.now().minusDays(10), null, true);
+
+        var covering = employeeScopeAssignmentRepository.findEnabledAssignmentsCoveringDate(
+                fixtures.employeeId(), LocalDate.now());
+
+        assertThat(covering).hasSize(1);
+        var row = covering.get(0);
+        // Read outside a transaction on purpose: these assertions only hold because the query's fetch
+        // graph walks the store chain, which is what the derivation reads on every request.
+        assertThat(row.getCompanyStore().getId()).isEqualTo(fixtures.storeId());
+        assertThat(row.getCompanyStore().getCompanyZone().getId()).isEqualTo(fixtures.zoneId());
+        assertThat(row.getCompanyStore().getCompanyZone().getCompanyRegion().getId())
+                .isEqualTo(fixtures.regionId());
+        assertThat(row.getCompanyStore()
+                        .getCompanyZone()
+                        .getCompanyRegion()
+                        .getCompanyCountry()
+                        .getCompany()
+                        .getCompanyName())
+                .isEqualTo("Employee Scope Assignment Schema Test Company");
+        assertThat(row.getCompanyStore()
+                        .getCompanyZone()
+                        .getCompanyRegion()
+                        .getCompanyCountry()
+                        .getCountry()
+                        .getCountryName())
+                .isNotNull();
+    }
+
+    @Test
+    @DisplayName("the predecessor finder matches a store id and stays node-scoped")
+    void predecessorFinderMatchesAStoreId() {
+        var fixtures = fixtures();
+        insertStoreAssignment(fixtures.employeeId(), fixtures.storeId(), LocalDate.of(2026, 1, 1), null, true);
+        insertStoreAssignment(fixtures.employeeId(), fixtures.otherStoreId(), LocalDate.of(2026, 1, 1), null, true);
+
+        var rows = employeeScopeAssignmentRepository.findEnabledAssignmentForNodeCoveringDate(
+                fixtures.employeeId(), fixtures.storeId(), LocalDate.of(2026, 3, 1));
+
+        // The one node finder compares the node id against all four columns, so it has to match the
+        // store column too — and only the requested store, never the employee's second one.
+        assertThat(rows).hasSize(1);
+        assertThat(rows.get(0).getCompanyStore().getId()).isEqualTo(fixtures.storeId());
     }
 
     @Test
@@ -527,12 +647,32 @@ class EmployeeScopeAssignmentSchemaMigrationIntegrationTest extends AbstractPost
         var region = findOrCreateRegion(companyCountry);
         var zone = findOrCreateZone(region, FIRST_ZONE_CODE, "Employee Scope Zone A");
         var otherZone = findOrCreateZone(region, SECOND_ZONE_CODE, "Employee Scope Zone B");
+        var store = findOrCreateStore(zone, STORE_NAME);
+        var otherStore = findOrCreateStore(otherZone, SECOND_STORE_NAME);
 
         var statusId = activeEmployeeStatusId();
         var n = sequence.incrementAndGet();
         var employeeId =
                 insertEmployee(company.getId(), statusId, "EMP-SCOPE-" + n, "scope.employee" + n + "@example.com");
-        return new Fixtures(employeeId, companyCountry.getId(), region.getId(), zone.getId(), otherZone.getId());
+        return new Fixtures(
+                employeeId,
+                companyCountry.getId(),
+                region.getId(),
+                zone.getId(),
+                otherZone.getId(),
+                store.getId(),
+                otherStore.getId());
+    }
+
+    private CompanyStore findOrCreateStore(CompanyZone zone, String storeName) {
+        return companyStoreRepository.findByCompanyZoneId(zone.getId()).stream()
+                .filter(candidate -> storeName.equals(candidate.getStoreName()))
+                .findFirst()
+                .orElseGet(() -> companyStoreRepository.save(CompanyStore.builder()
+                        .companyZone(zone)
+                        .storeName(storeName)
+                        .enabled(true)
+                        .build()));
     }
 
     private CompanyRegion findOrCreateRegion(CompanyCountry companyCountry) {
@@ -614,6 +754,25 @@ class EmployeeScopeAssignmentSchemaMigrationIntegrationTest extends AbstractPost
         return id;
     }
 
+    private UUID insertStoreAssignment(
+            UUID employeeId, UUID storeId, LocalDate validFrom, LocalDate validTo, boolean enabled) {
+        var id = UUID.randomUUID();
+        if (validTo == null) {
+            jdbcTemplate.update("""
+                    INSERT INTO employee_scope_assignments
+                        (id, employee_id, company_store_id, valid_from, enabled)
+                    VALUES (?, ?, ?, ?, ?)
+                    """, id, employeeId, storeId, validFrom, enabled);
+        } else {
+            jdbcTemplate.update("""
+                    INSERT INTO employee_scope_assignments
+                        (id, employee_id, company_store_id, valid_from, valid_to, enabled)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """, id, employeeId, storeId, validFrom, validTo, enabled);
+        }
+        return id;
+    }
+
     /** Scoped count: {@code employee_scope_assignments} rows of one employee, never the whole table. */
     private int countAssignments(UUID employeeId) {
         return jdbcTemplate.queryForObject(
@@ -639,5 +798,12 @@ class EmployeeScopeAssignmentSchemaMigrationIntegrationTest extends AbstractPost
 
     private record ConstraintType(String name, String type) {}
 
-    private record Fixtures(UUID employeeId, UUID companyCountryId, UUID regionId, UUID zoneId, UUID otherZoneId) {}
+    private record Fixtures(
+            UUID employeeId,
+            UUID companyCountryId,
+            UUID regionId,
+            UUID zoneId,
+            UUID otherZoneId,
+            UUID storeId,
+            UUID otherStoreId) {}
 }
