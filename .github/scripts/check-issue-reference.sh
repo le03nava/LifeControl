@@ -27,6 +27,36 @@
 # `close`, `closes`, `closed`, `fix`, `fixes`, `fixed`, `resolve`, `resolves`, `resolved` —
 # because a contributor who writes `Fix #12` means exactly what `Closes #12` means.
 #
+# A chain has a moment the two rules above do not cover, and it is the one a chain actually
+# reaches: a slice is opened against its parent with `Refs`, and is RETARGETED to the default
+# branch before it can merge. There the `Refs` is rejected as a missing closing keyword, and the
+# closing keyword it is told to use closes an issue the later slices still need open — measured on
+# the nine-slice chain of issue #572, where the merge of the first slice closed the mandate with
+# eight slices still open and the issue had to be reopened seven times, each time rewriting a
+# slice's reference (issue #598). So on the default branch a `Refs` is accepted when the body
+# declares the chain: `Part of a chain: #N`, on its own line, naming the issue the `Refs` names.
+#
+# The declaration is deliberately narrow, because it relaxes a merge gate:
+#   - number-scoped — it names one issue, and the same number must be one this body references.
+#     Any weaker form would let one declaration unlock every reference in the body;
+#   - a line of its own — the marker is anchored to the start of a line, so a sentence that
+#     happens to contain the phrase ("the migration is part of a chain #12 of refactors") declares
+#     nothing. Independent verification of #598 measured the unanchored version accepting exactly
+#     that sentence;
+#   - the documented form and nothing wider — the colon is required and the line may be indented by
+#     at most three spaces, because four make it a Markdown code block and a code block is
+#     documentation. The risk lens of the native review of #598 raised this as
+#     `R1-CHAIN-DECL-BYPASS`: `Part of a chain #12` and an indented block line both unlocked the
+#     gate while `CONTRIBUTING.md` promised the marker with a colon, on a line of its own;
+#   - prose only — it is read after fenced blocks and inline code spans are stripped, so a pull
+#     request that documents this gate does not declare itself a chain slice;
+#   - relax-only — off the default branch `Refs #N` was already legal and the declaration is
+#     ignored, and beside a closing keyword it changes nothing. A body carrying only the
+#     declaration still fails: naming an issue is not linking it.
+# The rules a slice must still satisfy are untouched: the issue has to be open and carry
+# `status:approved`, and the closing keyword, the pull-request, cross-repository and unreadable
+# input verdicts are decided exactly as they were before the declaration existed.
+#
 # Each keyword must start a word. Without that boundary the pattern matches `fix` inside `prefix`,
 # `resolve` inside `unresolved` and `close` inside `enclosed`, so a body saying "unresolved #12"
 # reads as a closing reference: it blocks a valid pull request when #12 is not approved, and it
@@ -200,6 +230,11 @@ fi
 
 closing_numbers=""
 ref_numbers=""
+chain_numbers=""
+# The declaration that satisfied the default-branch verdict, empty until that verdict runs: the
+# approval check reads it, and off the default branch it is never set, which is what makes the
+# declaration relax-only.
+chain_declared=""
 
 while IFS= read -r match; do
 	[ -n "$match" ] || continue
@@ -224,15 +259,44 @@ while IFS= read -r match; do
 	ref_numbers="$ref_numbers $number"
 done < <(printf '%s' "$scan_body" | grep -oiE '(^|[^[:alnum:]_])refs[[:space:]]*:?[[:space:]]*#[0-9]+' || true)
 
+# The chain declaration, collected on its own so the default-branch verdict can be relaxed by it
+# without making it a reference: it is not printed by --print-refs and it does not satisfy the gate
+# on its own. A declaration naming a number the body does not reference is answered by the verdict
+# below, not here — off the default branch it decides nothing, so it cannot block a slice.
+while IFS= read -r match; do
+	[ -n "$match" ] || continue
+	number="$(printf '%s' "$match" | tr -cd '0-9')"
+	[ -n "$number" ] || continue
+	case " $chain_numbers " in
+	*" $number "*) continue ;;
+	esac
+	chain_numbers="$chain_numbers $number"
+done < <(printf '%s' "$scan_body" | grep -oiE '^[ ]{0,3}part[[:space:]]+of[[:space:]]+a[[:space:]]+chain[[:space:]]*:[[:space:]]*#[0-9]+' || true)
+
 if [ -z "$closing_numbers" ] && [ -z "$ref_numbers" ]; then
 	printf 'FAIL: no issue reference in the pull request body; add a closing keyword (Closes #N, or the close/closed, fix/fixed, resolve/resolved forms) or Refs #N off the default branch\n' >&2
 	exit 1
 fi
 
 if [ "$base_branch" = "$default_branch" ] && [ -z "$closing_numbers" ]; then
-	printf 'FAIL: this pull request targets the default branch %s: a closing reference (Closes #N and the close/closed, fix/fixed, resolve/resolved forms) is required, because GitHub ignores closing keywords on any other base\n' \
-		"'$base_branch'" >&2
-	exit 1
+	# A mid-chain slice: the declaration has to name the issue its `Refs` names. Numbers are the
+	# only thing compared, so the surrounding prose stays the author's.
+	for number in $chain_numbers; do
+		case " $ref_numbers " in
+		*" $number "*) chain_declared="$number" ;;
+		esac
+	done
+
+	if [ -z "$chain_declared" ]; then
+		if [ -n "$chain_numbers" ]; then
+			printf 'FAIL: the chain declaration names #%s, which this pull request does not reference; a mid-chain slice declares the issue its Refs #N names, in the documented form and starting a line of its own: "Part of a chain: #N"\n' \
+				"$(printf '%s' "$chain_numbers" | sed -e 's/^ *//' -e 's/ .*//')" >&2
+			exit 1
+		fi
+		printf 'FAIL: this pull request targets the default branch %s: a closing reference (Closes #N and the close/closed, fix/fixed, resolve/resolved forms) is required, or, when it is not the last slice of a chain, a chain declaration starting a line of its own and naming the same issue ("Part of a chain: #N") beside its Refs #N. Only the last slice of a chain carries the closing keyword, because the issue has to stay open until it lands.\n' \
+			"'$base_branch'" >&2
+		exit 1
+	fi
 fi
 
 # Every number this script accepts is one the caller had to fetch; mode 1 is that list.
@@ -338,10 +402,14 @@ while IFS=$'\t' read -r number kind state labels; do
 		continue
 	fi
 
-	# On the default branch the approved issue must be the one the closing keyword names;
-	# off it, a `Refs #N` to the approved issue is enough.
+	# On the default branch the approved issue must be the one a closing keyword names, or the
+	# one a chain declaration names beside a `Refs`; off it, a `Refs #N` to the approved issue is
+	# enough. `chain_declared` is empty unless this branch is the default one.
 	if [ "$base_branch" = "$default_branch" ]; then
 		case " $closing_numbers " in
+		*" $number "*) approved_number="$number" ;;
+		esac
+		case " $chain_declared " in
 		*" $number "*) approved_number="$number" ;;
 		esac
 	else

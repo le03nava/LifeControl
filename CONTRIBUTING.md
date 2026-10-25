@@ -23,11 +23,37 @@ Link the issue from the pull request body (`.github/PULL_REQUEST_TEMPLATE.md`):
   interprets closing keywords only against the default branch, so a `Closes` on a child slice would
   reference the issue without ever closing it.
 
+**Only the last slice of a chain carries the closing keyword.** Every earlier slice keeps
+`Refs #123` and adds a declaration on a line of its own — the line has to start with the marker,
+and the colon is part of it — naming the same issue:
+
+```text
+Part of a chain: #123
+```
+
+The declaration is what keeps the reference legal at the step every chain actually goes through: a
+slice is opened against its parent with `Refs`, and **retargeted to the default branch** before it can
+merge. There a bare `Refs` is rejected as a missing closing keyword, and the closing keyword would
+close an issue the later slices still need open — the failure measured on the nine-slice chain that
+landed as #582-#590 (issue #572), where merging the first slice closed the mandate with eight slices
+still open and the issue had to be reopened once per remaining slice. With the declaration the slice
+is retargeted and merged in order, and the issue stays open until the last slice lands and closes it.
+
+The declaration is narrow on purpose, because it relaxes a merge gate: it is accepted only when the
+number it names is one the same body references, only in the documented form and starting a line of
+its own (a sentence that happens to contain the phrase declares nothing, and four leading spaces make
+it a Markdown code block, which is documentation), only in prose (a quoted or fenced declaration is
+documentation, not a declaration), and only on the default branch — off it `Refs` was already legal
+and the declaration decides nothing. It relaxes the keyword rule and nothing else: the issue must
+still be open and carry `status:approved`, and a body carrying only the declaration still fails,
+because naming an issue is not linking it.
+
 `.github/workflows/pr-label-guard.yml` enforces this for every pull request. Its `A linked, approved
 issue` job fails when the body has no usable reference, or references a closed issue, a pull request,
-another repository, or an issue without `status:approved`. The rules live in
-`.github/scripts/check-issue-reference.sh`; the guard's own failure modes are covered offline by
-`.github/scripts/tests/check-issue-reference.test.sh`.
+another repository, or an issue without `status:approved`. A `Refs #123` on the default branch fails
+too unless the body declares the chain with `Part of a chain: #123`, and the message names both ways
+out. The rules live in `.github/scripts/check-issue-reference.sh`; the guard's own failure modes are
+covered offline by `.github/scripts/tests/check-issue-reference.test.sh`.
 
 ## 2. One `type:*` label per pull request
 

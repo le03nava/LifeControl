@@ -13,7 +13,17 @@ unticked box that later gets ticked without evidence is a false attestation.
 
 ## Linked Issue (REQUIRED)
 
-<!-- The issue MUST carry the `status:approved` label before the PR is opened. -->
+<!--
+The issue MUST carry the `status:approved` label before the PR is opened.
+
+The last slice of a chain, and an ordinary pull request, use a closing keyword: `Closes #`.
+A slice that is NOT the last one keeps `Refs #` and adds, on its own line, the chain
+declaration `Part of a chain: #` naming the same issue. Only the last slice carries the
+closing keyword, because the issue has to stay open until it lands, and the declaration is
+what keeps the reference valid once the slice is retargeted to the default branch.
+`CONTRIBUTING.md` §1 states the rule; `references/pr-chains.md` states the states a slice
+passes through.
+-->
 
 Closes #
 
