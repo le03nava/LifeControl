@@ -87,20 +87,20 @@ section would be a claim rather than a correction (L8).
 
 | ID | Task | Specs | Route | Commit |
 | --- | --- | --- | --- | --- |
-| T1 | `V32__employee_scope_assignments_store_level.sql`: `company_store_id` + FK, four-node `num_nonnulls` check, fourth per-level exclusion constraint, index, backfill with a fail-closed row-count guard | S2, S6 | inline | `1ba0eee2` |
-| T2 | `EmployeeScopeAssignment` entity `companyStore`, store-aware repository finders | S2, S5 | inline | `1ba0eee2` |
-| T3 | `ScopeAssignmentRequest.companyStoreId`; resolve/close/`levelOf`/`nodeName`/response for the store level | S2, S7 | inline | `2103c707` |
-| T4 | `ScopeAssignmentDerivation` emits `companyStoreIds` for a `STORE` row from its full chain, and the union folds to this one source | S2, S5 | inline | `2103c707` |
-| T5 | Store surface as a façade over the scope table (`/store-assignments` unchanged) and `ProfileService` reading it | S8, S10 | inline | `e536d3cd` |
-| T6 | Backend tests: migration schema, derivation per level, service create/close/overlap, controller gate, profile | S5, S6, S8, S10 | inline | `1ba0eee2` `2103c707` `e536d3cd` |
-| T7 | Frontend models and service: five-level model, store payload, one row shape for the merged table | S2, S3 | inline | `e57802c2` |
-| T8 | Merged presentational section: `Nivel` column, derived `Empresa` root row, one CTA, empty state that explains scope ≠ permission | S1, S3, S4 | inline | `e57802c2` |
-| T9 | One assign dialog: level selector plus the four cascades | S7 | inline | `e57802c2` |
-| T10 | `employee-detail`: one tab, one read, `?tab=tiendas` compatibility, partial-activation copy | S1, S9 | inline | `e57802c2` |
-| T11 | `contract-dialog` through the scope service; delete the store section, dialog, service and models | S1, S9 | inline | `e57802c2` |
-| T12 | Cleanup: `V33` drops `employee_store_assignments`, delete the store entity/repository/service/controller/DTOs, `StoreScopeDerivation` and the union | S2, S5, S8 | inline | `3bf16b24` |
-| T13 | Docs and this record | S11 | inline | `this commit` |
-| T14 | Restore the two coverage rules the retired suites had and nothing covered after them (a store row whose chain does not resolve; the store level over HTTP), plus the disabled-duplicate backfill case and the store create/close service cases | S2, S5, S6, S7 | inline | `this commit` |
+| T1 | `V32__employee_scope_assignments_store_level.sql`: `company_store_id` + FK, four-node `num_nonnulls` check, fourth per-level exclusion constraint, index, backfill with a fail-closed row-count guard | S2, S6 | inline | `f5f88158` |
+| T2 | `EmployeeScopeAssignment` entity `companyStore`, store-aware repository finders | S2, S5 | inline | `f5f88158` |
+| T3 | `ScopeAssignmentRequest.companyStoreId`; resolve/close/`levelOf`/`nodeName`/response for the store level | S2, S7 | inline | `cc327ad0` |
+| T4 | `ScopeAssignmentDerivation` emits `companyStoreIds` for a `STORE` row from its full chain, and the union folds to this one source | S2, S5 | inline | `cc327ad0` |
+| T5 | Store surface as a façade over the scope table (`/store-assignments` unchanged) and `ProfileService` reading it | S8, S10 | inline | `f40f8bbc` |
+| T6 | Backend tests: migration schema, derivation per level, service create/close/overlap, controller gate, profile | S5, S6, S8, S10 | inline | `f5f88158` `cc327ad0` `f40f8bbc` |
+| T7 | Frontend models and service: five-level model, store payload, one row shape for the merged table | S2, S3 | inline | `84bfa165` |
+| T8 | Merged presentational section: `Nivel` column, derived `Empresa` root row, one CTA, empty state that explains scope ≠ permission | S1, S3, S4 | inline | `84bfa165` |
+| T9 | One assign dialog: level selector plus the four cascades | S7 | inline | `84bfa165` |
+| T10 | `employee-detail`: one tab, one read, `?tab=tiendas` compatibility, partial-activation copy | S1, S9 | inline | `84bfa165` |
+| T11 | `contract-dialog` through the scope service; delete the store section, dialog, service and models | S1, S9 | inline | `84bfa165` |
+| T12 | Cleanup: `V33` drops `employee_store_assignments`, delete the store entity/repository/service/controller/DTOs, `StoreScopeDerivation` and the union | S2, S5, S8 | inline | `682c2992` |
+| T13 | Docs and this record | S11 | inline | `86a76451` |
+| T14 | Restore the two coverage rules the retired suites had and nothing covered after them (a store row whose chain does not resolve; the store level over HTTP), plus the disabled-duplicate backfill case and the store create/close service cases | S2, S5, S6, S7 | inline | `efba64a7` |
 
 **Invariants carried, not invented**: exactly one `company_id` in the derivation; a row contributes
 only while enabled and covering today; a chain that does not resolve contributes nothing; an empty
@@ -131,10 +131,10 @@ consequence of `scope-assignments-per-level` L8).
 
 - **L5** — decision, delivery: the change is cut into three slices and three chained PRs, each one
   deployable on its own, because the whole unit is far past the review budget. **Slice 1** (backend,
-  `1ba0eee2` + `2103c707` + `e536d3cd`) makes the store a level of the scope table while
+  `f5f88158` + `cc327ad0` + `f40f8bbc`) makes the store a level of the scope table while
   `/store-assignments` keeps answering as a façade, so `main` deploys with the app it has. **Slice 2**
-  (frontend, `e57802c2`) merges the tab and stops calling the façade. **Slice 3** (cleanup,
-  `3bf16b24`) drops the old table and the retired stack, which is only safe after slice 2 merged.
+  (frontend, `84bfa165`) merges the tab and stops calling the façade. **Slice 3** (cleanup,
+  `682c2992`) drops the old table and the retired stack, which is only safe after slice 2 merged.
   Inverting slices 1 and 3 would leave `main` with an app calling a route that no longer exists —
   this stack is deployed as a whole.
 - **L6** — evidence, the checks that were actually run. Backend: `./gradlew test` → **3911 tests, 0
@@ -170,3 +170,13 @@ consequence of `scope-assignments-per-level` L8).
   Final counts after T14: backend `./gradlew test --tests 'com.lifecontrol.api.hr.*' --tests
   'com.lifecontrol.api.profile.*' --tests 'com.lifecontrol.api.provisioning.*'` → 1090 tests, 0
   failures, and `./gradlew spotlessCheck` → clean.
+- **L10** — the branch was rebased onto `origin/main` after PR #616 merged
+  (`fix/purchases`: a line price with more than two decimals, no migration involved), so every commit
+  citation in this record is the hash the branch carries **now**, not the one it was written with. The
+  rebase touched no file of this unit and every check was re-run afterwards rather than assumed to
+  still hold: `./gradlew test spotlessCheck` on the new base → **3940 tests, 0 failures, 0 errors, 0
+  skipped**, spotless clean. That count is higher than L6's 3911 for two honest reasons — `T14` added
+  tests to this unit, and the merged purchases change added its own — so neither number contradicts the
+  other; each is the measurement of the tree it was taken on. The frontend tree is byte-identical
+  across the rebase (no incoming commit touched `life-control-app-angular/`), so its 192-file run and
+  the lint/build results stand unchanged.
