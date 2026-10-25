@@ -14,13 +14,20 @@ import com.lifecontrol.api.company.model.CompanyCountry;
 import com.lifecontrol.api.company.model.CompanyRegion;
 import com.lifecontrol.api.company.model.CompanyZone;
 import com.lifecontrol.api.inventory.exception.StoreInventorySettingsNotFoundException;
+import com.lifecontrol.api.inventory.repository.InventoryMovementRepository;
 import com.lifecontrol.api.inventory.service.InventoryService;
+import com.lifecontrol.api.measureunit.exception.MeasureUnitNotFoundException;
+import com.lifecontrol.api.measureunit.model.MeasureUnit;
+import com.lifecontrol.api.measureunit.model.MeasureUnitType;
+import com.lifecontrol.api.measureunit.repository.MeasureUnitRepository;
 import com.lifecontrol.api.product.dto.ProductVariantRequest;
 import com.lifecontrol.api.product.dto.ProductVariantResponse;
 import com.lifecontrol.api.product.dto.ProductVariantSearchResponse;
 import com.lifecontrol.api.product.dto.ProductVariantStoreStockRequest;
 import com.lifecontrol.api.product.dto.ProductVariantStoreStockResponse;
 import com.lifecontrol.api.product.exception.DuplicateProductVariantException;
+import com.lifecontrol.api.product.exception.MeasureUnitChangeNotAllowedException;
+import com.lifecontrol.api.product.exception.MeasureUnitTypeMismatchException;
 import com.lifecontrol.api.product.exception.ProductNotFoundException;
 import com.lifecontrol.api.product.exception.ProductVariantNotFoundException;
 import com.lifecontrol.api.product.model.Product;
@@ -42,6 +49,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -72,6 +80,12 @@ class ProductVariantServiceTest {
     @Mock
     private InventoryService inventoryService;
 
+    @Mock
+    private MeasureUnitRepository measureUnitRepository;
+
+    @Mock
+    private InventoryMovementRepository inventoryMovementRepository;
+
     private UUID companyId;
     private UUID companyCountryId;
     private UUID regionId;
@@ -87,6 +101,13 @@ class ProductVariantServiceTest {
     private Product testProduct;
     private ProductVariant testVariant;
     private ProductVariantRequest testVariantRequest;
+
+    private UUID pieceUnitId;
+    private UUID kilogramUnitId;
+    private UUID serviceUnitId;
+    private MeasureUnit pieceUnit;
+    private MeasureUnit kilogramUnit;
+    private MeasureUnit serviceUnit;
 
     @BeforeEach
     void setUp() {
@@ -112,7 +133,37 @@ class ProductVariantServiceTest {
                 .updatedAt(now)
                 .build();
 
-        testVariantRequest = new ProductVariantRequest("7501234567890", "Talla M");
+        testVariantRequest = new ProductVariantRequest("7501234567890", "Talla M", null);
+
+        // The catalog: two PRODUCT units (so a same-type unit -> unit transition is expressible) and
+        // one SERVICE unit (the only one the D4 guard can contradict at the type level).
+        pieceUnitId = UUID.randomUUID();
+        kilogramUnitId = UUID.randomUUID();
+        serviceUnitId = UUID.randomUUID();
+        pieceUnit = MeasureUnit.builder()
+                .id(pieceUnitId)
+                .measureUnitName("Pieza")
+                .measureUnitShortName("Pza")
+                .unitType(MeasureUnitType.PRODUCT)
+                .satCode("H87")
+                .enabled(true)
+                .build();
+        kilogramUnit = MeasureUnit.builder()
+                .id(kilogramUnitId)
+                .measureUnitName("Kilogramo")
+                .measureUnitShortName("Kg")
+                .unitType(MeasureUnitType.PRODUCT)
+                .satCode("KGM")
+                .enabled(true)
+                .build();
+        serviceUnit = MeasureUnit.builder()
+                .id(serviceUnitId)
+                .measureUnitName("Servicio")
+                .measureUnitShortName("Serv")
+                .unitType(MeasureUnitType.SERVICE)
+                .satCode("E48")
+                .enabled(true)
+                .build();
 
         companyId = UUID.randomUUID();
         companyCountryId = UUID.randomUUID();
@@ -219,7 +270,8 @@ class ProductVariantServiceTest {
                     new BigDecimal("50.00"),
                     true,
                     testVariant.getCreatedAt(),
-                    testVariant.getUpdatedAt());
+                    testVariant.getUpdatedAt(),
+                    null);
             var expectedPage = new PageImpl<>(List.of(storeResponse), pageable, 1);
 
             when(productRepository.findById(productId)).thenReturn(Optional.of(testProduct));
@@ -544,7 +596,7 @@ class ProductVariantServiceTest {
         @Test
         @DisplayName("should update the definition and return the response")
         void updateVariant_Success() {
-            var updateRequest = new ProductVariantRequest("7509876543210", "Talla L");
+            var updateRequest = new ProductVariantRequest("7509876543210", "Talla L", null);
 
             when(productRepository.findById(productId)).thenReturn(Optional.of(testProduct));
             when(productVariantRepository.findById(variantId)).thenReturn(Optional.of(testVariant));
@@ -615,7 +667,7 @@ class ProductVariantServiceTest {
         @Test
         @DisplayName("should throw DuplicateProductVariantException when changing to an existing barCode")
         void updateVariant_DuplicateBarCode_ThrowsException() {
-            var updateRequest = new ProductVariantRequest("7509876543210", "Talla M");
+            var updateRequest = new ProductVariantRequest("7509876543210", "Talla M", null);
 
             when(productRepository.findById(productId)).thenReturn(Optional.of(testProduct));
             when(productVariantRepository.findById(variantId)).thenReturn(Optional.of(testVariant));
@@ -639,7 +691,7 @@ class ProductVariantServiceTest {
             when(productVariantRepository.save(any(ProductVariant.class))).thenAnswer(inv -> inv.getArgument(0));
 
             productVariantService.updateVariant(
-                    productId, variantId, new ProductVariantRequest("7501234567890", "Talla L"));
+                    productId, variantId, new ProductVariantRequest("7501234567890", "Talla L", null));
 
             verify(productVariantRepository, never()).existsByBarCodeAndIdNot(any(), any());
         }
@@ -1062,6 +1114,287 @@ class ProductVariantServiceTest {
             assertThat(result.getNumber()).isEqualTo(1);
             assertThat(result.getSize()).isEqualTo(5);
             verify(productVariantRepository).searchByQuery(query, companyStoreId, pageable);
+        }
+    }
+
+    // ─────────────────────────────────────────────
+    // measure unit (D1 relation + D3/D4 guards)
+    // ─────────────────────────────────────────────
+    @Nested
+    @DisplayName("measure unit")
+    class MeasureUnitTests {
+
+        @Test
+        @DisplayName("should persist the unit on create and return it")
+        void createVariant_WithEnabledUnit_PersistsAndReturnsIt() {
+            stubCreateGates();
+            when(measureUnitRepository.findById(pieceUnitId)).thenReturn(Optional.of(pieceUnit));
+            when(productVariantRepository.findUsedMeasureUnitTypesByProductId(productId))
+                    .thenReturn(List.of());
+            var captor = ArgumentCaptor.forClass(ProductVariant.class);
+
+            var result = productVariantService.createVariant(
+                    productId, new ProductVariantRequest("7501234567890", "Talla M", pieceUnitId));
+
+            assertThat(result.measureUnitId()).isEqualTo(pieceUnitId);
+            verify(productVariantRepository).save(captor.capture());
+            assertThat(captor.getValue().getMeasureUnitId()).isEqualTo(pieceUnitId);
+        }
+
+        @Test
+        @DisplayName("should keep the variant unitless when the request omits the unit")
+        void createVariant_WithoutUnit_KeepsPreviousBehavior() {
+            stubCreateGates();
+
+            var result = productVariantService.createVariant(
+                    productId, new ProductVariantRequest("7501234567890", "Talla M", null));
+
+            assertThat(result.measureUnitId()).isNull();
+            // No unit was named, so neither the catalog nor the D4 query is read (S7).
+            verify(measureUnitRepository, never()).findById(any());
+            verify(productVariantRepository, never()).findUsedMeasureUnitTypesByProductId(any());
+        }
+
+        @Test
+        @DisplayName("should reject an unknown unit with 404 and write nothing")
+        void createVariant_UnknownUnit_ThrowsNotFound() {
+            when(productRepository.findById(productId)).thenReturn(Optional.of(testProduct));
+            when(measureUnitRepository.findById(pieceUnitId)).thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> productVariantService.createVariant(
+                            productId, new ProductVariantRequest("7501234567890", "Talla M", pieceUnitId)))
+                    .isInstanceOf(MeasureUnitNotFoundException.class)
+                    .hasMessageContaining("Measure unit not found with id");
+
+            verify(productVariantRepository, never()).save(any(ProductVariant.class));
+        }
+
+        @Test
+        @DisplayName("should reject a disabled unit with 400 and write nothing")
+        void createVariant_DisabledUnit_Throws400() {
+            var disabledUnit = MeasureUnit.builder()
+                    .id(pieceUnitId)
+                    .measureUnitName("Pieza")
+                    .measureUnitShortName("Pza")
+                    .unitType(MeasureUnitType.PRODUCT)
+                    .satCode("H87")
+                    .enabled(false)
+                    .build();
+            when(productRepository.findById(productId)).thenReturn(Optional.of(testProduct));
+            when(measureUnitRepository.findById(pieceUnitId)).thenReturn(Optional.of(disabledUnit));
+
+            assertThatThrownBy(() -> productVariantService.createVariant(
+                            productId, new ProductVariantRequest("7501234567890", "Talla M", pieceUnitId)))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("Measure unit is disabled")
+                    .hasMessageContaining("Pza");
+
+            verify(productVariantRepository, never()).findUsedMeasureUnitTypesByProductId(any());
+            verify(productVariantRepository, never()).save(any(ProductVariant.class));
+        }
+
+        @Test
+        @DisplayName("should reject a unit_type that contradicts the product's other variants with 400")
+        void createVariant_UnitTypeMismatch_Throws400() {
+            when(productRepository.findById(productId)).thenReturn(Optional.of(testProduct));
+            when(measureUnitRepository.findById(pieceUnitId)).thenReturn(Optional.of(pieceUnit));
+            when(productVariantRepository.findUsedMeasureUnitTypesByProductId(productId))
+                    .thenReturn(List.of(MeasureUnitType.SERVICE));
+
+            assertThatThrownBy(() -> productVariantService.createVariant(
+                            productId, new ProductVariantRequest("7501234567890", "Talla M", pieceUnitId)))
+                    .isInstanceOf(MeasureUnitTypeMismatchException.class)
+                    .hasMessageContaining("already uses measure units of type SERVICE")
+                    .hasMessageContaining("cannot use a measure unit of type PRODUCT");
+
+            verify(productVariantRepository, never()).save(any(ProductVariant.class));
+        }
+
+        @Test
+        @DisplayName("should accept the first declaration even with stock, without probing quantity")
+        void updateVariant_FirstDeclarationWithStock_IsAllowed() {
+            when(productRepository.findById(productId)).thenReturn(Optional.of(testProduct));
+            when(productVariantRepository.findById(variantId)).thenReturn(Optional.of(testVariant));
+            when(measureUnitRepository.findById(pieceUnitId)).thenReturn(Optional.of(pieceUnit));
+            when(productVariantRepository.findUsedMeasureUnitTypesByProductIdExcludingVariantId(productId, variantId))
+                    .thenReturn(List.of(MeasureUnitType.PRODUCT));
+            when(productVariantRepository.save(any(ProductVariant.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            var result = productVariantService.updateVariant(
+                    productId, variantId, new ProductVariantRequest("7501234567890", "Talla M", pieceUnitId));
+
+            assertThat(result.measureUnitId()).isEqualTo(pieceUnitId);
+            assertThat(testVariant.getMeasureUnitId()).isEqualTo(pieceUnitId);
+            // null -> unit reinterprets nothing, so the quantity probes are never consulted.
+            verify(productVariantStoreStockRepository, never()).existsByProductVariantIdAndStockNot(any(), any());
+            verify(inventoryMovementRepository, never()).existsByProductVariantId(any());
+        }
+
+        @Test
+        @DisplayName("should reject unit -> unit while a store holds stock, leaving the variant untouched")
+        void updateVariant_ChangeWithStock_IsRejected() {
+            testVariant.setMeasureUnitId(pieceUnitId);
+            when(productRepository.findById(productId)).thenReturn(Optional.of(testProduct));
+            when(productVariantRepository.findById(variantId)).thenReturn(Optional.of(testVariant));
+            when(measureUnitRepository.findById(kilogramUnitId)).thenReturn(Optional.of(kilogramUnit));
+            when(productVariantRepository.findUsedMeasureUnitTypesByProductIdExcludingVariantId(productId, variantId))
+                    .thenReturn(List.of(MeasureUnitType.PRODUCT));
+            when(productVariantStoreStockRepository.existsByProductVariantIdAndStockNot(variantId, BigDecimal.ZERO))
+                    .thenReturn(true);
+
+            assertThatThrownBy(() -> productVariantService.updateVariant(
+                            productId,
+                            variantId,
+                            new ProductVariantRequest("7501234567890", "Talla M", kilogramUnitId)))
+                    .isInstanceOf(MeasureUnitChangeNotAllowedException.class)
+                    .hasMessageContaining("cannot be changed")
+                    .hasMessageContaining(variantId.toString());
+
+            assertThat(testVariant.getMeasureUnitId()).isEqualTo(pieceUnitId);
+            verify(productVariantRepository, never()).save(any(ProductVariant.class));
+        }
+
+        @Test
+        @DisplayName("should reject unit -> unit while the ledger holds a movement")
+        void updateVariant_ChangeWithMovement_IsRejected() {
+            testVariant.setMeasureUnitId(pieceUnitId);
+            when(productRepository.findById(productId)).thenReturn(Optional.of(testProduct));
+            when(productVariantRepository.findById(variantId)).thenReturn(Optional.of(testVariant));
+            when(measureUnitRepository.findById(kilogramUnitId)).thenReturn(Optional.of(kilogramUnit));
+            when(productVariantRepository.findUsedMeasureUnitTypesByProductIdExcludingVariantId(productId, variantId))
+                    .thenReturn(List.of(MeasureUnitType.PRODUCT));
+            when(productVariantStoreStockRepository.existsByProductVariantIdAndStockNot(variantId, BigDecimal.ZERO))
+                    .thenReturn(false);
+            when(inventoryMovementRepository.existsByProductVariantId(variantId))
+                    .thenReturn(true);
+
+            assertThatThrownBy(() -> productVariantService.updateVariant(
+                            productId,
+                            variantId,
+                            new ProductVariantRequest("7501234567890", "Talla M", kilogramUnitId)))
+                    .isInstanceOf(MeasureUnitChangeNotAllowedException.class)
+                    .hasMessageContaining("the inventory ledger already holds movements");
+
+            assertThat(testVariant.getMeasureUnitId()).isEqualTo(pieceUnitId);
+            verify(productVariantRepository, never()).save(any(ProductVariant.class));
+        }
+
+        @Test
+        @DisplayName("should allow unit -> unit when there is no stock and no movement")
+        void updateVariant_ChangeWithoutQuantityMeaning_IsAllowed() {
+            testVariant.setMeasureUnitId(pieceUnitId);
+            when(productRepository.findById(productId)).thenReturn(Optional.of(testProduct));
+            when(productVariantRepository.findById(variantId)).thenReturn(Optional.of(testVariant));
+            when(measureUnitRepository.findById(kilogramUnitId)).thenReturn(Optional.of(kilogramUnit));
+            when(productVariantRepository.findUsedMeasureUnitTypesByProductIdExcludingVariantId(productId, variantId))
+                    .thenReturn(List.of(MeasureUnitType.PRODUCT));
+            when(productVariantStoreStockRepository.existsByProductVariantIdAndStockNot(variantId, BigDecimal.ZERO))
+                    .thenReturn(false);
+            when(inventoryMovementRepository.existsByProductVariantId(variantId))
+                    .thenReturn(false);
+            when(productVariantRepository.save(any(ProductVariant.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            var result = productVariantService.updateVariant(
+                    productId, variantId, new ProductVariantRequest("7501234567890", "Talla M", kilogramUnitId));
+
+            assertThat(result.measureUnitId()).isEqualTo(kilogramUnitId);
+            assertThat(testVariant.getMeasureUnitId()).isEqualTo(kilogramUnitId);
+        }
+
+        @Test
+        @DisplayName("should reject unit -> null while a store holds stock")
+        void updateVariant_ClearUnitWithStock_IsRejected() {
+            testVariant.setMeasureUnitId(pieceUnitId);
+            when(productRepository.findById(productId)).thenReturn(Optional.of(testProduct));
+            when(productVariantRepository.findById(variantId)).thenReturn(Optional.of(testVariant));
+            when(productVariantStoreStockRepository.existsByProductVariantIdAndStockNot(variantId, BigDecimal.ZERO))
+                    .thenReturn(true);
+
+            assertThatThrownBy(() -> productVariantService.updateVariant(
+                            productId, variantId, new ProductVariantRequest("7501234567890", "Talla M", null)))
+                    .isInstanceOf(MeasureUnitChangeNotAllowedException.class)
+                    .hasMessageContaining("cannot be changed");
+
+            assertThat(testVariant.getMeasureUnitId()).isEqualTo(pieceUnitId);
+            verify(measureUnitRepository, never()).findById(any());
+            verify(productVariantRepository, never()).save(any(ProductVariant.class));
+        }
+
+        @Test
+        @DisplayName("should allow an unchanged unit without probing the quantity meaning")
+        void updateVariant_UnchangedUnit_IsAllowedWithoutProbes() {
+            testVariant.setMeasureUnitId(pieceUnitId);
+            when(productRepository.findById(productId)).thenReturn(Optional.of(testProduct));
+            when(productVariantRepository.findById(variantId)).thenReturn(Optional.of(testVariant));
+            when(measureUnitRepository.findById(pieceUnitId)).thenReturn(Optional.of(pieceUnit));
+            when(productVariantRepository.findUsedMeasureUnitTypesByProductIdExcludingVariantId(productId, variantId))
+                    .thenReturn(List.of(MeasureUnitType.PRODUCT));
+            when(productVariantRepository.save(any(ProductVariant.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            var result = productVariantService.updateVariant(
+                    productId, variantId, new ProductVariantRequest("7501234567890", "Talla M", pieceUnitId));
+
+            assertThat(result.measureUnitId()).isEqualTo(pieceUnitId);
+            verify(productVariantStoreStockRepository, never()).existsByProductVariantIdAndStockNot(any(), any());
+            verify(inventoryMovementRepository, never()).existsByProductVariantId(any());
+        }
+
+        @Test
+        @DisplayName("should report the 404 of an unknown unit before the 409 of a blocked change")
+        void updateVariant_UnknownUnitWithStock_ReportsNotFoundFirst() {
+            testVariant.setMeasureUnitId(pieceUnitId);
+            when(productRepository.findById(productId)).thenReturn(Optional.of(testProduct));
+            when(productVariantRepository.findById(variantId)).thenReturn(Optional.of(testVariant));
+            when(measureUnitRepository.findById(kilogramUnitId)).thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> productVariantService.updateVariant(
+                            productId,
+                            variantId,
+                            new ProductVariantRequest("7501234567890", "Talla M", kilogramUnitId)))
+                    .isInstanceOf(MeasureUnitNotFoundException.class);
+
+            // A request that is not even valid never reaches the state conflict.
+            verify(productVariantStoreStockRepository, never()).existsByProductVariantIdAndStockNot(any(), any());
+            verify(inventoryMovementRepository, never()).existsByProductVariantId(any());
+        }
+
+        @Test
+        @DisplayName("should exclude the variant being updated from the unit_type gate")
+        void updateVariant_TypeGateExcludesTheVariantItself() {
+            testVariant.setMeasureUnitId(pieceUnitId);
+            when(productRepository.findById(productId)).thenReturn(Optional.of(testProduct));
+            when(productVariantRepository.findById(variantId)).thenReturn(Optional.of(testVariant));
+            when(measureUnitRepository.findById(pieceUnitId)).thenReturn(Optional.of(pieceUnit));
+            when(productVariantRepository.findUsedMeasureUnitTypesByProductIdExcludingVariantId(productId, variantId))
+                    .thenReturn(List.of());
+            when(productVariantRepository.save(any(ProductVariant.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            productVariantService.updateVariant(
+                    productId, variantId, new ProductVariantRequest("7501234567890", "Talla M", pieceUnitId));
+
+            verify(productVariantRepository)
+                    .findUsedMeasureUnitTypesByProductIdExcludingVariantId(productId, variantId);
+            verify(productVariantRepository, never()).findUsedMeasureUnitTypesByProductId(any());
+        }
+
+        @Test
+        @DisplayName("should carry the unit id in the read projection")
+        void getVariant_CarriesMeasureUnitId() {
+            testVariant.setMeasureUnitId(pieceUnitId);
+            when(productRepository.findById(productId)).thenReturn(Optional.of(testProduct));
+            when(productVariantRepository.findById(variantId)).thenReturn(Optional.of(testVariant));
+
+            var result = productVariantService.getVariant(productId, variantId);
+
+            assertThat(result.measureUnitId()).isEqualTo(pieceUnitId);
+        }
+
+        private void stubCreateGates() {
+            when(productRepository.findById(productId)).thenReturn(Optional.of(testProduct));
+            when(productVariantRepository.existsByBarCode("7501234567890")).thenReturn(false);
+            when(productVariantRepository.existsByProductIdAndVariantName(productId, "Talla M"))
+                    .thenReturn(false);
+            when(productVariantRepository.save(any(ProductVariant.class))).thenAnswer(inv -> inv.getArgument(0));
         }
     }
 }

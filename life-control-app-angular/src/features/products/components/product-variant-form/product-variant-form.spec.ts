@@ -1,11 +1,46 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { FormControl, FormGroup, Validators } from '@angular/forms';
+import { By } from '@angular/platform-browser';
+import { MatSelect } from '@angular/material/select';
 import { ProductVariantForm, ProductVariantControl } from './product-variant-form';
-import { ProductVariantRequest } from '../../models/product-variant.models';
+import { MeasureUnit, ProductVariantRequest } from '../../models/product-variant.models';
 
 describe('ProductVariantForm', () => {
   let component: ProductVariantForm;
   let fixture: ComponentFixture<ProductVariantForm>;
+
+  const kilogram: MeasureUnit = {
+    id: 'mu-kg',
+    measureUnitName: 'Kilogramo',
+    measureUnitShortName: 'Kg',
+    unitType: 'PRODUCT',
+    satCode: 'KGM',
+    description: null,
+    enabled: true,
+    createdAt: '2026-01-01T00:00:00',
+    updatedAt: '2026-01-01T00:00:00',
+  };
+
+  const piece: MeasureUnit = {
+    id: 'mu-pza',
+    measureUnitName: 'Pieza',
+    measureUnitShortName: 'Pza',
+    unitType: 'PRODUCT',
+    satCode: 'H87',
+    description: null,
+    enabled: true,
+    createdAt: '2026-01-01T00:00:00',
+    updatedAt: '2026-01-01T00:00:00',
+  };
+
+  const serviceUnit: MeasureUnit = {
+    ...kilogram,
+    id: 'mu-service',
+    measureUnitName: 'Servicio',
+    measureUnitShortName: 'Serv',
+    unitType: 'SERVICE',
+    satCode: 'E48',
+  };
 
   function createFormGroup(): FormGroup<ProductVariantControl> {
     return new FormGroup<ProductVariantControl>({
@@ -17,7 +52,25 @@ describe('ProductVariantForm', () => {
         nonNullable: true,
         validators: [Validators.required, Validators.maxLength(255)],
       }),
+      measureUnitId: new FormControl<string | null>(null),
     });
+  }
+
+  function unitSelect(): MatSelect {
+    return fixture.debugElement.query(By.directive(MatSelect)).componentInstance as MatSelect;
+  }
+
+  /** Material renders the options lazily, so the panel is opened before reading them. */
+  function renderedOptionLabels(): string[] {
+    const select = unitSelect();
+    select.open();
+    fixture.detectChanges();
+    const labels = select.options.map((option) =>
+      (option.viewValue ?? '').replace(/\s+/g, ' ').trim(),
+    );
+    select.close();
+    fixture.detectChanges();
+    return labels;
   }
 
   beforeEach(async () => {
@@ -63,7 +116,11 @@ describe('ProductVariantForm', () => {
 
     expect(spy).toHaveBeenCalledTimes(1);
     const emitted = spy.mock.calls[0][0] as ProductVariantRequest;
-    expect(emitted).toEqual({ barCode: '7791234567890', variantName: 'Talla 38' });
+    expect(emitted).toEqual({
+      barCode: '7791234567890',
+      variantName: 'Talla 38',
+      measureUnitId: null,
+    });
   });
 
   it('should not emit saveVariant when the form is invalid', () => {
@@ -135,6 +192,7 @@ describe('ProductVariantForm', () => {
       expect(spy.mock.calls[0][0]).toEqual({
         barCode: '7791234567890',
         variantName: 'Talla 38',
+        measureUnitId: null,
       });
     });
 
@@ -181,6 +239,150 @@ describe('ProductVariantForm', () => {
 
       expect(submit.disabled).toBe(true);
       expect(addAnother.disabled).toBe(true);
+    });
+  });
+
+  describe('measure unit selector', () => {
+    it('should render the label of the control', () => {
+      expect(fixture.nativeElement.textContent).toContain('Unidad de medida');
+    });
+
+    it('should render the clearing option first, with a null value', () => {
+      fixture.componentRef.setInput('measureUnits', [kilogram, piece]);
+      fixture.detectChanges();
+
+      const select = unitSelect();
+      select.open();
+      fixture.detectChanges();
+
+      expect(select.options.length).toBe(3);
+      expect(select.options.first.value).toBeNull();
+      expect((select.options.first.viewValue ?? '').trim()).toBe('Sin unidad');
+
+      select.close();
+      fixture.detectChanges();
+    });
+
+    it('should render one option per catalog entry with its short and full name', () => {
+      fixture.componentRef.setInput('measureUnits', [kilogram, piece]);
+      fixture.detectChanges();
+
+      expect(renderedOptionLabels()).toEqual(['Sin unidad', 'Kg — Kilogramo', 'Pza — Pieza']);
+    });
+
+    it('should offer every catalog unit, whatever its unitType', () => {
+      fixture.componentRef.setInput('measureUnits', [kilogram, serviceUnit]);
+      fixture.detectChanges();
+
+      const select = unitSelect();
+      select.open();
+      fixture.detectChanges();
+
+      expect(select.options.toArray().map((option) => option.value)).toEqual([
+        null,
+        'mu-kg',
+        'mu-service',
+      ]);
+
+      select.close();
+      fixture.detectChanges();
+    });
+
+    it('should render only the clearing option when the catalog is empty', () => {
+      expect(renderedOptionLabels()).toEqual(['Sin unidad']);
+    });
+
+    it('should emit the chosen measureUnitId on save', () => {
+      const spy = vi.fn();
+      component.saveVariant.subscribe(spy);
+
+      fixture.componentRef.setInput('measureUnits', [kilogram, piece]);
+      fixture.detectChanges();
+      component.formGroup().patchValue({
+        barCode: '7791234567890',
+        variantName: 'Talla 38',
+        measureUnitId: 'mu-kg',
+      });
+      fixture.detectChanges();
+
+      component.onSave();
+
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(spy.mock.calls[0][0]).toEqual({
+        barCode: '7791234567890',
+        variantName: 'Talla 38',
+        measureUnitId: 'mu-kg',
+      });
+    });
+
+    it('should emit the chosen measureUnitId on save and add another', () => {
+      const spy = vi.fn();
+      component.saveVariantAndContinue.subscribe(spy);
+
+      component.formGroup().patchValue({
+        barCode: '7791234567890',
+        variantName: 'Talla 38',
+        measureUnitId: 'mu-pza',
+      });
+      fixture.detectChanges();
+
+      component.onSaveAndContinue();
+
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(spy.mock.calls[0][0]).toEqual({
+        barCode: '7791234567890',
+        variantName: 'Talla 38',
+        measureUnitId: 'mu-pza',
+      });
+    });
+
+    it('should clear the selection back to null through the clearing option', () => {
+      const spy = vi.fn();
+      component.saveVariant.subscribe(spy);
+
+      fixture.componentRef.setInput('measureUnits', [kilogram]);
+      fixture.detectChanges();
+      component.formGroup().patchValue({
+        barCode: '7791234567890',
+        variantName: 'Talla 38',
+        measureUnitId: 'mu-kg',
+      });
+      fixture.detectChanges();
+
+      const select = unitSelect();
+      select.open();
+      fixture.detectChanges();
+      const clearing = select.options.first;
+      clearing.select();
+      fixture.detectChanges();
+      select.close();
+      fixture.detectChanges();
+
+      expect(component.formGroup().controls.measureUnitId.value).toBeNull();
+
+      component.onSave();
+
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(spy.mock.calls[0][0]).toEqual({
+        barCode: '7791234567890',
+        variantName: 'Talla 38',
+        measureUnitId: null,
+      });
+    });
+
+    it('should stay valid with no unit selected: the field is optional', () => {
+      fixture.componentRef.setInput('measureUnits', [kilogram]);
+      fixture.detectChanges();
+      component.formGroup().patchValue({
+        barCode: '7791234567890',
+        variantName: 'Talla 38',
+        measureUnitId: null,
+      });
+      component.formGroup().markAllAsTouched();
+      fixture.detectChanges();
+
+      expect(component.formGroup().controls.measureUnitId.valid).toBe(true);
+      expect(fixture.nativeElement.querySelectorAll('mat-error').length).toBe(0);
     });
   });
 
