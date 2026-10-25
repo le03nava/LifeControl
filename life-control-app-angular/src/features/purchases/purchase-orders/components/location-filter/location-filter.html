@@ -1,0 +1,71 @@
+<div class="location-filter">
+  <mat-form-field appearance="outline" class="company-selector" subscriptSizing="dynamic">
+    <mat-label>Empresa</mat-label>
+    <mat-select
+      [value]="selectedCompany()"
+      [compareWith]="compareCompany"
+      (selectionChange)="onCompanyChange($event.value)"
+    >
+      <mat-option [value]="null">— Seleccionar empresa —</mat-option>
+      @for (company of companies(); track company.id) {
+        <mat-option [value]="company">{{ company.companyName }}</mat-option>
+      }
+    </mat-select>
+  </mat-form-field>
+
+  <mat-form-field appearance="outline" class="country-selector" subscriptSizing="dynamic">
+    <mat-label>País</mat-label>
+    <mat-select
+      [value]="selectedCountry()"
+      [compareWith]="compareCompanyCountry"
+      [disabled]="!selectedCompany()"
+      (selectionChange)="onCountryChange($event.value)"
+    >
+      @for (country of countries(); track country.id) {
+        <mat-option [value]="country">{{ country.countryName }}</mat-option>
+      }
+    </mat-select>
+  </mat-form-field>
+
+  <mat-form-field appearance="outline" class="region-selector" subscriptSizing="dynamic">
+    <mat-label>Región</mat-label>
+    <mat-select
+      [value]="selectedRegion()"
+      [compareWith]="compareCompanyRegion"
+      [disabled]="!selectedCountry()"
+      (selectionChange)="onRegionChange($event.value)"
+    >
+      @for (region of regions(); track region.id) {
+        <mat-option [value]="region">{{ region.regionName }}</mat-option>
+      }
+    </mat-select>
+  </mat-form-field>
+
+  <mat-form-field appearance="outline" class="zone-selector" subscriptSizing="dynamic">
+    <mat-label>Zona</mat-label>
+    <mat-select
+      [value]="selectedZone()"
+      [compareWith]="compareCompanyZone"
+      [disabled]="!selectedRegion()"
+      (selectionChange)="onZoneChange($event.value)"
+    >
+      @for (zone of zones(); track zone.id) {
+        <mat-option [value]="zone">{{ zone.zoneName }}</mat-option>
+      }
+    </mat-select>
+  </mat-form-field>
+
+  <mat-form-field appearance="outline" class="store-selector" subscriptSizing="dynamic">
+    <mat-label>Tienda</mat-label>
+    <mat-select
+      [value]="selectedStore()"
+      [compareWith]="compareCompanyStore"
+      [disabled]="!selectedZone()"
+      (selectionChange)="onStoreChange($event.value)"
+    >
+      @for (store of stores(); track store.id) {
+        <mat-option [value]="store">{{ store.storeName }}</mat-option>
+      }
+    </mat-select>
+  </mat-form-field>
+</div>

@@ -115,16 +115,79 @@ describe('PurchaseOrderService', () => {
         empty: true,
       };
 
-      const promise = firstValueFrom(service.getPurchaseOrders(0, 12, 'Acme'));
+      const promise = firstValueFrom(service.getPurchaseOrders(0, 12, { search: 'Acme' }));
 
       const req = httpMock.expectOne(
         (r) => r.url === `${TEST_API}/purchase-orders` && r.method === 'GET',
       );
       expect(req.request.params.get('search')).toBe('Acme');
+      expect(req.request.params.has('companyId')).toBe(false);
       req.flush(mockPage);
 
       const result = await promise;
       expect(result.empty).toBe(true);
+    });
+
+    it('should send every location filter that is present', async () => {
+      const mockPage: Page<PurchaseOrder> = {
+        content: [],
+        totalElements: 0,
+        totalPages: 0,
+        size: 12,
+        number: 0,
+        first: true,
+        last: true,
+        empty: true,
+      };
+
+      const promise = firstValueFrom(
+        service.getPurchaseOrders(0, 12, {
+          companyId: 'company-1',
+          companyCountryId: 'country-1',
+          regionId: 'region-1',
+          zoneId: 'zone-1',
+          companyStoreId: 'store-1',
+        }),
+      );
+
+      const req = httpMock.expectOne(
+        (r) => r.url === `${TEST_API}/purchase-orders` && r.method === 'GET',
+      );
+      expect(req.request.params.get('companyId')).toBe('company-1');
+      expect(req.request.params.get('companyCountryId')).toBe('country-1');
+      expect(req.request.params.get('regionId')).toBe('region-1');
+      expect(req.request.params.get('zoneId')).toBe('zone-1');
+      expect(req.request.params.get('companyStoreId')).toBe('store-1');
+      req.flush(mockPage);
+
+      await promise;
+    });
+
+    it('should not send a filter the caller left empty', async () => {
+      const mockPage: Page<PurchaseOrder> = {
+        content: [],
+        totalElements: 0,
+        totalPages: 0,
+        size: 12,
+        number: 0,
+        first: true,
+        last: true,
+        empty: true,
+      };
+
+      const promise = firstValueFrom(
+        service.getPurchaseOrders(0, 12, { regionId: 'region-1', zoneId: '', search: '' }),
+      );
+
+      const req = httpMock.expectOne(
+        (r) => r.url === `${TEST_API}/purchase-orders` && r.method === 'GET',
+      );
+      expect(req.request.params.get('regionId')).toBe('region-1');
+      expect(req.request.params.has('zoneId')).toBe(false);
+      expect(req.request.params.has('search')).toBe(false);
+      req.flush(mockPage);
+
+      await promise;
     });
 
     it('should handle pagination params with custom page and size', async () => {

@@ -10,6 +10,23 @@ import type {
   Page,
 } from '../models/purchase-order.models';
 
+/**
+ * Optional filters of the order list. Every level is independent: an absent value does not narrow
+ * anything, and the API combines the levels it receives with `AND`.
+ *
+ * The location levels (`companyId` … `companyStoreId`) come from the store the order belongs to: the
+ * API reaches them through `purchase_orders.company_store_id → zone → region → country → company`.
+ */
+export interface PurchaseOrderListQuery {
+  /** Free text over the supplier and the store name, the two fields the API matches. */
+  search?: string;
+  companyId?: string;
+  companyCountryId?: string;
+  regionId?: string;
+  zoneId?: string;
+  companyStoreId?: string;
+}
+
 /** HTTP service for the `/api/purchase-orders` REST endpoints. */
 @Injectable({
   providedIn: 'root',
@@ -23,13 +40,28 @@ export class PurchaseOrderService {
   }
 
   /**
-   * Fetch paginated purchase orders with optional search filtering.
-   * Search matches against `orderNumber` and `supplierName` on the backend.
+   * Fetch paginated purchase orders with the optional search and location filters.
+   * Search matches against `supplierName` and the store name on the backend. A filter that is absent
+   * or empty is not sent, so the list is never narrowed by an accidental empty value.
    */
-  getPurchaseOrders(page = 0, size = 12, search?: string): Observable<Page<PurchaseOrder>> {
+  getPurchaseOrders(
+    page = 0,
+    size = 12,
+    query: PurchaseOrderListQuery = {},
+  ): Observable<Page<PurchaseOrder>> {
     let params = new HttpParams().set('page', page).set('size', size);
-    if (search) {
-      params = params.set('search', search);
+    for (const key of [
+      'search',
+      'companyId',
+      'companyCountryId',
+      'regionId',
+      'zoneId',
+      'companyStoreId',
+    ] as const) {
+      const value = query[key];
+      if (value) {
+        params = params.set(key, value);
+      }
     }
     return this.http.get<Page<PurchaseOrder>>(this.baseUrl, { params });
   }

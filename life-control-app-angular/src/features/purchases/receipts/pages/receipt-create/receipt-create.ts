@@ -137,11 +137,9 @@ export class ReceiptCreate implements UnsavedChangesAware {
       };
     },
     stream: ({ params }) =>
-      this.purchaseOrderService.getPurchaseOrders(
-        params.page,
-        params.size,
-        params.search || undefined,
-      ),
+      this.purchaseOrderService.getPurchaseOrders(params.page, params.size, {
+        search: params.search || undefined,
+      }),
   });
 
   readonly orders = computed(() =>

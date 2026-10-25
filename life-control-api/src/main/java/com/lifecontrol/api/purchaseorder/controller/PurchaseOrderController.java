@@ -5,6 +5,7 @@ import static com.lifecontrol.api.common.security.Roles.SALES;
 
 import com.lifecontrol.api.purchaseorder.dto.PurchaseOrderDetailRequest;
 import com.lifecontrol.api.purchaseorder.dto.PurchaseOrderDetailResponse;
+import com.lifecontrol.api.purchaseorder.dto.PurchaseOrderFilter;
 import com.lifecontrol.api.purchaseorder.dto.PurchaseOrderRequest;
 import com.lifecontrol.api.purchaseorder.dto.PurchaseOrderResponse;
 import com.lifecontrol.api.purchaseorder.dto.UpdatePurchaseOrderStatusRequest;
@@ -50,11 +51,20 @@ public class PurchaseOrderController {
     @PreAuthorize("isAuthenticated()")
     @Operation(
             summary = "Get all purchase orders",
-            description = "Returns a paginated list, optionally filtered by search term on supplier or store name")
+            description = "Returns a paginated list, optionally filtered by search term on supplier or store name "
+                    + "and by the store hierarchy (company, company country, region, zone, store). Every filter is "
+                    + "optional, they combine with AND, and an absent filter constrains nothing.")
     @ApiResponses({@ApiResponse(responseCode = "200", description = "Paginated list of purchase orders")})
     public ResponseEntity<Page<PurchaseOrderResponse>> getAllPurchaseOrders(
-            @PageableDefault(size = 12) Pageable pageable, @RequestParam(required = false) String search) {
-        return ResponseEntity.ok(purchaseOrderService.getAllPurchaseOrders(pageable, search));
+            @PageableDefault(size = 12) Pageable pageable,
+            @RequestParam(required = false) String search,
+            @RequestParam(required = false) UUID companyId,
+            @RequestParam(required = false) UUID companyCountryId,
+            @RequestParam(required = false) UUID regionId,
+            @RequestParam(required = false) UUID zoneId,
+            @RequestParam(required = false) UUID companyStoreId) {
+        var filter = new PurchaseOrderFilter(companyId, companyCountryId, regionId, zoneId, companyStoreId);
+        return ResponseEntity.ok(purchaseOrderService.getAllPurchaseOrders(pageable, search, filter));
     }
 
     @GetMapping("/{id}")
