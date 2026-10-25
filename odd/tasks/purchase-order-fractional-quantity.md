@@ -92,6 +92,7 @@ a `"30"`, con los `@DisplayName` que nombran la versión alineados.
 | --- | --- | --- | --- |
 | 1 | Migración, entidad, DTOs, servicio, boundary de recepción, pines de Flyway y sus tests (T1–T8) | `352729a` | **487** |
 | 2 | ABM Angular: los tres inputs, el validador y sus specs (T9–T11) | `5f56d3d` | **128** |
+| 3 | Total de línea alineado a la escala de la columna, cuatro javadocs corregidos y su test (hallazgos de la verificación independiente) | `970adac` | **85** |
 
 **Por qué el slice 1 son 487 líneas y no dos PRs de ~240.** Medido con la misma herramienta que reportó
 el corte: 487 autoradas, contra el aviso de ~400. Un corte más chico no es limpio, y hay dos formas de
@@ -178,3 +179,27 @@ PR necesita su issue aprobado (`status:approved`).
 - **L10 — el registro `L3` describe el estado *anterior*.** Sus `step="1"` y su `'Debe ser un número entero'`
   son la evidencia con la que se planificó el cambio, no una descripción de la rama; se conservan como
   historia y esta entrada es la que lo dice.
+- **L11 — verificación independiente (`gentle-ai-verify`, read-only) sobre `352729ab..781a8e7e`: 5/5 VERIFIED.**
+  (1) `V30` sólo hace los dos `ALTER COLUMN … TYPE DECIMAL(12,2)`, sin `USING`, sin DML y sobre ninguna
+  otra columna; sondeado contra Postgres: `numeric(12,2)` en las dos y los dos `CHECK`
+  (`quantity > 0`, `received_quantity >= 0`) siguen en `pg_constraint`. (2) Una línea de 2.5 persiste y
+  vuelve como 2.5 por `POST /purchase-orders/{id}/details` y por la creación anidada; no quedó ninguna
+  coerción a entero (`parseInt`, `Math.trunc`, `ACCEPT_FLOAT_AS_INT`: ninguna). (3) Una recepción de 2.5
+  escribe 2.50 en el ítem, el movimiento, los dos saldos y `received_quantity`, y 2.505 da
+  `Reception line 0 … must have at most two decimals` con `receipts=0 items=0 movements=0`. (4) La
+  derivación de estado no invirtió ninguna comparación y la promoción de cabecera sigue igual. (5) Los
+  siete pines afirman `"30"` con nombres alineados y ningún `V29` residual; fuera de `purchaseorder/` y
+  `goodsreceipt/` nada lee esas columnas.
+  **Dos hallazgos causados por el cambio, ambos cerrados en `970adac`:**
+  - *Documental*: cuatro javadocs seguían prometiendo el contrato entero (`GoodsReceiptService:149`,
+    `InvalidReceiptQuantityException:6,8`, `GoodsReceiptLineRequest:12`); reescritos al contrato decimal.
+  - *Monetario*: `unitPrice × quantity` puede dar cuatro decimales (2.5 × 123.45 = 308.625), la columna
+    `total` guarda 308.63 y la respuesta del POST devolvía 308.625 — la respuesta y un GET posterior
+    discrepaban sobre plata. Imposible antes de esta unidad, donde una cantidad entera acotaba el producto
+    a dos decimales. `PurchaseOrderService.lineTotal` escala con `HALF_UP` en los cuatro call sites, y el
+    test nuevo pinea 308.63 en la respuesta, en el GET y en la entidad: falló con 308.625 antes del
+    arreglo.
+  **Una consecuencia aceptada, no un defecto**: una cantidad entera se serializa ahora `3.00` donde antes
+  era `3`. El número JSON es el mismo cuando se parsea (y el cliente Angular lo trata como `number`), así
+  que no se normaliza la escala en la salida: hacerlo obligaría a elegir una representación para un dato
+  cuyo valor es idéntico.
