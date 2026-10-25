@@ -176,7 +176,7 @@ con un deploy verde. `--strict-pins` es la única forma de volverlo un fallo, y 
 ### deploy.sh
 Script principal de despliegue. Build y start de servicios.
 ```bash
-./docker/scripts/deploy.sh [dev|staging|prod] [start|stop|restart|build|up|logs|status|clean|health]
+./docker/scripts/deploy.sh [dev|staging|prod] [start|stop|restart|build|build-images|up|logs|status|version|clean|health]
 
 # Ejemplos:
 ./docker/scripts/deploy.sh dev start      # Build y start desarrollo
@@ -184,6 +184,7 @@ Script principal de despliegue. Build y start de servicios.
 ./docker/scripts/deploy.sh dev build      # Solo build
 ./docker/scripts/deploy.sh dev logs      # Ver logs
 ./docker/scripts/deploy.sh dev status    # Estado de servicios
+./docker/scripts/deploy.sh dev version   # Qué código corre cada imagen de app, contra HEAD
 ./docker/scripts/deploy.sh dev health     # Health check
 ./docker/scripts/deploy.sh dev clean      # Remove volumes
 ```
@@ -192,6 +193,22 @@ Script principal de despliegue. Build y start de servicios.
 > `up` o si Tempo no puede leer un trace ya flusheado, y avisa —sin fallar— cuando el store de
 > traces todavía no tiene nada que leer. Ver
 > [Observabilidad](#observabilidad-config-versionada-puertos-y-exporters).
+>
+> **Qué código corre se reporta, no se adivina.** Cada imagen de app lleva bakeado
+> `org.opencontainers.image.revision`, que `build_images` estampa con `HEAD` —o con `HEAD-dirty` si
+> el árbol tiene cambios sin commitear, porque un build sucio **no** es ese commit—, y
+> `deploy.sh <env> version` lo lee de vuelta: por servicio, el ID de la imagen que corre su
+> contenedor, la revisión y un veredicto (`match`, `drift`, `dirty`, `unknown`, `absent`), y sale
+> distinto de cero salvo que todas sean `match`. Se lee la imagen **por ID**, nunca por tag: un tag
+> es un puntero que un build posterior mueve. `health` corre el mismo reporte antes de esperar
+> salud, que es lo que cubre `start`, `up`, `restart` y `health` en un solo lugar: sin eso,
+> `deploy.sh dev up` después de un `git pull` da health verde sobre imágenes de diez commits atrás.
+> El reporte sólo avisa —nunca tumba un `start`, igual que el de pins—; `STRICT_REVISION=1|true|yes`
+> lo vuelve un fallo, que es el switch que se pide a propósito. El nombre de la imagen **no** está
+> hardcodeado: compose nombra una imagen construida `<project>-<service>` y el proyecto es por
+> entorno, así que un `image:` explícito necesitaría el entorno en el tag o las tres instancias
+> compartirían un tag local.
+
 
 ### cleanup.sh
 Limpia recursos de Docker y archivos locales.
@@ -291,6 +308,7 @@ curl -s -X POST "http://localhost:8181/realms/life-control-realm/protocol/openid
 | Volumen de Loki en prod | Es un named volume: si existe de antes (creado para `/loki/data`) hay que borrarlo una vez, porque Docker no lo repuebla desde la imagen y queda vacío y root-owned, que es justo lo que Loki no puede escribir |
 | Exporters de datastores | `postgres-exporter` y `redis-exporter` se pinnean como el resto (`POSTGRES_EXPORTER_IMAGE` y `REDIS_EXPORTER_IMAGE`, en el template **y** en el default del compose) y **no** llevan `healthcheck`: la imagen del exporter de Redis es distroless, así que un probe in-container no puede pasar. La señal de vida es `up` en el scrape, y `exporters.test.sh` lo fija |
 | Pins divergentes en un `.env.<env>` | Un `*_IMAGE` que el env file declara con un valor que el template ya no nombra **se reporta**: `validate-env.sh <env>` lo lista nombrando la key y ambos valores, y `deploy.sh <env> start` imprime el mismo reporte antes de buildear, así que un pin viejo no sobrevive un deploy en silencio. `env-image-pin-drift.test.sh` fija que el reporte nombre la key y los dos valores, que un env file alineado no produzca ningún warning y que el reporte sea read-only y devuelva 0 siempre |
+| Qué código corre cada imagen de app | El label `org.opencontainers.image.revision` es la única afirmación que una imagen hace sobre su propio código, y hasta `docker-image-revision` nada lo leía de vuelta. Lo estampa `image_revision_stamp` (`<sha>`, `<sha>-dirty`, o `unknown` cuando git no puede responder) y lo verifica `deploy.sh <env> version`, que sale distinto de cero salvo que toda imagen de app sea `match` contra `HEAD`. `health` corre el mismo reporte y sólo avisa; `STRICT_REVISION` lo vuelve un fallo. `image-revision.test.sh` fija los cinco veredictos, los dos stamps y que los tres Dockerfiles sigan bakeando ese label exacto |
 
 > **Subir una imagen**: editá `.env.template`, los defaults de `docker-compose*.yml` y la tabla de
 > `image-pins.test.sh`; corré los tests de `docker/scripts/tests/`; en dev, `./docker/scripts/deploy.sh dev up`
