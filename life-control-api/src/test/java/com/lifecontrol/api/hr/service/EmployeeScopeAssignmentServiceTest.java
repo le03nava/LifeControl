@@ -35,6 +35,7 @@ import com.lifecontrol.api.hr.repository.EmployeeScopeAssignmentRepository;
 import com.lifecontrol.api.provisioning.service.AccessProvisioningProducer;
 import com.lifecontrol.api.status.model.Status;
 import com.lifecontrol.api.status.model.StatusType;
+import com.lifecontrol.api.store.exception.CompanyStoreNotFoundException;
 import com.lifecontrol.api.store.model.CompanyStore;
 import com.lifecontrol.api.store.repository.CompanyStoreRepository;
 import java.time.LocalDate;
@@ -245,6 +246,16 @@ class EmployeeScopeAssignmentServiceTest {
 
     private EmployeeScopeAssignment regionRow(LocalDate validFrom, LocalDate validTo) {
         return assignment(UUID.randomUUID(), null, testRegion, null, validFrom, validTo, true);
+    }
+
+    /** A store hanging off the test zone, whose chain (zone -> region -> country) is the test company. */
+    private CompanyStore storeOnTestZone(String storeName) {
+        return CompanyStore.builder()
+                .id(UUID.randomUUID())
+                .companyZone(testZone)
+                .storeName(storeName)
+                .enabled(true)
+                .build();
     }
 
     private EmployeeScopeAssignment savedAssignment() {
@@ -643,6 +654,63 @@ class EmployeeScopeAssignmentServiceTest {
             assertThat(result.nodeName()).isEqualTo("Zone");
             assertThat(result.derived().companyRegionId()).isEqualTo(testRegion.getId());
             assertThat(result.derived().companyZoneId()).isEqualTo(testZone.getId());
+        }
+    }
+
+    @Nested
+    @DisplayName("create — the store level")
+    class CreateStoreLevelTests {
+
+        @Test
+        @DisplayName("a store row reports level STORE, its own name and the store's chain")
+        void createAssignment_MapsTheStoreRow() {
+            var store = storeOnTestZone("Assignment Store");
+            employeeExists();
+            when(companyStoreRepository.findById(store.getId())).thenReturn(Optional.of(store));
+            noPredecessor(store.getId());
+            saveReturnsArgument();
+
+            var result = service.createAssignment(
+                    companyId, employeeId, new ScopeAssignmentRequest(null, null, null, store.getId(), START));
+
+            assertThat(result.level()).isEqualTo(ScopeLevel.STORE);
+            assertThat(result.companyStoreId()).isEqualTo(store.getId());
+            assertThat(result.nodeName()).isEqualTo("Assignment Store");
+            assertThat(result.derived().companyZoneId()).isEqualTo(testZone.getId());
+        }
+
+        @Test
+        @DisplayName("a store of another company is a 404 and writes nothing")
+        void createAssignment_ForeignStore_IsRejected() {
+            employeeExists();
+            // The store reaches its company one hop further than a zone: store -> zone -> region ->
+            // country, so a foreign store is refused by the same rule every other level uses.
+            var foreignStore = CompanyStore.builder()
+                    .id(UUID.randomUUID())
+                    .companyZone(CompanyZone.builder()
+                            .id(UUID.randomUUID())
+                            .companyRegion(CompanyRegion.builder()
+                                    .id(UUID.randomUUID())
+                                    .companyCountry(companyCountryOfAnotherCompany())
+                                    .regionCode("R2")
+                                    .regionName("Foreign Region")
+                                    .enabled(true)
+                                    .build())
+                            .zoneCode("Z2")
+                            .zoneName("Foreign Zone")
+                            .enabled(true)
+                            .build())
+                    .storeName("Foreign Store")
+                    .enabled(true)
+                    .build();
+            when(companyStoreRepository.findById(foreignStore.getId())).thenReturn(Optional.of(foreignStore));
+
+            assertThatThrownBy(() -> service.createAssignment(
+                            companyId,
+                            employeeId,
+                            new ScopeAssignmentRequest(null, null, null, foreignStore.getId(), START)))
+                    .isInstanceOf(CompanyStoreNotFoundException.class);
+            verify(employeeScopeAssignmentRepository, never()).save(any());
         }
     }
 

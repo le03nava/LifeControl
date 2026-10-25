@@ -368,6 +368,39 @@ class ScopeAssignmentDerivationTest {
         }
 
         @Test
+        @DisplayName("a store without a zone contributes nothing at all")
+        void storeWithoutZone_ContributesNothing() {
+            var company = company();
+
+            var scope = derive(company.getId(), storeAssignment(store(null)));
+
+            // The store level walks one hop further than a zone's (store -> zone -> region -> country),
+            // so a store that cannot reach its zone contributes nothing rather than a store id with no
+            // zone, region or country to be scoped by.
+            assertThat(scope.companyIds()).containsExactly(company.getId());
+            assertThat(scope.companyStoreIds()).isEmpty();
+            assertThat(scope.companyZoneIds()).isEmpty();
+            assertThat(scope.companyRegionIds()).isEmpty();
+            assertThat(scope.companyCountryIds()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("a store whose zone has no region contributes nothing at all")
+        void storeWhoseRegionHopIsMissing_ContributesNothing() {
+            var company = company();
+
+            var scope = derive(company.getId(), storeAssignment(store(zone(null))));
+
+            // The store resolves its zone but the zone's region hop is missing: no partial chain, and
+            // never a store id on its own.
+            assertThat(scope.companyIds()).containsExactly(company.getId());
+            assertThat(scope.companyStoreIds()).isEmpty();
+            assertThat(scope.companyZoneIds()).isEmpty();
+            assertThat(scope.companyRegionIds()).isEmpty();
+            assertThat(scope.companyCountryIds()).isEmpty();
+        }
+
+        @Test
         @DisplayName("a region whose country is missing contributes nothing")
         void regionWithoutCountry_IsSkippedWhole() {
             var company = company();

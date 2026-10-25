@@ -154,6 +154,52 @@ class EmployeeStoreScopeBackfillMigrationIntegrationTest extends AbstractPostgre
         assertThat(byId.get(seeded.closedId()).updatedAt()).isEqualTo(CLOSED_UPDATED_AT);
     }
 
+    @Test
+    @DisplayName("copies a disabled duplicate and a second employee's row: the guard counts rows, not pairs")
+    void copiesDuplicateAndSecondEmployeeRows() {
+        migrateTo("31");
+        var seeded = seedStoreAssignments();
+
+        // The source table's exclusion constraint is partial on `enabled`, so two rows for one
+        // (employee, store) pair covering the same window are legal while only one of them is enabled.
+        // The target's fourth constraint is partial on the same column, so the copy carries both, and
+        // the guard compares row counts rather than joined pairs — which is exactly the case the
+        // guard's own comment claims is safe, and is why it is pinned instead of argued.
+        insertSourceRow(
+                UUID.randomUUID(),
+                seeded.employeeId(),
+                seeded.storeId(),
+                LocalDate.of(2026, 1, 1),
+                null,
+                OPEN_CREATED_AT,
+                OPEN_UPDATED_AT,
+                false);
+
+        // A second employee in the same store over the same window: the invariant is per
+        // (employee, store), so several people in one store are legal and one person's copy cannot
+        // swallow another's row.
+        var secondEmployeeId = insertEmployee(seeded.companyId(), "EMP-V32-BF-2", "v32.backfill.2@example.com");
+        insertSourceRow(
+                UUID.randomUUID(),
+                secondEmployeeId,
+                seeded.storeId(),
+                LocalDate.of(2026, 1, 1),
+                null,
+                OPEN_CREATED_AT,
+                OPEN_UPDATED_AT,
+                true);
+
+        assertThat(readSourceRows())
+                .as("the fixture wrote the two original rows plus the disabled duplicate and the second employee's")
+                .hasSize(4);
+
+        migrateTo(V32);
+
+        assertThat(readTargetRows())
+                .as("every source row is copied verbatim, including what a join would collapse")
+                .containsExactlyInAnyOrderElementsOf(readSourceRows());
+    }
+
     // --- migration control ---
 
     private void migrateTo(String target) {
@@ -194,16 +240,10 @@ class EmployeeStoreScopeBackfillMigrationIntegrationTest extends AbstractPostgre
 
     // --- fixtures ---
 
-    private record Seeded(UUID openId, UUID closedId, UUID storeId) {}
+    private record Seeded(UUID openId, UUID closedId, UUID storeId, UUID employeeId, UUID companyId) {}
 
     private Seeded seedStoreAssignments() {
         var countryId = jdbcTemplate.queryForObject("SELECT id FROM countries WHERE country_code = 'MX'", UUID.class);
-        var statusId = jdbcTemplate.queryForObject("""
-                SELECT s.id FROM statuses s
-                JOIN status_types st ON st.id = s.status_type_id
-                WHERE LOWER(st.status_type_name) = LOWER('EMPLOYEE_STATUS')
-                  AND LOWER(s.status_name) = LOWER('Active')
-                """, UUID.class);
 
         var companyId = UUID.randomUUID();
         jdbcTemplate.update("""
@@ -237,14 +277,7 @@ class EmployeeStoreScopeBackfillMigrationIntegrationTest extends AbstractPostgre
                 zoneId,
                 "V32 Backfill Store");
 
-        var employeeId = UUID.randomUUID();
-        jdbcTemplate.update("""
-                INSERT INTO employees
-                    (id, company_id, employee_number, first_name, paternal_last_name, email,
-                     birth_date, hire_date, employment_status_id)
-                VALUES (?, ?, 'EMP-V32-BF-1', 'Ada', 'Lovelace', 'v32.backfill@example.com',
-                        DATE '1990-01-01', DATE '2020-01-01', ?)
-                """, employeeId, companyId, statusId);
+        var employeeId = insertEmployee(companyId, "EMP-V32-BF-1", "v32.backfill@example.com");
 
         var openId = UUID.randomUUID();
         insertSourceRow(openId, employeeId, storeId, LocalDate.of(2026, 1, 1), null, OPEN_CREATED_AT, OPEN_UPDATED_AT);
@@ -262,7 +295,27 @@ class EmployeeStoreScopeBackfillMigrationIntegrationTest extends AbstractPostgre
                 CLOSED_CREATED_AT,
                 CLOSED_UPDATED_AT);
 
-        return new Seeded(openId, closedId, storeId);
+        return new Seeded(openId, closedId, storeId, employeeId, companyId);
+    }
+
+    private UUID activeEmployeeStatusId() {
+        return jdbcTemplate.queryForObject("""
+                SELECT s.id FROM statuses s
+                JOIN status_types st ON st.id = s.status_type_id
+                WHERE LOWER(st.status_type_name) = LOWER('EMPLOYEE_STATUS')
+                  AND LOWER(s.status_name) = LOWER('Active')
+                """, UUID.class);
+    }
+
+    private UUID insertEmployee(UUID companyId, String employeeNumber, String email) {
+        var id = UUID.randomUUID();
+        jdbcTemplate.update("""
+                INSERT INTO employees
+                    (id, company_id, employee_number, first_name, paternal_last_name, email,
+                     birth_date, hire_date, employment_status_id)
+                VALUES (?, ?, ?, 'Ada', 'Lovelace', ?, DATE '1990-01-01', DATE '2020-01-01', ?)
+                """, id, companyId, employeeNumber, email, activeEmployeeStatusId());
+        return id;
     }
 
     private void insertSourceRow(
@@ -273,17 +326,30 @@ class EmployeeStoreScopeBackfillMigrationIntegrationTest extends AbstractPostgre
             LocalDate validTo,
             LocalDateTime createdAt,
             LocalDateTime updatedAt) {
+        insertSourceRow(id, employeeId, storeId, validFrom, validTo, createdAt, updatedAt, true);
+    }
+
+    private void insertSourceRow(
+            UUID id,
+            UUID employeeId,
+            UUID storeId,
+            LocalDate validFrom,
+            LocalDate validTo,
+            LocalDateTime createdAt,
+            LocalDateTime updatedAt,
+            boolean enabled) {
         jdbcTemplate.update(
                 """
                 INSERT INTO employee_store_assignments
                     (id, employee_id, company_store_id, valid_from, valid_to, enabled, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, true, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 id,
                 employeeId,
                 storeId,
                 validFrom,
                 validTo,
+                enabled,
                 Timestamp.valueOf(createdAt),
                 Timestamp.valueOf(updatedAt));
     }
