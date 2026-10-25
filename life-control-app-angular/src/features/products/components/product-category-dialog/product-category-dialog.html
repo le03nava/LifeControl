@@ -1,0 +1,62 @@
+<h2 mat-dialog-title>
+  @if (editMode()) {
+    Editar la categoría
+  } @else {
+    Nueva categoría
+  }
+</h2>
+
+<mat-dialog-content>
+  @if (formError(); as errorMessage) {
+    <app-error-banner [message]="errorMessage" />
+  }
+
+  <form class="category-form" [formGroup]="form()" (ngSubmit)="onSave()">
+    <mat-form-field appearance="outline" subscriptSizing="dynamic">
+      <mat-label>Nombre</mat-label>
+      <input matInput type="text" formControlName="categoryName" maxlength="100" />
+      @if (form().controls.categoryName.hasError('required')) {
+        <mat-error>El nombre es obligatorio</mat-error>
+      }
+      @if (form().controls.categoryName.hasError('maxlength')) {
+        <mat-error>El nombre no puede superar los 100 caracteres</mat-error>
+      }
+    </mat-form-field>
+
+    <mat-form-field appearance="outline" subscriptSizing="dynamic">
+      <mat-label>Categoría padre</mat-label>
+      <mat-select formControlName="parentCategoryId">
+        <mat-option value="">Sin padre (categoría raíz)</mat-option>
+        @for (option of parentOptions(); track option.id) {
+          <mat-option [value]="option.id" [disabled]="!option.selectable">
+            {{ option.label }}
+          </mat-option>
+        }
+      </mat-select>
+      <mat-hint>
+        Sólo se ofrecen las categorías que admiten una subcategoría: ni la propia categoría ni sus
+        subcategorías pueden ser su padre, y el árbol admite tres niveles.
+      </mat-hint>
+    </mat-form-field>
+
+    <mat-form-field appearance="outline" subscriptSizing="dynamic">
+      <mat-label>Descripción</mat-label>
+      <input matInput type="text" formControlName="description" maxlength="255" />
+    </mat-form-field>
+
+    <mat-form-field appearance="outline" subscriptSizing="dynamic">
+      <mat-label>Orden</mat-label>
+      <input matInput type="number" min="0" formControlName="displayOrder" />
+      @if (form().controls.displayOrder.invalid) {
+        <mat-error>El orden debe ser un número entero mayor o igual a 0</mat-error>
+      }
+    </mat-form-field>
+  </form>
+</mat-dialog-content>
+
+<mat-dialog-actions align="end">
+  <button mat-stroked-button type="button" (click)="cancel()">Cancelar</button>
+  <button mat-flat-button color="primary" type="button" [disabled]="saving()" (click)="onSave()">
+    {{ editMode() ? 'Guardar cambios' : 'Crear categoría' }}
+  </button>
+</mat-dialog-actions>
