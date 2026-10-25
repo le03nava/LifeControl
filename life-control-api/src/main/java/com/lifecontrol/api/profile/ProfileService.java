@@ -1,10 +1,11 @@
 package com.lifecontrol.api.profile;
 
 import com.lifecontrol.api.common.auth.CurrentUserContext;
+import com.lifecontrol.api.common.security.ScopeLevel;
 import com.lifecontrol.api.exception.ResourceNotFoundException;
-import com.lifecontrol.api.hr.dto.StoreAssignmentResponse;
+import com.lifecontrol.api.hr.dto.ScopeAssignmentResponse;
 import com.lifecontrol.api.hr.repository.EmployeeRepository;
-import com.lifecontrol.api.hr.service.EmployeeStoreAssignmentService;
+import com.lifecontrol.api.hr.service.EmployeeScopeAssignmentService;
 import com.lifecontrol.api.profile.dto.ProfileResponse;
 import com.lifecontrol.api.profile.dto.ProfileUpdateRequest;
 import com.lifecontrol.api.usersadmin.identity.IdentityProvider;
@@ -35,7 +36,7 @@ public class ProfileService {
     private final IdentityProvider identityProvider;
     private final UserPreferencesRepository userPreferencesRepository;
     private final EmployeeRepository employeeRepository;
-    private final EmployeeStoreAssignmentService employeeStoreAssignmentService;
+    private final EmployeeScopeAssignmentService employeeScopeAssignmentService;
     private final ProfileLocationResolver locationResolver;
 
     public ProfileService(
@@ -43,13 +44,13 @@ public class ProfileService {
             IdentityProvider identityProvider,
             UserPreferencesRepository userPreferencesRepository,
             EmployeeRepository employeeRepository,
-            EmployeeStoreAssignmentService employeeStoreAssignmentService,
+            EmployeeScopeAssignmentService employeeScopeAssignmentService,
             ProfileLocationResolver locationResolver) {
         this.currentUserContext = currentUserContext;
         this.identityProvider = identityProvider;
         this.userPreferencesRepository = userPreferencesRepository;
         this.employeeRepository = employeeRepository;
-        this.employeeStoreAssignmentService = employeeStoreAssignmentService;
+        this.employeeScopeAssignmentService = employeeScopeAssignmentService;
         this.locationResolver = locationResolver;
     }
 
@@ -170,18 +171,26 @@ public class ProfileService {
     // ── Private helpers ──────────────────────────────────────
 
     /**
-     * The current assignment set of the caller's own employee row, or {@link Optional#empty()} when
+     * The current store assignments of the caller's own employee row, or {@link Optional#empty()} when
      * the caller has no employee row at all (D11).
      *
+     * <p>It reads the same single source as the five {@code company_*} claims: the store is the fourth
+     * node column of {@code employee_scope_assignments}, so there is no second table to consult and the
+     * profile cannot show a store the derivation would not grant (S10). The rows are the scope service's
+     * store rows covering today, in the deterministic order its covering-date finder returns, and the
+     * mapping to {@link ProfileResponse.AssignedStore} below keeps that order.</p>
+     *
      * <p>The employee is resolved by the caller's own {@code keycloak_user_id}, never by an id from
-     * the request, so this read can only ever reach the caller's own assignments (T24). The
+     * the request, so this read can only ever reach the caller's own assignments (T24) — which is why
+     * it stays <b>scope-free</b>: demanding a company claim would refuse the very caller the profile
+     * screen serves, and it is by construction a self-scoped read. The
      * {@code Optional} is load-bearing: {@code empty} means <b>unconstrained</b> and must not be
      * confused with an empty list, which means <b>constrained to exactly none</b>.</p>
      */
-    private Optional<List<StoreAssignmentResponse>> resolveAssignedStores(String userId) {
+    private Optional<List<ScopeAssignmentResponse>> resolveAssignedStores(String userId) {
         return employeeRepository
                 .findByKeycloakUserId(userId)
-                .map(employee -> employeeStoreAssignmentService.getCurrentAssignmentsForEmployee(employee.getId()));
+                .map(employee -> employeeScopeAssignmentService.getCurrentStoreAssignments(employee.getId()));
     }
 
     /**
@@ -204,7 +213,7 @@ public class ProfileService {
      * store as an assignment id.
      */
     private static void verifyStoreIsAssigned(
-            UUID requestedStoreId, Optional<List<StoreAssignmentResponse>> assignedStores) {
+            UUID requestedStoreId, Optional<List<ScopeAssignmentResponse>> assignedStores) {
         if (requestedStoreId == null || assignedStores.isEmpty()) {
             return;
         }
@@ -222,7 +231,7 @@ public class ProfileService {
      * and is {@code null} when it does not. The stored column is never rewritten by a read.
      */
     private static UUID resolveStorePreference(
-            UUID storedStoreId, Optional<List<StoreAssignmentResponse>> assignedStores) {
+            UUID storedStoreId, Optional<List<ScopeAssignmentResponse>> assignedStores) {
         if (assignedStores.isEmpty() || storedStoreId == null) {
             return storedStoreId;
         }
@@ -241,7 +250,7 @@ public class ProfileService {
             String username,
             JwtClaims claims,
             UUID storedStoreId,
-            Optional<List<StoreAssignmentResponse>> assignedStores) {
+            Optional<List<ScopeAssignmentResponse>> assignedStores) {
         var resolvedStoreId = resolveStorePreference(storedStoreId, assignedStores);
         return new ProfileResponse(
                 userId,
@@ -254,16 +263,25 @@ public class ProfileService {
                 locationResolver.resolve(resolvedStoreId));
     }
 
-    /** Projects T14's assignment rows into the response's own record; the chain walk stays in HR (T25). */
-    private static List<ProfileResponse.AssignedStore> toAssignedStores(List<StoreAssignmentResponse> assignments) {
-        return assignments.stream().map(ProfileService::toAssignedStore).toList();
+    /**
+     * Projects T14's assignment rows into the response's own record; the chain walk stays in HR (T25).
+     *
+     * <p>A scope row carries one of four levels and this response only describes stores, so a non-store
+     * row is dropped rather than rendered as an assignment its shape cannot express. The store rows come
+     * from the store-only finder and keep its order.</p>
+     */
+    private static List<ProfileResponse.AssignedStore> toAssignedStores(List<ScopeAssignmentResponse> assignments) {
+        return assignments.stream()
+                .filter(assignment -> assignment.level() == ScopeLevel.STORE)
+                .map(ProfileService::toAssignedStore)
+                .toList();
     }
 
-    private static ProfileResponse.AssignedStore toAssignedStore(StoreAssignmentResponse assignment) {
+    private static ProfileResponse.AssignedStore toAssignedStore(ScopeAssignmentResponse assignment) {
         var derived = assignment.derived();
         return new ProfileResponse.AssignedStore(
                 assignment.companyStoreId(),
-                assignment.companyStoreName(),
+                assignment.nodeName(),
                 derived.companyId(),
                 derived.companyName(),
                 derived.companyCountryId(),

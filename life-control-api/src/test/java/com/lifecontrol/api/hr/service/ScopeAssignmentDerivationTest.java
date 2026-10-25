@@ -9,7 +9,6 @@ import com.lifecontrol.api.company.model.CompanyRegion;
 import com.lifecontrol.api.company.model.CompanyZone;
 import com.lifecontrol.api.country.model.Country;
 import com.lifecontrol.api.hr.model.EmployeeScopeAssignment;
-import com.lifecontrol.api.hr.model.EmployeeStoreAssignment;
 import com.lifecontrol.api.store.model.CompanyStore;
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -22,7 +21,7 @@ import org.junit.jupiter.api.Test;
 /**
  * Spec of the per-level scope derivation (decision T4). No Spring and no Mockito:
  * {@link ScopeAssignmentDerivation} is a pure function, exactly the shape
- * {@code StoreScopeDerivationTest} gives the neighbouring one.
+ * {@code EmployeeEmailGenerator} gives the neighbouring one.
  *
  * <p>Every rule the record states is pinned here: a {@code COUNTRY} row contributes its country, a
  * {@code REGION} row contributes region <b>and</b> its country, a {@code ZONE} row contributes zone,
@@ -30,9 +29,9 @@ import org.junit.jupiter.api.Test;
  * country of that store (since {@code V32} the store is the fourth node column of this table, so
  * there is one source and no second one to fold), the company level is always the employee's own and
  * never the row's, a row contributes only while enabled and covering {@code today} under the
- * strictly-exclusive {@code '[)'} reading, a chain that does not resolve contributes <b>nothing</b>
- * rather than a partial chain, and {@link ScopeAssignmentDerivation#union} merges the store-derived
- * ids with the level-derived ones without duplicating the company.</p>
+ * strictly-exclusive {@code '[)'} reading, and a chain that does not resolve contributes
+ * <b>nothing</b> rather than a partial chain. There is one source — the store is the fourth node
+ * column of the same table — so nothing here folds two derivations together.</p>
  */
 @DisplayName("ScopeAssignmentDerivation Tests")
 class ScopeAssignmentDerivationTest {
@@ -232,7 +231,7 @@ class ScopeAssignmentDerivationTest {
     }
 
     @Nested
-    @DisplayName("the assigned node's own enabled flag (symmetry with StoreScopeDerivation T12)")
+    @DisplayName("the assigned node's own enabled flag (the split at decision T12)")
     class NodeEnabledFlagTests {
 
         // There is deliberately no COUNTRY case here: `company_countries` carries no `enabled` column
@@ -427,94 +426,16 @@ class ScopeAssignmentDerivationTest {
     }
 
     @Nested
-    @DisplayName("union with the store-derived scope (S5)")
-    class UnionTests {
+    @DisplayName("the derived output")
+    class DerivedOutputTests {
 
         @Test
-        @DisplayName("the union carries the store chain and the level chain, with one company id")
-        void union_CarriesBothSourcesOnce() {
+        @DisplayName("is unmodifiable, like every value that answered an authorization question")
+        void derivedOutput_IsUnmodifiable() {
             var company = company();
-            var companyCountry = companyCountry(company);
-            var region = region(companyCountry);
-            var zone = zone(region);
-            var store = store(zone);
-            var storeScope = StoreScopeDerivation.derive(
-                    company.getId(),
-                    List.of(EmployeeStoreAssignment.builder()
-                            .id(UUID.randomUUID())
-                            .companyStore(store)
-                            .validFrom(TODAY.minusDays(30))
-                            .enabled(true)
-                            .build()),
-                    TODAY);
-            var levelScope = derive(company.getId(), regionAssignment(region));
+            var scope = ScopeAssignmentDerivation.derive(company.getId(), List.of(), TODAY);
 
-            var union = ScopeAssignmentDerivation.union(storeScope, levelScope);
-
-            assertThat(union.companyIds()).containsExactly(company.getId());
-            assertThat(union.companyCountryIds()).containsExactly(companyCountry.getId());
-            assertThat(union.companyRegionIds()).containsExactly(region.getId());
-            assertThat(union.companyZoneIds()).containsExactly(zone.getId());
-            assertThat(union.companyStoreIds()).containsExactly(store.getId());
-        }
-
-        @Test
-        @DisplayName("the union keeps the store-derived ids first and appends the new ones")
-        void union_PreservesBothOrders() {
-            var company = company();
-            var storeCountry = companyCountry(company);
-            var storeScope = StoreScopeDerivation.derive(
-                    company.getId(),
-                    List.of(EmployeeStoreAssignment.builder()
-                            .id(UUID.randomUUID())
-                            .companyStore(store(zone(region(storeCountry))))
-                            .validFrom(TODAY.minusDays(30))
-                            .enabled(true)
-                            .build()),
-                    TODAY);
-            var levelCountry = companyCountry(company);
-            var levelScope = derive(company.getId(), countryAssignment(levelCountry));
-
-            var union = ScopeAssignmentDerivation.union(storeScope, levelScope);
-
-            assertThat(union.companyCountryIds()).containsExactly(storeCountry.getId(), levelCountry.getId());
-        }
-
-        @Test
-        @DisplayName("unioning two empty deep levels yields the company alone, not an error")
-        void union_OfTwoCompanyWideScopes_HoldsTheCompanyAlone() {
-            var company = company();
-            var storeScope = StoreScopeDerivation.derive(company.getId(), List.of(), TODAY);
-            var levelScope = ScopeAssignmentDerivation.derive(company.getId(), List.of(), TODAY);
-
-            var union = ScopeAssignmentDerivation.union(storeScope, levelScope);
-
-            assertThat(union.companyIds()).containsExactly(company.getId());
-            assertThat(union.companyCountryIds()).isEmpty();
-            assertThat(union.companyZoneIds()).isEmpty();
-        }
-
-        @Test
-        @DisplayName("the union rejects a null side instead of silently returning the other")
-        void union_RejectsNull() {
-            var company = company();
-            var scope = StoreScopeDerivation.derive(company.getId(), List.of(), TODAY);
-
-            assertThatThrownBy(() -> ScopeAssignmentDerivation.union(scope, null))
-                    .isInstanceOf(NullPointerException.class);
-            assertThatThrownBy(() -> ScopeAssignmentDerivation.union(null, scope))
-                    .isInstanceOf(NullPointerException.class);
-        }
-
-        @Test
-        @DisplayName("the union's output is unmodifiable, like every value that answered an authorization question")
-        void union_IsUnmodifiable() {
-            var company = company();
-            var union = ScopeAssignmentDerivation.union(
-                    StoreScopeDerivation.derive(company.getId(), List.of(), TODAY),
-                    ScopeAssignmentDerivation.derive(company.getId(), List.of(), TODAY));
-
-            assertThatThrownBy(() -> union.companyIds().add(UUID.randomUUID()))
+            assertThatThrownBy(() -> scope.companyIds().add(UUID.randomUUID()))
                     .isInstanceOf(UnsupportedOperationException.class);
         }
     }

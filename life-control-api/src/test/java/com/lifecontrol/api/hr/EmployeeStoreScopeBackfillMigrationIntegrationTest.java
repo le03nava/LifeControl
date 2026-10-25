@@ -50,6 +50,9 @@ import org.springframework.jdbc.datasource.DriverManagerDataSource;
 @DisplayName("Employee Store Scope Backfill (V32) Integration Tests")
 class EmployeeStoreScopeBackfillMigrationIntegrationTest extends AbstractPostgresIntegrationTest {
 
+    /** The migration that copies, and the head this suite stops at: V33 drops the source table. */
+    private static final String V32 = "32";
+
     private static final String SOURCE_TABLE = "employee_store_assignments";
     private static final String TARGET_TABLE = "employee_scope_assignments";
 
@@ -100,7 +103,7 @@ class EmployeeStoreScopeBackfillMigrationIntegrationTest extends AbstractPostgre
                 .as("the fixture wrote one open-ended and one closed store assignment at V31")
                 .hasSize(2);
 
-        migrateToHead();
+        migrateTo(V32);
 
         var targetRows = readTargetRows();
         assertThat(targetRows)
@@ -132,7 +135,7 @@ class EmployeeStoreScopeBackfillMigrationIntegrationTest extends AbstractPostgre
     void copiesTheCloseStateVerbatim() {
         migrateTo("31");
         var seeded = seedStoreAssignments();
-        migrateToHead();
+        migrateTo(V32);
 
         var byId = readTargetRows().stream().collect(Collectors.toMap(Row::id, row -> row));
 
@@ -155,16 +158,6 @@ class EmployeeStoreScopeBackfillMigrationIntegrationTest extends AbstractPostgre
 
     private void migrateTo(String target) {
         flyway(target).migrate();
-    }
-
-    private void migrateToHead() {
-        Flyway.configure()
-                .dataSource(jdbcUrl, POSTGRES.getUsername(), POSTGRES.getPassword())
-                .locations("classpath:db/migration")
-                .baselineOnMigrate(true)
-                .baselineVersion("1")
-                .load()
-                .migrate();
     }
 
     private Flyway flyway(String target) {

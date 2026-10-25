@@ -1,0 +1,29 @@
+-- ============================================
+-- V33 — The scope table is the only source: drop employee_store_assignments
+-- ============================================
+-- Why the drop is safe now, and not one migration earlier: the store fact already lives in
+-- `employee_scope_assignments` as its fourth node column (`company_store_id`, V32), V32 copied every
+-- row of the old table into it behind a guard that compares the source count with the number of store
+-- rows the copy produced and aborts when they differ, and nothing has written to the old table since
+-- the application stopped reading and writing it. The copy was the source's last word, so there is no
+-- row here that the scope table does not already hold, and a table no writer reaches cannot hold a
+-- row the scope table is missing.
+--
+-- What this migration deliberately does NOT do:
+--   * No data goes back to the old table, and nothing is exported or archived. The rows are already in
+--     the table that feeds the five `company_*` claims; a second copy would be the divergence V32's
+--     copy-and-freeze existed to prevent.
+--   * No rename. `employee_store_assignments` does not become an alias of the store level of
+--     `employee_scope_assignments`: the scope table has four node columns and a row's level is its
+--     shape, so the old table's shape (a mandatory `company_store_id`) has no honest name here.
+--   * No change to `employee_scope_assignments`. Its columns, its four partial exclusion constraints,
+--     its indexes and the `ck_employee_scope_assignments_one_node` check were settled by V26 and V32;
+--     this migration only removes the table it superseded.
+--
+-- Dropping the table takes its primary key, its two foreign keys, `ck_employee_store_assignments_dates`,
+-- `ex_employee_store_assignments_no_overlap` and both of its indexes with it, so no later statement is
+-- needed to clean them up. There is no `IF EXISTS`: a missing source table would mean the copy in V32
+-- never ran against it, which is a reason to fail the deploy rather than to succeed quietly.
+-- ============================================
+
+DROP TABLE employee_store_assignments;

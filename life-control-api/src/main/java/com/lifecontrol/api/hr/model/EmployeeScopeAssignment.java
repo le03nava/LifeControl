@@ -25,9 +25,9 @@ import java.util.UUID;
  * {@code CompanyScopeInvariantException} open.</p>
  *
  * <p>This is <b>history</b>, and it carries no {@code version} column and no {@code @Version} field,
- * exactly as {@link EmployeeStoreAssignment} does not: its only mutation is being closed once, so
- * there is no optimistic-locking precondition to protect. A move to another node is a new row, never
- * an edit — that is the reason the table exists at all.</p>
+ * because its only mutation is being closed once: there is no optimistic-locking precondition to
+ * protect. A move to another node is a new row, never an edit — that is the reason the table exists at
+ * all.</p>
  *
  * <p>The assignment is <b>currently valid</b> for a date when
  * {@code validFrom <= date AND (validTo IS NULL OR validTo > date)} (the exclusive-bound reading of

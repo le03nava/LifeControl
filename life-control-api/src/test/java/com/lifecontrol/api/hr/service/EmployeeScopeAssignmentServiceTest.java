@@ -54,7 +54,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 /**
  * Unit spec of {@link EmployeeScopeAssignmentService}, the Mockito shape
- * {@code EmployeeStoreAssignmentServiceTest} establishes for the neighbouring HR service.
+ * {@code ContractServiceTest} establishes for the neighbouring HR service.
  *
  * <p>Every rule the record puts on the service is pinned here: the company-scope-first order, the
  * exactly-one-node refusal, the same-company node refusal (a 404 naming the level), the

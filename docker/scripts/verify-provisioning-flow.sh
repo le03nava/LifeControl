@@ -10,7 +10,7 @@
 #
 # Manual procedure. It is deliberately NOT wired into CI: it needs Keycloak,
 # Mailpit, the API, the gateway and the provisioning worker running, and it
-# writes a throwaway employee, contract, store assignment and Keycloak account
+# writes a throwaway employee, contract, store-level scope assignment and Keycloak account
 # into the realm.
 #
 #   ./docker/scripts/verify-provisioning-flow.sh [dev]
@@ -357,9 +357,9 @@ cleanup() {
 	if [ -n "$COMPANY_ID" ] && [ -n "$EMPLOYEE_ID" ] && [ -n "${OPERATOR_TOKEN:-}" ]; then
 		if [ -n "$ASSIGNMENT_ID" ]; then
 			curl -s -o /dev/null -X PATCH -H "Authorization: Bearer $OPERATOR_TOKEN" \
-				"$API_BASE/api/companies/$COMPANY_ID/employees/$EMPLOYEE_ID/store-assignments/$ASSIGNMENT_ID/close" ||
+				"$API_BASE/api/companies/$COMPANY_ID/employees/$EMPLOYEE_ID/scope-assignments/$ASSIGNMENT_ID/close" ||
 				true
-			print_status "Closed the throwaway store assignment $ASSIGNMENT_ID"
+			print_status "Closed the throwaway store-level scope assignment $ASSIGNMENT_ID"
 		fi
 		if [ -n "$CONTRACT_ID" ]; then
 			curl -s -o /dev/null -X PATCH -H "Authorization: Bearer $OPERATOR_TOKEN" \
@@ -615,8 +615,10 @@ if [ "$WORKER_ENABLED" = "false" ]; then
 fi
 print_success "The worker is enabled in this stack (workerEnabled=true)"
 
-# A store assignment, when the company has a chain to resolve: it is what makes
-# the run exercise the four deeper claim levels instead of the company one alone.
+# A store-level scope assignment, when the company has a chain to resolve: it is what makes
+# the run exercise the four deeper claim levels instead of the company one alone. The store is one
+# level of the scope surface (`/scope-assignments`), not a route of its own, so the payload names the
+# store node exactly as the level dialog does.
 print_status "Resolving a store chain for the throwaway employee..."
 STORE_ID=""
 api_write GET "/api/companies/$COMPANY_ID/countries"
@@ -636,12 +638,12 @@ fi
 STORE_LEVELS="company level only"
 if [ -n "$STORE_ID" ]; then
 	print_status "Assigning the throwaway employee to store $STORE_ID..."
-	api_write POST "$EMPLOYEE_PATH/$EMPLOYEE_ID/store-assignments" \
+	api_write POST "$EMPLOYEE_PATH/$EMPLOYEE_ID/scope-assignments" \
 		"{\"companyStoreId\":\"$STORE_ID\",\"validFrom\":\"$TODAY\"}"
-	expect_code 201 "$W_CODE" "Creating the throwaway store assignment" || exit 1
+	expect_code 201 "$W_CODE" "Creating the throwaway store-level scope assignment" || exit 1
 	ASSIGNMENT_ID="$(json_first_id "$W_BODY")"
 	STORE_LEVELS="company, country, region, zone and store"
-	print_success "Store assignment created (${ASSIGNMENT_ID:-no id returned}): the account will publish all five claim levels"
+	print_success "Store-level scope assignment created (${ASSIGNMENT_ID:-no id returned}): the account will publish all five claim levels"
 else
 	print_warning "Company $COMPANY_ID has no store chain this script could resolve, so this run proves the"
 	print_warning "company-level claim only. The country/region/zone/store claim levels are NOT exercised by it."
@@ -907,5 +909,5 @@ print_status "Claim levels exercised: $STORE_LEVELS."
 print_status "Not covered: the UI screens (this drives the API they call), and a position template that declares"
 print_status "         no roles is only proven to grant none."
 print_status "Cleanup on exit: the employee is soft-deleted (the API's DELETE keeps the row), the contract and the"
-print_status "         store assignment are closed, and the Keycloak accounts of the employee and of the disposable"
+print_status "         store-level scope assignment are closed, and the Keycloak accounts of the employee and of the disposable"
 print_status "         operator are deleted."
