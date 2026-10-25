@@ -300,10 +300,13 @@ health_check() {
 		done <<< "$ps_output"
 
 		if [ "$has_curl" -eq 1 ]; then
-			local not_ready=""
+			local not_ready="" not_observable=""
 			# `|| true` keeps set -e happy while still capturing the tokens on stdout.
 			not_ready="$(host_readiness_probes)" || true
-			unhealthy="$unhealthy$not_ready"
+			# The signals have to be readable, not merely running: a green health check over an
+			# unreadable trace store is the failure this probe was written for.
+			not_observable="$(host_observability_probes)" || true
+			unhealthy="$unhealthy$not_ready$not_observable"
 		fi
 
 		if [ -n "$unhealthy" ] || [ "$count" -lt "$expected" ]; then
