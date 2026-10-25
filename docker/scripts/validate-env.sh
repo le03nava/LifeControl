@@ -8,8 +8,32 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/_common.sh"
 
-# Resolve env (defaults to dev)
-resolve_compose_env "${1:-dev}"
+usage() {
+	echo "Usage: $0 [dev|staging|prod] [--strict-pins]"
+	echo ""
+	echo "  <env>          environment to validate (default: dev)"
+	echo "  --strict-pins  exit non-zero when an image pin in the env file diverges from"
+	echo "                 docker/.env.template. Without it the divergence is a warning:"
+	echo "                 this script gates the production start and cannot fail on drift alone."
+}
+
+# Arguments: [env] [--strict-pins]. The environment stays the first positional argument it always
+# was, so every existing caller (`validate-env.sh prod`, `cd docker && ./scripts/validate-env.sh`)
+# keeps working unchanged.
+ENV_ARG=""
+STRICT_PINS=0
+for arg in "$@"; do
+	case "$arg" in
+	--strict-pins) STRICT_PINS=1 ;;
+	-h | --help)
+		usage
+		exit 0
+		;;
+	*) ENV_ARG="$arg" ;;
+	esac
+done
+
+resolve_compose_env "${ENV_ARG:-dev}"
 
 ERRORS=0
 
@@ -57,6 +81,14 @@ check_declared_vars() {
 	# aborts the deploy when it exits non-zero, so a missing key must never be able to stop
 	# a production start. The report is also read-only: it never rewrites the env file.
 	report_missing_env_keys "$ENV_FILE" "$DOCKER_DIR/.env.template"
+}
+
+check_image_pins() {
+	print_status "Checking image pins against .env.template..."
+	# Report only, and the strict decision deliberately does NOT live here: main turns a divergent
+	# count into a failure only when the caller passed --strict-pins. This function therefore never
+	# adds to ERRORS, which is what keeps the production gate from failing on drift alone.
+	report_stale_image_pins "$ENV_FILE" "$DOCKER_DIR/.env.template"
 }
 
 check_docker() {
@@ -170,6 +202,7 @@ main() {
 	check_env_file || exit 1
 	check_required_vars
 	check_declared_vars
+	check_image_pins
 	check_docker
 	check_ports
 	check_secret_files
@@ -180,6 +213,11 @@ main() {
 
 	if [ $ERRORS -gt 0 ]; then
 		print_error "Validation failed with $ERRORS error(s)"
+		exit 1
+	elif [ "$STRICT_PINS" -eq 1 ] && [ "$STALE_IMAGE_PIN_COUNT" -gt 0 ]; then
+		# Its own line on purpose: the drift was reported as a warning, so calling it a validation
+		# *error* here would contradict the report the operator just read.
+		print_error "Strict pin check failed: $STALE_IMAGE_PIN_COUNT image pin(s) in $ENV_FILE diverge from .env.template"
 		exit 1
 	else
 		print_success "Validation passed!"

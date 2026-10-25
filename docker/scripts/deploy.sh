@@ -330,6 +330,10 @@ COMMAND=${2:-start}
 case "$COMMAND" in
 start)
 	check_requirements
+	# Before building anything: a materialised env file that pins an image the template no longer
+	# names would otherwise start an old image with a green deploy. Report only -- validated by
+	# `validate-env.sh <env> --strict-pins` when a caller wants it to be a failure.
+	report_stale_image_pins "$ENV_FILE" "$DOCKER_DIR/.env.template"
 	if is_skip_build; then
 		print_warning "SKIP_BUILD=true: skipping build"
 	else

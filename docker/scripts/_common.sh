@@ -215,6 +215,129 @@ report_missing_env_keys() {
 }
 
 # ------------------------------------------
+# Stale image pin report (read-only)
+# ------------------------------------------
+
+# The value a `KEY=value` line gives a key in an env-style file, last line winning (the same
+# precedence --env-file applies). Reads an arbitrary file, unlike get_env_var, which is bound to
+# ENV_FILE. A trailing CR is stripped so an env file edited on Windows does not read as a different
+# value from the template it agrees with.
+#
+# Usage: env_file_value <file> <key>
+env_file_value() {
+	local file="$1"
+	local key="$2"
+	local value
+	value="$(grep -E "^${key}=" "$file" 2>/dev/null | tail -1 | cut -d= -f2- || true)"
+	normalize_env_value "$value"
+}
+
+# The value compose actually reads from an env-file line: surrounding whitespace trimmed, a fully
+# quoted value unwrapped (`LOKI_IMAGE="grafana/loki:3.7.8"` pins the same image as the bare form),
+# and an inline ` # comment` dropped when it follows whitespace -- inside quotes it stays part of the
+# value, which is why the quoted case is handled first.
+#
+# This exists because comparing raw text reports a legal spelling as drift, and `--strict-pins` would
+# then fail a file that is correct. A report that cries wolf on a quoted value is a report that gets
+# switched off.
+#
+# Usage: normalize_env_value <raw value>
+normalize_env_value() {
+	local value="${1%$'\r'}"
+	# Trim leading then trailing whitespace without external tools.
+	value="${value#"${value%%[![:space:]]*}"}"
+	value="${value%"${value##*[![:space:]]}"}"
+	case "$value" in
+	\"*\") value="${value:1:${#value}-2}" ;;
+	\'*\') value="${value:1:${#value}-2}" ;;
+	*) value="${value%%[[:space:]]#*}" ;;
+	esac
+	printf '%s' "${value%$'\r'}"
+}
+
+# The `*_IMAGE` keys a template declares, one per line, sorted so a report reads the same twice.
+# Only the pins: ports and memory limits legitimately differ per environment.
+#
+# Usage: template_image_keys <template>
+template_image_keys() {
+	local template="$1"
+	grep -E '^[A-Za-z_][A-Za-z0-9_]*_IMAGE=' "$template" 2>/dev/null | cut -d= -f1 | sort -u
+}
+
+# Divergent pins the last report_stale_image_pins call found. Set to 0 by every call, so a caller
+# that wants to be strict reads the count of the run it just made and never a stale one.
+#
+# Call the report DIRECTLY, never in a command substitution: `out=$(report_stale_image_pins ...)`
+# runs it in a subshell, so the report prints but this counter never reaches the caller and a strict
+# gate silently reads 0. Redirect to a file when the text is also needed.
+STALE_IMAGE_PIN_COUNT=0
+
+# Report the `*_IMAGE` keys an env file pins at a value the template names differently.
+#
+# The env files are gitignored, materialised once by setup-env.sh and never reconciled, so a pin
+# that moves in the template leaves the old image behind in a file that still reads as correct.
+# That is how Tempo 2.3.0 and Loki 2.9.0 survived in staging and prod -- the two generations behind
+# the observability incident -- while every versioned place said otherwise (issue #597).
+#
+# Read-only by contract, and always returns 0: validate-env.sh is the **production start gate**
+# (deploy.sh refuses to start prod when it exits non-zero), so drift has to be visible without being
+# able to stop a start. A caller that wants a failure asks for it and reads STALE_IMAGE_PIN_COUNT.
+#
+# Only pins the env file declares are compared. An undeclared pin is not drift: it runs the compose
+# default, and image-pins.test.sh pins every compose default against the template.
+#
+# Usage: report_stale_image_pins <env_file> <template_file>
+report_stale_image_pins() {
+	local env_file="$1"
+	local template="$2"
+
+	STALE_IMAGE_PIN_COUNT=0
+
+	if [ ! -f "$template" ]; then
+		print_warning "Cannot report stale image pins: $template not found"
+		return 0
+	fi
+	if [ ! -f "$env_file" ]; then
+		print_warning "Cannot report stale image pins: $env_file not found (create it with setup-env.sh)"
+		return 0
+	fi
+
+	local key env_value template_value compared=0
+	local -a stale_keys=() stale_env=() stale_template=()
+	while IFS= read -r key; do
+		[ -n "$key" ] || continue
+		grep -qE "^${key}=" "$env_file" 2>/dev/null || continue
+		compared=$((compared + 1))
+		env_value="$(env_file_value "$env_file" "$key")"
+		template_value="$(env_file_value "$template" "$key")"
+		if [ "$env_value" != "$template_value" ]; then
+			stale_keys+=("$key")
+			stale_env+=("$env_value")
+			stale_template+=("$template_value")
+		fi
+	done <<< "$(template_image_keys "$template")"
+
+	if [ "$compared" -eq 0 ]; then
+		print_status "$env_file declares no image pin: every image comes from the compose defaults"
+		return 0
+	fi
+
+	if [ "${#stale_keys[@]}" -eq 0 ]; then
+		print_success "$env_file pins the same image versions as $template ($compared compared)"
+		return 0
+	fi
+
+	STALE_IMAGE_PIN_COUNT="${#stale_keys[@]}"
+	print_warning "$env_file pins ${STALE_IMAGE_PIN_COUNT} image(s) that $template names differently: this environment would run them and nothing else would say so"
+	local i
+	for i in "${!stale_keys[@]}"; do
+		print_warning "  ${stale_keys[$i]}: $env_file has '${stale_env[$i]}', $template has '${stale_template[$i]}'"
+	done
+	print_status "This is a report, not a failure: update the value in $env_file (setup-env.sh never rewrites it), or keep it deliberately."
+	return 0
+}
+
+# ------------------------------------------
 # URL printing
 # ------------------------------------------
 
