@@ -321,7 +321,8 @@ public class ProductCategoryService {
      */
     private boolean parentChanged(ProductCategory category, ProductCategory newParent) {
         var previous = category.getParentCategory();
-        return !Objects.equals(previous == null ? null : previous.getId(), newParent == null ? null : newParent.getId());
+        return !Objects.equals(
+                previous == null ? null : previous.getId(), newParent == null ? null : newParent.getId());
     }
 
     /**

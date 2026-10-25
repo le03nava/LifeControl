@@ -618,7 +618,9 @@ class ProductCategoryServiceTest {
             assertThatThrownBy(() -> productCategoryService.setCategoryEnabled(companyId, child.getId(), true))
                     .isInstanceOf(DisabledParentCategoryException.class);
 
-            assertThat(child.getEnabled()).as("a refused enable leaves the flag untouched").isFalse();
+            assertThat(child.getEnabled())
+                    .as("a refused enable leaves the flag untouched")
+                    .isFalse();
             verify(productCategoryRepository, never()).save(any(ProductCategory.class));
         }
 
