@@ -191,6 +191,11 @@ services:
       - ./entrypoints/grafana-entrypoint.sh:/usr/local/bin/lc-grafana-entrypoint.sh:ro
       - ./secrets/grafana_admin_password:/run/secrets/grafana_admin_password:ro
       - ${VOLUMES_ROOT:?VOLUMES_ROOT must be set}/grafana/config:/etc/grafana/provisioning/datasources:ro
+      # From the repository, not from $VOLUMES_ROOT: a fresh prod volume would otherwise start
+      # Grafana with zero dashboards and every panel would have to be drawn by hand into a volume
+      # that is never versioned. Read-only, with allowUiUpdates: false in the provider file, so the
+      # JSON in the repository stays the only source of truth.
+      - ./config/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
       - grafana_data:/var/lib/grafana
     networks:
       - default
