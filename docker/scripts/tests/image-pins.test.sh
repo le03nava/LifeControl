@@ -15,9 +15,10 @@
 #
 # It also pins the two constraints that this stack learned the hard way:
 #
-#   1. Loki >= 3.6.0 and Tempo >= 3.0 are distroless images (gcr.io/distroless/static): no
-#      shell, no wget. A `CMD wget --spider ...` healthcheck inside those containers can
-#      never pass again, so the readiness signal has to be measured from the host.
+#   1. Loki >= 3.6.0, Tempo >= 3.0 and redis_exporter are distroless images (gcr.io/distroless/
+#      static): no shell, no wget. A `CMD wget --spider ...` healthcheck inside those containers can
+#      never pass again, so the readiness signal has to be measured from outside. Measured on the
+#      pinned tags: `/bin/sh` is absent from oliver006/redis_exporter and from Loki/Tempo.
 #   2. Loki writes under /loki (common.path_prefix of its bundled config), so the bind mount
 #      must target /loki and setup-env.sh must make that directory writable by uid 10001,
 #      the non-root user of the distroless image. Mounting anything else leaves every log in
@@ -90,7 +91,9 @@ PROMETHEUS_IMAGE=prom/prometheus:v3.15.0
 TEMPO_IMAGE=grafana/tempo:3.1.0
 GRAFANA_IMAGE=grafana/grafana:13.2.4
 REDIS_IMAGE=redis:8.10-alpine
-MAILPIT_IMAGE=axllent/mailpit:v1.31.6"
+MAILPIT_IMAGE=axllent/mailpit:v1.31.6
+POSTGRES_EXPORTER_IMAGE=prometheuscommunity/postgres-exporter:v0.19.0
+REDIS_EXPORTER_IMAGE=oliver006/redis_exporter:v1.69.0"
 
 if [ ! -f "$ENV_TEMPLATE" ]; then
 	fail "missing docker/.env.template"
@@ -165,13 +168,16 @@ while IFS='=' read -r name value; do
 done <<< "$EXPECTED_PINS"
 
 # ------------------------------------------
-# 4. Loki and Tempo must not declare a healthcheck at all: their images are distroless, so the
-#    only binary inside is the service itself and any in-container probe reports a healthy
-#    service as unhealthy forever. Readiness is measured from the host (section 5).
+# 4. Loki, Tempo and redis_exporter must not declare a healthcheck at all: their images are
+#    distroless, so the only binary inside is the service itself and any in-container probe reports
+#    a healthy service as unhealthy forever. Readiness is measured from outside (section 5).
+#    postgres-exporter is deliberately absent from this list: its image does ship a shell, so a
+#    probe there is possible -- it is simply not needed, because nothing gates on that container and
+#    the scrape reports it as `up == 0` when it stops answering.
 # ------------------------------------------
 for compose in "$DOCKER_DIR"/docker-compose*.yml; do
 	[ -f "$compose" ] || continue
-	for svc in loki tempo; do
+	for svc in loki tempo redis-exporter; do
 		block="$(service_block "$compose" "$svc")"
 		if [ -z "$block" ]; then
 			continue

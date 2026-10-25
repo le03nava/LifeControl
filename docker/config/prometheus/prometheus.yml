@@ -22,3 +22,22 @@ scrape_configs:
     metrics_path: /actuator/prometheus
     static_configs:
       - targets: ["lifecontrol-api:8082"]
+
+  # Datastore exporters. pg_up and redis_up are the only signal that a database or the cache is
+  # reachable at all: Redis is excluded from /actuator/health on purpose, so without these jobs a
+  # Redis outage appears nowhere. The targets are service names and container ports, because
+  # Prometheus scrapes inside the compose network, where the loopback host mappings do not exist.
+  #
+  # setup-env.sh installs this file only when the host copy is missing, so a running stack keeps
+  # scraping the previous job list until the operator refreshes $VOLUMES_ROOT/prometheus/config.
+  - job_name: postgres-lifecontrol
+    static_configs:
+      - targets: ["postgres-exporter-lifecontrol:9187"]
+
+  - job_name: postgres-keycloak
+    static_configs:
+      - targets: ["postgres-exporter-keycloak:9187"]
+
+  - job_name: redis
+    static_configs:
+      - targets: ["redis-exporter:9121"]

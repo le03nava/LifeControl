@@ -9,7 +9,7 @@
 # access-provisioning worker shipped OFF in every environment with nobody able to see it:
 # `WORKER_ENABLED` was one of the 16 keys `docker/.env.dev` did not carry.
 #
-# Measured on this tree, not inferred: the template declares 88 keys, 80 of them are bound
+# Measured on this tree, not inferred: the template declares 95 keys, 87 of them are bound
 # by a `${KEY:-...}` / `${KEY:?...}` interpolation in `docker-compose*.yml`, and exactly 7
 # are not — the five `SMTP_*` keys (read by `keycloak-setup.sh`'s `get_env`), `ENVIRONMENT`
 # (`validate-env.sh`'s `REQUIRED_VARS`) and `CIRCUIT_BREAKER_*` (the api-gateway's Spring

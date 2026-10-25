@@ -157,6 +157,78 @@ services:
           cpus: "1.0"
     restart: always
 
+  # ============================================
+  # Production datastore exporters
+  # ============================================
+  # Same two exporters as the base file, with the production host ports and limits. They are
+  # re-declared here instead of inherited so a production operator reads the deployed ports in one
+  # file, the way the observability services above are declared, and so the limits are sized for a
+  # production instance rather than for dev. Host ports are loopback for the same reason: an
+  # exporter has no authentication of its own.
+  postgres-exporter-lifecontrol:
+    image: ${POSTGRES_EXPORTER_IMAGE:-prometheuscommunity/postgres-exporter:v0.19.0}
+    container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-postgres-exporter-lifecontrol
+    ports:
+      - "127.0.0.1:${POSTGRES_EXPORTER_PORT:-9287}:9187"
+    environment:
+      DATA_SOURCE_URI: "lifecontrol-postgres:5432/${LIFECONTROL_POSTGRES_DB:-lifecontrol}?sslmode=disable"
+      DATA_SOURCE_USER: ${LIFECONTROL_POSTGRES_USER:-lifecontrol_user}
+      DATA_SOURCE_PASS_FILE: /run/secrets/lifecontrol_postgres_password
+    volumes:
+      - ./secrets/lifecontrol_postgres_password:/run/secrets/lifecontrol_postgres_password:ro
+    networks:
+      - default
+    depends_on:
+      lifecontrol-postgres:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: ${POSTGRES_EXPORTER_MEMORY_LIMIT:-256m}
+          cpus: "0.5"
+    restart: always
+
+  postgres-exporter-keycloak:
+    image: ${POSTGRES_EXPORTER_IMAGE:-prometheuscommunity/postgres-exporter:v0.19.0}
+    container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-postgres-exporter-keycloak
+    ports:
+      - "127.0.0.1:${KEYCLOAK_POSTGRES_EXPORTER_PORT:-9288}:9187"
+    environment:
+      DATA_SOURCE_URI: "keycloak-postgres:5432/${KEYCLOAK_POSTGRES_DB:-keycloak}?sslmode=disable"
+      DATA_SOURCE_USER: ${KEYCLOAK_POSTGRES_USER:-keycloak}
+      DATA_SOURCE_PASS_FILE: /run/secrets/keycloak_postgres_password
+    volumes:
+      - ./secrets/keycloak_postgres_password:/run/secrets/keycloak_postgres_password:ro
+    networks:
+      - default
+    depends_on:
+      keycloak-postgres:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: ${POSTGRES_EXPORTER_MEMORY_LIMIT:-256m}
+          cpus: "0.5"
+    restart: always
+
+  redis-exporter:
+    image: ${REDIS_EXPORTER_IMAGE:-oliver006/redis_exporter:v1.69.0}
+    container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-redis-exporter
+    command: ["--redis.addr=redis://${REDIS_HOST:-redis}:${REDIS_INTERNAL_PORT:-6379}"]
+    ports:
+      - "127.0.0.1:${REDIS_EXPORTER_PORT:-9221}:9121"
+    networks:
+      - default
+    depends_on:
+      redis:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: ${REDIS_EXPORTER_MEMORY_LIMIT:-256m}
+          cpus: "0.5"
+    restart: always
+
   tempo:
     image: ${TEMPO_IMAGE:-grafana/tempo:3.1.0}
     container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-tempo
