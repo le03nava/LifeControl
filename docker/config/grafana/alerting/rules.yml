@@ -1,0 +1,124 @@
+# ============================================
+# LifeControl - Grafana alert rules
+# ============================================
+# The first alert rule this stack has ever provisioned, and T10 of
+# odd/tasks/observability-hardening.md. It is the same signal the "LifeControl - Service health"
+# dashboard draws on its first panel -- the share of server errors over all requests -- so the rule
+# and the panel can never tell an operator two different stories.
+#
+# D4 wrote these numbers down as STARTING numbers, to be adjusted against how this service actually
+# behaves, and the annotation inside the rule says so to whoever receives the mail. It is not an
+# objective, and nothing in this repository derives an SLO from it. D4 also names a p99 above 2s and
+# a HikariCP pool above 80% as candidates; this slice ships the error ratio alone, because it is the
+# one the dashboards already draw and the one whose healthy reading (0) has been measured. The other
+# two need their own tuning before they can be trusted not to page on normal behaviour, and shipping
+# them as decoration is the failure mode this unit exists to remove.
+#
+# The datasource below is addressed by UID, and that is why docker/config/grafana/datasources.yml
+# gained three of them in this slice: a dashboard panel can omit `datasource` and fall back to the
+# default, an alert rule cannot -- it needs a `datasourceUid` that resolves to a provisioned
+# datasource. What happens on a host whose setup-env.sh-installed copy of datasources.yml predates
+# those uids (that install is copy-if-missing, so it never refreshes): measured on the pinned image
+# with the old file, Grafana still provisions the rule -- provisioning does not resolve the uid --
+# and then every evaluation fails loudly:
+#     level=error msg="Failed to evaluate rule" error="failed to build query 'A': data source not found"
+# with the rule's health reading `error` and its lastError carrying that message. It never evaluates
+# against nothing in silence. The remedy on such a host is to refresh the volume copy: `rm
+# $VOLUMES_ROOT/grafana/config/datasources.yml` and re-run `setup-env.sh`, or copy
+# docker/config/grafana/datasources.yml over it by hand.
+#
+# `noDataState: OK` is deliberate: a job with no traffic has no ratio, and "no traffic" is not
+# "1% of traffic failed". The numerator carries the dashboards' `or ... * 0` fallback so a job with
+# traffic and no 5xx reads 0 instead of vanishing, but no traffic at all stays NoData -- which is the
+# healthy answer, not a reason to page someone at 3am.
+# ============================================
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: lifecontrol-service-health
+    # The same folder the dashboards are provisioned into, so the rule appears next to the panel
+    # that draws it. Grafana creates the folder if it does not exist yet.
+    folder: LifeControl
+    # One minute is the smallest interval that still gives `for: 5m` five distinct evaluations: a
+    # 5-minute window cannot be claimed to have held for 5 minutes on a samples-per-minute basis.
+    interval: 1m
+    rules:
+      - uid: lc-server-error-ratio
+        title: Server error ratio above 1% over 5 minutes
+        condition: C
+        data:
+          # A: the ratio itself, per job, as an instant query -- an alert evaluates a value, not a
+          # curve.
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: lc-prometheus
+            model:
+              datasource:
+                type: prometheus
+                uid: lc-prometheus
+              editorMode: code
+              expr: |-
+                (sum(rate(http_server_requests_seconds_count{outcome="SERVER_ERROR"}[5m])) by (job) or sum(rate(http_server_requests_seconds_count[5m])) by (job) * 0)
+                /
+                sum(rate(http_server_requests_seconds_count[5m])) by (job)
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              range: false
+              refId: A
+          # C: the threshold, as a classic condition over A. Grafana needs an expression node for
+          # the condition even when the query could have been compared directly, and `last` reads
+          # the instant query's own value. The node's type is `classic_conditions` -- PLURAL. The
+          # singular `classic_cond` is what old examples show and what this file said before it was
+          # run: the pinned image rejects it with `invalid command type in expression 'C':
+          # 'classic_cond' is not a recognized expression type` (measured), and grafana-alerting.
+          # test.sh pins the recognized name so the typo cannot come back.
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    type: gt
+                    params:
+                      - 0.01
+                  operator:
+                    type: and
+                  query:
+                    params:
+                      - A
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: C
+              type: classic_conditions
+        noDataState: OK
+        # A failed evaluation is a broken configuration or an unreachable Prometheus, and neither is
+        # "the error ratio is above 1%". Measured on the pinned image with a rule whose query could
+        # not be built: the notification that goes out is its own alert, `DatasourceError` -- it
+        # names the rule and says the rule is broken, never that the ratio crossed a threshold.
+        # `Alerting` would instead mail this rule's own title for a query that never ran, which is
+        # the false verdict; `OK` would hide a broken rule behind a green state.
+        execErrState: Error
+        # D4: above 1% for 5 minutes.
+        for: 5m
+        annotations:
+          summary: Server error ratio above {{ $value | humanizePercentage }} on job {{ $labels.job }}
+          description: >-
+            More than 1% of the requests that job {{ $labels.job }} served in the last 5 minutes
+            failed with a 5xx, sustained for 5 minutes. These thresholds are starting numbers chosen
+            from convention, not an SLO: adjust them against how the service actually behaves
+            instead of treating this mail as a contract. The same ratio is drawn by the
+            "LifeControl - Service health" dashboard, first panel.
+        labels:
+          severity: warning
+        isPaused: false

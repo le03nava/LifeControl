@@ -3,13 +3,11 @@
 **Repository**: LifeControl — `docker/**` (compose, `config/`, `scripts/`, `scripts/tests/`),
 `api-gateway/**` and `life-control-api/**` (properties and `logback-spring.xml` only), plus the two
 dev-prod documents that describe them. No schema, no migration, no API contract, no Angular feature code.
-**Status**: **implemented** — T1 to T9 are written and each is committed as its own reviewed slice: the deploy
+**Status**: **implemented** — T1 to T10 are written and each is committed as its own reviewed slice: the deploy
 gate asserts the signals, Tempo can read what it stores, Loki's retention and the loopback bindings live in
 the repository, the gateway ships logs, the API honours its environment, the datastores export, the worker's
-queue is a gauge, and both documents plus two parity suites hold the whole thing to the files it claims.
-**T10, the alert rule, is deferred at Decision D5**: it needs a notification channel this stack does not have,
-and a rule that fires into nothing is the class of configuration this unit removes rather than adds. Nothing
-else remains.
+queue is a gauge, the dashboards and the alert rule are provisioned with a channel that delivers, and both
+documents plus three parity suites hold the whole thing to the files it claims. Nothing is deferred.
 **Created**: 2026-10-24 · **Branch**: `fix/observability-hardening` · **Base**: `main` @ `53725ea` ·
 **Worktree**: `~/workspace/LifeControl-worktrees/fix-observability-hardening` · **Risk**: **items 1 and
 5** — T1 discards the on-disk trace store and T2 introduces scheduled log deletion (data), while T3, T8
@@ -136,7 +134,7 @@ OTLP migration, and `tempo-receivers.test.sh` is the only suite guarding any par
 | T7 | Provision the first dashboards from the repository — a file provider plus service-health and saturation dashboards, mounted read-only instead of installed into the volume — and pin them with a suite (S10). The alert rule is split out as T10 because it needs a notification channel Decision D5 does not yet name. | S10 | worker + parent | — |
 | T8a | Add the datastore exporters to compose and Prometheus — two PostgreSQL exporters (postgres_exporter measures one DSN per process) plus one Redis exporter, loopback-only host ports, passwords through the mounted secret files, and their image pins in the frozen table (S11, exporters clause). | S11 | worker + parent | `2f58dcf` |
 | T8b | Publish the access-provisioning queue as Micrometer gauges — one series per task state plus the age of the oldest `PENDING` row, refreshed every 15s from two read-only repository queries, with no new dependency (S11, worker clause). | S11 | worker | — |
-| T10 | Provision the first alert rule on the server-error ratio once a notification channel exists (Decision D5). Provisioning a rule with no contact point would fire into nothing, which is the class of configuration this unit removes. | S10 | — | — |
+| T10 | Provision the notification channel and the first alert rule: Grafana's SMTP pointed at the dev mail catcher with the credential read from the stack's own secret file, an email contact point, a notification policy, one rule on the server-error ratio, and explicit datasource uids because a rule cannot omit its datasource (S10, alerting clause). | S10 | worker + parent | — |
 | T9 | Correct both `AGENTS.md` files and add the two cross-file parity suites — every scrape target and every datasource URL must name a compose service and its container port (S12). | S12 | worker + parent | — |
 
 Every row's commit is the slice that carried it. The last row's is derived, never stored: `git log -1
@@ -159,11 +157,13 @@ remote reader would need a tunnel, which is the honest cost of not building an a
 `datasources.yml` are already installed from `docker/config/`; Loki being the exception is what let an
 unbounded retention reach a host disk unnoticed.
 
-**D5 — No alert rule until a channel is named (T7, T10).** Grafana can hold a rule and a contact point, but
-this stack has no notification destination: no SMTP credentials for Grafana, no webhook consumer. A rule with
-no contact point is visible in the UI and notifies nobody, so it is recorded as its own task with the three
-shipped options (Mailpit in dev plus SMTP through environment variables elsewhere; dashboards only; a rule
-without a destination) instead of being provisioned as decoration.
+**D5 — The alert channel is email through the stack's own relay (T10).** The owner chose this over leaving the
+rule unprovisioned: Grafana's SMTP points at the dev mail catcher through the same `SMTP_HOST`/`SMTP_PORT` pair
+Keycloak's invitation mail uses, so one env file configures both senders, and the credential comes from
+`docker/secrets/smtp_password` read by the entrypoint rather than from an environment value. Outside dev the
+entrypoint warns loudly and keeps serving dashboards when the relay is still the dev container's name: refusing
+to start, as `keycloak-setup.sh` does for the same mistake, would take the dashboards down to protect an alert.
+A rule without a destination stays forbidden — that is what this decision replaced.
 
 **D4 — Conventional alert thresholds, corrected by the operator (T10).** The first alert rule uses
 `http_server_requests_seconds_count{outcome="SERVER_ERROR"}` above 1% of requests over 5 minutes, p99
@@ -358,3 +358,32 @@ Grafana still has no dashboard until the operator runs `setup-env.sh` on a fresh
 volume copies and then `deploy.sh dev up`. Every claim about the rendered configuration is verified with
 `docker compose config` and `promtool`; every claim about a live signal was measured against the containers
 that are running now.
+
+**L20 — slice 9 (T10) turned the last missing thing into a delivered one, and the mail path was proved, not
+assumed.** The contact point, the policy and the rule are provisioned files mounted read-only; the rule is the
+server-error ratio above 1% for 5m per `job`, with D4's numbers marked as starting numbers. Three things were
+measured rather than reasoned about, and each one changed the artifact:
+
+- **`$__env{}` does interpolate in alerting provisioning** on 13.2.4 — the contact point's `addresses` reads
+  `GRAFANA_ALERT_EMAIL` and the stored value is the address, not the literal, so the destination is an env key
+  and not a hardcoded string.
+- **The rule's condition node type is `classic_conditions`.** The suite's first version passed with
+  `classic_cond`, which the image rejects at evaluation time (`'classic_cond' is not a recognized expression
+  type`), i.e. a green suite over a rule that never ran. The suite now pins the expression type.
+- **An alert rule cannot omit its datasource**, so the three datasources gained explicit uids and the rule
+  references `lc-prometheus`. The cost is recorded: a host whose `setup-env.sh`-installed copy predates the
+  uids keeps rendering dashboards (they omit `datasource` and resolve to the default) while the rule fails
+  every evaluation with `data source not found` in the log. Loud, never silent — and the fix is to refresh the
+  host copy, which the record says out loud rather than pretending the upgrade is free.
+
+The mail path was closed end to end on a throwaway container of the pinned image against the running Mailpit:
+a test notification answered `{"status":"success"}` and Mailpit received `[FIRING:1] … Grafana` from
+`LifeControl <no-reply@lifecontrol.local>`; the policy routing was proved separately with a scratch
+always-firing rule, because a receiver test bypasses the policy. What is **not** proved and is stated as a gap:
+an authenticated relay (only the no-auth path ran), and the real rule crossing 1% over a 5-minute window with
+synthetic 5xx load. Two of D4's three thresholds (p99, pool saturation) are not shipped — the error ratio is.
+
+Two counts had to be corrected as the template grew, and both are in the diff: the allowlist of keys with no
+compose binding fell from seven to four (`SMTP_HOST`, `SMTP_PORT` and `SMTP_FROM` now feed Grafana's SMTP
+declaration), and the template's own header now says 96 keys and 92 bound — the worker predicted 99/95, which
+is what a scratch mirror without the parent's final key set would say, and the parent measured 96/92.

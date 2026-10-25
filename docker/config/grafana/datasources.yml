@@ -3,22 +3,43 @@
 # ============================================
 # Installed by setup-env.sh into $VOLUMES_ROOT/grafana/config (mounted at
 # /etc/grafana/provisioning/datasources).
+#
+# The three `uid` values below are load-bearing, and they are new: an alert rule cannot omit its
+# datasource the way a dashboard panel can. A panel without a `datasource` falls back to the default,
+# which is what the provisioned dashboards rely on, but `docker/config/grafana/alerting/rules.yml`
+# has to name one -- `datasourceUid: lc-prometheus` -- and without a declared uid Grafana assigns a
+# random one per instance (measured: `PBFA97CFB590B2093`, `P8E80F9AEF21F6940`, `P214B5B846CF3925F`),
+# so the rule would point at a datasource that exists nowhere. Declaring the uids here makes the
+# name stable across every host and every volume.
+#
+# Ordering caveat, because this file is the one Grafana config installed copy-if-missing instead of
+# mounted from the repository: a host whose $VOLUMES_ROOT already holds an older copy without uids
+# keeps the random ones, and the rule then fails every evaluation with
+# `failed to build query 'A': data source not found` (loudly, per evaluation, with the rule's health
+# reported as `error`). Refresh it with `rm <volumes>/grafana/config/datasources.yml` plus a re-run of
+# `setup-env.sh`, or copy this file over the host copy. The alternative -- mounting this file from
+# the repository too -- was not taken in T10 because it changes how every dashboard resolves its
+# datasource at the same time as it adds the first rule.
 # ============================================
 apiVersion: 1
 
 datasources:
   - name: Prometheus
+    # Referenced by docker/config/grafana/alerting/rules.yml as `datasourceUid`.
+    uid: lc-prometheus
     type: prometheus
     access: proxy
     url: http://prometheus:9090
     isDefault: true
 
   - name: Loki
+    uid: lc-loki
     type: loki
     access: proxy
     url: http://loki:3100
 
   - name: Tempo
+    uid: lc-tempo
     type: tempo
     access: proxy
     url: http://tempo:3100
