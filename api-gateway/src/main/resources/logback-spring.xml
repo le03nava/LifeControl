@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <include resource="org/springframework/boot/logging/logback/base.xml"/>
+    <springProperty scope="context" name="appName" source="spring.application.name"/>
+    <springProperty scope="context" name="lokiUrl" source="loki.url"/>
+    <springProperty scope="context" name="lokiBatchSize" source="loki.batchSize"/>
+    <springProperty scope="context" name="lokiBatchTimeoutMs" source="loki.batchTimeoutMs"/>
+    <springProperty scope="context" name="rootLogLevel" source="logging.level.root" defaultValue="INFO"/>
+
+    <!-- One pattern for both sinks: the gateway is where a request is authenticated and cut, so
+         its line is the first one you look for, and it has to carry the ids that join it to the
+         API's line and to the trace in Tempo. It is declared once so the console and Loki copies
+         of a line stay comparable. -->
+    <property name="logPattern" value="%d{yyyy-MM-dd HH:mm:ss.SSSZ} %-5level [%thread] [%X{traceId:-},%X{spanId:-}] %logger{36} - %msg%n"/>
+
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>${logPattern}</pattern>
+        </encoder>
+    </appender>
+
+    <!-- The label set is byte-for-byte the API's, so one Loki query returns both applications and
+         a single dashboard works for either. `application` comes from spring.application.name, so
+         the two services cannot end up with the same label value. -->
+    <appender name="LOKI" class="com.github.loki4j.logback.Loki4jAppender">
+        <http>
+            <url>${lokiUrl}</url>
+        </http>
+        <format>
+            <label>
+                <pattern>application=${appName},host=${HOSTNAME},level=%level</pattern>
+            </label>
+            <message>
+                <pattern>${logPattern}</pattern>
+            </message>
+        </format>
+        <batchMaxItems>${lokiBatchSize}</batchMaxItems>
+        <!-- Milliseconds: the appender takes a long here, not a Duration (see application.properties). -->
+        <batchTimeoutMs>${lokiBatchTimeoutMs}</batchTimeoutMs>
+    </appender>
+
+    <!-- Bound to logging.level.root, which is ${LOG_LEVEL:INFO} in application.properties, so the
+         container decides the level and this file cannot outvote it. -->
+    <root level="${rootLogLevel}">
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="LOKI"/>
+    </root>
+</configuration>

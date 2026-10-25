@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <include resource="org/springframework/boot/logging/logback/base.xml"/>
+
+    <!-- Console only, no Loki appender: the suite runs outside the compose network, so `loki` does
+         not resolve. Shipping the appender without this file made the suite depend on a reachable
+         log store: with `LOKI_URL` pointing nowhere, the failed sends land in logback's
+         StatusManager, Spring Boot reports `Logback configuration error detected` when a later test
+         context initializes logging, and `SecurityConfigTests` fails to load its context. The
+         appender itself is still pinned by GatewayLokiAppenderConfigurationTest, which parses the
+         shipped `logback-spring.xml` directly instead of needing a running Loki. -->
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSSZ} %-5level [%thread] [%X{traceId:-},%X{spanId:-}] %logger{36} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+    </root>
+</configuration>
