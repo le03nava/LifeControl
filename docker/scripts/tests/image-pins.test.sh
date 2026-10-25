@@ -233,6 +233,70 @@ else
 fi
 
 # ------------------------------------------
+# 7. Every materialized environment file agrees with the template on every image pin.
+#    Checking the template against the compose defaults is not enough: `.env.dev`,
+#    `.env.staging` and `.env.prod` are created once by setup-env.sh and never reconciled,
+#    so a pin that moves in the template leaves the old image behind in a file that still
+#    reads as correct. That is how `grafana/grafana:10.2.0` survived in staging and prod
+#    while the template and every compose default said `13.2.4`, one image serving two
+#    versions of the same stack with no signal anywhere.
+#
+#    Only `*_IMAGE` keys are compared. Ports and memory limits legitimately differ per
+#    environment, and a parity check that knows no exceptions is a parity check that gets
+#    switched off the first time it is right about a difference someone wanted.
+# ------------------------------------------
+template_image_keys() {
+	grep -E '^[A-Za-z_][A-Za-z0-9_]*_IMAGE=' "$ENV_TEMPLATE" 2>/dev/null | cut -d= -f1 | sort -u
+}
+
+for env_file in "$DOCKER_DIR/.env.dev" "$DOCKER_DIR/.env.staging" "$DOCKER_DIR/.env.prod"; do
+	env_name="$(basename "$env_file")"
+	if [ ! -f "$env_file" ]; then
+		# A gitignored materialization, absent on a fresh clone and in CI. Reported as a
+		# note and NOT counted: a pass would claim a comparison that never happened.
+		printf 'NOTE: docker/%s is not materialized, its image pins are not compared\n' "$env_name"
+		continue
+	fi
+	keys_compared=0
+	while IFS= read -r key; do
+		[ -n "$key" ] || continue
+		# An env file that does not mention the key at all runs the compose default, and
+		# section 2 already pins every compose default against the template.
+		grep -qE "^$key=" "$env_file" || continue
+		keys_compared=$((keys_compared + 1))
+		check_equal "docker/$env_name $key agrees with .env.template" \
+			"$(read_env_var "$ENV_TEMPLATE" "$key")" "$(read_env_var "$env_file" "$key")"
+	done <<< "$(template_image_keys)"
+	if [ "$keys_compared" -eq 0 ]; then
+		# Declaring none of the pins is not agreement either: it means the reader stopped
+		# matching, which would turn this whole section into a silent no-op.
+		fail "docker/$env_name declares none of the image pins .env.template declares, so nothing was compared"
+	else
+		pass "docker/$env_name pins $keys_compared image(s), each compared against .env.template"
+	fi
+done
+
+# ------------------------------------------
+# 8. The template declares no Grafana auth key the grafana service never forwards.
+#    Compose hands a container only the variables its own `environment:` block names, so a
+#    `GF_AUTH_*` key that no block forwards changes nothing in the running Grafana: it only
+#    makes the file read as configured. Measured on 2026-10-24, the template declared all
+#    three while `/api/dashboards/home` answered 401 and `/login` answered 200 — login form
+#    enabled, anonymous access disabled, the opposite of what the file said. An absent key
+#    is at least honest about that, which is why an unreachable key is worse than an absent
+#    one. The stack runs a real login from docker/secrets/grafana_admin_password, so these
+#    are removed rather than forwarded: an anonymous admin Grafana on a published port must
+#    not be one `.env` edit away from being switched on by accident.
+# ------------------------------------------
+for key in GF_AUTH_ANONYMOUS_ENABLED GF_AUTH_ANONYMOUS_ORG_ROLE GF_AUTH_DISABLE_LOGIN_FORM; do
+	if grep -qE "^$key=" "$ENV_TEMPLATE" 2>/dev/null; then
+		fail ".env.template declares $key, which the grafana service never forwards: an unreachable key is worse than an absent one (it reads as configured while the container runs the opposite)"
+	else
+		pass ".env.template declares no $key (Grafana runs a real login, not an env-file setting)"
+	fi
+done
+
+# ------------------------------------------
 # Summary
 # ------------------------------------------
 echo "------------------------------------------"
