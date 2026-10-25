@@ -3,10 +3,10 @@
 **Repository**: LifeControl — `docker/**` (compose, `config/`, `scripts/`, `scripts/tests/`),
 `api-gateway/**` and `life-control-api/**` (properties and `logback-spring.xml` only), plus the two
 dev-prod documents that describe them. No schema, no migration, no API contract, no Angular feature code.
-**Status**: **implemented** — T1 is written: the dev Tempo store is reset, `deploy.sh health` now
-asserts that Prometheus has every target up and that Tempo hands back a flushed trace, and
-`observability-probes.test.sh` pins both verdicts and their fail-closed paths. T2–T9 remain, and no
-decision blocks them: the operator authorized the reset and set the log retention at 30 days.
+**Status**: **implemented** — T1 to T5 are written: the deploy gate asserts the signals, Loki's retention and
+the loopback bindings are in the repository, the gateway ships a Loki appender, and the API honours
+`TRACING_SAMPLING_PROBABILITY` and `LOG_LEVEL`. T6 to T9 remain (Grafana config hygiene, provisioned
+dashboards and alerts, exporter and worker metrics, docs and parity suites), and no decision blocks them.
 **Created**: 2026-10-24 · **Branch**: `fix/observability-hardening` · **Base**: `main` @ `53725ea` ·
 **Worktree**: `~/workspace/LifeControl-worktrees/fix-observability-hardening` · **Risk**: **items 1 and
 5** — T1 discards the on-disk trace store and T2 introduces scheduled log deletion (data), while T3, T8
@@ -37,13 +37,17 @@ container is down: it asserts that `GET :9090/api/v1/targets?state=active` repor
 by a new suite under `docker/scripts/tests/` that runs the probe against a fake endpoint and asserts both
 the pass and the fail verdict.
 
-**S3** — Loki's retention is declared in this repository instead of inherited from the packaged config:
-`GET http://localhost:3100/config` no longer reports `retention_period: 0s` and no longer reports
-`enforce_retention_period: false`, the effective value comes from a file under `docker/config/loki/`
-installed by `setup-env.sh` the same way `prometheus.yml` and `tempo.yml` are, and a suite under
-`docker/scripts/tests/` pins both the declared value and its installation. Measured today:
-`retention_period: 0s`, `enforce_retention_period: false`, `max_query_length: 30d1h`, 189 MB of logs on
-the dev host volume.
+**S3** — Loki's retention is declared in this repository instead of inherited from the packaged
+config: `GET http://localhost:3100/config` reports `limits_config.retention_period: 30d` (the 720h the
+file declares), `compactor.retention_enabled: true` and `compactor.delete_request_store: filesystem`, and
+no longer reports `limits_config.retention_period: 0s`. Those values come from
+`docker/config/loki/loki.yml`, mounted read-only from the repository rather than copied into
+`$VOLUMES_ROOT` the way `prometheus.yml` and `tempo.yml` are — a copy-if-missing install is never
+refreshed, and a retention policy belongs in a reviewed commit. A suite under `docker/scripts/tests/`
+pins the values, the read-only mount, the `-config.file` target, and the absence of the pre-2.6
+`limits_config.enforce_retention_period` key, which this image rejects at parse time. Measured before the
+change: `retention_period: 0s`, `enforce_retention_period: false`, `max_query_length: 30d1h`, 189 MB of
+logs on the dev host volume.
 
 **S4** — No observability port is reachable from every host interface: no line in `docker-compose*.yml`
 publishes `3100`, `9090`, `3110`, `3000` or their `${*_PORT}` variables without an explicit `127.0.0.1:`
@@ -109,9 +113,9 @@ OTLP migration, and `tempo-receivers.test.sh` is the only suite guarding any par
 
 | ID | Task | Specs | Route | Commit |
 |----|------|-------|-------|--------|
-| T1 | Reset the dev Tempo block store — delete, on the operator's explicit authorization — and prove readability end to end (S1); extend `deploy.sh health` with the targets-`up` and flushed-trace-read probes and the suite that asserts both verdicts (S2). | S1, S2 | inline | — |
-| T2 | Ship `docker/config/loki/loki.yml` with a declared retention and install it from `setup-env.sh`, plus the suite that pins it (S3). Waits on the decision for the production retention window; the proposed default is 30d, which is the `max_query_length` Loki already enforces. | S3 | inline | — |
-| T3 | Bind every observability port to `127.0.0.1` in the base compose and the prod override, and drop `--web.enable-lifecycle` from the Prometheus args; add the compose-grep suite (S4). | S4 | inline | — |
+| T1 | Reset the dev Tempo block store — delete, on the operator's explicit authorization — and prove readability end to end (S1); extend `deploy.sh health` with the targets-`up` and flushed-trace-read probes and the suite that asserts both verdicts (S2). | S1, S2 | inline | `29a226e` |
+| T2 | Ship `docker/config/loki/loki.yml` with a 30-day retention declared and enforced — `limits_config.retention_period: 720h` plus `compactor.retention_enabled: true` and `delete_request_store: filesystem` — mounted read-only from the repository (never copied by `setup-env.sh`), and the suite that pins the values, the mount and the command (S3). | S3 | worker | `382f9a2` |
+| T3 | Bind every observability port to `127.0.0.1` in the base compose and the prod override, and drop `--web.enable-lifecycle` from the Prometheus args; add the compose-grep suite (S4). | S4 | worker | `382f9a2` |
 | T4 | Add `api-gateway/src/main/resources/logback-spring.xml` with the `Loki4jAppender` wired to the existing `loki.*` properties, and the parity suite that fails when a module depends on the appender without declaring it (S5). | S5 | inline | — |
 | T5 | Make the API's prod sampling read the environment variable and make `LOG_LEVEL` reach the root logger; pin both with a properties suite (S6, S7). | S6, S7 | inline | — |
 | T6 | Remove the unreachable `GF_AUTH_*` keys, align the Grafana pin across the four env files, and extend `image-pins.test.sh` to per-environment divergence (S8, S9). | S8, S9 | inline | — |
@@ -194,3 +198,54 @@ still lives in the ingester, which answered `200` while every flushed block answ
 asks for a trace between 24h and 2h old — by then it is in a block — and the suite pins that the request
 carries `start=`/`end=`, because a regression to the newest-trace read would pass the whole suite over
 the defect the suite exists for.
+
+**L8 — slice boundaries.** Slice 1 (T1) is `29a226e` and measures 535 authored changed lines,
+above the ~400-line review budget: the probe and its suite are ~200 and this record is the rest,
+which travelled with the slice on purpose because the record is the specification the reviewer reads
+against it. The remaining slices keep their code under the budget, and T2+T3 and T4+T5 are delivered
+as two independent slices because their files are disjoint (`docker/**` and the two Java modules).
+
+**L9 — one spec clause was wrong, and it is corrected here instead of worked around.** S3 as first
+written required that `GET /config` stop reporting `enforce_retention_period: false`. That field belongs
+to the query engine, not to retention, and the switch it resembles (`limits_config.
+enforce_retention_period`) was removed in Loki 2.6: declaring it under the pinned 3.7.8 fails the parse
+with `failed parsing config: line 56: field enforce_retention_period not found in type
+validation.plain`, so the container would never start. Enforcement is asserted by what the image
+actually does — `retention_period: 30d` under `limits_config`, `retention_enabled: true` and
+`delete_request_store: filesystem` under `compactor` — measured on a throwaway container of the pinned
+image (`/ready` 200; `/config` printing all three). S3 also said the file would be installed by
+`setup-env.sh` like the other configs; it is mounted from the repository instead, and the suite fails if
+`setup-env.sh` ever copies it.
+
+**L10 — slice 2 (T2+T3) was delivered by a bounded worker and verified by the parent.** Parent-side
+checks beyond the worker's report: the new config parses against the pinned image
+(`docker run --rm -v …/loki.yml:/etc/loki/config.yml:ro grafana/loki:3.7.8 -verify-config` →
+`msg="config is valid"`, exit 0); the rendered project publishes five mappings and all five carry
+`host_ip: 127.0.0.1` (loki 3100, prometheus 9090, tempo 3110 and 9411, grafana 3000) with published and
+target ports unchanged; and all 12 suites under `docker/scripts/tests/` pass. The running dev containers
+still hold the previous bindings until the next `deploy.sh <env> up`, which is the operator's call — the
+change is rendered, not applied.
+
+**L11 — one instruction in T4 could not be obeyed as written, and the parent resolved it instead of
+recording a gap.** The delegated task asked that `loki.timeout` be wired into the appender. That is not
+expressible: loki4j 1.5.2 exposes the batch timeout as `setBatchTimeoutMs(long)` while the gateway
+declared `loki.timeout` as a Duration (`10s`/`12s`/`15s`), and `<batchTimeoutMs>${lokiTimeout}</batchTimeoutMs>`
+logged `WARN … Failed to set property [batchTimeoutMs] to value "10s". Conversion to type [long] failed`
+and silently kept the library default. The property was therefore renamed to `loki.batchTimeoutMs`
+(fed by `LOKI_TIMEOUT_MS`, values `10000`/`12000`/`15000`) and wired; the dead `loki.timeout`/`LOKI_TIMEOUT`
+keys are gone, and the test gained two assertions for the new binding, whose RED was measured by removing
+the wiring again (`api-gateway logback-spring.xml Loki appender > … FAILED`) before restoring it.
+
+The same pass removed a second piece of dead configuration rather than shipping it inert: the gateway's
+`logging.pattern.console=${LOG_PATTERN:…}` fed Boot's default appender, which the shipped file replaces,
+and its default carried neither the level nor the trace ids. The console format is now the shipped
+file's, `logging.pattern.correlation` (mirroring the API's) supplies the ids, and the property is gone
+with a comment saying why — an env-var knob that silently does nothing is the defect this whole unit
+exists to remove, not something to leave behind for the next reader.
+
+**L12 — slice 3 (T4+T5) delivered by a bounded worker, finished and verified by the parent.** The worker
+reported T5 complete and T4 green except the timeout binding; it asked instead of guessing, which is the
+behaviour the delegation asked for. Parent-side verification: the gateway suite's two classes pass
+(`GatewayLokiAppenderConfigurationTest` 2 tests, plus the four pre-existing gateway classes), the API's
+`ObservabilityEnvironmentOverrideTest` passes (3 tests), and the gateway has no Spotless plugin — there
+is no formatting gate in that module, which is why only the API ran `spotlessCheck`.

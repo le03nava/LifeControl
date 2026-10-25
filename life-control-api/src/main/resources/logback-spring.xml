@@ -3,6 +3,7 @@
     <include resource="org/springframework/boot/logging/logback/base.xml"/>
     <springProperty scope="context" name="appName" source="spring.application.name"/>
     <springProperty scope="context" name="lokiUrl" source="loki.url"/>
+    <springProperty scope="context" name="rootLogLevel" source="logging.level.root" defaultValue="INFO"/>
 
     <!-- Console appender for debugging -->
     <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
@@ -25,7 +26,9 @@
         </format>
     </appender>
 
-    <root level="INFO">
+    <!-- Bound to logging.level.root, which application.properties derives from LOG_LEVEL, so the
+         container decides the level and this file cannot outvote it. -->
+    <root level="${rootLogLevel}">
         <appender-ref ref="CONSOLE"/>
         <appender-ref ref="LOKI"/>
     </root>
