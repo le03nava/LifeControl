@@ -179,6 +179,11 @@ Script principal de despliegue. Build y start de servicios.
 ./docker/scripts/deploy.sh dev clean      # Remove volumes
 ```
 
+> `health` ya no se conforma con `docker ps`: también falla si un target de Prometheus no está
+> `up` o si Tempo no puede leer un trace ya flusheado, y avisa —sin fallar— cuando el store de
+> traces todavía no tiene nada que leer. Ver
+> [Observabilidad](#observabilidad-config-versionada-puertos-y-exporters).
+
 ### cleanup.sh
 Limpia recursos de Docker y archivos locales.
 ```bash
@@ -200,6 +205,17 @@ Limpia recursos de Docker y archivos locales.
 > `label=com.docker.compose.project=<COMPOSE_PROJECT_NAME>`, así que no toca otros proyectos pero
 > tampoco deja nada corriendo. `all` también baja el stack (vía `stop_containers`) y encima borra
 > volúmenes y datos locales. Para volver a levantar sin rebuild: `./docker/scripts/deploy.sh <env> up`.
+
+### Observabilidad: config versionada, puertos y exporters
+
+| Regla | Valor |
+|-------|-------|
+| Config de Loki | `docker/config/loki/loki.yml`, montada **read-only** en `/etc/loki/config.yml` y **no** instalada en `$VOLUMES_ROOT` como `prometheus.yml`, `tempo.yml` y `datasources.yml`: declara `limits_config.retention_period: 720h` (30 días, el rango máximo que Loki responde) con `compactor.retention_enabled: true` y `delete_request_store: filesystem`. Una copia-if-missing no se refresca nunca, y la retención decide cuánto disco toma el host y cuánta historia sobrevive: eso va en un commit revisado. `loki-retention.test.sh` falla si `setup-env.sh` vuelve a copiarla |
+| Puertos de observabilidad | Loki, Prometheus, Tempo, Grafana y los exporters publican **sólo en `127.0.0.1`**, en el compose base y en el override de prod: ninguno autentica a quien lo llama, así que un `HOST:CONTAINER` pelado los exponía a toda la red del host. Prometheus ya **no** corre con `--web.enable-lifecycle`: eso apaga `POST /-/quit` y `POST /-/reload`, que cualquiera con acceso al puerto podía disparar; un reload ahora es recrear el contenedor. `observability-port-binding.test.sh` lo fija |
+| `deploy.sh <env> health` | Además de que cada contenedor esté `healthy`, falla si Prometheus reporta un target que no está `up` (`up == 0`) o si Tempo no puede leer un trace ya flusheado; si el store de traces es más joven que la ventana de la sonda (24h a 2h), imprime un aviso y no falla, porque todavía no hay nada que leer. `observability-probes.test.sh` fija los dos veredictos |
+| Dashboards de Grafana | Se provisionan desde `docker/config/grafana/dashboards/` (un provider con `allowUiUpdates: false` y dos dashboards JSON), montados read-only en `/etc/grafana/provisioning/dashboards`; los datasources siguen viniendo del volumen que instala `setup-env.sh`. **No hay ninguna alert rule provisionada**: no hay canal de notificación todavía, y una regla sin contacto no avisa a nadie |
+| Exporters de datastores | Dos `postgres-exporter` (uno por instancia: `postgres_exporter` mide un DSN por proceso) y un `redis-exporter`, con el puerto de host en loopback y la password por `*_FILE` desde el mismo secret que lee la base. Keys en `.env.template`: `POSTGRES_EXPORTER_IMAGE`, `POSTGRES_EXPORTER_PORT`, `KEYCLOAK_POSTGRES_EXPORTER_PORT`, `REDIS_EXPORTER_IMAGE`, `REDIS_EXPORTER_PORT`, `POSTGRES_EXPORTER_MEMORY_LIMIT` y `REDIS_EXPORTER_MEMORY_LIMIT` |
+| Bloque de auth de Grafana | Salió de `docker/.env.template` (y de los `.env.<env>`): dos de esas keys **sí** las reenviaba el override de prod (`GF_AUTH_ANONYMOUS_ENABLED`, `GF_AUTH_DISABLE_LOGIN_FORM`), así que un `.env.prod` materializado desde el template podía correr Grafana con admin anónimo. Quedan como keys internas del compose, con el default del compose como único valor, y `image-pins.test.sh` falla si vuelven al template |
 
 ### Secretos
 Todas las contraseñas viajan por archivos `docker/secrets/*` (NO por los `.env.*`) con el **mismo patrón en dev, staging y prod**: `setup-env.sh` materializa cada `*.template` (strip de comentarios, `chmod 0444`), compose los monta read-only en `/run/secrets/<nombre>`, y los wrappers en `docker/entrypoints/*.sh` leen el archivo y exportan la env var que la imagen espera (`KC_DB_PASSWORD`, `POSTGRES_PASSWORD`, `DATABASE_PASSWORD`, `GF_SECURITY_ADMIN_PASSWORD`, `KEYCLOAK_ADMIN_CLIENT_SECRET`).
@@ -264,6 +280,7 @@ curl -s -X POST "http://localhost:8181/realms/life-control-realm/protocol/openid
 | Loki y Tempo no llevan `healthcheck` | Desde `grafana/loki` 3.6.0 y `grafana/tempo` 3.x las imágenes son distroless (`gcr.io/distroless/static`): sin shell ni `wget`, así que un `CMD wget …` queda `unhealthy` para siempre. La señal se mide desde el host en `deploy.sh health`, con `curl` |
 | Loki guarda en `/loki` | Es el `path_prefix` de su config empaquetada. El mount apunta a `/loki` y `setup-env.sh` deja ese directorio (más `rules/` y `rules-temp/`) con dueño `10001:10001`, el uid de la imagen distroless |
 | Volumen de Loki en prod | Es un named volume: si existe de antes (creado para `/loki/data`) hay que borrarlo una vez, porque Docker no lo repuebla desde la imagen y queda vacío y root-owned, que es justo lo que Loki no puede escribir |
+| Exporters de datastores | `postgres-exporter` y `redis-exporter` se pinnean como el resto (`POSTGRES_EXPORTER_IMAGE` y `REDIS_EXPORTER_IMAGE`, en el template **y** en el default del compose) y **no** llevan `healthcheck`: la imagen del exporter de Redis es distroless, así que un probe in-container no puede pasar. La señal de vida es `up` en el scrape, y `exporters.test.sh` lo fija |
 
 > **Subir una imagen**: editá `.env.template`, los defaults de `docker-compose*.yml` y la tabla de
 > `image-pins.test.sh`; corré los tests de `docker/scripts/tests/`; en dev, `./docker/scripts/deploy.sh dev up`
@@ -293,6 +310,11 @@ curl -s -X POST "http://localhost:8181/realms/life-control-realm/protocol/openid
 | dev         | localhost:9000 | localhost:9001 | localhost:8181 | localhost:3000 | localhost:9090 | localhost:3100 | localhost:3110 |
 | staging     | localhost:9100 | localhost:9101 | localhost:8281 | localhost:3100 | localhost:9190 | localhost:3200 | localhost:3210 |
 | prod        | localhost:9200 | localhost:9201 | localhost:8381 | localhost:3200 | localhost:9290 | localhost:3300 | localhost:3310 |
+
+> Los puertos de observabilidad (Grafana, Prometheus, Loki, Tempo y los exporters) se publican en
+> `127.0.0.1` en todos los entornos: sirven desde el host y no son alcanzables desde la LAN. El
+> detalle, y por qué, está en
+> [Observabilidad](#observabilidad-config-versionada-puertos-y-exporters).
 
 ---
 
@@ -328,6 +350,10 @@ npm run test:e2e            # E2E con Playwright (mocks de Keycloak y API)
 > `pull_request` dejan de listar lo mismo. En consecuencia, un PR que no toca ningún path listado no corre
 > ese workflow y su merge a `main` tampoco: un `gh pr checks` sin ningún check de componente significa que
 > el merge no los va a correr, y sólo el guard de labels —que a propósito no filtra— corre siempre.
+> El job `Shell & Artifact Integrity` de `docker-build-integrity` corre **todas** las suites de
+> `docker/scripts/tests/*.test.sh` por glob —antes nombraba cinco, así que una suite nueva corría en una
+> laptop y nunca en CI—, imprime cuántas encontró y falla si el glob no matchea nada: una suite queda
+> cableada por existir.
 
 ### Docker
 

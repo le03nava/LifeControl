@@ -3,10 +3,13 @@
 **Repository**: LifeControl — `docker/**` (compose, `config/`, `scripts/`, `scripts/tests/`),
 `api-gateway/**` and `life-control-api/**` (properties and `logback-spring.xml` only), plus the two
 dev-prod documents that describe them. No schema, no migration, no API contract, no Angular feature code.
-**Status**: **implemented** — T1 to T5 are written: the deploy gate asserts the signals, Loki's retention and
-the loopback bindings are in the repository, the gateway ships a Loki appender, and the API honours
-`TRACING_SAMPLING_PROBABILITY` and `LOG_LEVEL`. T6 to T9 remain (Grafana config hygiene, provisioned
-dashboards and alerts, exporter and worker metrics, docs and parity suites), and no decision blocks them.
+**Status**: **implemented** — T1 to T9 are written and each is committed as its own reviewed slice: the deploy
+gate asserts the signals, Tempo can read what it stores, Loki's retention and the loopback bindings live in
+the repository, the gateway ships logs, the API honours its environment, the datastores export, the worker's
+queue is a gauge, and both documents plus two parity suites hold the whole thing to the files it claims.
+**T10, the alert rule, is deferred at Decision D5**: it needs a notification channel this stack does not have,
+and a rule that fires into nothing is the class of configuration this unit removes rather than adds. Nothing
+else remains.
 **Created**: 2026-10-24 · **Branch**: `fix/observability-hardening` · **Base**: `main` @ `53725ea` ·
 **Worktree**: `~/workspace/LifeControl-worktrees/fix-observability-hardening` · **Risk**: **items 1 and
 5** — T1 discards the on-disk trace store and T2 introduces scheduled log deletion (data), while T3, T8
@@ -134,7 +137,10 @@ OTLP migration, and `tempo-receivers.test.sh` is the only suite guarding any par
 | T8a | Add the datastore exporters to compose and Prometheus — two PostgreSQL exporters (postgres_exporter measures one DSN per process) plus one Redis exporter, loopback-only host ports, passwords through the mounted secret files, and their image pins in the frozen table (S11, exporters clause). | S11 | worker + parent | `2f58dcf` |
 | T8b | Publish the access-provisioning queue as Micrometer gauges — one series per task state plus the age of the oldest `PENDING` row, refreshed every 15s from two read-only repository queries, with no new dependency (S11, worker clause). | S11 | worker | — |
 | T10 | Provision the first alert rule on the server-error ratio once a notification channel exists (Decision D5). Provisioning a rule with no contact point would fire into nothing, which is the class of configuration this unit removes. | S10 | — | — |
-| T9 | Correct the `AGENTS.md` Observability table and add the two cross-file parity suites for `prometheus.yml` and `datasources.yml` (S12). | S12 | inline | — |
+| T9 | Correct both `AGENTS.md` files and add the two cross-file parity suites — every scrape target and every datasource URL must name a compose service and its container port (S12). | S12 | worker + parent | — |
+
+Every row's commit is the slice that carried it. The last row's is derived, never stored: `git log -1
+--format='%h' -- odd/tasks/observability-hardening.md`.
 
 ## Decisions
 
@@ -324,3 +330,31 @@ wait — and the class javadoc says the consequence out loud, that an alert thre
 `WORKER_MAX_DELAY_SECONDS` would fire on correct behaviour. Parent-side verification: the suite is 12/12 green;
 the worker ran 399 tests across the provisioning and config packages, including the seven PostgreSQL
 integration suites, and the repository's structural off-state test is untouched.
+
+**L18 — slice 8 (T9) found a real drift in the file it was told to guard.** The new parity suite failed on
+`docker/config/prometheus/prometheus.yml`: the `prometheus` job scraped `localhost:9090`. Both work from inside
+the container, which is why it survived six years of nobody asking, but it is the only target in the file that
+does not name a compose service — the file's own contract, now enforced. Corrected to `prometheus:9090` by the
+parent (the target was outside the worker's surfaces; the suite's frozen table already stated the conforming
+value, so the fix needed no test edit). That is the second time in this unit a guard found drift in the code it
+was written to protect, after the health probe that returned green over an unreadable trace store.
+
+The documents caught up with the code: `life-control-api/AGENTS.md`'s Observability table no longer claims
+Brave and Zipkin — it names the OTLP bridge, the sampling placeholder that every profile now shares, the root
+level `LOG_LEVEL` drives, the correlation pattern, and the two queue gauges with the retry-backoff caveat. The
+root `AGENTS.md` gained one section and four rows rather than a rewrite: Loki's config mounted from the
+repository with its 720h window, the loopback-only plane and the two endpoints that stopped being reachable,
+what `deploy.sh health` now refuses to call healthy, the provisioned dashboards and the deliberately absent
+alert rule, the exporter services and their keys, and the CI job that runs every suite by glob.
+
+**L19 — what this unit cost and what it did not do.** Eight commits, and the authored-line total is well past
+the ~400-line review budget because six of them carry a suite of their own: 71 assertions for the exporters,
+41 for the port bindings, 31 for the dashboards, 23 for the prometheus parity, 18 for the datasources parity,
+14 for the retention, 12 for the probes. The budget exists to protect a reviewer, and the way it is protected
+here is that each slice is one concern with its own guard, not that the arithmetic adds up. Two things are
+deliberately not done: the alert rule (D5 — no channel exists), and applying any of this to a running stack:
+the dev containers still hold the previous bindings, Prometheus still reads the previous scrape list and
+Grafana still has no dashboard until the operator runs `setup-env.sh` on a fresh machine or refreshes the
+volume copies and then `deploy.sh dev up`. Every claim about the rendered configuration is verified with
+`docker compose config` and `promtool`; every claim about a live signal was measured against the containers
+that are running now.
