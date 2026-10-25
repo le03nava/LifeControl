@@ -109,13 +109,20 @@ services:
   # ============================================
   # Production Monitoring Stack
   # ============================================
+  # Every observability port below is published on 127.0.0.1 only, same reason as the base file:
+  # none of these services authenticates its callers, so a bare `HOST:CONTAINER` mapping published
+  # them to the whole production network. Loopback still serves `deploy.sh health` and a human on
+  # the host, and containers keep using the compose network by service name.
   loki:
     image: ${LOKI_IMAGE:-grafana/loki:3.7.8}
     container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-loki
-    command: ["-config.file=/etc/loki/local-config.yaml"]
+    command: ["-config.file=/etc/loki/config.yml"]
     ports:
-      - "${LOKI_PORT:-3300}:3100"
+      - "127.0.0.1:${LOKI_PORT:-3300}:3100"
     volumes:
+      # Repository-owned on purpose: retention is a reviewed decision here, not a host copy that
+      # setup-env.sh installs once and never refreshes again. See config/loki/loki.yml.
+      - ./config/loki/loki.yml:/etc/loki/config.yml:ro
       - loki_data:/loki
     networks:
       - default
@@ -134,9 +141,10 @@ services:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.retention.time=30d
       - --storage.tsdb.wal-compression
-      - --web.enable-lifecycle
+      # No --web.enable-lifecycle: it exposes POST /-/quit and /-/reload to anyone who can reach
+      # the port, and nothing in this repository calls them.
     ports:
-      - "${PROMETHEUS_PORT:-9290}:9090"
+      - "127.0.0.1:${PROMETHEUS_PORT:-9290}:9090"
     volumes:
       - ${VOLUMES_ROOT:?VOLUMES_ROOT must be set}/prometheus/config:/etc/prometheus:ro
       - prometheus_data:/prometheus
@@ -154,8 +162,8 @@ services:
     container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-tempo
     command: ["-config.file=/etc/tempo.yaml"]
     ports:
-      - "${TEMPO_PORT:-3310}:3100"
-      - "${TEMPO_ZIPKIN_PORT:-9611}:9411"
+      - "127.0.0.1:${TEMPO_PORT:-3310}:3100"
+      - "127.0.0.1:${TEMPO_ZIPKIN_PORT:-9611}:9411"
     volumes:
       - ${VOLUMES_ROOT:?VOLUMES_ROOT must be set}/tempo/config:/etc/tempo:ro
       - tempo_data:/var/tempo
@@ -173,7 +181,7 @@ services:
     container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-grafana
     entrypoint: ["/usr/local/bin/lc-grafana-entrypoint.sh"]
     ports:
-      - "${GRAFANA_PORT:-3200}:3000"
+      - "127.0.0.1:${GRAFANA_PORT:-3200}:3000"
     environment:
       GF_AUTH_ANONYMOUS_ENABLED: ${GF_AUTH_ANONYMOUS_ENABLED:-false}
       GF_AUTH_BASIC_ENABLED: ${GF_AUTH_BASIC_ENABLED:-true}

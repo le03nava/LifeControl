@@ -119,13 +119,24 @@ services:
   # ============================================
   # Loki - Log Aggregation
   # ============================================
+  # Every observability port below is published on 127.0.0.1 only: Prometheus, Loki, Tempo and
+  # Grafana have no authentication of their own, so a bare `HOST:CONTAINER` mapping exposed them to
+  # anything on the host's network (Prometheus could be stopped remotely, Loki accepted writes and
+  # Tempo answered every stored trace). Loopback keeps them reachable for `deploy.sh health` and a
+  # human on the host; containers reach each other by service name on the compose network, which
+  # does not go through the published port at all.
   loki:
     image: ${LOKI_IMAGE:-grafana/loki:3.7.8}
     container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-loki
-    command: ["-config.file=/etc/loki/local-config.yaml"]
+    command: ["-config.file=/etc/loki/config.yml"]
     ports:
-      - "${LOKI_PORT:-3100}:3100"
+      - "127.0.0.1:${LOKI_PORT:-3100}:3100"
     volumes:
+      # Mounted from the repository, never copied into $VOLUMES_ROOT like prometheus.yml, tempo.yml
+      # and the Grafana datasources: Loki's retention policy decides how much of the host disk the
+      # logs may take and how much history survives, so it belongs in a reviewed commit. A host copy
+      # (setup-env.sh never overwrites an existing one) is how it would drift out of review.
+      - ./config/loki/loki.yml:/etc/loki/config.yml:ro
       - ${VOLUMES_ROOT:?VOLUMES_ROOT must be set}/loki/data:/loki
     networks:
       - default
@@ -148,9 +159,11 @@ services:
       - --enable-feature=exemplar-storage
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.retention.time=15d
-      - --web.enable-lifecycle
+      # --web.enable-lifecycle used to be here. It turns POST /-/quit and /-/reload on for whoever
+      # can reach the port, and nothing in this repository calls either endpoint: a reload happens
+      # by recreating the container. Re-adding the flag means deciding the exposure again.
     ports:
-      - "${PROMETHEUS_PORT:-9090}:9090"
+      - "127.0.0.1:${PROMETHEUS_PORT:-9090}:9090"
     volumes:
       - ${VOLUMES_ROOT:?VOLUMES_ROOT must be set}/prometheus/config:/etc/prometheus:ro
       - ${VOLUMES_ROOT:?VOLUMES_ROOT must be set}/prometheus/data:/prometheus
@@ -184,8 +197,8 @@ services:
     user: "0:0"
     command: ["-config.file=/etc/tempo/tempo.yml"]
     ports:
-      - "${TEMPO_PORT:-3110}:3100" # Tempo
-      - "${TEMPO_ZIPKIN_PORT:-9411}:9411" # Zipkin
+      - "127.0.0.1:${TEMPO_PORT:-3110}:3100" # Tempo
+      - "127.0.0.1:${TEMPO_ZIPKIN_PORT:-9411}:9411" # Zipkin
     volumes:
       - ${VOLUMES_ROOT:?VOLUMES_ROOT must be set}/tempo/config:/etc/tempo:ro
       - ${VOLUMES_ROOT:?VOLUMES_ROOT must be set}/tempo/data:/var/tempo
@@ -208,7 +221,7 @@ services:
     user: "1000:1000"
     entrypoint: ["/usr/local/bin/lc-grafana-entrypoint.sh"]
     ports:
-      - "${GRAFANA_PORT:-3000}:3000"
+      - "127.0.0.1:${GRAFANA_PORT:-3000}:3000"
     volumes:
       - ./entrypoints/grafana-entrypoint.sh:/usr/local/bin/lc-grafana-entrypoint.sh:ro
       - ./secrets/grafana_admin_password:/run/secrets/grafana_admin_password:ro
