@@ -6,9 +6,11 @@ PASS_COUNT=0; FAIL_COUNT=0; SKIP_COUNT=0
 pass() { printf 'PASS: %s\n' "$1"; PASS_COUNT=$((PASS_COUNT + 1)); }
 fail() { printf 'FAIL: %s\n' "$1"; FAIL_COUNT=$((FAIL_COUNT + 1)); }
 skip() { printf 'SKIP: %s\n' "$1"; SKIP_COUNT=$((SKIP_COUNT + 1)); }
-for key in CIRCUIT_BREAKER_WINDOW_SIZE; do
-	if grep -qE "^${key}=" "$DOCKER_DIR/.env.template"; then pass "$key is still declared in .env.template"; else fail "$key was removed from .env.template"; fi
-done
+if grep -qE "^CIRCUIT_BREAKER_WINDOW_SIZE=" "$DOCKER_DIR/.env.template"; then
+	pass "CIRCUIT_BREAKER_WINDOW_SIZE is still declared in .env.template"
+else
+	fail "CIRCUIT_BREAKER_WINDOW_SIZE was removed from .env.template"
+fi
 if ! docker compose version >/dev/null 2>&1; then
 	skip "docker compose is unavailable, the worker-default probe did not run"
 else
