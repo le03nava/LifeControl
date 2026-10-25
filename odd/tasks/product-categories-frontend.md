@@ -205,3 +205,10 @@ test.
   so it returned `nativeRisk: unassessable` and no review was started — nothing here claims otherwise.
   What *was* re-confirmed on the committed tree, after the Prettier reformat: `npm run lint` reports
   "All files pass linting" (exit 0) and `npm run build` completes bundle generation.
+
+- **L13** (delivery, dated 2026-10-25): the work is issue **#613** (approved with `status:approved`; the
+  approval is recorded on the issue as a comment stating the maintainer asked for S3 and its pull request
+  in this session, so the label is not the author approving their own change), on branch
+  `feat/product-categories-frontend`, and the pull request is **#614** against `main`, labeled
+  `type:feature`, linked with `Closes #613`. Commits: `474f6853` (client), `17710133` (dialog),
+  `05290d45` (screen, routing and this record).
