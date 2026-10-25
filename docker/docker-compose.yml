@@ -226,6 +226,13 @@ services:
       - ./entrypoints/grafana-entrypoint.sh:/usr/local/bin/lc-grafana-entrypoint.sh:ro
       - ./secrets/grafana_admin_password:/run/secrets/grafana_admin_password:ro
       - ${VOLUMES_ROOT:?VOLUMES_ROOT must be set}/grafana/config:/etc/grafana/provisioning/datasources:ro
+      # Unlike datasources.yml, the dashboards are mounted straight from the repository and never
+      # installed into $VOLUMES_ROOT: setup-env.sh does not overwrite an existing host copy, so a
+      # dashboard provisioned from the volume would keep whatever was installed first while the
+      # repository moved on -- and a fresh staging/prod volume starts Grafana with none at all,
+      # which is exactly the state this directory exists to end. The provider file sets
+      # allowUiUpdates: false, so a commit is the only way to change a dashboard.
+      - ./config/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
       - ${VOLUMES_ROOT:?VOLUMES_ROOT must be set}/grafana/data:/var/lib/grafana
     networks:
       - default

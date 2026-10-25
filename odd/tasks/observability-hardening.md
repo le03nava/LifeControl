@@ -95,13 +95,17 @@ sequences, with the suite comparing only the template against the compose defaul
 gitignored and absent from a fresh worktree, so the alignment itself is an operator edit
 (`setup-env.sh` never rewrites an existing file) and the parity check is the part that ships.
 
-**S10** — The first dashboards and alerts are versioned, not hand-built: `docker/config/grafana/dashboards/`
-holds JSON provisioned through `/etc/grafana/provisioning/dashboards`, covering at least server error
-rate from `http_server_requests_seconds_count{outcome="SERVER_ERROR"}`, p95/p99 latency from the
-`http_server_requests` histogram, and database pool saturation from `hikaricp_connections_*`, plus at
-least one alert rule on the server error rate. Measured today:
-`sqlite3 -readonly grafana.db "select count(*) from dashboard; select count(*) from alert_rule;"` →
-`0` and `0`, and `docker/config/grafana/` contains only `datasources.yml`.
+**S10** — The first dashboards are versioned, not hand-built: `docker/config/grafana/dashboards/` holds a
+file provider and two dashboards mounted read-only at `/etc/grafana/provisioning/dashboards`, covering
+server error ratio, request rate, p95/p99 latency, HikariCP pool usage and connection timers, JVM heap and
+process CPU — every expression checked against the running Prometheus before it was written down, and every
+one re-executed through Grafana's own query API in a throwaway container of the pinned image. A suite pins
+the mount in both compose files, the provider's path and `allowUiUpdates: false`, valid JSON, datasource
+references, the metric names each expression touches, and the deliberate absence of alert rules. Measured
+before the change: `sqlite3 -readonly grafana.db "select count(*) from dashboard; select count(*) from
+alert_rule;"` → `0` and `0`, and `docker/config/grafana/` held only `datasources.yml`. The error ratio
+carries an `or … * 0` numerator fallback because a job with traffic and no 5xx has no numerator series:
+without it the panel draws nothing exactly when everything is healthy.
 
 **S11** — Infrastructure and unattended work are observable: Prometheus reports `pg_up` for both
 PostgreSQL instances and `redis_up`, and the access-provisioning worker publishes its queued work by
@@ -126,8 +130,9 @@ OTLP migration, and `tempo-receivers.test.sh` is the only suite guarding any par
 | T4 | Add `api-gateway/src/main/resources/logback-spring.xml` with the `Loki4jAppender` wired to the existing `loki.*` properties, and the parity suite that fails when a module depends on the appender without declaring it (S5). | S5 | inline | — |
 | T5 | Make the API's prod sampling read the environment variable and make `LOG_LEVEL` reach the root logger; pin both with a properties suite (S6, S7). | S6, S7 | inline | — |
 | T6 | Remove the Grafana auth block from the template, pin the two keys production does forward as compose-internal, and extend `image-pins.test.sh` with per-environment pin parity plus the guard that the block cannot come back (S8, S9). | S8, S9 | worker + parent | — |
-| T7 | Provision the first dashboards and the first alert rule from the repository, with `setup-env.sh` installing them the way datasources already are (S10). | S10 | inline | — |
+| T7 | Provision the first dashboards from the repository — a file provider plus service-health and saturation dashboards, mounted read-only instead of installed into the volume — and pin them with a suite (S10). The alert rule is split out as T10 because it needs a notification channel Decision D5 does not yet name. | S10 | worker + parent | — |
 | T8 | Add the PostgreSQL and Redis exporters to compose and Prometheus, and publish the worker's queue gauge from `life-control-api` (S11). | S11 | inline | — |
+| T10 | Provision the first alert rule on the server-error ratio once a notification channel exists (Decision D5). Provisioning a rule with no contact point would fire into nothing, which is the class of configuration this unit removes. | S10 | — | — |
 | T9 | Correct the `AGENTS.md` Observability table and add the two cross-file parity suites for `prometheus.yml` and `datasources.yml` (S12). | S12 | inline | — |
 
 ## Decisions
@@ -147,7 +152,13 @@ remote reader would need a tunnel, which is the honest cost of not building an a
 `datasources.yml` are already installed from `docker/config/`; Loki being the exception is what let an
 unbounded retention reach a host disk unnoticed.
 
-**D4 — Conventional alert thresholds, corrected by the operator (T7).** The first alert row uses
+**D5 — No alert rule until a channel is named (T7, T10).** Grafana can hold a rule and a contact point, but
+this stack has no notification destination: no SMTP credentials for Grafana, no webhook consumer. A rule with
+no contact point is visible in the UI and notifies nobody, so it is recorded as its own task with the three
+shipped options (Mailpit in dev plus SMTP through environment variables elsewhere; dashboards only; a rule
+without a destination) instead of being provisioned as decoration.
+
+**D4 — Conventional alert thresholds, corrected by the operator (T10).** The first alert rule uses
 `http_server_requests_seconds_count{outcome="SERVER_ERROR"}` above 1% of requests over 5 minutes, p99
 above 2s, and `hikaricp_connections_active / hikaricp_connections_max` above 0.8. These are starting
 numbers to be adjusted, not a service-level objective, and the record says so where the rule lives.
@@ -284,3 +295,14 @@ parent: removing the block breaks `env-defaults.test.sh` (the allowlist must dro
 forwarded keys must become compose-internal) and `worker-dev-default.test.sh` (its loop asserted the key
 stayed in the template). Both suites were updated in this slice, and all 12 suites under
 `docker/scripts/tests/` pass: `image-pins` 45, `env-defaults` 242, `worker-dev-default` 6.
+
+**L16 — slice 5 (T7 dashboards) delivered by a bounded worker, corrected and completed by the parent.** Three
+parent-side changes after the worker's report, each one closing something it flagged rather than deferred:
+the error-ratio expression gained the `or … * 0` numerator fallback it proposed (measured: with the fallback
+`lifecontrol-api` reads `0` instead of vanishing; a job with no traffic still reads `NaN`, which is what an
+undefined ratio should read); the alert rule left T7 and became T10 with D5, because a rule with no contact
+point is the decoration this unit exists to remove; and the CI job was fixed — `docker-build-integrity.yml`
+named five suites explicitly, so the four suites this unit added would have run on a laptop and never in CI.
+It now loops over every `docker/scripts/tests/*.test.sh`, prints how many it found, and fails when the glob
+matches nothing, so a suite is wired by existing. Verified after the change: 13/13 docker suites pass
+(`grafana-provisioning` 31) and 11/11 `.github` suites pass, including the workflow trigger-parity one.

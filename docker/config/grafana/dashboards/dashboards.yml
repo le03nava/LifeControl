@@ -1,0 +1,36 @@
+# ============================================
+# LifeControl - Grafana Dashboard Provisioning
+# ============================================
+# This directory is mounted from the repository, read-only, at
+# /etc/grafana/provisioning/dashboards -- not copied into $VOLUMES_ROOT the way
+# datasources.yml is. A dashboard is a reviewed artifact: setup-env.sh never overwrites an
+# existing copy, so a host copy would freeze whatever was installed first and diverge from this
+# directory in silence, which is the same defect the Loki retention file was moved out of the
+# volume to avoid.
+#
+# The JSON dashboards live in the json/ subdirectory rather than next to this file on purpose:
+# Grafana reads EVERY file in the provisioning folder as a provider, and a dashboard document
+# unmarshalled as YAML is not a provider. Keeping the two kinds of file in different directories
+# is what makes the split unambiguous for the image instead of relying on it to reject the
+# mistake loudly.
+# ============================================
+apiVersion: 1
+
+providers:
+  - name: lifecontrol
+    orgId: 1
+    folder: LifeControl
+    type: file
+    # The repository is the source of truth: removing a file here removes the dashboard, so the
+    # deletion switch stays off.
+    disableDeletion: false
+    # A saved UI edit would live only in the volume while the repository kept the old version,
+    # and the next reload would silently overwrite it. Editing the JSON and shipping a commit is
+    # the only way to change a dashboard.
+    allowUiUpdates: false
+    options:
+      path: /etc/grafana/provisioning/dashboards/json
+      # One folder (`folder:` above) for every dashboard, instead of deriving folders from the
+      # directory names: two dashboards do not need a folder tree, and a flat folder keeps the
+      # in-repo layout and the Grafana UI layout independent.
+      foldersFromFilesStructure: false
