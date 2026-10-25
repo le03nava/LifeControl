@@ -1,0 +1,196 @@
+# ODD feature: observability-hardening
+
+**Repository**: LifeControl — `docker/**` (compose, `config/`, `scripts/`, `scripts/tests/`),
+`api-gateway/**` and `life-control-api/**` (properties and `logback-spring.xml` only), plus the two
+dev-prod documents that describe them. No schema, no migration, no API contract, no Angular feature code.
+**Status**: **implemented** — T1 is written: the dev Tempo store is reset, `deploy.sh health` now
+asserts that Prometheus has every target up and that Tempo hands back a flushed trace, and
+`observability-probes.test.sh` pins both verdicts and their fail-closed paths. T2–T9 remain, and no
+decision blocks them: the operator authorized the reset and set the log retention at 30 days.
+**Created**: 2026-10-24 · **Branch**: `fix/observability-hardening` · **Base**: `main` @ `53725ea` ·
+**Worktree**: `~/workspace/LifeControl-worktrees/fix-observability-hardening` · **Risk**: **items 1 and
+5** — T1 discards the on-disk trace store and T2 introduces scheduled log deletion (data), while T3, T8
+and T9 change what the stack publishes and what the deploy scripts assert (delivery and environment).
+
+## Objective
+
+Turn observability from "the containers are up" into "the signals are readable and something says so".
+Today the stack collects three signals and can vouch for none of them end to end: Tempo ingests and
+cannot read back what it flushed, Loki keeps logs forever and answers queries for 30 days, the whole
+plane is published on `0.0.0.0` without authentication, one of the two services ships no logs at all,
+Grafana holds zero dashboards and zero alert rules, and `deploy.sh health` reports green through all of
+it. Each task below closes one measured gap; S1–S12 are the acceptance statements and the evidence they
+were measured from is in the Log.
+
+## Specs
+
+**S1** — A trace that has been flushed to a block is readable again: for every id returned by
+`GET /api/search`, `GET http://localhost:3110/api/traces/<traceID>` returns `200`, and
+`docker logs lifecontrol-dev-tempo | grep -c 'vParquet2 is not a valid block version'` is `0`.
+Measured on the current tree: `HTTP 500` with `error opening block for reading, blockID: <uuid>:
+vParquet2 is not a valid block version`, 71 occurrences, against `tempo v3.1.0` writing `vParquet5`,
+with blocks dated 2026-10-13 and 2026-10-16 still on disk.
+
+**S2** — `./docker/scripts/deploy.sh dev health` fails when observability is degraded, not only when a
+container is down: it asserts that `GET :9090/api/v1/targets?state=active` reports `health == "up"` for
+`lifecontrol-api`, `api-gateway` and `prometheus`, and that a trace read answers `200` as in S1. Pinned
+by a new suite under `docker/scripts/tests/` that runs the probe against a fake endpoint and asserts both
+the pass and the fail verdict.
+
+**S3** — Loki's retention is declared in this repository instead of inherited from the packaged config:
+`GET http://localhost:3100/config` no longer reports `retention_period: 0s` and no longer reports
+`enforce_retention_period: false`, the effective value comes from a file under `docker/config/loki/`
+installed by `setup-env.sh` the same way `prometheus.yml` and `tempo.yml` are, and a suite under
+`docker/scripts/tests/` pins both the declared value and its installation. Measured today:
+`retention_period: 0s`, `enforce_retention_period: false`, `max_query_length: 30d1h`, 189 MB of logs on
+the dev host volume.
+
+**S4** — No observability port is reachable from every host interface: no line in `docker-compose*.yml`
+publishes `3100`, `9090`, `3110`, `3000` or their `${*_PORT}` variables without an explicit `127.0.0.1:`
+(or documented internal-only) binding, and Prometheus no longer runs with `--web.enable-lifecycle` while
+its port is published. Pinned by a suite that greps the compose files and fails on a bare `0.0.0.0`
+publish. Measured today: `"${PROMETHEUS_PORT:-9090}:9090"`, `"${LOKI_PORT:-3100}:3100"`,
+`"${TEMPO_PORT:-3110}:3100"` and `"${GRAFANA_PORT:-3000}:3000"` in the base file, mirrored in the prod
+override, with `--web.enable-lifecycle` in Prometheus' args.
+
+**S5** — The gateway's logs reach Loki: `GET http://localhost:3100/loki/api/v1/label/application/values`
+returns both applications, and a suite asserts that every module that depends on
+`loki-logback-appender` ships a `logback-spring.xml` declaring the `Loki4jAppender`. Measured today: the
+label returns `["lifecontrol-api"]` only, while `api-gateway` has the dependency and the `loki.*`
+properties but no logback configuration at all.
+
+**S6** — Production sampling honours the environment variable: with
+`TRACING_SAMPLING_PROBABILITY=0.01` in `docker/.env.prod`, the API's effective
+`management.tracing.sampling.probability` is `0.01`. Measured today:
+`life-control-api/src/main/resources/application-prod.properties:21` hardcodes `0.1`, and a
+profile-specific property wins over the base file's `${TRACING_SAMPLING_PROBABILITY:0.1}`, so the env
+value is silently ignored. Pinned by a suite that fails when a profile file hardcodes the property.
+
+**S7** — `LOG_LEVEL` from compose is consumed by the API: `LOG_LEVEL=DEBUG` on `lifecontrol-api` raises
+the root logger without a rebuild. Measured today: compose passes it
+(`docker/docker-compose.yml:349`), `grep -rn 'logging.level.root' life-control-api/src/main/resources`
+returns nothing, and `logback-spring.xml` pins `<root level="INFO">`.
+
+**S8** — No dead Grafana auth configuration remains: `grep -rn 'GF_AUTH' docker/.env*
+docker/.env.template` returns nothing, or every `GF_AUTH_*` key it returns is mapped inside the
+`grafana` service's `environment:` block. Measured today: three keys are declared in `docker/.env.dev`
+and `docker/.env.template` and never reach the container, while
+`curl -s -o /dev/null -w '%{http_code}' :3000/api/dashboards/home` answers `401` and `/login` answers
+`200` — the login form is enabled and anonymous access is disabled, contrary to what those keys say.
+
+**S9** — One Grafana version across every environment, and the pin check sees it: `.env.template`,
+`.env.dev`, `.env.staging`, `.env.prod` and the compose defaults declare the same version, and
+`docker/scripts/tests/image-pins.test.sh` fails on a divergence between per-environment files. Measured
+today: `grafana/grafana:13.2.4` in dev and `.env.template`, `grafana/grafana:10.2.0` in staging and prod,
+with the pin suite comparing only the template against the compose defaults.
+
+**S10** — The first dashboards and alerts are versioned, not hand-built: `docker/config/grafana/dashboards/`
+holds JSON provisioned through `/etc/grafana/provisioning/dashboards`, covering at least server error
+rate from `http_server_requests_seconds_count{outcome="SERVER_ERROR"}`, p95/p99 latency from the
+`http_server_requests` histogram, and database pool saturation from `hikaricp_connections_*`, plus at
+least one alert rule on the server error rate. Measured today:
+`sqlite3 -readonly grafana.db "select count(*) from dashboard; select count(*) from alert_rule;"` →
+`0` and `0`, and `docker/config/grafana/` contains only `datasources.yml`.
+
+**S11** — Infrastructure and unattended work are observable: Prometheus reports `pg_up` for both
+PostgreSQL instances and `redis_up`, and the access-provisioning worker publishes its queued work by
+state (at least `PENDING` with the age of the oldest row), so a stalled queue is visible without reading
+logs. Measured today: no exporter exists for either datastore, and
+`grep -rl 'MeterRegistry|Counter|Timer' life-control-api/src/main/java` returns nothing.
+
+**S12** — Documentation and cross-file configuration stop drifting: the Observability table in
+`life-control-api/AGENTS.md` names OTLP/Tempo instead of `Brave`/`Zipkin`, a suite asserts that every
+`targets` entry in `docker/config/prometheus/prometheus.yml` names a service and a port that exist in
+compose, and a suite asserts that every URL in `docker/config/grafana/datasources.yml` resolves to a
+compose service. Measured today: the table still reads "Micrometer Tracing + Brave + Zipkin" after the
+OTLP migration, and `tempo-receivers.test.sh` is the only suite guarding any part of the stack.
+
+## Tasks
+
+| ID | Task | Specs | Route | Commit |
+|----|------|-------|-------|--------|
+| T1 | Reset the dev Tempo block store — delete, on the operator's explicit authorization — and prove readability end to end (S1); extend `deploy.sh health` with the targets-`up` and flushed-trace-read probes and the suite that asserts both verdicts (S2). | S1, S2 | inline | — |
+| T2 | Ship `docker/config/loki/loki.yml` with a declared retention and install it from `setup-env.sh`, plus the suite that pins it (S3). Waits on the decision for the production retention window; the proposed default is 30d, which is the `max_query_length` Loki already enforces. | S3 | inline | — |
+| T3 | Bind every observability port to `127.0.0.1` in the base compose and the prod override, and drop `--web.enable-lifecycle` from the Prometheus args; add the compose-grep suite (S4). | S4 | inline | — |
+| T4 | Add `api-gateway/src/main/resources/logback-spring.xml` with the `Loki4jAppender` wired to the existing `loki.*` properties, and the parity suite that fails when a module depends on the appender without declaring it (S5). | S5 | inline | — |
+| T5 | Make the API's prod sampling read the environment variable and make `LOG_LEVEL` reach the root logger; pin both with a properties suite (S6, S7). | S6, S7 | inline | — |
+| T6 | Remove the unreachable `GF_AUTH_*` keys, align the Grafana pin across the four env files, and extend `image-pins.test.sh` to per-environment divergence (S8, S9). | S8, S9 | inline | — |
+| T7 | Provision the first dashboards and the first alert rule from the repository, with `setup-env.sh` installing them the way datasources already are (S10). | S10 | inline | — |
+| T8 | Add the PostgreSQL and Redis exporters to compose and Prometheus, and publish the worker's queue gauge from `life-control-api` (S11). | S11 | inline | — |
+| T9 | Correct the `AGENTS.md` Observability table and add the two cross-file parity suites for `prometheus.yml` and `datasources.yml` (S12). | S12 | inline | — |
+
+## Decisions
+
+**D1 — The dev store was deleted, not archived (T1), on explicit authorization.** The first draft of
+this decision archived the directory, because the blocks' narratives are frozen and a downgrade would
+otherwise have nothing to read. The operator answered that deleting them is fine, so the plan default
+yielded to the owner's decision: the directory is emptied and the running image owns the store from
+here on. Staging and prod are not touched by this unit.
+
+**D2 — Loopback binding instead of adding authentication (T3).** The stack has no reverse proxy and no
+identity for machine consumers, so an auth layer would be a new component; binding to loopback keeps the
+ports usable from the host (where `deploy.sh health` and a human live) and unreachable from the LAN. A
+remote reader would need a tunnel, which is the honest cost of not building an auth proxy in this slice.
+
+**D3 — Retention as repository configuration, not image default (T2).** `prometheus.yml`, `tempo.yml` and
+`datasources.yml` are already installed from `docker/config/`; Loki being the exception is what let an
+unbounded retention reach a host disk unnoticed.
+
+**D4 — Conventional alert thresholds, corrected by the operator (T7).** The first alert row uses
+`http_server_requests_seconds_count{outcome="SERVER_ERROR"}` above 1% of requests over 5 minutes, p99
+above 2s, and `hikaricp_connections_active / hikaricp_connections_max` above 0.8. These are starting
+numbers to be adjusted, not a service-level objective, and the record says so where the rule lives.
+
+## Log
+
+**L1 — the user's original request, verbatim**: "genera el odd dee stos cambios"
+
+**L2 — the request that produced the analysis this record specifies, verbatim**: "ok, puedes armar un
+analisis de cosas que veas que se tengan que mejorar para la observabilidad"
+
+**L3 — what was measured, on the running dev stack, 2026-10-24.** Every spec above quotes one of these
+observations; none is inferred from reading a file alone.
+
+| Observation | Command / output |
+|---|---|
+| Prometheus scrapes all three targets | `/api/v1/targets?state=active` → `api-gateway up`, `lifecontrol-api up`, `prometheus up` |
+| Tempo ingests but cannot read blocks | `GET /api/traces/<id>` → `HTTP 500`, `vParquet2 is not a valid block version`, 71 log lines |
+| Tempo runs 3.1.0 and writes vParquet5 | `Starting Tempo version=v3.1.0`; `compacting block version=vParquet5` |
+| Loki keeps logs forever | `GET :3100/config` → `retention_period: 0s`, `enforce_retention_period: false` |
+| Loki has one application | `GET :3100/loki/api/v1/label/application/values` → `["lifecontrol-api"]` |
+| Grafana has no content | `sqlite3 -readonly grafana.db` → `0` dashboards, `0` alert rules |
+| Grafana login is real, not anonymous | `:3000/api/dashboards/home` → `401`; `:3000/login` → `200` |
+| Prometheus can be killed remotely | `--web.enable-lifecycle --config.file=... --storage.tsdb.retention.time=15d` on a published port |
+| Every observability port is published on all interfaces | four `"${*_PORT}:3100/9090/3000"` publishes with no `127.0.0.1:` |
+| The API ignores `LOG_LEVEL` | no `logging.level.root` in `life-control-api/src/main/resources`; `<root level="INFO">` |
+| Prod sampling ignores the env var | `application-prod.properties:21` = `0.1` vs `.env.prod:66` = `0.01` |
+| No business metrics exist | `grep -rl 'MeterRegistry\|Counter\|Timer' life-control-api/src/main/java` → nothing |
+| Only one observability suite exists | `docker/scripts/tests/` → `tempo-receivers.test.sh` is the only stack guard |
+
+**L4 — the two decisions the record waited on, both answered on 2026-10-24.** The operator authorized
+deleting the dev Tempo store ("1 puedes borrar lo que existe sin problema") and set the log retention at
+30 days ("2 dejalo en 30 d"), which is the value T2 writes: 30 days is already the longest range Loki
+answers (`max_query_length: 30d1h`), so keeping logs longer only grows the disk without ever making them
+queryable.
+
+**L5 — how the work is delivered.** The repository's convention gives every unit its own worktree and
+branch, so this record lives on `fix/observability-hardening`
+(`~/workspace/LifeControl-worktrees/fix-observability-hardening`, cut from `origin/main` @ `53725ea`) and
+the anchor stays a read-only reference. Tasks are committed as reviewable slices with tests and docs
+alongside the behaviour; each task's commit is recorded in the table above as it lands.
+
+**L6 — T1 landed, 2026-10-24.** The store was emptied (`docker run --rm -v
+…/volumes-dev/tempo/data:/data --entrypoint sh alpine:3 -c 'rm -rf /data/*'`, zero entries left),
+Tempo 3.1.0 restarted and `/ready` answered `200`. Evidence after the reset: `docker logs … | awk
+'/Starting Tempo/{buf=""} …' | grep -c "vParquet2 is not a valid block version"` → `0`, and the newest
+trace read `GET /api/traces/<id>` → `HTTP 200`. No trace has been flushed to a block yet at that point
+(`find …/traces -name meta.json | wc -l` → `0`), so the flushed-block read is asserted from now on by
+the probe itself rather than by one passing measurement: on a store younger than the probe window,
+`deploy.sh health` says so on stderr instead of claiming a verified read.
+
+**L7 — the probe needed a window, and that is the finding worth keeping.** The first version asked Tempo
+for its newest trace and read it back. On the broken stack that probe returned `rc=0`: the newest trace
+still lives in the ingester, which answered `200` while every flushed block answered `500`. The probe now
+asks for a trace between 24h and 2h old — by then it is in a block — and the suite pins that the request
+carries `start=`/`end=`, because a regression to the newest-trace read would pass the whole suite over
+the defect the suite exists for.
