@@ -49,6 +49,36 @@ is exactly the deadlock that makes the failure permanent when the base ref canno
 | 2 | Retarget before deleting, never after | The only order that works; the reverse order has no remedy |
 | 3 | Freeze the merge order before merging the first PR of a chain | Each child's diff carries its parent's work until the parent lands on `main`, so the reviewer must know which slice is being read |
 | 4 | Keep automatic head-branch deletion off while a chain is open | It removes the human decision at the moment the branch still has dependents |
+| 5 | Only the **last** slice carries the closing keyword; every earlier slice carries `Refs #N` beside a `Part of a chain: #N` declaration | A slice is retargeted to the default branch before it merges, and there a bare `Refs` is a missing closing keyword while a `Closes` closes an issue the later slices still need |
+
+## The issue reference across a chain
+
+A slice's reference changes meaning twice in its life, and the guard has one verdict for each state.
+The unit that produces the rule, and the chain that measured it, are issue #598 and #572.
+
+| State of the slice | Body carries | Guard verdict |
+| --- | --- | --- |
+| Opened against its parent branch | `Refs #N` | Passes — closing keywords are ignored off the default branch |
+| Opened against its parent, as the last slice | `Closes #N` | Passes, and closes the issue as soon as it merges. Use it only when no later slice still needs the issue |
+| Retargeted to the default branch, mid-chain | `Refs #N` + `Part of a chain: #N` | Passes, because the declaration says the closing keyword is deferred to the last slice |
+| Retargeted to the default branch with no declaration | `Refs #N` | Fails: a closing reference is required, or the declaration that explains its absence |
+
+The declaration is number-scoped — the number must be one the body references, so it cannot unlock a
+`Refs` to an issue nobody declared — it is written in the documented form, colon included, and starts
+a line of its own, so neither a sentence that happens to contain the phrase nor a four-space indent
+(a Markdown code block is documentation) declares anything, and it is read from prose only, so quoting
+it in a fenced block or a code span does not count either. Off the default branch it is ignored, and
+beside a closing keyword it changes nothing. A body that carries the declaration and no reference
+still fails: naming an issue is not linking it.
+
+One limit is worth stating where the rule is written, because the gate cannot read intent: the
+declaration is the author's assertion that the slice is mid-chain, exactly as `status:approved` is a
+maintainer's assertion that the issue may be built. The gate verifies the assertion's shape and the
+issue's state; it cannot verify that a fourth slice really exists, so a body can still choose the
+wrong keyword on purpose and nothing here will catch it.
+
+Retargeting stays the maintainer's action; nothing here automates it, and the ordering rules above are
+what decide when it is safe.
 
 ## Pre-merge guard
 

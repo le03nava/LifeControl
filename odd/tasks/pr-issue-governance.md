@@ -43,11 +43,15 @@ disabled; `secret_scanning` and `push_protection` are enabled.
   `.github/scripts/check-issue-reference.sh` (`--body`/`--body-file`, `--base-branch`, `--default-branch`,
   `--issues-json`/`--issues-json-file`, plus `--print-refs`) is wired into `.github/workflows/pr-label-guard.yml`. Rules: on the
   default branch, a closing reference (`Closes|Fixes|Resolves #N`, case-insensitive, colon optional) to an
-  **open** issue carrying `status:approved` is required; on a non-default base (chain) `Refs #N` is also
-  accepted, because GitHub ignores closing keywords off the default branch; a reference to a number that is a
-  pull request, to another repository, or to an issue that is closed or not `status:approved` fails; an
-  unreadable body, malformed JSON, missing arguments or an unknown argument all fail closed.
-  Accept: the offline suite proves each of those cases; the workflow grants `issues: read` and no write scope.
+  **open** issue carrying `status:approved` is required — unless the body declares the chain with
+  `Part of a chain: #N` naming the same issue, which is how a mid-chain slice is retargeted to the default
+  branch without closing an issue the later slices still need (`L24`); on a non-default base (chain) `Refs #N`
+  is also accepted, because GitHub ignores closing keywords off the default branch; a reference to a number
+  that is a pull request, to another repository, or to an issue that is closed or not `status:approved` fails;
+  an unreadable body, malformed JSON, missing arguments or an unknown argument all fail closed.
+  Accept: the offline suite proves each of those cases, including the declaration in both directions — a
+  declared chain slice passes on the default branch and an undeclared `Refs` there still fails; the workflow
+  grants `issues: read` and no write scope.
   Check: `bash .github/scripts/tests/check-issue-reference.test.sh`.
 - **S3 — Review ownership is declared and enforceable.** `.github/CODEOWNERS` assigns the four component areas
   (`life-control-api/`, `life-control-app-angular/`, `docker/` + `k8s/`, `.github/`) to `@le03nava`, and
@@ -418,3 +422,20 @@ four findings below were not.
 
 Nothing here reopens a spec of this record, changes a workflow, or claims a delivery state: the changes are the
 gate's two rules, the record's own option string, one `CONTRIBUTING.md` sentence and the parity suite's coverage.
+
+**L24** *(the transition the chain rule missed, issue **#598**, 2026-10-25)*: `S2` stated the two ends of a
+chain's reference and not the step between them, and the gap was measured on the nine-slice chain that landed
+as #582-#590 (issue #572): a slice is opened against its parent with `Refs`, is **retargeted to the default
+branch** before it can merge, and at that moment the `Refs` fails as a missing closing keyword while the
+closing keyword it was told to use closes an issue eight slices still need — so the issue was reopened once
+per remaining slice, each time rewriting a slice's reference. The gate now also accepts a `Refs #N` on the
+default branch when the body declares the chain with `Part of a chain: #N`, number-scoped to an issue the same
+body references and read from prose only; the declaration relaxes the keyword rule alone, so every rule `S2`
+states about the issue's state and its approval is decided exactly as before. `S2` is rewritten to carry it
+because it is this record's specification of the gate's verdict, and a specification that describes a verdict
+the script no longer returns is the drift `L23` repaired once already. The unit's own record is
+`odd/tasks/chain-closing-keyword.md`; `CONTRIBUTING.md` §1 and `references/pr-chains.md` state the rule for a
+contributor. Two older records state the pre-#598 rule as rationale for a decision they made at the time
+(`odd/tasks/angular-22-upgrade.md`, `odd/tasks/scope-assignments-per-level.md`); they are left as written,
+because their claim is what CI returned then, and rewriting that would destroy the very measurement #598
+cites.
