@@ -23,6 +23,7 @@ const VARIANT_A: ProductVariant = {
   costPrice: 80,
   stock: 5,
   enabled: true,
+  measureUnitId: null,
 };
 
 const VARIANT_B: ProductVariant = {
@@ -36,6 +37,7 @@ const VARIANT_B: ProductVariant = {
   costPrice: 140,
   stock: 3,
   enabled: true,
+  measureUnitId: null,
 };
 
 const VARIANT_FROM_OTHER_STORE: ProductVariant = {
