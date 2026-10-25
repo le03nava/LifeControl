@@ -9,9 +9,12 @@ global:
   evaluation_interval: 15s
 
 scrape_configs:
+  # The service name, not localhost: both resolve inside this container, but a target the
+  # compose network can also reach is the only kind this file declares, and
+  # docker/scripts/tests/prometheus-parity.test.sh holds every job to that rule.
   - job_name: prometheus
     static_configs:
-      - targets: ["localhost:9090"]
+      - targets: ["prometheus:9090"]
 
   - job_name: api-gateway
     metrics_path: /actuator/prometheus
