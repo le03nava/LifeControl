@@ -189,6 +189,100 @@ services:
     restart: unless-stopped
 
   # ============================================
+  # Datastore exporters - PostgreSQL and Redis metrics
+  # ============================================
+  # Prometheus scraped only the two applications, so neither PostgreSQL instance nor Redis
+  # exported anything: the datastores behind every endpoint were invisible. A pool exhaustion
+  # or a Redis outage surfaced only as failed requests, and Redis is deliberately absent from
+  # /actuator/health (management.health.redis.enabled=false), so a Redis outage appeared in no
+  # signal at all. These exporters publish pg_up and redis_up plus the connection counters that
+  # make saturation visible before the requests start failing.
+  #
+  # Two PostgreSQL exporters, not one: postgres_exporter measures one DSN per process, and both
+  # instances have to report pg_up -- Keycloak's identity database and LifeControl's, on separate
+  # instances with separate secrets. Multi-target mode would need a config file of its own for the
+  # same signal.
+  #
+  # Host ports stay on 127.0.0.1 for the reason recorded above the Loki service: these endpoints
+  # have no authentication. Prometheus scrapes them in-network by service name, so the published
+  # mapping exists for a human with curl, not for the scrape.
+  postgres-exporter-lifecontrol:
+    image: ${POSTGRES_EXPORTER_IMAGE:-prometheuscommunity/postgres-exporter:v0.19.0}
+    container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-postgres-exporter-lifecontrol
+    ports:
+      - "127.0.0.1:${POSTGRES_EXPORTER_PORT:-9187}:9187"
+    environment:
+      # The container-network name, never localhost: this exporter runs beside the database, so
+      # `localhost:5432` would address its own container. sslmode=disable matches what the API
+      # speaks on the in-network socket, which has no TLS.
+      DATA_SOURCE_URI: "lifecontrol-postgres:5432/${LIFECONTROL_POSTGRES_DB:-lifecontrol}?sslmode=disable"
+      DATA_SOURCE_USER: ${LIFECONTROL_POSTGRES_USER:-lifecontrol_user}
+      # *_FILE, never DATA_SOURCE_PASS: the password is the same secret the database and the API
+      # read, mounted read-only. As an environment value it would surface in `docker inspect` and
+      # in `docker compose config`, which is the one place a secret must never be readable.
+      DATA_SOURCE_PASS_FILE: /run/secrets/lifecontrol_postgres_password
+    volumes:
+      - ./secrets/lifecontrol_postgres_password:/run/secrets/lifecontrol_postgres_password:ro
+    networks:
+      - default
+    depends_on:
+      lifecontrol-postgres:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: ${POSTGRES_EXPORTER_MEMORY_LIMIT:-128m}
+    # No healthcheck: nothing gates on this container, and a dead exporter is already visible as
+    # `up == 0` on the scrape target that consumes it, which is the signal it exists to provide.
+    restart: unless-stopped
+
+  postgres-exporter-keycloak:
+    image: ${POSTGRES_EXPORTER_IMAGE:-prometheuscommunity/postgres-exporter:v0.19.0}
+    container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-postgres-exporter-keycloak
+    ports:
+      - "127.0.0.1:${KEYCLOAK_POSTGRES_EXPORTER_PORT:-9188}:9187"
+    environment:
+      DATA_SOURCE_URI: "keycloak-postgres:5432/${KEYCLOAK_POSTGRES_DB:-keycloak}?sslmode=disable"
+      DATA_SOURCE_USER: ${KEYCLOAK_POSTGRES_USER:-keycloak}
+      DATA_SOURCE_PASS_FILE: /run/secrets/keycloak_postgres_password
+    volumes:
+      - ./secrets/keycloak_postgres_password:/run/secrets/keycloak_postgres_password:ro
+    networks:
+      - default
+    depends_on:
+      keycloak-postgres:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: ${POSTGRES_EXPORTER_MEMORY_LIMIT:-128m}
+    restart: unless-stopped
+
+  redis-exporter:
+    image: ${REDIS_EXPORTER_IMAGE:-oliver006/redis_exporter:v1.69.0}
+    container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-redis-exporter
+    # The same address the API uses. This stack's Redis runs without --requirepass, so the
+    # exporter authenticates with no credential at all, exactly like the API. When a password is
+    # added it goes through --redis.password-file=/run/secrets/redis_password, never an environment
+    # value, for the same reason the Postgres exporters use DATA_SOURCE_PASS_FILE.
+    command: ["--redis.addr=redis://${REDIS_HOST:-redis}:${REDIS_INTERNAL_PORT:-6379}"]
+    ports:
+      - "127.0.0.1:${REDIS_EXPORTER_PORT:-9121}:9121"
+    networks:
+      - default
+    depends_on:
+      redis:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: ${REDIS_EXPORTER_MEMORY_LIMIT:-128m}
+    # No healthcheck: this image is distroless -- the pinned tag has no shell and no wget, measured
+    # with `docker run --entrypoint /bin/sh` -- so an in-container probe could never pass. The
+    # scrape is the readiness signal.
+    restart: unless-stopped
+
+  # ============================================
   # Tempo - Distributed Tracing
   # ============================================
   tempo:
