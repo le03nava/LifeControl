@@ -9,22 +9,21 @@ import java.time.LocalDate;
 import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.Objects;
-import java.util.Set;
 import java.util.UUID;
 
 /**
  * The derivation of an employee's <b>per-level</b> scope: the pure function that turns the scope
- * assignments valid today plus the node tree into the same five id sets {@link EmployeeStoreScope}
- * carries, and the union that folds those into the store-derived ones.
+ * assignments valid today plus the node tree into the five id sets {@link EmployeeStoreScope}
+ * carries.
  *
- * <p>It exists because the five {@code company_*} claims had exactly one source — the store
- * derivation — so a holder of {@code lc-company-country}, {@code lc-company-region} or
- * {@code lc-company-zone} had no claim to be scoped by and nowhere to be assigned. This class emits
- * <b>all four deeper levels</b> from one table: a country, region or zone row, and a store row, whose
- * chain is the store's own zone, region and country. The store level used to come from
- * {@code employee_store_assignments} through {@link StoreScopeDerivation}; since
- * {@code V32__employee_scope_assignments_store_level.sql} the store is the fourth node column of this
- * table, so there is one source, one rule and no union to fold.</p>
+ * <p>It exists because the five {@code company_*} claims had exactly one source — the store table —
+ * so a holder of {@code lc-company-country}, {@code lc-company-region} or {@code lc-company-zone} had
+ * no claim to be scoped by and nowhere to be assigned. This class emits <b>all four deeper levels</b>
+ * from one table: a country, region or zone row, and a store row, whose chain is the store's own zone,
+ * region and country. The store level used to come from its own table; since
+ * {@code V32__employee_scope_assignments_store_level.sql} it is the fourth node column of this table,
+ * and since {@code V33__drop_employee_store_assignments.sql} that table is gone, so this is one
+ * source, one rule, and there is no second derivation and no union to fold.</p>
  *
  * <p>Five rules ride with it. <b>The company-level fact is the employee's own</b>:
  * {@code companyIds} always contains {@code employeeCompanyId} and never a row's chain, because one
@@ -37,16 +36,17 @@ import java.util.UUID;
  * assignment should have granted (the invariant {@code companyCountryIds} non-empty whenever any
  * deeper set is non-empty). <b>The assigned node's own {@code enabled} flag decides, and no ancestor's
  * flag is consulted</b>: a soft-deleted region, zone or store must never reach an authorization
- * decision, while a disabled <i>ancestor</i> must not silently drop a grant the tree still resolves. That is exactly the split {@link StoreScopeDerivation} makes (its
- * decision T12): it checks the assigned store's own flag and deliberately ignores the flags of
- * {@code CompanyZone}, {@code CompanyRegion} and {@code Company}. The split is load-bearing in both
+ * decision, while a disabled <i>ancestor</i> must not silently drop a grant the tree still resolves.
+ * That is the split the store level inherited (decision T12): it checks the assigned store's own flag
+ * and deliberately ignores the flags of {@code CompanyZone}, {@code CompanyRegion} and
+ * {@code Company}. The split is load-bearing in both
  * directions — {@code company_countries} has no {@code enabled} column at all, so a country row has no
  * node flag to consult and is decided by the row's own {@code enabled} alone. <b>The company level is
  * never produced by a row</b>: it comes from the employee, and a company node does not exist.</p>
  *
  * <p>Static methods only, no Spring annotation and no static state, like the neighbouring pure
- * {@link StoreScopeDerivation}: the rule is the risky piece of the feature, so it is isolated from the
- * service and pinned by its own spec. The output is deterministic (insertion-ordered sets) and
+ * {@code EmployeeEmailGenerator}: the rule is the risky piece of the feature, so it is isolated from
+ * the service and pinned by its own spec. The output is deterministic (insertion-ordered sets) and
  * unmodifiable, so a value that already answered an authorization question cannot be mutated
  * afterwards.</p>
  */
@@ -107,37 +107,6 @@ public final class ScopeAssignmentDerivation {
         }
 
         return new EmployeeStoreScope(companyIds, companyCountryIds, companyRegionIds, companyZoneIds, companyStoreIds);
-    }
-
-    /**
-     * Folds the store-derived scope and the per-level scope into one value: the ids of both sources,
-     * deduplicated, with the store-derived ids first and the per-level ones appended.
-     *
-     * <p>The order is the store derivation's own order followed by the level derivation's, which is the
-     * order the projection writes and the guard's claim parser reads; sorting or rebuilding would hide
-     * it. Deduplication is by id, so a country reachable from both sources appears once. The company set
-     * is the union of both — each side contributes exactly the employee's own company, so the union is
-     * still exactly one and {@code CompanyScopeInvariantException} keeps its meaning at the call
-     * site.</p>
-     *
-     * @throws NullPointerException when either side is null, so a missing source fails loudly instead of
-     *     silently reading as "no scope"
-     */
-    public static EmployeeStoreScope union(EmployeeStoreScope storeDerived, EmployeeStoreScope levelDerived) {
-        Objects.requireNonNull(storeDerived, "storeDerived is required");
-        Objects.requireNonNull(levelDerived, "levelDerived is required");
-        return new EmployeeStoreScope(
-                merged(storeDerived.companyIds(), levelDerived.companyIds()),
-                merged(storeDerived.companyCountryIds(), levelDerived.companyCountryIds()),
-                merged(storeDerived.companyRegionIds(), levelDerived.companyRegionIds()),
-                merged(storeDerived.companyZoneIds(), levelDerived.companyZoneIds()),
-                merged(storeDerived.companyStoreIds(), levelDerived.companyStoreIds()));
-    }
-
-    private static Set<UUID> merged(Set<UUID> first, Set<UUID> second) {
-        var merged = new LinkedHashSet<UUID>(first);
-        merged.addAll(second);
-        return merged;
     }
 
     /**
@@ -237,10 +206,9 @@ public final class ScopeAssignmentDerivation {
      * The chain of an assigned zone: the zone's own flag decides; the region's and the country's flags
      * are deliberately NOT consulted.
      *
-     * <p>This is the symmetry with {@link StoreScopeDerivation} that must not be "fixed" into an
-     * ancestor check: a disabled ancestor is context the tree still resolves, and dropping it would
-     * silently revoke a grant nobody disabled — exactly as a disabled zone does not drop a store
-     * assignment today.</p>
+     * <p>This is the store level's own split (T12) that must not be "fixed" into an ancestor check: a
+     * disabled ancestor is context the tree still resolves, and dropping it would silently revoke a
+     * grant nobody disabled — exactly as a disabled zone does not drop a store assignment today.</p>
      */
     private static Chain assignedZone(CompanyZone zone) {
         if (!Boolean.TRUE.equals(zone.getEnabled())) {

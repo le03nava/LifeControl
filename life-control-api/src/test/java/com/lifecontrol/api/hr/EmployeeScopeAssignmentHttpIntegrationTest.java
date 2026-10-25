@@ -18,8 +18,8 @@ import com.lifecontrol.api.company.repository.CompanyRegionRepository;
 import com.lifecontrol.api.company.repository.CompanyRepository;
 import com.lifecontrol.api.company.repository.CompanyZoneRepository;
 import com.lifecontrol.api.country.repository.CountryRepository;
-import com.lifecontrol.api.hr.dto.CloseStoreAssignmentRequest;
-import com.lifecontrol.api.hr.dto.StoreAssignmentRequest;
+import com.lifecontrol.api.hr.dto.CloseScopeAssignmentRequest;
+import com.lifecontrol.api.hr.dto.ScopeAssignmentRequest;
 import com.lifecontrol.api.store.model.CompanyStore;
 import com.lifecontrol.api.store.repository.CompanyStoreRepository;
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
@@ -44,52 +44,58 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import tools.jackson.databind.ObjectMapper;
 
 /**
- * HTTP-level verification of the store-assignment read, create and close routes against real
- * PostgreSQL, with the schema applied by Flyway and {@code ddl-auto=validate}. Since {@code V32} the
- * route is a compatibility façade over {@code employee_scope_assignments}, so every assertion here is
- * made against that table: the wire contract is unchanged (S8) and what changed is where the rows
- * live.
+ * HTTP-level verification of the per-level scope-assignment read, create and close routes against real
+ * PostgreSQL, with the schema applied by Flyway and {@code ddl-auto=validate}.
+ *
+ * <p>This is the suite that drives the <b>store level end to end over HTTP</b> (S2), and it exists
+ * because the store route it replaces is gone: since {@code V33} and the retirement of the
+ * {@code /store-assignments} surface, {@code /scope-assignments} is the only route the application
+ * calls, so nothing else exercises a store assignment from the wire down to the
+ * {@code employee_scope_assignments} row and back out through the response the screen renders (S5).
+ * The request names one node column ({@code companyStoreId}) and no level — the level is the row's
+ * shape — and the read reports {@code level}, {@code companyStoreId}, {@code nodeName} and the derived
+ * ancestor chain.</p>
  *
  * <p>The requests carry a real {@code jwt()} whose claims {@code CurrentUserContext} reads from the
  * security context — the admin authority short-circuits {@code verifyCompanyAccess}, and the
- * non-admin cases carry (or deliberately omit) the {@code company_id} claim the scope check
- * requires. What this suite proves is the wire contract plus the persistence semantics of the create
- * path: the 201 with its derived display chain (T14), the {@code includeDisabled} filter, T8's
- * same-company refusal as a 404, the 404s for a foreign employee and a foreign company, the 403 for
- * a caller with no scope chain, the positive scope case (an {@code lc-employee} caller carrying the
- * {@code company_id} claim is admitted and served), the 400 for a missing required field, and the
- * overlap the service pre-check cannot see ending as the generic 409 (W2a's slice of the refusal
- * matrix; the by-name proof stays W1a's JDBC-level assertion). The list also proves the history's
- * newest-first {@code validFrom} order, and asserts the id-descending tie-breaker for rows sharing a
- * {@code validFrom} (its regression sensitivity is probabilistic, since the id is a random UUID).
- * W2b adds the close path (decision T5/D5): the default-to-today close, the explicit end date, the
- * inverted-date 400, the already-closed 409 and the foreign-assignment 404, all of them measured
- * against the service as it is rather than asserted from the brief.</p>
+ * non-admin cases carry (or deliberately omit) the {@code company_id} claim the scope check requires.
+ * What this suite proves is the wire contract plus the persistence semantics of the create path: the
+ * 201 with its level, node name and derived display chain, the {@code includeDisabled} filter, the
+ * same-company refusal of a store as a 404 that writes nothing, the 404s for a foreign employee and a
+ * foreign company, the 403 for a caller with no scope chain, the positive scope case (an
+ * {@code lc-employee} caller carrying the {@code company_id} claim is admitted and served), the 400
+ * for a missing required field, and the overlap the service pre-check cannot see ending as the generic
+ * 409. The list also proves the history's newest-first {@code validFrom} order, and asserts the
+ * id-descending tie-breaker for rows sharing a {@code validFrom} (its regression sensitivity is
+ * probabilistic, since the id is a random UUID). The close path is covered too: the default-to-today
+ * close, the explicit end date, the inverted-date 400, the already-closed 409 and the
+ * foreign-assignment 404, all of them measured against the service as it is rather than asserted from
+ * the brief.</p>
  *
  * <p>Cleanup is scoped: the {@code employee_scope_assignments} rows of the two companies this suite
- * creates, and then those employees. The store tree and the {@code companies}
- * rows are find-or-create fixtures and are never deleted, so the shared container's rows survive.</p>
+ * creates, and then those employees. The store tree and the {@code companies} rows are find-or-create
+ * fixtures and are never deleted, so the shared container's rows survive.</p>
  */
 @SpringBootTest
 @AutoConfigureMockMvc
-@DisplayName("Employee Store Assignment HTTP Integration Tests")
-class EmployeeStoreAssignmentHttpIntegrationTest extends AbstractPostgresIntegrationTest {
+@DisplayName("Employee Scope Assignment HTTP Integration Tests")
+class EmployeeScopeAssignmentHttpIntegrationTest extends AbstractPostgresIntegrationTest {
 
-    private static final String COMPANY_KEY = "EMP-STORE-ASSIGN-HTTP-KEY";
-    private static final String COMPANY_RFC = "ESAHT010101AB";
-    private static final String COMPANY_NAME = "Store Assignment HTTP Test Company";
-    private static final String OTHER_COMPANY_KEY = "EMP-STORE-ASSIGN-HTTP-OTHER-KEY";
-    private static final String OTHER_COMPANY_RFC = "ESAHT020202CD";
-    private static final String OTHER_COMPANY_NAME = "Store Assignment HTTP Other Company";
-    private static final String REGION_CODE = "ESAHT";
-    private static final String REGION_NAME = "Store Assignment HTTP Region";
-    private static final String ZONE_CODE = "ESAHT";
-    private static final String ZONE_NAME = "Store Assignment HTTP Zone";
-    private static final String STORE_NAME = "Assignment HTTP Store";
-    private static final String SECOND_STORE_NAME = "Assignment HTTP Second Store";
-    private static final String FOREIGN_STORE_NAME = "Assignment HTTP Foreign Store";
+    private static final String COMPANY_KEY = "EMP-SCOPE-ASSIGN-HTTP-KEY";
+    private static final String COMPANY_RFC = "ESAH010101AB";
+    private static final String COMPANY_NAME = "Scope Assignment HTTP Test Company";
+    private static final String OTHER_COMPANY_KEY = "EMP-SCOPE-ASSIGN-HTTP-OTHER-KEY";
+    private static final String OTHER_COMPANY_RFC = "ESAH020202CD";
+    private static final String OTHER_COMPANY_NAME = "Scope Assignment HTTP Other Company";
+    private static final String REGION_CODE = "ESAH";
+    private static final String REGION_NAME = "Scope Assignment HTTP Region";
+    private static final String ZONE_CODE = "ESAH";
+    private static final String ZONE_NAME = "Scope Assignment HTTP Zone";
+    private static final String STORE_NAME = "Scope Assignment HTTP Store";
+    private static final String SECOND_STORE_NAME = "Scope Assignment HTTP Second Store";
+    private static final String FOREIGN_STORE_NAME = "Scope Assignment HTTP Foreign Store";
 
-    private static final String BASE_URL = "/api/companies/{companyId}/employees/{employeeId}/store-assignments";
+    private static final String BASE_URL = "/api/companies/{companyId}/employees/{employeeId}/scope-assignments";
     private static final String CLOSE_URL = BASE_URL + "/{id}/close";
     private static final SimpleGrantedAuthority ROLE_LC_ADMIN = new SimpleGrantedAuthority("ROLE_lc-admin");
     private static final SimpleGrantedAuthority ROLE_LC_EMPLOYEE = new SimpleGrantedAuthority("ROLE_lc-employee");
@@ -138,9 +144,9 @@ class EmployeeStoreAssignmentHttpIntegrationTest extends AbstractPostgresIntegra
         cleanOwnedRows();
         seedCompanyTrees();
         var activeStatusId = activeEmployeeStatusId();
-        employeeId = insertEmployee(companyId, activeStatusId, "EMP-SA-HTTP-1", "sa.http@example.com");
+        employeeId = insertEmployee(companyId, activeStatusId, "EMP-SCOPE-HTTP-1", "scope.http@example.com");
         foreignEmployeeId =
-                insertEmployee(otherCompanyId, activeStatusId, "EMP-SA-HTTP-2", "sa.http.other@example.com");
+                insertEmployee(otherCompanyId, activeStatusId, "EMP-SCOPE-HTTP-2", "scope.http.other@example.com");
     }
 
     @AfterEach
@@ -151,9 +157,9 @@ class EmployeeStoreAssignmentHttpIntegrationTest extends AbstractPostgresIntegra
     /**
      * Deletes the rows this feature owns, leaf-first, and only the employees this suite creates.
      *
-     * <p>Since {@code V32} the route writes {@code employee_scope_assignments} and reads back only its
-     * {@code STORE} rows, so the cleanup targets that table — scoped to the two companies' employees,
-     * never a blanket delete.</p>
+     * <p>The suite writes {@code employee_scope_assignments} at the store level and reads it back, so
+     * the cleanup targets that table — scoped to the two companies' employees, never a blanket
+     * delete.</p>
      */
     private void cleanOwnedRows() {
         jdbcTemplate.update("""
@@ -193,7 +199,7 @@ class EmployeeStoreAssignmentHttpIntegrationTest extends AbstractPostgresIntegra
      * <p>The ids cannot be read by walking {@code zone.getCompanyRegion().getCompanyCountry()} after
      * the repository call returns: those associations are lazy and the entity is detached once the
      * repository's own transaction closes, so the walk throws {@code LazyInitializationException}.
-     * The locals below are the same objects the builder received, so their ids are always readable.
+     * The locals below are the same objects the builder received, so their ids are always readable.</p>
      */
     private record SeededZone(CompanyZone zone, UUID regionId, UUID companyCountryId) {}
 
@@ -274,6 +280,11 @@ class EmployeeStoreAssignmentHttpIntegrationTest extends AbstractPostgresIntegra
         return jwt().authorities(ROLE_LC_ADMIN);
     }
 
+    /** A store-level body: the store is the only node column set, and the level is never sent. */
+    private ScopeAssignmentRequest storeRequest(UUID store, LocalDate validFrom) {
+        return new ScopeAssignmentRequest(null, null, null, store, validFrom);
+    }
+
     private ResultActions postAssignment(UUID employee, Object body, RequestPostProcessor auth) throws Exception {
         return mockMvc.perform(post(BASE_URL, companyId, employee)
                 .with(auth)
@@ -311,8 +322,8 @@ class EmployeeStoreAssignmentHttpIntegrationTest extends AbstractPostgresIntegra
         return UUID.fromString(objectMapper.readTree(body).get("id").asText());
     }
 
-    /** The employee's STORE rows: the scope table holds every level, the route answers about stores. */
-    private int countAssignments(UUID employee) {
+    /** The employee's STORE rows: the scope table holds every level, this suite writes stores only. */
+    private int countStoreRows(UUID employee) {
         return jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM employee_scope_assignments WHERE employee_id = ? AND company_store_id IS NOT NULL",
                 Integer.class,
@@ -339,13 +350,14 @@ class EmployeeStoreAssignmentHttpIntegrationTest extends AbstractPostgresIntegra
     class CreateTests {
 
         @Test
-        @DisplayName("returns 201 with the assignment and its derived chain, ids and names (T14)")
-        void createReturns201WithTheDerivedChain() throws Exception {
-            postAssignment(employeeId, new StoreAssignmentRequest(storeId, LocalDate.of(2026, 1, 1)), admin())
+        @DisplayName("returns 201 with the store level, its node name and its derived chain")
+        void createReturns201WithTheStoreLevel() throws Exception {
+            postAssignment(employeeId, storeRequest(storeId, LocalDate.of(2026, 1, 1)), admin())
                     .andExpect(status().isCreated())
                     .andExpect(jsonPath("$.id").exists())
+                    .andExpect(jsonPath("$.level").value("STORE"))
                     .andExpect(jsonPath("$.companyStoreId").value(storeId.toString()))
-                    .andExpect(jsonPath("$.companyStoreName").value(STORE_NAME))
+                    .andExpect(jsonPath("$.nodeName").value(STORE_NAME))
                     .andExpect(jsonPath("$.validFrom").value("2026-01-01"))
                     .andExpect(jsonPath("$.derived.companyId").value(companyId.toString()))
                     .andExpect(jsonPath("$.derived.companyName").value(COMPANY_NAME))
@@ -356,7 +368,7 @@ class EmployeeStoreAssignmentHttpIntegrationTest extends AbstractPostgresIntegra
                     .andExpect(jsonPath("$.derived.companyZoneId").value(zoneId.toString()))
                     .andExpect(jsonPath("$.derived.companyZoneName").value(ZONE_NAME));
 
-            assertThat(countAssignments(employeeId)).isEqualTo(1);
+            assertThat(countStoreRows(employeeId)).isEqualTo(1);
         }
     }
 
@@ -365,17 +377,19 @@ class EmployeeStoreAssignmentHttpIntegrationTest extends AbstractPostgresIntegra
     class ListTests {
 
         @Test
-        @DisplayName("returns 200 and lists the created assignment")
+        @DisplayName("returns 200 and lists the created assignment with its level, node name and chain")
         void listReturnsTheCreatedAssignment() throws Exception {
-            postAssignment(employeeId, new StoreAssignmentRequest(storeId, LocalDate.of(2026, 1, 1)), admin())
+            postAssignment(employeeId, storeRequest(storeId, LocalDate.of(2026, 1, 1)), admin())
                     .andExpect(status().isCreated());
 
             getAssignments("", admin())
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$", hasSize(1)))
+                    .andExpect(jsonPath("$[0].level").value("STORE"))
                     .andExpect(jsonPath("$[0].companyStoreId").value(storeId.toString()))
-                    .andExpect(jsonPath("$[0].companyStoreName").value(STORE_NAME))
-                    .andExpect(jsonPath("$[0].validFrom").value("2026-01-01"));
+                    .andExpect(jsonPath("$[0].nodeName").value(STORE_NAME))
+                    .andExpect(jsonPath("$[0].validFrom").value("2026-01-01"))
+                    .andExpect(jsonPath("$[0].derived.companyZoneId").value(zoneId.toString()));
         }
 
         @Test
@@ -386,9 +400,9 @@ class EmployeeStoreAssignmentHttpIntegrationTest extends AbstractPostgresIntegra
             // therefore [2026-01-01, 2026-06-01] while the expected order is its reverse,
             // [2026-06-01, 2026-01-01]: a query that lost its ORDER BY and fell back to that
             // insertion (heap) order fails this test.
-            postAssignment(employeeId, new StoreAssignmentRequest(secondStoreId, LocalDate.of(2026, 1, 1)), admin())
+            postAssignment(employeeId, storeRequest(secondStoreId, LocalDate.of(2026, 1, 1)), admin())
                     .andExpect(status().isCreated());
-            postAssignment(employeeId, new StoreAssignmentRequest(storeId, LocalDate.of(2026, 6, 1)), admin())
+            postAssignment(employeeId, storeRequest(storeId, LocalDate.of(2026, 6, 1)), admin())
                     .andExpect(status().isCreated());
 
             getAssignments("", admin())
@@ -410,11 +424,11 @@ class EmployeeStoreAssignmentHttpIntegrationTest extends AbstractPostgresIntegra
             // is fixed-width hex, so lexicographic order of that string equals the byte order (and is
             // NOT Java's signed UUID.compareTo).
             var firstId = createdAssignmentId(
-                    postAssignment(employeeId, new StoreAssignmentRequest(storeId, LocalDate.of(2026, 1, 1)), admin())
+                    postAssignment(employeeId, storeRequest(storeId, LocalDate.of(2026, 1, 1)), admin())
                             .andExpect(status().isCreated()));
-            var secondId = createdAssignmentId(postAssignment(
-                            employeeId, new StoreAssignmentRequest(secondStoreId, LocalDate.of(2026, 1, 1)), admin())
-                    .andExpect(status().isCreated()));
+            var secondId = createdAssignmentId(
+                    postAssignment(employeeId, storeRequest(secondStoreId, LocalDate.of(2026, 1, 1)), admin())
+                            .andExpect(status().isCreated()));
 
             var expectedNewestFirst = Stream.of(firstId, secondId)
                     .sorted(Comparator.comparing(UUID::toString).reversed())
@@ -439,7 +453,7 @@ class EmployeeStoreAssignmentHttpIntegrationTest extends AbstractPostgresIntegra
         @Test
         @DisplayName("includeDisabled defaults to false and hides a disabled row, true shows it")
         void includeDisabledFiltersTheList() throws Exception {
-            postAssignment(employeeId, new StoreAssignmentRequest(storeId, LocalDate.of(2026, 1, 1)), admin())
+            postAssignment(employeeId, storeRequest(storeId, LocalDate.of(2026, 1, 1)), admin())
                     .andExpect(status().isCreated());
             disableAssignmentAt(LocalDate.of(2026, 1, 1));
 
@@ -457,21 +471,21 @@ class EmployeeStoreAssignmentHttpIntegrationTest extends AbstractPostgresIntegra
     class ScopeTests {
 
         @Test
-        @DisplayName("a store of another company is a 404 and writes nothing (T8)")
+        @DisplayName("a store of another company is a 404 and writes nothing")
         void foreignStoreIsA404() throws Exception {
-            postAssignment(employeeId, new StoreAssignmentRequest(foreignStoreId, LocalDate.of(2026, 1, 1)), admin())
+            postAssignment(employeeId, storeRequest(foreignStoreId, LocalDate.of(2026, 1, 1)), admin())
                     .andExpect(status().isNotFound());
 
-            assertThat(countAssignments(employeeId)).isZero();
+            assertThat(countStoreRows(employeeId)).isZero();
         }
 
         @Test
         @DisplayName("an employee of another company is a 404 and writes nothing")
         void foreignEmployeeIsA404() throws Exception {
-            postAssignment(foreignEmployeeId, new StoreAssignmentRequest(storeId, LocalDate.of(2026, 1, 1)), admin())
+            postAssignment(foreignEmployeeId, storeRequest(storeId, LocalDate.of(2026, 1, 1)), admin())
                     .andExpect(status().isNotFound());
 
-            assertThat(countAssignments(foreignEmployeeId)).isZero();
+            assertThat(countStoreRows(foreignEmployeeId)).isZero();
         }
 
         @Test
@@ -482,11 +496,10 @@ class EmployeeStoreAssignmentHttpIntegrationTest extends AbstractPostgresIntegra
             mockMvc.perform(post(BASE_URL, unknownCompanyId, employeeId)
                             .with(admin())
                             .contentType(MediaType.APPLICATION_JSON)
-                            .content(objectMapper.writeValueAsString(
-                                    new StoreAssignmentRequest(storeId, LocalDate.of(2026, 1, 1)))))
+                            .content(objectMapper.writeValueAsString(storeRequest(storeId, LocalDate.of(2026, 1, 1)))))
                     .andExpect(status().isNotFound());
 
-            assertThat(countAssignments(employeeId)).isZero();
+            assertThat(countStoreRows(employeeId)).isZero();
         }
 
         @Test
@@ -496,10 +509,10 @@ class EmployeeStoreAssignmentHttpIntegrationTest extends AbstractPostgresIntegra
                     .jwt(builder ->
                             builder.claim("company_id", UUID.randomUUID().toString()));
 
-            postAssignment(employeeId, new StoreAssignmentRequest(storeId, LocalDate.of(2026, 1, 1)), otherCompanyClaim)
+            postAssignment(employeeId, storeRequest(storeId, LocalDate.of(2026, 1, 1)), otherCompanyClaim)
                     .andExpect(status().isForbidden());
 
-            assertThat(countAssignments(employeeId)).isZero();
+            assertThat(countStoreRows(employeeId)).isZero();
         }
 
         @Test
@@ -507,10 +520,10 @@ class EmployeeStoreAssignmentHttpIntegrationTest extends AbstractPostgresIntegra
         void missingScopeClaimsIsA403() throws Exception {
             var noClaims = jwt().authorities(ROLE_LC_EMPLOYEE);
 
-            postAssignment(employeeId, new StoreAssignmentRequest(storeId, LocalDate.of(2026, 1, 1)), noClaims)
+            postAssignment(employeeId, storeRequest(storeId, LocalDate.of(2026, 1, 1)), noClaims)
                     .andExpect(status().isForbidden());
 
-            assertThat(countAssignments(employeeId)).isZero();
+            assertThat(countStoreRows(employeeId)).isZero();
         }
 
         @Test
@@ -522,8 +535,9 @@ class EmployeeStoreAssignmentHttpIntegrationTest extends AbstractPostgresIntegra
             var scopedEmployee = jwt().authorities(ROLE_LC_EMPLOYEE)
                     .jwt(builder -> builder.claim("company_id", companyId.toString()));
 
-            postAssignment(employeeId, new StoreAssignmentRequest(storeId, LocalDate.of(2026, 1, 1)), scopedEmployee)
+            postAssignment(employeeId, storeRequest(storeId, LocalDate.of(2026, 1, 1)), scopedEmployee)
                     .andExpect(status().isCreated())
+                    .andExpect(jsonPath("$.level").value("STORE"))
                     .andExpect(jsonPath("$.companyStoreId").value(storeId.toString()));
 
             getAssignments("", scopedEmployee)
@@ -547,28 +561,27 @@ class EmployeeStoreAssignmentHttpIntegrationTest extends AbstractPostgresIntegra
             postRaw(employeeId, "{\"companyStoreId\":\"" + storeId + "\"}", admin())
                     .andExpect(status().isBadRequest());
 
-            assertThat(countAssignments(employeeId)).isZero();
+            assertThat(countStoreRows(employeeId)).isZero();
         }
 
         @Test
         @DisplayName("the overlap the pre-check cannot see ends as the generic 409")
         void unseenOverlapIsAGeneric409() throws Exception {
             // A covers the new start date (so the pre-check closes it) and C starts after A ends.
-            postAssignment(employeeId, new StoreAssignmentRequest(storeId, LocalDate.of(2026, 1, 1)), admin())
+            postAssignment(employeeId, storeRequest(storeId, LocalDate.of(2026, 1, 1)), admin())
                     .andExpect(status().isCreated());
-            postAssignment(employeeId, new StoreAssignmentRequest(storeId, LocalDate.of(2027, 1, 1)), admin())
+            postAssignment(employeeId, storeRequest(storeId, LocalDate.of(2027, 1, 1)), admin())
                     .andExpect(status().isCreated());
-            assertThat(countAssignments(employeeId)).isEqualTo(2);
+            assertThat(countStoreRows(employeeId)).isEqualTo(2);
 
             // Open-ended from 2026-06-01: the pre-check sees only A, closes it at 2026-06-01, and the
             // insert then overlaps C. The partial exclusion constraint refuses it; the handler maps
             // DataIntegrityViolationException to the generic 409, not a 500. Only the status is
-            // asserted here: the by-name proof is W1a's JDBC-level assertion, and the HTTP layer
-            // cannot see the constraint name.
-            postAssignment(employeeId, new StoreAssignmentRequest(storeId, LocalDate.of(2026, 6, 1)), admin())
+            // asserted here: the HTTP layer cannot see the constraint name.
+            postAssignment(employeeId, storeRequest(storeId, LocalDate.of(2026, 6, 1)), admin())
                     .andExpect(status().isConflict());
 
-            assertThat(countAssignments(employeeId))
+            assertThat(countStoreRows(employeeId))
                     .as("the failed write leaves the history untouched")
                     .isEqualTo(2);
             assertThat(storedValidToAt(LocalDate.of(2026, 1, 1)))
@@ -582,20 +595,21 @@ class EmployeeStoreAssignmentHttpIntegrationTest extends AbstractPostgresIntegra
     class CloseTests {
 
         @Test
-        @DisplayName("closing with no body returns 200 and reports today as the last covered day (D5)")
+        @DisplayName("closing with no body returns 200 and reports today as the last covered day")
         void closeWithoutBodyDefaultsToToday() throws Exception {
             var id = createdAssignmentId(
-                    postAssignment(employeeId, new StoreAssignmentRequest(storeId, LocalDate.of(2026, 1, 1)), admin())
+                    postAssignment(employeeId, storeRequest(storeId, LocalDate.of(2026, 1, 1)), admin())
                             .andExpect(status().isCreated()));
             var today = LocalDate.now();
 
             closeAssignment(employeeId, id, admin())
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.id").value(id.toString()))
+                    .andExpect(jsonPath("$.level").value("STORE"))
                     .andExpect(jsonPath("$.validTo").value(today.toString()));
 
             assertThat(storedValidToAt(LocalDate.of(2026, 1, 1)))
-                    .as("the column stores the exclusive day after the inclusive API date (D5)")
+                    .as("the column stores the exclusive day after the inclusive API date")
                     .isEqualTo(today.plusDays(1));
         }
 
@@ -603,10 +617,10 @@ class EmployeeStoreAssignmentHttpIntegrationTest extends AbstractPostgresIntegra
         @DisplayName("closing with an explicit endDate returns 200 and reports exactly that date")
         void closeWithExplicitEndDate() throws Exception {
             var id = createdAssignmentId(
-                    postAssignment(employeeId, new StoreAssignmentRequest(storeId, LocalDate.of(2026, 1, 1)), admin())
+                    postAssignment(employeeId, storeRequest(storeId, LocalDate.of(2026, 1, 1)), admin())
                             .andExpect(status().isCreated()));
 
-            closeAssignment(employeeId, id, new CloseStoreAssignmentRequest(LocalDate.of(2026, 3, 15)), admin())
+            closeAssignment(employeeId, id, new CloseScopeAssignmentRequest(LocalDate.of(2026, 3, 15)), admin())
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.validFrom").value("2026-01-01"))
                     .andExpect(jsonPath("$.validTo").value("2026-03-15"));
@@ -618,16 +632,16 @@ class EmployeeStoreAssignmentHttpIntegrationTest extends AbstractPostgresIntegra
         @DisplayName("an endDate equal to validFrom is accepted, a single covered day (measured)")
         void closeWithEndDateEqualToValidFromIsAccepted() throws Exception {
             var id = createdAssignmentId(
-                    postAssignment(employeeId, new StoreAssignmentRequest(storeId, LocalDate.of(2026, 2, 1)), admin())
+                    postAssignment(employeeId, storeRequest(storeId, LocalDate.of(2026, 2, 1)), admin())
                             .andExpect(status().isCreated()));
 
-            closeAssignment(employeeId, id, new CloseStoreAssignmentRequest(LocalDate.of(2026, 2, 1)), admin())
+            closeAssignment(employeeId, id, new CloseScopeAssignmentRequest(LocalDate.of(2026, 2, 1)), admin())
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.validFrom").value("2026-02-01"))
                     .andExpect(jsonPath("$.validTo").value("2026-02-01"));
 
             assertThat(storedValidToAt(LocalDate.of(2026, 2, 1)))
-                    .as("T2's '[)' range stores validFrom + 1, which is a legal one-day range")
+                    .as("the '[)' range stores validFrom + 1, which is a legal one-day range")
                     .isEqualTo(LocalDate.of(2026, 2, 2));
         }
 
@@ -635,10 +649,10 @@ class EmployeeStoreAssignmentHttpIntegrationTest extends AbstractPostgresIntegra
         @DisplayName("an endDate before validFrom is a 400 and leaves the row open")
         void closeWithEndDateBeforeValidFromIsA400() throws Exception {
             var id = createdAssignmentId(
-                    postAssignment(employeeId, new StoreAssignmentRequest(storeId, LocalDate.of(2026, 5, 1)), admin())
+                    postAssignment(employeeId, storeRequest(storeId, LocalDate.of(2026, 5, 1)), admin())
                             .andExpect(status().isCreated()));
 
-            closeAssignment(employeeId, id, new CloseStoreAssignmentRequest(LocalDate.of(2026, 4, 30)), admin())
+            closeAssignment(employeeId, id, new CloseScopeAssignmentRequest(LocalDate.of(2026, 4, 30)), admin())
                     .andExpect(status().isBadRequest());
 
             assertThat(storedValidToAt(LocalDate.of(2026, 5, 1)))
@@ -650,12 +664,12 @@ class EmployeeStoreAssignmentHttpIntegrationTest extends AbstractPostgresIntegra
         @DisplayName("closing an already-closed assignment is a 409")
         void closeAlreadyClosedIsA409() throws Exception {
             var id = createdAssignmentId(
-                    postAssignment(employeeId, new StoreAssignmentRequest(storeId, LocalDate.of(2026, 1, 1)), admin())
+                    postAssignment(employeeId, storeRequest(storeId, LocalDate.of(2026, 1, 1)), admin())
                             .andExpect(status().isCreated()));
-            closeAssignment(employeeId, id, new CloseStoreAssignmentRequest(LocalDate.of(2026, 1, 31)), admin())
+            closeAssignment(employeeId, id, new CloseScopeAssignmentRequest(LocalDate.of(2026, 1, 31)), admin())
                     .andExpect(status().isOk());
 
-            closeAssignment(employeeId, id, new CloseStoreAssignmentRequest(LocalDate.of(2026, 2, 28)), admin())
+            closeAssignment(employeeId, id, new CloseScopeAssignmentRequest(LocalDate.of(2026, 2, 28)), admin())
                     .andExpect(status().isConflict());
 
             assertThat(storedValidToAt(LocalDate.of(2026, 1, 1)))
@@ -669,7 +683,7 @@ class EmployeeStoreAssignmentHttpIntegrationTest extends AbstractPostgresIntegra
             closeAssignment(
                             employeeId,
                             UUID.randomUUID(),
-                            new CloseStoreAssignmentRequest(LocalDate.of(2026, 1, 31)),
+                            new CloseScopeAssignmentRequest(LocalDate.of(2026, 1, 31)),
                             admin())
                     .andExpect(status().isNotFound());
         }
@@ -681,10 +695,10 @@ class EmployeeStoreAssignmentHttpIntegrationTest extends AbstractPostgresIntegra
                             .with(admin())
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(
-                                    new StoreAssignmentRequest(foreignStoreId, LocalDate.of(2026, 1, 1)))))
+                                    storeRequest(foreignStoreId, LocalDate.of(2026, 1, 1)))))
                     .andExpect(status().isCreated()));
 
-            closeAssignment(employeeId, foreignId, new CloseStoreAssignmentRequest(LocalDate.of(2026, 1, 31)), admin())
+            closeAssignment(employeeId, foreignId, new CloseScopeAssignmentRequest(LocalDate.of(2026, 1, 31)), admin())
                     .andExpect(status().isNotFound());
 
             assertThat(jdbcTemplate.queryForObject(
@@ -699,9 +713,9 @@ class EmployeeStoreAssignmentHttpIntegrationTest extends AbstractPostgresIntegra
         @DisplayName("close flips no flag: the closed row stays in the default list (measured)")
         void closeDoesNotHideTheRowFromTheDefaultList() throws Exception {
             var id = createdAssignmentId(
-                    postAssignment(employeeId, new StoreAssignmentRequest(storeId, LocalDate.of(2026, 1, 1)), admin())
+                    postAssignment(employeeId, storeRequest(storeId, LocalDate.of(2026, 1, 1)), admin())
                             .andExpect(status().isCreated()));
-            closeAssignment(employeeId, id, new CloseStoreAssignmentRequest(LocalDate.of(2026, 1, 31)), admin())
+            closeAssignment(employeeId, id, new CloseScopeAssignmentRequest(LocalDate.of(2026, 1, 31)), admin())
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.enabled").value(true));
 
@@ -718,17 +732,18 @@ class EmployeeStoreAssignmentHttpIntegrationTest extends AbstractPostgresIntegra
         }
 
         @Test
-        @DisplayName("a closed row still carries its derived display chain; no token derivation is exposed (measured)")
+        @DisplayName("a closed row still carries its level and derived display chain (measured)")
         void closedRowStillCarriesItsDerivedChain() throws Exception {
             var id = createdAssignmentId(
-                    postAssignment(employeeId, new StoreAssignmentRequest(storeId, LocalDate.of(2026, 1, 1)), admin())
+                    postAssignment(employeeId, storeRequest(storeId, LocalDate.of(2026, 1, 1)), admin())
                             .andExpect(status().isCreated()));
-            closeAssignment(employeeId, id, new CloseStoreAssignmentRequest(LocalDate.of(2026, 1, 31)), admin())
+            closeAssignment(employeeId, id, new CloseScopeAssignmentRequest(LocalDate.of(2026, 1, 31)), admin())
                     .andExpect(status().isOk());
 
             getAssignments("?includeDisabled=true", admin())
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$", hasSize(1)))
+                    .andExpect(jsonPath("$[0].level").value("STORE"))
                     .andExpect(jsonPath("$[0].companyStoreId").value(storeId.toString()))
                     .andExpect(jsonPath("$[0].validTo").value("2026-01-31"))
                     .andExpect(jsonPath("$[0].derived.companyId").value(companyId.toString()))

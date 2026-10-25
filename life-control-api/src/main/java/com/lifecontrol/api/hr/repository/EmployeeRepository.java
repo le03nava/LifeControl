@@ -46,7 +46,7 @@ public interface EmployeeRepository extends JpaRepository<Employee, UUID> {
      * stale one.</p>
      *
      * <p>The lock order is <b>employee &rarr; task</b> for every writer: the HR facts
-     * ({@code ContractService.createContract}, {@code EmployeeStoreAssignmentService}) and
+     * ({@code ContractService.createContract}, {@code EmployeeScopeAssignmentService}) and
      * {@code EmployeeService.updateEmployee} all reach the task only through the producer, after
      * their own row write. A path that held a task lock and then took this one would invert the
      * order and deadlock against them.</p>

@@ -401,25 +401,23 @@ class EmployeeCrudIntegrationTest extends AbstractPostgresIntegrationTest {
          * purpose and runs the cleanup the {@code @BeforeEach} runs.
          */
         @Test
-        @DisplayName("the setUp cleanup removes an employee that still has contract, store and scope rows")
+        @DisplayName("the setUp cleanup removes an employee that still has contract and scope rows")
         void cleanupRemovesAnEmployeeWithChildRows() {
             var employeeId = insertEmployee("EMP-ISO-1", "iso.one@" + COMPANY_DOMAIN);
             insertChildRows(employeeId);
 
             assertThat(rowCount("employee_contracts")).isPositive();
-            assertThat(rowCount("employee_store_assignments")).isPositive();
             assertThat(rowCount("employee_scope_assignments")).isPositive();
 
             assertThatCode(() -> deleteAllEmployees(jdbcTemplate)).doesNotThrowAnyException();
 
             assertThat(rowCount("employees")).isZero();
             assertThat(rowCount("employee_contracts")).isZero();
-            assertThat(rowCount("employee_store_assignments")).isZero();
             assertThat(rowCount("employee_scope_assignments")).isZero();
         }
 
         /**
-         * The three child tables are the whole reason the parent delete can fail; a new table that
+         * The child tables are the whole reason the parent delete can fail; a new table that
          * references {@code employees} would reintroduce #562 without touching this suite. The
          * assertion is derived from the catalogue, so it fails for the table nobody remembered.
          */
@@ -441,11 +439,7 @@ class EmployeeCrudIntegrationTest extends AbstractPostgresIntegrationTest {
             assertThat(referencing)
                     .as("tables with a foreign key to employees — each one must be emptied before the "
                             + "parent delete, and a new one is the next #562")
-                    .containsExactly(
-                            "access_provisioning_tasks",
-                            "employee_contracts",
-                            "employee_scope_assignments",
-                            "employee_store_assignments");
+                    .containsExactly("access_provisioning_tasks", "employee_contracts", "employee_scope_assignments");
         }
 
         private int rowCount(String table) {
@@ -486,10 +480,9 @@ class EmployeeCrudIntegrationTest extends AbstractPostgresIntegrationTest {
     }
 
     /**
-     * Builds the minimal fixture graph and the three child rows that reference one employee: a
-     * contract (position + seniority), a store assignment (country -> region -> zone -> store) and a
-     * scope assignment (company country). Codes carry a random suffix so the natural keys never collide
-     * with the rows another suite left behind.
+     * Builds the minimal fixture graph and the two child rows that reference one employee: a
+     * contract (position + seniority) and a scope assignment (company country). Codes carry a random
+     * suffix so the natural keys never collide with the rows another suite left behind.
      */
     private void insertChildRows(UUID employeeId) {
         // Six characters keep every generated code inside its VARCHAR(10) ceiling.
@@ -538,30 +531,6 @@ class EmployeeCrudIntegrationTest extends AbstractPostgresIntegrationTest {
                 companyCountryId,
                 companyId,
                 countryId);
-        var regionId = UUID.randomUUID();
-        jdbcTemplate.update(
-                "INSERT INTO company_regions (id, company_country_id, region_code, region_name) VALUES (?, ?, ?, ?)",
-                regionId,
-                companyCountryId,
-                "R" + suffix,
-                "Isolation " + suffix);
-        var zoneId = UUID.randomUUID();
-        jdbcTemplate.update(
-                "INSERT INTO company_zones (id, company_region_id, zone_code, zone_name) VALUES (?, ?, ?, ?)",
-                zoneId,
-                regionId,
-                "Z" + suffix,
-                "Isolation " + suffix);
-        var storeId = UUID.randomUUID();
-        jdbcTemplate.update(
-                "INSERT INTO company_stores (id, company_zone_id, store_name) VALUES (?, ?, ?)",
-                storeId,
-                zoneId,
-                "Isolation " + suffix);
-        jdbcTemplate.update(
-                "INSERT INTO employee_store_assignments (employee_id, company_store_id, valid_from) VALUES (?, ?, DATE '2020-01-01')",
-                employeeId,
-                storeId);
 
         jdbcTemplate.update("""
                 INSERT INTO employee_scope_assignments (employee_id, company_country_id, valid_from)

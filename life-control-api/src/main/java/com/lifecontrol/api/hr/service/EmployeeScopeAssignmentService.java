@@ -68,12 +68,12 @@ import org.springframework.transaction.annotation.Transactional;
  * existence of another company's node undisclosed, the convention the store services use for a
  * caller-supplied id. One company per person is the model's
  * ceiling, so this check is a decided invariant and not a provisional mitigation. The node's own
- * {@code enabled} flag is deliberately not consulted, exactly as {@code EmployeeStoreAssignmentService}
- * does not consult the store's: the row is harmless when the derivation is what filters.</p>
+ * {@code enabled} flag is deliberately not consulted: the row is harmless when the derivation is what
+ * filters.</p>
  *
  * <p><b>Opening an assignment for the same node closes the previous one</b> in the same transaction,
- * exactly as {@code EmployeeStoreAssignmentService} and {@code ContractService} close the previous
- * row. The predecessor is found with a query scoped to that node, so opening an assignment for a
+ * exactly as {@code ContractService} closes the previous row. The predecessor is found with a query
+ * scoped to that node, so opening an assignment for a
  * <b>different</b> node closes nothing — that is how a second concurrent node is created. If a
  * predecessor starts on the new start date, that is a 400; otherwise its exclusive bound is set to the
  * successor's {@code validFrom} <b>verbatim</b> and flushed before the insert, so the predecessor's
@@ -187,11 +187,10 @@ public class EmployeeScopeAssignmentService {
      *
      * <p>Deliberately <b>scope-free</b>: unlike every other public method here it performs no
      * {@link CurrentUserContext#verifyCompanyAccess(UUID)}. Its only production caller is
-     * {@link EmployeeStoreAssignmentService}, the compatibility façade of the pre-merge
-     * {@code /store-assignments} surface, whose {@code getCurrentAssignmentsForEmployee} resolves the
-     * employee from the authenticated principal's own {@code keycloak_user_id} and then asks for that
-     * employee's own rows: a self-scoped read by construction, which a company-claim demand would
-     * refuse for the very caller the profile screen serves.</p>
+     * {@link com.lifecontrol.api.profile.ProfileService}, which resolves the employee from the
+     * authenticated principal's own {@code keycloak_user_id} and then asks for that employee's own
+     * rows: a self-scoped read by construction, which a company-claim demand would refuse for the very
+     * caller the profile screen serves.</p>
      *
      * <p>The employee is still loaded, so a caller that passes an id which does not exist gets the
      * module's {@link EmployeeNotFoundException} (404) instead of an empty list that reads as "no

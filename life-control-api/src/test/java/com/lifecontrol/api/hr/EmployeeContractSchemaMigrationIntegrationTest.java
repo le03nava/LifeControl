@@ -32,9 +32,9 @@ import org.springframework.jdbc.core.JdbcTemplate;
  * the previous contract's end date is accepted while one starting the day before is refused.</p>
  *
  * <p>Cleanup is deliberately broad, leaf-first, and unconditional over the tables this suite owns:
- * the {@code @BeforeEach} delegates {@code employees} — and the three child tables that reference it,
- * {@code employee_contracts}, {@code employee_store_assignments} and
- * {@code employee_scope_assignments} — to the shared {@code deleteAllEmployees} helper (issue #562),
+ * the {@code @BeforeEach} delegates {@code employees} — and the two child tables that reference it,
+ * {@code employee_contracts} and {@code employee_scope_assignments} — to the shared
+ * {@code deleteAllEmployees} helper (issue #562),
  * then deletes {@code position_salary_bands}, {@code position_roles}, {@code positions},
  * {@code departments} and {@code seniority_levels}, and never touches
  * {@code companies}, {@code statuses} or {@code status_types} (the shared fixtures other suites
@@ -65,9 +65,9 @@ class EmployeeContractSchemaMigrationIntegrationTest extends AbstractPostgresInt
     @BeforeEach
     void resetContractAndHrTables() {
         // Leaf-first and unconditional: the access-provisioning rows and the employee child tables
-        // (contracts, store assignments, scope assignments) reference employees, positions references
-        // departments, and position_salary_bands and position_roles reference positions.
-        // deleteAllEmployees owns the employee leaf order, including the three child tables that
+        // (contracts, scope assignments) reference employees, positions references departments, and
+        // position_salary_bands and position_roles reference positions.
+        // deleteAllEmployees owns the employee leaf order, including the child tables that
         // issue #562 was about; every table below is emptied wholesale, not by scoped subset, so each
         // method starts from a wholly owned state. companies, statuses and status_types are shared
         // fixtures and are never touched here.
@@ -81,10 +81,10 @@ class EmployeeContractSchemaMigrationIntegrationTest extends AbstractPostgresInt
     }
 
     @Test
-    @DisplayName("applies every migration through V32 and leaves no pending migration")
-    void flywayHeadIsV32() {
+    @DisplayName("applies every migration through V33 and leaves no pending migration")
+    void flywayHeadIsV33() {
         assertThat(flyway.info().current()).isNotNull();
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("32");
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("33");
         assertThat(flyway.info().pending()).isEmpty();
     }
 

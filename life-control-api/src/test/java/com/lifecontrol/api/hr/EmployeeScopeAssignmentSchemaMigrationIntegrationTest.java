@@ -30,10 +30,12 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
- * Persistence-level verification of {@code V26__employee_scope_assignments.sql} and of
- * {@code V32__employee_scope_assignments_store_level.sql} against real PostgreSQL with Flyway enabled
+ * Persistence-level verification of {@code V26__employee_scope_assignments.sql},
+ * {@code V32__employee_scope_assignments_store_level.sql} and
+ * {@code V33__drop_employee_store_assignments.sql} against real PostgreSQL with Flyway enabled
  * and {@code ddl-auto=validate}, so a green run proves the scope-assignment schema landed exactly as
- * the migrations declare it and that the entity maps to it.
+ * the migrations declare it, that the retired store table is gone, and that the entity maps to the
+ * surviving table.
  *
  * <p>The service layer cannot prove these guarantees: they are enforced by the database itself. This
  * suite pins the table's columns and their types (including the {@code company_store_id} column V32
@@ -113,8 +115,9 @@ class EmployeeScopeAssignmentSchemaMigrationIntegrationTest extends AbstractPost
     /**
      * Deletes this suite's assignments and employees only, addressed by the {@code EMP-SCOPE-} employee
      * number prefix it writes. It deliberately does <b>not</b> delete the whole {@code employees} table
-     * the way the store-assignment schema suite does: that suite owns the table, while this one shares
-     * the JVM with suites whose contract rows would make an unscoped delete violate a foreign key.
+     * the way the sibling schema suites do through {@code deleteAllEmployees}: those suites own the
+     * table, while this one shares the JVM with suites whose contract rows would make an unscoped delete
+     * violate a foreign key.
      */
     private void deleteOwnedRows() {
         jdbcTemplate.update("""
@@ -126,11 +129,22 @@ class EmployeeScopeAssignmentSchemaMigrationIntegrationTest extends AbstractPost
     }
 
     @Test
-    @DisplayName("applies every migration through V32 and leaves no pending migration")
-    void flywayHeadIsV32() {
+    @DisplayName("applies every migration through V33 and leaves no pending migration")
+    void flywayHeadIsV33() {
         assertThat(flyway.info().current()).isNotNull();
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("32");
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("33");
         assertThat(flyway.info().pending()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("V33 drops employee_store_assignments, its constraints and its indexes with it")
+    void retiredStoreAssignmentTableIsGone() {
+        assertThat(jdbcTemplate.queryForObject("""
+                        SELECT COUNT(*) FROM information_schema.tables
+                        WHERE table_schema = 'public' AND table_name = 'employee_store_assignments'
+                        """, Integer.class))
+                .as("the scope table is the only source: the retired table does not exist at head")
+                .isZero();
     }
 
     @Test

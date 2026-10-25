@@ -64,10 +64,10 @@ class ProductCategorySchemaMigrationIntegrationTest extends AbstractPostgresInte
     }
 
     @Test
-    @DisplayName("applies every migration through V32 and leaves no pending migration")
-    void flywayHeadIsV32() {
+    @DisplayName("applies every migration through V33 and leaves no pending migration")
+    void flywayHeadIsV33() {
         assertThat(flyway.info().current()).isNotNull();
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("32");
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("33");
         assertThat(flyway.info().pending()).isEmpty();
     }
 

@@ -38,10 +38,9 @@ import org.springframework.test.web.servlet.MockMvc;
 import tools.jackson.databind.ObjectMapper;
 
 /**
- * Method-level authorization slice of the scope-assignment controller, mirroring
- * {@code EmployeeStoreAssignmentControllerSecurityTest}: the read is reachable for any authenticated
- * caller and the create and close are limited to {@code lc-admin} and {@code lc-employee} — the exact
- * pair {@code EmployeeStoreAssignmentController} carries, because the same two roles assign per-level
+ * Method-level authorization slice of the scope-assignment controller: the read is reachable for any
+ * authenticated caller and the create and close are limited to {@code lc-admin} and
+ * {@code lc-employee} — the pair the controller declares, because the same two roles assign per-level
  * scope (S4). The service is mocked, so the slice boots neither PostgreSQL nor the JWT
  * infrastructure.
  *
