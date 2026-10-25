@@ -7,7 +7,7 @@ import { FormControl } from '@angular/forms';
  * because the contract dialog was the first screen to read the catalog; this
  * slice gives them the home the rest of the feature already follows — one model
  * file per resource (`department.models.ts`, `employee.models.ts`,
- * `store-assignment.models.ts`). Nothing was duplicated: the interfaces moved,
+ * `scope-assignment.models.ts`). Nothing was duplicated: the interfaces moved,
  * and `contract.models.ts` no longer declares them.
  *
  * `SeniorityLevel` is *not* here: it is global reference data (record D1) and

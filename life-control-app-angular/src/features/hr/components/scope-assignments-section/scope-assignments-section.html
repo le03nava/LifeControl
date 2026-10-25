@@ -8,6 +8,29 @@
       <button mat-stroked-button type="button" (click)="retry.emit()">Reintentar</button>
     </div>
   } @else {
+    <!--
+      The derived company root (S3). It is not a row of the table and it carries no control: the
+      company comes from `employees.company_id`, exactly one, so there is nothing here to assign.
+      It is rendered even when the table is empty, so "the tree starts at the company" and "nobody
+      assigned anything" never look the same.
+    -->
+    <div class="company-root">
+      <span class="company-root-level">Empresa</span>
+      <span class="company-root-name">{{ companyName() ?? '—' }}</span>
+      <span class="company-root-note">
+        Raíz derivada del empleado: la empresa no es una asignación y no se puede escribir.
+      </span>
+    </div>
+
+    <!--
+      S4, said once instead of in every cell: the table is a tenancy, not a permission. A scoped role
+      with no assignment sees nothing, and `lc-company` needs no assignment at all — so the sentence
+      has to name both halves or it reads backwards.
+    -->
+    <p class="scope-not-permission">
+      La asignación limita el alcance del empleado; es el rol el que habilita el acceso.
+    </p>
+
     @if (canWrite()) {
       <div class="actions-row">
         <button mat-flat-button color="primary" type="button" (click)="onAssign()">
@@ -21,11 +44,13 @@
         <table mat-table [dataSource]="assignments()" class="assignments-table">
           <ng-container matColumnDef="level">
             <th mat-header-cell *matHeaderCellDef>Nivel</th>
+            <!-- One label per level: país, región, zona and tienda share this column. -->
             <td mat-cell *matCellDef="let row">{{ levelLabel(row.level) }}</td>
           </ng-container>
 
           <ng-container matColumnDef="nodeName">
             <th mat-header-cell *matHeaderCellDef>Nodo asignado</th>
+            <!-- For a store row this is the store's own name. -->
             <td mat-cell *matCellDef="let row">{{ row.nodeName }}</td>
           </ng-container>
 
@@ -70,13 +95,15 @@
       </div>
     } @else {
       <!--
-        The empty state names what is missing, not just that the table is empty: a user holding a
-        scoped role with no assignment sees nothing anywhere in the system, so this is the one place
-        that explains why.
+        The empty state names what is missing and what it costs: a user holding a scoped role with no
+        assignment sees nothing anywhere in the system, so this is the one place that explains why.
+        It also says the company root above grants nothing, because an empty table under a filled
+        root is exactly where a reader would assume otherwise.
       -->
       <p class="empty-state">
-        Este empleado todavía no tiene alcance asignado. Sin una asignación de país, región o zona,
-        un rol de alcance no ve ningún dato del árbol.
+        Este empleado todavía no tiene ningún nivel de alcance asignado. Sin una asignación de país,
+        región, zona o tienda, un rol de alcance no ve ningún dato del árbol; la empresa se deriva
+        del empleado y no otorga acceso por sí sola.
       </p>
     }
   }

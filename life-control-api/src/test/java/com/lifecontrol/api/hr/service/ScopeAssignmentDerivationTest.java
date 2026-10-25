@@ -9,7 +9,6 @@ import com.lifecontrol.api.company.model.CompanyRegion;
 import com.lifecontrol.api.company.model.CompanyZone;
 import com.lifecontrol.api.country.model.Country;
 import com.lifecontrol.api.hr.model.EmployeeScopeAssignment;
-import com.lifecontrol.api.hr.model.EmployeeStoreAssignment;
 import com.lifecontrol.api.store.model.CompanyStore;
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -22,15 +21,17 @@ import org.junit.jupiter.api.Test;
 /**
  * Spec of the per-level scope derivation (decision T4). No Spring and no Mockito:
  * {@link ScopeAssignmentDerivation} is a pure function, exactly the shape
- * {@code StoreScopeDerivationTest} gives the neighbouring one.
+ * {@code EmployeeEmailGenerator} gives the neighbouring one.
  *
  * <p>Every rule the record states is pinned here: a {@code COUNTRY} row contributes its country, a
  * {@code REGION} row contributes region <b>and</b> its country, a {@code ZONE} row contributes zone,
- * region and country, the company level is always the employee's own and never the row's, a row
- * contributes only while enabled and covering {@code today} under the strictly-exclusive
- * {@code '[)'} reading, a chain that does not resolve contributes <b>nothing</b> rather than a
- * partial chain, and {@link ScopeAssignmentDerivation#union} merges the store-derived ids with the
- * level-derived ones without duplicating the company.</p>
+ * region and country, a {@code STORE} row contributes the store <b>and</b> the zone, region and
+ * country of that store (since {@code V32} the store is the fourth node column of this table, so
+ * there is one source and no second one to fold), the company level is always the employee's own and
+ * never the row's, a row contributes only while enabled and covering {@code today} under the
+ * strictly-exclusive {@code '[)'} reading, and a chain that does not resolve contributes
+ * <b>nothing</b> rather than a partial chain. There is one source — the store is the fourth node
+ * column of the same table — so nothing here folds two derivations together.</p>
  */
 @DisplayName("ScopeAssignmentDerivation Tests")
 class ScopeAssignmentDerivationTest {
@@ -93,6 +94,27 @@ class ScopeAssignmentDerivationTest {
         }
 
         @Test
+        @DisplayName("a STORE row contributes its store and the whole chain down from it")
+        void storeRow_ContributesItsStoreAndTheWholeAncestorChain() {
+            var company = company();
+            var companyCountry = companyCountry(company);
+            var region = region(companyCountry);
+            var zone = zone(region);
+            var store = store(zone);
+
+            var scope = derive(company.getId(), storeAssignment(store));
+
+            // Since V32 the store is the fourth node column of the same table, so this level is not a
+            // second source to fold: it emits the same five sets as every other row, and the chain is
+            // the store's own (store -> zone -> region -> country).
+            assertThat(scope.companyIds()).containsExactly(company.getId());
+            assertThat(scope.companyCountryIds()).containsExactly(companyCountry.getId());
+            assertThat(scope.companyRegionIds()).containsExactly(region.getId());
+            assertThat(scope.companyZoneIds()).containsExactly(zone.getId());
+            assertThat(scope.companyStoreIds()).containsExactly(store.getId());
+        }
+
+        @Test
         @DisplayName("no row keeps the company id alone, which is the company-wide scope")
         void noRows_KeepsTheCompanyIdOnly() {
             var company = company();
@@ -145,6 +167,22 @@ class ScopeAssignmentDerivationTest {
                             firstRegion.getId(), secondZone.getCompanyRegion().getId());
             assertThat(scope.companyZoneIds()).containsExactly(secondZone.getId());
         }
+
+        @Test
+        @DisplayName("two stores of one zone produce two store ids and one id per ancestor")
+        void twoStoresOfOneZone_DedupeTheAncestors() {
+            var company = company();
+            var companyCountry = companyCountry(company);
+            var zone = zone(region(companyCountry));
+            var firstStore = store(zone);
+            var secondStore = store(zone);
+
+            var scope = derive(company.getId(), storeAssignment(firstStore), storeAssignment(secondStore));
+
+            assertThat(scope.companyStoreIds()).containsExactly(firstStore.getId(), secondStore.getId());
+            assertThat(scope.companyZoneIds()).containsExactly(zone.getId());
+            assertThat(scope.companyCountryIds()).containsExactly(companyCountry.getId());
+        }
     }
 
     @Nested
@@ -193,7 +231,7 @@ class ScopeAssignmentDerivationTest {
     }
 
     @Nested
-    @DisplayName("the assigned node's own enabled flag (symmetry with StoreScopeDerivation T12)")
+    @DisplayName("the assigned node's own enabled flag (the split at decision T12)")
     class NodeEnabledFlagTests {
 
         // There is deliberately no COUNTRY case here: `company_countries` carries no `enabled` column
@@ -228,6 +266,41 @@ class ScopeAssignmentDerivationTest {
             assertThat(scope.companyZoneIds()).isEmpty();
             assertThat(scope.companyRegionIds()).isEmpty();
             assertThat(scope.companyCountryIds()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("a disabled store row contributes nothing, not even its zone, region and country")
+        void disabledStoreRow_ContributesNothing() {
+            var company = company();
+            var companyCountry = companyCountry(company);
+            var zone = zone(region(companyCountry));
+            var disabledStore = store(zone, false);
+
+            var scope = derive(company.getId(), storeAssignment(disabledStore));
+
+            // The store's own flag is the one node flag this level has, so a soft-deleted store never
+            // reaches an authorization decision — while a disabled ancestor above it must not drop the
+            // grant, which is the symmetry pinned by the zone case below.
+            assertThat(scope.companyIds()).containsExactly(company.getId());
+            assertThat(scope.companyStoreIds()).isEmpty();
+            assertThat(scope.companyZoneIds()).isEmpty();
+            assertThat(scope.companyRegionIds()).isEmpty();
+            assertThat(scope.companyCountryIds()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("a store row whose zone is disabled still contributes its whole chain")
+        void storeRowWithDisabledZone_KeepsItsWholeChain() {
+            var company = company();
+            var companyCountry = companyCountry(company);
+            var disabledZone = zone(region(companyCountry), false);
+            var store = store(disabledZone);
+
+            var scope = derive(company.getId(), storeAssignment(store));
+
+            assertThat(scope.companyCountryIds()).containsExactly(companyCountry.getId());
+            assertThat(scope.companyZoneIds()).containsExactly(disabledZone.getId());
+            assertThat(scope.companyStoreIds()).containsExactly(store.getId());
         }
 
         @Test
@@ -295,6 +368,39 @@ class ScopeAssignmentDerivationTest {
         }
 
         @Test
+        @DisplayName("a store without a zone contributes nothing at all")
+        void storeWithoutZone_ContributesNothing() {
+            var company = company();
+
+            var scope = derive(company.getId(), storeAssignment(store(null)));
+
+            // The store level walks one hop further than a zone's (store -> zone -> region -> country),
+            // so a store that cannot reach its zone contributes nothing rather than a store id with no
+            // zone, region or country to be scoped by.
+            assertThat(scope.companyIds()).containsExactly(company.getId());
+            assertThat(scope.companyStoreIds()).isEmpty();
+            assertThat(scope.companyZoneIds()).isEmpty();
+            assertThat(scope.companyRegionIds()).isEmpty();
+            assertThat(scope.companyCountryIds()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("a store whose zone has no region contributes nothing at all")
+        void storeWhoseRegionHopIsMissing_ContributesNothing() {
+            var company = company();
+
+            var scope = derive(company.getId(), storeAssignment(store(zone(null))));
+
+            // The store resolves its zone but the zone's region hop is missing: no partial chain, and
+            // never a store id on its own.
+            assertThat(scope.companyIds()).containsExactly(company.getId());
+            assertThat(scope.companyStoreIds()).isEmpty();
+            assertThat(scope.companyZoneIds()).isEmpty();
+            assertThat(scope.companyRegionIds()).isEmpty();
+            assertThat(scope.companyCountryIds()).isEmpty();
+        }
+
+        @Test
         @DisplayName("a region whose country is missing contributes nothing")
         void regionWithoutCountry_IsSkippedWhole() {
             var company = company();
@@ -327,6 +433,18 @@ class ScopeAssignmentDerivationTest {
         }
 
         @Test
+        @DisplayName("a store row of another company contributes no company id either (S3)")
+        void foreignStoreContributesNoCompanyId() {
+            var employeeCompany = company();
+            var foreignZone = zone(region(companyCountry(company())));
+            var foreignStore = store(foreignZone);
+
+            var scope = derive(employeeCompany.getId(), storeAssignment(foreignStore));
+
+            assertThat(scope.companyIds()).containsExactly(employeeCompany.getId());
+        }
+
+        @Test
         @DisplayName("a row with no node column set contributes nothing (the CHECK forbids it on a stored row)")
         void rowWithoutNode_IsSkipped() {
             var company = company();
@@ -341,94 +459,16 @@ class ScopeAssignmentDerivationTest {
     }
 
     @Nested
-    @DisplayName("union with the store-derived scope (S5)")
-    class UnionTests {
+    @DisplayName("the derived output")
+    class DerivedOutputTests {
 
         @Test
-        @DisplayName("the union carries the store chain and the level chain, with one company id")
-        void union_CarriesBothSourcesOnce() {
+        @DisplayName("is unmodifiable, like every value that answered an authorization question")
+        void derivedOutput_IsUnmodifiable() {
             var company = company();
-            var companyCountry = companyCountry(company);
-            var region = region(companyCountry);
-            var zone = zone(region);
-            var store = store(zone);
-            var storeScope = StoreScopeDerivation.derive(
-                    company.getId(),
-                    List.of(EmployeeStoreAssignment.builder()
-                            .id(UUID.randomUUID())
-                            .companyStore(store)
-                            .validFrom(TODAY.minusDays(30))
-                            .enabled(true)
-                            .build()),
-                    TODAY);
-            var levelScope = derive(company.getId(), regionAssignment(region));
+            var scope = ScopeAssignmentDerivation.derive(company.getId(), List.of(), TODAY);
 
-            var union = ScopeAssignmentDerivation.union(storeScope, levelScope);
-
-            assertThat(union.companyIds()).containsExactly(company.getId());
-            assertThat(union.companyCountryIds()).containsExactly(companyCountry.getId());
-            assertThat(union.companyRegionIds()).containsExactly(region.getId());
-            assertThat(union.companyZoneIds()).containsExactly(zone.getId());
-            assertThat(union.companyStoreIds()).containsExactly(store.getId());
-        }
-
-        @Test
-        @DisplayName("the union keeps the store-derived ids first and appends the new ones")
-        void union_PreservesBothOrders() {
-            var company = company();
-            var storeCountry = companyCountry(company);
-            var storeScope = StoreScopeDerivation.derive(
-                    company.getId(),
-                    List.of(EmployeeStoreAssignment.builder()
-                            .id(UUID.randomUUID())
-                            .companyStore(store(zone(region(storeCountry))))
-                            .validFrom(TODAY.minusDays(30))
-                            .enabled(true)
-                            .build()),
-                    TODAY);
-            var levelCountry = companyCountry(company);
-            var levelScope = derive(company.getId(), countryAssignment(levelCountry));
-
-            var union = ScopeAssignmentDerivation.union(storeScope, levelScope);
-
-            assertThat(union.companyCountryIds()).containsExactly(storeCountry.getId(), levelCountry.getId());
-        }
-
-        @Test
-        @DisplayName("unioning two empty deep levels yields the company alone, not an error")
-        void union_OfTwoCompanyWideScopes_HoldsTheCompanyAlone() {
-            var company = company();
-            var storeScope = StoreScopeDerivation.derive(company.getId(), List.of(), TODAY);
-            var levelScope = ScopeAssignmentDerivation.derive(company.getId(), List.of(), TODAY);
-
-            var union = ScopeAssignmentDerivation.union(storeScope, levelScope);
-
-            assertThat(union.companyIds()).containsExactly(company.getId());
-            assertThat(union.companyCountryIds()).isEmpty();
-            assertThat(union.companyZoneIds()).isEmpty();
-        }
-
-        @Test
-        @DisplayName("the union rejects a null side instead of silently returning the other")
-        void union_RejectsNull() {
-            var company = company();
-            var scope = StoreScopeDerivation.derive(company.getId(), List.of(), TODAY);
-
-            assertThatThrownBy(() -> ScopeAssignmentDerivation.union(scope, null))
-                    .isInstanceOf(NullPointerException.class);
-            assertThatThrownBy(() -> ScopeAssignmentDerivation.union(null, scope))
-                    .isInstanceOf(NullPointerException.class);
-        }
-
-        @Test
-        @DisplayName("the union's output is unmodifiable, like every value that answered an authorization question")
-        void union_IsUnmodifiable() {
-            var company = company();
-            var union = ScopeAssignmentDerivation.union(
-                    StoreScopeDerivation.derive(company.getId(), List.of(), TODAY),
-                    ScopeAssignmentDerivation.derive(company.getId(), List.of(), TODAY));
-
-            assertThatThrownBy(() -> union.companyIds().add(UUID.randomUUID()))
+            assertThatThrownBy(() -> scope.companyIds().add(UUID.randomUUID()))
                     .isInstanceOf(UnsupportedOperationException.class);
         }
     }
@@ -531,11 +571,16 @@ class ScopeAssignmentDerivationTest {
     }
 
     private CompanyStore store(CompanyZone zone) {
+        return store(zone, true);
+    }
+
+    /** The same store chain with the store's own {@code enabled} flag set as asked. */
+    private CompanyStore store(CompanyZone zone, boolean enabled) {
         return CompanyStore.builder()
                 .id(UUID.randomUUID())
                 .companyZone(zone)
                 .storeName("Store")
-                .enabled(true)
+                .enabled(enabled)
                 .build();
     }
 
@@ -551,10 +596,30 @@ class ScopeAssignmentDerivationTest {
         return assignment(null, null, zone, TODAY.minusDays(10), null, true);
     }
 
+    private EmployeeScopeAssignment storeAssignment(CompanyStore store) {
+        return storeAssignment(store, TODAY.minusDays(10), null, true);
+    }
+
+    private EmployeeScopeAssignment storeAssignment(
+            CompanyStore store, LocalDate validFrom, LocalDate validTo, boolean enabled) {
+        return assignment(null, null, null, store, validFrom, validTo, enabled);
+    }
+
     private EmployeeScopeAssignment assignment(
             CompanyCountry companyCountry,
             CompanyRegion companyRegion,
             CompanyZone companyZone,
+            LocalDate validFrom,
+            LocalDate validTo,
+            boolean enabled) {
+        return assignment(companyCountry, companyRegion, companyZone, null, validFrom, validTo, enabled);
+    }
+
+    private EmployeeScopeAssignment assignment(
+            CompanyCountry companyCountry,
+            CompanyRegion companyRegion,
+            CompanyZone companyZone,
+            CompanyStore companyStore,
             LocalDate validFrom,
             LocalDate validTo,
             boolean enabled) {
@@ -563,6 +628,7 @@ class ScopeAssignmentDerivationTest {
                 .companyCountry(companyCountry)
                 .companyRegion(companyRegion)
                 .companyZone(companyZone)
+                .companyStore(companyStore)
                 .validFrom(validFrom)
                 .validTo(validTo)
                 .enabled(enabled)

@@ -20,7 +20,6 @@ import com.lifecontrol.api.hr.model.PositionRole;
 import com.lifecontrol.api.hr.repository.ContractRepository;
 import com.lifecontrol.api.hr.repository.EmployeeRepository;
 import com.lifecontrol.api.hr.repository.EmployeeScopeAssignmentRepository;
-import com.lifecontrol.api.hr.repository.EmployeeStoreAssignmentRepository;
 import com.lifecontrol.api.hr.repository.PositionRoleRepository;
 import com.lifecontrol.api.status.model.Status;
 import com.lifecontrol.api.usersadmin.identity.InMemoryIdentityProvider;
@@ -45,7 +44,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
  * <p><b>What is real and what is substituted, exactly.</b> Real: the three provisioning services, the
  * handler, and the port contract they call through. Substituted: the <b>persistence layer</b> — the
  * four repositories ({@code EmployeeRepository}, {@code ContractRepository},
- * {@code PositionRoleRepository}, {@code EmployeeStoreAssignmentRepository}) are Mockito mocks, and no
+ * {@code PositionRoleRepository}, {@code EmployeeScopeAssignmentRepository}) are Mockito mocks, and no
  * database or Spring context is involved. The two configuration records
  * ({@code ApplicationClientProperties}, {@code InvitationProperties}) are constructed with literals,
  * not mocked. So this test proves the <b>dispatch reaches the right capabilities and that their writes
@@ -81,9 +80,6 @@ class AccessProvisioningWorkerDeactivateCompositionTest {
     private PositionRoleRepository positionRoleRepository;
 
     @Mock
-    private EmployeeStoreAssignmentRepository assignmentRepository;
-
-    @Mock
     private EmployeeScopeAssignmentRepository scopeAssignmentRepository;
 
     private InMemoryIdentityProvider identityProvider;
@@ -102,8 +98,7 @@ class AccessProvisioningWorkerDeactivateCompositionTest {
                 identityProvider, employeeRepository, applicationClientProperties, invitationProperties);
         var roleService = new AccessProvisioningRoleService(
                 identityProvider, applicationClientProperties, contractRepository, positionRoleRepository);
-        var membershipService = new AccessProvisioningMembershipService(
-                identityProvider, assignmentRepository, scopeAssignmentRepository);
+        var membershipService = new AccessProvisioningMembershipService(identityProvider, scopeAssignmentRepository);
         handler = new AccessProvisioningWorkerHandler(accountService, roleService, membershipService);
 
         employeeId = UUID.randomUUID();
@@ -135,9 +130,15 @@ class AccessProvisioningWorkerDeactivateCompositionTest {
                 .thenReturn(List.of());
     }
 
-    /** The repository returns no covering assignment, so only the employee's own company derives. */
+    /**
+     * The scope finder returns no covering assignment, so only the employee's own company derives.
+     *
+     * <p>Since V32 the store is a level of {@code employee_scope_assignments}, so this is the only
+     * finder the membership projection reads: there is no second source to stub, and a store claim comes
+     * from a scope row like every other level's.</p>
+     */
     private void stubNoAssignments() {
-        when(assignmentRepository.findEnabledAssignmentsCoveringDate(eq(employeeId), any(LocalDate.class)))
+        when(scopeAssignmentRepository.findEnabledAssignmentsCoveringDate(eq(employeeId), any(LocalDate.class)))
                 .thenReturn(List.of());
     }
 

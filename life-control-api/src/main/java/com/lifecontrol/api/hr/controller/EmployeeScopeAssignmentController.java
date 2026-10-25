@@ -38,7 +38,7 @@ import org.springframework.web.bind.annotation.*;
 @RequestMapping("/api/companies/{companyId}/employees/{employeeId}/scope-assignments")
 @Tag(
         name = "Scope Assignment Management",
-        description = "API for managing the per-level (country, region, zone) scope assignments of an employee")
+        description = "API for managing the per-level (country, region, zone, store) scope assignments of an employee")
 public class EmployeeScopeAssignmentController {
 
     private final EmployeeScopeAssignmentService employeeScopeAssignmentService;
@@ -69,9 +69,9 @@ public class EmployeeScopeAssignmentController {
     @PreAuthorize("hasAnyRole('" + ADMIN + "','" + EMPLOYEE + "')")
     @Operation(
             summary = "Open a new scope assignment",
-            description = "Assigns one company-country, company-region or company-zone and closes the "
-                    + "employee's previous assignment for the same node the day before its start date; "
-                    + "exactly one node id is required, the node must belong to the employee's company, "
+            description = "Assigns one company-country, company-region, company-zone or company-store and "
+                    + "closes the employee's previous assignment for the same node the day before its start "
+                    + "date; exactly one node id is required, the node must belong to the employee's company, "
                     + "and a foreign node or employee is not found")
     @ApiResponses({
         @ApiResponse(responseCode = "201", description = "Scope assignment created"),

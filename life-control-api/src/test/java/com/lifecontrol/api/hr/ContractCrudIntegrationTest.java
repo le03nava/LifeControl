@@ -118,8 +118,8 @@ class ContractCrudIntegrationTest extends AbstractPostgresIntegrationTest {
     void setUp() {
         // W5c's producer writes an access_provisioning_tasks row when a contract starts, and that
         // table references employees: the rows that reference them are deleted first (record T90).
-        // deleteAllEmployees then owns the employee leaf order — contracts, store assignments and
-        // scope assignments before the parent (issue #562).
+        // deleteAllEmployees then owns the employee leaf order — contracts and scope assignments
+        // before the parent (issue #562).
         deleteAllAccessProvisioningRows(jdbcTemplate);
         deleteAllEmployees(jdbcTemplate);
         jdbcTemplate.update("DELETE FROM position_salary_bands");

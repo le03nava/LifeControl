@@ -86,10 +86,10 @@ class EmployeeSchemaMigrationIntegrationTest extends AbstractPostgresIntegration
     }
 
     @Test
-    @DisplayName("applies every migration through V31 and leaves no pending migration")
-    void flywayHeadIsV31() {
+    @DisplayName("applies every migration through V33 and leaves no pending migration")
+    void flywayHeadIsV33() {
         assertThat(flyway.info().current()).isNotNull();
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("31");
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("33");
         assertThat(flyway.info().pending()).isEmpty();
     }
 

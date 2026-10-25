@@ -16,6 +16,11 @@ import {
  * for anything else — the shape `EmployeeService` uses for its 409. This is deliberately **not** a
  * general taxonomy: the server stays the authority on why it refused a write, and the dialog prefers
  * the server's own envelope message when there is one.
+ *
+ * The one 404 says "employee **or node**" on purpose, and it covers all four levels: a node id the
+ * company does not own — a store included — is unknown here, so a store from another company earns
+ * the same message as a country that does not exist. Telling the operator which of the two it was
+ * would report a fact the API deliberately does not.
  */
 const CREATE_ASSIGNMENT_ERRORS = new Map<number, string>([
   [400, 'Los datos de la asignación no son válidos'],
@@ -36,16 +41,19 @@ const CREATE_ASSIGNMENT_FALLBACK = 'Error al crear la asignación de alcance';
 const CLOSE_ASSIGNMENT_FALLBACK = 'Error al cerrar la asignación de alcance';
 
 /**
- * HTTP access to an employee's per-level scope-assignment history.
+ * HTTP access to an employee's scope-assignment history: country, region, zone and store in one
+ * table.
  *
- * Mirrors `StoreAssignmentService`'s shape: `getAssignments` feeds the `assignments` signal (newest
- * first, as the API orders it), `createAssignment` prepends the created row to keep that order, and
- * `closeAssignment` replaces the closed row in place. Each of the three clears `_error` on entry, so
- * a failed write followed by a successful one does not leave a stale banner.
+ * `getAssignments` feeds the `assignments` signal (newest first, as the API orders it),
+ * `createAssignment` prepends the created row to keep that order, and `closeAssignment` replaces the
+ * closed row in place. Each of the three clears `_error` on entry, so a failed write followed by a
+ * successful one does not leave a stale banner.
  *
  * The path is nested twice on purpose — `/api/companies/{companyId}/employees/{employeeId}/scope-assignments`
  * — because both scopes are part of the wire contract: the employee lives in a company and the
- * service resolves the company scope before doing anything.
+ * service resolves the company scope before doing anything. There is exactly **one** route for the
+ * four levels: the level of a write is the node id the request carries, so a store assignment is not
+ * a second endpoint.
  *
  * `includeDisabled` is always sent explicitly rather than left to the endpoint's default, so the
  * client's own request states which set it is asking for. The employee detail asks for the whole

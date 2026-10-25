@@ -22,7 +22,7 @@ import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { ProfileService } from './data/profile.service';
 import { LocationPreference } from './data/location-preference.service';
 import { ProfileResponse, ProfileUpdateRequest, AssignedStore } from './data/profile.models';
-import { derivedChainLabel } from '@features/hr/models/store-assignment.models';
+import { scopeDerivedChainLabel } from '@features/hr/models/scope-assignment.models';
 import { CompanyService } from '@features/companies/companies/data/company.service';
 import { CompanyCountryService } from '@features/companies/countries/data/company-country.service';
 import { CompanyRegionService } from '@features/companies/regions/data/company-region.service';
@@ -91,7 +91,7 @@ export class UserProfileComponent implements OnInit {
   readonly isConstrained = computed(() => this.assignedStores() !== null);
 
   /** Reused HR label for an assigned store's chain (`T28`) — one formatter, not a copy. */
-  readonly derivedChainLabel = derivedChainLabel;
+  readonly derivedChainLabel = scopeDerivedChainLabel;
 
   /**
    * The location line of the view mode (`T17` of `company-scope-local-fallback`, `S11` of
@@ -116,7 +116,7 @@ export class UserProfileComponent implements OnInit {
     }
     const assigned = this.assignedStores()?.find((store) => store.companyStoreId === storeId);
     if (assigned) {
-      return derivedChainLabel(assigned);
+      return scopeDerivedChainLabel(assigned);
     }
     return profile?.location?.companyStoreName ?? null;
   });

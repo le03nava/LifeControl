@@ -22,11 +22,9 @@ import com.lifecontrol.api.company.model.CompanyZone;
 import com.lifecontrol.api.country.model.Country;
 import com.lifecontrol.api.hr.model.Employee;
 import com.lifecontrol.api.hr.model.EmployeeScopeAssignment;
-import com.lifecontrol.api.hr.model.EmployeeStoreAssignment;
 import com.lifecontrol.api.hr.repository.EmployeeScopeAssignmentRepository;
-import com.lifecontrol.api.hr.repository.EmployeeStoreAssignmentRepository;
 import com.lifecontrol.api.hr.service.EmployeeStoreScope;
-import com.lifecontrol.api.hr.service.StoreScopeDerivation;
+import com.lifecontrol.api.hr.service.ScopeAssignmentDerivation;
 import com.lifecontrol.api.provisioning.exception.AccountNotLinkedException;
 import com.lifecontrol.api.provisioning.exception.CompanyScopeInvariantException;
 import com.lifecontrol.api.status.model.Status;
@@ -77,9 +75,6 @@ class AccessProvisioningMembershipServiceTest {
 
     @Mock
     private IdentityProvider identityProvider;
-
-    @Mock
-    private EmployeeStoreAssignmentRepository assignmentRepository;
 
     @Mock
     private EmployeeScopeAssignmentRepository scopeAssignmentRepository;
@@ -161,9 +156,9 @@ class AccessProvisioningMembershipServiceTest {
                 .build();
     }
 
-    private EmployeeStoreAssignment assignment(
+    private EmployeeScopeAssignment storeScopeAssignment(
             CompanyStore store, LocalDate validFrom, LocalDate validTo, boolean enabled) {
-        return EmployeeStoreAssignment.builder()
+        return EmployeeScopeAssignment.builder()
                 .id(UUID.randomUUID())
                 .companyStore(store)
                 .validFrom(validFrom)
@@ -229,16 +224,6 @@ class AccessProvisioningMembershipServiceTest {
     // --- stubbing ---
 
     /**
-     * Stubs the assignment finder with the declared rows, in declaration order and with no filter
-     * applied — the caller writes them in the newest-first order the repository documents, and the
-     * derivation decides which of them contribute.
-     */
-    private void stubAssignments(EmployeeStoreAssignment... rows) {
-        when(assignmentRepository.findEnabledAssignmentsCoveringDate(eq(employeeId), any(LocalDate.class)))
-                .thenReturn(List.of(rows));
-    }
-
-    /**
      * Stubs the per-level finder with the declared rows, with no filter applied: the enabled and
      * coverage filters belong to {@code ScopeAssignmentDerivation}, so an ignored row really exercises
      * the filter here instead of being filtered away by the stub. An unstubbed call returns an empty
@@ -276,7 +261,7 @@ class AccessProvisioningMembershipServiceTest {
             var region = region(companyCountry);
             var zone = zone(region);
             var store = store(zone);
-            stubAssignments(assignment(store, today().minusDays(30), null, true));
+            stubScopeAssignments(storeScopeAssignment(store, today().minusDays(30), null, true));
 
             var scope = service.convergeMembership(linkedEmployee());
 
@@ -322,9 +307,9 @@ class AccessProvisioningMembershipServiceTest {
             var newerStore = store(zone(newerRegion), SECOND_STORE_ID);
             // Newest first, exactly as the repository's ORDER BY validFrom DESC returns them: the
             // projection must keep this order and not sort the ids.
-            stubAssignments(
-                    assignment(newerStore, today().minusDays(1), null, true),
-                    assignment(olderStore, today().minusDays(30), null, true));
+            stubScopeAssignments(
+                    storeScopeAssignment(newerStore, today().minusDays(1), null, true),
+                    storeScopeAssignment(olderStore, today().minusDays(30), null, true));
 
             var scope = service.convergeMembership(linkedEmployee());
 
@@ -352,7 +337,7 @@ class AccessProvisioningMembershipServiceTest {
         @Test
         @DisplayName("a company-wide employee has company_id written and the other four keys deleted")
         void companyWideEmployeeWritesCompanyAndDeletesTheFourDeeperKeys() {
-            stubAssignments();
+            stubScopeAssignments();
 
             var scope = service.convergeMembership(linkedEmployee());
 
@@ -368,7 +353,7 @@ class AccessProvisioningMembershipServiceTest {
         @DisplayName("an assignment whose validTo is today contributes nothing: the bound is exclusive")
         void assignmentWhoseValidToIsTodayIsIgnored() {
             var store = store(zone(region(companyCountry(company))));
-            stubAssignments(assignment(store, today().minusDays(30), today(), true));
+            stubScopeAssignments(storeScopeAssignment(store, today().minusDays(30), today(), true));
 
             service.convergeMembership(linkedEmployee());
 
@@ -379,12 +364,12 @@ class AccessProvisioningMembershipServiceTest {
         @DisplayName("the finder is queried with the same today the derivation is driven with")
         void finderIsQueriedWithTheSameTodayTheDerivationUses() {
             var store = store(zone(region(companyCountry(company))));
-            stubAssignments(assignment(store, today().minusDays(30), null, true));
+            stubScopeAssignments(storeScopeAssignment(store, today().minusDays(30), null, true));
 
             service.convergeMembership(linkedEmployee());
 
             var dateCaptor = ArgumentCaptor.forClass(LocalDate.class);
-            verify(assignmentRepository).findEnabledAssignmentsCoveringDate(eq(employeeId), dateCaptor.capture());
+            verify(scopeAssignmentRepository).findEnabledAssignmentsCoveringDate(eq(employeeId), dateCaptor.capture());
             assertThat(dateCaptor.getValue()).isEqualTo(today());
         }
 
@@ -392,7 +377,7 @@ class AccessProvisioningMembershipServiceTest {
         @DisplayName("a disabled assignment contributes nothing")
         void disabledAssignmentIsIgnored() {
             var store = store(zone(region(companyCountry(company))));
-            stubAssignments(assignment(store, today().minusDays(30), null, false));
+            stubScopeAssignments(storeScopeAssignment(store, today().minusDays(30), null, false));
 
             service.convergeMembership(linkedEmployee());
 
@@ -403,7 +388,7 @@ class AccessProvisioningMembershipServiceTest {
         @DisplayName("an assignment with a future validFrom contributes nothing")
         void assignmentWithAFutureValidFromIsIgnored() {
             var store = store(zone(region(companyCountry(company))));
-            stubAssignments(assignment(store, today().plusDays(1), null, true));
+            stubScopeAssignments(storeScopeAssignment(store, today().plusDays(1), null, true));
 
             service.convergeMembership(linkedEmployee());
 
@@ -429,7 +414,7 @@ class AccessProvisioningMembershipServiceTest {
             verify(identityProvider, never()).updateUserAttribute(any(), any(), any());
             verify(identityProvider, times(5)).deleteUserAttribute(eq(KC_USER_ID), anyString());
             verifyNoMoreInteractions(identityProvider);
-            verifyNoInteractions(assignmentRepository, scopeAssignmentRepository);
+            verifyNoInteractions(scopeAssignmentRepository);
         }
 
         @Test
@@ -442,7 +427,7 @@ class AccessProvisioningMembershipServiceTest {
 
             verify(identityProvider, times(5)).deleteUserAttribute(eq(KC_USER_ID), anyString());
             verify(identityProvider, never()).updateUserAttribute(any(), any(), any());
-            verifyNoInteractions(assignmentRepository, scopeAssignmentRepository);
+            verifyNoInteractions(scopeAssignmentRepository);
         }
 
         @Test
@@ -469,7 +454,7 @@ class AccessProvisioningMembershipServiceTest {
                     .isInstanceOf(AccountNotLinkedException.class)
                     .hasMessageContaining(employeeId.toString());
 
-            verifyNoInteractions(identityProvider, assignmentRepository, scopeAssignmentRepository);
+            verifyNoInteractions(identityProvider, scopeAssignmentRepository);
         }
 
         @Test
@@ -479,9 +464,9 @@ class AccessProvisioningMembershipServiceTest {
             var twoCompanies =
                     new EmployeeStoreScope(Set.of(companyId, otherCompanyId), Set.of(), Set.of(), Set.of(), Set.of());
 
-            try (var derivation = mockStatic(StoreScopeDerivation.class)) {
+            try (var derivation = mockStatic(ScopeAssignmentDerivation.class)) {
                 derivation
-                        .when(() -> StoreScopeDerivation.derive(any(), any(), any()))
+                        .when(() -> ScopeAssignmentDerivation.derive(any(), any(), any()))
                         .thenReturn(twoCompanies);
 
                 assertThatThrownBy(() -> service.convergeMembership(linkedEmployee()))
@@ -500,7 +485,7 @@ class AccessProvisioningMembershipServiceTest {
             var region = region(companyCountry);
             var zone = zone(region);
             var store = store(zone);
-            stubAssignments(assignment(store, today().minusDays(30), null, true));
+            stubScopeAssignments(storeScopeAssignment(store, today().minusDays(30), null, true));
 
             service.convergeMembership(linkedEmployee());
 
@@ -516,7 +501,7 @@ class AccessProvisioningMembershipServiceTest {
         @DisplayName("an IdentityProviderConnectionException from a write propagates unchanged")
         void identityProviderFailurePropagates() {
             var store = store(zone(region(companyCountry(company))));
-            stubAssignments(assignment(store, today().minusDays(30), null, true));
+            stubScopeAssignments(storeScopeAssignment(store, today().minusDays(30), null, true));
             var boom = new IdentityProviderConnectionException("keycloak is unreachable");
             doThrow(boom)
                     .when(identityProvider)
@@ -531,7 +516,7 @@ class AccessProvisioningMembershipServiceTest {
     }
 
     @Nested
-    @DisplayName("the union of both scope sources (S5/T5)")
+    @DisplayName("one source: the scope table (S5)")
     class ScopeSourceUnionTests {
 
         @Test
@@ -584,13 +569,17 @@ class AccessProvisioningMembershipServiceTest {
         }
 
         @Test
-        @DisplayName("a store assignment and a scope row produce both values at the country level, store first")
-        void bothSourcesCarryTheirOwnValuesInOrder() {
+        @DisplayName("a store row and a country row of one source both contribute, in row order")
+        void aStoreRowAndACountryRowCarryTheirOwnValuesInOrder() {
             var storeCountry = companyCountry(company);
             var store = store(zone(region(storeCountry)));
-            stubAssignments(assignment(store, today().minusDays(30), null, true));
             var scopeCountry = companyCountry(company);
-            stubScopeAssignments(scopeAssignment(scopeCountry, null, null, today().minusDays(5), null, true));
+            // Both rows come from ONE finder now: since V32 the store is a level of the scope table, so
+            // there is no second source to fold — the derivation reads a single list and emits a claim
+            // per row, keeping the finder's newest-first order instead of sorting or rebuilding it.
+            stubScopeAssignments(
+                    storeScopeAssignment(store, today().minusDays(1), null, true),
+                    scopeAssignment(scopeCountry, null, null, today().minusDays(5), null, true));
 
             var scope = service.convergeMembership(linkedEmployee());
 
@@ -645,7 +634,7 @@ class AccessProvisioningMembershipServiceTest {
             assertThat(scope.companyStoreIds()).isEmpty();
             verify(identityProvider, times(5)).deleteUserAttribute(eq(KC_USER_ID), anyString());
             verify(identityProvider, never()).updateUserAttribute(any(), any(), any());
-            verifyNoInteractions(assignmentRepository, scopeAssignmentRepository);
+            verifyNoInteractions(scopeAssignmentRepository);
         }
     }
 
@@ -660,7 +649,7 @@ class AccessProvisioningMembershipServiceTest {
             var region = region(companyCountry);
             var zone = zone(region);
             var store = store(zone);
-            stubAssignments(assignment(store, today().minusDays(30), null, true));
+            stubScopeAssignments(storeScopeAssignment(store, today().minusDays(30), null, true));
 
             var scope = service.deriveMembership(linkedEmployee());
 
@@ -683,7 +672,7 @@ class AccessProvisioningMembershipServiceTest {
             assertThat(scope.companyZoneIds()).isEmpty();
             assertThat(scope.companyStoreIds()).isEmpty();
             verifyNoInteractions(identityProvider);
-            verifyNoInteractions(assignmentRepository, scopeAssignmentRepository);
+            verifyNoInteractions(scopeAssignmentRepository);
         }
 
         @Test
@@ -697,7 +686,7 @@ class AccessProvisioningMembershipServiceTest {
             assertThat(scope.companyZoneIds()).isEmpty();
             assertThat(scope.companyStoreIds()).isEmpty();
             verifyNoInteractions(identityProvider);
-            verifyNoInteractions(assignmentRepository, scopeAssignmentRepository);
+            verifyNoInteractions(scopeAssignmentRepository);
         }
 
         @Test
@@ -714,7 +703,7 @@ class AccessProvisioningMembershipServiceTest {
                     .isInstanceOf(AccountNotLinkedException.class)
                     .hasMessageContaining(employeeId.toString());
 
-            verifyNoInteractions(identityProvider, assignmentRepository, scopeAssignmentRepository);
+            verifyNoInteractions(identityProvider, scopeAssignmentRepository);
         }
 
         @Test
@@ -723,9 +712,9 @@ class AccessProvisioningMembershipServiceTest {
             var twoCompanies = new EmployeeStoreScope(
                     Set.of(companyId, UUID.randomUUID()), Set.of(), Set.of(), Set.of(), Set.of());
 
-            try (var derivation = mockStatic(StoreScopeDerivation.class)) {
+            try (var derivation = mockStatic(ScopeAssignmentDerivation.class)) {
                 derivation
-                        .when(() -> StoreScopeDerivation.derive(any(), any(), any()))
+                        .when(() -> ScopeAssignmentDerivation.derive(any(), any(), any()))
                         .thenReturn(twoCompanies);
 
                 assertThatThrownBy(() -> service.deriveMembership(linkedEmployee()))

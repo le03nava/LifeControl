@@ -3,11 +3,14 @@
 <form [formGroup]="form" (ngSubmit)="onSubmit()">
   <mat-dialog-content class="dialog-content">
     <p class="dialog-subtitle">
-      Elegí el nivel del alcance y después el país, la región o la zona que lo define. La empresa y
-      el empleado ya están fijados por la pantalla.
+      Elegí el nivel del alcance y después el país, la región, la zona o la tienda que lo define. La
+      empresa y el empleado ya están fijados por la pantalla.
     </p>
 
-    <!-- The company is fixed by the employee, so it is shown and never chosen. -->
+    <!--
+      The company is fixed by the employee, so it is shown and never chosen. It is also not a level
+      of the select: there is no company assignment to write.
+    -->
     <p class="fixed-company">
       <span class="fixed-company-label">Empresa</span>
       <span class="fixed-company-value">{{ data.companyName }}</span>
@@ -58,7 +61,7 @@
       </mat-form-field>
     }
 
-    @if (level() === 'ZONE') {
+    @if (level() === 'ZONE' || level() === 'STORE') {
       <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic">
         <mat-label>Zona</mat-label>
         <mat-select formControlName="zoneId">
@@ -68,6 +71,20 @@
         </mat-select>
         @if (form.controls.zoneId.hasError('required')) {
           <mat-error>La zona es obligatoria para este nivel.</mat-error>
+        }
+      </mat-form-field>
+    }
+
+    @if (level() === 'STORE') {
+      <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic">
+        <mat-label>Tienda</mat-label>
+        <mat-select formControlName="companyStoreId">
+          @for (store of stores(); track store.id) {
+            <mat-option [value]="store.id">{{ store.storeName }}</mat-option>
+          }
+        </mat-select>
+        @if (form.controls.companyStoreId.hasError('required')) {
+          <mat-error>La tienda es obligatoria para este nivel.</mat-error>
         }
       </mat-form-field>
     }

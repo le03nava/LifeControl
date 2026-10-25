@@ -26,6 +26,9 @@ import com.lifecontrol.api.hr.model.EmployeeScopeAssignment;
 import com.lifecontrol.api.hr.repository.EmployeeRepository;
 import com.lifecontrol.api.hr.repository.EmployeeScopeAssignmentRepository;
 import com.lifecontrol.api.provisioning.service.AccessProvisioningProducer;
+import com.lifecontrol.api.store.exception.CompanyStoreNotFoundException;
+import com.lifecontrol.api.store.model.CompanyStore;
+import com.lifecontrol.api.store.repository.CompanyStoreRepository;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
@@ -35,7 +38,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Business logic for the per-level (country, region, zone) scope-assignment history of a
+ * Business logic for the per-level (country, region, zone, store) scope-assignment history of a
  * company-scoped employee.
  *
  * <p>Every public method starts by resolving the company through {@link #resolveCompany(UUID)}, whose
@@ -46,26 +49,31 @@ import org.springframework.transaction.annotation.Transactional;
  * {@link ScopeAssignmentNotFoundException}.</p>
  *
  * <p><b>The request must name exactly one node.</b> The level is the row's shape — one of
- * {@code companyCountryId}, {@code companyRegionId} or {@code companyZoneId} — and a request that
- * names none or several is an {@link IllegalArgumentException} (400) before anything is loaded, which
- * is the same rule the database restates as
- * {@code ck_employee_scope_assignments_one_node}.</p>
+ * {@code companyCountryId}, {@code companyRegionId}, {@code companyZoneId} or
+ * {@code companyStoreId} — and a request that names none or several is an
+ * {@link IllegalArgumentException} (400) before anything is loaded, which is the same rule the
+ * database restates as {@code ck_employee_scope_assignments_one_node}.</p>
+ *
+ * <p><b>There is no company level.</b> {@code employees.company_id} is the company fact, exactly one
+ * per person, and the company claim already comes from it; an assignable company node would duplicate
+ * that fact or force the invariant open, so it is absent rather than nullable-and-unused.</p>
  *
  * <p><b>The node must belong to the employee's company</b>, and that rule lives here because the
  * database cannot express a fact one or two hops away (a region reaches its company through its
- * country, a zone through its region). {@link #resolveNode} walks the node's own chain and compares the
- * resolved company; a node that does not exist <b>or</b> belongs to another company is the level's own
- * not-found exception (404) — {@link CompanyCountryNotFoundException},
- * {@link CompanyRegionNotFoundException} or {@link CompanyZoneNotFoundException}. Reporting it as
- * not-found rather than as a denial keeps the existence of another company's node undisclosed, the
- * convention the store services use for a caller-supplied id. One company per person is the model's
+ * country, a zone through its region, a store through its zone). {@link #resolveNode} walks the node's
+ * own chain and compares the resolved company; a node that does not exist <b>or</b> belongs to another
+ * company is the level's own not-found exception (404) — {@link CompanyCountryNotFoundException},
+ * {@link CompanyRegionNotFoundException}, {@link CompanyZoneNotFoundException} or
+ * {@link CompanyStoreNotFoundException}. Reporting it as not-found rather than as a denial keeps the
+ * existence of another company's node undisclosed, the convention the store services use for a
+ * caller-supplied id. One company per person is the model's
  * ceiling, so this check is a decided invariant and not a provisional mitigation. The node's own
- * {@code enabled} flag is deliberately not consulted, exactly as {@code EmployeeStoreAssignmentService}
- * does not consult the store's: the row is harmless when the derivation is what filters.</p>
+ * {@code enabled} flag is deliberately not consulted: the row is harmless when the derivation is what
+ * filters.</p>
  *
  * <p><b>Opening an assignment for the same node closes the previous one</b> in the same transaction,
- * exactly as {@code EmployeeStoreAssignmentService} and {@code ContractService} close the previous
- * row. The predecessor is found with a query scoped to that node, so opening an assignment for a
+ * exactly as {@code ContractService} closes the previous row. The predecessor is found with a query
+ * scoped to that node, so opening an assignment for a
  * <b>different</b> node closes nothing — that is how a second concurrent node is created. If a
  * predecessor starts on the new start date, that is a 400; otherwise its exclusive bound is set to the
  * successor's {@code validFrom} <b>verbatim</b> and flushed before the insert, so the predecessor's
@@ -82,7 +90,7 @@ import org.springframework.transaction.annotation.Transactional;
  * {@link #toApiEndDate(LocalDate)} converts it back for every response.</p>
  *
  * <p>An overlap the pre-check cannot see is deliberately <b>not</b> pre-checked and the
- * {@code DataIntegrityViolationException} is deliberately <b>not</b> caught: the three partial
+ * {@code DataIntegrityViolationException} is deliberately <b>not</b> caught: the four partial
  * exclusion constraints are the final authority and {@code GlobalExceptionHandler} already maps their
  * violation to 409. Catching it here to soften the message would also mask the real rollback, since in
  * PostgreSQL the first violation aborts the whole transaction. There is no caching on these reads: the
@@ -107,6 +115,7 @@ public class EmployeeScopeAssignmentService {
     private final CompanyCountryRepository companyCountryRepository;
     private final CompanyRegionRepository companyRegionRepository;
     private final CompanyZoneRepository companyZoneRepository;
+    private final CompanyStoreRepository companyStoreRepository;
     private final CurrentUserContext currentUserContext;
     private final AccessProvisioningProducer accessProvisioningProducer;
 
@@ -117,6 +126,7 @@ public class EmployeeScopeAssignmentService {
             CompanyCountryRepository companyCountryRepository,
             CompanyRegionRepository companyRegionRepository,
             CompanyZoneRepository companyZoneRepository,
+            CompanyStoreRepository companyStoreRepository,
             CurrentUserContext currentUserContext,
             AccessProvisioningProducer accessProvisioningProducer) {
         this.employeeScopeAssignmentRepository = employeeScopeAssignmentRepository;
@@ -125,6 +135,7 @@ public class EmployeeScopeAssignmentService {
         this.companyCountryRepository = companyCountryRepository;
         this.companyRegionRepository = companyRegionRepository;
         this.companyZoneRepository = companyZoneRepository;
+        this.companyStoreRepository = companyStoreRepository;
         this.currentUserContext = currentUserContext;
         this.accessProvisioningProducer = accessProvisioningProducer;
     }
@@ -171,6 +182,35 @@ public class EmployeeScopeAssignmentService {
     }
 
     /**
+     * The {@code STORE} rows of the employee's assignments covering <b>today</b>, as the profile path
+     * reads them.
+     *
+     * <p>Deliberately <b>scope-free</b>: unlike every other public method here it performs no
+     * {@link CurrentUserContext#verifyCompanyAccess(UUID)}. Its only production caller is
+     * {@link com.lifecontrol.api.profile.ProfileService}, which resolves the employee from the
+     * authenticated principal's own {@code keycloak_user_id} and then asks for that employee's own
+     * rows: a self-scoped read by construction, which a company-claim demand would refuse for the very
+     * caller the profile screen serves.</p>
+     *
+     * <p>The employee is still loaded, so a caller that passes an id which does not exist gets the
+     * module's {@link EmployeeNotFoundException} (404) instead of an empty list that reads as "no
+     * stores assigned". The rows come from the same covering-date finder the derivation uses, so the
+     * profile's preference and the five claims can never disagree about which stores are current. It
+     * keeps the finder's deterministic order (newest first, {@code id DESC} as the tie-breaker) and
+     * only drops the non-store levels, because a store route answers about stores.</p>
+     */
+    @Transactional(readOnly = true)
+    public List<ScopeAssignmentResponse> getCurrentStoreAssignments(UUID employeeId) {
+        employeeRepository.findById(employeeId).orElseThrow(() -> new EmployeeNotFoundException(employeeId));
+        return employeeScopeAssignmentRepository
+                .findEnabledAssignmentsCoveringDate(employeeId, LocalDate.now())
+                .stream()
+                .filter(assignment -> assignment.getCompanyStore() != null)
+                .map(this::toResponse)
+                .toList();
+    }
+
+    /**
      * Opens a new scope assignment for the employee, closing the previous one for the same node the
      * day before.
      *
@@ -196,6 +236,7 @@ public class EmployeeScopeAssignmentService {
                 .companyCountry(node.companyCountry())
                 .companyRegion(node.companyRegion())
                 .companyZone(node.companyZone())
+                .companyStore(node.companyStore())
                 .validFrom(request.validFrom())
                 .enabled(true)
                 .build();
@@ -265,7 +306,7 @@ public class EmployeeScopeAssignmentService {
      * Resolves the one node the request names and enforces that it belongs to the employee's company.
      *
      * <p>The exactly-one check comes first and writes nothing: a request with no node or with more than
-     * one is a 400 whose message names the three fields, before any repository is touched.</p>
+     * one is a 400 whose message names the four fields, before any repository is touched.</p>
      */
     private ResolvedNode resolveNode(UUID companyId, ScopeAssignmentRequest request) {
         var nodeCount = 0;
@@ -278,10 +319,13 @@ public class EmployeeScopeAssignmentService {
         if (request.companyZoneId() != null) {
             nodeCount++;
         }
+        if (request.companyStoreId() != null) {
+            nodeCount++;
+        }
         if (nodeCount != 1) {
             throw new IllegalArgumentException(
-                    "A scope assignment must name exactly one node: companyCountryId, companyRegionId or"
-                            + " companyZoneId");
+                    "A scope assignment must name exactly one node: companyCountryId, companyRegionId,"
+                            + " companyZoneId or companyStoreId");
         }
 
         if (request.companyCountryId() != null) {
@@ -293,7 +337,7 @@ public class EmployeeScopeAssignmentService {
                     || !companyCountry.getCompany().getId().equals(companyId)) {
                 throw new CompanyCountryNotFoundException(countryId);
             }
-            return new ResolvedNode(ScopeLevel.COUNTRY, countryId, companyCountry, null, null);
+            return new ResolvedNode(ScopeLevel.COUNTRY, countryId, companyCountry, null, null, null);
         }
 
         if (request.companyRegionId() != null) {
@@ -308,21 +352,36 @@ public class EmployeeScopeAssignmentService {
                     || !companyCountry.getCompany().getId().equals(companyId)) {
                 throw new CompanyRegionNotFoundException("Company region not found with id: " + regionId);
             }
-            return new ResolvedNode(ScopeLevel.REGION, regionId, null, region, null);
+            return new ResolvedNode(ScopeLevel.REGION, regionId, null, region, null, null);
         }
 
-        var zoneId = request.companyZoneId();
-        var zone = companyZoneRepository
-                .findById(zoneId)
-                .orElseThrow(() -> new CompanyZoneNotFoundException("Company zone not found with id: " + zoneId));
-        var companyRegion = zone.getCompanyRegion();
-        var companyCountry = companyRegion == null ? null : companyRegion.getCompanyCountry();
+        if (request.companyZoneId() != null) {
+            var zoneId = request.companyZoneId();
+            var zone = companyZoneRepository
+                    .findById(zoneId)
+                    .orElseThrow(() -> new CompanyZoneNotFoundException("Company zone not found with id: " + zoneId));
+            var companyRegion = zone.getCompanyRegion();
+            var companyCountry = companyRegion == null ? null : companyRegion.getCompanyCountry();
+            if (companyCountry == null
+                    || companyCountry.getCompany() == null
+                    || !companyCountry.getCompany().getId().equals(companyId)) {
+                throw new CompanyZoneNotFoundException("Company zone not found with id: " + zoneId);
+            }
+            return new ResolvedNode(ScopeLevel.ZONE, zoneId, null, null, zone, null);
+        }
+
+        var storeId = request.companyStoreId();
+        var store =
+                companyStoreRepository.findById(storeId).orElseThrow(() -> new CompanyStoreNotFoundException(storeId));
+        var zone = store.getCompanyZone();
+        var region = zone == null ? null : zone.getCompanyRegion();
+        var companyCountry = region == null ? null : region.getCompanyCountry();
         if (companyCountry == null
                 || companyCountry.getCompany() == null
                 || !companyCountry.getCompany().getId().equals(companyId)) {
-            throw new CompanyZoneNotFoundException("Company zone not found with id: " + zoneId);
+            throw new CompanyStoreNotFoundException(storeId);
         }
-        return new ResolvedNode(ScopeLevel.ZONE, zoneId, null, null, zone);
+        return new ResolvedNode(ScopeLevel.STORE, storeId, null, null, null, store);
     }
 
     /**
@@ -365,6 +424,9 @@ public class EmployeeScopeAssignmentService {
                 assignment.getCompanyZone() == null
                         ? null
                         : assignment.getCompanyZone().getId(),
+                assignment.getCompanyStore() == null
+                        ? null
+                        : assignment.getCompanyStore().getId(),
                 nodeName(assignment),
                 assignment.getValidFrom(),
                 toApiEndDate(assignment.getValidTo()),
@@ -375,10 +437,13 @@ public class EmployeeScopeAssignmentService {
     /**
      * The level of a stored row, read from its shape. The database's
      * {@code ck_employee_scope_assignments_one_node} guarantees exactly one node column is set, so the
-     * three checks are unambiguous; a row that somehow set none is reported as {@code COUNTRY} and its
+     * four checks are unambiguous; a row that somehow set none is reported as {@code COUNTRY} and its
      * chain mapper then reports it as unresolvable rather than inventing a level.
      */
     private static ScopeLevel levelOf(EmployeeScopeAssignment assignment) {
+        if (assignment.getCompanyStore() != null) {
+            return ScopeLevel.STORE;
+        }
         if (assignment.getCompanyZone() != null) {
             return ScopeLevel.ZONE;
         }
@@ -395,6 +460,9 @@ public class EmployeeScopeAssignmentService {
      * fetched with a second query.
      */
     private String nodeName(EmployeeScopeAssignment assignment) {
+        if (assignment.getCompanyStore() != null) {
+            return assignment.getCompanyStore().getStoreName();
+        }
         if (assignment.getCompanyZone() != null) {
             return assignment.getCompanyZone().getZoneName();
         }
@@ -419,6 +487,9 @@ public class EmployeeScopeAssignmentService {
      */
     private DerivedScopeChain toDerivedChain(EmployeeScopeAssignment assignment) {
         var zone = assignment.getCompanyZone();
+        if (zone == null && assignment.getCompanyStore() != null) {
+            zone = assignment.getCompanyStore().getCompanyZone();
+        }
         var region = zone != null ? zone.getCompanyRegion() : assignment.getCompanyRegion();
         var companyCountry = region != null ? region.getCompanyCountry() : assignment.getCompanyCountry();
         if (companyCountry == null) {
@@ -471,5 +542,6 @@ public class EmployeeScopeAssignmentService {
             UUID nodeId,
             CompanyCountry companyCountry,
             CompanyRegion companyRegion,
-            CompanyZone companyZone) {}
+            CompanyZone companyZone,
+            CompanyStore companyStore) {}
 }

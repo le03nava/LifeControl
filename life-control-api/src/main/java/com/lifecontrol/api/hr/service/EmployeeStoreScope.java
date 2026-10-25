@@ -7,19 +7,19 @@ import java.util.Set;
 import java.util.UUID;
 
 /**
- * The five id sets the store-assignment derivation produces for one employee (decision T6).
+ * The five id sets the per-level scope derivation produces for one employee (decision T6).
  *
  * <p>Its shape is the shape the token's claim parser reads: {@code CurrentUserContext} holds one set
  * per {@code ScopeLevel}, extracted with {@code extractUuidSetFromClaim} (F3/F4), so this value is
  * what {@code employee-access-provisioning} will project into the {@code company_*}
- * claims — top-level and multivalued — for {@link StoreScopeDerivation}. It is the output of the
+ * claims — top-level and multivalued — for {@link ScopeAssignmentDerivation}. It is the output of the
  * derivation and nothing else: it never writes the projection (T9), and it knows nothing about
  * Keycloak.</p>
  *
  * <p>{@code companyIds} always carries the employee's own {@code company_id} (D3), which is the
- * company-level fact; the four deeper levels are the assigned stores and their ancestors, and they
- * are empty for a company-wide person (G6). Because one employee may hold several stores at once
- * (D1), every level is a set and never a scalar.</p>
+ * company-level fact; the four deeper levels are the assigned nodes — country, region, zone and store —
+ * and their ancestors, and they are empty for a company-wide person (G6). Because one employee may
+ * hold several stores at once (D1), every level is a set and never a scalar.</p>
  *
  * <p>The compact constructor rejects a null set and a null element, and defensively copies every set
  * into its own <b>unmodifiable</b> {@link LinkedHashSet}: the derivation builds them in insertion

@@ -14,21 +14,20 @@ import org.springframework.stereotype.Repository;
  * Persistence access for the per-level scope-assignment history of an employee.
  *
  * <p>Both finds and the history read are employee-scoped, and the employee is resolved through a
- * company-scoped query first, so a foreign employee is already a 404 before either method runs — the
- * same convention {@link EmployeeStoreAssignmentRepository} states.</p>
+ * company-scoped query first, so a foreign employee is already a 404 before either method runs.</p>
  *
  * <p>Every comparison uses a <b>strict</b> upper bound ({@code validTo > date}) because the column is
  * exclusive: {@code daterange(valid_from, valid_to, '[)')} means the stored {@code validTo} is the
  * first day <b>not</b> covered, so a row whose {@code validTo} equals the date does not cover it.</p>
  *
  * <p>There is deliberately <b>no</b> overlap query here. The "no two enabled assignments of one
- * {@code (employee, node)} pair may overlap" invariant is the database's three partial exclusion
+ * {@code (employee, node)} pair may overlap" invariant is the database's four partial exclusion
  * constraints (one per level, named {@code ex_employee_scope_assignments_<level>_no_overlap}): the
  * service does not pre-check it and does not translate its violation, because the generic 409 is the
  * honest outcome of a race the pre-check cannot see.</p>
  *
  * <p>No method here answers "which level is this row": the level is the row's shape, so the callers
- * read the three node associations and never a stored label.</p>
+ * read the four node associations and never a stored label.</p>
  */
 @Repository
 public interface EmployeeScopeAssignmentRepository extends JpaRepository<EmployeeScopeAssignment, UUID> {
@@ -44,7 +43,7 @@ public interface EmployeeScopeAssignmentRepository extends JpaRepository<Employe
      * assigned node. The {@code LEFT JOIN FETCH} loads each node <b>and its ancestor chain</b> in the
      * same query, because the derivation walks the chain of every row and the display mapper reads
      * every ancestor's id and name; a derived finder would issue one extra SELECT per row per lazy
-     * association. The joins are {@code LEFT} joins because a row sets exactly one of the three node
+     * association. The joins are {@code LEFT} joins because a row sets exactly one of the four node
      * columns, so an inner join would drop rows.</p>
      *
      * <p>The {@code ORDER BY} makes the read deterministic — newest first, with {@code a.id DESC} as
@@ -65,6 +64,12 @@ public interface EmployeeScopeAssignmentRepository extends JpaRepository<Employe
             LEFT JOIN FETCH zoneRegion.companyCountry zoneCountry
             LEFT JOIN FETCH zoneCountry.country zoneCountryCatalog
             LEFT JOIN FETCH zoneCountry.company zoneCompany
+            LEFT JOIN FETCH a.companyStore store
+            LEFT JOIN FETCH store.companyZone storeZone
+            LEFT JOIN FETCH storeZone.companyRegion storeRegion
+            LEFT JOIN FETCH storeRegion.companyCountry storeCountry
+            LEFT JOIN FETCH storeCountry.country storeCountryCatalog
+            LEFT JOIN FETCH storeCountry.company storeCompany
             WHERE a.employee.id = :employeeId
               AND a.enabled = true
               AND a.validFrom <= :date
@@ -78,11 +83,11 @@ public interface EmployeeScopeAssignmentRepository extends JpaRepository<Employe
      * The employee's enabled assignment for one node whose exclusive range covers {@code date} — the
      * predecessor finder of the close-the-previous rule.
      *
-     * <p>The node id is compared against all three columns in one predicate. That is safe because a
+     * <p>The node id is compared against all four columns in one predicate. That is safe because a
      * node id is a UUID primary key of exactly one of {@code company_countries},
-     * {@code company_regions} or {@code company_zones}, and
+     * {@code company_regions}, {@code company_zones} or {@code company_stores}, and
      * {@code ck_employee_scope_assignments_one_node} guarantees a stored row sets exactly one of the
-     * three columns, so a value can match at most one column of a row. One finder instead of three
+     * four columns, so a value can match at most one column of a row. One finder instead of four
      * keeps the close-the-previous rule in one place.</p>
      *
      * <p>Strictly scoped to the node because opening an assignment for a <b>different</b> node closes
@@ -96,7 +101,8 @@ public interface EmployeeScopeAssignmentRepository extends JpaRepository<Employe
             WHERE a.employee.id = :employeeId
               AND (a.companyCountry.id = :nodeId
                    OR a.companyRegion.id = :nodeId
-                   OR a.companyZone.id = :nodeId)
+                   OR a.companyZone.id = :nodeId
+                   OR a.companyStore.id = :nodeId)
               AND a.enabled = true
               AND a.validFrom <= :date
               AND (a.validTo IS NULL OR a.validTo > :date)
@@ -130,6 +136,12 @@ public interface EmployeeScopeAssignmentRepository extends JpaRepository<Employe
             LEFT JOIN FETCH zoneRegion.companyCountry zoneCountry
             LEFT JOIN FETCH zoneCountry.country zoneCountryCatalog
             LEFT JOIN FETCH zoneCountry.company zoneCompany
+            LEFT JOIN FETCH a.companyStore store
+            LEFT JOIN FETCH store.companyZone storeZone
+            LEFT JOIN FETCH storeZone.companyRegion storeRegion
+            LEFT JOIN FETCH storeRegion.companyCountry storeCountry
+            LEFT JOIN FETCH storeCountry.country storeCountryCatalog
+            LEFT JOIN FETCH storeCountry.company storeCompany
             WHERE a.employee.id = :employeeId
               AND (:includeDisabled = true OR a.enabled = true)
             ORDER BY a.validFrom DESC, a.id DESC
