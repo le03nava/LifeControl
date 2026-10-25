@@ -104,9 +104,21 @@ class ProductVariantControllerTest {
         var now = LocalDateTime.now();
 
         testVariantResponse = new ProductVariantResponse(
-                variantId, productId, null, "7501234567890", "PROD-001", "Talla M", null, null, null, true, now, now);
+                variantId,
+                productId,
+                null,
+                "7501234567890",
+                "PROD-001",
+                "Talla M",
+                null,
+                null,
+                null,
+                true,
+                now,
+                now,
+                null);
 
-        testVariantRequest = new ProductVariantRequest("7501234567890", "Talla M");
+        testVariantRequest = new ProductVariantRequest("7501234567890", "Talla M", null);
 
         testSearchResponse = new ProductVariantSearchResponse(
                 UUID.randomUUID(),
@@ -267,7 +279,7 @@ class ProductVariantControllerTest {
         @Test
         @DisplayName("should return 400 when required fields are missing")
         void createVariant_MissingRequiredFields_Returns400() throws Exception {
-            var invalidRequest = new ProductVariantRequest(null, null);
+            var invalidRequest = new ProductVariantRequest(null, null, null);
 
             mockMvc.perform(post("/api/products/{productId}/variants", productId)
                             .contentType(MediaType.APPLICATION_JSON)
