@@ -48,6 +48,7 @@ describe('ProductVariantList', () => {
       costPrice: null,
       stock: null,
       enabled: true,
+      measureUnitId: null,
       ...overrides,
     };
   }

@@ -109,6 +109,7 @@ describe('ProductEdit', () => {
       costPrice: null,
       stock: null,
       enabled: true,
+      measureUnitId: null,
     };
   }
 
