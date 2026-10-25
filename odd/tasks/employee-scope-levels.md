@@ -200,3 +200,13 @@ consequence of `scope-assignments-per-level` L8).
   which is what that slice is for, and the merged tree is **identical** to the verified pre-merge tip
   (`git diff` prints nothing), so no code was re-verified by assertion. The rule this unit pays for
   twice: formatter cleanliness is a per-slice property, so it is checked at each slice's own tip.
+- **L13** — evidence, the third per-slice defect, same class as L11 and L12. Once slice 1's
+  `Static analysis` was green, its `Test` job failed on **two** suites outside the HR package
+  (`GoodsReceiptIntegrationTest`, `ProductCategorySchemaMigrationIntegrationTest`) that pinned the
+  applied Flyway head at `31`: they were true before this slice and false after V32. They now pin `32`
+  at slice 1, and the last slice moves them to `33` when it adds V33 — the conflict that produced was
+  resolved by keeping `33`, the truth at the last slice. The pattern across the three defects is the
+  same and it is the lesson of this unit: **a slice owns every assertion the branch tip satisfies
+  incidentally** — the formatter, the head assertions and the suites deleted later. Checking the tip
+  once is not checking the chain. Final state: all three pull requests green on every gate except the
+  issue-approval gate, which is a maintainer decision and not the author's to record.
