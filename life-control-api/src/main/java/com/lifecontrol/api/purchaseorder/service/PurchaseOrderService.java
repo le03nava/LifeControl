@@ -41,6 +41,7 @@ import com.lifecontrol.api.supplier.exception.SupplierNotFoundException;
 import com.lifecontrol.api.supplier.model.Supplier;
 import com.lifecontrol.api.supplier.repository.SupplierRepository;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayDeque;
@@ -177,7 +178,7 @@ public class PurchaseOrderService {
                 var productVariant = resolveProductVariant(detailReq.productVariantId(), product, companyStoreId);
                 var detailStatus = StatusValidator.requireStatusOfType(
                         statusRepository, detailReq.statusId(), "PURCHASE_ORDER_DETAIL");
-                var total = detailReq.unitPrice().multiply(detailReq.quantity());
+                var total = lineTotal(detailReq.unitPrice(), detailReq.quantity());
 
                 var detail = PurchaseOrderDetail.builder()
                         .purchaseOrder(po)
@@ -246,7 +247,7 @@ public class PurchaseOrderService {
                             ? StatusValidator.requireStatusOfType(
                                     statusRepository, detailReq.statusId(), "PURCHASE_ORDER_DETAIL")
                             : defaultDetailStatus;
-                    var total = detailReq.unitPrice().multiply(detailReq.quantity());
+                    var total = lineTotal(detailReq.unitPrice(), detailReq.quantity());
 
                     var detail = PurchaseOrderDetail.builder()
                             .purchaseOrder(po)
@@ -342,7 +343,7 @@ public class PurchaseOrderService {
                 request.productVariantId(), product, po.getCompanyStore().getId());
         var detailStatus =
                 StatusValidator.requireStatusOfType(statusRepository, request.statusId(), "PURCHASE_ORDER_DETAIL");
-        var total = request.unitPrice().multiply(request.quantity());
+        var total = lineTotal(request.unitPrice(), request.quantity());
 
         var detail = PurchaseOrderDetail.builder()
                 .purchaseOrder(po)
@@ -381,7 +382,7 @@ public class PurchaseOrderService {
                 detail.getPurchaseOrder().getCompanyStore().getId());
         var detailStatus =
                 StatusValidator.requireStatusOfType(statusRepository, request.statusId(), "PURCHASE_ORDER_DETAIL");
-        var total = request.unitPrice().multiply(request.quantity());
+        var total = lineTotal(request.unitPrice(), request.quantity());
 
         detail.setProduct(product);
         detail.setProductVariant(productVariant);
@@ -796,6 +797,16 @@ public class PurchaseOrderService {
                 po.getCreatedAt(),
                 po.getUpdatedAt(),
                 detailResponses);
+    }
+
+    /**
+     * {@code unitPrice * quantity} at the scale of the {@code total} column: two decimals, rounded
+     * {@code HALF_UP}. Money is stored and returned at that scale, so the write response and the row a
+     * later read returns carry the same number; returning the raw product instead let the column round
+     * it, and the POST response then disagreed with the GET.
+     */
+    private static BigDecimal lineTotal(BigDecimal unitPrice, BigDecimal quantity) {
+        return unitPrice.multiply(quantity).setScale(2, RoundingMode.HALF_UP);
     }
 
     private PurchaseOrderDetailResponse toDetailResponse(PurchaseOrderDetail detail) {

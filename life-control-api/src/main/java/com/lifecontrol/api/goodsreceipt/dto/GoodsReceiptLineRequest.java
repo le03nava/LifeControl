@@ -9,8 +9,8 @@ import java.util.UUID;
  * One reception line. It names the purchase-order line being settled, how much arrived and an
  * optional comment.
  *
- * <p>The "quantity must be a whole number" rule is NOT here: the service owns it, because its 400
- * has to name the offending line.</p>
+ * <p>The "quantity must have at most two decimals" rule is NOT here: the service owns it, because its
+ * 400 has to name the offending line.</p>
  */
 public record GoodsReceiptLineRequest(
         @NotNull(message = "purchaseOrderDetailId is required")

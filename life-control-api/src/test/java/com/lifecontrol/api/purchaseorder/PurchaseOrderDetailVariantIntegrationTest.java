@@ -421,12 +421,22 @@ class PurchaseOrderDetailVariantIntegrationTest extends AbstractPostgresIntegrat
 
         /** Raw JSON on purpose: a 2.5 that the DTO declares as Integer is silently truncated by Jackson. */
         private String detailPayload(UUID productId, UUID variantId, String quantity) {
+            return detailPayload(productId, variantId, quantity, "25.00");
+        }
+
+        /** Same raw-JSON shape, with the unit price spelled out so the line total needs rounding. */
+        private String detailPayload(UUID productId, UUID variantId, String quantity, String unitPrice) {
             return "{\"productId\":\"" + productId
                     + "\",\"productVariantId\":\"" + variantId
                     + "\",\"quantity\":" + quantity
-                    + ",\"unitPrice\":25.00"
+                    + ",\"unitPrice\":" + unitPrice
                     + ",\"comments\":\"Fractional line\""
                     + ",\"statusId\":\"" + pendingDetailStatusId + "\"}";
+        }
+
+        /** The line total as the API sent it, read from the JSON so the assertion does not depend on a DTO. */
+        private BigDecimal totalOf(JsonNode node) {
+            return new BigDecimal(node.get("total").asText());
         }
 
         @Test
@@ -446,6 +456,44 @@ class PurchaseOrderDetailVariantIntegrationTest extends AbstractPostgresIntegrat
             var persisted = purchaseOrderDetailRepository.findByPurchaseOrderIdAndEnabledTrue(purchaseOrderId);
             assertThat(persisted).hasSize(1);
             assertThat(persisted.getFirst().getQuantity()).isEqualByComparingTo("2.5");
+        }
+
+        @Test
+        @DisplayName("should round the line total to the column scale so the write response and a later GET agree")
+        void fractionalQuantityRoundsLineTotalToColumnScale() throws Exception {
+            var product = createProduct();
+            var variant = createVariant(product.getId(), storeId);
+            var purchaseOrderId = createEmptyPurchaseOrder();
+
+            // 2.5 x 123.45 = 308.625, which is not a number DECIMAL(12,2) can store.
+            var created = mockMvc.perform(post("/api/purchase-orders/{id}/details", purchaseOrderId)
+                            .with(jwt().authorities(ROLE_LC_ADMIN))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(detailPayload(product.getId(), variant.getId(), "2.5", "123.45")))
+                    .andExpect(status().isCreated())
+                    .andReturn();
+
+            assertThat(totalOf(objectMapper.readTree(created.getResponse().getContentAsString())))
+                    .as("total of the create response")
+                    .isEqualByComparingTo("308.63");
+
+            var listed = mockMvc.perform(get("/api/purchase-orders/{id}/details", purchaseOrderId)
+                            .with(jwt().authorities(ROLE_LC_ADMIN)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.length()").value(1))
+                    .andReturn();
+
+            assertThat(totalOf(objectMapper
+                            .readTree(listed.getResponse().getContentAsString())
+                            .get(0)))
+                    .as("total of the detail list")
+                    .isEqualByComparingTo("308.63");
+
+            var persisted = purchaseOrderDetailRepository.findByPurchaseOrderIdAndEnabledTrue(purchaseOrderId);
+            assertThat(persisted).hasSize(1);
+            assertThat(persisted.getFirst().getTotal())
+                    .as("persisted line total")
+                    .isEqualByComparingTo("308.63");
         }
 
         @Test

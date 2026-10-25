@@ -146,7 +146,8 @@ public class GoodsReceiptService {
      *     purchase order or is disabled
      * @throws MissingPurchaseOrderVariantException when a line has no product variant
      * @throws PurchaseOrderVariantNotInStoreException when a line's variant belongs to another store
-     * @throws InvalidReceiptQuantityException when a quantity is not positive or not a whole number
+     * @throws InvalidReceiptQuantityException when a quantity is not positive or carries more than two
+     *     decimals
      * @throws OverReceiptException when a line would exceed its ordered quantity
      * @throws DuplicateReceiptLineException when one request repeats a purchase-order line
      * @throws StatusNotFoundException when the {@code GOODS_RECEIPT} / {@code Registered} status is
