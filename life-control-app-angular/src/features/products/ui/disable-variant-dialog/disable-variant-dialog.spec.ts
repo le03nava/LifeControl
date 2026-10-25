@@ -19,6 +19,7 @@ describe('DisableVariantDialogComponent', () => {
     costPrice: null,
     stock: null,
     enabled: true,
+    measureUnitId: null,
   };
 
   const mockData = { variant: mockVariant };

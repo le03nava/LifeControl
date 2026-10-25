@@ -30,6 +30,7 @@ describe('ProductVariantService', () => {
     costPrice: 80,
     stock: 12,
     enabled: true,
+    measureUnitId: 'mu-kg',
   };
 
   const mockStoreStock: ProductVariantStoreStock = {
@@ -177,7 +178,11 @@ describe('ProductVariantService', () => {
   });
 
   describe('createVariant', () => {
-    const request: ProductVariantRequest = { barCode: 'BAR-9', variantName: 'Talla 38' };
+    const request: ProductVariantRequest = {
+      barCode: 'BAR-9',
+      variantName: 'Talla 38',
+      measureUnitId: null,
+    };
 
     it('should POST the global definition body to the nested URL', async () => {
       const promise = firstValueFrom(service.createVariant('prod-1', request));
@@ -215,7 +220,11 @@ describe('ProductVariantService', () => {
   });
 
   describe('updateVariant', () => {
-    const request: ProductVariantRequest = { barCode: 'BAR-9', variantName: 'Talla 40' };
+    const request: ProductVariantRequest = {
+      barCode: 'BAR-9',
+      variantName: 'Talla 40',
+      measureUnitId: null,
+    };
 
     it('should PUT the body to the variant URL', async () => {
       const promise = firstValueFrom(service.updateVariant('prod-1', 'var-1', request));

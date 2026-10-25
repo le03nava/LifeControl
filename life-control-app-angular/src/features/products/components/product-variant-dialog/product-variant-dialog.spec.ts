@@ -1,10 +1,17 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { By } from '@angular/platform-browser';
 import { MAT_DIALOG_DATA, MatDialog, MatDialogRef } from '@angular/material/dialog';
 import { of, Subject, throwError } from 'rxjs';
 import { ProductVariantDialog, ProductVariantDialogData } from './product-variant-dialog';
 import { ProductVariantService } from '../../data/product-variant.service';
-import { ProductVariant, ProductVariantRequest } from '../../models/product-variant.models';
+import { MeasureUnitService } from '../../data/measure-unit.service';
+import {
+  MeasureUnit,
+  ProductVariant,
+  ProductVariantRequest,
+} from '../../models/product-variant.models';
+import { ProductVariantForm } from '../product-variant-form/product-variant-form';
 import { ConfirmDialog } from '@shared/ui';
 
 describe('ProductVariantDialog', () => {
@@ -17,8 +24,29 @@ describe('ProductVariantDialog', () => {
     createVariant: ReturnType<typeof vi.fn>;
     updateVariant: ReturnType<typeof vi.fn>;
   };
+  let measureUnitServiceMock: { getMeasureUnits: ReturnType<typeof vi.fn> };
 
   const productId = 'prod-1';
+  const kilogram: MeasureUnit = {
+    id: 'mu-kg',
+    measureUnitName: 'Kilogramo',
+    measureUnitShortName: 'Kg',
+    unitType: 'PRODUCT',
+    satCode: 'KGM',
+    description: null,
+    enabled: true,
+    createdAt: '2026-01-01T00:00:00',
+    updatedAt: '2026-01-01T00:00:00',
+  };
+  const piece: MeasureUnit = {
+    ...kilogram,
+    id: 'mu-pza',
+    measureUnitName: 'Pieza',
+    measureUnitShortName: 'Pza',
+    satCode: 'H87',
+  };
+  const catalog: MeasureUnit[] = [kilogram, piece];
+
   const variant: ProductVariant = {
     id: 'var-1',
     productId,
@@ -30,6 +58,7 @@ describe('ProductVariantDialog', () => {
     costPrice: null,
     stock: null,
     enabled: true,
+    measureUnitId: 'mu-kg',
   };
 
   function setup(options: { data?: ProductVariantDialogData } = {}): void {
@@ -40,6 +69,7 @@ describe('ProductVariantDialog', () => {
       createVariant: vi.fn().mockReturnValue(of(variant)),
       updateVariant: vi.fn().mockReturnValue(of(variant)),
     };
+    measureUnitServiceMock = { getMeasureUnits: vi.fn().mockReturnValue(of(catalog)) };
 
     TestBed.configureTestingModule({
       imports: [ProductVariantDialog],
@@ -48,6 +78,7 @@ describe('ProductVariantDialog', () => {
         { provide: MatDialog, useValue: dialogMock },
         { provide: MAT_DIALOG_DATA, useValue: options.data ?? { productId } },
         { provide: ProductVariantService, useValue: productVariantServiceMock },
+        { provide: MeasureUnitService, useValue: measureUnitServiceMock },
       ],
     });
 
@@ -81,6 +112,7 @@ describe('ProductVariantDialog', () => {
       expect(component.definitionForm().getRawValue()).toEqual({
         barCode: '',
         variantName: '',
+        measureUnitId: null,
       });
     });
 
@@ -91,7 +123,40 @@ describe('ProductVariantDialog', () => {
       expect(component.definitionForm().getRawValue()).toEqual({
         barCode: '7791234567890',
         variantName: 'Talla 38',
+        measureUnitId: 'mu-kg',
       });
+    });
+  });
+
+  describe('measure unit catalog', () => {
+    it('should load the catalog once on open', () => {
+      setup();
+      fixture.detectChanges();
+
+      expect(measureUnitServiceMock.getMeasureUnits).toHaveBeenCalledTimes(1);
+    });
+
+    it('should hand the loaded catalog to the form', () => {
+      setup();
+      fixture.detectChanges();
+
+      const form = fixture.debugElement.query(By.directive(ProductVariantForm))
+        .componentInstance as ProductVariantForm;
+      expect(form.measureUnits()).toEqual(catalog);
+    });
+
+    it('should keep working with an empty catalog when the read fails', () => {
+      setup();
+      measureUnitServiceMock.getMeasureUnits.mockReturnValue(
+        throwError(() => new HttpErrorResponse({ status: 500 })),
+      );
+      fixture = TestBed.createComponent(ProductVariantDialog);
+      component = fixture.componentInstance;
+      fixture.detectChanges();
+
+      const form = fixture.debugElement.query(By.directive(ProductVariantForm))
+        .componentInstance as ProductVariantForm;
+      expect(form.measureUnits()).toEqual([]);
     });
   });
 
@@ -116,7 +181,11 @@ describe('ProductVariantDialog', () => {
   });
 
   describe('saving', () => {
-    const request: ProductVariantRequest = { barCode: '7791234567891', variantName: 'Talla 40' };
+    const request: ProductVariantRequest = {
+      barCode: '7791234567891',
+      variantName: 'Talla 40',
+      measureUnitId: 'mu-pza',
+    };
 
     it('should create the variant and close with the saved entity in create mode', () => {
       setup();
@@ -142,6 +211,53 @@ describe('ProductVariantDialog', () => {
       );
       expect(productVariantServiceMock.createVariant).not.toHaveBeenCalled();
       expect(dialogRef.close).toHaveBeenCalledWith(variant);
+    });
+
+    it('should carry the chosen unit in the create request', () => {
+      setup();
+      fixture.detectChanges();
+
+      component.onSaveVariant({
+        barCode: 'BAR-1',
+        variantName: 'Talla 40',
+        measureUnitId: 'mu-pza',
+      });
+
+      expect(productVariantServiceMock.createVariant).toHaveBeenCalledWith(productId, {
+        barCode: 'BAR-1',
+        variantName: 'Talla 40',
+        measureUnitId: 'mu-pza',
+      });
+    });
+
+    it('should carry the chosen unit in the update request', () => {
+      setup({ data: { productId, variant } });
+      fixture.detectChanges();
+
+      component.onSaveVariant({
+        barCode: 'BAR-1',
+        variantName: 'Talla 40',
+        measureUnitId: 'mu-pza',
+      });
+
+      expect(productVariantServiceMock.updateVariant).toHaveBeenCalledWith(productId, 'var-1', {
+        barCode: 'BAR-1',
+        variantName: 'Talla 40',
+        measureUnitId: 'mu-pza',
+      });
+    });
+
+    it('should send a null unit when none was chosen', () => {
+      setup();
+      fixture.detectChanges();
+
+      component.onSaveVariant({ barCode: 'BAR-1', variantName: 'Talla 40', measureUnitId: null });
+
+      expect(productVariantServiceMock.createVariant).toHaveBeenCalledWith(productId, {
+        barCode: 'BAR-1',
+        variantName: 'Talla 40',
+        measureUnitId: null,
+      });
     });
 
     it('should keep the dialog open and map a field error map onto the form', () => {
@@ -174,9 +290,16 @@ describe('ProductVariantDialog', () => {
       component.onSaveVariant(request);
 
       expect(dialogRef.close).not.toHaveBeenCalled();
+      // One banner for both causes the backend can report with a 409: the duplicate
+      // barcode/name collision and the unit frozen by stored stock or ledger movements
+      // (D3/S5). The server sends no attribution, so the copy must name both.
       expect(component.generalError()).toBe(
-        'Ya tenés una variante con ese código de barras o ese nombre para este producto',
+        'No se pudo guardar: ya tenés una variante con ese código de barras o ese nombre para ' +
+          'este producto, o la variante ya tiene stock o movimientos de inventario que no ' +
+          'permiten cambiar la unidad de medida',
       );
+      expect(component.generalError()).toContain('stock o movimientos de inventario');
+      expect(component.generalError()).toContain('código de barras');
       fixture.detectChanges();
       expect(fixture.nativeElement.querySelector('app-error-banner')).toBeTruthy();
     });
@@ -206,7 +329,11 @@ describe('ProductVariantDialog', () => {
   });
 
   describe('save and add another', () => {
-    const request: ProductVariantRequest = { barCode: '7791234567891', variantName: 'Talla 40' };
+    const request: ProductVariantRequest = {
+      barCode: '7791234567891',
+      variantName: 'Talla 40',
+      measureUnitId: 'mu-pza',
+    };
 
     it('should expose saving as false initially', () => {
       setup();
@@ -230,9 +357,35 @@ describe('ProductVariantDialog', () => {
 
       expect(productVariantServiceMock.createVariant).toHaveBeenCalledWith(productId, request);
       expect(dialogRef.close).not.toHaveBeenCalled();
-      expect(component.definitionForm().getRawValue()).toEqual({ barCode: '', variantName: '' });
+      expect(component.definitionForm().getRawValue()).toEqual({
+        barCode: '',
+        variantName: '',
+        measureUnitId: null,
+      });
       expect(component.formDirty()).toBe(false);
       expect(dialogRef.disableClose).toBe(false);
+    });
+
+    it('should reset the chosen unit to null for the next entry', () => {
+      setup();
+      fixture.detectChanges();
+      component.definitionForm().patchValue({
+        barCode: request.barCode,
+        variantName: request.variantName,
+        measureUnitId: 'mu-kg',
+      });
+      fixture.detectChanges();
+      expect(component.definitionForm().controls.measureUnitId.value).toBe('mu-kg');
+
+      component.onSaveVariantAndContinue(request);
+      fixture.detectChanges();
+
+      expect(component.definitionForm().controls.measureUnitId.value).toBeNull();
+      expect(component.definitionForm().getRawValue()).toEqual({
+        barCode: '',
+        variantName: '',
+        measureUnitId: null,
+      });
     });
 
     it('should reset without emitting valueChanges', () => {
@@ -295,13 +448,22 @@ describe('ProductVariantDialog', () => {
       fixture.detectChanges();
 
       component.onSaveVariantAndContinue(request);
-      component.definitionForm().patchValue({ barCode: '7791234567892', variantName: 'Talla 42' });
-      component.onSaveVariantAndContinue({ barCode: '7791234567892', variantName: 'Talla 42' });
+      component.definitionForm().patchValue({
+        barCode: '7791234567892',
+        variantName: 'Talla 42',
+        measureUnitId: null,
+      });
+      component.onSaveVariantAndContinue({
+        barCode: '7791234567892',
+        variantName: 'Talla 42',
+        measureUnitId: null,
+      });
 
       expect(productVariantServiceMock.createVariant).toHaveBeenCalledTimes(2);
       expect(productVariantServiceMock.createVariant).toHaveBeenNthCalledWith(2, productId, {
         barCode: '7791234567892',
         variantName: 'Talla 42',
+        measureUnitId: null,
       });
     });
 
