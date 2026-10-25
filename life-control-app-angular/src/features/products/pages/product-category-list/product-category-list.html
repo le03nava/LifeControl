@@ -1,0 +1,151 @@
+<div class="product-category-list-page">
+  <app-page-header
+    title="Categorías"
+    subtitle="Árbol de categorías de la empresa, hasta tres niveles"
+  >
+    @if (canWrite) {
+      <button
+        mat-flat-button
+        color="primary"
+        type="button"
+        [disabled]="!selectedCompanyId()"
+        (click)="onCreate()"
+      >
+        <mat-icon fontIcon="add" /> Nueva Categoría
+      </button>
+    }
+  </app-page-header>
+
+  @if (actionError(); as actionErrorMessage) {
+    <app-error-banner class="error-state" [message]="actionErrorMessage" />
+  }
+
+  <div class="filters-section">
+    <mat-form-field appearance="outline" class="company-selector" subscriptSizing="dynamic">
+      <mat-label>Empresa</mat-label>
+      <mat-select [value]="selectedCompanyId()" (selectionChange)="onCompanyChange($event.value)">
+        <mat-option value="">— Seleccionar empresa —</mat-option>
+        @for (company of companies(); track company.id) {
+          <mat-option [value]="company.id">{{ company.companyName }}</mat-option>
+        }
+      </mat-select>
+    </mat-form-field>
+
+    <mat-slide-toggle
+      class="filter-toggle"
+      [checked]="includeDisabled()"
+      (change)="onIncludeDisabledChange($event.checked)"
+    >
+      Mostrar deshabilitadas
+    </mat-slide-toggle>
+  </div>
+
+  @if (!selectedCompanyId()) {
+    <p class="empty-prompt">Seleccioná una empresa para gestionar sus categorías</p>
+  } @else {
+    @if (loading()) {
+      <p class="loading-text">Cargando categorías...</p>
+    } @else if (loadError(); as err) {
+      <div class="load-error">
+        <mat-icon fontIcon="error" />
+        <p>{{ err }}</p>
+        <button mat-stroked-button type="button" (click)="reloadList()">Reintentar</button>
+      </div>
+    } @else if (categories().length > 0) {
+      <mat-card appearance="outlined" class="table-card">
+        <mat-card-content>
+          <table mat-table [dataSource]="categories()">
+            <ng-container matColumnDef="categoryName">
+              <th mat-header-cell *matHeaderCellDef>Categoría</th>
+              <td mat-cell *matCellDef="let row">
+                <span
+                  class="category-name-wrapper"
+                  [style.padding-left.px]="(row.depth - 1) * indentPerLevel"
+                >
+                  @if (row.depth > 1) {
+                    <mat-icon fontIcon="subdirectory_arrow_right" class="child-marker" />
+                  }
+                  <span class="category-name">{{ row.categoryName }}</span>
+                </span>
+              </td>
+            </ng-container>
+
+            <ng-container matColumnDef="description">
+              <th mat-header-cell *matHeaderCellDef>Descripción</th>
+              <td mat-cell *matCellDef="let row">{{ row.description ?? '—' }}</td>
+            </ng-container>
+
+            <ng-container matColumnDef="displayOrder">
+              <th mat-header-cell *matHeaderCellDef>Orden</th>
+              <td mat-cell *matCellDef="let row">{{ row.displayOrder }}</td>
+            </ng-container>
+
+            <ng-container matColumnDef="enabled">
+              <th mat-header-cell *matHeaderCellDef>Estado</th>
+              <td mat-cell *matCellDef="let row">
+                <span
+                  class="badge status"
+                  [class.active]="row.enabled"
+                  [class.inactive]="!row.enabled"
+                >
+                  {{ row.enabled ? 'Activo' : 'Deshabilitado' }}
+                </span>
+              </td>
+            </ng-container>
+
+            <ng-container matColumnDef="actions">
+              <th mat-header-cell *matHeaderCellDef>Acciones</th>
+              <td mat-cell *matCellDef="let row">
+                @if (canWrite) {
+                  <button mat-icon-button type="button" (click)="onEdit(row)" aria-label="Editar">
+                    <mat-icon>edit</mat-icon>
+                  </button>
+                  @if (row.enabled) {
+                    <button
+                      mat-icon-button
+                      color="warn"
+                      type="button"
+                      (click)="onToggleEnabled(row)"
+                      aria-label="Deshabilitar"
+                    >
+                      <mat-icon>block</mat-icon>
+                    </button>
+                  } @else {
+                    <button
+                      mat-icon-button
+                      color="primary"
+                      type="button"
+                      (click)="onToggleEnabled(row)"
+                      aria-label="Habilitar"
+                    >
+                      <mat-icon>restart_alt</mat-icon>
+                    </button>
+                  }
+                  <button
+                    mat-icon-button
+                    color="warn"
+                    type="button"
+                    (click)="onDelete(row)"
+                    aria-label="Eliminar"
+                  >
+                    <mat-icon>delete</mat-icon>
+                  </button>
+                }
+              </td>
+            </ng-container>
+
+            <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
+            <tr mat-row *matRowDef="let row; columns: displayedColumns"></tr>
+          </table>
+        </mat-card-content>
+      </mat-card>
+    } @else {
+      <div class="empty-state">
+        <h3 class="empty-title">No hay categorías registradas</h3>
+        @if (canWrite) {
+          <p class="empty-subtitle">Clic en "Nueva Categoría" para crear la primera</p>
+        }
+      </div>
+    }
+  }
+</div>
