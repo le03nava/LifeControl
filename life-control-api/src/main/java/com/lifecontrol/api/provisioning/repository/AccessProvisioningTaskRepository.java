@@ -47,6 +47,12 @@ import org.springframework.stereotype.Repository;
  *       {@code updated_at} is older than the staleness bound, as ids so the rescue resolves each
  *       employee through the unlocked read and the guarded, locked re-load remains the authority
  *       (record T51, record T53).</li>
+ *   <li>{@link #countTasksByStatus} — the queue's depth per status, read as <b>one</b> grouped
+ *       aggregate for the gauges {@code AccessProvisioningQueueMetrics} publishes (S11). It is a
+ *       read-only projection and carries no authority: nothing decides anything from a count.</li>
+ *   <li>{@link #findOldestRequestedAtByStatus} — the age of the oldest row still in a status, so a
+ *       queue that has stopped draining reads as "stuck for an hour" instead of "has items". Same
+ *       consumer and same absence of authority as the count above.</li>
  * </ul>
  */
 @Repository
@@ -192,4 +198,62 @@ public interface AccessProvisioningTaskRepository extends JpaRepository<AccessPr
             """)
     List<AccessProvisioningTask> findByEmployeeCompanyIdAndStatus(
             @Param("companyId") UUID companyId, @Param("status") AccessProvisioningTaskStatus status);
+
+    /**
+     * The queue's depth by status: one grouped aggregate, not one count per status.
+     *
+     * <p><b>One round trip on purpose.</b> The caller publishes a number per status on a timer, so a
+     * per-status count would be seven queries per refresh against a table whose only interesting
+     * property here is its size. {@code GROUP BY status} answers the same question once, and
+     * {@code idx_access_provisioning_tasks_status} (V22) is the index it reads.</p>
+     *
+     * <p><b>Global, like the worker's own queue.</b> The access-provisioning worker is a platform
+     * process with no current user (record T47), so the queue it drains crosses companies; a
+     * company-scoped depth would describe a different, smaller queue than the one that can stall.
+     * This read therefore has no tenancy scope, exactly like
+     * {@link #findDueTaskIds(LocalDateTime, Pageable)} and
+     * {@link #findStaleRunningTaskIds(LocalDateTime, Pageable)}.</p>
+     *
+     * <p>A status with no rows does not appear in the result: {@code GROUP BY} groups existing rows
+     * only, and the consumer is the side that knows the full set of states.</p>
+     *
+     * @return one row per status the table currently holds, in no guaranteed order
+     */
+    @Query("""
+            SELECT new com.lifecontrol.api.provisioning.repository.AccessProvisioningTaskStatusCount(
+                t.status, COUNT(t))
+            FROM AccessProvisioningTask t
+            GROUP BY t.status
+            """)
+    List<AccessProvisioningTaskStatusCount> countTasksByStatus();
+
+    /**
+     * The {@code requested_at} of the oldest row in the given status, or {@code null} when no row
+     * carries it.
+     *
+     * <p><b>Why {@code requested_at} and not {@code next_attempt_at}.</b> {@code requested_at} is when
+     * the intent entered the queue, which is the fact an operator reads as "this has been waiting".
+     * {@code next_attempt_at} is a deadline the worker writes <b>itself</b> on a retry, so measuring
+     * from it would report the backoff as if it were the wait — and a healthy retry would then look
+     * like a stalled queue for as long as {@code app.provisioning.worker.max-delay-seconds}. The cost
+     * of the choice is stated where the gauge is defined: an alert threshold has to sit above that
+     * ceiling, or a legitimate retry reads as a stall.</p>
+     *
+     * <p><b>{@code null} is a real answer, not an error.</b> {@code MIN} over an empty set is one row
+     * holding {@code NULL}, so an empty queue is distinguishable from a queue whose oldest row was
+     * requested at the epoch — the consumer reports {@code 0} for the former.</p>
+     *
+     * <p>The status is a parameter rather than a {@code PENDING} literal: this repository owns no
+     * policy about which status is the claimable queue, and the caller that publishes the age is the
+     * one that names it. The read is global for the same reason as
+     * {@link #countTasksByStatus()}.</p>
+     *
+     * @param status the status whose oldest row is asked for
+     * @return the oldest {@code requested_at} in that status, or {@code null} when the status is empty
+     */
+    @Query("""
+            SELECT MIN(t.requestedAt) FROM AccessProvisioningTask t
+            WHERE t.status = :status
+            """)
+    LocalDateTime findOldestRequestedAtByStatus(@Param("status") AccessProvisioningTaskStatus status);
 }
