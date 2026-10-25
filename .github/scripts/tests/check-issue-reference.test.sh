@@ -10,7 +10,8 @@
 # The failure modes are the point, and each one has its own case below:
 #
 #   1. no reference at all;
-#   2. `Refs #N` on the default branch, where GitHub would ignore the keyword anyway;
+#   2. `Refs #N` on the default branch with no chain declaration, where GitHub would ignore the
+#      keyword anyway — and the declaration that makes it legal, in both directions;
 #   3. a closing keyword naming a number that is a pull request, not an issue — a keyword
 #      that closes nothing this gate can verify;
 #   4. an issue that is not open, or does not carry `status:approved`;
@@ -20,6 +21,14 @@
 # `Refs #N` is accepted off the default branch on purpose: GitHub interprets closing keywords
 # only when the pull request targets the default branch, so a chained slice cannot close its
 # issue from the child pull request.
+#
+# On the default branch it is accepted only beside a chain declaration — `Part of a chain: #N`,
+# naming the same issue — because every slice of a chain is retargeted to the default branch
+# before it merges and `Refs` becomes the only reference it can legally carry there (issue #598).
+# The declaration is number-scoped so it cannot unlock a `Refs` to a different issue, and it is
+# read only from a line of its own, in prose, so neither a sentence that happens to contain the
+# phrase nor a pull request that documents the marker becomes a chain slice. Both directions are
+# pinned: a declared chain slice passes, an undeclared `Refs` still fails.
 #
 # No network, no `gh`: the workflow fetches the referenced numbers and hands them in as JSON,
 # so every rule here is decided offline. `jq` is required for the JSON, as in
@@ -123,6 +132,97 @@ check "Refs alone fails on the default branch" 1 - "a closing reference" \
 	"$GUARD" --body "Refs #12" --base-branch "$DEFAULT" --default-branch "$DEFAULT" --issues-json "$APPROVED"
 check "Refs alone passes off the default branch" 0 "PASS: #12 is open and carries status:approved" - \
 	"$GUARD" --body "Refs #12" --base-branch "$TRACKER" --default-branch "$DEFAULT" --issues-json "$APPROVED"
+
+# The transition between the two rules above is what issue #598 measured: a slice is opened
+# against its parent with `Refs`, is retargeted to the default branch before it merges, and at
+# that moment the keyword became invalid while the closing keyword it was told to use would close
+# an issue later slices still need. The declaration is the second half of the rule: only the last
+# slice closes, and every earlier one says so.
+echo "== the chain declaration =="
+check "a chain declaration beside Refs passes on the default branch" 0 "PASS: #12 is open and carries status:approved" - \
+	"$GUARD" --body "Refs #12
+Part of a chain: #12" --base-branch "$DEFAULT" --default-branch "$DEFAULT" --issues-json "$APPROVED"
+check "the declaration is not case-sensitive" 0 "PASS: #12 is open and carries status:approved" - \
+	"$GUARD" --body "refs #12
+part of a chain: #12" --base-branch "$DEFAULT" --default-branch "$DEFAULT" --issues-json "$APPROVED"
+# Prose after the number is detail a maintainer reads, not part of the declaration.
+check "a declaration with slice detail passes" 0 "PASS: #12 is open and carries status:approved" - \
+	"$GUARD" --body "Refs #12
+Part of a chain: #12 (slice 2 of 3)" --base-branch "$DEFAULT" --default-branch "$DEFAULT" --issues-json "$APPROVED"
+# Number-scoped: the declaration names the issue the Refs names, or it declares nothing. Without
+# that, any declaration would unlock every Refs in the body, including one to an issue nobody
+# approved for this chain.
+check "a declaration naming a number the body does not reference fails" 1 - "chain declaration names #13" \
+	"$GUARD" --body "Refs #12
+Part of a chain: #13" --base-branch "$DEFAULT" --default-branch "$DEFAULT" --issues-json "$APPROVED"
+check "a declaration without a Refs fails as no reference" 1 - "FAIL: no issue reference" \
+	"$GUARD" --body "Part of a chain: #12" --base-branch "$DEFAULT" --default-branch "$DEFAULT" --issues-json "$APPROVED"
+# The declaration relaxes the keyword rule and nothing else: the issue's state and its approval
+# are decided exactly as before it (S3).
+check "a declared chain slice still needs status:approved" 1 - "does not carry the status:approved label" \
+	"$GUARD" --body "Refs #12
+Part of a chain: #12" --base-branch "$DEFAULT" --default-branch "$DEFAULT" --issues-json "$UNAPPROVED"
+check "a declared chain slice still needs an open issue" 1 - "FAIL: issue #12 is not open (state=closed)" \
+	"$GUARD" --body "Refs #12
+Part of a chain: #12" --base-branch "$DEFAULT" --default-branch "$DEFAULT" --issues-json "$CLOSED"
+# Same stripping rule as the keywords: a pull request that explains the declaration quotes it, and
+# a quotation must not turn an ordinary pull request into a chain slice.
+check "a quoted declaration is documentation, not a declaration" 1 - "a closing reference" \
+	"$GUARD" --body 'Refs #12
+
+The gate now wants `Part of a chain: #12` beside it.' --base-branch "$DEFAULT" --default-branch "$DEFAULT" --issues-json "$APPROVED"
+check "a fenced declaration is documentation, not a declaration" 1 - "a closing reference" \
+	"$GUARD" --body 'Refs #12
+
+```
+Part of a chain: #12
+```' --base-branch "$DEFAULT" --default-branch "$DEFAULT" --issues-json "$APPROVED"
+# The declaration is a line, not a phrase. Unanchored, a sentence that merely contains it unlocked
+# the gate — "the migration is part of a chain #12 of refactors" measured as a declaration during
+# independent verification of #598, which is the loosening that makes the relaxation dodgeable.
+check "a declaration mid-sentence is not a declaration" 1 - "a closing reference" \
+	"$GUARD" --body "Refs #12
+The migration is part of a chain #12 of refactors." --base-branch "$DEFAULT" --default-branch "$DEFAULT" --issues-json "$APPROVED"
+check "a declaration split across a line break does not unlock a Refs" 1 - "a closing reference" \
+	"$GUARD" --body "Refs #12
+Part of a chain:
+#12" --base-branch "$DEFAULT" --default-branch "$DEFAULT" --issues-json "$APPROVED"
+# The documented form is the accepted form. The keywords tolerate a missing colon because a
+# contributor writes `Fix #12` and means it; the declaration is the gate's own marker, so an
+# undocumented spelling is a widening nobody asked for. Raised as `R1-CHAIN-DECL-BYPASS` by the
+# risk lens of the native review of #598.
+check "a declaration without the colon is not a declaration" 1 - "a closing reference" \
+	"$GUARD" --body "Refs #12
+Part of a chain #12" --base-branch "$DEFAULT" --default-branch "$DEFAULT" --issues-json "$APPROVED"
+# Four leading spaces are a Markdown code block, and a code block is documentation like a fence is.
+check "an indented code block is documentation, not a declaration" 1 - "a closing reference" \
+	"$GUARD" --body "Refs #12
+
+    Part of a chain: #12" --base-branch "$DEFAULT" --default-branch "$DEFAULT" --issues-json "$APPROVED"
+# Numbers are compared as written, exactly like the keyword list compares them: a declaration for
+# #12 does not unlock a reference written #012.
+check "a declaration with a leading zero does not unlock the plain number" 1 - "chain declaration names #12" \
+	"$GUARD" --body "Refs #012
+Part of a chain: #12" --base-branch "$DEFAULT" --default-branch "$DEFAULT" --issues-json "$APPROVED"
+# A Windows checkout hands the body over with CRLF endings, which the gate normalises before it
+# scans; the declaration has to survive that normalisation like the keywords do.
+check "a CRLF body with a declaration passes" 0 "PASS: #12 is open and carries status:approved" - \
+	"$GUARD" --body "$(printf 'Refs #12\r\nPart of a chain: #12\r\n')" --base-branch "$DEFAULT" --default-branch "$DEFAULT" --issues-json "$APPROVED"
+# The declared number must resolve to an issue: a declaration naming a pull request unlocks nothing,
+# because `Refs` to a pull request is not a reference this gate can verify.
+check "a declaration naming a pull request number does not satisfy the gate" 1 - "no referenced number is an issue" \
+	"$GUARD" --body "Refs #12
+Part of a chain: #12" --base-branch "$DEFAULT" --default-branch "$DEFAULT" --issues-json "$A_PULL_REQUEST"
+# The last slice carries the closing keyword and may still say it is part of the chain; the
+# keyword decides, so the declaration changes nothing there.
+check "a declaration beside a closing keyword passes" 0 "PASS: #12 is open and carries status:approved" - \
+	"$GUARD" --body "Closes #12
+Part of a chain: #12" --base-branch "$DEFAULT" --default-branch "$DEFAULT" --issues-json "$APPROVED"
+# Off the default branch `Refs` was already legal, so the declaration decides nothing there and a
+# stale one must not block a slice that is opened against its parent.
+check "a stale declaration is ignored off the default branch" 0 "PASS: #12 is open and carries status:approved" - \
+	"$GUARD" --body "Refs #12
+Part of a chain: #13" --base-branch "$TRACKER" --default-branch "$DEFAULT" --issues-json "$APPROVED"
 check "a cross-repository reference fails" 1 - "cross-repository reference" \
 	"$GUARD" --body "Closes le03nava/other#3" --base-branch "$DEFAULT" --default-branch "$DEFAULT" --issues-json "$APPROVED"
 # A cross-repository reference has one shape on GitHub: `owner/repo#N`, with the number attached.
@@ -197,6 +297,21 @@ check "a quoted example beside a real reference passes" 0 "PASS: #12 is open and
 
 Closes #12' --base-branch "$DEFAULT" --default-branch "$DEFAULT" --issues-json "$APPROVED"
 
+echo "== the shipped template does not declare a chain =="
+# The template's guidance is itself an HTML comment, and this gate does not strip comments — the
+# keywords behave the same way, so that is pre-existing behaviour rather than something the
+# declaration introduced. The consequence is worth pinning anyway: a declaration with a number in
+# it, added to the template, would unlock every pull request that keeps the template's text. The
+# template therefore carries the marker without a number, and this case fails if that changes.
+TEMPLATE="$SCRIPT_DIR/../../../.github/PULL_REQUEST_TEMPLATE.md"
+if [ -r "$TEMPLATE" ]; then
+	{ printf 'Refs #12\n\n'; cat "$TEMPLATE"; } > "$TMP/template-body.md"
+	check "the shipped pull-request template does not self-declare a chain" 1 - "a closing reference" \
+		"$GUARD" --body-file "$TMP/template-body.md" --base-branch "$DEFAULT" --default-branch "$DEFAULT" --issues-json "$APPROVED"
+else
+	fail "the pull-request template is readable at $TEMPLATE"
+fi
+
 echo "== the referenced issue =="
 check "an approved open issue passes" 0 "PASS: #12 is open and carries status:approved" - \
 	"$GUARD" --body "Closes #12" --base-branch "$DEFAULT" --default-branch "$DEFAULT" --issues-json "$APPROVED"
@@ -243,6 +358,16 @@ check "--print-refs emits every reference once, closing first" 0 "12
 	"$GUARD" --body "Closes #12
 Refs #4
 Refs #12" --base-branch "$TRACKER" --default-branch "$DEFAULT" --print-refs
+# The declaration names a number the body already references, so it adds nothing to fetch — and
+# the workflow fetches exactly this list, so emitting it twice would be a caller defect.
+check "--print-refs does not emit the declaration as a second reference" 0 "12" - \
+	"$GUARD" --body "Refs #12
+Part of a chain: #12" --base-branch "$DEFAULT" --default-branch "$DEFAULT" --print-refs
+# Mode 1 answers before the issue payload exists, so it carries the same keyword verdict: a bare
+# `Refs` on the default branch must fail there too, or the workflow would fetch and pass a slice
+# the gate rejects.
+check "--print-refs rejects a bare Refs on the default branch" 1 - "a closing reference" \
+	"$GUARD" --body "Refs #12" --base-branch "$DEFAULT" --default-branch "$DEFAULT" --print-refs
 check "--print-refs with no reference fails" 1 - "FAIL: no issue reference in the pull request body" \
 	"$GUARD" --body "no reference here" --base-branch "$DEFAULT" --default-branch "$DEFAULT" --print-refs
 check "--print-refs reads a body file" 0 "12" - \
