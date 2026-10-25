@@ -41,6 +41,7 @@ import com.lifecontrol.api.supplier.exception.SupplierNotFoundException;
 import com.lifecontrol.api.supplier.model.Supplier;
 import com.lifecontrol.api.supplier.repository.SupplierRepository;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayDeque;
@@ -177,7 +178,7 @@ public class PurchaseOrderService {
                 var productVariant = resolveProductVariant(detailReq.productVariantId(), product, companyStoreId);
                 var detailStatus = StatusValidator.requireStatusOfType(
                         statusRepository, detailReq.statusId(), "PURCHASE_ORDER_DETAIL");
-                var total = detailReq.unitPrice().multiply(BigDecimal.valueOf(detailReq.quantity()));
+                var total = lineTotal(detailReq.unitPrice(), detailReq.quantity());
 
                 var detail = PurchaseOrderDetail.builder()
                         .purchaseOrder(po)
@@ -186,7 +187,7 @@ public class PurchaseOrderService {
                         .quantity(detailReq.quantity())
                         .unitPrice(detailReq.unitPrice())
                         .total(total)
-                        .receivedQuantity(0)
+                        .receivedQuantity(BigDecimal.ZERO)
                         .comments(detailReq.comments())
                         .status(detailStatus)
                         .enabled(true)
@@ -246,7 +247,7 @@ public class PurchaseOrderService {
                             ? StatusValidator.requireStatusOfType(
                                     statusRepository, detailReq.statusId(), "PURCHASE_ORDER_DETAIL")
                             : defaultDetailStatus;
-                    var total = detailReq.unitPrice().multiply(BigDecimal.valueOf(detailReq.quantity()));
+                    var total = lineTotal(detailReq.unitPrice(), detailReq.quantity());
 
                     var detail = PurchaseOrderDetail.builder()
                             .purchaseOrder(po)
@@ -255,7 +256,7 @@ public class PurchaseOrderService {
                             .quantity(detailReq.quantity())
                             .unitPrice(detailReq.unitPrice())
                             .total(total)
-                            .receivedQuantity(0)
+                            .receivedQuantity(BigDecimal.ZERO)
                             .comments(detailReq.comments())
                             .status(detailStatus)
                             .enabled(true)
@@ -342,7 +343,7 @@ public class PurchaseOrderService {
                 request.productVariantId(), product, po.getCompanyStore().getId());
         var detailStatus =
                 StatusValidator.requireStatusOfType(statusRepository, request.statusId(), "PURCHASE_ORDER_DETAIL");
-        var total = request.unitPrice().multiply(BigDecimal.valueOf(request.quantity()));
+        var total = lineTotal(request.unitPrice(), request.quantity());
 
         var detail = PurchaseOrderDetail.builder()
                 .purchaseOrder(po)
@@ -351,7 +352,7 @@ public class PurchaseOrderService {
                 .quantity(request.quantity())
                 .unitPrice(request.unitPrice())
                 .total(total)
-                .receivedQuantity(0)
+                .receivedQuantity(BigDecimal.ZERO)
                 .comments(request.comments())
                 .status(detailStatus)
                 .enabled(true)
@@ -381,7 +382,7 @@ public class PurchaseOrderService {
                 detail.getPurchaseOrder().getCompanyStore().getId());
         var detailStatus =
                 StatusValidator.requireStatusOfType(statusRepository, request.statusId(), "PURCHASE_ORDER_DETAIL");
-        var total = request.unitPrice().multiply(BigDecimal.valueOf(request.quantity()));
+        var total = lineTotal(request.unitPrice(), request.quantity());
 
         detail.setProduct(product);
         detail.setProductVariant(productVariant);
@@ -490,7 +491,7 @@ public class PurchaseOrderService {
      */
     @Transactional
     public PurchaseOrderDetailResponse registerReceivedQuantity(
-            UUID purchaseOrderId, UUID detailId, int receivedQuantity) {
+            UUID purchaseOrderId, UUID detailId, BigDecimal receivedQuantity) {
         logger.info(
                 "Registering received quantity: poId={}, detailId={}, receivedQuantity={}",
                 purchaseOrderId,
@@ -513,14 +514,14 @@ public class PurchaseOrderService {
             throw new PurchaseOrderDetailNotFoundException(detailId);
         }
 
-        if (receivedQuantity <= 0) {
+        if (receivedQuantity == null || receivedQuantity.compareTo(BigDecimal.ZERO) <= 0) {
             throw new IllegalArgumentException("receivedQuantity must be greater than 0");
         }
-        if (receivedQuantity > detail.getQuantity()) {
+        if (receivedQuantity.compareTo(detail.getQuantity()) > 0) {
             throw new IllegalArgumentException("receivedQuantity must not exceed the ordered quantity");
         }
 
-        var targetStatusName = receivedQuantity < detail.getQuantity() ? "Partial Received" : "Received";
+        var targetStatusName = receivedQuantity.compareTo(detail.getQuantity()) < 0 ? "Partial Received" : "Received";
         var targetStatus = statusRepository
                 .findByTypeNameAndStatusName("PURCHASE_ORDER_DETAIL", targetStatusName)
                 .orElseThrow(() -> new StatusNotFoundException(
@@ -706,7 +707,7 @@ public class PurchaseOrderService {
             enabledLines++;
             var fullyReceived = "Received".equalsIgnoreCase(line.getStatus().getStatusName())
                     && line.getReceivedQuantity() != null
-                    && line.getReceivedQuantity() >= line.getQuantity();
+                    && line.getReceivedQuantity().compareTo(line.getQuantity()) >= 0;
             if (!fullyReceived) {
                 return false;
             }
@@ -796,6 +797,16 @@ public class PurchaseOrderService {
                 po.getCreatedAt(),
                 po.getUpdatedAt(),
                 detailResponses);
+    }
+
+    /**
+     * {@code unitPrice * quantity} at the scale of the {@code total} column: two decimals, rounded
+     * {@code HALF_UP}. Money is stored and returned at that scale, so the write response and the row a
+     * later read returns carry the same number; returning the raw product instead let the column round
+     * it, and the POST response then disagreed with the GET.
+     */
+    private static BigDecimal lineTotal(BigDecimal unitPrice, BigDecimal quantity) {
+        return unitPrice.multiply(quantity).setScale(2, RoundingMode.HALF_UP);
     }
 
     private PurchaseOrderDetailResponse toDetailResponse(PurchaseOrderDetail detail) {

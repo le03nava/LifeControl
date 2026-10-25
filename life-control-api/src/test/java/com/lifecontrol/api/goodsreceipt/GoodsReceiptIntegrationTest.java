@@ -413,10 +413,10 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
                 .purchaseOrder(order)
                 .product(product)
                 .productVariant(variant)
-                .quantity(5)
+                .quantity(BigDecimal.valueOf(5))
                 .unitPrice(new BigDecimal("10.00"))
                 .total(new BigDecimal("50.00"))
-                .receivedQuantity(0)
+                .receivedQuantity(BigDecimal.ZERO)
                 .comments("Reception line")
                 .status(pendingDetailStatus)
                 .enabled(true)
@@ -491,7 +491,7 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
     }
 
     /** One variant-backed line of a receivable order, with its own product and variant. */
-    private PurchaseOrderDetail addReceivableLine(PurchaseOrder order, int quantity, String detailStatusName) {
+    private PurchaseOrderDetail addReceivableLine(PurchaseOrder order, String quantity, String detailStatusName) {
         var product = productRepository.save(Product.builder()
                 .sku("GR-SKU-" + UUID.randomUUID().toString().substring(0, 12))
                 .name("Goods Receipt Product")
@@ -508,10 +508,10 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
                 .purchaseOrder(order)
                 .product(product)
                 .productVariant(variant)
-                .quantity(quantity)
+                .quantity(new BigDecimal(quantity))
                 .unitPrice(new BigDecimal("10.00"))
                 .total(new BigDecimal("50.00"))
-                .receivedQuantity(0)
+                .receivedQuantity(BigDecimal.ZERO)
                 .comments("Reception line")
                 .status(statusByName("PURCHASE_ORDER_DETAIL", detailStatusName))
                 .enabled(true)
@@ -569,13 +569,13 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
     private record ReceptionFixtures(PurchaseOrder order, PurchaseOrderDetail detail, ProductVariant variant) {}
 
     @Test
-    @DisplayName("should apply every migration up to V29 and start the context with ddl-auto=validate")
+    @DisplayName("should apply every migration up to V30 and start the context with ddl-auto=validate")
     void flywayAppliesLatestAndSchemaValidates() {
         assertThat(flyway.info().current()).isNotNull();
-        // The applied head is read from Flyway's own report. V29 is the newest migration in
-        // src/main/resources/db/migration, so "29" is the value, not a number tuned to make the
-        // assertion pass: an unread or unapplied V29 would leave pending migrations below.
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("29");
+        // The applied head is read from Flyway's own report. V30 is the newest migration in
+        // src/main/resources/db/migration, so "30" is the value, not a number tuned to make the
+        // assertion pass: an unread or unapplied V30 would leave pending migrations below.
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("30");
         assertThat(flyway.info().pending()).isEmpty();
 
         // The table exists and is empty: the read itself is the "schema is there" proof.
@@ -744,7 +744,7 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
         void happyPathAppliesEveryEffect() {
             seedReceivingSettings();
             var order = createReceivableOrder("In Transit");
-            var detail = addReceivableLine(order, 5, "In Transit");
+            var detail = addReceivableLine(order, "5", "In Transit");
             var variantId = detail.getProductVariant().getId();
 
             var response = goodsReceiptService.createReceipt(receptionRequest(order, line(detail.getId(), "3")));
@@ -781,7 +781,7 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
 
             var reloadedDetail =
                     purchaseOrderDetailRepository.findById(detail.getId()).orElseThrow();
-            assertThat(reloadedDetail.getReceivedQuantity()).isEqualTo(3);
+            assertThat(reloadedDetail.getReceivedQuantity()).isEqualByComparingTo("3");
             assertThat(detailStatusName(detail.getId())).isEqualTo("Partial Received");
         }
 
@@ -790,12 +790,12 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
         void secondReceiptCompletesTheLineAndPromotesTheHeader() {
             seedReceivingSettings();
             var order = createReceivableOrder("In Transit");
-            var detail = addReceivableLine(order, 5, "In Transit");
+            var detail = addReceivableLine(order, "5", "In Transit");
 
             var first = goodsReceiptService.createReceipt(receptionRequest(order, line(detail.getId(), "2")));
             var afterFirst =
                     purchaseOrderDetailRepository.findById(detail.getId()).orElseThrow();
-            assertThat(afterFirst.getReceivedQuantity()).isEqualTo(2);
+            assertThat(afterFirst.getReceivedQuantity()).isEqualByComparingTo("2");
             assertThat(detailStatusName(detail.getId())).isEqualTo("Partial Received");
             assertThat(orderStatusName(order.getId())).isEqualTo("In Transit");
             assertThat(first.receiptNumber()).endsWith("-01");
@@ -804,7 +804,7 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
 
             var afterSecond =
                     purchaseOrderDetailRepository.findById(detail.getId()).orElseThrow();
-            assertThat(afterSecond.getReceivedQuantity()).isEqualTo(5);
+            assertThat(afterSecond.getReceivedQuantity()).isEqualByComparingTo("5");
             assertThat(detailStatusName(detail.getId())).isEqualTo("Received");
             assertThat(orderStatusName(order.getId())).isEqualTo("Received");
             assertThat(second.receiptNumber()).endsWith("-02");
@@ -817,8 +817,8 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
         void overReceiptInSecondLineChangesNothing() {
             seedReceivingSettings();
             var order = createReceivableOrder("In Transit");
-            var firstLine = addReceivableLine(order, 5, "In Transit");
-            var secondLine = addReceivableLine(order, 5, "In Transit");
+            var firstLine = addReceivableLine(order, "5", "In Transit");
+            var secondLine = addReceivableLine(order, "5", "In Transit");
             var secondVariantId = secondLine.getProductVariant().getId();
 
             assertThatThrownBy(() -> goodsReceiptService.createReceipt(
@@ -854,7 +854,7 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
         void postCreatesAndGetReadsBack() throws Exception {
             seedReceivingSettings();
             var order = createReceivableOrder("In Transit");
-            var detail = addReceivableLine(order, 5, "In Transit");
+            var detail = addReceivableLine(order, "5", "In Transit");
             var variantId = detail.getProductVariant().getId();
             var chain = storeChain();
 
@@ -916,8 +916,8 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
         void disabledVariantInSecondLineChangesNothing() {
             seedReceivingSettings();
             var order = createReceivableOrder("In Transit");
-            var firstLine = addReceivableLine(order, 5, "In Transit");
-            var secondLine = addReceivableLine(order, 5, "In Transit");
+            var firstLine = addReceivableLine(order, "5", "In Transit");
+            var secondLine = addReceivableLine(order, "5", "In Transit");
             var secondVariant = secondLine.getProductVariant();
             secondVariant.setEnabled(false);
             productVariantRepository.saveAndFlush(secondVariant);
@@ -938,8 +938,8 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
         void unreceivableDetailStatusInSecondLineChangesNothing() {
             seedReceivingSettings();
             var order = createReceivableOrder("In Transit");
-            var firstLine = addReceivableLine(order, 5, "In Transit");
-            var secondLine = addReceivableLine(order, 5, "Cancelled");
+            var firstLine = addReceivableLine(order, "5", "In Transit");
+            var secondLine = addReceivableLine(order, "5", "Cancelled");
 
             assertThatThrownBy(() -> goodsReceiptService.createReceipt(
                             receptionRequest(order, line(firstLine.getId(), "3"), line(secondLine.getId(), "3"))))
@@ -957,10 +957,10 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
         void terminalReceivedDetailIsRejectedBeforeAnyWrite() throws Exception {
             seedReceivingSettings();
             var order = createReceivableOrder("In Transit");
-            var firstLine = addReceivableLine(order, 5, "In Transit");
+            var firstLine = addReceivableLine(order, "5", "In Transit");
             // A Received line with quantity outstanding is reachable through the public purchase-order
             // API, which accepts an arbitrary detail statusId and hard-codes receivedQuantity = 0.
-            var terminalLine = addReceivableLine(order, 5, "Received");
+            var terminalLine = addReceivableLine(order, "5", "Received");
 
             var request = new GoodsReceiptRequest(
                     order.getId(),
@@ -1082,7 +1082,7 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
         void createFromForeignStorePrincipalIsForbidden() throws Exception {
             seedReceivingSettings();
             var order = createReceivableOrder("In Transit");
-            var detail = addReceivableLine(order, 5, "In Transit");
+            var detail = addReceivableLine(order, "5", "In Transit");
             var chain = storeChain();
             var request = new GoodsReceiptRequest(order.getId(), null, "Reception", List.of(line(detail.getId(), "3")));
 

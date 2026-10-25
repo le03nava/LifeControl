@@ -158,10 +158,10 @@ class AccessProvisioningSchemaMigrationIntegrationTest extends AbstractPostgresI
     }
 
     @Test
-    @DisplayName("applies every migration through V29 and leaves no pending migration")
-    void flywayHeadIsV29() {
+    @DisplayName("applies every migration through V30 and leaves no pending migration")
+    void flywayHeadIsV30() {
         assertThat(flyway.info().current()).isNotNull();
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("29");
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("30");
         assertThat(flyway.info().pending()).isEmpty();
     }
 

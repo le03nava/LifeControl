@@ -146,7 +146,8 @@ public class GoodsReceiptService {
      *     purchase order or is disabled
      * @throws MissingPurchaseOrderVariantException when a line has no product variant
      * @throws PurchaseOrderVariantNotInStoreException when a line's variant belongs to another store
-     * @throws InvalidReceiptQuantityException when a quantity is not positive or not a whole number
+     * @throws InvalidReceiptQuantityException when a quantity is not positive or carries more than two
+     *     decimals
      * @throws OverReceiptException when a line would exceed its ordered quantity
      * @throws DuplicateReceiptLineException when one request repeats a purchase-order line
      * @throws StatusNotFoundException when the {@code GOODS_RECEIPT} / {@code Registered} status is
@@ -455,18 +456,18 @@ public class GoodsReceiptService {
             if (quantity == null || quantity.compareTo(BigDecimal.ZERO) <= 0) {
                 throw new InvalidReceiptQuantityException(lineIndex, "must be greater than zero", quantity);
             }
-            if (quantity.remainder(BigDecimal.ONE).compareTo(BigDecimal.ZERO) != 0) {
-                throw new InvalidReceiptQuantityException(lineIndex, "must be a whole number", quantity);
+            // The column is DECIMAL(12,2): a third decimal would be rounded by the database, which
+            // is silently receiving a quantity nobody asked for. Reject it here, naming the line.
+            if (quantity.stripTrailingZeros().scale() > 2) {
+                throw new InvalidReceiptQuantityException(lineIndex, "must have at most two decimals", quantity);
             }
 
-            var accumulated = BigDecimal.valueOf(detail.getReceivedQuantity()).add(quantity);
-            if (accumulated.compareTo(BigDecimal.valueOf(detail.getQuantity())) > 0) {
-                throw new OverReceiptException(
-                        lineIndex, detail.getId(), accumulated, BigDecimal.valueOf(detail.getQuantity()));
+            var accumulated = detail.getReceivedQuantity().add(quantity);
+            if (accumulated.compareTo(detail.getQuantity()) > 0) {
+                throw new OverReceiptException(lineIndex, detail.getId(), accumulated, detail.getQuantity());
             }
 
-            resolved.add(
-                    new ResolvedLine(line, detail, variant, quantity.intValueExact(), accumulated.intValueExact()));
+            resolved.add(new ResolvedLine(line, detail, variant, quantity, accumulated));
             lineIndex++;
         }
 
@@ -514,6 +515,6 @@ public class GoodsReceiptService {
             GoodsReceiptLineRequest request,
             PurchaseOrderDetail detail,
             ProductVariant variant,
-            int quantity,
-            int accumulatedQuantity) {}
+            BigDecimal quantity,
+            BigDecimal accumulatedQuantity) {}
 }

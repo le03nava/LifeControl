@@ -309,7 +309,8 @@ class PurchaseOrderDetailVariantIntegrationTest extends AbstractPostgresIntegrat
                 + "\",\"comments\":\"Null detail entry\",\"details\":[null]}";
     }
 
-    private UUID addVariantDetail(UUID purchaseOrderId, UUID productId, UUID variantId, int quantity) throws Exception {
+    private UUID addVariantDetail(UUID purchaseOrderId, UUID productId, UUID variantId, BigDecimal quantity)
+            throws Exception {
         var detailRequest = new PurchaseOrderDetailRequest(
                 productId, variantId, quantity, new BigDecimal("25.00"), "Reception line", pendingDetailStatusId);
 
@@ -386,7 +387,7 @@ class PurchaseOrderDetailVariantIntegrationTest extends AbstractPostgresIntegrat
             var detailRequest = new PurchaseOrderDetailRequest(
                     product.getId(),
                     variant.getId(),
-                    4,
+                    BigDecimal.valueOf(4),
                     new BigDecimal("25.00"),
                     "With variant",
                     pendingDetailStatusId);
@@ -411,6 +412,123 @@ class PurchaseOrderDetailVariantIntegrationTest extends AbstractPostgresIntegrat
             var persisted = purchaseOrderDetailRepository.findByPurchaseOrderIdAndEnabledTrue(purchaseOrderId);
             assertThat(persisted).hasSize(1);
             assertThat(persisted.getFirst().getProductVariant().getId()).isEqualTo(variant.getId());
+        }
+    }
+
+    @Nested
+    @DisplayName("fractional ordered quantity")
+    class FractionalQuantityTests {
+
+        /** Raw JSON on purpose: a 2.5 that the DTO declares as Integer is silently truncated by Jackson. */
+        private String detailPayload(UUID productId, UUID variantId, String quantity) {
+            return detailPayload(productId, variantId, quantity, "25.00");
+        }
+
+        /** Same raw-JSON shape, with the unit price spelled out so the line total needs rounding. */
+        private String detailPayload(UUID productId, UUID variantId, String quantity, String unitPrice) {
+            return "{\"productId\":\"" + productId
+                    + "\",\"productVariantId\":\"" + variantId
+                    + "\",\"quantity\":" + quantity
+                    + ",\"unitPrice\":" + unitPrice
+                    + ",\"comments\":\"Fractional line\""
+                    + ",\"statusId\":\"" + pendingDetailStatusId + "\"}";
+        }
+
+        /** The line total as the API sent it, read from the JSON so the assertion does not depend on a DTO. */
+        private BigDecimal totalOf(JsonNode node) {
+            return new BigDecimal(node.get("total").asText());
+        }
+
+        @Test
+        @DisplayName("should persist a fractional ordered quantity such as 2.5 instead of truncating it")
+        void fractionalQuantityRoundTrips() throws Exception {
+            var product = createProduct();
+            var variant = createVariant(product.getId(), storeId);
+            var purchaseOrderId = createEmptyPurchaseOrder();
+
+            mockMvc.perform(post("/api/purchase-orders/{id}/details", purchaseOrderId)
+                            .with(jwt().authorities(ROLE_LC_ADMIN))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(detailPayload(product.getId(), variant.getId(), "2.5")))
+                    .andExpect(status().isCreated())
+                    .andExpect(jsonPath("$.quantity").value(2.5));
+
+            var persisted = purchaseOrderDetailRepository.findByPurchaseOrderIdAndEnabledTrue(purchaseOrderId);
+            assertThat(persisted).hasSize(1);
+            assertThat(persisted.getFirst().getQuantity()).isEqualByComparingTo("2.5");
+        }
+
+        @Test
+        @DisplayName("should round the line total to the column scale so the write response and a later GET agree")
+        void fractionalQuantityRoundsLineTotalToColumnScale() throws Exception {
+            var product = createProduct();
+            var variant = createVariant(product.getId(), storeId);
+            var purchaseOrderId = createEmptyPurchaseOrder();
+
+            // 2.5 x 123.45 = 308.625, which is not a number DECIMAL(12,2) can store.
+            var created = mockMvc.perform(post("/api/purchase-orders/{id}/details", purchaseOrderId)
+                            .with(jwt().authorities(ROLE_LC_ADMIN))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(detailPayload(product.getId(), variant.getId(), "2.5", "123.45")))
+                    .andExpect(status().isCreated())
+                    .andReturn();
+
+            assertThat(totalOf(objectMapper.readTree(created.getResponse().getContentAsString())))
+                    .as("total of the create response")
+                    .isEqualByComparingTo("308.63");
+
+            var listed = mockMvc.perform(get("/api/purchase-orders/{id}/details", purchaseOrderId)
+                            .with(jwt().authorities(ROLE_LC_ADMIN)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.length()").value(1))
+                    .andReturn();
+
+            assertThat(totalOf(objectMapper
+                            .readTree(listed.getResponse().getContentAsString())
+                            .get(0)))
+                    .as("total of the detail list")
+                    .isEqualByComparingTo("308.63");
+
+            var persisted = purchaseOrderDetailRepository.findByPurchaseOrderIdAndEnabledTrue(purchaseOrderId);
+            assertThat(persisted).hasSize(1);
+            assertThat(persisted.getFirst().getTotal())
+                    .as("persisted line total")
+                    .isEqualByComparingTo("308.63");
+        }
+
+        @Test
+        @DisplayName("should reject an ordered quantity with more than two decimals with 400 and persist nothing")
+        void moreThanTwoDecimalsRejected() throws Exception {
+            var product = createProduct();
+            var variant = createVariant(product.getId(), storeId);
+            var purchaseOrderId = createEmptyPurchaseOrder();
+
+            mockMvc.perform(post("/api/purchase-orders/{id}/details", purchaseOrderId)
+                            .with(jwt().authorities(ROLE_LC_ADMIN))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(detailPayload(product.getId(), variant.getId(), "2.505")))
+                    .andExpect(status().isBadRequest());
+
+            assertThat(purchaseOrderDetailRepository.findByPurchaseOrderIdAndEnabledTrue(purchaseOrderId))
+                    .isEmpty();
+        }
+
+        @Test
+        @DisplayName("should still persist a whole quantity unchanged")
+        void wholeQuantityUnchanged() throws Exception {
+            var product = createProduct();
+            var variant = createVariant(product.getId(), storeId);
+            var purchaseOrderId = createEmptyPurchaseOrder();
+
+            mockMvc.perform(post("/api/purchase-orders/{id}/details", purchaseOrderId)
+                            .with(jwt().authorities(ROLE_LC_ADMIN))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(detailPayload(product.getId(), variant.getId(), "3")))
+                    .andExpect(status().isCreated())
+                    .andExpect(jsonPath("$.quantity").value(3));
+
+            var persisted = purchaseOrderDetailRepository.findByPurchaseOrderIdAndEnabledTrue(purchaseOrderId);
+            assertThat(persisted.getFirst().getQuantity()).isEqualByComparingTo("3");
         }
     }
 
@@ -473,10 +591,10 @@ class PurchaseOrderDetailVariantIntegrationTest extends AbstractPostgresIntegrat
             assertThatThrownBy(() -> purchaseOrderDetailRepository.saveAndFlush(PurchaseOrderDetail.builder()
                             .purchaseOrder(po)
                             .product(product)
-                            .quantity(2)
+                            .quantity(BigDecimal.valueOf(2))
                             .unitPrice(new BigDecimal("15.00"))
                             .total(new BigDecimal("30.00"))
-                            .receivedQuantity(0)
+                            .receivedQuantity(BigDecimal.ZERO)
                             .comments("Legacy row")
                             .status(pendingStatus)
                             .enabled(true)
@@ -562,7 +680,7 @@ class PurchaseOrderDetailVariantIntegrationTest extends AbstractPostgresIntegrat
             var detailRequest = new PurchaseOrderDetailRequest(
                     product.getId(),
                     foreignVariant.getId(),
-                    3,
+                    BigDecimal.valueOf(3),
                     new BigDecimal("20.00"),
                     "Foreign product",
                     pendingDetailStatusId);
@@ -589,7 +707,7 @@ class PurchaseOrderDetailVariantIntegrationTest extends AbstractPostgresIntegrat
             var detailRequest = new PurchaseOrderDetailRequest(
                     product.getId(),
                     foreignVariant.getId(),
-                    3,
+                    BigDecimal.valueOf(3),
                     new BigDecimal("20.00"),
                     "Foreign store",
                     pendingDetailStatusId);
@@ -634,25 +752,25 @@ class PurchaseOrderDetailVariantIntegrationTest extends AbstractPostgresIntegrat
             var purchaseOrderId = createEmptyPurchaseOrder();
 
             // addPurchaseOrderDetail only accepts Draft lines, so the lines exist before the header moves.
-            var line1 = addVariantDetail(purchaseOrderId, product.getId(), variantA.getId(), 5);
-            var line2 = addVariantDetail(purchaseOrderId, product.getId(), variantB.getId(), 4);
+            var line1 = addVariantDetail(purchaseOrderId, product.getId(), variantA.getId(), BigDecimal.valueOf(5));
+            var line2 = addVariantDetail(purchaseOrderId, product.getId(), variantB.getId(), BigDecimal.valueOf(4));
 
             patchHeaderStatus(purchaseOrderId, "Sent");
             patchHeaderStatus(purchaseOrderId, "Accepted");
             patchHeaderStatus(purchaseOrderId, "In Transit");
 
             // Partial receipt of line 1: Partial Received while the sibling line is still pending.
-            purchaseOrderService.registerReceivedQuantity(purchaseOrderId, line1, 2);
+            purchaseOrderService.registerReceivedQuantity(purchaseOrderId, line1, BigDecimal.valueOf(2));
             assertDetailState(purchaseOrderId, line1, "Partial Received", 2);
             assertHeaderStatus(purchaseOrderId, "In Transit");
 
             // Full receipt of line 1 alone must not promote the header while line 2 is pending.
-            purchaseOrderService.registerReceivedQuantity(purchaseOrderId, line1, 5);
+            purchaseOrderService.registerReceivedQuantity(purchaseOrderId, line1, BigDecimal.valueOf(5));
             assertDetailState(purchaseOrderId, line1, "Received", 5);
             assertHeaderStatus(purchaseOrderId, "In Transit");
 
             // Full receipt of the last enabled line promotes the header through PO_TRANSITIONS.
-            purchaseOrderService.registerReceivedQuantity(purchaseOrderId, line2, 4);
+            purchaseOrderService.registerReceivedQuantity(purchaseOrderId, line2, BigDecimal.valueOf(4));
             assertDetailState(purchaseOrderId, line2, "Received", 4);
             assertHeaderStatus(purchaseOrderId, "Received");
         }

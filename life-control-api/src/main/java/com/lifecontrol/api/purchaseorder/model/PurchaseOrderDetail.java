@@ -29,8 +29,8 @@ public class PurchaseOrderDetail extends Auditable {
     @JoinColumn(name = "product_variant_id")
     private ProductVariant productVariant;
 
-    @Column(nullable = false)
-    private Integer quantity;
+    @Column(precision = 12, scale = 2, nullable = false)
+    private BigDecimal quantity;
 
     @Column(name = "unit_price", precision = 12, scale = 2, nullable = false)
     private BigDecimal unitPrice;
@@ -38,8 +38,8 @@ public class PurchaseOrderDetail extends Auditable {
     @Column(precision = 12, scale = 2, nullable = false)
     private BigDecimal total;
 
-    @Column(name = "received_quantity", nullable = false)
-    private Integer receivedQuantity = 0;
+    @Column(name = "received_quantity", precision = 12, scale = 2, nullable = false)
+    private BigDecimal receivedQuantity = BigDecimal.ZERO;
 
     @Column(length = 500)
     private String comments;
@@ -71,7 +71,7 @@ public class PurchaseOrderDetail extends Auditable {
         return productVariant;
     }
 
-    public Integer getQuantity() {
+    public BigDecimal getQuantity() {
         return quantity;
     }
 
@@ -83,7 +83,7 @@ public class PurchaseOrderDetail extends Auditable {
         return total;
     }
 
-    public Integer getReceivedQuantity() {
+    public BigDecimal getReceivedQuantity() {
         return receivedQuantity;
     }
 
@@ -116,7 +116,7 @@ public class PurchaseOrderDetail extends Auditable {
         this.productVariant = productVariant;
     }
 
-    public void setQuantity(Integer quantity) {
+    public void setQuantity(BigDecimal quantity) {
         this.quantity = quantity;
     }
 
@@ -128,7 +128,7 @@ public class PurchaseOrderDetail extends Auditable {
         this.total = total;
     }
 
-    public void setReceivedQuantity(Integer receivedQuantity) {
+    public void setReceivedQuantity(BigDecimal receivedQuantity) {
         this.receivedQuantity = receivedQuantity;
     }
 
@@ -172,7 +172,7 @@ public class PurchaseOrderDetail extends Auditable {
             return this;
         }
 
-        public Builder quantity(Integer quantity) {
+        public Builder quantity(BigDecimal quantity) {
             detail.quantity = quantity;
             return this;
         }
@@ -187,7 +187,7 @@ public class PurchaseOrderDetail extends Auditable {
             return this;
         }
 
-        public Builder receivedQuantity(Integer receivedQuantity) {
+        public Builder receivedQuantity(BigDecimal receivedQuantity) {
             detail.receivedQuantity = receivedQuantity;
             return this;
         }

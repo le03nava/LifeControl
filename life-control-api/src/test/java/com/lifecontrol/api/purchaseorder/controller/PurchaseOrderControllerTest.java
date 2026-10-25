@@ -87,10 +87,10 @@ class PurchaseOrderControllerTest {
                 "Test Product",
                 UUID.randomUUID(),
                 "Test Variant",
-                5,
+                BigDecimal.valueOf(5),
                 new BigDecimal("100.00"),
                 new BigDecimal("500.00"),
-                0,
+                BigDecimal.ZERO,
                 "Note",
                 UUID.randomUUID(),
                 "Pending",
@@ -330,7 +330,12 @@ class PurchaseOrderControllerTest {
         @DisplayName("should return 201 Created")
         void returns201() throws Exception {
             var detailReq = new PurchaseOrderDetailRequest(
-                    productId, UUID.randomUUID(), 5, new BigDecimal("100.00"), "Note", UUID.randomUUID());
+                    productId,
+                    UUID.randomUUID(),
+                    BigDecimal.valueOf(5),
+                    new BigDecimal("100.00"),
+                    "Note",
+                    UUID.randomUUID());
             when(purchaseOrderService.addPurchaseOrderDetail(eq(poId), any())).thenReturn(detailResponse);
 
             mockMvc.perform(post("/api/purchase-orders/{id}/details", poId)
@@ -363,7 +368,12 @@ class PurchaseOrderControllerTest {
         @DisplayName("should return 200 OK")
         void returns200() throws Exception {
             var detailReq = new PurchaseOrderDetailRequest(
-                    productId, UUID.randomUUID(), 10, new BigDecimal("50.00"), "Updated", UUID.randomUUID());
+                    productId,
+                    UUID.randomUUID(),
+                    BigDecimal.valueOf(10),
+                    new BigDecimal("50.00"),
+                    "Updated",
+                    UUID.randomUUID());
             when(purchaseOrderService.updatePurchaseOrderDetail(eq(poId), eq(detailId), any()))
                     .thenReturn(detailResponse);
 

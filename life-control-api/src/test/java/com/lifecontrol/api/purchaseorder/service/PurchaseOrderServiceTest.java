@@ -274,10 +274,10 @@ class PurchaseOrderServiceTest {
                 .id(detailId)
                 .purchaseOrder(purchaseOrder)
                 .product(product)
-                .quantity(5)
+                .quantity(BigDecimal.valueOf(5))
                 .unitPrice(new BigDecimal("100.00"))
                 .total(new BigDecimal("500.00"))
-                .receivedQuantity(0)
+                .receivedQuantity(BigDecimal.ZERO)
                 .status(pendingStatus)
                 .enabled(true)
                 .build();
@@ -391,7 +391,12 @@ class PurchaseOrderServiceTest {
         @DisplayName("should compute detail totals automatically")
         void computesDetailTotals() {
             var detailReq = new PurchaseOrderDetailRequest(
-                    productId, variantId, 3, new BigDecimal("150.00"), "Detail comments", pendingStatus.getId());
+                    productId,
+                    variantId,
+                    BigDecimal.valueOf(3),
+                    new BigDecimal("150.00"),
+                    "Detail comments",
+                    pendingStatus.getId());
             var request =
                     new PurchaseOrderRequest(supplierId, storeId, pmId, draftStatusId, "Comments", List.of(detailReq));
 
@@ -538,7 +543,12 @@ class PurchaseOrderServiceTest {
         @DisplayName("should resolve a valid variant when replacing details")
         void replacesDetailsWithValidVariant() {
             var detailReq = new PurchaseOrderDetailRequest(
-                    productId, variantId, 3, new BigDecimal("40.00"), "Replacement", pendingStatus.getId());
+                    productId,
+                    variantId,
+                    BigDecimal.valueOf(3),
+                    new BigDecimal("40.00"),
+                    "Replacement",
+                    pendingStatus.getId());
             var request =
                     new PurchaseOrderRequest(supplierId, storeId, pmId, draftStatusId, "Replaced", List.of(detailReq));
 
@@ -695,7 +705,12 @@ class PurchaseOrderServiceTest {
         @DisplayName("should add detail when PO is Draft")
         void addsDetailWhenDraft() {
             var detailReq = new PurchaseOrderDetailRequest(
-                    productId, variantId, 2, new BigDecimal("50.00"), "Note", pendingStatus.getId());
+                    productId,
+                    variantId,
+                    BigDecimal.valueOf(2),
+                    new BigDecimal("50.00"),
+                    "Note",
+                    pendingStatus.getId());
 
             when(purchaseOrderRepository.findById(poId)).thenReturn(Optional.of(purchaseOrder));
             when(productRepository.findById(productId)).thenReturn(Optional.of(product));
@@ -721,7 +736,7 @@ class PurchaseOrderServiceTest {
         @DisplayName("should throw ProductNotFoundException when product missing")
         void throwsWhenProductMissing() {
             var detailReq = new PurchaseOrderDetailRequest(
-                    productId, null, 2, new BigDecimal("50.00"), "Note", pendingStatus.getId());
+                    productId, null, BigDecimal.valueOf(2), new BigDecimal("50.00"), "Note", pendingStatus.getId());
 
             when(purchaseOrderRepository.findById(poId)).thenReturn(Optional.of(purchaseOrder));
             when(productRepository.findById(productId)).thenReturn(Optional.empty());
@@ -741,7 +756,12 @@ class PurchaseOrderServiceTest {
         @DisplayName("should update detail fields and recompute total")
         void updatesDetailAndRecomputesTotal() {
             var updatedReq = new PurchaseOrderDetailRequest(
-                    productId, variantId, 10, new BigDecimal("25.00"), "Updated", pendingStatus.getId());
+                    productId,
+                    variantId,
+                    BigDecimal.valueOf(10),
+                    new BigDecimal("25.00"),
+                    "Updated",
+                    pendingStatus.getId());
 
             when(purchaseOrderRepository.findById(poId)).thenReturn(Optional.of(purchaseOrder));
             when(detailRepository.findById(detailId)).thenReturn(Optional.of(detail));
@@ -755,7 +775,7 @@ class PurchaseOrderServiceTest {
 
             var result = service.updatePurchaseOrderDetail(poId, detailId, updatedReq);
 
-            assertThat(result.quantity()).isEqualTo(10);
+            assertThat(result.quantity()).isEqualByComparingTo("10");
             assertThat(result.total()).isEqualByComparingTo(new BigDecimal("250.00"));
         }
 
@@ -763,7 +783,7 @@ class PurchaseOrderServiceTest {
         @DisplayName("should throw PurchaseOrderDetailNotFoundException when detail missing")
         void throwsWhenDetailMissing() {
             var updatedReq = new PurchaseOrderDetailRequest(
-                    productId, null, 10, new BigDecimal("25.00"), "Updated", pendingStatus.getId());
+                    productId, null, BigDecimal.valueOf(10), new BigDecimal("25.00"), "Updated", pendingStatus.getId());
 
             when(purchaseOrderRepository.findById(poId)).thenReturn(Optional.of(purchaseOrder));
             when(detailRepository.findById(detailId)).thenReturn(Optional.empty());
@@ -812,7 +832,12 @@ class PurchaseOrderServiceTest {
         @DisplayName("createPurchaseOrder rejects a null productVariantId: the legacy null tolerance was dropped")
         void createWithNullVariantIsRejected() {
             var detailReq = new PurchaseOrderDetailRequest(
-                    productId, null, 3, new BigDecimal("150.00"), "Detail comments", pendingStatus.getId());
+                    productId,
+                    null,
+                    BigDecimal.valueOf(3),
+                    new BigDecimal("150.00"),
+                    "Detail comments",
+                    pendingStatus.getId());
             var request =
                     new PurchaseOrderRequest(supplierId, storeId, pmId, draftStatusId, "Comments", List.of(detailReq));
 
@@ -837,7 +862,12 @@ class PurchaseOrderServiceTest {
         @DisplayName("createPurchaseOrder resolves and sets a valid variant")
         void createWithValidVariantSetsRelation() {
             var detailReq = new PurchaseOrderDetailRequest(
-                    productId, variantId, 3, new BigDecimal("150.00"), "Detail comments", pendingStatus.getId());
+                    productId,
+                    variantId,
+                    BigDecimal.valueOf(3),
+                    new BigDecimal("150.00"),
+                    "Detail comments",
+                    pendingStatus.getId());
             var request =
                     new PurchaseOrderRequest(supplierId, storeId, pmId, draftStatusId, "Comments", List.of(detailReq));
 
@@ -871,7 +901,12 @@ class PurchaseOrderServiceTest {
         @DisplayName("createPurchaseOrder rejects a variant from another product or store")
         void createWithForeignVariantThrows() {
             var detailReq = new PurchaseOrderDetailRequest(
-                    productId, variantId, 3, new BigDecimal("150.00"), "Detail comments", pendingStatus.getId());
+                    productId,
+                    variantId,
+                    BigDecimal.valueOf(3),
+                    new BigDecimal("150.00"),
+                    "Detail comments",
+                    pendingStatus.getId());
             var request =
                     new PurchaseOrderRequest(supplierId, storeId, pmId, draftStatusId, "Comments", List.of(detailReq));
 
@@ -892,7 +927,12 @@ class PurchaseOrderServiceTest {
         @DisplayName("addPurchaseOrderDetail resolves and sets a valid variant")
         void addDetailWithValidVariantSetsRelation() {
             var detailReq = new PurchaseOrderDetailRequest(
-                    productId, variantId, 2, new BigDecimal("50.00"), "Note", pendingStatus.getId());
+                    productId,
+                    variantId,
+                    BigDecimal.valueOf(2),
+                    new BigDecimal("50.00"),
+                    "Note",
+                    pendingStatus.getId());
 
             when(purchaseOrderRepository.findById(poId)).thenReturn(Optional.of(purchaseOrder));
             when(productRepository.findById(productId)).thenReturn(Optional.of(product));
@@ -918,7 +958,12 @@ class PurchaseOrderServiceTest {
         @DisplayName("addPurchaseOrderDetail rejects a foreign variant")
         void addDetailWithForeignVariantThrows() {
             var detailReq = new PurchaseOrderDetailRequest(
-                    productId, variantId, 2, new BigDecimal("50.00"), "Note", pendingStatus.getId());
+                    productId,
+                    variantId,
+                    BigDecimal.valueOf(2),
+                    new BigDecimal("50.00"),
+                    "Note",
+                    pendingStatus.getId());
 
             when(purchaseOrderRepository.findById(poId)).thenReturn(Optional.of(purchaseOrder));
             when(productRepository.findById(productId)).thenReturn(Optional.of(product));
@@ -933,7 +978,12 @@ class PurchaseOrderServiceTest {
         @DisplayName("updatePurchaseOrderDetail rejects a foreign variant")
         void updateDetailWithForeignVariantThrows() {
             var updatedReq = new PurchaseOrderDetailRequest(
-                    productId, variantId, 10, new BigDecimal("25.00"), "Updated", pendingStatus.getId());
+                    productId,
+                    variantId,
+                    BigDecimal.valueOf(10),
+                    new BigDecimal("25.00"),
+                    "Updated",
+                    pendingStatus.getId());
 
             when(purchaseOrderRepository.findById(poId)).thenReturn(Optional.of(purchaseOrder));
             when(detailRepository.findById(detailId)).thenReturn(Optional.of(detail));
@@ -949,7 +999,12 @@ class PurchaseOrderServiceTest {
         @DisplayName("updatePurchaseOrderDetail sets a valid variant on the persisted entity")
         void updateDetailWithValidVariantSetsRelation() {
             var updatedReq = new PurchaseOrderDetailRequest(
-                    productId, variantId, 10, new BigDecimal("25.00"), "Updated", pendingStatus.getId());
+                    productId,
+                    variantId,
+                    BigDecimal.valueOf(10),
+                    new BigDecimal("25.00"),
+                    "Updated",
+                    pendingStatus.getId());
 
             when(purchaseOrderRepository.findById(poId)).thenReturn(Optional.of(purchaseOrder));
             when(detailRepository.findById(detailId)).thenReturn(Optional.of(detail));
@@ -1042,7 +1097,7 @@ class PurchaseOrderServiceTest {
             // "... || isDetailStatusReachable(current, \"Received\")" predicate admit the terminal
             // Received line and let the write happen before the mutator threw a 409.
             detail.setStatus(receivedStatus);
-            detail.setReceivedQuantity(0);
+            detail.setReceivedQuantity(BigDecimal.valueOf(0));
 
             assertThatThrownBy(() -> service.requireDetailReceivable(detail))
                     .isInstanceOf(InvalidStatusTransitionException.class)
@@ -1080,10 +1135,10 @@ class PurchaseOrderServiceTest {
             stubDetailTarget("Partial Received", partialReceivedStatus);
             stubDetailSave();
 
-            var result = service.registerReceivedQuantity(poId, detailId, 3);
+            var result = service.registerReceivedQuantity(poId, detailId, BigDecimal.valueOf(3));
 
             assertThat(result.statusName()).isEqualTo("Partial Received");
-            assertThat(result.receivedQuantity()).isEqualTo(3);
+            assertThat(result.receivedQuantity()).isEqualByComparingTo("3");
             assertThat(detail.getStatus()).isSameAs(partialReceivedStatus);
         }
 
@@ -1094,7 +1149,7 @@ class PurchaseOrderServiceTest {
             stubDetailTarget("Partial Received", partialReceivedStatus);
             stubDetailSave();
 
-            var result = service.registerReceivedQuantity(poId, detailId, 3);
+            var result = service.registerReceivedQuantity(poId, detailId, BigDecimal.valueOf(3));
 
             assertThat(result.statusName()).isEqualTo("Partial Received");
         }
@@ -1106,7 +1161,7 @@ class PurchaseOrderServiceTest {
             stubDetailTarget("Partial Received", partialReceivedStatus);
             stubDetailSave();
 
-            var result = service.registerReceivedQuantity(poId, detailId, 3);
+            var result = service.registerReceivedQuantity(poId, detailId, BigDecimal.valueOf(3));
 
             assertThat(result.statusName()).isEqualTo("Partial Received");
         }
@@ -1118,7 +1173,7 @@ class PurchaseOrderServiceTest {
             stubDetailTarget("Partial Received", partialReceivedStatus);
             stubDetailSave();
 
-            var result = service.registerReceivedQuantity(poId, detailId, 3);
+            var result = service.registerReceivedQuantity(poId, detailId, BigDecimal.valueOf(3));
 
             assertThat(result.statusName()).isEqualTo("Partial Received");
         }
@@ -1130,10 +1185,10 @@ class PurchaseOrderServiceTest {
             stubDetailTarget("Received", receivedStatus);
             stubDetailSave();
 
-            var result = service.registerReceivedQuantity(poId, detailId, 5);
+            var result = service.registerReceivedQuantity(poId, detailId, BigDecimal.valueOf(5));
 
             assertThat(result.statusName()).isEqualTo("Received");
-            assertThat(detail.getReceivedQuantity()).isEqualTo(5);
+            assertThat(detail.getReceivedQuantity()).isEqualByComparingTo("5");
         }
 
         @Test
@@ -1143,7 +1198,7 @@ class PurchaseOrderServiceTest {
             stubDetailTarget("Received", receivedStatus);
             stubDetailSave();
 
-            var result = service.registerReceivedQuantity(poId, detailId, 5);
+            var result = service.registerReceivedQuantity(poId, detailId, BigDecimal.valueOf(5));
 
             assertThat(result.statusName()).isEqualTo("Received");
         }
@@ -1154,7 +1209,7 @@ class PurchaseOrderServiceTest {
             stubReceivableHeaderAndDetail(rejectedStatus);
             stubDetailTarget("Partial Received", partialReceivedStatus);
 
-            assertThatThrownBy(() -> service.registerReceivedQuantity(poId, detailId, 3))
+            assertThatThrownBy(() -> service.registerReceivedQuantity(poId, detailId, BigDecimal.valueOf(3)))
                     .isInstanceOf(InvalidStatusTransitionException.class)
                     .hasMessageContaining("Rejected");
 
@@ -1167,7 +1222,7 @@ class PurchaseOrderServiceTest {
             stubReceivableHeaderAndDetail(cancelledStatus);
             stubDetailTarget("Partial Received", partialReceivedStatus);
 
-            assertThatThrownBy(() -> service.registerReceivedQuantity(poId, detailId, 3))
+            assertThatThrownBy(() -> service.registerReceivedQuantity(poId, detailId, BigDecimal.valueOf(3)))
                     .isInstanceOf(InvalidStatusTransitionException.class)
                     .hasMessageContaining("Cancelled");
 
@@ -1179,7 +1234,7 @@ class PurchaseOrderServiceTest {
         void nonPositiveQuantityThrows() {
             stubReceivableHeaderAndDetail(inTransitStatus);
 
-            assertThatThrownBy(() -> service.registerReceivedQuantity(poId, detailId, 0))
+            assertThatThrownBy(() -> service.registerReceivedQuantity(poId, detailId, BigDecimal.valueOf(0)))
                     .isInstanceOf(IllegalArgumentException.class)
                     .hasMessageContaining("greater than 0");
 
@@ -1191,7 +1246,7 @@ class PurchaseOrderServiceTest {
         void overOrderedQuantityThrows() {
             stubReceivableHeaderAndDetail(inTransitStatus);
 
-            assertThatThrownBy(() -> service.registerReceivedQuantity(poId, detailId, 6))
+            assertThatThrownBy(() -> service.registerReceivedQuantity(poId, detailId, BigDecimal.valueOf(6)))
                     .isInstanceOf(IllegalArgumentException.class)
                     .hasMessageContaining("must not exceed");
 
@@ -1213,7 +1268,7 @@ class PurchaseOrderServiceTest {
             when(statusRepository.findByTypeNameAndStatusName("PURCHASE_ORDER", "Received"))
                     .thenReturn(Optional.of(receivedPoStatus));
 
-            var result = service.registerReceivedQuantity(poId, detailId, 5);
+            var result = service.registerReceivedQuantity(poId, detailId, BigDecimal.valueOf(5));
 
             assertThat(result.statusName()).isEqualTo("Received");
             assertThat(purchaseOrder.getStatus()).isSameAs(receivedPoStatus);
@@ -1230,10 +1285,10 @@ class PurchaseOrderServiceTest {
                     .id(UUID.randomUUID())
                     .purchaseOrder(purchaseOrder)
                     .product(product)
-                    .quantity(2)
+                    .quantity(BigDecimal.valueOf(2))
                     .unitPrice(new BigDecimal("10.00"))
                     .total(new BigDecimal("20.00"))
-                    .receivedQuantity(0)
+                    .receivedQuantity(BigDecimal.ZERO)
                     .status(pendingStatus)
                     .enabled(true)
                     .build();
@@ -1249,7 +1304,7 @@ class PurchaseOrderServiceTest {
             when(detailRepository.save(any(PurchaseOrderDetail.class))).thenReturn(detail);
             stubDetailTarget("Received", receivedStatus);
 
-            service.registerReceivedQuantity(poId, detailId, 5);
+            service.registerReceivedQuantity(poId, detailId, BigDecimal.valueOf(5));
 
             assertThat(purchaseOrder.getStatus()).isSameAs(inTransitPoStatus);
         }
@@ -1261,15 +1316,15 @@ class PurchaseOrderServiceTest {
             stubDetailTarget("Partial Received", partialReceivedStatus);
             stubDetailSave();
 
-            service.registerReceivedQuantity(poId, detailId, 3);
+            service.registerReceivedQuantity(poId, detailId, BigDecimal.valueOf(3));
 
             var captor = ArgumentCaptor.forClass(PurchaseOrderDetailStatusChangedEvent.class);
             verify(eventPublisher).publishEvent(captor.capture());
             var event = captor.getValue();
             assertThat(event.getFromStatus()).isEqualTo("In Process");
             assertThat(event.getToStatus()).isEqualTo("Partial Received");
-            assertThat(event.getReceivedQuantity()).isEqualTo(3);
-            assertThat(event.getOrderedQuantity()).isEqualTo(5);
+            assertThat(event.getReceivedQuantity()).isEqualByComparingTo("3");
+            assertThat(event.getOrderedQuantity()).isEqualByComparingTo("5");
         }
 
         @Test
@@ -1287,7 +1342,7 @@ class PurchaseOrderServiceTest {
                     .build();
             detail.setPurchaseOrder(otherOrder);
 
-            assertThatThrownBy(() -> service.registerReceivedQuantity(poId, detailId, 3))
+            assertThatThrownBy(() -> service.registerReceivedQuantity(poId, detailId, BigDecimal.valueOf(3)))
                     .isInstanceOf(PurchaseOrderDetailNotFoundException.class);
 
             verify(detailRepository, never()).save(any(PurchaseOrderDetail.class));
@@ -1298,7 +1353,7 @@ class PurchaseOrderServiceTest {
         void missingOrderThrows() {
             when(purchaseOrderRepository.findById(poId)).thenReturn(Optional.empty());
 
-            assertThatThrownBy(() -> service.registerReceivedQuantity(poId, detailId, 1))
+            assertThatThrownBy(() -> service.registerReceivedQuantity(poId, detailId, BigDecimal.valueOf(1)))
                     .isInstanceOf(PurchaseOrderNotFoundException.class);
         }
 
@@ -1309,7 +1364,7 @@ class PurchaseOrderServiceTest {
             when(purchaseOrderRepository.findById(poId)).thenReturn(Optional.of(purchaseOrder));
             when(detailRepository.findById(detailId)).thenReturn(Optional.empty());
 
-            assertThatThrownBy(() -> service.registerReceivedQuantity(poId, detailId, 1))
+            assertThatThrownBy(() -> service.registerReceivedQuantity(poId, detailId, BigDecimal.valueOf(1)))
                     .isInstanceOf(PurchaseOrderDetailNotFoundException.class);
         }
     }
