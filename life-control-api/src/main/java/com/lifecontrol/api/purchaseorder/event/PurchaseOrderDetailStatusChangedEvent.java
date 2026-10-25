@@ -1,5 +1,6 @@
 package com.lifecontrol.api.purchaseorder.event;
 
+import java.math.BigDecimal;
 import java.util.UUID;
 import org.springframework.context.ApplicationEvent;
 
@@ -16,8 +17,8 @@ public class PurchaseOrderDetailStatusChangedEvent extends ApplicationEvent {
     private final UUID productId;
     private final String fromStatus;
     private final String toStatus;
-    private final int receivedQuantity;
-    private final int orderedQuantity;
+    private final BigDecimal receivedQuantity;
+    private final BigDecimal orderedQuantity;
 
     public PurchaseOrderDetailStatusChangedEvent(
             Object source,
@@ -27,8 +28,8 @@ public class PurchaseOrderDetailStatusChangedEvent extends ApplicationEvent {
             UUID productId,
             String fromStatus,
             String toStatus,
-            int receivedQuantity,
-            int orderedQuantity) {
+            BigDecimal receivedQuantity,
+            BigDecimal orderedQuantity) {
         super(source);
         this.purchaseOrderId = purchaseOrderId;
         this.orderNumber = orderNumber;
@@ -64,11 +65,11 @@ public class PurchaseOrderDetailStatusChangedEvent extends ApplicationEvent {
         return toStatus;
     }
 
-    public int getReceivedQuantity() {
+    public BigDecimal getReceivedQuantity() {
         return receivedQuantity;
     }
 
-    public int getOrderedQuantity() {
+    public BigDecimal getOrderedQuantity() {
         return orderedQuantity;
     }
 }

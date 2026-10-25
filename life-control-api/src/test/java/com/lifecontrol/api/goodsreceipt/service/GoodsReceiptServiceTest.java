@@ -3,7 +3,6 @@ package com.lifecontrol.api.goodsreceipt.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
@@ -188,8 +187,8 @@ class GoodsReceiptServiceTest {
                 .id(DETAIL_ID)
                 .purchaseOrder(purchaseOrder)
                 .productVariant(variant)
-                .quantity(5)
-                .receivedQuantity(0)
+                .quantity(BigDecimal.valueOf(5))
+                .receivedQuantity(BigDecimal.ZERO)
                 .enabled(true)
                 .build();
 
@@ -254,7 +253,7 @@ class GoodsReceiptServiceTest {
     /** Every writer of the use case: a rejection must not touch any of them. */
     private void assertNoWrites() {
         verifyNoInteractions(inventoryService);
-        verify(purchaseOrderService, never()).registerReceivedQuantity(any(), any(), anyInt());
+        verify(purchaseOrderService, never()).registerReceivedQuantity(any(), any(), any());
         verify(goodsReceiptRepository, never()).save(any(GoodsReceipt.class));
         verify(storeInventorySettingsRepository, never()).save(any(StoreInventorySettings.class));
         verify(storeLocationRepository, never()).save(any(StoreLocation.class));
@@ -300,7 +299,7 @@ class GoodsReceiptServiceTest {
                             "GOODS_RECEIPT",
                             RECEIPT_ID,
                             "receiver");
-            verify(purchaseOrderService).registerReceivedQuantity(PO_ID, DETAIL_ID, 3);
+            verify(purchaseOrderService).registerReceivedQuantity(PO_ID, DETAIL_ID, BigDecimal.valueOf(3));
         }
 
         @Test
@@ -320,11 +319,31 @@ class GoodsReceiptServiceTest {
         @DisplayName("should pass the accumulated total, not the delta, to registerReceivedQuantity")
         void passesAccumulatedTotal() {
             stubHappyPath();
-            detail.setReceivedQuantity(2);
+            detail.setReceivedQuantity(BigDecimal.valueOf(2));
 
             service.createReceipt(requestWith(LOCATION_ID, line(DETAIL_ID, "3")));
 
-            verify(purchaseOrderService).registerReceivedQuantity(PO_ID, DETAIL_ID, 5);
+            verify(purchaseOrderService).registerReceivedQuantity(PO_ID, DETAIL_ID, BigDecimal.valueOf(5));
+        }
+
+        @Test
+        @DisplayName("should accept a fractional quantity such as 2.5 and pass it on as received")
+        void acceptsFractionalQuantity() {
+            stubHappyPath();
+
+            var response = service.createReceipt(requestWith(LOCATION_ID, line(DETAIL_ID, "2.5")));
+
+            assertThat(response.lines().getFirst().quantityReceived()).isEqualByComparingTo("2.5");
+            verify(inventoryService)
+                    .applyReceipt(
+                            VARIANT_ID,
+                            STORE_ID,
+                            LOCATION_ID,
+                            new BigDecimal("2.5"),
+                            "GOODS_RECEIPT",
+                            RECEIPT_ID,
+                            "receiver");
+            verify(purchaseOrderService).registerReceivedQuantity(PO_ID, DETAIL_ID, new BigDecimal("2.5"));
         }
 
         @Test
@@ -344,7 +363,7 @@ class GoodsReceiptServiceTest {
                             "GOODS_RECEIPT",
                             RECEIPT_ID,
                             "receiver");
-            order.verify(purchaseOrderService).registerReceivedQuantity(PO_ID, DETAIL_ID, 3);
+            order.verify(purchaseOrderService).registerReceivedQuantity(PO_ID, DETAIL_ID, BigDecimal.valueOf(3));
         }
     }
 
@@ -625,11 +644,13 @@ class GoodsReceiptServiceTest {
         }
 
         @Test
-        @DisplayName("should reject a non-integral quantity such as 2.5")
-        void nonIntegralQuantity() {
-            assertThatThrownBy(() -> service.createReceipt(requestWith(LOCATION_ID, line(DETAIL_ID, "2.5"))))
+        @DisplayName("should reject a quantity with more than two decimals, such as 2.505")
+        void moreThanTwoDecimals() {
+            // The column is DECIMAL(12,2): a third decimal would be rounded by PostgreSQL, which is
+            // silently receiving a quantity nobody asked for. The boundary rejects it instead.
+            assertThatThrownBy(() -> service.createReceipt(requestWith(LOCATION_ID, line(DETAIL_ID, "2.505"))))
                     .isInstanceOf(InvalidReceiptQuantityException.class)
-                    .hasMessageContaining("whole number");
+                    .hasMessageContaining("at most two decimals");
 
             assertNoWrites();
         }
@@ -637,7 +658,7 @@ class GoodsReceiptServiceTest {
         @Test
         @DisplayName("should reject an over-receipt computed from the accumulated quantity")
         void overReceipt() {
-            detail.setReceivedQuantity(4);
+            detail.setReceivedQuantity(BigDecimal.valueOf(4));
 
             assertThatThrownBy(() -> service.createReceipt(requestWith(LOCATION_ID, line(DETAIL_ID, "2"))))
                     .isInstanceOf(OverReceiptException.class)

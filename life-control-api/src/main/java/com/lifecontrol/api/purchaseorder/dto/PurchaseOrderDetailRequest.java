@@ -1,7 +1,7 @@
 package com.lifecontrol.api.purchaseorder.dto;
 
 import jakarta.validation.constraints.DecimalMin;
-import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.Digits;
 import jakarta.validation.constraints.NotNull;
 import java.math.BigDecimal;
 import java.util.UUID;
@@ -11,8 +11,10 @@ public record PurchaseOrderDetailRequest(
 
         @NotNull(message = "productVariantId is required") UUID productVariantId,
 
-        @NotNull(message = "quantity is required") @Min(value = 1, message = "quantity must be greater than 0")
-        Integer quantity,
+        @NotNull(message = "quantity is required")
+        @DecimalMin(value = "0.01", message = "quantity must be greater than 0")
+        @Digits(integer = 10, fraction = 2, message = "quantity must have at most two decimals")
+        BigDecimal quantity,
 
         @NotNull(message = "unitPrice is required")
         @DecimalMin(value = "0.01", message = "unitPrice must be greater than or equal to 0.01")
