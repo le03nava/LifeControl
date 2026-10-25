@@ -26,12 +26,13 @@ import org.springframework.web.bind.annotation.*;
  * {@code lc-employee}.
  *
  * <p>The controller is deliberately thin: the company scope is resolved inside
- * {@code EmployeeStoreAssignmentService} (which calls {@code verifyCompanyAccess} before loading
- * anything), so nothing here re-implements the scope check, the validation or the day arithmetic.
- * There is deliberately no {@code PUT} and no {@code DELETE} (decision T5): a transfer is a new
- * assignment and a mistake is closed, because rewriting a row would erase when someone stopped
- * working somewhere. The {@code PATCH …/{id}/close} route closes an open assignment exactly once,
- * with the body's end date defaulting to today (decisions T5 and D5).</p>
+ * {@code EmployeeScopeAssignmentService} (which calls {@code verifyCompanyAccess} before loading
+ * anything) and the store route reaches it through the {@code EmployeeStoreAssignmentService}
+ * compatibility façade, so nothing here re-implements the scope check, the validation or the day
+ * arithmetic. There is deliberately no {@code PUT} and no {@code DELETE} (decision T5): a transfer is a
+ * new assignment and a mistake is closed, because rewriting a row would erase when someone stopped
+ * working somewhere. The {@code PATCH …/{id}/close} route closes an open assignment exactly once, with
+ * the body's end date defaulting to today (decisions T5 and D5).</p>
  */
 @RestController
 @RequestMapping("/api/companies/{companyId}/employees/{employeeId}/store-assignments")
