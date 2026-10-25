@@ -124,11 +124,11 @@ delivered as a chain of three pull requests that land in order on `main`. The cu
 not by layer: each slice is something a reviewer can hold in their head and accept or reject on its
 own. Each child branches from the previous slice, and its diff is read against that parent.
 
-| # | Scope | Branch | Authored lines |
-| --- | --- | --- | --- |
-| 1 | `V31`, the entity and the repository, plus the schema integration test that proves the tenancy FK, the sibling index and the self-parent `CHECK` | `feat/product-categories-schema` | 592 |
-| 2 | Reading the tree — `GET` list and by id: depth-first order, ancestor visibility, company scope — and creating a node: `POST` with the ceiling, the disabled-parent rule and the sibling-name rule | `feat/product-categories-reads-create` | 1397 |
-| 3 | Moving a node (with the ceiling measured on the moved subtree), enabling and disabling with the cascade, soft delete, and this record | `feat/product-categories-writes` | 1010 |
+| # | Scope | Branch | Pull request | Authored lines |
+| --- | --- | --- | --- | --- |
+| 1 | `V31`, the entity and the repository, plus the schema integration test that proves the tenancy FK, the sibling index and the self-parent `CHECK` | `feat/product-categories-schema` | #610 → `main`, closes #607 | 592 |
+| 2 | Reading the tree — `GET` list and by id: depth-first order, ancestor visibility, company scope — and creating a node: `POST` with the ceiling, the disabled-parent rule and the sibling-name rule | `feat/product-categories-reads-create` | #608 → slice 1 | 1397 |
+| 3 | Moving a node (with the ceiling measured on the moved subtree), enabling and disabling with the cascade, soft delete, and this record | `feat/product-categories-writes` | #609 → slice 2, closes #600 on retarget | 1010 |
 
 **Why three slices and not eight.** The budget is advisory and the slicing is bounded to one honest
 pass. A cut at every 400 lines would have to split the service's read path from its own tests, or the
@@ -273,3 +273,10 @@ carries.
   "Delivery slices" section declares, and the last one's tree is byte-identical to the branch that
   was verified end to end. The chain is the answer to the review budget, not a change of scope: S3
   and S7 stay deferred, and nothing in the chain adds a rule the record does not name.
+- **L15** (delivery, dated 2026-10-24): the chain is open as **#610** (`feat/product-categories-schema`
+  &rarr; `main`, closes the slice issue #607), **#608** (`feat/product-categories-reads-create`
+  &rarr; slice 1) and **#609** (`feat/product-categories-writes` &rarr; slice 2, and the one that
+  closes #600 once retargeted to `main`). All three report the two `pr-label-guard` jobs, `Static
+  analysis` and `Test` green. The merge order is the order above, and the chain's own rule applies at
+  every step: retarget the child to `main` before merging or deleting its parent branch, because a
+  deleted base branch closes an open child and cannot be undone.
