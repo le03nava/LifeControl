@@ -19,15 +19,21 @@ JAVA_SERVICES=("api-gateway" "life-control-api")
 
 # Check if SKIP_BUILD is set to a truthy value
 is_skip_build() {
-	local value="${SKIP_BUILD:-}"
-	case "${value,,}" in
-	1 | true | yes) return 0 ;;
-	*) return 1 ;;
-	esac
+	env_flag_is_truthy "${SKIP_BUILD:-}"
+}
+
+# Check if STRICT_REVISION asks for the revision report to fail the command.
+#
+# `report_image_revisions` only warns, so `health` stays a read-only report by default -- the same
+# contract `report_stale_image_pins` has, and for the same reason: this is not the prod gate. An
+# operator who wants the evidence to stop a command asks for it here, the way `--strict-pins` asks
+# validate-env.sh.
+is_strict_revision() {
+	env_flag_is_truthy "${STRICT_REVISION:-}"
 }
 
 usage() {
-	echo "Usage: $0 [dev|staging|prod] [start|stop|restart|build|build-images|up|logs|status|clean|health]"
+	echo "Usage: $0 [dev|staging|prod] [start|stop|restart|build|build-images|up|logs|status|version|clean|health]"
 	echo ""
 	echo "Environments:"
 	echo "  dev, development    - Development environment"
@@ -43,12 +49,14 @@ usage() {
 	echo "  restart           - Restart services"
 	echo "  logs              - Show logs"
 	echo "  status            - Show status"
+	echo "  version           - Show the revision each running application image was built from (exits non-zero when one is not HEAD)"
 	echo "  clean             - Stop and remove volumes"
 	echo "  health            - Check service health"
 	echo ""
 	echo "Environment Variables:"
 	echo "  BUILD_PROFILE     - Build profile (dev|staging|prod), default: current environment"
 	echo "  SKIP_BUILD       - Set to '1', 'true' or 'yes' (case-insensitive) to skip build in start"
+	echo "  STRICT_REVISION  - Set to '1', 'true' or 'yes' to fail health when a running application image was not built from HEAD"
 	exit 1
 }
 
@@ -196,6 +204,19 @@ restart_services() {
 	health_check
 }
 
+# Answer "which code is running", and let a script act on the answer.
+#
+# The report is shared with health_check, so exactly one place decides what a revision means. This
+# command adds only the exit contract: 0 when every running application image was built from HEAD.
+show_version() {
+	report_image_revisions
+	if [ "${IMAGE_REVISION_MISMATCH_COUNT:-0}" -eq 0 ]; then
+		return 0
+	fi
+	print_error "The stack is not running the code this repository has checked out."
+	return 1
+}
+
 show_status() {
 	echo ""
 	print_status "Service Status:"
@@ -267,6 +288,17 @@ host_readiness_probes() {
 }
 
 health_check() {
+	# Which code is running is part of "healthy": a green stack over an image built ten commits ago
+	# is the failure this whole unit exists for, and `up` / `SKIP_BUILD=true` reach this function
+	# without ever building. The report is read-only and only warns, so a start is never failed by
+	# it; STRICT_REVISION is the opt-in that turns the same evidence into a failure -- the shape
+	# --strict-pins gives the image pins, and for the same reason: this is not the prod gate.
+	report_image_revisions
+	if is_strict_revision && [ "${IMAGE_REVISION_MISMATCH_COUNT:-0}" -gt 0 ]; then
+		print_error "STRICT_REVISION is set and ${IMAGE_REVISION_MISMATCH_COUNT} application image(s) are not HEAD."
+		return 1
+	fi
+
 	print_status "Waiting for all services to become healthy..."
 
 	local max_attempts=30
@@ -366,6 +398,10 @@ logs)
 	;;
 status)
 	show_status
+	;;
+version)
+	check_requirements
+	show_version
 	;;
 clean)
 	clean_services
