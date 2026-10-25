@@ -6,7 +6,7 @@ PASS_COUNT=0; FAIL_COUNT=0; SKIP_COUNT=0
 pass() { printf 'PASS: %s\n' "$1"; PASS_COUNT=$((PASS_COUNT + 1)); }
 fail() { printf 'FAIL: %s\n' "$1"; FAIL_COUNT=$((FAIL_COUNT + 1)); }
 skip() { printf 'SKIP: %s\n' "$1"; SKIP_COUNT=$((SKIP_COUNT + 1)); }
-for key in CIRCUIT_BREAKER_WINDOW_SIZE GF_AUTH_ANONYMOUS_ORG_ROLE; do
+for key in CIRCUIT_BREAKER_WINDOW_SIZE; do
 	if grep -qE "^${key}=" "$DOCKER_DIR/.env.template"; then pass "$key is still declared in .env.template"; else fail "$key was removed from .env.template"; fi
 done
 if ! docker compose version >/dev/null 2>&1; then

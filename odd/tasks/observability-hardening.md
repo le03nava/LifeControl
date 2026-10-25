@@ -75,18 +75,25 @@ the root logger without a rebuild. Measured today: compose passes it
 (`docker/docker-compose.yml:349`), `grep -rn 'logging.level.root' life-control-api/src/main/resources`
 returns nothing, and `logback-spring.xml` pins `<root level="INFO">`.
 
-**S8** — No dead Grafana auth configuration remains: `grep -rn 'GF_AUTH' docker/.env*
-docker/.env.template` returns nothing, or every `GF_AUTH_*` key it returns is mapped inside the
-`grafana` service's `environment:` block. Measured today: three keys are declared in `docker/.env.dev`
-and `docker/.env.template` and never reach the container, while
-`curl -s -o /dev/null -w '%{http_code}' :3000/api/dashboards/home` answers `401` and `/login` answers
-`200` — the login form is enabled and anonymous access is disabled, contrary to what those keys say.
+**S8** — The Grafana auth block is gone and cannot come back as a knob that does nothing:
+`grep -rn 'GF_AUTH' docker/.env*` returns nothing, the two keys the production override *does* forward
+(`GF_AUTH_ANONYMOUS_ENABLED`, `GF_AUTH_DISABLE_LOGIN_FORM`) are pinned as compose-internal keys with the
+compose defaults as their only values, and `image-pins.test.sh` fails if any of the three keys returns to
+the template. Measured before the change: `docker/.env.template` and the four materialised env files
+declared `GF_AUTH_ANONYMOUS_ENABLED=true`, `GF_AUTH_ANONYMOUS_ORG_ROLE=Admin` and
+`GF_AUTH_DISABLE_LOGIN_FORM=true`; the base compose forwards none of them (`/api/dashboards/home` answers
+`401`, `/login` answers `200`), while `docker/docker-compose.prod.yml:186` forwards
+`GF_AUTH_ANONYMOUS_ENABLED=${GF_AUTH_ANONYMOUS_ENABLED:-false}` — so in production that block was not inert
+at all: a `.env.prod` materialised from the template would have run Grafana with anonymous admin.
 
-**S9** — One Grafana version across every environment, and the pin check sees it: `.env.template`,
-`.env.dev`, `.env.staging`, `.env.prod` and the compose defaults declare the same version, and
-`docker/scripts/tests/image-pins.test.sh` fails on a divergence between per-environment files. Measured
-today: `grafana/grafana:13.2.4` in dev and `.env.template`, `grafana/grafana:10.2.0` in staging and prod,
-with the pin suite comparing only the template against the compose defaults.
+**S9** — One Grafana version everywhere, and the check that keeps it that way: `.env.template` and the
+compose defaults declare `grafana/grafana:13.2.4`, `image-pins.test.sh` compares every `*_IMAGE` key a
+materialised `.env.<env>` declares against the template and **fails on divergence**, and it prints a NOTE
+instead of a PASS when no env file is materialised, so a comparison that never happened is never reported
+as a pass. Measured before the change: `13.2.4` in dev and the template, `10.2.0` in the staging and prod
+sequences, with the suite comparing only the template against the compose defaults. The env files are
+gitignored and absent from a fresh worktree, so the alignment itself is an operator edit
+(`setup-env.sh` never rewrites an existing file) and the parity check is the part that ships.
 
 **S10** — The first dashboards and alerts are versioned, not hand-built: `docker/config/grafana/dashboards/`
 holds JSON provisioned through `/etc/grafana/provisioning/dashboards`, covering at least server error
@@ -118,7 +125,7 @@ OTLP migration, and `tempo-receivers.test.sh` is the only suite guarding any par
 | T3 | Bind every observability port to `127.0.0.1` in the base compose and the prod override, and drop `--web.enable-lifecycle` from the Prometheus args; add the compose-grep suite (S4). | S4 | worker | `382f9a2` |
 | T4 | Add `api-gateway/src/main/resources/logback-spring.xml` with the `Loki4jAppender` wired to the existing `loki.*` properties, and the parity suite that fails when a module depends on the appender without declaring it (S5). | S5 | inline | — |
 | T5 | Make the API's prod sampling read the environment variable and make `LOG_LEVEL` reach the root logger; pin both with a properties suite (S6, S7). | S6, S7 | inline | — |
-| T6 | Remove the unreachable `GF_AUTH_*` keys, align the Grafana pin across the four env files, and extend `image-pins.test.sh` to per-environment divergence (S8, S9). | S8, S9 | inline | — |
+| T6 | Remove the Grafana auth block from the template, pin the two keys production does forward as compose-internal, and extend `image-pins.test.sh` with per-environment pin parity plus the guard that the block cannot come back (S8, S9). | S8, S9 | worker + parent | — |
 | T7 | Provision the first dashboards and the first alert rule from the repository, with `setup-env.sh` installing them the way datasources already are (S10). | S10 | inline | — |
 | T8 | Add the PostgreSQL and Redis exporters to compose and Prometheus, and publish the worker's queue gauge from `life-control-api` (S11). | S11 | inline | — |
 | T9 | Correct the `AGENTS.md` Observability table and add the two cross-file parity suites for `prometheus.yml` and `datasources.yml` (S12). | S12 | inline | — |
@@ -249,3 +256,31 @@ behaviour the delegation asked for. Parent-side verification: the gateway suite'
 (`GatewayLokiAppenderConfigurationTest` 2 tests, plus the four pre-existing gateway classes), the API's
 `ObservabilityEnvironmentOverrideTest` passes (3 tests), and the gateway has no Spotless plugin — there
 is no formatting gate in that module, which is why only the API ran `spotlessCheck`.
+
+**L13 — the Grafana block was not inert, and that changed what S8 was for.** The record called those keys
+dead because the base compose has no `environment:` block for `grafana`. Half true: the production override
+does forward two of them —
+`GF_AUTH_ANONYMOUS_ENABLED: ${GF_AUTH_ANONYMOUS_ENABLED:-false}` and
+`GF_AUTH_DISABLE_LOGIN_FORM: ${GF_AUTH_DISABLE_LOGIN_FORM:-false}` (`docker/docker-compose.prod.yml:186-188`).
+A production env file materialised from the template would have carried `true` into both, i.e. an anonymous
+Grafana whose anonymous role the template set to `Admin`. S8 stopped being hygiene and became a security
+fix: the block is gone, and the compose default (`false`) is now the only source for those two keys. They
+are pinned in `env-defaults.test.sh`'s compose-internal list so they cannot return as operator knobs, and
+`image-pins.test.sh` fails if any of the three reappears in the template.
+
+**L14 — two of the four env files cannot be committed, and the suite says so instead of pretending.** The
+parity check this unit added can only compare materialised files, and `docker/.env*` is gitignored: in this
+worktree none of `.env.dev`, `.env.staging` or `.env.prod` exists. The alignment is therefore an operator
+edit and was made on the machine that runs the stack: the three `GF_AUTH_*` lines left all four local env
+files, and `.env.staging`/`.env.prod` moved from `grafana/grafana:10.2.0` to `13.2.4`. `GF_AUTH_BASIC_ENABLED`
+stays in `.env.prod`: that one *is* forwarded as a real knob and keeps its compose default. `setup-env.sh`
+never rewrites an existing file, so the template fix reaches a machine only through this kind of edit — which
+is exactly why the parity check, not the edit, is what ships.
+
+**L15 — the worker could not touch the env file, and that was correct behaviour.** The bounded writer hit
+the harness safety policy on `docker/.env*` (read and edit both refused) and reported the block instead of
+routing around it. Its two follow-up findings were both real and its measurements were reproduced by the
+parent: removing the block breaks `env-defaults.test.sh` (the allowlist must drop to seven and the two
+forwarded keys must become compose-internal) and `worker-dev-default.test.sh` (its loop asserted the key
+stayed in the template). Both suites were updated in this slice, and all 12 suites under
+`docker/scripts/tests/` pass: `image-pins` 45, `env-defaults` 242, `worker-dev-default` 6.
