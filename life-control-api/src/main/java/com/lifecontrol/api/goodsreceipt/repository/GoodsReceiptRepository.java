@@ -18,7 +18,7 @@ public interface GoodsReceiptRepository extends JpaRepository<GoodsReceipt, UUID
 
     /**
      * Free-text search over the receipt number and the order number of the purchase order it settles,
-     * mirroring {@code PurchaseOrderRepository#findBySearchTerm}.
+     * mirroring {@code PurchaseOrderRepository#findByFilters}.
      */
     @Query("""
         SELECT gr FROM GoodsReceipt gr

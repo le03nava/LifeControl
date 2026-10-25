@@ -17,6 +17,7 @@ import com.lifecontrol.api.product.repository.ProductVariantRepository;
 import com.lifecontrol.api.product.repository.ProductVariantStoreStockRepository;
 import com.lifecontrol.api.purchaseorder.dto.PurchaseOrderDetailRequest;
 import com.lifecontrol.api.purchaseorder.dto.PurchaseOrderDetailResponse;
+import com.lifecontrol.api.purchaseorder.dto.PurchaseOrderFilter;
 import com.lifecontrol.api.purchaseorder.dto.PurchaseOrderRequest;
 import com.lifecontrol.api.purchaseorder.dto.PurchaseOrderResponse;
 import com.lifecontrol.api.purchaseorder.dto.UpdatePurchaseOrderStatusRequest;
@@ -125,15 +126,29 @@ public class PurchaseOrderService {
 
     // ─── Purchase Order CRUD ────────────────────────────────────────────
 
+    /**
+     * The paginated list of purchase orders. Both the {@code search} term and the location
+     * {@code filter} are optional and combine with {@code AND}, so an empty filter returns the same
+     * page the module returned before the filters existed (record S4).
+     *
+     * <p>The blank/none search branch is gone: the trimmed term is handed to the single
+     * {@code findByFilters} query, whose {@code cast(:search as string) IS NULL} predicate is what
+     * makes a missing term match everything. Trimming stays here so the query never receives a
+     * whitespace-only pattern.</p>
+     */
     @Transactional(readOnly = true)
-    public Page<PurchaseOrderResponse> getAllPurchaseOrders(Pageable pageable, String search) {
-        Page<PurchaseOrder> orders;
+    public Page<PurchaseOrderResponse> getAllPurchaseOrders(
+            Pageable pageable, String search, PurchaseOrderFilter filter) {
+        var term = StringUtils.hasText(search) ? search.trim() : null;
 
-        if (StringUtils.hasText(search)) {
-            orders = purchaseOrderRepository.findBySearchTerm(search.trim(), pageable);
-        } else {
-            orders = purchaseOrderRepository.findByEnabledTrueOrderByCreatedAtDesc(pageable);
-        }
+        var orders = purchaseOrderRepository.findByFilters(
+                term,
+                filter.companyId(),
+                filter.companyCountryId(),
+                filter.regionId(),
+                filter.zoneId(),
+                filter.companyStoreId(),
+                pageable);
 
         return orders.map(this::toResponse);
     }
