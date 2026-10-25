@@ -140,8 +140,6 @@ build_services() {
 build_images() {
 	print_status "Building Docker images for $ENV environment..."
 
-	local repo_root="$DOCKER_DIR/.."
-
 	# The Java Dockerfiles do not compile: they COPY a pre-built JAR. Fail here,
 	# immediately before docker build, if any JAR is missing or older than its
 	# module's build inputs. This is the only path that builds images, so every
@@ -157,13 +155,12 @@ build_images() {
 		fi
 	done
 
-	# Sello la revisión git en cada imagen para trazabilidad de lo que corre.
-	# El entorno del shell tiene precedencia sobre --env-file, así que export
-	# alcanza para que la interpolación ${GIT_COMMIT:-unknown} de compose lo tome.
+	# Stamp the revision each image carries, for traceability of what runs. The shell environment
+	# takes precedence over --env-file, so exporting is enough for compose's ${GIT_COMMIT:-unknown}.
+	# What the stamp admits about a dirty tree is image_revision_stamp's contract, not this call.
 	local git_commit
-	# set -e está activo: el guard evita que un fallo de git aborte el build.
-	git_commit="$(git -C "$repo_root" rev-parse HEAD 2>/dev/null || true)"
-	export GIT_COMMIT="${git_commit:-unknown}"
+	git_commit="$(image_revision_stamp)"
+	export GIT_COMMIT="$git_commit"
 	print_status "Stamping GIT_COMMIT=$GIT_COMMIT"
 
 	compose_run build --no-cache
