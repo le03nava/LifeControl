@@ -139,8 +139,10 @@ rule with its test and every endpoint with the exception it maps.
 **Why the last slice is byte-identical to the verified tree.** Slices 2 and 3 were produced by
 deleting members from, and then restoring, the branch that was verified end to end
 (`feat/product-categories-backend`): `git diff` between that branch and slice 3 over the feature's
-paths is empty, so the code that lands is exactly the code that was reviewed and measured, not a
-re-typed approximation of it.
+**code and test** paths is empty, so what lands is exactly what was reviewed and measured, not a
+re-typed approximation of it. The one path that does differ is this record, and by design: it gains
+the delivery section above and the log entries below, which is what the slice that closes the unit
+carries.
 
 ## Scope
 
