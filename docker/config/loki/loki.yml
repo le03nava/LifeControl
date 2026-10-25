@@ -1,0 +1,75 @@
+# ============================================
+# LifeControl - Loki Configuration
+# ============================================
+# This file is mounted read-only into the container straight from the repository, and it is the
+# one observability config that is NOT copied into $VOLUMES_ROOT by setup-env.sh: a retention
+# policy decides how much of the host disk the logs may occupy and how much history survives,
+# so it has to be a reviewed diff and not a host mutation.
+#
+# It is deliberately a copy of the config packaged in the pinned image, plus the retention block.
+# The reference is the image itself, not this repository's memory of it:
+#
+#     docker create grafana/loki:3.7.8 && docker cp <id>:/etc/loki/local-config.yaml . && docker rm <id>
+#
+# (The image is distroless, so `docker run --entrypoint cat` does not work; `docker cp` from a
+# created container does.) Bumping LOKI_IMAGE means re-reading that file: the schema below is the
+# one 3.7.8 writes, and a schema newer than the image supports fails to start.
+#
+# The packaged config keeps logs forever (`retention_period: 0s`) while only answering queries for
+# `max_query_length` (the 30d1h default), so the host volume grew with data that could never be
+# read back. The operator set the window at 30 days, which is exactly the longest range Loki
+# answers. Enforcing it needs both halves of the retention mechanism: the limit alone is advisory,
+# and the compactor alone has nothing to delete.
+#
+# docker/scripts/tests/loki-retention.test.sh pins every value below.
+# ============================================
+auth_enabled: false
+
+server:
+  http_listen_port: 3100
+
+common:
+  instance_addr: 127.0.0.1
+  # Must match the directory the compose file mounts: /loki holds the index, the chunks, the
+  # rules and the compactor's working directory.
+  path_prefix: /loki
+  storage:
+    filesystem:
+      chunks_directory: /loki/chunks
+      rules_directory: /loki/rules
+  replication_factor: 1
+  ring:
+    kvstore:
+      store: inmemory
+
+schema_config:
+  configs:
+    - from: 2020-10-24
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+
+limits_config:
+  # 30 days (720h), the operator's decision and the same span `max_query_length` allows. Longer
+  # retention would only grow the disk with logs no query can reach.
+  retention_period: 720h
+
+compactor:
+  working_directory: /loki/compactor
+  # Without this the limit above is a no-op: Loki accepts `retention_period` and deletes nothing.
+  retention_enabled: true
+  # The deletion worker needs somewhere to keep its pending delete requests; without a store the
+  # compactor refuses to start with retention enabled.
+  delete_request_store: filesystem
+  # `limits_config.enforce_retention_period` is the pre-2.6 name for this switch and does NOT exist
+  # in 3.7.8: declaring it fails the parse with `field enforce_retention_period not found in type
+  # validation.plain`, so the container never starts. The `enforce_retention_period: false` that
+  # `GET :3100/config` keeps printing belongs to `query_engine`, which has nothing to do with
+  # deletion. `retention_enabled` above is the switch; this comment is here so nobody "restores"
+  # the old field to satisfy that line of output.
+
+ruler:
+  alertmanager_url: http://localhost:9093
