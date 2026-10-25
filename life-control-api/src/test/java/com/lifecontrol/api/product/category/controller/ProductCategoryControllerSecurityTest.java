@@ -3,8 +3,11 @@ package com.lifecontrol.api.product.category.controller;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.lifecontrol.api.config.ratelimit.RateLimitProperties;
@@ -167,6 +170,79 @@ class ProductCategoryControllerSecurityTest {
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(buildRequest())))
                     .andExpect(status().isUnauthorized());
+        }
+    }
+
+    @Nested
+    @DisplayName("PUT /api/companies/{companyId}/product-categories/{id}")
+    class UpdateSecurity {
+
+        @Test
+        @WithMockUser(roles = {"lc-admin"})
+        @DisplayName("returns 200 for lc-admin")
+        void adminCanUpdate() throws Exception {
+            when(productCategoryService.updateCategory(
+                            eq(companyId), eq(categoryId), any(ProductCategoryRequest.class)))
+                    .thenReturn(buildResponse());
+
+            mockMvc.perform(put("/api/companies/{companyId}/product-categories/{id}", companyId, categoryId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(buildRequest())))
+                    .andExpect(status().isOk());
+        }
+
+        @Test
+        @WithMockUser(roles = {"lc-sales"})
+        @DisplayName("returns 403 for a store-scoped role")
+        void salesRoleCannotUpdate() throws Exception {
+            mockMvc.perform(put("/api/companies/{companyId}/product-categories/{id}", companyId, categoryId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(buildRequest())))
+                    .andExpect(status().isForbidden());
+        }
+    }
+
+    @Nested
+    @DisplayName("DELETE and PATCH enable")
+    class DeleteAndEnableSecurity {
+
+        @Test
+        @WithMockUser(roles = {"lc-admin"})
+        @DisplayName("returns 204 for lc-admin")
+        void adminCanDelete() throws Exception {
+            mockMvc.perform(delete("/api/companies/{companyId}/product-categories/{id}", companyId, categoryId))
+                    .andExpect(status().isNoContent());
+        }
+
+        @Test
+        @WithMockUser(roles = {"other-role"})
+        @DisplayName("returns 403 for DELETE with an unrelated role")
+        void unrelatedRoleCannotDelete() throws Exception {
+            mockMvc.perform(delete("/api/companies/{companyId}/product-categories/{id}", companyId, categoryId))
+                    .andExpect(status().isForbidden());
+        }
+
+        @Test
+        @WithMockUser(roles = {"lc-admin"})
+        @DisplayName("returns 200 for PATCH enable with lc-admin")
+        void adminCanToggle() throws Exception {
+            when(productCategoryService.setCategoryEnabled(companyId, categoryId, false))
+                    .thenReturn(buildResponse());
+
+            mockMvc.perform(patch("/api/companies/{companyId}/product-categories/{id}/enable", companyId, categoryId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"enabled\": false}"))
+                    .andExpect(status().isOk());
+        }
+
+        @Test
+        @WithMockUser(roles = {"other-role"})
+        @DisplayName("returns 403 for PATCH enable with an unrelated role")
+        void unrelatedRoleCannotToggle() throws Exception {
+            mockMvc.perform(patch("/api/companies/{companyId}/product-categories/{id}/enable", companyId, categoryId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"enabled\": false}"))
+                    .andExpect(status().isForbidden());
         }
     }
 }

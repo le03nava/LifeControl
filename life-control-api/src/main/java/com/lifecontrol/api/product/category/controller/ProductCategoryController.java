@@ -11,6 +11,7 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -87,5 +88,54 @@ public class ProductCategoryController {
             @PathVariable UUID companyId, @Valid @RequestBody ProductCategoryRequest request) {
         var response = productCategoryService.createCategory(companyId, request);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+
+    @PutMapping("/{id}")
+    @PreAuthorize("hasRole('" + ADMIN + "')")
+    @Operation(
+            summary = "Update a product category",
+            description =
+                    "Updates a category, including moving it to another parent or to the root. The move re-checks every rule the position is subject to: same company, enabled ancestors, no cycle, and the three-level ceiling.")
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "Category updated"),
+        @ApiResponse(responseCode = "400", description = "Validation error"),
+        @ApiResponse(responseCode = "404", description = "Company, category or parent category not found"),
+        @ApiResponse(responseCode = "409", description = "Duplicate sibling name, disabled parent, cycle, or level 4")
+    })
+    public ResponseEntity<ProductCategoryResponse> updateCategory(
+            @PathVariable UUID companyId, @PathVariable UUID id, @Valid @RequestBody ProductCategoryRequest request) {
+        return ResponseEntity.ok(productCategoryService.updateCategory(companyId, id, request));
+    }
+
+    @DeleteMapping("/{id}")
+    @PreAuthorize("hasRole('" + ADMIN + "')")
+    @Operation(
+            summary = "Delete a product category",
+            description =
+                    "Soft-deletes a category by setting enabled to false, and cascades the same flag to its whole subtree; the rows are kept")
+    @ApiResponses({
+        @ApiResponse(responseCode = "204", description = "Category and its subtree soft-deleted"),
+        @ApiResponse(responseCode = "404", description = "Company or category not found")
+    })
+    public ResponseEntity<Void> deleteCategory(@PathVariable UUID companyId, @PathVariable UUID id) {
+        productCategoryService.deleteCategory(companyId, id);
+        return ResponseEntity.noContent().build();
+    }
+
+    @PatchMapping("/{id}/enable")
+    @PreAuthorize("hasRole('" + ADMIN + "')")
+    @Operation(
+            summary = "Enable or disable a product category",
+            description =
+                    "Sets the enabled flag of a category and, when disabling, of its whole subtree. Enabling requires every ancestor to be enabled already.")
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "Category status updated"),
+        @ApiResponse(responseCode = "404", description = "Company or category not found"),
+        @ApiResponse(responseCode = "409", description = "Disabled ancestor")
+    })
+    public ResponseEntity<ProductCategoryResponse> setCategoryEnabled(
+            @PathVariable UUID companyId, @PathVariable UUID id, @RequestBody Map<String, Boolean> body) {
+        var enabled = body.getOrDefault("enabled", true);
+        return ResponseEntity.ok(productCategoryService.setCategoryEnabled(companyId, id, enabled));
     }
 }

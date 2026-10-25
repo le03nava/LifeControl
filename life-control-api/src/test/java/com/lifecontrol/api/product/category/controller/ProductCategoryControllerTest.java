@@ -1,11 +1,16 @@
 package com.lifecontrol.api.product.category.controller;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -15,6 +20,7 @@ import com.lifecontrol.api.product.category.dto.ProductCategoryResponse;
 import com.lifecontrol.api.product.category.exception.DisabledParentCategoryException;
 import com.lifecontrol.api.product.category.exception.DuplicateProductCategoryException;
 import com.lifecontrol.api.product.category.exception.ProductCategoryDepthExceededException;
+import com.lifecontrol.api.product.category.exception.ProductCategoryHierarchyCycleException;
 import com.lifecontrol.api.product.category.exception.ProductCategoryNotFoundException;
 import com.lifecontrol.api.product.category.service.ProductCategoryService;
 import java.time.LocalDateTime;
@@ -25,6 +31,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -232,6 +239,127 @@ class ProductCategoryControllerTest {
             mockMvc.perform(post("/api/companies/{companyId}/product-categories", companyId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(request(parentId, "Colas"))))
+                    .andExpect(status().isConflict());
+        }
+    }
+
+    @Nested
+    @DisplayName("PUT /api/companies/{companyId}/product-categories/{id}")
+    class UpdateTests {
+
+        @Test
+        @DisplayName("returns 200 with the updated category")
+        void returns200() throws Exception {
+            when(productCategoryService.updateCategory(
+                            eq(companyId), eq(categoryId), any(ProductCategoryRequest.class)))
+                    .thenReturn(response(categoryId, null, 1, true));
+
+            mockMvc.perform(put("/api/companies/{companyId}/product-categories/{id}", companyId, categoryId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request(null, "Bebidas"))))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.depth").value(1));
+        }
+
+        @Test
+        @DisplayName("returns 409 for a cycle")
+        void cycleIs409() throws Exception {
+            when(productCategoryService.updateCategory(
+                            eq(companyId), eq(categoryId), any(ProductCategoryRequest.class)))
+                    .thenThrow(ProductCategoryHierarchyCycleException.descendantParent());
+
+            mockMvc.perform(put("/api/companies/{companyId}/product-categories/{id}", companyId, categoryId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request(parentId, "Bebidas"))))
+                    .andExpect(status().isConflict());
+        }
+
+        @Test
+        @DisplayName("forwards enabled=false instead of dropping the flag on the floor")
+        void forwardsDisableFlag() throws Exception {
+            when(productCategoryService.updateCategory(
+                            eq(companyId), eq(categoryId), any(ProductCategoryRequest.class)))
+                    .thenReturn(response(categoryId, null, 1, false));
+
+            mockMvc.perform(put("/api/companies/{companyId}/product-categories/{id}", companyId, categoryId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(
+                                    new ProductCategoryRequest(null, "Bebidas", null, 1, false))))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.enabled").value(false));
+
+            var captor = ArgumentCaptor.forClass(ProductCategoryRequest.class);
+            verify(productCategoryService).updateCategory(eq(companyId), eq(categoryId), captor.capture());
+            assertThat(captor.getValue().enabled())
+                    .as("the flag that cascades to the subtree reaches the service")
+                    .isFalse();
+        }
+    }
+
+    @Nested
+    @DisplayName("DELETE /api/companies/{companyId}/product-categories/{id}")
+    class DeleteTests {
+
+        @Test
+        @DisplayName("returns 204")
+        void returns204() throws Exception {
+            mockMvc.perform(delete("/api/companies/{companyId}/product-categories/{id}", companyId, categoryId))
+                    .andExpect(status().isNoContent());
+        }
+
+        @Test
+        @DisplayName("returns 404 for an unknown category")
+        void returns404() throws Exception {
+            doThrow(new ProductCategoryNotFoundException(categoryId))
+                    .when(productCategoryService)
+                    .deleteCategory(companyId, categoryId);
+
+            mockMvc.perform(delete("/api/companies/{companyId}/product-categories/{id}", companyId, categoryId))
+                    .andExpect(status().isNotFound());
+        }
+    }
+
+    @Nested
+    @DisplayName("PATCH /api/companies/{companyId}/product-categories/{id}/enable")
+    class EnableTests {
+
+        @Test
+        @DisplayName("disables a category when the body says so")
+        void disables() throws Exception {
+            when(productCategoryService.setCategoryEnabled(companyId, categoryId, false))
+                    .thenReturn(response(categoryId, null, 1, false));
+
+            mockMvc.perform(patch("/api/companies/{companyId}/product-categories/{id}/enable", companyId, categoryId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"enabled\": false}"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.enabled").value(false));
+        }
+
+        @Test
+        @DisplayName("defaults to enabling when the body omits the flag")
+        void defaultsToEnabled() throws Exception {
+            when(productCategoryService.setCategoryEnabled(companyId, categoryId, true))
+                    .thenReturn(response(categoryId, null, 1, true));
+
+            mockMvc.perform(patch("/api/companies/{companyId}/product-categories/{id}/enable", companyId, categoryId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{}"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.enabled").value(true));
+
+            verify(productCategoryService).setCategoryEnabled(companyId, categoryId, true);
+        }
+
+        @Test
+        @DisplayName("returns 409 when an ancestor is disabled")
+        void disabledAncestorIs409() throws Exception {
+            when(productCategoryService.setCategoryEnabled(companyId, categoryId, true))
+                    .thenThrow(new DisabledParentCategoryException("ancestor is disabled"));
+
+            mockMvc.perform(patch("/api/companies/{companyId}/product-categories/{id}/enable", companyId, categoryId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"enabled\": true}"))
                     .andExpect(status().isConflict());
         }
     }
