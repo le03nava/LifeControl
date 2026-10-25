@@ -203,3 +203,26 @@ PR necesita su issue aprobado (`status:approved`).
   era `3`. El número JSON es el mismo cuando se parsea (y el cliente Angular lo trata como `number`), así
   que no se normaliza la escala en la salida: hacerlo obligaría a elegir una representación para un dato
   cuyo valor es idéntico.
+- **L12 — assess nativo y segunda verificación.** `gentle-ai review assess --base-ref eb9cb196…` sobre
+  la rama completa: **risk medium**, 27 paths, 895 líneas, **`review due: no (under_budget)`**, razón
+  `executable_change`. Con lo que manda la regla de entrada, no se abre linaje de review: no está vencido
+  y la verificación independiente ya corrió. El facade `gentle_review assess` no relayó el `baseRef` al
+  CLI (contestó `the review assess candidate has no pending changes`); el veredicto se obtuvo por la CLI
+  nativa, que es la que lo emite.
+  La segunda verificación independiente (commit `970adac`, que el primer verificador no vio) devolvió
+  **cuatro VERIFIED** y la sensibilidad del test razonada en vez de observada: el RED de 308.625 contra
+  308.63 lo había observado el writer con su corrida, y el verificador confirmó que con el producto crudo
+  la aserción `isEqualByComparingTo("308.63")` falla. Cerró además que la única diferencia de los javadocs
+  reescritos es de prosa (`grep -w INTEGER` y `whole number|integral` en `src/main`: sin hits fuera de la
+  baseline y de la propia V30).
+  **Dos avisos que NO son de esta unidad, declarados y no tocados** (ambos pre-existentes, o sea
+  baseline-idénticos, y los dos del mismo género que el defecto que esta unidad arregla):
+  - `POST /api/purchase-orders` con `details` anidados calcula el total de cada línea y las agrega a una
+    colección `@OneToMany(mappedBy = "purchaseOrder")` **sin `cascade`** y sin `detailRepository.save`
+    explícito (`PurchaseOrder.java:70-71`, `PurchaseOrderService.java:174-196`): responde 201 con líneas
+    que no persiste, y ningún test cubre `create → GET /details`. Confirmado por lectura en esta sesión.
+    La UI no usa esa ruta —crea la orden y agrega líneas por `/details`—, así que el modo de falla está
+    expuesto sólo por la API.
+  - `PurchaseOrderDetailRequest.unitPrice` no lleva `@Digits`: un precio de tres decimales se acepta y se
+    guarda redondeado por la columna mientras la respuesta lo repite sin redondear.
+  Ninguno de los dos es trabajo abierto de este registro: son follow-ups que necesitan su propio issue.
