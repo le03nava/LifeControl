@@ -161,8 +161,17 @@ Configura el entorno de Docker. Crea volúmenes, copia archivos de entorno, mate
 ### validate-env.sh
 Valida la configuración del entorno (archivo .env, variables requeridas, puertos, Docker, `docker/secrets/*` materializados en todos los entornos).
 ```bash
-cd docker && ./scripts/validate-env.sh
+cd docker && ./scripts/validate-env.sh            # dev, sólo warnings por drift de pins
+cd docker && ./scripts/validate-env.sh prod --strict-pins   # falla si un pin diverge del template
 ```
+
+> **Dos reportes, dos preguntas.** El script **reporta** —warning, nunca `ERRORS`, porque es el gate del start
+de prod— cada key del template que el `.env.<env>` no declara (ya corre con el default del compose) y cada
+`*_IMAGE` cuyo valor **difiere** entre el `.env.<env>` y `docker/.env.template`, nombrando la key y los dos
+valores. Lo segundo es la única señal que existe para un env file materializado hace meses: `setup-env.sh`
+sólo lo crea si falta, así que nada lo reconcilia, y un Tempo o un Loki de la generación anterior arrancaba
+con un deploy verde. `--strict-pins` es la única forma de volverlo un fallo, y nunca es el default;
+`env-image-pin-drift.test.sh` fija las dos mitades.
 
 ### deploy.sh
 Script principal de despliegue. Build y start de servicios.
@@ -281,12 +290,16 @@ curl -s -X POST "http://localhost:8181/realms/life-control-realm/protocol/openid
 | Loki guarda en `/loki` | Es el `path_prefix` de su config empaquetada. El mount apunta a `/loki` y `setup-env.sh` deja ese directorio (más `rules/` y `rules-temp/`) con dueño `10001:10001`, el uid de la imagen distroless |
 | Volumen de Loki en prod | Es un named volume: si existe de antes (creado para `/loki/data`) hay que borrarlo una vez, porque Docker no lo repuebla desde la imagen y queda vacío y root-owned, que es justo lo que Loki no puede escribir |
 | Exporters de datastores | `postgres-exporter` y `redis-exporter` se pinnean como el resto (`POSTGRES_EXPORTER_IMAGE` y `REDIS_EXPORTER_IMAGE`, en el template **y** en el default del compose) y **no** llevan `healthcheck`: la imagen del exporter de Redis es distroless, así que un probe in-container no puede pasar. La señal de vida es `up` en el scrape, y `exporters.test.sh` lo fija |
+| Pins divergentes en un `.env.<env>` | Un `*_IMAGE` que el env file declara con un valor que el template ya no nombra **se reporta**: `validate-env.sh <env>` lo lista nombrando la key y ambos valores, y `deploy.sh <env> start` imprime el mismo reporte antes de buildear, así que un pin viejo no sobrevive un deploy en silencio. `env-image-pin-drift.test.sh` fija que el reporte nombre la key y los dos valores, que un env file alineado no produzca ningún warning y que el reporte sea read-only y devuelva 0 siempre |
 
 > **Subir una imagen**: editá `.env.template`, los defaults de `docker-compose*.yml` y la tabla de
 > `image-pins.test.sh`; corré los tests de `docker/scripts/tests/`; en dev, `./docker/scripts/deploy.sh dev up`
 > y `./docker/scripts/deploy.sh dev health`. En staging/prod el cambio del template no toca nada hasta que el
 > entorno se re-materialice: un `.env.<env>` existente **no** se reescribe solo (`setup-env.sh` sólo lo crea si
-> falta), así que el operador lo actualiza a mano.
+> falta), así que el operador lo actualiza a mano — y a partir de este cambio el deploy le avisa: un pin que el
+> template ya no nombra sale como warning en `validate-env.sh <env>` y en `deploy.sh <env> start`, con la key y
+> los dos valores (`image-pins.test.sh` falla en la máquina donde el archivo existe; en CI no hay `.env.<env>`,
+> que es justo por lo que el reporte vive en los scripts).
 >
 > **Esa comodidad tiene una consecuencia, y es la que hay que leer dos veces**: toda key que el `.env.<env>` no
 > declare corre **en silencio** con el default `${VAR:-…}` de los compose, así que el entorno no queda "sin" ese
