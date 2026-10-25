@@ -381,6 +381,30 @@ describe('ReceiptCreate', () => {
       expect(purchaseOrderService.getPurchaseOrder).toHaveBeenCalledWith('po-1');
     });
 
+    it('should allow a fractional quantity in the quantity field', async () => {
+      const fixture = await createWithOrder();
+      const input = (fixture.nativeElement as HTMLElement).querySelector<HTMLInputElement>(
+        'td.mat-column-quantity input[type="number"]',
+      );
+
+      expect(input).not.toBeNull();
+      expect(input!.step).toBe('0.01');
+      // Zero still means "skip this line", so it has to stay selectable.
+      expect(input!.min).toBe('0');
+    });
+
+    it('should keep a fractional quantity typed by the operator and validate it', async () => {
+      const fixture = await createWithOrder();
+      const component = fixture.componentInstance;
+
+      component.onQuantityInput(0, '2.5');
+      fixture.detectChanges();
+
+      expect(component.drafts()[0].quantity).toBe(2.5);
+      expect(component.formErrors().valid).toBe(true);
+      expect(component.rowError(component.drafts()[0])).toBeNull();
+    });
+
     it('should default every draft quantity to its pending amount and drop the rest', async () => {
       const fixture = await createWithOrder();
       const drafts = fixture.componentInstance.drafts();

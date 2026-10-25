@@ -73,9 +73,11 @@ export function toDraftLines(lines: readonly ReceivableLine[]): ReceiptLineDraft
 /**
  * Validation of ONE draft row. Returns `null` when the row is acceptable.
  *
- * `quantity === 0` means "skip this line" and is always acceptable; a negative,
- * non-integer (this also catches `NaN` and `Infinity`), or pending-exceeding
- * quantity is not.
+ * `quantity === 0` means "skip this line" and is always acceptable. Fractions
+ * are valid: the line's unit may be one that is ordered and received in
+ * fractions (2.5 kg), so only a negative, non-finite (this is what catches
+ * `NaN` and `Infinity`, which would slip through every comparison), or
+ * pending-exceeding quantity is rejected.
  */
 export function validateQuantity(draft: ReceiptLineDraft): string | null {
   const { quantity, pending } = draft;
@@ -86,8 +88,10 @@ export function validateQuantity(draft: ReceiptLineDraft): string | null {
   if (quantity < 0) {
     return 'No puede ser negativo';
   }
-  if (!Number.isInteger(quantity)) {
-    return 'Debe ser un número entero';
+  // A finite number is the only thing the comparisons below can judge: `NaN`
+  // fails all of them silently, so it is rejected here instead.
+  if (!Number.isFinite(quantity)) {
+    return 'Debe ser un número';
   }
   if (quantity > pending) {
     return `No puede superar lo pendiente (${pending})`;

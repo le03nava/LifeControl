@@ -169,6 +169,42 @@ describe('DetailTable', () => {
     });
   });
 
+  describe('fractional quantities', () => {
+    it('should let the inline row edit accept a fractional quantity', () => {
+      const f = createTable([SAVED_ROW]);
+      const input = (f.nativeElement as HTMLElement).querySelector<HTMLInputElement>(
+        'td.mat-column-quantity input[type="number"]',
+      );
+
+      expect(input).not.toBeNull();
+      expect(input!.step).toBe('0.01');
+      expect(input!.min).toBe('0.01');
+    });
+
+    it('should let the new-line field accept a fractional quantity', () => {
+      const f = createTable([]);
+      const addLine = (f.nativeElement as HTMLElement).querySelector<HTMLElement>('.add-line-item');
+      // The add-line row carries two numeric fields: quantity first, unit price second.
+      const quantity = addLine!.querySelectorAll<HTMLInputElement>('input[type="number"]')[0];
+
+      expect(quantity.step).toBe('0.01');
+      expect(quantity.min).toBe('0.01');
+      // The new-line field keeps its own handler, not the inline-edit one.
+      expect(quantity.value).toBe('1');
+    });
+
+    it('should keep a fraction typed in the inline edit instead of rounding it', () => {
+      const f = createTable([SAVED_ROW]);
+      let emitted: DetailTableRow[] | null = null;
+      f.componentInstance.itemsChanged.subscribe((rows) => (emitted = rows));
+
+      f.componentInstance.onRowQuantityChange(0, 2.5);
+
+      expect(emitted).not.toBeNull();
+      expect(emitted![0].quantity).toBe(2.5);
+    });
+  });
+
   describe('receipt progress', () => {
     const RECEIVED_ROW: DetailTableRow = {
       ...SAVED_ROW,
@@ -494,5 +530,18 @@ describe('DetailTable (mobile)', () => {
 
     const text = (f.nativeElement as HTMLElement).textContent ?? '';
     expect(text).not.toContain('Recibido');
+  });
+
+  it('should let the per-line card accept a fractional quantity', () => {
+    setupMatchMedia(true);
+    const f = createMobileTable([SAVED_ROW], false);
+
+    const input = (f.nativeElement as HTMLElement).querySelector<HTMLInputElement>(
+      '.line-item-card input[type="number"]',
+    );
+
+    expect(input).not.toBeNull();
+    expect(input!.step).toBe('0.01');
+    expect(input!.min).toBe('0.01');
   });
 });

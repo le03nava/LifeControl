@@ -175,12 +175,32 @@ describe('validateQuantity', () => {
     expect(validateQuantity(draft({ quantity: -1 }))).toBe('No puede ser negativo');
   });
 
-  it('rejects a fractional quantity', () => {
-    expect(validateQuantity(draft({ quantity: 1.5 }))).toBe('Debe ser un número entero');
+  it('accepts a fractional quantity', () => {
+    expect(validateQuantity(draft({ quantity: 1.5 }))).toBeNull();
   });
 
-  it('rejects a NaN quantity as a non-integer', () => {
-    expect(validateQuantity(draft({ quantity: Number.NaN }))).toBe('Debe ser un número entero');
+  it('accepts a fractional quantity within a fractional pending amount', () => {
+    // Ordered 5, received 2.5: a 2.5 kg reception leaves a 2.5 kg pending amount.
+    const fractionalLine = draft({ ordered: 5, alreadyReceived: 2.5, pending: 2.5, quantity: 2.5 });
+
+    expect(validateQuantity(fractionalLine)).toBeNull();
+  });
+
+  it('rejects a NaN quantity as not a number', () => {
+    expect(validateQuantity(draft({ quantity: Number.NaN }))).toBe('Debe ser un número');
+  });
+
+  it('rejects an infinite quantity as not a number', () => {
+    expect(validateQuantity(draft({ quantity: Number.POSITIVE_INFINITY }))).toBe(
+      'Debe ser un número',
+    );
+  });
+
+  it('still reports a negative quantity as negative, fractional or not', () => {
+    expect(validateQuantity(draft({ quantity: -2.5 }))).toBe('No puede ser negativo');
+    expect(validateQuantity(draft({ quantity: Number.NEGATIVE_INFINITY }))).toBe(
+      'No puede ser negativo',
+    );
   });
 
   it('accepts exactly the pending amount', () => {
