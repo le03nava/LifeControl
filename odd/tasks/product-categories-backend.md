@@ -117,6 +117,31 @@ so the entry point exists and points at nothing.
 | T7 | R1–R7 | Service unit test: every rule, both directions | commit of T3 |
 | T8 | R7 | Controller test + role-matrix security test | commit of T3 |
 
+## Delivery slices
+
+The whole slice is ~3k authored lines against the advisory ~400-line review budget, so it is
+delivered as a chain of three pull requests that land in order on `main`. The cut is by **behavior**,
+not by layer: each slice is something a reviewer can hold in their head and accept or reject on its
+own. Each child branches from the previous slice, and its diff is read against that parent.
+
+| # | Scope | Branch | Authored lines |
+| --- | --- | --- | --- |
+| 1 | `V31`, the entity and the repository, plus the schema integration test that proves the tenancy FK, the sibling index and the self-parent `CHECK` | `feat/product-categories-schema` | 592 |
+| 2 | Reading the tree — `GET` list and by id: depth-first order, ancestor visibility, company scope — and creating a node: `POST` with the ceiling, the disabled-parent rule and the sibling-name rule | `feat/product-categories-reads-create` | 1397 |
+| 3 | Moving a node (with the ceiling measured on the moved subtree), enabling and disabling with the cascade, soft delete, and this record | `feat/product-categories-writes` | 1010 |
+
+**Why three slices and not eight.** The budget is advisory and the slicing is bounded to one honest
+pass. A cut at every 400 lines would have to split the service's read path from its own tests, or the
+`PATCH` handler from the cascade it triggers — pairs that are only reviewable together, because the
+rule and its refusal test are the unit. The three slices above are the smallest cut that keeps every
+rule with its test and every endpoint with the exception it maps.
+
+**Why the last slice is byte-identical to the verified tree.** Slices 2 and 3 were produced by
+deleting members from, and then restoring, the branch that was verified end to end
+(`feat/product-categories-backend`): `git diff` between that branch and slice 3 over the feature's
+paths is empty, so the code that lands is exactly the code that was reviewed and measured, not a
+re-typed approximation of it.
+
 ## Scope
 
 ### In scope
@@ -235,3 +260,14 @@ so the entry point exists and points at nothing.
   stored cycle as `MAX_DEPTH + 1` and `setCategoryEnabled(true)` then echoing that depth — is only
   reachable from data that predates the rules, and the fixes above close the write paths that could
   create it.
+- **L13** (verification, re-measured on the delivery base): `main` had moved to `337c9ed7` while this
+  unit was open — eleven commits, four of them the `purchase-order-region-filter` chain — so the
+  branch was brought up to date with a merge and the suite was run again on that base: full
+  `life-control-api` suite **3996 tests, 0 failures, 0 errors, 0 skipped**, and the feature's own
+  focused run **72 tests** green. The difference from L9's 3983 is `main`'s new tests, not this
+  feature: the feature's count did not change. The `V31` number survived the merge because the
+  migrations `main` added are still below it.
+- **L14** (decision, delivery shape): the slice is delivered as the three-request chain the
+  "Delivery slices" section declares, and the last one's tree is byte-identical to the branch that
+  was verified end to end. The chain is the answer to the review budget, not a change of scope: S3
+  and S7 stay deferred, and nothing in the chain adds a rule the record does not name.
