@@ -25,4 +25,16 @@ public interface InventoryMovementRepository extends JpaRepository<InventoryMove
      * {@code InventoryMovementRepositorySurfaceTest} stay intact.
      */
     List<InventoryMovement> findByReferenceTypeAndReferenceId(String referenceType, UUID referenceId);
+
+    /**
+     * Whether the ledger holds any movement for one product variant, used by the measure-unit guard of
+     * decision D3.
+     *
+     * <p>Once a movement exists, the quantity it recorded was expressed in whatever unit the variant
+     * carried at that moment, so the unit can no longer be swapped for another: the ledger is a fact
+     * log and rewriting its meaning is not a correction, it is a silent reinterpretation. It is a
+     * read-only derived count, so the append-only contract and the surface assertion in
+     * {@code InventoryMovementRepositorySurfaceTest} stay intact.</p>
+     */
+    boolean existsByProductVariantId(UUID productVariantId);
 }

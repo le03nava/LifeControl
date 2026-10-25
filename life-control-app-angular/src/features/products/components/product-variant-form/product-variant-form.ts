@@ -1,22 +1,29 @@
 import { ChangeDetectionStrategy, Component, effect, input, output } from '@angular/core';
 import { AbstractControl, FormControl, FormGroup, ReactiveFormsModule } from '@angular/forms';
 import { Subscription } from 'rxjs';
-import { ProductVariantRequest } from '../../models/product-variant.models';
+import { MeasureUnit, ProductVariantRequest } from '../../models/product-variant.models';
 import { MatButtonModule } from '@angular/material/button';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatIconModule } from '@angular/material/icon';
+import { MatSelectModule } from '@angular/material/select';
 
 /**
  * Typed control map of the global variant definition form.
  *
- * Only the two global fields are controls: `enabled` is deliberately absent
- * because the definition request does not carry it and re-enabling is a list-page
- * action, and the owning product travels in the route, never in the body.
+ * The three global fields are controls: `enabled` is deliberately absent because the
+ * definition request does not carry it and re-enabling is a list-page action, and the
+ * owning product travels in the route, never in the body.
+ *
+ * `measureUnitId` is nullable on purpose: `null` means **no unit declared**, which is
+ * the behavior every variant had before the relation existed (S1). It carries no
+ * validator, so an empty selection is a valid, deliberate answer rather than an
+ * incomplete form.
  */
 export interface ProductVariantControl {
   barCode: FormControl<string>;
   variantName: FormControl<string>;
+  measureUnitId: FormControl<string | null>;
 }
 
 /**
@@ -26,6 +33,10 @@ export interface ProductVariantControl {
  * `saveVariant`/`saveVariantAndContinue`/`cancelForm`. Presentational because the
  * same component serves create and edit — `editMode` only changes the copy, and
  * the create-only "save and add another" affordance is hidden in edit mode.
+ *
+ * `measureUnits` is the catalog the host loaded, offered whole: this component never
+ * filters it, so a variant can be counted in any enabled unit the catalog holds (S4).
+ * The first option clears the selection to `null`, which is why the field is optional.
  *
  * `serverErrors` are keyed by control name; the backend field errors are applied
  * to the matching control exactly as `companies-form` does. The 409 collision is
@@ -42,6 +53,7 @@ export interface ProductVariantControl {
     MatInputModule,
     MatButtonModule,
     MatIconModule,
+    MatSelectModule,
   ],
   templateUrl: './product-variant-form.html',
   styleUrl: './product-variant-form.scss',
@@ -53,6 +65,11 @@ export class ProductVariantForm {
   editMode = input<boolean>(false);
   /** In-flight state owned by the host; both submit handlers early-return while true. */
   saving = input<boolean>(false);
+  /**
+   * The enabled measure-unit catalog, offered complete. Empty while it loads or when the
+   * read failed, which leaves only the "Sin unidad" option — never a broken control.
+   */
+  measureUnits = input<MeasureUnit[]>([]);
 
   saveVariant = output<ProductVariantRequest>();
   saveVariantAndContinue = output<ProductVariantRequest>();
@@ -139,8 +156,7 @@ export class ProductVariantForm {
     this.formGroup().markAllAsTouched();
 
     if (this.formGroup().valid) {
-      const raw = this.formGroup().getRawValue();
-      this.saveVariant.emit({ barCode: raw.barCode, variantName: raw.variantName });
+      this.saveVariant.emit(this.toRequest());
     }
   }
 
@@ -150,9 +166,23 @@ export class ProductVariantForm {
     this.formGroup().markAllAsTouched();
 
     if (this.formGroup().valid) {
-      const raw = this.formGroup().getRawValue();
-      this.saveVariantAndContinue.emit({ barCode: raw.barCode, variantName: raw.variantName });
+      this.saveVariantAndContinue.emit(this.toRequest());
     }
+  }
+
+  /**
+   * The write body, built from both submit paths so they can never drift apart.
+   *
+   * `measureUnitId` is sent explicitly, `null` included: the field is optional on the
+   * wire, and omitting it would leave the stored unit untouched instead of clearing it.
+   */
+  private toRequest(): ProductVariantRequest {
+    const raw = this.formGroup().getRawValue();
+    return {
+      barCode: raw.barCode,
+      variantName: raw.variantName,
+      measureUnitId: raw.measureUnitId ?? null,
+    };
   }
 
   onCancel(): void {

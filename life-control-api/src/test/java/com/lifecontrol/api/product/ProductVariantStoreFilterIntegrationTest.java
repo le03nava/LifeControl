@@ -15,6 +15,9 @@ import com.lifecontrol.api.company.repository.CompanyRegionRepository;
 import com.lifecontrol.api.company.repository.CompanyRepository;
 import com.lifecontrol.api.company.repository.CompanyZoneRepository;
 import com.lifecontrol.api.country.repository.CountryRepository;
+import com.lifecontrol.api.measureunit.model.MeasureUnit;
+import com.lifecontrol.api.measureunit.model.MeasureUnitType;
+import com.lifecontrol.api.measureunit.repository.MeasureUnitRepository;
 import com.lifecontrol.api.product.model.Product;
 import com.lifecontrol.api.product.model.ProductVariant;
 import com.lifecontrol.api.product.model.ProductVariantStoreStock;
@@ -70,6 +73,9 @@ class ProductVariantStoreFilterIntegrationTest extends AbstractPostgresIntegrati
     private ProductRepository productRepository;
 
     @Autowired
+    private MeasureUnitRepository measureUnitRepository;
+
+    @Autowired
     private CompanyStoreRepository companyStoreRepository;
 
     @Autowired
@@ -97,6 +103,7 @@ class ProductVariantStoreFilterIntegrationTest extends AbstractPostgresIntegrati
 
     private final List<UUID> createdVariantIds = new ArrayList<>();
     private final List<UUID> createdStoreStockIds = new ArrayList<>();
+    private final List<UUID> createdMeasureUnitIds = new ArrayList<>();
     private UUID createdProductId;
 
     @BeforeEach
@@ -127,6 +134,10 @@ class ProductVariantStoreFilterIntegrationTest extends AbstractPostgresIntegrati
             productRepository.deleteById(createdProductId);
             createdProductId = null;
         }
+
+        // The catalog rows go last: a variant may reference them until its own row is gone.
+        measureUnitRepository.deleteAllById(createdMeasureUnitIds);
+        createdMeasureUnitIds.clear();
     }
 
     /**
@@ -319,6 +330,44 @@ class ProductVariantStoreFilterIntegrationTest extends AbstractPostgresIntegrati
     private void softDeleteVariant(UUID targetVariantId) {
         var variant = productVariantRepository.findById(targetVariantId).orElseThrow();
         variant.setEnabled(false);
+        productVariantRepository.save(variant);
+    }
+
+    /**
+     * D4's two reads are raw HQL (an entity join onto {@code measure_units} through a plain UUID
+     * column), so a mock cannot prove them: this test runs them as real SQL.
+     */
+    @Test
+    @DisplayName("D4: the unit_type reads return what the product's variants use and can exclude one")
+    void usedMeasureUnitTypes_ReadRealSql() {
+        var pieceUnit = measureUnitRepository.save(MeasureUnit.builder()
+                .measureUnitName("Pieza")
+                .measureUnitShortName("Pza")
+                .unitType(MeasureUnitType.PRODUCT)
+                // The catalog is seeded from the SAT list and sat_code is unique, so the fixture
+                // cannot reuse a real clave: it generates one of its own.
+                .satCode("Z" + UUID.randomUUID().toString().substring(0, 4).toUpperCase())
+                .enabled(true)
+                .build());
+        createdMeasureUnitIds.add(pieceUnit.getId());
+        assignMeasureUnit(variantAId, pieceUnit.getId());
+
+        // Variant B still declares no unit, so the join drops it: the product uses exactly one type.
+        assertThat(productVariantRepository.findUsedMeasureUnitTypesByProductId(productId))
+                .containsExactly(MeasureUnitType.PRODUCT);
+        // Excluding the only variant that declares a unit leaves no constraint at all.
+        assertThat(productVariantRepository.findUsedMeasureUnitTypesByProductIdExcludingVariantId(
+                        productId, variantAId))
+                .isEmpty();
+        // Excluding the unitless variant keeps the one in use, which is what D4 compares against.
+        assertThat(productVariantRepository.findUsedMeasureUnitTypesByProductIdExcludingVariantId(
+                        productId, variantBId))
+                .containsExactly(MeasureUnitType.PRODUCT);
+    }
+
+    private void assignMeasureUnit(UUID targetVariantId, UUID measureUnitId) {
+        var variant = productVariantRepository.findById(targetVariantId).orElseThrow();
+        variant.setMeasureUnitId(measureUnitId);
         productVariantRepository.save(variant);
     }
 }

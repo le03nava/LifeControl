@@ -54,6 +54,7 @@ describe('ProductVariantListHost', () => {
       costPrice: null,
       stock: null,
       enabled: true,
+      measureUnitId: null,
     };
   }
 

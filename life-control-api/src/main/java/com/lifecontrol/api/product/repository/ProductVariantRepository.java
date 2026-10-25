@@ -1,5 +1,6 @@
 package com.lifecontrol.api.product.repository;
 
+import com.lifecontrol.api.measureunit.model.MeasureUnitType;
 import com.lifecontrol.api.product.dto.ProductVariantResponse;
 import com.lifecontrol.api.product.dto.ProductVariantSearchResponse;
 import com.lifecontrol.api.product.model.ProductVariant;
@@ -58,6 +59,39 @@ public interface ProductVariantRepository extends JpaRepository<ProductVariant, 
      */
     boolean existsByIdAndEnabledTrue(UUID id);
 
+    // ─── Measure-unit type coherence (D4) ─────────────────────────────────
+
+    /**
+     * The distinct {@code unit_type}s already in use by the measure units of a product's variants,
+     * used by the coherence guard of decision D4: a product cannot mix {@code PRODUCT} and {@code
+     * SERVICE} units across its variants. Variants without a unit contribute nothing, because the
+     * join onto {@code measure_units} drops a {@code NULL} foreign key — a catalog that is entirely
+     * undeclared (the whole pre-V29 state) therefore constrains nothing.
+     */
+    @Query("""
+            SELECT DISTINCT mu.unitType
+            FROM ProductVariant pv
+            JOIN MeasureUnit mu ON mu.id = pv.measureUnitId
+            WHERE pv.productId = :productId
+            """)
+    List<MeasureUnitType> findUsedMeasureUnitTypesByProductId(@Param("productId") UUID productId);
+
+    /**
+     * Same read as {@link #findUsedMeasureUnitTypesByProductId(UUID)}, excluding one variant. The
+     * update path uses it so the unit the variant already holds is not counted as somebody else's
+     * and cannot reject itself. It is a second query instead of one with a nullable bind parameter:
+     * PostgreSQL cannot infer the type of a bare {@code :excludedVariantId IS NULL} predicate.
+     */
+    @Query("""
+            SELECT DISTINCT mu.unitType
+            FROM ProductVariant pv
+            JOIN MeasureUnit mu ON mu.id = pv.measureUnitId
+            WHERE pv.productId = :productId
+              AND pv.id <> :excludedVariantId
+            """)
+    List<MeasureUnitType> findUsedMeasureUnitTypesByProductIdExcludingVariantId(
+            @Param("productId") UUID productId, @Param("excludedVariantId") UUID excludedVariantId);
+
     // ─── Store-scoped projections ─────────────────────────────────────────
 
     /**
@@ -69,7 +103,7 @@ public interface ProductVariantRepository extends JpaRepository<ProductVariant, 
             SELECT new com.lifecontrol.api.product.dto.ProductVariantResponse(
                 pv.id, pv.productId, pvss.companyStoreId, pv.barCode, p.sku,
                 pv.variantName, pvss.listPrice, pvss.costPrice, pvss.stock, pv.enabled,
-                pv.createdAt, pv.updatedAt)
+                pv.createdAt, pv.updatedAt, pv.measureUnitId)
             FROM ProductVariantStoreStock pvss
             JOIN ProductVariant pv ON pv.id = pvss.productVariantId
             JOIN Product p ON p.id = pv.productId
