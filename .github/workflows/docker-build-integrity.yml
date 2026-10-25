@@ -41,17 +41,18 @@ jobs:
           docker run --rm -v "$PWD:/mnt" -w /mnt koalaman/shellcheck:stable \
             --severity=warning "${scripts[@]}"
 
-      - name: Freshness guard tests
-        run: ./docker/scripts/tests/freshness-guard.test.sh
-
-      - name: JAR version consistency tests
-        run: ./docker/scripts/tests/version-consistency.test.sh
-
-      - name: Keycloak setup offline behaviour tests
-        run: ./docker/scripts/tests/keycloak-setup.test.sh
-
-      - name: Compose runtime profile tests
-        run: ./docker/scripts/tests/compose-profile.test.sh
-
-      - name: Tempo receiver reachability tests
-        run: ./docker/scripts/tests/tempo-receivers.test.sh
+      # Every suite, by glob. This used to name five of them explicitly, so a suite added to the
+      # directory ran locally and never in CI -- measured on the observability unit, whose four new
+      # suites (deploy-health probes, Loki retention, port binding, Grafana provisioning) would have
+      # been invisible to this job. A suite is wired by existing, and the run prints how many ran so
+      # a glob that quietly matches nothing is visible instead of green.
+      - name: Docker script suites
+        shell: bash
+        run: |
+          mapfile -t suites < <(find docker/scripts/tests -type f -name '*.test.sh' | sort)
+          printf 'Running %d suite(s)\n' "${#suites[@]}"
+          [ "${#suites[@]}" -gt 0 ] || { echo "no suite matched docker/scripts/tests/*.test.sh" >&2; exit 1; }
+          for suite in "${suites[@]}"; do
+            printf '\n=== %s ===\n' "$suite"
+            "$suite"
+          done
