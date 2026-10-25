@@ -48,7 +48,7 @@ describe('ProductsAdminComponent', () => {
     const activeCards = fixture.debugElement.queryAll(
       By.css('.dashboard-card:not(.card--disabled)'),
     );
-    expect(activeCards).toHaveLength(3);
+    expect(activeCards).toHaveLength(4);
     for (const card of activeCards) {
       expect(card.injector.get(RouterLink)).toBeTruthy();
     }
@@ -56,7 +56,7 @@ describe('ProductsAdminComponent', () => {
 
   it('should have RouterLink on every disabled card (with null value)', () => {
     const disabledCards = fixture.debugElement.queryAll(By.css('.dashboard-card.card--disabled'));
-    expect(disabledCards).toHaveLength(2);
+    expect(disabledCards).toHaveLength(1);
     for (const card of disabledCards) {
       expect(card.injector.get(RouterLink)).toBeTruthy();
     }
@@ -64,7 +64,7 @@ describe('ProductsAdminComponent', () => {
 
   it('should display "Coming soon" on each disabled card', () => {
     const comingSoonBadges = fixture.nativeElement.querySelectorAll('.card-badge--coming-soon');
-    expect(comingSoonBadges).toHaveLength(2);
+    expect(comingSoonBadges).toHaveLength(1);
     comingSoonBadges.forEach((badge: Element) => {
       expect(badge.textContent.trim()).toContain('Coming soon');
     });
@@ -89,10 +89,28 @@ describe('ProductsAdminComponent', () => {
 
   it('should render active cards with "Manage" call-to-action text', () => {
     const actionElements = fixture.nativeElement.querySelectorAll('.card-action');
-    expect(actionElements).toHaveLength(3);
+    expect(actionElements).toHaveLength(4);
     expect(actionElements[0].textContent.trim()).toContain('Manage All Products');
     expect(actionElements[1].textContent.trim()).toContain('Manage New Product');
-    expect(actionElements[2].textContent.trim()).toContain('Manage Suppliers');
+    expect(actionElements[2].textContent.trim()).toContain('Manage Categories');
+    expect(actionElements[3].textContent.trim()).toContain('Manage Suppliers');
+  });
+
+  it('should point the Categories card at the categories screen instead of a placeholder', () => {
+    // S3: the card existed with `route: null, disabled: true` and led nowhere. It
+    // is now the screen's only entry point, so both halves are pinned.
+    const categories = component.cards.find((card) => card.title === 'Categories');
+
+    expect(categories).toBeDefined();
+    expect(categories?.route).toBe('/products/categories');
+    expect(categories?.disabled).toBe(false);
+  });
+
+  it('should keep Product Types as the only remaining placeholder', () => {
+    const placeholders = component.cards.filter((card) => card.disabled);
+
+    expect(placeholders).toHaveLength(1);
+    expect(placeholders[0].title).toBe('Product Types');
   });
 
   it('should render card icons with correct Material icon names', () => {
@@ -108,8 +126,8 @@ describe('ProductsAdminComponent', () => {
     expect(iconNames).toContain('local_shipping');
   });
 
-  it('should render 2 "Coming soon" badges (one per disabled card)', () => {
+  it('should render 1 "Coming soon" badge (one per disabled card)', () => {
     const comingSoonBadges = fixture.nativeElement.querySelectorAll('.card-badge--coming-soon');
-    expect(comingSoonBadges).toHaveLength(2);
+    expect(comingSoonBadges).toHaveLength(1);
   });
 });

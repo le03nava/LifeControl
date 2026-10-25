@@ -42,6 +42,20 @@ export const productRoutes: Routes = [
         loadComponent: () => import('./pages/product-edit/product-edit').then((m) => m.ProductEdit),
       },
       {
+        // The screen S3 asked for, and the target the dashboard `Categories` card now names.
+        // The tree is company-scoped on the wire
+        // (`/api/companies/{companyId}/product-categories`), but the company is chosen inside the
+        // page — like `DepartmentList` — so this route carries no `:companyId` segment and the
+        // same URL serves every company.
+        path: 'categories',
+        canActivate: [keycloakRoleGuard],
+        data: { roles: PRODUCT_ADMIN_ROLES, clientId: CLIENT_ID },
+        loadComponent: () =>
+          import('./pages/product-category-list/product-category-list').then(
+            (m) => m.ProductCategoryList,
+          ),
+      },
+      {
         path: 'edit/:id',
         canActivate: [keycloakRoleGuard],
         data: { roles: PRODUCT_ADMIN_ROLES, clientId: CLIENT_ID },

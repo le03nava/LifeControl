@@ -1,0 +1,14 @@
+:host {
+  display: block;
+}
+
+.category-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  min-width: 320px;
+}
+
+mat-form-field {
+  width: 100%;
+}
