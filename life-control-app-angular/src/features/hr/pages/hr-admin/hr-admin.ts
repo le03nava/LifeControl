@@ -39,7 +39,7 @@ const CATALOG_CARDS: HrCatalogCard[] = [
   {
     title: 'Empleados',
     icon: 'groups',
-    description: 'Legajo de empleados, contratos y tiendas asignadas.',
+    description: 'Legajo de empleados, contratos y alcance asignado.',
     route: '/hr/employees',
   },
 ];

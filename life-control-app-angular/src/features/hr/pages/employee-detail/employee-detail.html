@@ -35,8 +35,9 @@
     <!--
       One tab per section, and `?tab=` drives the selection (`onTabChange` writes it back). The
       Accesos tab exists only for `ACCESS_READ_ROLES` (record T96): a caller without
-      `lc-admin`/`lc-employee-access` sees four tabs and issues no access request, because the
-      endpoint would answer 403.
+      `lc-admin`/`lc-employee-access` sees three tabs and issues no access request, because the
+      endpoint would answer 403. There is one assignment tab, not two: `Tiendas` was merged into
+      `Alcance` and `?tab=tiendas` now resolves to it (S1).
     -->
     <mat-tab-group [selectedIndex]="selectedTabIndex()" (selectedIndexChange)="onTabChange($event)">
       <mat-tab label="Detalle">
@@ -110,7 +111,8 @@
 
           <!--
             The partial activation outcome (D9): the contract was created and the store was not. It
-            is reported in the tab that owns the act, and it names the Tiendas tab as the retry path.
+            is reported in the tab that owns the act, and it names the Alcance tab as the retry path
+            (S9).
           -->
           @if (partialAssignmentError(); as partialErr) {
             <app-error-banner [message]="partialErr" />
@@ -132,34 +134,13 @@
         </div>
       </mat-tab>
 
-      <mat-tab label="Tiendas">
-        <div class="tab-content">
-          <!-- A failed close write: the dialog reports its own failures, so this is the close's only. -->
-          @if (assignmentActionError(); as assignmentActionErr) {
-            <app-error-banner [message]="assignmentActionErr" />
-          }
-          <!--
-            The section renders its own loading, error/retry and empty states plus its "Asignar
-            tienda" action; the page owns the read, the dialogs and the reload. Both write actions
-            are gated on EMPLOYEE_WRITE_ROLES (T17).
-          -->
-          <app-store-assignments-section
-            [assignments]="assignments()"
-            [loading]="assignmentsLoading()"
-            [error]="assignmentsError()"
-            [canWrite]="canWrite"
-            (retry)="retryAssignments()"
-            (assign)="onAssign()"
-            (closeRequested)="onCloseAssignment($event)"
-          />
-        </div>
-      </mat-tab>
-
       <!--
-        The per-level scope assignment (S2): the sibling of Tiendas. País, región and zona are
-        assignable per employee and the company level is not (one employee, one company, S3), so
-        this tab lists one row per level with the derived chain the token will carry. The write gate
-        is the pair the endpoints require (S4); the level the dialog preselects is a hint, not a gate.
+        The one assignment surface (S1, S2). País, región, zona y tienda are assignable per employee
+        and share one table; the company level is not assignable (one employee, one company, S3), so
+        the section renders it as the derived root of the tree and offers no control for it. The
+        section says in words that the assignment bounds the tenancy and the role is what enables
+        access (S4). The write gate is the pair the endpoints require; the level the dialog
+        preselects is a hint, not a gate.
       -->
       <mat-tab label="Alcance">
         <div class="tab-content">
@@ -168,6 +149,7 @@
           }
           <app-scope-assignments-section
             [assignments]="scopeAssignments()"
+            [companyName]="selectedCompanyName()"
             [loading]="scopeAssignmentsLoading()"
             [error]="scopeAssignmentsError()"
             [canWrite]="canWrite"

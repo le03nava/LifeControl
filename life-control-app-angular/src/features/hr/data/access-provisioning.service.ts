@@ -13,7 +13,7 @@ import {
  * The statuses these eight endpoints actually produce, and the copy each one earns.
  *
  * Only the statuses the API documents are mapped, one message per status, with a per-path fallback
- * for anything else — the shape `StoreAssignmentService` uses. This is deliberately **not** a
+ * for anything else — the shape `ScopeAssignmentService` uses. This is deliberately **not** a
  * general taxonomy: the server stays the authority on why it refused a write.
  *
  * `getDecisionQueue` has no map of its own: it is a pure read (see the class doc), so it keeps no

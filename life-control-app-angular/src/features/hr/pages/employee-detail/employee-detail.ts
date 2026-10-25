@@ -23,7 +23,6 @@ import { CompanyService } from '@features/companies/companies/data/company.servi
 import { CurrentUser } from '@core/security/current-user';
 import { EmployeeService } from '../../data/employee.service';
 import { ContractService } from '../../data/contract.service';
-import { StoreAssignmentService } from '../../data/store-assignment.service';
 import { ScopeAssignmentService } from '../../data/scope-assignment.service';
 import { AccessProvisioningService } from '../../data/access-provisioning.service';
 import { employeeStatusLabel } from '../../data/employee-status';
@@ -31,11 +30,9 @@ import {
   ContractHistory,
   isContractCurrent,
 } from '../../components/contract-history/contract-history';
-import { StoreAssignmentsSection } from '../../components/store-assignments-section/store-assignments-section';
 import { ScopeAssignmentsSection } from '../../components/scope-assignments-section/scope-assignments-section';
 import { AccessSection } from '../../components/access-section/access-section';
 import { Contract } from '../../models/contract.models';
-import { StoreAssignment } from '../../models/store-assignment.models';
 import { ScopeAssignment } from '../../models/scope-assignment.models';
 import { Employee } from '../../models/employee.models';
 import {
@@ -53,11 +50,6 @@ import {
   ContractDialogResult,
 } from '../../components/contract-dialog/contract-dialog';
 import {
-  StoreAssignmentDialog,
-  StoreAssignmentDialogData,
-  StoreAssignmentDialogResult,
-} from '../../components/store-assignment-dialog/store-assignment-dialog';
-import {
   ScopeAssignmentDialog,
   ScopeAssignmentDialogData,
   ScopeAssignmentDialogResult,
@@ -70,12 +62,16 @@ import { ACCESS_READ_ROLES, EMPLOYEE_WRITE_ROLES, hasAnyClientRole } from '@core
  * `accesos` is conditional: a caller without `ACCESS_READ_ROLES` gets the first three and nothing
  * else (record T96), so the array is resolved through {@link EmployeeDetail.visibleTabs} instead of
  * used directly.
+ *
+ * There is one assignment tab, not two: `tiendas` was merged into `alcance` once the store became a
+ * level of the scope instead of a table of its own (`S1`), so it is no longer a member of this list
+ * while {@link EmployeeDetail.readTab} keeps the old deep links landing on it.
  */
-const DETAIL_TABS = ['detalle', 'contratos', 'tiendas', 'alcance', 'accesos'] as const;
+const DETAIL_TABS = ['detalle', 'contratos', 'alcance', 'accesos'] as const;
 type DetailTab = (typeof DETAIL_TABS)[number];
 
 /** The tabs every authenticated caller sees; `accesos` joins them behind its role gate. */
-const OPEN_TABS: readonly DetailTab[] = ['detalle', 'contratos', 'tiendas', 'alcance'];
+const OPEN_TABS: readonly DetailTab[] = ['detalle', 'contratos', 'alcance'];
 
 /**
  * Read-only detail screen of one employee: `/hr/employees/:id`.
@@ -91,23 +87,22 @@ const OPEN_TABS: readonly DetailTab[] = ['detalle', 'contratos', 'tiendas', 'alc
  * makes a bare deep link (no `companyId`) recoverable instead of a dead end, and
  * no request is issued until a company is selected — the list's own rule.
  *
- * **The sections are tabs, one per concern** — `Detalle`, `Contratos`, `Tiendas`, `Alcance` and
- * `Accesos` — and each write control lives in the tab that owns the act it starts: `Editar` opens the
- * edit form from `Detalle`, `Nuevo contrato` / `Cerrar contrato vigente` from `Contratos`,
- * `Asignar tienda` / `Cerrar` come from the store assignments section itself, `Asignar alcance` /
- * `Cerrar` from the per-level scope section, and the access writes from `Accesos`. The tab is read
- * once from `?tab=` (the same channel `companyId` travels on) and written back with `replaceUrl`,
- * because a tab is a view of this page and not a history entry; an unrecognised or unrenderable
- * value falls back to `Detalle`. The reads are asked for by the page, not by a tab, so switching
- * tabs costs no request: Material only attaches the body of the tab on screen.
+ * **The sections are tabs, one per concern** — `Detalle`, `Contratos`, `Alcance` and `Accesos` — and
+ * each write control lives in the tab that owns the act it starts: `Editar` opens the edit form from
+ * `Detalle`, `Nuevo contrato` / `Cerrar contrato vigente` from `Contratos`, `Asignar alcance` /
+ * `Cerrar` from the merged scope section, and the access writes from `Accesos`. The tab is read once
+ * from `?tab=` (the same channel `companyId` travels on) and written back with `replaceUrl`, because
+ * a tab is a view of this page and not a history entry; an unrecognised or unrenderable value falls
+ * back to `Detalle`. The reads are asked for by the page, not by a tab, so switching tabs costs no
+ * request: Material only attaches the body of the tab on screen.
  *
- * The page owns the five reads (`getEmployee` + `getContracts` + the store assignments + the scope
- * assignments + the access overview) **independently**, so a failure of one degrades only its half
- * of the screen: the employee read keeps the three states — loading, error and **not-found** (a 404
- * is told apart from every other failure, because the employee may simply not exist in the selected
- * company) — while the contracts, assignment and access tabs own their own error and retry. Joining
- * the reads would let a failed contracts call discard a successfully read employee, which is the
- * coupling this split removes.
+ * The page owns the four reads (`getEmployee` + `getContracts` + the scope assignments + the access
+ * overview) **independently**, so a failure of one degrades only its half of the screen: the
+ * employee read keeps the three states — loading, error and **not-found** (a 404 is told apart from
+ * every other failure, because the employee may simply not exist in the selected company) — while the
+ * contracts, scope and access tabs own their own error and retry. Joining the reads would let a
+ * failed contracts call discard a successfully read employee, which is the coupling this split
+ * removes.
  *
  * The **"Puesto actual"** of the `Detalle` tab is the `D15`/`G15` fact only this screen can
  * show: the position comes from the employee's **current contract**, which the
@@ -121,26 +116,21 @@ const OPEN_TABS: readonly DetailTab[] = ['detalle', 'contratos', 'tiendas', 'alc
  * contract (`isContractCurrent`) and opens the dialog's close mode. The page does
  * not write: it opens the dialog (`D71`) and reloads the contracts read on a real outcome, which is
  * the read the card's "Puesto actual" also derives from. A **create** act can also carry a store
- * assignment (`D8`), so it reloads the assignments read too and reports a failed second call as the
+ * assignment (`D8`), so it reloads the scope read too and reports a failed second call as the
  * partial outcome it is (`D9`) instead of hiding it.
  *
- * The store-assignment surface follows the same shape: {@link StoreAssignmentsSection} renders the
- * history with its derived chain and emits three intents, the page opens {@link StoreAssignmentDialog}
- * for **Asignar tienda** and the shared `ConfirmDialog` for **Cerrar**, then reloads only the
- * assignments read. Both write actions gate on the very same `EMPLOYEE_WRITE_ROLES` the endpoints
- * require (`T17`), so the UI cannot offer a control whose call the API would refuse.
+ * The **Alcance** tab is one surface for the whole assignment history, and the contract dialog's
+ * optional store is only its fourth level (`S1`, `S2`): país, región, zona y tienda son asignables por
+ * empleado y el nivel de empresa no lo es — una persona, una empresa (`S3`) — así que
+ * {@link ScopeAssignmentsSection} renders the employee's company as the **derived root** of the tree
+ * and one row per assignment with the company/country/region/zone chain the token will carry.
+ * {@link ScopeAssignmentDialog} is the single dialog: it offers the four assignable levels and hides
+ * and clears the levels below the chosen one, so the form can never submit two nodes. The write gate
+ * is `EMPLOYEE_WRITE_ROLES`, the pair `EmployeeScopeAssignmentController` carries (`S4`), and the
+ * level the dialog preselects is only a hint taken from the employee's own scoped roles: the level is
+ * an affordance, never a gate, so no authorization rule is invented in the UI.
  *
- * The **Alcance** tab is the per-level scope assignment (`S2`), the sibling of the store one: país,
- * región and zona are assignable per employee and the company level is not (one employee, one
- * company, `S3`), so {@link ScopeAssignmentsSection} renders one row per level with the derived
- * company/country/region/zone chain the token will carry. It emits the same three intents and the
- * page acts on them the same way — {@link ScopeAssignmentDialog} for **Asignar alcance**, the shared
- * `ConfirmDialog` for **Cerrar**, and a reload of this read alone. The write gate is
- * `EMPLOYEE_WRITE_ROLES`, the pair `EmployeeScopeAssignmentController` carries (`S4`), and the level
- * the dialog preselects is only a hint taken from the employee's own scoped roles: the level is an
- * affordance, never a gate, so no authorization rule is invented in the UI.
- *
- * The **Acceso** tab (W5d-C) is the fifth read and it follows the same independence: it is
+ * The **Acceso** tab (W5d-C) is the fourth read and it follows the same independence: it is
  * keyed on the selected company and the route id and gated on `ACCESS_READ_ROLES`, so a caller
  * without `lc-admin`/`lc-employee-access` renders no tab and issues no request (record T96). It
  * renders through {@link AccessSection} and the page owns its five intents: `apply`, `deactivate`
@@ -164,7 +154,6 @@ const OPEN_TABS: readonly DetailTab[] = ['detalle', 'contratos', 'tiendas', 'alc
     PageHeader,
     ErrorBanner,
     ContractHistory,
-    StoreAssignmentsSection,
     ScopeAssignmentsSection,
     AccessSection,
   ],
@@ -175,7 +164,6 @@ export class EmployeeDetail {
   private readonly companyService = inject(CompanyService);
   private readonly employeeService = inject(EmployeeService);
   private readonly contractService = inject(ContractService);
-  private readonly storeAssignmentService = inject(StoreAssignmentService);
   private readonly scopeAssignmentService = inject(ScopeAssignmentService);
   private readonly accessService = inject(AccessProvisioningService);
   private readonly currentUser = inject(CurrentUser);
@@ -278,33 +266,12 @@ export class EmployeeDetail {
   });
 
   /**
-   * The store-assignment read, independent from the other two: a failure here leaves the employee
-   * card and the contracts standing and is shown by the `Tiendas` tab alone.
+   * The scope-assignment read (`S1`, `S2`): one read for the whole merged tab, country through
+   * store, independent from the other three so a failure here leaves the employee card, the
+   * contracts and the access section standing.
    *
-   * The whole history is asked for (`includeDisabled`): a soft-deleted assignment is part of the
-   * record, and the section distinguishes it from a closed one.
-   */
-  readonly assignmentsResource = rxResource({
-    params: () => {
-      const companyId = this.selectedCompanyId();
-      const employeeId = this.employeeId();
-      if (!companyId || !employeeId) {
-        return undefined;
-      }
-      return { companyId, employeeId };
-    },
-    stream: ({ params }) =>
-      this.storeAssignmentService.getAssignments(params.companyId, params.employeeId, true),
-  });
-
-  /**
-   * The per-level scope-assignment read (`S2`), independent from the other four: a failure here
-   * leaves the employee card, the contracts and the stores standing and is shown by the `Alcance`
-   * tab alone.
-   *
-   * The whole history is asked for (`includeDisabled`), exactly as the store read does: a
-   * soft-deleted assignment is part of the record, and the section distinguishes it from a closed
-   * one.
+   * The whole history is asked for (`includeDisabled`), exactly as before: a soft-deleted assignment
+   * is part of the record, and the section distinguishes it from a closed one.
    */
   readonly scopeAssignmentsResource = rxResource({
     params: () => {
@@ -361,19 +328,28 @@ export class EmployeeDetail {
   /** The contracts section's loading flag; drives only that section's copy. */
   readonly contractsLoading = this.contractsResource.isLoading;
 
-  readonly assignments = computed<StoreAssignment[]>(() =>
-    this.assignmentsResource.hasValue() ? (this.assignmentsResource.value() ?? []) : [],
-  );
-
-  /** The assignments section's loading flag; drives only that section's copy. */
-  readonly assignmentsLoading = this.assignmentsResource.isLoading;
-
   readonly scopeAssignments = computed<ScopeAssignment[]>(() =>
     this.scopeAssignmentsResource.hasValue() ? (this.scopeAssignmentsResource.value() ?? []) : [],
   );
 
   /** The scope section's loading flag; drives only that section's copy. */
   readonly scopeAssignmentsLoading = this.scopeAssignmentsResource.isLoading;
+
+  /**
+   * The selected company's name, as the selector carries it.
+   *
+   * The merged section renders it as the **derived root** of the tree (`S3`): the company is a fact
+   * of the employee, so there is no company assignment to read and no view that owns the name. It is
+   * `null` until a company is selected, and the section renders that as a placeholder rather than
+   * inventing a name.
+   */
+  readonly selectedCompanyName = computed<string | null>(() => {
+    const companyId = this.selectedCompanyId();
+    if (!companyId) {
+      return null;
+    }
+    return this.companies().find((candidate) => candidate.id === companyId)?.companyName ?? null;
+  });
 
   /** The access overview, or `null` while loading and on any failure. */
   readonly access = computed<AccessProvisioningOverview | null>(() =>
@@ -436,14 +412,6 @@ export class EmployeeDetail {
    * banner, so this is only ever the close route's message. A failed assignment inside the contract
    * activation act is a different fact and gets its own signal below.
    */
-  readonly assignmentActionError = signal<string | null>(null);
-
-  /**
-   * A failed scope close write, as the service mapped it.
-   *
-   * A failed **assign** never reaches the page: the dialog stays open and reports it in its own
-   * banner, so this is only ever the close route's message.
-   */
   readonly scopeAssignmentActionError = signal<string | null>(null);
 
   /**
@@ -451,8 +419,8 @@ export class EmployeeDetail {
    * store was not assigned.
    *
    * Named as two facts, because that is what happened — a banner implying nothing was saved would be
-   * false. The assign dialog of the `Tiendas` tab is the retry path, so the message
-   * points there; it clears once that retry succeeds (`onAssign`) or when a later activation act
+   * false. The assign dialog of the `Alcance` tab is the retry path (`S9`), so the message points
+   * there; it clears once that retry succeeds (`onAssignScope`) or when a later activation act
    * starts from a clean slate.
    */
   readonly partialAssignmentError = signal<string | null>(null);
@@ -481,12 +449,6 @@ export class EmployeeDetail {
     return error ? httpErrorMessage(error) : null;
   });
 
-  /** The assignments section's own error copy; `null` while loading, on success or before selection. */
-  readonly assignmentsError = computed(() => {
-    const error = this.assignmentsResource.error();
-    return error ? httpErrorMessage(error) : null;
-  });
-
   /** The scope section's own error copy; `null` while loading, on success or before selection. */
   readonly scopeAssignmentsError = computed(() => {
     const error = this.scopeAssignmentsResource.error();
@@ -498,7 +460,7 @@ export class EmployeeDetail {
    * plus what the position requires.
    *
    * They exist only for a caller that may read the access overview (`ACCESS_READ_ROLES`), so this is
-   * empty otherwise and the assign dialog simply offers the three levels with no hint. They are
+   * empty otherwise and the assign dialog simply offers the four levels with no hint. They are
    * **not** used to decide anything: the dialog only orders and preselects the level with them (see
    * `suggestedLevelFromRoles`), because which level an operator may write is the API's decision and
    * inventing an authorization rule in the UI is exactly what this unit avoids.
@@ -585,7 +547,11 @@ export class EmployeeDetail {
   /** The tab `?tab=` asks for, or `Detalle` when it names none of the ones this caller renders. */
   private readTab(requested: string | null): DetailTab {
     const tab = (requested ?? '').trim();
-    return this.visibleTabs().find((candidate) => candidate === tab) ?? 'detalle';
+    // `tiendas` was the pre-merge deep link of what is now one tab, and every link to it has to land
+    // on the screen that can act instead of falling back to `Detalle` (`S1`). `tiendas` is
+    // deliberately not a tab of its own, so this alias is the whole compatibility surface.
+    const resolved = tab === 'tiendas' ? 'alcance' : tab;
+    return this.visibleTabs().find((candidate) => candidate === resolved) ?? 'detalle';
   }
 
   /**
@@ -611,11 +577,6 @@ export class EmployeeDetail {
   /** Re-runs only the contracts read, the `Contratos` section's own retry. */
   retryContracts(): void {
     this.contractsResource.reload();
-  }
-
-  /** Re-runs only the assignments read, the `Tiendas` tab's own retry. */
-  retryAssignments(): void {
-    this.assignmentsResource.reload();
   }
 
   /** Re-runs only the scope assignments read, the `Alcance` tab's own retry. */
@@ -766,87 +727,8 @@ export class EmployeeDetail {
   }
 
   /**
-   * Opens the assign dialog for the selected company and employee (`T16`: the company comes in as an
-   * input, so the dialog only walks the store tree).
-   *
-   * Guarded on the write role like the contract controls, so a reader cannot reach a writable surface
-   * by a second route.
-   */
-  onAssign(): void {
-    const companyId = this.selectedCompanyId();
-    const employeeId = this.employeeId();
-    if (!this.canWrite || !companyId || !employeeId) {
-      return;
-    }
-    const data: StoreAssignmentDialogData = { companyId, employeeId };
-    this.dialog
-      .open<StoreAssignmentDialog, StoreAssignmentDialogData, StoreAssignmentDialogResult>(
-        StoreAssignmentDialog,
-        { data },
-      )
-      .afterClosed()
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe((result) => {
-        // `undefined` is a bare Material dismissal and means the same as `null`: no write.
-        if (result?.outcome === 'created') {
-          // The retry landed: the partial message of a previous failed activation is stale now.
-          this.partialAssignmentError.set(null);
-          this.assignmentsResource.reload();
-        }
-      });
-  }
-
-  /**
-   * Closes an assignment after the operator confirms it in the shared `ConfirmDialog`, then reloads
-   * the assignments.
-   *
-   * The confirmation lives here, next to the write, exactly as `employee-list` and `department-list`
-   * open it; the section renders the control and emits the row.
-   */
-  onCloseAssignment(assignment: StoreAssignment): void {
-    const companyId = this.selectedCompanyId();
-    const employeeId = this.employeeId();
-    if (!this.canWrite || !companyId || !employeeId) {
-      return;
-    }
-    const data: ConfirmDialogData = {
-      title: 'Cerrar asignación de tienda',
-      message: `¿Confirmás que querés cerrar la asignación a "${assignment.companyStoreName}"? Se conserva en el historial y la tienda deja de contar para el alcance del empleado.`,
-      confirmLabel: 'Cerrar asignación',
-      destructive: true,
-    };
-    this.dialog
-      .open<ConfirmDialog, ConfirmDialogData, boolean>(ConfirmDialog, { data })
-      .afterClosed()
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe((confirmed) => {
-        if (confirmed) {
-          this.closeAssignment(companyId, employeeId, assignment);
-        }
-      });
-  }
-
-  private closeAssignment(
-    companyId: string,
-    employeeId: string,
-    assignment: StoreAssignment,
-  ): void {
-    this.assignmentActionError.set(null);
-    this.storeAssignmentService
-      .closeAssignment(companyId, employeeId, assignment.id)
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: () => this.assignmentsResource.reload(),
-        // The service maps the status; its message is the one the operator can act on.
-        error: () =>
-          this.assignmentActionError.set(
-            this.storeAssignmentService.error() ?? 'Error al cerrar la asignación',
-          ),
-      });
-  }
-
-  /**
-   * Opens the per-level scope assign dialog for the selected company and employee (`S2`).
+   * Opens the scope assign dialog for the selected company and employee (`S1`, `S7`): the one dialog
+   * for the four levels, store included.
    *
    * The company is fixed by the employee and shown, not chosen, and the employee's own role names
    * come along as a **hint** for the level — never as a gate. Guarded on the write role like every
@@ -855,13 +737,12 @@ export class EmployeeDetail {
   onAssignScope(): void {
     const companyId = this.selectedCompanyId();
     const employeeId = this.employeeId();
-    const company = this.companies().find((candidate) => candidate.id === companyId);
     if (!this.canWrite || !companyId || !employeeId) {
       return;
     }
     const data: ScopeAssignmentDialogData = {
       companyId,
-      companyName: company?.companyName ?? companyId,
+      companyName: this.selectedCompanyName() ?? companyId,
       employeeId,
       employeeRoles: this.employeeScopeRoles(),
     };
@@ -875,6 +756,8 @@ export class EmployeeDetail {
       .subscribe((result) => {
         // `undefined` is a bare Material dismissal and means the same as `null`: no write.
         if (result?.outcome === 'created') {
+          // The retry landed: the partial message of a previous failed activation is stale now (`S9`).
+          this.partialAssignmentError.set(null);
           this.scopeAssignmentsResource.reload();
         }
       });
@@ -884,7 +767,7 @@ export class EmployeeDetail {
    * Closes a scope assignment after the operator confirms it in the shared `ConfirmDialog`, then
    * reloads the scope assignments.
    *
-   * The confirmation lives here, next to the write, exactly as the store one does; the section
+   * The confirmation lives here, next to the write, exactly as the contracts one does; the section
    * renders the control and emits the row.
    */
   onCloseScopeAssignment(assignment: ScopeAssignment): void {
@@ -894,7 +777,13 @@ export class EmployeeDetail {
       return;
     }
     const levelName =
-      assignment.level === 'COUNTRY' ? 'país' : assignment.level === 'REGION' ? 'región' : 'zona';
+      assignment.level === 'COUNTRY'
+        ? 'país'
+        : assignment.level === 'REGION'
+          ? 'región'
+          : assignment.level === 'ZONE'
+            ? 'zona'
+            : 'tienda';
     const data: ConfirmDialogData = {
       title: 'Cerrar alcance asignado',
       message: `¿Confirmás que querés cerrar la asignación de alcance "${assignment.nodeName}"? Se conserva en el historial y ese ${levelName} deja de contar para el alcance del empleado.`,
@@ -989,9 +878,9 @@ export class EmployeeDetail {
    * the two reads stay independent (`T52`), and the header's "Puesto actual" is
    * derived from the contracts, which do reload.
    *
-   * A `created` result always reloads the contracts. When the act also wrote an assignment, the
-   * assignments read reloads with it; when the assignment failed, the page reloads that read too — a
-   * write can succeed on the server and still fail on the wire — and tells the truth in
+   * A `created` result always reloads the contracts. When the act also wrote an assignment, the scope
+   * read reloads with it; when the assignment failed, the page reloads that read too — a write can
+   * succeed on the server and still fail on the wire — and tells the truth in
    * {@link partialAssignmentError} instead of implying that nothing was saved. A contract-only result
    * (the pre-existing empty-picker act, `D8`) reloads the contracts and nothing else.
    */
@@ -1009,13 +898,13 @@ export class EmployeeDetail {
     if (result.assignmentError) {
       this.partialAssignmentError.set(
         `El contrato quedó creado, pero la tienda no se asignó: ${result.assignmentError}. ` +
-          'Podés asignarla desde la pestaña «Tiendas».',
+          'Podés asignarla desde la pestaña «Alcance».',
       );
-      this.assignmentsResource.reload();
+      this.scopeAssignmentsResource.reload();
       return;
     }
     if (result.assignment) {
-      this.assignmentsResource.reload();
+      this.scopeAssignmentsResource.reload();
     }
   }
 

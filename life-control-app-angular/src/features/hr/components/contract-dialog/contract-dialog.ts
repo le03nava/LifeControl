@@ -35,7 +35,7 @@ import { CompanyStoreService } from '@features/companies/stores/data/company-sto
 import { ContractService } from '../../data/contract.service';
 import { PositionService } from '../../data/position.service';
 import { SeniorityLevelService } from '../../data/seniority-level.service';
-import { StoreAssignmentService } from '../../data/store-assignment.service';
+import { ScopeAssignmentService } from '../../data/scope-assignment.service';
 import {
   Contract,
   ContractRequest,
@@ -44,7 +44,7 @@ import {
 } from '../../models/contract.models';
 import { Position, PositionSalaryBand } from '../../models/position.models';
 import { SeniorityLevel } from '../../models/seniority-level.models';
-import { StoreAssignment } from '../../models/store-assignment.models';
+import { ScopeAssignment } from '../../models/scope-assignment.models';
 import { Employee } from '../../models/employee.models';
 import { isContractCurrent } from '../contract-history/contract-history';
 
@@ -195,7 +195,7 @@ export type ContractDialogResult =
       readonly outcome: 'created';
       readonly contract: Contract;
       /** The assignment the same act created (`D8`); absent when the picker was left empty. */
-      readonly assignment?: StoreAssignment;
+      readonly assignment?: ScopeAssignment;
       /** Why the assignment could not be created; the contract still stands (`D9`). */
       readonly assignmentError?: string;
     }
@@ -210,7 +210,7 @@ export type ContractDialogResult =
  */
 interface ActivationOutcome {
   readonly contract: Contract;
-  readonly assignment: StoreAssignment | null;
+  readonly assignment: ScopeAssignment | null;
   readonly assignmentError: string | null;
 }
 
@@ -273,7 +273,7 @@ export class ContractDialog {
   private readonly contractService = inject(ContractService);
   private readonly positionService = inject(PositionService);
   private readonly seniorityLevelService = inject(SeniorityLevelService);
-  private readonly storeAssignmentService = inject(StoreAssignmentService);
+  private readonly scopeAssignmentService = inject(ScopeAssignmentService);
   private readonly countryService = inject(CompanyCountryService);
   private readonly regionService = inject(CompanyRegionService);
   private readonly zoneService = inject(CompanyZoneService);
@@ -476,8 +476,10 @@ export class ContractDialog {
    * dialog open with its own banner and **never** reaches the assignment call; an assignment failure
    * still closes the dialog, carrying the created contract **and** the failure as two separate facts
    * (`D9`), because no rollback is expressible — assignments have no `PUT`/`DELETE` and a contract has
-   * none either — so the act reports instead of compensating, and the page's `Tiendas` tab is the
-   * retry path.
+   * none either — so the act reports instead of compensating, and the page's `Alcance` tab is the
+   * retry path (`S9`). The write goes through `ScopeAssignmentService` with `companyStoreId`, the same
+   * route and the same table as every other level: a store is a level of the scope, not a second kind
+   * of assignment, so this dialog must not keep a second client for it.
    *
    * The assignment's `validFrom` is the created contract's `startDate`, verbatim (`T20`): one act,
    * one date, one control. The empty picker resolves to an {@link ActivationOutcome} with no
@@ -546,7 +548,7 @@ export class ContractDialog {
     if (!companyStoreId) {
       return of({ contract, assignment: null, assignmentError: null });
     }
-    return this.storeAssignmentService
+    return this.scopeAssignmentService
       .createAssignment(this.data.companyId, this.data.employee.id, {
         companyStoreId,
         validFrom: contract.startDate,
@@ -557,7 +559,7 @@ export class ContractDialog {
           of<ActivationOutcome>({
             contract,
             assignment: null,
-            assignmentError: this.serverMessage(err, this.storeAssignmentService.error()),
+            assignmentError: this.serverMessage(err, this.scopeAssignmentService.error()),
           }),
         ),
       );
