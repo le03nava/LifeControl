@@ -720,9 +720,12 @@ app.rate-limit.endpoints./api/users-admin/users.duration=1m
 | Concern             | Implementation                     |
 |---------------------|------------------------------------|
 | Metrics             | Micrometer + Prometheus (`/actuator/prometheus`) |
-| Tracing             | Micrometer Tracing + Brave + Zipkin |
+| Tracing             | Micrometer Tracing on the OpenTelemetry bridge, exported over OTLP/HTTP to Tempo (`OTLP_TRACING_ENDPOINT`, default `http://localhost:4318/v1/traces`). No Brave, no Zipkin: `docker/config/tempo/tempo.yml` deliberately declares no `zipkin` receiver |
+| Sampling            | `management.tracing.sampling.probability=${TRACING_SAMPLING_PROBABILITY:0.1}` in **every** profile, prod included: `application-prod.properties` carries the same placeholder instead of a literal, so `docker/.env.prod`'s `0.01` reaches the running service |
 | Log Aggregation     | Loki (Loki4j appender)             |
-| Correlation IDs     | `traceId`/`spanId` in MDC, included in error responses |
+| Log Level           | `logging.level.root=${LOG_LEVEL:INFO}`, so compose's `LOG_LEVEL` decides the root level without a rebuild; `logback-spring.xml` binds `<root>` to that property and cannot outvote it |
+| Correlation IDs     | `traceId`/`spanId` in MDC, included in error responses. `logging.pattern.correlation` feeds Boot's `${LOG_CORRELATION_PATTERN}` into the Loki message format, the console pattern prints `[traceId,spanId]` on every line, and the appender labels streams by `application`, `host` and `level` |
+| Provisioning queue  | `access_provisioning_tasks{state}` (one series per `AccessProvisioningTaskStatus`) plus `access_provisioning_oldest_pending_age_seconds`, refreshed every 15s. The age counts from `requested_at`, not `next_attempt_at`, so a row waiting out a retry backoff can legitimately reach `WORKER_MAX_DELAY_SECONDS` (3600s): an alert threshold below that ceiling fires on correct behaviour |
 | Health              | `/actuator/health` (Redis is excluded on purpose — see Caching) |
 
 ---
