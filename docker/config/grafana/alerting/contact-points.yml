@@ -1,0 +1,43 @@
+# ============================================
+# LifeControl - Grafana contact points
+# ============================================
+# The first notification destination this stack has ever had, and the reason the alert rule in
+# rules.yml can ship at all: decision D5 in odd/tasks/observability-hardening.md held the rule back
+# while nothing could receive it, because a rule that fires into nowhere is decoration.
+#
+# Email, and nothing else. Dev delivers into the Mailpit container of docker-compose.override.yml
+# (the same sink Keycloak's invitation emails use); staging and prod are expected to declare a real
+# relay through SMTP_HOST/SMTP_PORT in docker/.env.<env>. There is no webhook and no chat sink here
+# because this stack has no consumer for either.
+#
+# The address is NOT written in this file: `$__env{GRAFANA_ALERT_EMAIL}` is Grafana's own
+# provisioning interpolation, so the destination is an environment value in every environment.
+# That was measured on the pinned image rather than assumed -- a throwaway container of
+# grafana/grafana:13.2.4 provisioned this file with GRAFANA_ALERT_EMAIL set and
+# GET /api/v1/provisioning/contact-points answered `"addresses": "alerts@lifecontrol.local"`, i.e.
+# the literal, not the template. Two consequences of the same measurement are worth knowing:
+# compose must always pass the variable (it declares a default, see both compose files), and an
+# unset variable interpolates to the empty string, which fails the whole alerting provisioning pass
+# loudly with `could not find addresses in settings` -- measured too. Failing loudly is the right
+# behaviour for a value with no sensible default; the compose default is what keeps it from being
+# reachable by accident.
+#
+# Installed read-only from this repository (never into $VOLUMES_ROOT) for the same reason the
+# dashboards are: a copy-if-missing install freezes whatever was installed first.
+# ============================================
+apiVersion: 1
+
+contactPoints:
+  - orgId: 1
+    name: lifecontrol-email
+    receivers:
+      # A stable uid, because Grafana's app-platform API addresses a receiver by it
+      # (`.../namespaces/default/receivers/<name>/test` resolves the stored receiver).
+      - uid: lc-email-alerts
+        type: email
+        disableResolveMessage: false
+        settings:
+          addresses: $__env{GRAFANA_ALERT_EMAIL}
+          # One mail per notification instead of one per recipient: the destination is a shared
+          # mailbox, and grouping recipients into one mail only hides which rule fired.
+          singleEmail: true

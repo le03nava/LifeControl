@@ -9,15 +9,16 @@
 # access-provisioning worker shipped OFF in every environment with nobody able to see it:
 # `WORKER_ENABLED` was one of the 16 keys `docker/.env.dev` did not carry.
 #
-# Measured on this tree, not inferred: the template declares 88 keys, 80 of them are bound
-# by a `${KEY:-...}` / `${KEY:?...}` interpolation in `docker-compose*.yml`, and exactly 8
-# are not — the five `SMTP_*` keys (read by `keycloak-setup.sh`'s `get_env`), `ENVIRONMENT`
-# (`validate-env.sh`'s `REQUIRED_VARS`), `CIRCUIT_BREAKER_*` (the api-gateway's Spring
-# properties) and `GF_AUTH_ANONYMOUS_ORG_ROLE` (the k8s Grafana manifests). Those eight are
-# **allowlisted with their reader, never deleted**: "no compose reference" does not mean
-# "unused" — `CIRCUIT_BREAKER_WINDOW_SIZE` and `GF_AUTH_ANONYMOUS_ORG_ROLE` were wrongly
-# called dead keys once, and this test asserts the consumer instead of assuming there is
-# none.
+# Measured on this tree, not inferred: the template declares 96 keys, 92 of them are bound
+# by a `${KEY:-...}` / `${KEY:?...}` interpolation in `docker-compose*.yml`, and exactly 4
+# are not — `SMTP_STARTTLS` and `SMTP_AUTH` (read by `keycloak-setup.sh`'s `get_env`),
+# `ENVIRONMENT` (`validate-env.sh`'s `REQUIRED_VARS`) and `CIRCUIT_BREAKER_WINDOW_SIZE` (the
+# api-gateway's Spring properties). Those four are **allowlisted with their reader, never
+# deleted**: "no compose reference" does not mean "unused" — `CIRCUIT_BREAKER_WINDOW_SIZE` was
+# wrongly called a dead key once, and this test asserts the consumer instead of assuming there
+# is none. The count fell 8 -> 7 -> 4: `GF_AUTH_ANONYMOUS_ORG_ROLE` left with the Grafana auth
+# block, and `SMTP_HOST`/`SMTP_PORT`/`SMTP_FROM` gained a compose binding when Grafana's alert
+# emails started riding the same relay declaration Keycloak reads.
 #
 # The test also pins the two halves of the fix:
 #
@@ -205,7 +206,6 @@ allowlist_reader() {
 	CIRCUIT_BREAKER_*)
 		printf '%s' "$REPO_ROOT/api-gateway/src/main/resources/application.properties"
 		;;
-	GF_AUTH_ANONYMOUS_ORG_ROLE) printf '%s' "$REPO_ROOT/k8s/manifests/infra/grafana.yml" ;;
 	*) printf '' ;;
 	esac
 }
@@ -213,14 +213,15 @@ allowlist_reader() {
 # The frozen allowlist: the keys measured to have no compose binding, each with the reader
 # that consumes it. Adding a key here is a reviewed decision, exactly like bumping a pin in
 # image-pins.test.sh.
-ALLOWLISTED_KEYS="SMTP_HOST SMTP_PORT SMTP_FROM SMTP_STARTTLS SMTP_AUTH ENVIRONMENT CIRCUIT_BREAKER_WINDOW_SIZE GF_AUTH_ANONYMOUS_ORG_ROLE"
+ALLOWLISTED_KEYS="SMTP_STARTTLS SMTP_AUTH ENVIRONMENT CIRCUIT_BREAKER_WINDOW_SIZE"
 
 # Compose-internal keys: interpolated between compose services (or by the build), never an
 # operator knob, so they deliberately do not live in .env.template (image-pins.test.sh pins
 # the same fact for LIFECONTROL_POSTGRES_IMAGE). Pinned here so a *typo'd* knob — e.g.
 # ${WORKER_ENABLE:-false} next to a template's WORKER_ENABLED — cannot hide as an
 # "internal" key, and each entry must stay interpolated with a default compose supplies.
-COMPOSE_INTERNAL_KEYS="APP_VERSION GF_AUTH_BASIC_ENABLED GF_SECURITY_ADMIN_USER GIT_COMMIT
+COMPOSE_INTERNAL_KEYS="APP_VERSION GF_AUTH_ANONYMOUS_ENABLED GF_AUTH_BASIC_ENABLED
+GF_AUTH_DISABLE_LOGIN_FORM GF_SECURITY_ADMIN_USER GIT_COMMIT
 KC_HTTPS_PORT KEYCLOAK_INTERNAL_URI LIFECONTROL_API_URI LIFECONTROL_POSTGRES_IMAGE
 OTLP_TRACING_ENDPOINT REDIS_HOST REDIS_INTERNAL_PORT REDIS_MAXMEMORY REDIS_MEMORY_LIMIT
 WEB_APP_MEMORY_LIMIT"
@@ -273,9 +274,6 @@ for key in $ALLOWLISTED_KEYS; do
 		;;
 	CIRCUIT_BREAKER_*)
 		assert_file_contains "$key is a gateway Spring property default" "$reader" "${key}:"
-		;;
-	GF_AUTH_ANONYMOUS_ORG_ROLE)
-		assert_file_contains "$key is consumed by the k8s Grafana manifests" "$reader" "$key"
 		;;
 	esac
 done

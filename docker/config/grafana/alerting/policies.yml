@@ -1,0 +1,33 @@
+# ============================================
+# LifeControl - Grafana notification policies
+# ============================================
+# One policy tree, and its only job is to route every alert to the one contact point this stack
+# declares. The `receiver` below is a *name*, and contact-points.yml is the only file that defines
+# it: a rename on one side and not the other produces a rule that fires, a policy that routes
+# nowhere, and no error anywhere. grafana-alerting.test.sh compares the two.
+#
+# No nested routes and no matchers: the root policy of a tree is the one with neither, so a second
+# branch here would be a decision nobody asked for. When a second destination exists, it becomes a
+# route with matchers, which is a reviewed edit rather than a knob.
+#
+# The timings are the honest part of an email channel:
+#   group_wait 30s   -- by the time a mail leaves, the alert is either still true or was a blip.
+#   group_interval 5m -- a group that gains an instance is re-sent at most every 5 minutes; the
+#                       mail sink is a shared mailbox, and faster re-sends are noise.
+#   repeat_interval 4h -- a firing alert nobody has looked at is repeated once per working half
+#                       day. It is NOT the alert resolution: Grafana sends the resolved notice as
+#                       soon as the condition clears.
+# ============================================
+apiVersion: 1
+
+policies:
+  - orgId: 1
+    receiver: lifecontrol-email
+    group_by:
+      # `job` is the dimension the rule breaks the ratio down by, so each service's alerts group
+      # and repeat on their own instead of one job's noise delaying another's.
+      - job
+      - alertname
+    group_wait: 30s
+    group_interval: 5m
+    repeat_interval: 4h

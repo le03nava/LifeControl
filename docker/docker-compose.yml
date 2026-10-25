@@ -119,13 +119,24 @@ services:
   # ============================================
   # Loki - Log Aggregation
   # ============================================
+  # Every observability port below is published on 127.0.0.1 only: Prometheus, Loki, Tempo and
+  # Grafana have no authentication of their own, so a bare `HOST:CONTAINER` mapping exposed them to
+  # anything on the host's network (Prometheus could be stopped remotely, Loki accepted writes and
+  # Tempo answered every stored trace). Loopback keeps them reachable for `deploy.sh health` and a
+  # human on the host; containers reach each other by service name on the compose network, which
+  # does not go through the published port at all.
   loki:
     image: ${LOKI_IMAGE:-grafana/loki:3.7.8}
     container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-loki
-    command: ["-config.file=/etc/loki/local-config.yaml"]
+    command: ["-config.file=/etc/loki/config.yml"]
     ports:
-      - "${LOKI_PORT:-3100}:3100"
+      - "127.0.0.1:${LOKI_PORT:-3100}:3100"
     volumes:
+      # Mounted from the repository, never copied into $VOLUMES_ROOT like prometheus.yml, tempo.yml
+      # and the Grafana datasources: Loki's retention policy decides how much of the host disk the
+      # logs may take and how much history survives, so it belongs in a reviewed commit. A host copy
+      # (setup-env.sh never overwrites an existing one) is how it would drift out of review.
+      - ./config/loki/loki.yml:/etc/loki/config.yml:ro
       - ${VOLUMES_ROOT:?VOLUMES_ROOT must be set}/loki/data:/loki
     networks:
       - default
@@ -148,9 +159,11 @@ services:
       - --enable-feature=exemplar-storage
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.retention.time=15d
-      - --web.enable-lifecycle
+      # --web.enable-lifecycle used to be here. It turns POST /-/quit and /-/reload on for whoever
+      # can reach the port, and nothing in this repository calls either endpoint: a reload happens
+      # by recreating the container. Re-adding the flag means deciding the exposure again.
     ports:
-      - "${PROMETHEUS_PORT:-9090}:9090"
+      - "127.0.0.1:${PROMETHEUS_PORT:-9090}:9090"
     volumes:
       - ${VOLUMES_ROOT:?VOLUMES_ROOT must be set}/prometheus/config:/etc/prometheus:ro
       - ${VOLUMES_ROOT:?VOLUMES_ROOT must be set}/prometheus/data:/prometheus
@@ -176,6 +189,100 @@ services:
     restart: unless-stopped
 
   # ============================================
+  # Datastore exporters - PostgreSQL and Redis metrics
+  # ============================================
+  # Prometheus scraped only the two applications, so neither PostgreSQL instance nor Redis
+  # exported anything: the datastores behind every endpoint were invisible. A pool exhaustion
+  # or a Redis outage surfaced only as failed requests, and Redis is deliberately absent from
+  # /actuator/health (management.health.redis.enabled=false), so a Redis outage appeared in no
+  # signal at all. These exporters publish pg_up and redis_up plus the connection counters that
+  # make saturation visible before the requests start failing.
+  #
+  # Two PostgreSQL exporters, not one: postgres_exporter measures one DSN per process, and both
+  # instances have to report pg_up -- Keycloak's identity database and LifeControl's, on separate
+  # instances with separate secrets. Multi-target mode would need a config file of its own for the
+  # same signal.
+  #
+  # Host ports stay on 127.0.0.1 for the reason recorded above the Loki service: these endpoints
+  # have no authentication. Prometheus scrapes them in-network by service name, so the published
+  # mapping exists for a human with curl, not for the scrape.
+  postgres-exporter-lifecontrol:
+    image: ${POSTGRES_EXPORTER_IMAGE:-prometheuscommunity/postgres-exporter:v0.19.0}
+    container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-postgres-exporter-lifecontrol
+    ports:
+      - "127.0.0.1:${POSTGRES_EXPORTER_PORT:-9187}:9187"
+    environment:
+      # The container-network name, never localhost: this exporter runs beside the database, so
+      # `localhost:5432` would address its own container. sslmode=disable matches what the API
+      # speaks on the in-network socket, which has no TLS.
+      DATA_SOURCE_URI: "lifecontrol-postgres:5432/${LIFECONTROL_POSTGRES_DB:-lifecontrol}?sslmode=disable"
+      DATA_SOURCE_USER: ${LIFECONTROL_POSTGRES_USER:-lifecontrol_user}
+      # *_FILE, never DATA_SOURCE_PASS: the password is the same secret the database and the API
+      # read, mounted read-only. As an environment value it would surface in `docker inspect` and
+      # in `docker compose config`, which is the one place a secret must never be readable.
+      DATA_SOURCE_PASS_FILE: /run/secrets/lifecontrol_postgres_password
+    volumes:
+      - ./secrets/lifecontrol_postgres_password:/run/secrets/lifecontrol_postgres_password:ro
+    networks:
+      - default
+    depends_on:
+      lifecontrol-postgres:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: ${POSTGRES_EXPORTER_MEMORY_LIMIT:-128m}
+    # No healthcheck: nothing gates on this container, and a dead exporter is already visible as
+    # `up == 0` on the scrape target that consumes it, which is the signal it exists to provide.
+    restart: unless-stopped
+
+  postgres-exporter-keycloak:
+    image: ${POSTGRES_EXPORTER_IMAGE:-prometheuscommunity/postgres-exporter:v0.19.0}
+    container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-postgres-exporter-keycloak
+    ports:
+      - "127.0.0.1:${KEYCLOAK_POSTGRES_EXPORTER_PORT:-9188}:9187"
+    environment:
+      DATA_SOURCE_URI: "keycloak-postgres:5432/${KEYCLOAK_POSTGRES_DB:-keycloak}?sslmode=disable"
+      DATA_SOURCE_USER: ${KEYCLOAK_POSTGRES_USER:-keycloak}
+      DATA_SOURCE_PASS_FILE: /run/secrets/keycloak_postgres_password
+    volumes:
+      - ./secrets/keycloak_postgres_password:/run/secrets/keycloak_postgres_password:ro
+    networks:
+      - default
+    depends_on:
+      keycloak-postgres:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: ${POSTGRES_EXPORTER_MEMORY_LIMIT:-128m}
+    restart: unless-stopped
+
+  redis-exporter:
+    image: ${REDIS_EXPORTER_IMAGE:-oliver006/redis_exporter:v1.69.0}
+    container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-redis-exporter
+    # The same address the API uses. This stack's Redis runs without --requirepass, so the
+    # exporter authenticates with no credential at all, exactly like the API. When a password is
+    # added it goes through --redis.password-file=/run/secrets/redis_password, never an environment
+    # value, for the same reason the Postgres exporters use DATA_SOURCE_PASS_FILE.
+    command: ["--redis.addr=redis://${REDIS_HOST:-redis}:${REDIS_INTERNAL_PORT:-6379}"]
+    ports:
+      - "127.0.0.1:${REDIS_EXPORTER_PORT:-9121}:9121"
+    networks:
+      - default
+    depends_on:
+      redis:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: ${REDIS_EXPORTER_MEMORY_LIMIT:-128m}
+    # No healthcheck: this image is distroless -- the pinned tag has no shell and no wget, measured
+    # with `docker run --entrypoint /bin/sh` -- so an in-container probe could never pass. The
+    # scrape is the readiness signal.
+    restart: unless-stopped
+
+  # ============================================
   # Tempo - Distributed Tracing
   # ============================================
   tempo:
@@ -184,8 +291,8 @@ services:
     user: "0:0"
     command: ["-config.file=/etc/tempo/tempo.yml"]
     ports:
-      - "${TEMPO_PORT:-3110}:3100" # Tempo
-      - "${TEMPO_ZIPKIN_PORT:-9411}:9411" # Zipkin
+      - "127.0.0.1:${TEMPO_PORT:-3110}:3100" # Tempo
+      - "127.0.0.1:${TEMPO_ZIPKIN_PORT:-9411}:9411" # Zipkin
     volumes:
       - ${VOLUMES_ROOT:?VOLUMES_ROOT must be set}/tempo/config:/etc/tempo:ro
       - ${VOLUMES_ROOT:?VOLUMES_ROOT must be set}/tempo/data:/var/tempo
@@ -208,11 +315,60 @@ services:
     user: "1000:1000"
     entrypoint: ["/usr/local/bin/lc-grafana-entrypoint.sh"]
     ports:
-      - "${GRAFANA_PORT:-3000}:3000"
+      - "127.0.0.1:${GRAFANA_PORT:-3000}:3000"
+    environment:
+      # SMTP for the alert rule's email contact point. Grafana has NO separate smtp.port setting:
+      # `smtp.host` carries `host:port` (measured against the pinned image:
+      # /usr/share/grafana/conf/defaults.ini reads `[smtp] host = localhost:25`), so a GF_SMTP_PORT
+      # variable would be a knob that silently does nothing -- the exact class of configuration this
+      # unit removes. The two halves are the stack's own relay declaration, the same SMTP_HOST /
+      # SMTP_PORT pair Keycloak's invitation mail uses, so one env file configures both senders.
+      # Defaults point at the dev Mailpit container (docker-compose.override.yml only), which is
+      # correct in dev and loudly wrong everywhere else -- grafana-entrypoint.sh says so on stderr,
+      # because `mailpit` only resolves where that override defines the service.
+      GF_SMTP_ENABLED: ${GF_SMTP_ENABLED:-true}
+      GF_SMTP_HOST: ${SMTP_HOST:-mailpit}:${SMTP_PORT:-1025}
+      GF_SMTP_FROM_ADDRESS: ${SMTP_FROM:-no-reply@lifecontrol.local}
+      GF_SMTP_FROM_NAME: ${GF_SMTP_FROM_NAME:-LifeControl}
+      # Grafana authenticates only when smtp.user is non-empty, so this reuses the stack's SMTP_USER
+      # instead of adding a second switch. Empty (the default, and dev) means no auth, which is what
+      # Mailpit wants.
+      GF_SMTP_USER: ${SMTP_USER:-}
+      # Deliberately NOT here: GF_SMTP_PASSWORD. The credential is a mounted secret read by the
+      # entrypoint, exactly like the admin password; an env value is visible in `docker inspect`.
+      # startTLS_policy is left at Grafana's default (opportunistic) on purpose: it upgrades when the
+      # relay advertises STARTTLS, which is right both for Mailpit (no STARTTLS) and for a real relay
+      # (STARTTLS), so no SMTP_STARTTLS mapping is needed.
+      #
+      # The destination of the provisioned contact point, read through Grafana's own
+      # `$__env{GRAFANA_ALERT_EMAIL}` interpolation in docker/config/grafana/alerting/
+      # contact-points.yml. The default has to exist: an unset variable interpolates to an empty
+      # string, and Grafana then fails the whole alerting provisioning pass with "could not find
+      # addresses in settings" (measured). In dev it lands in Mailpit; elsewhere it is the operator's
+      # key.
+      GRAFANA_ALERT_EMAIL: ${GRAFANA_ALERT_EMAIL:-alerts@lifecontrol.local}
     volumes:
       - ./entrypoints/grafana-entrypoint.sh:/usr/local/bin/lc-grafana-entrypoint.sh:ro
       - ./secrets/grafana_admin_password:/run/secrets/grafana_admin_password:ro
+      # The SMTP credential, read by the entrypoint only when GF_SMTP_USER is set. Optional on
+      # purpose: docker/secrets/smtp_password has no .template (it is required only when the relay
+      # authenticates), and Docker creates an empty directory in place of a missing bind source --
+      # harmless here because the entrypoint checks for a regular file, but name it when you create
+      # the file by hand: `rmdir docker/secrets/smtp_password` first if it exists as a directory.
+      - ./secrets/smtp_password:/run/secrets/smtp_password:ro
       - ${VOLUMES_ROOT:?VOLUMES_ROOT must be set}/grafana/config:/etc/grafana/provisioning/datasources:ro
+      # Unlike datasources.yml, the dashboards are mounted straight from the repository and never
+      # installed into $VOLUMES_ROOT: setup-env.sh does not overwrite an existing host copy, so a
+      # dashboard provisioned from the volume would keep whatever was installed first while the
+      # repository moved on -- and a fresh staging/prod volume starts Grafana with none at all,
+      # which is exactly the state this directory exists to end. The provider file sets
+      # allowUiUpdates: false, so a commit is the only way to change a dashboard.
+      - ./config/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      # Alerting comes from the repository too, and for the same reason: the contact point, the
+      # notification policy and the rule are reviewed artifacts. They are provisioned only because a
+      # destination now exists (decision D5 held the rule back while none did) -- a rule that fires
+      # into nothing is the decoration this unit exists to remove.
+      - ./config/grafana/alerting:/etc/grafana/provisioning/alerting:ro
       - ${VOLUMES_ROOT:?VOLUMES_ROOT must be set}/grafana/data:/var/lib/grafana
     networks:
       - default
