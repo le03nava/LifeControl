@@ -3,7 +3,7 @@ import { provideRouter } from '@angular/router';
 import type { RedirectFunction, Route, UrlTree } from '@angular/router';
 import { keycloakRoleGuard } from '@core/guards/auth-keycloak-guard';
 import { unsavedChangesGuard } from '@core/guards/unsaved-changes.guard';
-import { LC_SALES } from '@core/security/roles';
+import { LC_ADMIN, LC_SALES } from '@core/security/roles';
 import { productRoutes } from './products.routes';
 
 /** The single `/products` parent route. */
@@ -353,6 +353,36 @@ describe('productRoutes', () => {
         clientId: 'life-control-client',
       });
       expect(typeof edit?.loadComponent).toBe('function');
+    });
+  });
+
+  describe('product categories screen (S3)', () => {
+    it('should expose the categories screen at categories, admin-only', async () => {
+      // Pinned by path: it is the target the products dashboard card links to, so a
+      // rename that leaves the gate intact would still break the entry point.
+      const categories = children().find((route) => route.path === 'categories');
+
+      expect(categories).toBeDefined();
+      expect(categories?.redirectTo).toBeUndefined();
+      expect(categories?.canActivate).toEqual([keycloakRoleGuard]);
+      expect(categories?.data).toEqual({ roles: ['lc-admin'], clientId: 'life-control-client' });
+      expect(typeof categories?.loadComponent).toBe('function');
+
+      const loaded = await categories!.loadComponent!();
+      const component = (loaded as { default?: unknown }).default ?? loaded;
+      // Angular's compiler emits a `_`-prefixed runtime class name for decorated
+      // components; strip it so the assertion pins the page, not the compiler's alias.
+      const name = (component as { name?: string }).name ?? '';
+      expect(name.replace(/^_/, '')).toBe('ProductCategoryList');
+    });
+
+    it('should never admit the sales role to the categories screen', () => {
+      const categories = children().find((route) => route.path === 'categories');
+
+      // `toEqual` on the literal, not `not.toContain`: a missing `data` must fail
+      // here instead of passing vacuously.
+      expect(categories?.data?.['roles']).toEqual([LC_ADMIN]);
+      expect(categories?.data?.['roles']).not.toContain(LC_SALES);
     });
   });
 });

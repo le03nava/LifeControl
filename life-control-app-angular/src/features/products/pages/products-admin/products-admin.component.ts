@@ -39,8 +39,8 @@ export class ProductsAdminComponent {
       title: 'Categories',
       icon: 'category',
       description: 'Organize products by categories.',
-      route: null,
-      disabled: true,
+      route: '/products/categories',
+      disabled: false,
     },
     {
       title: 'Product Types',
