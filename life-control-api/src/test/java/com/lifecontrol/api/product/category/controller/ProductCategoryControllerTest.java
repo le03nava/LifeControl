@@ -1,0 +1,238 @@
+package com.lifecontrol.api.product.category.controller;
+
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+import com.lifecontrol.api.exception.GlobalExceptionHandler;
+import com.lifecontrol.api.product.category.dto.ProductCategoryRequest;
+import com.lifecontrol.api.product.category.dto.ProductCategoryResponse;
+import com.lifecontrol.api.product.category.exception.DisabledParentCategoryException;
+import com.lifecontrol.api.product.category.exception.DuplicateProductCategoryException;
+import com.lifecontrol.api.product.category.exception.ProductCategoryDepthExceededException;
+import com.lifecontrol.api.product.category.exception.ProductCategoryNotFoundException;
+import com.lifecontrol.api.product.category.service.ProductCategoryService;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.UUID;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.http.MediaType;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
+
+/**
+ * HTTP contract of the category tree: the wire shape of every response and the status code every
+ * domain rule maps to.
+ *
+ * <p>The mapping matters as much as the happy path: the tree's refusals are 409 (a well-formed
+ * request that conflicts with the tree's state) and never 400, and a category of another company is a
+ * 404 rather than a 403 so the endpoint does not disclose that the row exists.</p>
+ */
+@ExtendWith(MockitoExtension.class)
+@DisplayName("ProductCategoryController Tests")
+class ProductCategoryControllerTest {
+
+    private MockMvc mockMvc;
+    private ObjectMapper objectMapper;
+
+    @Mock
+    private ProductCategoryService productCategoryService;
+
+    @InjectMocks
+    private ProductCategoryController productCategoryController;
+
+    private UUID companyId;
+    private UUID categoryId;
+    private UUID parentId;
+
+    @BeforeEach
+    void setUp() {
+        mockMvc = MockMvcBuilders.standaloneSetup(productCategoryController)
+                .setControllerAdvice(new GlobalExceptionHandler())
+                .build();
+        objectMapper = JsonMapper.builder().build();
+
+        companyId = UUID.randomUUID();
+        categoryId = UUID.randomUUID();
+        parentId = UUID.randomUUID();
+    }
+
+    private ProductCategoryResponse response(UUID id, UUID parent, int depth, boolean enabled) {
+        return new ProductCategoryResponse(
+                id,
+                companyId,
+                parent,
+                "Gaseosas",
+                "Refrescos con gas",
+                2,
+                depth,
+                enabled,
+                LocalDateTime.now(),
+                LocalDateTime.now());
+    }
+
+    private ProductCategoryRequest request(UUID parent, String name) {
+        return new ProductCategoryRequest(parent, name, "descripcion", 2, true);
+    }
+
+    @Nested
+    @DisplayName("GET /api/companies/{companyId}/product-categories")
+    class ListTests {
+
+        @Test
+        @DisplayName("returns the depth-first list with depth and parentCategoryId")
+        void returnsList() throws Exception {
+            when(productCategoryService.getCategories(companyId, false))
+                    .thenReturn(List.of(response(parentId, null, 1, true), response(categoryId, parentId, 2, true)));
+
+            mockMvc.perform(get("/api/companies/{companyId}/product-categories", companyId))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$[0].depth").value(1))
+                    .andExpect(jsonPath("$[0].parentCategoryId").doesNotExist())
+                    .andExpect(jsonPath("$[1].depth").value(2))
+                    .andExpect(jsonPath("$[1].parentCategoryId").value(parentId.toString()));
+        }
+
+        @Test
+        @DisplayName("forwards includeDisabled to the service")
+        void forwardsIncludeDisabled() throws Exception {
+            when(productCategoryService.getCategories(companyId, true)).thenReturn(List.of());
+
+            mockMvc.perform(get("/api/companies/{companyId}/product-categories", companyId)
+                            .param("includeDisabled", "true"))
+                    .andExpect(status().isOk());
+
+            verify(productCategoryService).getCategories(companyId, true);
+        }
+    }
+
+    @Nested
+    @DisplayName("GET /api/companies/{companyId}/product-categories/{id}")
+    class GetByIdTests {
+
+        @Test
+        @DisplayName("returns 200 with the category")
+        void returnsCategory() throws Exception {
+            when(productCategoryService.getCategoryById(companyId, categoryId))
+                    .thenReturn(response(categoryId, parentId, 2, true));
+
+            mockMvc.perform(get("/api/companies/{companyId}/product-categories/{id}", companyId, categoryId))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.id").value(categoryId.toString()))
+                    .andExpect(jsonPath("$.companyId").value(companyId.toString()))
+                    .andExpect(jsonPath("$.categoryName").value("Gaseosas"));
+        }
+
+        @Test
+        @DisplayName("returns 404 when the category does not belong to the company")
+        void returns404() throws Exception {
+            when(productCategoryService.getCategoryById(companyId, categoryId))
+                    .thenThrow(new ProductCategoryNotFoundException(categoryId));
+
+            mockMvc.perform(get("/api/companies/{companyId}/product-categories/{id}", companyId, categoryId))
+                    .andExpect(status().isNotFound());
+        }
+    }
+
+    @Nested
+    @DisplayName("POST /api/companies/{companyId}/product-categories")
+    class CreateTests {
+
+        @Test
+        @DisplayName("returns 201 with the created category")
+        void returns201() throws Exception {
+            when(productCategoryService.createCategory(eq(companyId), any(ProductCategoryRequest.class)))
+                    .thenReturn(response(categoryId, parentId, 2, true));
+
+            mockMvc.perform(post("/api/companies/{companyId}/product-categories", companyId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request(parentId, "Gaseosas"))))
+                    .andExpect(status().isCreated())
+                    .andExpect(jsonPath("$.id").value(categoryId.toString()));
+        }
+
+        @Test
+        @DisplayName("returns 400 when categoryName is blank")
+        void blankNameIs400() throws Exception {
+            mockMvc.perform(post("/api/companies/{companyId}/product-categories", companyId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request(null, "  "))))
+                    .andExpect(status().isBadRequest());
+        }
+
+        @Test
+        @DisplayName("returns 400 when displayOrder is negative")
+        void negativeDisplayOrderIs400() throws Exception {
+            var body = """
+                    {"categoryName": "Bebidas", "displayOrder": -1}
+                    """;
+
+            mockMvc.perform(post("/api/companies/{companyId}/product-categories", companyId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(body))
+                    .andExpect(status().isBadRequest());
+        }
+
+        @Test
+        @DisplayName("returns 404 when the parent category does not exist in the company")
+        void missingParentIs404() throws Exception {
+            when(productCategoryService.createCategory(eq(companyId), any(ProductCategoryRequest.class)))
+                    .thenThrow(new ProductCategoryNotFoundException(parentId));
+
+            mockMvc.perform(post("/api/companies/{companyId}/product-categories", companyId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request(parentId, "Gaseosas"))))
+                    .andExpect(status().isNotFound());
+        }
+
+        @Test
+        @DisplayName("returns 409 when a sibling already carries the name")
+        void duplicateIs409() throws Exception {
+            when(productCategoryService.createCategory(eq(companyId), any(ProductCategoryRequest.class)))
+                    .thenThrow(new DuplicateProductCategoryException("Gaseosas", null));
+
+            mockMvc.perform(post("/api/companies/{companyId}/product-categories", companyId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request(null, "Gaseosas"))))
+                    .andExpect(status().isConflict());
+        }
+
+        @Test
+        @DisplayName("returns 409 for a fourth level")
+        void depthExceededIs409() throws Exception {
+            when(productCategoryService.createCategory(eq(companyId), any(ProductCategoryRequest.class)))
+                    .thenThrow(new ProductCategoryDepthExceededException(4, 3));
+
+            mockMvc.perform(post("/api/companies/{companyId}/product-categories", companyId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request(parentId, "Colas"))))
+                    .andExpect(status().isConflict());
+        }
+
+        @Test
+        @DisplayName("returns 409 when the parent is disabled")
+        void disabledParentIs409() throws Exception {
+            when(productCategoryService.createCategory(eq(companyId), any(ProductCategoryRequest.class)))
+                    .thenThrow(new DisabledParentCategoryException("parent is disabled"));
+
+            mockMvc.perform(post("/api/companies/{companyId}/product-categories", companyId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request(parentId, "Colas"))))
+                    .andExpect(status().isConflict());
+        }
+    }
+}
