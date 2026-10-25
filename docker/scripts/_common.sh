@@ -343,3 +343,114 @@ verify_artifact_freshness() {
 
 	return 0
 }
+
+# ------------------------------------------
+# Observability probes (parsing only)
+# ------------------------------------------
+# The stack collected three signals and could vouch for none of them: `docker ps` said every
+# container was running while Tempo answered `vParquet2 is not a valid block version` for every
+# trace it had flushed (HTTP 500 on /api/traces/<id>), so the trace store was readable in the index
+# and unreadable in fact. These two parsers and the probes in deploy.sh exist because a running
+# process is not a working signal.
+#
+# Both read a file instead of the network so the suites can feed them fixtures: the Docker
+# toolchain has no JSON parser, and a probe whose verdict is only testable by breaking a live stack
+# never gets tested at all.
+
+# Jobs Prometheus reports as scrapeable-but-failing, one per line, from the JSON of
+# `GET /api/v1/query?query=up == 0`.
+#
+# Reading `up == 0` instead of `/api/v1/targets` is deliberate: every result object of that query
+# carries exactly one `job` label, so the name of the failing target is extracted without pairing
+# fields inside a target object — no dependence on key order and no object splitting in shell.
+# Fails closed: a response that is not `"status":"success"` prints `unreadable`, because a probe
+# that treats a broken answer as "nothing is failing" is the bug this whole unit is about.
+prometheus_not_up_jobs() {
+	local response_file="$1"
+	if ! grep -q '"status":"success"' "$response_file" 2>/dev/null; then
+		printf 'unreadable\n'
+		return 0
+	fi
+	grep -o '"job":"[^"]*"' "$response_file" 2>/dev/null | cut -d'"' -f4 | sort -u
+}
+
+# The most recent trace id a Tempo `/api/search` response carries, or nothing when the store holds
+# no trace yet.
+#
+# Empty output is a legal state, not a failure: a freshly installed stack has no trace to read until
+# traffic arrives, and the caller says so out loud instead of reporting a broken read.
+tempo_latest_trace_id() {
+	local response_file="$1"
+	grep -o '"traceID":"[0-9a-f]*"' "$response_file" 2>/dev/null | head -1 | cut -d'"' -f4
+}
+
+# Prometheus reports every target up, and Tempo hands back a trace it has already flushed.
+#
+# `docker ps` cannot see either fact, and this stack has already served a green health check over a
+# trace store that answered HTTP 500 for every trace on disk (`vParquet2 is not a valid block
+# version`). The signal was collected, the container was healthy, and the data was unreadable —
+# which is the one combination a health check exists to catch.
+#
+# Reads `up == 0` from Prometheus' query API because each result object carries exactly one `job`
+# label, so the name of the failing target needs no field pairing in shell; see
+# `prometheus_not_up_jobs` in _common.sh. Prints one ` <name>(<detail>)` token per failing signal and
+# returns non-zero when at least one did. Ports that are not configured are skipped, and a trace
+# store with nothing in it is announced on stderr instead of failing: a freshly installed stack has
+# no trace to read until traffic arrives.
+host_observability_probes() {
+	local failures="" prom_port tempo_port
+	prom_port="$(get_env_var PROMETHEUS_PORT)"
+	tempo_port="$(get_env_var TEMPO_PORT)"
+
+	local work
+	if ! work="$(mktemp -d)"; then
+		printf ' observability(no-temp-dir)'
+		return 1
+	fi
+	# shellcheck disable=SC2064 # expand $work now: the trap fires after it has left scope
+	trap "rm -rf '$work'" RETURN
+
+	if [ -n "$prom_port" ]; then
+		if curl -sf --max-time 5 -o "$work/up.json" \
+			"http://127.0.0.1:${prom_port}/api/v1/query?query=up%20%3D%3D%200"; then
+			local job
+			while IFS= read -r job; do
+				[ -n "$job" ] || continue
+				case "$job" in
+				unreadable) failures="$failures Prometheus(report-unreadable)" ;;
+				*) failures="$failures Prometheus(${job}-not-up)" ;;
+				esac
+			done <<< "$(prometheus_not_up_jobs "$work/up.json")"
+		else
+			failures="$failures Prometheus(no-api)"
+		fi
+	fi
+
+	if [ -n "$tempo_port" ]; then
+		# The window is the probe: it asks for a trace between 24h and 2h old, which by then lives in
+		# a flushed block. Reading the newest trace instead passes on exactly the state this probe
+		# exists to catch -- measured on the broken stack, `limit=1` answered 200 from the ingester
+		# while every trace older than the last flush answered 500.
+		local start_ts end_ts
+		start_ts=$(($(date +%s) - 86400))
+		end_ts=$(($(date +%s) - 7200))
+		if curl -sf --max-time 5 -o "$work/search.json" \
+			"http://127.0.0.1:${tempo_port}/api/search?start=${start_ts}&end=${end_ts}&limit=1"; then
+			local trace_id code
+			trace_id="$(tempo_latest_trace_id "$work/search.json")"
+			if [ -z "$trace_id" ]; then
+				printf 'Tempo has no flushed trace in the probe window (24h to 2h ago): nothing to read yet.\n' >&2
+			elif code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 \
+				"http://127.0.0.1:${tempo_port}/api/traces/${trace_id}")" && [ "$code" = "200" ]; then
+				:
+			else
+				failures="$failures Tempo(trace-not-readable:${code:-unknown})"
+			fi
+		else
+			failures="$failures Tempo(no-api)"
+		fi
+	fi
+
+	printf '%s\n' "$failures"
+	[ -z "$failures" ]
+}
