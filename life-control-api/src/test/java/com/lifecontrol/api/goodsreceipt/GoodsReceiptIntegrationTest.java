@@ -569,13 +569,13 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
     private record ReceptionFixtures(PurchaseOrder order, PurchaseOrderDetail detail, ProductVariant variant) {}
 
     @Test
-    @DisplayName("should apply every migration up to V33 and start the context with ddl-auto=validate")
+    @DisplayName("should apply every migration up to V35 and start the context with ddl-auto=validate")
     void flywayAppliesLatestAndSchemaValidates() {
         assertThat(flyway.info().current()).isNotNull();
-        // The applied head is read from Flyway's own report. V33 is the newest migration in
+        // The applied head is read from Flyway's own report. V35 is the newest migration in
         // src/main/resources/db/migration, so "33" is the value, not a number tuned to make the
         // assertion pass: an unread or unapplied V33 would leave pending migrations below.
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("33");
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("35");
         assertThat(flyway.info().pending()).isEmpty();
 
         // The table exists and is empty: the read itself is the "schema is there" proof.
