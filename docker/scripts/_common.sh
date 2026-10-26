@@ -632,3 +632,235 @@ host_observability_probes() {
 	printf '%s\n' "$failures"
 	[ -z "$failures" ]
 }
+
+# ------------------------------------------
+# Environment flag helpers
+# ------------------------------------------
+
+# 0 when an environment flag is set to a truthy value.
+#
+# One implementation for every `VAR=1|true|yes` switch, so two switches can never disagree about
+# what "on" means -- the case-insensitive spelling SKIP_BUILD established. An empty value is off.
+#
+# Usage: env_flag_is_truthy <value>
+env_flag_is_truthy() {
+	local value="${1:-}"
+	case "${value,,}" in
+	1 | true | yes) return 0 ;;
+	*) return 1 ;;
+	esac
+}
+
+# ------------------------------------------
+# Image revision evidence (read-only)
+# ------------------------------------------
+
+# The OCI annotation the three application Dockerfiles bake with the revision they were built from.
+# It is the only claim an image makes about its own code, and until this section existed nothing in
+# the repository read it back.
+IMAGE_REVISION_LABEL="org.opencontainers.image.revision"
+
+# What compose interpolates for ${GIT_COMMIT:-unknown} when the variable is not exported -- the
+# path a direct `docker compose build` takes. It is the absence of evidence, never a match.
+IMAGE_REVISION_UNKNOWN="unknown"
+
+# The suffix a revision carries when the image was built from a tree with uncommitted changes, in
+# the `git describe` spelling, so a revision stays one readable token.
+IMAGE_REVISION_DIRTY_SUFFIX="-dirty"
+
+# The verdicts image_revision_verdict can print, in the order they dominate each other.
+# `dirty` beats `drift`: an image built from a dirty tree carries code no commit carries, which is
+# true whatever revision sits under the suffix.
+# shellcheck disable=SC2034  # read by image-revision.test.sh, which sources this file to hold the vocabulary stable
+IMAGE_REVISION_VERDICTS="match drift dirty unknown absent"
+
+# Services whose images are built locally from this repository and therefore carry the label.
+#
+# One compose service name per line. The **image name** is deliberately not here: compose names a
+# built image `<project>-<service>`, and the project is per environment, so asking compose which
+# image a container runs is the only way to name it without hardcoding one convention per service.
+image_revision_services() {
+	printf '%s\n' api-gateway lifecontrol-api web-app
+}
+
+# The commit HEAD points at in the repository these scripts live in. Prints nothing when git cannot
+# answer, so a caller can tell "no evidence" from "a revision".
+current_git_revision() {
+	git -C "${REPO_ROOT:-$PWD}" rev-parse HEAD 2>/dev/null || true
+}
+
+# 0 when the working tree carries changes no commit has. Ignored paths (build output, the
+# materialized .env files) are not changes: they are what running this stack produces, and counting
+# them would report every image as dirty on every machine.
+git_tree_is_dirty() {
+	local changes
+	changes="$(git -C "${REPO_ROOT:-$PWD}" status --porcelain 2>/dev/null || true)"
+	[ -n "$changes" ]
+}
+
+# The image a service's container actually runs, **by ID**.
+#
+# By ID on purpose: a tag is a pointer that a later build can move, so a tag-based check answers
+# "which image would run", not "which image is running". Prints nothing when the service has no
+# **running** container, which the verdict reports as `absent` instead of guessing.
+#
+# Usage: service_running_image_id <compose service>
+service_running_image_id() {
+	local service="$1"
+	local container_id image_id
+	# No `-a`: a stopped container is not the image that is running. Including it made `version`
+	# report a stopped stack as `match` with a zero exit code -- the answer reversed.
+	container_id="$(compose_run ps -q "$service" 2>/dev/null | head -1 || true)"
+	[ -n "$container_id" ] || return 0
+	image_id="$(docker inspect --format '{{.Image}}' "$container_id" 2>/dev/null || true)"
+	printf '%s' "$image_id"
+}
+
+# The revision label of an image, read by ID. Prints nothing when the image or the label is absent.
+#
+# Usage: image_revision_label <image id>
+image_revision_label() {
+	local image_id="$1"
+	[ -n "$image_id" ] || return 0
+	docker image inspect "$image_id" \
+		--format '{{index .Config.Labels "'"$IMAGE_REVISION_LABEL"'"}}' 2>/dev/null || true
+}
+
+# `sha256:d740bd21c95d078b...` -> `d740bd21c95d`, for a one-line report.
+short_digest() {
+	local value="${1#sha256:}"
+	printf '%s' "${value:0:12}"
+}
+
+# The revision a build stamps into an image: HEAD, plus the dirty suffix when the tree carries
+# changes no commit has, or `unknown` when git cannot answer at all.
+#
+# A build from a dirty tree is NOT the commit under it, and an image stamping the bare HEAD would
+# claim a provenance no commit supports. The `-dirty` suffix is git's own spelling and keeps the
+# value one token that image_revision_verdict can read back.
+image_revision_stamp() {
+	local revision
+	revision="$(current_git_revision)"
+	if [ -z "$revision" ]; then
+		printf '%s' "$IMAGE_REVISION_UNKNOWN"
+		return 0
+	fi
+	if git_tree_is_dirty; then
+		revision="${revision}${IMAGE_REVISION_DIRTY_SUFFIX}"
+	fi
+	printf '%s' "$revision"
+}
+
+# The verdict of one image against the commit that is checked out. Pure: no docker, no git, no
+# filesystem, so every branch of it is testable without a daemon.
+#
+# Usage: image_revision_verdict <label> <expected revision> <present: 1|0>
+# Prints one of IMAGE_REVISION_VERDICTS.
+image_revision_verdict() {
+	local label="$1"
+	local expected="${2:-}"
+	local present="${3:-1}"
+
+	# Nothing to inspect is not a pass: a service that was never created has no code of record.
+	if [ "$present" != "1" ]; then
+		printf 'absent'
+		return 0
+	fi
+
+	# An image with no label, or the literal `unknown`, cannot be compared to anything. Reporting it
+	# as a match is the defect this whole section exists to remove.
+	if [ -z "$label" ] || [ "$label" = "$IMAGE_REVISION_UNKNOWN" ]; then
+		printf 'unknown'
+		return 0
+	fi
+
+	case "$label" in
+	*"$IMAGE_REVISION_DIRTY_SUFFIX")
+		printf 'dirty'
+		return 0
+		;;
+	esac
+
+	# An unreadable HEAD gives no basis for a match either.
+	if [ -z "$expected" ] || [ "$label" != "$expected" ]; then
+		printf 'drift'
+		return 0
+	fi
+
+	printf 'match'
+}
+
+# Images whose revision is not proven to be HEAD. Set to 0 by every report_image_revisions call, so
+# a caller that wants to be strict reads the count of the run it just made.
+#
+# Call the report DIRECTLY, never in a command substitution: `out=$(report_image_revisions)` runs it
+# in a subshell, so the report prints but this counter never reaches the caller and a strict gate
+# silently reads 0. Redirect to a file when the text is also needed.
+IMAGE_REVISION_MISMATCH_COUNT=0
+
+# Report the revision each locally built application image was built from, against HEAD.
+#
+# Read-only by contract, and always returns 0: it exists to be seen, and the caller that wants a
+# failure reads IMAGE_REVISION_MISMATCH_COUNT (validate-env.sh is the production start gate, so a
+# report here must never be able to stop a start on its own).
+#
+# Prints one aligned line per service plus a summary, and one extra line when the working tree is
+# dirty -- an image cannot carry changes nobody committed, and saying so is cheaper than the
+# question it prevents.
+report_image_revisions() {
+	IMAGE_REVISION_MISMATCH_COUNT=0
+
+	local expected
+	expected="$(current_git_revision)"
+	if [ -z "$expected" ]; then
+		# No readable HEAD proves nothing, and "nothing proven" is not "everything matches". Counting
+		# zero here let `version` exit 0 and the strict health guard pass over a stack no image was
+		# ever compared to a commit -- the exact silent pass this report exists to remove. Every
+		# application service counts as not proven, so both callers fail closed.
+		IMAGE_REVISION_MISMATCH_COUNT="$(image_revision_services | grep -c . || true)"
+		print_warning "Cannot read the repository revision: no running image can be tied to a commit"
+		print_warning "${IMAGE_REVISION_MISMATCH_COUNT} application image(s) count as NOT proven to be HEAD (fail closed)"
+		return 0
+	fi
+
+	print_status "Image revisions for ${ENV:-this environment} (HEAD $(short_digest "$expected")):"
+
+	local service image_id label verdict
+	local -a mismatched=()
+	while IFS= read -r service; do
+		[ -n "$service" ] || continue
+		image_id="$(service_running_image_id "$service")"
+		label="$(image_revision_label "$image_id")"
+		if [ -n "$image_id" ]; then
+			verdict="$(image_revision_verdict "$label" "$expected" 1)"
+		else
+			verdict="$(image_revision_verdict "$label" "$expected" 0)"
+		fi
+
+		printf '  %-18s %-14s %-28s %s\n' \
+			"$service" "$(short_digest "$image_id")" "${label:-<none>}" "$verdict"
+
+		if [ "$verdict" != "match" ]; then
+			mismatched+=("$service")
+		fi
+	done <<< "$(image_revision_services)"
+
+	if git_tree_is_dirty; then
+		print_warning "The working tree has uncommitted changes: no image carries them."
+	fi
+
+	if [ "${#mismatched[@]}" -eq 0 ]; then
+		print_success "Every running application image was built from HEAD ($(short_digest "$expected"))."
+		return 0
+	fi
+
+	IMAGE_REVISION_MISMATCH_COUNT="${#mismatched[@]}"
+	print_warning "${IMAGE_REVISION_MISMATCH_COUNT} application image(s) are NOT proven to be HEAD: ${mismatched[*]}"
+	print_warning "  matching:   the image was built from this commit"
+	print_warning "  drift:      the image was built from another commit (rebuild it)"
+	print_warning "  dirty:      the image was built from uncommitted changes (rebuild from a clean tree)"
+	print_warning "  unknown:    the image carries no revision (built without deploy.sh, or before this check)"
+	print_warning "  absent:     the service has no container (start it)"
+	print_status "This is a report, not a failure: deploy.sh <env> version exits non-zero on the same evidence."
+	return 0
+}
