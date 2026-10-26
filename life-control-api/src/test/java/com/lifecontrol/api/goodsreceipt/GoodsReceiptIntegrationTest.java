@@ -573,8 +573,8 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
     void flywayAppliesLatestAndSchemaValidates() {
         assertThat(flyway.info().current()).isNotNull();
         // The applied head is read from Flyway's own report. V35 is the newest migration in
-        // src/main/resources/db/migration, so "33" is the value, not a number tuned to make the
-        // assertion pass: an unread or unapplied V33 would leave pending migrations below.
+        // src/main/resources/db/migration, so "35" is the value, not a number tuned to make the
+        // assertion pass: an unread or unapplied V35 would leave pending migrations below.
         assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("35");
         assertThat(flyway.info().pending()).isEmpty();
 
