@@ -811,7 +811,13 @@ report_image_revisions() {
 	local expected
 	expected="$(current_git_revision)"
 	if [ -z "$expected" ]; then
-		print_warning "Cannot read the repository revision: the running images cannot be tied to a commit"
+		# No readable HEAD proves nothing, and "nothing proven" is not "everything matches". Counting
+		# zero here let `version` exit 0 and the strict health guard pass over a stack no image was
+		# ever compared to a commit -- the exact silent pass this report exists to remove. Every
+		# application service counts as not proven, so both callers fail closed.
+		IMAGE_REVISION_MISMATCH_COUNT="$(image_revision_services | grep -c . || true)"
+		print_warning "Cannot read the repository revision: no running image can be tied to a commit"
+		print_warning "${IMAGE_REVISION_MISMATCH_COUNT} application image(s) count as NOT proven to be HEAD (fail closed)"
 		return 0
 	fi
 

@@ -295,16 +295,29 @@ else
 	fail "a dirty working tree is not reported"
 fi
 
-# 4e. With no readable HEAD there is no basis for a comparison: the report says so instead of
-# printing a green line over an empty expected revision.
+# 4e. With no readable HEAD nothing is proven, and "nothing proven" is not "everything matches":
+# the report fails closed, so `version` exits non-zero and the strict health guard fails instead of
+# accepting a stack no image was compared to. Asserting 0 here -- which an earlier version of this
+# suite did -- pins the silent pass the review found.
 reset_fixtures
+for service in $(image_revision_services); do
+	FIXTURE_IMAGE_IDS[$service]="sha256:${service}0000000000000000"
+	FIXTURE_LABELS["sha256:${service}0000000000000000"]="$HEAD_SHA"
+done
 current_git_revision() { printf ''; }
 report_to_file
-check_equal "no readable HEAD is not counted as a mismatch" "0" "$REPORT_COUNT"
+expected_services="$(image_revision_services | grep -c .)"
+check_equal "no readable HEAD fails closed: every application image counts as not proven" \
+	"$expected_services" "$REPORT_COUNT"
 if grep -qE 'Cannot read the repository revision' "$REPORT_OUT"; then
 	pass "no readable HEAD is reported as missing evidence"
 else
 	fail "no readable HEAD is not reported"
+fi
+if grep -qE 'count as NOT proven to be HEAD' "$REPORT_OUT"; then
+	pass "the fail-closed consequence is stated, not implied"
+else
+	fail "the report does not say the images count as not proven"
 fi
 current_git_revision() { printf '%s' "$HEAD_SHA"; }
 
