@@ -130,11 +130,24 @@
     <app-error-banner [message]="errorMessage" />
   }
 
+  <!--
+    A tree read that failed is stated, never swallowed into an empty tree: three empty selects over a
+    saved classification look exactly like a product nobody classified.
+  -->
+  @if (categoryLoadError(); as categoryError) {
+    <app-error-banner [message]="categoryError" />
+  }
+
   <app-products-form
     [formGroup]="productForm()"
     [serverErrors]="serverErrors()"
     [editMode]="productId() !== null"
+    [companies]="companies()"
+    [selectedCompanyId]="selectedCompanyId()"
+    [categoryTree]="categoryTree()"
+    [categoryPath]="savedCategoryPath()"
     (saveProduct)="onSaveProduct($event)"
     (cancelForm)="cancelForm()"
+    (companyChange)="onCompanyChange($event)"
   />
 </ng-template>
