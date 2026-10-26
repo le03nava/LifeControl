@@ -8,6 +8,65 @@
   </h2>
   <form [formGroup]="formGroup()" (ngSubmit)="onSave()">
     <mat-form-field appearance="outline">
+      <mat-label>Empresa</mat-label>
+      <mat-select [value]="selectedCompanyId()" (selectionChange)="onCompanyChange($event.value)">
+        <mat-option value="">— Seleccionar empresa —</mat-option>
+        @for (company of companies(); track company.id) {
+          <mat-option [value]="company.id">{{ company.companyName }}</mat-option>
+        }
+      </mat-select>
+      <mat-hint>Define de qué empresa es el árbol de categorías.</mat-hint>
+    </mat-form-field>
+
+    <mat-form-field appearance="outline">
+      <mat-label>Categoría</mat-label>
+      <mat-select formControlName="categoryRootId" (selectionChange)="onRootChange($event.value)">
+        <mat-option value="">— Sin categoría —</mat-option>
+        @for (option of categoryOptions(); track option.id) {
+          <mat-option [value]="option.id" [disabled]="!option.selectable">
+            {{ option.label }}
+          </mat-option>
+        }
+      </mat-select>
+    </mat-form-field>
+
+    <mat-form-field appearance="outline">
+      <mat-label>Subcategoría nivel 1</mat-label>
+      <mat-select
+        formControlName="subcategory1Id"
+        (selectionChange)="onSubcategory1Change($event.value)"
+      >
+        <mat-option value="">— Sin subcategoría —</mat-option>
+        @for (option of subcategory1Options(); track option.id) {
+          <mat-option [value]="option.id" [disabled]="!option.selectable">
+            {{ option.label }}
+          </mat-option>
+        }
+      </mat-select>
+      @if (!hasSubcategory1()) {
+        <mat-hint>Elegí primero una categoría.</mat-hint>
+      }
+    </mat-form-field>
+
+    <mat-form-field appearance="outline">
+      <mat-label>Subcategoría nivel 2</mat-label>
+      <mat-select
+        formControlName="subcategory2Id"
+        (selectionChange)="onSubcategory2Change($event.value)"
+      >
+        <mat-option value="">— Sin subcategoría —</mat-option>
+        @for (option of subcategory2Options(); track option.id) {
+          <mat-option [value]="option.id" [disabled]="!option.selectable">
+            {{ option.label }}
+          </mat-option>
+        }
+      </mat-select>
+      @if (!hasSubcategory2()) {
+        <mat-hint>Elegí primero una subcategoría nivel 1.</mat-hint>
+      }
+    </mat-form-field>
+
+    <mat-form-field appearance="outline">
       <mat-label>SKU</mat-label>
       <input matInput type="text" formControlName="sku" placeholder="Ingrese el SKU del producto" />
       @if (getErrorMessage(formGroup().controls.sku); as msg) {
@@ -41,6 +100,9 @@
     <mat-form-field appearance="outline">
       <mat-label>Código SAT</mat-label>
       <input matInput type="text" formControlName="satCode" placeholder="Código SAT (opcional)" />
+      @if (satCodeHint(); as hint) {
+        <mat-hint>{{ hint }}</mat-hint>
+      }
     </mat-form-field>
 
     <mat-form-field appearance="outline">

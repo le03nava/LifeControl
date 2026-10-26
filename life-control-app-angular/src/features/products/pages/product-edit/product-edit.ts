@@ -168,6 +168,10 @@ export class ProductEdit implements OnInit, UnsavedChangesAware {
                 product.attributes ? JSON.stringify(product.attributes) : null,
               ),
               enabled: this.fb.control(product.enabled),
+              categoryId: this.fb.control(product.categoryId ?? ''),
+              categoryRootId: this.fb.control(''),
+              subcategory1Id: this.fb.control(''),
+              subcategory2Id: this.fb.control(''),
             }),
           );
         },
@@ -187,6 +191,12 @@ export class ProductEdit implements OnInit, UnsavedChangesAware {
       productType: this.fb.control<string | null>(null),
       attributes: this.fb.control<string | null>(null),
       enabled: this.fb.control(true),
+      // The three selects are a view of this one id (S3); they stay empty until a company and a tree
+      // are picked, which is also the create-mode state (S10).
+      categoryId: this.fb.control(''),
+      categoryRootId: this.fb.control(''),
+      subcategory1Id: this.fb.control(''),
+      subcategory2Id: this.fb.control(''),
     });
   }
 
@@ -232,6 +242,7 @@ export class ProductEdit implements OnInit, UnsavedChangesAware {
       satCode: productData.satCode,
       productType: productData.productType,
       attributes: productData.attributes,
+      categoryId: productData.categoryId ?? null,
     };
     if (productData.id === '') {
       this.productService

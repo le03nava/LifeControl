@@ -862,6 +862,9 @@ describe('ProductEdit', () => {
       satCode: '12345678',
       productType: 'PRODUCT',
       attributes: { color: 'red' },
+      // The classification is optional on the wire: an unclassified product sends `null`, never a
+      // missing key, so the body stays exact against `ProductRequest`.
+      categoryId: null,
     };
 
     it('sends only the fields ProductRequest declares when creating', () => {
