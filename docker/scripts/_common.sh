@@ -702,13 +702,15 @@ git_tree_is_dirty() {
 #
 # By ID on purpose: a tag is a pointer that a later build can move, so a tag-based check answers
 # "which image would run", not "which image is running". Prints nothing when the service has no
-# container at all, which the verdict reports as `absent` instead of guessing.
+# **running** container, which the verdict reports as `absent` instead of guessing.
 #
 # Usage: service_running_image_id <compose service>
 service_running_image_id() {
 	local service="$1"
 	local container_id image_id
-	container_id="$(compose_run ps -a -q "$service" 2>/dev/null | head -1 || true)"
+	# No `-a`: a stopped container is not the image that is running. Including it made `version`
+	# report a stopped stack as `match` with a zero exit code -- the answer reversed.
+	container_id="$(compose_run ps -q "$service" 2>/dev/null | head -1 || true)"
 	[ -n "$container_id" ] || return 0
 	image_id="$(docker inspect --format '{{.Image}}' "$container_id" 2>/dev/null || true)"
 	printf '%s' "$image_id"

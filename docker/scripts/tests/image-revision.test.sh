@@ -154,8 +154,14 @@ docker() {
 	esac
 }
 
+COMPOSE_CALLS="$WORK_DIR/compose-calls.log"
+: >"$COMPOSE_CALLS"
+
 compose_run() {
-	# compose_run ps -a -q <service>
+	# Records the call so the assertions below can check WHICH containers are asked for, not only
+	# what comes back: a stopped container answering for the running stack is the failure this
+	# reader has to make impossible.
+	printf '%s\n' "$*" >>"$COMPOSE_CALLS"
 	printf '%s\n' "${STUB_CONTAINER_ID:-}"
 }
 
@@ -169,6 +175,12 @@ if grep -q -- "--format {{.Image}} 9f1c0a2b7d55" "$DOCKER_CALLS"; then
 	pass "docker inspect is asked for the container's image id"
 else
 	fail "docker inspect was not asked for the image id of the container"
+fi
+
+if ! grep -q -- '-a' "$COMPOSE_CALLS" && grep -q 'ps -q api-gateway' "$COMPOSE_CALLS"; then
+	pass "compose is asked for running containers only (no -a): a stopped stack cannot report a match"
+else
+	fail "compose is asked for stopped containers too: a stopped stack could report a match"
 fi
 
 check_equal "the label is read from the image id" \
