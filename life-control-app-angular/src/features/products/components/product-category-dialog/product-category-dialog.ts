@@ -52,6 +52,17 @@ const CATEGORY_CONFLICT_MESSAGE =
   'categoría padre esté habilitada y que el árbol no supere los tres niveles.';
 
 /**
+ * The SAT `ClaveProdServ` rule, which is "optional but validated" (S5): eight numeric digits when the
+ * operator looked the key up, nothing at all when nobody has yet.
+ *
+ * The literal pattern is enough for an optional field because Angular's `pattern` validator skips empty
+ * values by design (`isEmptyInputValue` returns `null` for it), so `''` is valid and never becomes a
+ * de-facto `required`. A value that is only whitespace is *not* empty to that check and is refused,
+ * which is the honest answer: the hint says the field can be left empty, not filled with spaces.
+ */
+const SAT_CODE_PATTERN = /^\d{8}$/;
+
+/**
  * Create/edit form of one node of the company's category tree.
  *
  * It owns the write and closes with the saved category (or `null` on cancel), so the list only has to
@@ -122,6 +133,10 @@ export class ProductCategoryDialog {
       ]),
       parentCategoryId: this.fb.control(category?.parentCategoryId ?? ''),
       description: this.fb.control(category?.description ?? '', [Validators.maxLength(255)]),
+      satCode: this.fb.control(category?.satCode ?? '', [
+        Validators.maxLength(8),
+        Validators.pattern(SAT_CODE_PATTERN),
+      ]),
       displayOrder: this.fb.control(category?.displayOrder ?? 0, [
         Validators.min(0),
         Validators.pattern(/^\d+$/),
@@ -164,6 +179,8 @@ export class ProductCategoryDialog {
       parentCategoryId,
       categoryName: value.categoryName.trim(),
       description: value.description.trim() === '' ? null : value.description.trim(),
+      // Empty means "no key yet": the column is nullable, so the wire carries `null` and never `''`.
+      satCode: value.satCode.trim() === '' ? null : value.satCode.trim(),
       displayOrder: value.displayOrder,
       // Never omitted: the server defaults an absent flag to `true` and cascades a `false` one, so an
       // edit that dropped it would re-enable a disabled category and its whole subtree (record F4).

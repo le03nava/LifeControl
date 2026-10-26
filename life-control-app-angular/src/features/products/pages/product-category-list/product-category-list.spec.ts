@@ -62,6 +62,7 @@ describe('ProductCategoryList', () => {
       parentCategoryId: null,
       categoryName: 'Bebidas',
       description: 'Todo lo que se toma',
+      satCode: '51212000',
       displayOrder: 1,
       depth: 1,
       enabled: true,
@@ -74,6 +75,7 @@ describe('ProductCategoryList', () => {
       parentCategoryId: 'cat-1',
       categoryName: 'Gaseosas',
       description: null,
+      satCode: null,
       displayOrder: 1,
       depth: 2,
       enabled: false,
@@ -86,6 +88,7 @@ describe('ProductCategoryList', () => {
       parentCategoryId: 'cat-2',
       categoryName: 'Colas',
       description: null,
+      satCode: null,
       displayOrder: 1,
       depth: 3,
       enabled: true,
@@ -264,6 +267,19 @@ describe('ProductCategoryList', () => {
 
       const state = rows().map((row) => row.querySelector('.badge.status')?.textContent?.trim());
       expect(state).toEqual(['Activo', 'Deshabilitado', 'Activo']);
+    });
+
+    it('should render the SAT key of each row and an em dash when it has none', async () => {
+      setup({ queryCompanyId: 'company-1' });
+      await settle();
+
+      const keys = rows().map((row) =>
+        row.querySelector('td.mat-column-satCode')?.textContent?.trim(),
+      );
+
+      // S5: the key is optional, so an absent one is a dash and never a blank cell that could be
+      // read as "not loaded".
+      expect(keys).toEqual(['51212000', '—', '—']);
     });
   });
 

@@ -24,6 +24,7 @@ describe('ProductCategoryDialog', () => {
     parentCategoryId: null,
     categoryName: 'Bebidas',
     description: null,
+    satCode: null,
     displayOrder: 1,
     depth: 1,
     enabled: true,
@@ -112,6 +113,7 @@ describe('ProductCategoryDialog', () => {
         categoryName: '',
         parentCategoryId: '',
         description: '',
+        satCode: '',
         displayOrder: 0,
       });
     });
@@ -127,6 +129,7 @@ describe('ProductCategoryDialog', () => {
         parentCategoryId: null,
         categoryName: 'Bebidas',
         description: null,
+        satCode: null,
         displayOrder: 3,
         enabled: true,
       });
@@ -176,6 +179,7 @@ describe('ProductCategoryDialog', () => {
         parentCategoryId: 'cat-1',
         // A text input holds the empty string; the payload maps it back to `null`.
         description: '',
+        satCode: '',
         displayOrder: 1,
       });
     });
@@ -304,6 +308,66 @@ describe('ProductCategoryDialog', () => {
       expect(component.formError()).toBe(
         'Ocurrió un error en el servidor. Intentá de nuevo más tarde.',
       );
+    });
+  });
+
+  describe('clave SAT (S1, S5)', () => {
+    it('should post an eight-digit key as it was typed', async () => {
+      setup();
+      component.form().patchValue({ categoryName: 'Calzado', satCode: '53110000' });
+
+      component.onSave();
+      await settle();
+
+      const [, request] = categoryService.createCategory.mock.calls[0];
+      expect(request.satCode).toBe('53110000');
+    });
+
+    it('should send null, never an empty string, when the field is left empty', async () => {
+      // S5: the key is optional. The column is nullable and the server normalizes a blank to null,
+      // so the wire value this screen sends has to be null and not `''`.
+      setup();
+      component.form().patchValue({ categoryName: 'Calzado', satCode: '' });
+
+      component.onSave();
+      await settle();
+
+      const [, request] = categoryService.createCategory.mock.calls[0];
+      expect(request.satCode).toBeNull();
+    });
+
+    it('should block the write and show the rule when the key is not eight digits', async () => {
+      // The server answers 400 for anything that is not exactly eight digits, so the form refuses it
+      // first: no request, dialog open, and the rule visible under the field.
+      setup();
+      component.form().patchValue({ categoryName: 'Calzado', satCode: '5311000' });
+
+      component.onSave();
+      await settle();
+
+      expect(categoryService.createCategory).not.toHaveBeenCalled();
+      expect(dialogRef.close).not.toHaveBeenCalled();
+      expect(text()).toContain('La clave SAT son 8 dígitos numéricos');
+    });
+
+    it('should refuse a key made only of spaces instead of silently sending null', async () => {
+      // Empty is legal and whitespace is not: Angular's `pattern` validator skips `''` (that is what
+      // keeps the field optional) but not `'   '`, so a blank-looking value is refused rather than
+      // dropped behind the operator's back.
+      setup();
+      component.form().patchValue({ categoryName: 'Calzado', satCode: '   ' });
+
+      component.onSave();
+      await settle();
+
+      expect(categoryService.createCategory).not.toHaveBeenCalled();
+      expect(text()).toContain('La clave SAT son 8 dígitos numéricos');
+    });
+
+    it('should prefill the key of the edited category', () => {
+      setup({ editing: category({ satCode: '53110000' }) });
+
+      expect(component.form().getRawValue().satCode).toBe('53110000');
     });
   });
 
