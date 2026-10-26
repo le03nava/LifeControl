@@ -214,6 +214,35 @@ user asked for a starting catalog.
   transaction and never commit. Accepted, and it is what the class Javadoc states. `toMigrationTuple` renders a
   row without the trailing comma so the parity test can match it as a substring of the SQL; the tuple shape is
   asserted separately.
+- **L13** (agent, delivery shape): `origin/main` moved six commits while this unit was in flight (PR #626,
+  docker image revisions) and the rebase was clean — the changed paths did not overlap (`AGENTS.md`'s new
+  paragraph is docker-only, `docker/scripts/**`, `odd/tasks/docker-*`). The work is delivered as five slices on
+  `origin/main`, each carrying its own tests and each green on its own base: `sat_code` column + API (366,
+  including the seven Flyway head assertions moved to 34 with the migration), the Categories screen (142), the
+  V35 seed and the Java catalog plus the head moved to 35 (926 — 410 of it is the catalog content itself, the
+  rest is the parity/invariant test that pins it), the applier and the listener (478), and the end-to-end seed
+  proofs with this record (544). The split is not cosmetic: the six suites that pin the applied Flyway head as
+  a literal make any slice that adds a migration red until the assertion moves with it, which is why that bump
+  lives in slice 1 and slice 3 rather than at the end. Every slice compiles and runs the suite it touches, and
+  the last slice's tree is identical to the branch that ran the full gates (`./gradlew test` 982 suites / 3973
+  tests, `npm test` 192 files / 3913 tests), so that evidence applies to it unchanged.
+- **L12** (agent, independent verification — second, delta pass): a delta pass returned no blocking
+  finding and four advisories. Closed: the Java→SQL parity direction compared a raw substring with four literal
+  spaces (both directions now compare stripped rows), and the set comparison silently collapsed a duplicated V35
+  row — a duplicate is not cosmetic, because V35 would fail `uq_product_categories_sibling_name` while applying on
+  every deployed database, so a dedicated test now reads the rows as a list and asserts `hasSize` plus
+  `doesNotHaveDuplicates`. The twelve root `description`s are pinned to L1: they are user-facing text and were the
+  only catalog claim no test could catch if wrong in both copies; the 27 child descriptions stay pinned only
+  across the two copies, which is the trade-off this line records. Accepted and recorded rather than changed: the
+  new end-to-end test also fires the real `KeycloakGroupEventListener`, so it stays green only because the Keycloak
+  client wraps its failures into `IdentityProviderException` and that listener warns — a stub is not worth adding
+  here, and the coupling is named so a future change to that wrapping is not a surprise.
+- **L10** (agent, decision — worker deviations accepted): the applier is
+  `@Transactional(propagation = REQUIRES_NEW)`, not the `@Transactional` this record's brief asked for: the only
+  production caller is an `AFTER_COMMIT` listener, where a `REQUIRED` write would join an already-committed
+  transaction and never commit. Accepted, and it is what the class Javadoc states. `toMigrationTuple` renders a
+  row without the trailing comma so the parity test can match it as a substring of the SQL; the tuple shape is
+  asserted separately.
 - **L13** (agent, delivery shape): `origin/main` moved six commits while this unit was in flight (PR #626, docker
   image revisions) and the rebase was clean — the changed paths did not overlap (`AGENTS.md`'s new paragraph is
   docker-only, `docker/scripts/**`, `odd/tasks/docker-*`). The 2263 authored lines are delivered as a five-slice
