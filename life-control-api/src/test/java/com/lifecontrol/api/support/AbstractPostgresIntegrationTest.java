@@ -1,5 +1,13 @@
 package com.lifecontrol.api.support;
 
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
+import org.flywaydb.core.api.MigrationVersion;
+import org.springframework.core.io.Resource;
+import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -83,5 +91,61 @@ public abstract class AbstractPostgresIntegrationTest {
         jdbcTemplate.update("DELETE FROM employee_contracts");
         jdbcTemplate.update("DELETE FROM employee_scope_assignments");
         jdbcTemplate.update("DELETE FROM employees");
+    }
+
+    /** The classpath location of every versioned migration this API ships. */
+    private static final String MIGRATION_LOCATION = "classpath*:db/migration/V*__*.sql";
+
+    /**
+     * Returns the newest versioned migration in the API's own {@code db/migration} directory.
+     *
+     * <p>Exists so a migration is added in one place. Seven suites asserted the Flyway head as a
+     * literal ({@code "35"}), so every new migration meant editing seven assertions, and the ones
+     * that were forgotten stayed green until the next run of that suite — the drift the record
+     * {@code odd/tasks/product-category-sat-code.md} measured in its own comments ({@code V33} next
+     * to an assertion of {@code 35}) is the same failure mode.</p>
+     *
+     * <p>The version is read from the <b>files the classpath actually carries</b>, deliberately not
+     * from {@code flyway.info()}: comparing Flyway's own report against Flyway's own scan would be a
+     * tautology. A migration file whose name Flyway does not recognize (a missing {@code __}, a
+     * lower-case {@code v}) is present in the directory and absent from the report, so this source
+     * catches it while the report alone cannot — which is strictly more than the literal checked.</p>
+     *
+     * @return the newest version, as Flyway renders it ({@code "35"})
+     * @throws IllegalStateException when the location resolves to no migration at all, so a wrong
+     *     location fails loudly instead of silently comparing against nothing
+     */
+    protected static String latestMigrationVersion() {
+        return latestMigrationVersion(MIGRATION_LOCATION);
+    }
+
+    /**
+     * Same as {@link #latestMigrationVersion()}, for an explicit location pattern. Package-visible so
+     * the ordering rule can be pinned against a fixture directory instead of the real migrations.
+     */
+    protected static String latestMigrationVersion(String locationPattern) {
+        var resolver = new PathMatchingResourcePatternResolver();
+        List<MigrationVersion> versions = new ArrayList<>();
+        try {
+            for (Resource resource : resolver.getResources(locationPattern)) {
+                String filename = resource.getFilename();
+                if (filename == null) {
+                    continue;
+                }
+                int end = filename.indexOf("__");
+                if (end > 1 && filename.startsWith("V")) {
+                    // Flyway's own version type, so "V10" orders after "V9": a comparison over the raw
+                    // names reports the oldest two-digit migration as the newest, which is the defect
+                    // MigrationHeadTest pins.
+                    versions.add(MigrationVersion.fromVersion(filename.substring(1, end)));
+                }
+            }
+        } catch (IOException e) {
+            throw new UncheckedIOException("could not read the migrations at " + locationPattern, e);
+        }
+        if (versions.isEmpty()) {
+            throw new IllegalStateException("no migration matched " + locationPattern);
+        }
+        return versions.stream().max(Comparator.naturalOrder()).orElseThrow().getVersion();
     }
 }
