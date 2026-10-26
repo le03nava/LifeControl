@@ -6,6 +6,10 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
+import com.lifecontrol.api.company.model.Company;
+import com.lifecontrol.api.product.category.exception.ProductCategoryNotFoundException;
+import com.lifecontrol.api.product.category.model.ProductCategory;
+import com.lifecontrol.api.product.category.repository.ProductCategoryRepository;
 import com.lifecontrol.api.product.dto.ProductRequest;
 import com.lifecontrol.api.product.exception.DuplicateProductException;
 import com.lifecontrol.api.product.exception.ProductNotFoundException;
@@ -22,6 +26,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -35,6 +40,9 @@ class ProductServiceTest {
 
     @Mock
     private ProductRepository productRepository;
+
+    @Mock
+    private ProductCategoryRepository productCategoryRepository;
 
     @InjectMocks
     private ProductService productService;
@@ -55,7 +63,7 @@ class ProductServiceTest {
                 .productType("SERVICE")
                 .enabled(true)
                 .build();
-        testRequest = new ProductRequest("SKU-001", "Test Product", "Test", "SAT-001", "SERVICE", null);
+        testRequest = new ProductRequest("SKU-001", "Test Product", "Test", "SAT-001", "SERVICE", null, null);
     }
 
     @Nested
@@ -66,7 +74,7 @@ class ProductServiceTest {
         @DisplayName("should create product with all fields and return response")
         void shouldCreateProduct_WithAllFields() {
             var request = new ProductRequest(
-                    "SKU-NEW", "New Product", "NP", "SAT-NEW", "GOODS", Map.of("color", "red", "weight", "2kg"));
+                    "SKU-NEW", "New Product", "NP", "SAT-NEW", "GOODS", Map.of("color", "red", "weight", "2kg"), null);
             when(productRepository.existsBySku("SKU-NEW")).thenReturn(false);
             when(productRepository.save(any(Product.class))).thenAnswer(inv -> {
                 var p = (Product) inv.getArgument(0);
@@ -93,7 +101,7 @@ class ProductServiceTest {
         @Test
         @DisplayName("should create product without attributes")
         void shouldCreateProduct_WithoutAttributes() {
-            var request = new ProductRequest("SKU-SIMPLE", "Simple Product", null, null, null, null);
+            var request = new ProductRequest("SKU-SIMPLE", "Simple Product", null, null, null, null, null);
             when(productRepository.existsBySku("SKU-SIMPLE")).thenReturn(false);
             when(productRepository.save(any(Product.class))).thenAnswer(inv -> {
                 var p = (Product) inv.getArgument(0);
@@ -113,7 +121,7 @@ class ProductServiceTest {
         @Test
         @DisplayName("should throw DuplicateProductException when SKU already exists")
         void shouldThrowDuplicateProductException_WhenSkuExists() {
-            var request = new ProductRequest("SKU-DUP", "Dup Product", null, null, null, null);
+            var request = new ProductRequest("SKU-DUP", "Dup Product", null, null, null, null, null);
             when(productRepository.existsBySku("SKU-DUP")).thenReturn(true);
 
             assertThatThrownBy(() -> productService.createProduct(request))
@@ -138,7 +146,7 @@ class ProductServiceTest {
                     .shortName("Old")
                     .enabled(true)
                     .build();
-            var request = new ProductRequest("SKU-001", "New Name", "New", "SAT-NEW", "GOODS", null);
+            var request = new ProductRequest("SKU-001", "New Name", "New", "SAT-NEW", "GOODS", null, null);
 
             when(productRepository.findById(productId)).thenReturn(Optional.of(existing));
             when(productRepository.save(any(Product.class))).thenAnswer(inv -> inv.getArgument(0));
@@ -161,7 +169,7 @@ class ProductServiceTest {
                     .enabled(true)
                     .attributes(new HashMap<>(Map.of("color", "red", "size", "L")))
                     .build();
-            var request = new ProductRequest("SKU-001", "Product", null, null, null, Map.of("weight", "2kg"));
+            var request = new ProductRequest("SKU-001", "Product", null, null, null, Map.of("weight", "2kg"), null);
 
             when(productRepository.findById(productId)).thenReturn(Optional.of(existing));
             when(productRepository.save(any(Product.class))).thenAnswer(inv -> inv.getArgument(0));
@@ -184,7 +192,7 @@ class ProductServiceTest {
                     .enabled(true)
                     .attributes(existingAttrs)
                     .build();
-            var request = new ProductRequest("SKU-001", "Product", null, null, null, null);
+            var request = new ProductRequest("SKU-001", "Product", null, null, null, null, null);
 
             when(productRepository.findById(productId)).thenReturn(Optional.of(existing));
             when(productRepository.save(any(Product.class))).thenAnswer(inv -> inv.getArgument(0));
@@ -204,7 +212,7 @@ class ProductServiceTest {
                     .enabled(true)
                     .attributes(new HashMap<>(Map.of("color", "red")))
                     .build();
-            var request = new ProductRequest("SKU-001", "Product", null, null, null, Map.of());
+            var request = new ProductRequest("SKU-001", "Product", null, null, null, Map.of(), null);
 
             when(productRepository.findById(productId)).thenReturn(Optional.of(existing));
             when(productRepository.save(any(Product.class))).thenAnswer(inv -> inv.getArgument(0));
@@ -223,7 +231,7 @@ class ProductServiceTest {
                     .name("Product")
                     .enabled(true)
                     .build();
-            var request = new ProductRequest("SKU-002", "Product", null, null, null, null);
+            var request = new ProductRequest("SKU-002", "Product", null, null, null, null, null);
 
             when(productRepository.findById(productId)).thenReturn(Optional.of(existing));
             when(productRepository.existsBySkuAndIdNot("SKU-002", productId)).thenReturn(true);
@@ -244,7 +252,7 @@ class ProductServiceTest {
                     .name("Old Name")
                     .enabled(true)
                     .build();
-            var request = new ProductRequest("SKU-001", "New Name", null, null, null, null);
+            var request = new ProductRequest("SKU-001", "New Name", null, null, null, null, null);
 
             when(productRepository.findById(productId)).thenReturn(Optional.of(existing));
             when(productRepository.save(any(Product.class))).thenAnswer(inv -> inv.getArgument(0));
@@ -258,7 +266,7 @@ class ProductServiceTest {
         @Test
         @DisplayName("should throw ProductNotFoundException when product not found")
         void shouldThrowProductNotFoundException_WhenNotFound() {
-            var request = new ProductRequest("SKU-001", "Product", null, null, null, null);
+            var request = new ProductRequest("SKU-001", "Product", null, null, null, null, null);
             when(productRepository.findById(productId)).thenReturn(Optional.empty());
 
             assertThatThrownBy(() -> productService.updateProduct(productId, request))
@@ -464,6 +472,142 @@ class ProductServiceTest {
             assertThat(result.getSize()).isEqualTo(10);
             assertThat(result.getTotalElements()).isEqualTo(25);
             assertThat(result.getTotalPages()).isEqualTo(3);
+        }
+    }
+
+    /**
+     * The product -> category link: one nullable FK to the deepest selected node.
+     *
+     * <p>What these pin is the half the migration cannot: the request carries an id and nothing else,
+     * so resolving it is the service's job, and the response has to report the <em>category's</em>
+     * company because the product has no company of its own.</p>
+     */
+    @Nested
+    @DisplayName("category link")
+    class CategoryLinkTests {
+
+        private UUID categoryId;
+        private UUID categoryCompanyId;
+
+        @BeforeEach
+        void setUpCategoryIds() {
+            categoryId = UUID.randomUUID();
+            categoryCompanyId = UUID.randomUUID();
+        }
+
+        @Test
+        @DisplayName("should store the resolved category and report its company on create")
+        void shouldStoreCategory_WhenCreateReceivesAnId() {
+            var category = aCategory(categoryId, categoryCompanyId);
+            var request = new ProductRequest("SKU-CAT", "Classified", null, null, null, null, categoryId);
+            when(productRepository.existsBySku("SKU-CAT")).thenReturn(false);
+            when(productCategoryRepository.findById(categoryId)).thenReturn(Optional.of(category));
+            when(productRepository.save(any(Product.class))).thenAnswer(inv -> {
+                var p = (Product) inv.getArgument(0);
+                p.setId(productId);
+                p.setEnabled(true);
+                return p;
+            });
+
+            var result = productService.createProduct(request);
+
+            var captor = ArgumentCaptor.forClass(Product.class);
+            verify(productRepository).save(captor.capture());
+            assertThat(captor.getValue().getCategory()).isSameAs(category);
+            assertThat(result.categoryId()).isEqualTo(categoryId);
+            assertThat(result.categoryCompanyId()).isEqualTo(categoryCompanyId);
+        }
+
+        @Test
+        @DisplayName("should leave the product unclassified and report two nulls when no id is sent")
+        void shouldLeaveCategoryNull_WhenCreateReceivesNoId() {
+            var request = new ProductRequest("SKU-PLAIN", "Plain", null, null, null, null, null);
+            when(productRepository.existsBySku("SKU-PLAIN")).thenReturn(false);
+            when(productRepository.save(any(Product.class))).thenAnswer(inv -> {
+                var p = (Product) inv.getArgument(0);
+                p.setId(productId);
+                p.setEnabled(true);
+                return p;
+            });
+
+            var result = productService.createProduct(request);
+
+            assertThat(result.categoryId()).isNull();
+            assertThat(result.categoryCompanyId()).isNull();
+            verify(productCategoryRepository, never()).findById(any());
+        }
+
+        @Test
+        @DisplayName("should throw the category 404 instead of an FK violation when the id does not exist")
+        void shouldRejectUnknownCategory_WhenCreateReceivesAnUnknownId() {
+            var unknown = UUID.randomUUID();
+            var request = new ProductRequest("SKU-BAD", "Bad", null, null, null, null, unknown);
+            when(productRepository.existsBySku("SKU-BAD")).thenReturn(false);
+            when(productCategoryRepository.findById(unknown)).thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> productService.createProduct(request))
+                    .isInstanceOf(ProductCategoryNotFoundException.class)
+                    .hasMessageContaining(unknown.toString());
+
+            verify(productRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("should clear the link when update sends no category")
+        void shouldClearCategory_WhenUpdateSendsNull() {
+            var existing = Product.builder()
+                    .id(productId)
+                    .sku("SKU-001")
+                    .name("Test Product")
+                    .enabled(true)
+                    // Only has to exist: what the test proves is that the update clears it, so nothing
+                    // ever reads its id or its company (a stubbed mock would be a strict-stub failure).
+                    .category(mock(ProductCategory.class))
+                    .build();
+            var request = new ProductRequest("SKU-001", "Test Product", null, null, null, null, null);
+            when(productRepository.findById(productId)).thenReturn(Optional.of(existing));
+            when(productRepository.save(any(Product.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            var result = productService.updateProduct(productId, request);
+
+            assertThat(existing.getCategory()).isNull();
+            assertThat(result.categoryId()).isNull();
+            assertThat(result.categoryCompanyId()).isNull();
+        }
+
+        @Test
+        @DisplayName("should replace the link when update sends another category")
+        void shouldReplaceCategory_WhenUpdateSendsAnotherId() {
+            // The previous node is only replaced, never read: no stubs, so no unused stubbing.
+            var previous = mock(ProductCategory.class);
+            var replacement = aCategory(categoryId, categoryCompanyId);
+            var existing = Product.builder()
+                    .id(productId)
+                    .sku("SKU-001")
+                    .name("Test Product")
+                    .enabled(true)
+                    .category(previous)
+                    .build();
+            var request = new ProductRequest("SKU-001", "Test Product", null, null, null, null, categoryId);
+            when(productRepository.findById(productId)).thenReturn(Optional.of(existing));
+            when(productCategoryRepository.findById(categoryId)).thenReturn(Optional.of(replacement));
+            when(productRepository.save(any(Product.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            var result = productService.updateProduct(productId, request);
+
+            assertThat(existing.getCategory()).isSameAs(replacement);
+            assertThat(result.categoryId()).isEqualTo(categoryId);
+            assertThat(result.categoryCompanyId()).isEqualTo(categoryCompanyId);
+        }
+
+        /** A category mock: only the two properties the response projects are stubbed. */
+        private ProductCategory aCategory(UUID id, UUID companyId) {
+            var company = mock(Company.class);
+            when(company.getId()).thenReturn(companyId);
+            var category = mock(ProductCategory.class);
+            when(category.getId()).thenReturn(id);
+            when(category.getCompany()).thenReturn(company);
+            return category;
         }
     }
 }

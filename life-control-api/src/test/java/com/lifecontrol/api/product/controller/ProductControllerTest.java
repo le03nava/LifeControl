@@ -13,6 +13,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.lifecontrol.api.exception.GlobalExceptionHandler;
+import com.lifecontrol.api.product.category.exception.ProductCategoryNotFoundException;
 import com.lifecontrol.api.product.dto.ProductRequest;
 import com.lifecontrol.api.product.dto.ProductResponse;
 import com.lifecontrol.api.product.exception.DuplicateProductException;
@@ -84,10 +85,10 @@ class ProductControllerTest {
                 Map.of("color", "red"),
                 true,
                 now,
-                now);
+                now, null, null);
 
         testProductRequest =
-                new ProductRequest("SKU-001", "Test Product", "Test", "SAT-001", "SERVICE", Map.of("color", "red"));
+                new ProductRequest("SKU-001", "Test Product", "Test", "SAT-001", "SERVICE", Map.of("color", "red"), null);
     }
 
     // ─────────────────────────────────────────────
@@ -98,7 +99,24 @@ class ProductControllerTest {
     class CreateProductTests {
 
         @Test
-        @DisplayName("should return 201 with created product when valid request with all fields")
+        @DisplayName("should return 404 when the category does not exist")
+        void createProduct_UnknownCategory_Returns404() throws Exception {
+            var unknownCategoryId = UUID.randomUUID();
+            when(productService.createProduct(any(ProductRequest.class)))
+                    .thenThrow(new ProductCategoryNotFoundException(unknownCategoryId));
+
+            mockMvc.perform(post("/api/products")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(testProductRequest)))
+                    .andExpect(status().isNotFound())
+                    .andExpect(jsonPath("$.status").value(404))
+                    .andExpect(
+                            jsonPath("$.message")
+                                    .value("Product category not found with id: " + unknownCategoryId));
+        }
+
+        @Test
+        @DisplayName("should return 201 with the created product when valid request with all fields")
         void createProduct_WithAllFields_Returns201() throws Exception {
             when(productService.createProduct(any(ProductRequest.class))).thenReturn(testProductResponse);
 
@@ -121,9 +139,9 @@ class ProductControllerTest {
         @Test
         @DisplayName("should return 201 when product created without attributes")
         void createProduct_WithoutAttributes_Returns201() throws Exception {
-            var request = new ProductRequest("SKU-SIMPLE", "Simple Product", null, null, null, null);
+            var request = new ProductRequest("SKU-SIMPLE", "Simple Product", null, null, null, null, null);
             var response = new ProductResponse(
-                    productId, "SKU-SIMPLE", "Simple Product", null, null, null, null, true, now, now);
+                    productId, "SKU-SIMPLE", "Simple Product", null, null, null, null, true, now, now, null, null);
             when(productService.createProduct(any(ProductRequest.class))).thenReturn(response);
 
             mockMvc.perform(post("/api/products")
@@ -152,7 +170,7 @@ class ProductControllerTest {
         @Test
         @DisplayName("should return 400 Bad Request when required fields missing")
         void createProduct_MissingRequiredFields_Returns400() throws Exception {
-            var invalidRequest = new ProductRequest("", "", null, null, null, null);
+            var invalidRequest = new ProductRequest("", "", null, null, null, null, null);
 
             mockMvc.perform(post("/api/products")
                             .contentType(MediaType.APPLICATION_JSON)
@@ -320,6 +338,32 @@ class ProductControllerTest {
         }
 
         @Test
+        @DisplayName("should return the category and its company when the product is classified")
+        void getProductById_Classified_ReturnsCategoryAndItsCompany() throws Exception {
+            var categoryId = UUID.randomUUID();
+            var categoryCompanyId = UUID.randomUUID();
+            when(productService.findProduct(productId))
+                    .thenReturn(new ProductResponse(
+                            productId,
+                            "SKU-001",
+                            "Test Product",
+                            "Test",
+                            "SAT-001",
+                            "SERVICE",
+                            Map.of("color", "red"),
+                            true,
+                            now,
+                            now,
+                            categoryId,
+                            categoryCompanyId));
+
+            mockMvc.perform(get("/api/products/{id}", productId))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.categoryId").value(categoryId.toString()))
+                    .andExpect(jsonPath("$.categoryCompanyId").value(categoryCompanyId.toString()));
+        }
+
+        @Test
         @DisplayName("should return 404 when product not found")
         void getProductById_NotFound_Returns404() throws Exception {
             when(productService.findProduct(productId)).thenThrow(new ProductNotFoundException(productId));
@@ -362,12 +406,12 @@ class ProductControllerTest {
                     Map.of("color", "blue"),
                     true,
                     now,
-                    now);
+                    now, null, null);
             when(productService.updateProduct(eq(productId), any(ProductRequest.class)))
                     .thenReturn(updatedResponse);
 
             var request =
-                    new ProductRequest("SKU-001", "Updated Name", "Upd", "SAT-NEW", "GOODS", Map.of("color", "blue"));
+                    new ProductRequest("SKU-001", "Updated Name", "Upd", "SAT-NEW", "GOODS", Map.of("color", "blue"), null);
 
             mockMvc.perform(put("/api/products/{id}", productId)
                             .contentType(MediaType.APPLICATION_JSON)
@@ -391,12 +435,12 @@ class ProductControllerTest {
                     Map.of("color", "red", "size", "L", "weight", "2kg"),
                     true,
                     now,
-                    now);
+                    now, null, null);
             when(productService.updateProduct(eq(productId), any(ProductRequest.class)))
                     .thenReturn(mergedResponse);
 
             // Only send "weight" — expects existing "color" and "size" preserved
-            var request = new ProductRequest("SKU-001", "Product", null, null, null, Map.of("weight", "2kg"));
+            var request = new ProductRequest("SKU-001", "Product", null, null, null, Map.of("weight", "2kg"), null);
 
             mockMvc.perform(put("/api/products/{id}", productId)
                             .contentType(MediaType.APPLICATION_JSON)
@@ -405,6 +449,25 @@ class ProductControllerTest {
                     .andExpect(jsonPath("$.attributes.color").value("red"))
                     .andExpect(jsonPath("$.attributes.size").value("L"))
                     .andExpect(jsonPath("$.attributes.weight").value("2kg"));
+        }
+
+        @Test
+        @DisplayName("should return 404 when update names a category that does not exist")
+        void updateProduct_UnknownCategory_Returns404() throws Exception {
+            // The create path is not the only writer: an edit that repoints the classification at a
+            // deleted id has to answer with the same contract instead of an FK violation.
+            var unknownCategoryId = UUID.randomUUID();
+            when(productService.updateProduct(eq(productId), any(ProductRequest.class)))
+                    .thenThrow(new ProductCategoryNotFoundException(unknownCategoryId));
+
+            mockMvc.perform(put("/api/products/{id}", productId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(testProductRequest)))
+                    .andExpect(status().isNotFound())
+                    .andExpect(jsonPath("$.status").value(404))
+                    .andExpect(
+                            jsonPath("$.message")
+                                    .value("Product category not found with id: " + unknownCategoryId));
         }
 
         @Test
@@ -428,7 +491,7 @@ class ProductControllerTest {
             when(productService.updateProduct(eq(productId), any(ProductRequest.class)))
                     .thenThrow(new DuplicateProductException("Product with SKU 'SKU-CONFLICT' already exists"));
 
-            var request = new ProductRequest("SKU-CONFLICT", "Product", null, null, null, null);
+            var request = new ProductRequest("SKU-CONFLICT", "Product", null, null, null, null, null);
 
             mockMvc.perform(put("/api/products/{id}", productId)
                             .contentType(MediaType.APPLICATION_JSON)
@@ -522,7 +585,7 @@ class ProductControllerTest {
         @Test
         @DisplayName("should include correlationId, path, timestamp, errors map in 400 responses")
         void error400_ContainsContractFields() throws Exception {
-            var invalidRequest = new ProductRequest("", "", null, null, null, null);
+            var invalidRequest = new ProductRequest("", "", null, null, null, null, null);
 
             mockMvc.perform(post("/api/products")
                             .contentType(MediaType.APPLICATION_JSON)

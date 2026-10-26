@@ -1,5 +1,8 @@
 package com.lifecontrol.api.product.service;
 
+import com.lifecontrol.api.product.category.exception.ProductCategoryNotFoundException;
+import com.lifecontrol.api.product.category.model.ProductCategory;
+import com.lifecontrol.api.product.category.repository.ProductCategoryRepository;
 import com.lifecontrol.api.product.dto.ProductRequest;
 import com.lifecontrol.api.product.dto.ProductResponse;
 import com.lifecontrol.api.product.exception.DuplicateProductException;
@@ -22,9 +25,12 @@ public class ProductService {
     private static final Logger logger = LoggerFactory.getLogger(ProductService.class);
 
     private final ProductRepository productRepository;
+    private final ProductCategoryRepository productCategoryRepository;
 
-    public ProductService(ProductRepository productRepository) {
+    public ProductService(
+            ProductRepository productRepository, ProductCategoryRepository productCategoryRepository) {
         this.productRepository = productRepository;
+        this.productCategoryRepository = productCategoryRepository;
     }
 
     @Transactional
@@ -42,6 +48,7 @@ public class ProductService {
                 .satCode(request.satCode())
                 .productType(request.productType())
                 .attributes(request.attributes())
+                .category(resolveCategory(request.categoryId()))
                 .enabled(true)
                 .build();
 
@@ -68,6 +75,9 @@ public class ProductService {
         product.setShortName(request.shortName());
         product.setSatCode(request.satCode());
         product.setProductType(request.productType());
+        // `null` clears the classification on purpose: the form sends what its three selects hold, and
+        // "sin categoría" has to be expressible, not silently ignored like the JSONB blob below.
+        product.setCategory(resolveCategory(request.categoryId()));
 
         // JSONB merge: shallow via HashMap.putAll()
         // preserve existing attributes, overwrite/add from request
@@ -138,7 +148,32 @@ public class ProductService {
         return page.map(this::mapToResponse);
     }
 
+    /**
+     * Resolves the category a request points at, or {@code null} when it sends none.
+     *
+     * <p>The lookup is deliberately <b>not</b> company-scoped: a {@code ProductRequest} carries no
+     * company — {@code products} has none (V1) — so there is nothing to scope it by, and the category's
+     * own company is what the response reports. That is safe because the column is a real foreign key:
+     * the id either names one existing row of one company, or it does not exist at all.</p>
+     *
+     * <p>The {@code enabled} flag is not checked. A category is soft-deleted, so requiring it here would
+     * freeze every later edit of the products already classified under it — an operator fixing a typo
+     * in the name would be told the category is gone.</p>
+     *
+     * @throws ProductCategoryNotFoundException when the id names no category, which the existing 404
+     *     contract answers instead of letting the FK violation surface as a 500
+     */
+    private ProductCategory resolveCategory(java.util.UUID categoryId) {
+        if (categoryId == null) {
+            return null;
+        }
+        return productCategoryRepository
+                .findById(categoryId)
+                .orElseThrow(() -> new ProductCategoryNotFoundException(categoryId));
+    }
+
     private ProductResponse mapToResponse(Product product) {
+        var category = product.getCategory();
         return new ProductResponse(
                 product.getId(),
                 product.getSku(),
@@ -149,6 +184,8 @@ public class ProductService {
                 product.getAttributes(),
                 product.getEnabled(),
                 product.getCreatedAt(),
-                product.getUpdatedAt());
+                product.getUpdatedAt(),
+                category == null ? null : category.getId(),
+                category == null ? null : category.getCompany().getId());
     }
 }

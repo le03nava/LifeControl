@@ -89,7 +89,7 @@ class ProductControllerSecurityTest {
     private final UUID productId = UUID.randomUUID();
 
     private ProductRequest buildRequest() {
-        return new ProductRequest("SKU-001", "Test Product", "Test", "SAT-001", "SERVICE", Map.of("color", "red"));
+        return new ProductRequest("SKU-001", "Test Product", "Test", "SAT-001", "SERVICE", Map.of("color", "red"), null);
     }
 
     private ProductResponse buildResponse() {
@@ -103,7 +103,7 @@ class ProductControllerSecurityTest {
                 Map.of("color", "red"),
                 true,
                 LocalDateTime.now(),
-                LocalDateTime.now());
+                LocalDateTime.now(), null, null);
     }
 
     // ─── POST /api/products ────────────────────────────────────
