@@ -106,7 +106,14 @@ export class ProductCategoryList {
   readonly actionError = signal<string | null>(null);
 
   readonly indentPerLevel = INDENT_PER_LEVEL;
-  readonly displayedColumns = ['categoryName', 'description', 'displayOrder', 'enabled', 'actions'];
+  readonly displayedColumns = [
+    'categoryName',
+    'description',
+    'satCode',
+    'displayOrder',
+    'enabled',
+    'actions',
+  ];
 
   readonly categoriesResource = rxResource({
     params: () => {

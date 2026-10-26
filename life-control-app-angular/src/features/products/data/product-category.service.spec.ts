@@ -19,6 +19,7 @@ describe('ProductCategoryService', () => {
     parentCategoryId: null,
     categoryName: 'Bebidas',
     description: null,
+    satCode: null,
     displayOrder: 0,
     depth: 1,
     enabled: true,
@@ -40,6 +41,7 @@ describe('ProductCategoryService', () => {
     parentCategoryId: null,
     categoryName: 'Bebidas',
     description: null,
+    satCode: null,
     displayOrder: 0,
     enabled: true,
   };
@@ -116,6 +118,7 @@ describe('ProductCategoryService', () => {
         parentCategoryId: 'cat-1',
         categoryName: 'Gaseosas',
         description: 'Con azúcar y sin azúcar',
+        satCode: null,
         displayOrder: 2,
         enabled: true,
       };
@@ -138,6 +141,7 @@ describe('ProductCategoryService', () => {
         parentCategoryId: null,
         categoryName: 'Bebidas sin alcohol',
         description: null,
+        satCode: '53110000',
         displayOrder: 5,
         enabled: false,
       };
