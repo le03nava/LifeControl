@@ -140,6 +140,7 @@ public class ProductCategoryService {
                 .parentCategory(parent)
                 .categoryName(request.categoryName())
                 .description(request.description())
+                .satCode(request.satCode())
                 .displayOrder(request.displayOrder())
                 .enabled(request.enabled())
                 .build();
@@ -201,6 +202,7 @@ public class ProductCategoryService {
         category.setParentCategory(parent);
         category.setCategoryName(request.categoryName());
         category.setDescription(request.description());
+        category.setSatCode(request.satCode());
         category.setDisplayOrder(request.displayOrder());
         category.setEnabled(request.enabled());
 
@@ -576,6 +578,7 @@ public class ProductCategoryService {
                 parent == null ? null : parent.getId(),
                 category.getCategoryName(),
                 category.getDescription(),
+                category.getSatCode(),
                 category.getDisplayOrder(),
                 depth,
                 category.getEnabled(),

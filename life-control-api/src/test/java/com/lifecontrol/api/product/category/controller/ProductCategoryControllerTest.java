@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -79,12 +80,17 @@ class ProductCategoryControllerTest {
     }
 
     private ProductCategoryResponse response(UUID id, UUID parent, int depth, boolean enabled) {
+        return response(id, parent, depth, enabled, null);
+    }
+
+    private ProductCategoryResponse response(UUID id, UUID parent, int depth, boolean enabled, String satCode) {
         return new ProductCategoryResponse(
                 id,
                 companyId,
                 parent,
                 "Gaseosas",
                 "Refrescos con gas",
+                satCode,
                 2,
                 depth,
                 enabled,
@@ -93,7 +99,7 @@ class ProductCategoryControllerTest {
     }
 
     private ProductCategoryRequest request(UUID parent, String name) {
-        return new ProductCategoryRequest(parent, name, "descripcion", 2, true);
+        return new ProductCategoryRequest(parent, name, "descripcion", null, 2, true);
     }
 
     @Nested
@@ -195,6 +201,71 @@ class ProductCategoryControllerTest {
         }
 
         @Test
+        @DisplayName("carries satCode from the payload to the service and back in the response")
+        void carriesSatCode() throws Exception {
+            when(productCategoryService.createCategory(eq(companyId), any(ProductCategoryRequest.class)))
+                    .thenReturn(response(categoryId, parentId, 2, true, "27111600"));
+
+            var body = """
+                    {"parentCategoryId": "%s", "categoryName": "Herramientas Manuales", "satCode": "27111600"}
+                    """.formatted(parentId);
+
+            mockMvc.perform(post("/api/companies/{companyId}/product-categories", companyId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(body))
+                    .andExpect(status().isCreated())
+                    .andExpect(jsonPath("$.satCode").value("27111600"));
+
+            var captor = ArgumentCaptor.forClass(ProductCategoryRequest.class);
+            verify(productCategoryService).createCategory(eq(companyId), captor.capture());
+            assertThat(captor.getValue().satCode()).isEqualTo("27111600");
+        }
+
+        @Test
+        @DisplayName("normalizes a whitespace-only satCode to null: the key is optional, not blank")
+        void blankSatCodeBecomesNull() throws Exception {
+            when(productCategoryService.createCategory(eq(companyId), any(ProductCategoryRequest.class)))
+                    .thenReturn(response(categoryId, null, 1, true));
+
+            mockMvc.perform(post("/api/companies/{companyId}/product-categories", companyId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("""
+                                    {"categoryName": "Bebidas", "satCode": "   "}
+                                    """))
+                    .andExpect(status().isCreated());
+
+            var captor = ArgumentCaptor.forClass(ProductCategoryRequest.class);
+            verify(productCategoryService).createCategory(eq(companyId), captor.capture());
+            assertThat(captor.getValue().satCode()).isNull();
+        }
+
+        @Test
+        @DisplayName("returns 400 when satCode is not eight digits")
+        void malformedSatCodeIs400() throws Exception {
+            mockMvc.perform(post("/api/companies/{companyId}/product-categories", companyId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("""
+                                    {"categoryName": "Bebidas", "satCode": "27-11000"}
+                                    """))
+                    .andExpect(status().isBadRequest());
+        }
+
+        @Test
+        @DisplayName("returns 400 when satCode carries letters or is too short")
+        void nonNumericSatCodeIs400() throws Exception {
+            for (var satCode : new String[] {"ABCDEFGH", "2711000"}) {
+                mockMvc.perform(post("/api/companies/{companyId}/product-categories", companyId)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("""
+                                        {"categoryName": "Bebidas", "satCode": "%s"}
+                                        """.formatted(satCode)))
+                        .andExpect(status().isBadRequest());
+            }
+
+            verifyNoInteractions(productCategoryService);
+        }
+
+        @Test
         @DisplayName("returns 404 when the parent category does not exist in the company")
         void missingParentIs404() throws Exception {
             when(productCategoryService.createCategory(eq(companyId), any(ProductCategoryRequest.class)))
@@ -284,7 +355,7 @@ class ProductCategoryControllerTest {
             mockMvc.perform(put("/api/companies/{companyId}/product-categories/{id}", companyId, categoryId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(
-                                    new ProductCategoryRequest(null, "Bebidas", null, 1, false))))
+                                    new ProductCategoryRequest(null, "Bebidas", null, null, 1, false))))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.enabled").value(false));
 
