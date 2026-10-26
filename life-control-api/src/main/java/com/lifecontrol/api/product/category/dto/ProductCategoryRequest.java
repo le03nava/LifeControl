@@ -1,6 +1,7 @@
 package com.lifecontrol.api.product.category.dto;
 
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.PositiveOrZero;
 import jakarta.validation.constraints.Size;
 import java.util.UUID;
@@ -18,6 +19,12 @@ import java.util.UUID;
  * {@code 0} — the column default — so a create without them is legal and both stay explicit when the
  * caller cares. {@code displayOrder} allows {@code 0} on purpose: the column defaults to it, so
  * {@code @Positive} would reject the very value a fresh category gets.</p>
+ *
+ * <p>{@code satCode} is the optional SAT {@code ClaveProdServ}: eight numeric digits when present, and
+ * {@code null} when the operator has not looked the key up yet, so a blank or whitespace-only value is
+ * normalized to {@code null} here instead of reaching the database and failing its {@code CHECK} with a
+ * 500. It is deliberately not unique: the SAT catalog repeats a key across levels, so two branches of one
+ * tree may legitimately carry the same one (V34 holds the reasoning).</p>
  */
 public record ProductCategoryRequest(
         UUID parentCategoryId,
@@ -28,6 +35,9 @@ public record ProductCategoryRequest(
 
         @Size(max = 255, message = "description must not exceed 255 characters")
         String description,
+
+        @Pattern(regexp = "\\d{8}", message = "satCode must be eight digits (SAT ClaveProdServ)")
+        String satCode,
 
         @PositiveOrZero(message = "displayOrder must not be negative")
         Integer displayOrder,
@@ -40,6 +50,9 @@ public record ProductCategoryRequest(
         }
         if (displayOrder == null) {
             displayOrder = 0;
+        }
+        if (satCode != null && satCode.isBlank()) {
+            satCode = null;
         }
     }
 }

@@ -51,6 +51,15 @@ public class ProductCategory extends Auditable {
     @Column(name = "description", length = 255)
     private String description;
 
+    /**
+     * Optional SAT {@code ClaveProdServ}, eight numeric digits. {@code null} for a category whose fiscal
+     * key nobody has looked up yet — the column is nullable on purpose and not unique, because the SAT
+     * catalog repeats a key across levels (V34 holds the reasoning). The database only checks the shape;
+     * no rule of the tree depends on this value.
+     */
+    @Column(name = "sat_code", length = 8)
+    private String satCode;
+
     @Column(name = "display_order", nullable = false)
     private Integer displayOrder = 0;
 
@@ -81,6 +90,10 @@ public class ProductCategory extends Auditable {
         return description;
     }
 
+    public String getSatCode() {
+        return satCode;
+    }
+
     public Integer getDisplayOrder() {
         return displayOrder;
     }
@@ -108,6 +121,10 @@ public class ProductCategory extends Auditable {
 
     public void setDescription(String description) {
         this.description = description;
+    }
+
+    public void setSatCode(String satCode) {
+        this.satCode = satCode;
     }
 
     public void setDisplayOrder(Integer displayOrder) {
@@ -148,6 +165,11 @@ public class ProductCategory extends Auditable {
 
         public Builder description(String description) {
             category.description = description;
+            return this;
+        }
+
+        public Builder satCode(String satCode) {
+            category.satCode = satCode;
             return this;
         }
 

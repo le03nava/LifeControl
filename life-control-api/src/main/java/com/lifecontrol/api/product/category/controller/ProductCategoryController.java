@@ -77,7 +77,7 @@ public class ProductCategoryController {
     @Operation(
             summary = "Create a product category",
             description =
-                    "Creates a category in the company. Omit parentCategoryId for a root. The name must be free among its siblings, the parent must belong to the same company and be enabled, and the resulting level must not exceed three.")
+                    "Creates a category in the company. Omit parentCategoryId for a root. The name must be free among its siblings, the parent must belong to the same company and be enabled, and the resulting level must not exceed three. satCode is optional and, when present, must be the eight-digit SAT ClaveProdServ; it is not unique because the SAT catalog repeats a key across levels.")
     @ApiResponses({
         @ApiResponse(responseCode = "201", description = "Category created"),
         @ApiResponse(responseCode = "400", description = "Validation error"),
@@ -95,7 +95,7 @@ public class ProductCategoryController {
     @Operation(
             summary = "Update a product category",
             description =
-                    "Updates a category, including moving it to another parent or to the root. The move re-checks every rule the position is subject to: same company, enabled ancestors, no cycle, and the three-level ceiling.")
+                    "Updates a category, including moving it to another parent or to the root. The move re-checks every rule the position is subject to: same company, enabled ancestors, no cycle, and the three-level ceiling. satCode replaces the previous key; send null to clear it.")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Category updated"),
         @ApiResponse(responseCode = "400", description = "Validation error"),

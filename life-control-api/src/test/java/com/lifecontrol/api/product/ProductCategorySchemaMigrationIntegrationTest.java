@@ -64,10 +64,10 @@ class ProductCategorySchemaMigrationIntegrationTest extends AbstractPostgresInte
     }
 
     @Test
-    @DisplayName("applies every migration through V33 and leaves no pending migration")
-    void flywayHeadIsV33() {
+    @DisplayName("applies every migration through V34 and leaves no pending migration")
+    void flywayHeadIsV34() {
         assertThat(flyway.info().current()).isNotNull();
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("33");
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("34");
         assertThat(flyway.info().pending()).isEmpty();
     }
 
@@ -178,6 +178,77 @@ class ProductCategorySchemaMigrationIntegrationTest extends AbstractPostgresInte
     }
 
     @Test
+    @DisplayName("adds an optional sat_code column of eight characters")
+    void satCodeColumnIsNullableAndEightCharactersLong() {
+        var satCode = jdbcTemplate.queryForMap("""
+                SELECT data_type, character_maximum_length, is_nullable
+                FROM information_schema.columns
+                WHERE table_schema = 'public'
+                  AND table_name = 'product_categories'
+                  AND column_name = 'sat_code'
+                """);
+
+        assertThat(satCode.get("data_type")).as("sat_code type").isEqualTo("character varying");
+        assertThat(satCode.get("character_maximum_length"))
+                .as("sat_code length")
+                .isEqualTo(8);
+        assertThat(satCode.get("is_nullable"))
+                .as("a category may exist before its SAT key is known")
+                .isEqualTo("YES");
+    }
+
+    @Test
+    @DisplayName("ck_product_categories_sat_code_format accepts NULL and an eight-digit key")
+    void satCodeFormatAcceptsNullAndEightDigits() {
+        var companyId = categoryCompanyId();
+
+        var withKeyId = insertCategoryWithSatCode(companyId, "Con Clave", "27110000");
+        var withoutKeyId = insertCategoryWithSatCode(companyId, "Sin Clave", null);
+
+        assertThat(count("product_categories"))
+                .as("an absent SAT key is legal next to a present one")
+                .isEqualTo(2);
+        assertThat(categorySatCode(withKeyId)).isEqualTo("27110000");
+        assertThat(categorySatCode(withoutKeyId)).isNull();
+    }
+
+    @Test
+    @DisplayName("ck_product_categories_sat_code_format rejects a key that is not eight digits")
+    void satCodeFormatRejectsMalformedKeys() {
+        var companyId = categoryCompanyId();
+
+        assertViolatesConstraint("ck_product_categories_sat_code_format", """
+                INSERT INTO product_categories (id, company_id, category_name, sat_code)
+                VALUES (?, ?, 'Corta', '2711000')
+                """, UUID.randomUUID(), companyId);
+
+        assertViolatesConstraint("ck_product_categories_sat_code_format", """
+                INSERT INTO product_categories (id, company_id, category_name, sat_code)
+                VALUES (?, ?, 'Con Letras', 'ABCDEFGH')
+                """, UUID.randomUUID(), companyId);
+
+        assertThat(count("product_categories")).isZero();
+    }
+
+    @Test
+    @DisplayName("two categories of one company may share a SAT key: the code is not unique")
+    void satCodeIsNotUnique() {
+        var companyId = categoryCompanyId();
+        var rootId = insertCategoryWithSatCode(companyId, "Calzado para Dama", "53110000");
+        var childId = insertCategoryWithSatCode(companyId, "Botas y Botines", "53110000");
+        jdbcTemplate.update("UPDATE product_categories SET parent_category_id = ? WHERE id = ?", rootId, childId);
+
+        var rowsWithKey = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM product_categories WHERE company_id = ? AND sat_code = '53110000'",
+                Integer.class,
+                companyId);
+
+        assertThat(rowsWithKey)
+                .as("a segment key legitimately appears on the parent and on its children")
+                .isEqualTo(2);
+    }
+
+    @Test
     @DisplayName("product_categories carries no version column: a catalog has no 412 precondition")
     void productCategoriesHasNoVersionColumn() {
         var versionColumns = jdbcTemplate.queryForObject("""
@@ -227,6 +298,20 @@ class ProductCategorySchemaMigrationIntegrationTest extends AbstractPostgresInte
                 VALUES (?, ?, ?)
                 """, id, companyId, name);
         return id;
+    }
+
+    private UUID insertCategoryWithSatCode(UUID companyId, String name, String satCode) {
+        var id = UUID.randomUUID();
+        jdbcTemplate.update("""
+                INSERT INTO product_categories (id, company_id, category_name, sat_code)
+                VALUES (?, ?, ?, ?)
+                """, id, companyId, name, satCode);
+        return id;
+    }
+
+    private String categorySatCode(UUID categoryId) {
+        return jdbcTemplate.queryForObject(
+                "SELECT sat_code FROM product_categories WHERE id = ?", String.class, categoryId);
     }
 
     private int count(String table) {

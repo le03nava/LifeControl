@@ -83,7 +83,7 @@ class ProductCategoryControllerSecurityTest {
     private final UUID categoryId = UUID.randomUUID();
 
     private ProductCategoryRequest buildRequest() {
-        return new ProductCategoryRequest(null, "Bebidas", "Bebidas y refrescos", 1, true);
+        return new ProductCategoryRequest(null, "Bebidas", "Bebidas y refrescos", null, 1, true);
     }
 
     private ProductCategoryResponse buildResponse() {
@@ -93,6 +93,7 @@ class ProductCategoryControllerSecurityTest {
                 null,
                 "Bebidas",
                 "Bebidas y refrescos",
+                null,
                 1,
                 1,
                 true,

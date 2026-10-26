@@ -215,7 +215,7 @@ class ProductCategoryServiceTest {
         @DisplayName("creates a root at level 1 when no parent is given")
         void createsRoot() {
             stubSaveReturnsArgument();
-            var request = new ProductCategoryRequest(null, "Bebidas", "Bebidas y refrescos", 1, true);
+            var request = new ProductCategoryRequest(null, "Bebidas", "Bebidas y refrescos", null, 1, true);
 
             var result = productCategoryService.createCategory(companyId, request);
 
@@ -233,7 +233,7 @@ class ProductCategoryServiceTest {
             stubSaveReturnsArgument();
 
             var result = productCategoryService.createCategory(
-                    companyId, new ProductCategoryRequest(root.getId(), "Gaseosas", null, 1, true));
+                    companyId, new ProductCategoryRequest(root.getId(), "Gaseosas", null, null, 1, true));
 
             assertThat(result.depth()).isEqualTo(2);
             assertThat(result.parentCategoryId()).isEqualTo(root.getId());
@@ -249,7 +249,7 @@ class ProductCategoryServiceTest {
             stubSaveReturnsArgument();
 
             var result = productCategoryService.createCategory(
-                    companyId, new ProductCategoryRequest(child.getId(), "Colas", null, 1, true));
+                    companyId, new ProductCategoryRequest(child.getId(), "Colas", null, null, 1, true));
 
             assertThat(result.depth()).isEqualTo(3);
         }
@@ -265,7 +265,7 @@ class ProductCategoryServiceTest {
             stubLookup(root);
 
             assertThatThrownBy(() -> productCategoryService.createCategory(
-                            companyId, new ProductCategoryRequest(grandchild.getId(), "Zero", null, 1, true)))
+                            companyId, new ProductCategoryRequest(grandchild.getId(), "Zero", null, null, 1, true)))
                     .isInstanceOf(ProductCategoryDepthExceededException.class)
                     .hasMessageContaining("3 levels");
 
@@ -279,7 +279,7 @@ class ProductCategoryServiceTest {
             stubLookup(root);
 
             assertThatThrownBy(() -> productCategoryService.createCategory(
-                            companyId, new ProductCategoryRequest(root.getId(), "Gaseosas", null, 1, true)))
+                            companyId, new ProductCategoryRequest(root.getId(), "Gaseosas", null, null, 1, true)))
                     .isInstanceOf(DisabledParentCategoryException.class);
 
             verify(productCategoryRepository, never()).save(any(ProductCategory.class));
@@ -294,7 +294,7 @@ class ProductCategoryServiceTest {
             stubLookup(disabledRoot);
 
             assertThatThrownBy(() -> productCategoryService.createCategory(
-                            companyId, new ProductCategoryRequest(enabledChild.getId(), "Colas", null, 1, true)))
+                            companyId, new ProductCategoryRequest(enabledChild.getId(), "Colas", null, null, 1, true)))
                     .isInstanceOf(DisabledParentCategoryException.class)
                     .hasMessageContaining(disabledRoot.getId().toString());
         }
@@ -307,7 +307,7 @@ class ProductCategoryServiceTest {
                     .thenReturn(true);
 
             assertThatThrownBy(() -> productCategoryService.createCategory(
-                            companyId, new ProductCategoryRequest(null, "Bebidas", null, 1, true)))
+                            companyId, new ProductCategoryRequest(null, "Bebidas", null, null, 1, true)))
                     .isInstanceOf(DuplicateProductCategoryException.class)
                     .hasMessageContaining("<root>");
 
@@ -324,7 +324,7 @@ class ProductCategoryServiceTest {
                     .thenReturn(true);
 
             assertThatThrownBy(() -> productCategoryService.createCategory(
-                            companyId, new ProductCategoryRequest(root.getId(), "Gaseosas", null, 1, true)))
+                            companyId, new ProductCategoryRequest(root.getId(), "Gaseosas", null, null, 1, true)))
                     .isInstanceOf(DuplicateProductCategoryException.class)
                     .hasMessageContaining(root.getId().toString());
 
@@ -339,7 +339,7 @@ class ProductCategoryServiceTest {
             stubSaveReturnsArgument();
 
             var result = productCategoryService.createCategory(
-                    companyId, new ProductCategoryRequest(root.getId(), "Gaseosas", null, 1, true));
+                    companyId, new ProductCategoryRequest(root.getId(), "Gaseosas", null, null, 1, true));
 
             assertThat(result.categoryName()).isEqualTo("Gaseosas");
         }
@@ -352,7 +352,7 @@ class ProductCategoryServiceTest {
                     .thenReturn(Optional.empty());
 
             assertThatThrownBy(() -> productCategoryService.createCategory(
-                            companyId, new ProductCategoryRequest(foreignParentId, "Gaseosas", null, 1, true)))
+                            companyId, new ProductCategoryRequest(foreignParentId, "Gaseosas", null, null, 1, true)))
                     .isInstanceOf(ProductCategoryNotFoundException.class);
 
             verify(productCategoryRepository, never()).save(any(ProductCategory.class));
@@ -366,13 +366,27 @@ class ProductCategoryServiceTest {
             stubSaveReturnsArgument();
 
             productCategoryService.createCategory(
-                    companyId, new ProductCategoryRequest(root.getId(), "Gaseosas", null, 7, true));
+                    companyId, new ProductCategoryRequest(root.getId(), "Gaseosas", null, null, 7, true));
 
             var captor = ArgumentCaptor.forClass(ProductCategory.class);
             verify(productCategoryRepository).save(captor.capture());
             assertThat(captor.getValue().getParentCategory()).isSameAs(root);
             assertThat(captor.getValue().getCompany()).isSameAs(company);
             assertThat(captor.getValue().getDisplayOrder()).isEqualTo(7);
+        }
+
+        @Test
+        @DisplayName("stores the SAT key it is given and leaves it absent when omitted")
+        void storesSatCode() {
+            stubSaveReturnsArgument();
+
+            var withKey = productCategoryService.createCategory(
+                    companyId, new ProductCategoryRequest(null, "Ferretería", null, "27110000", 1, true));
+            var withoutKey = productCategoryService.createCategory(
+                    companyId, new ProductCategoryRequest(null, "Limpieza", null, null, 2, true));
+
+            assertThat(withKey.satCode()).isEqualTo("27110000");
+            assertThat(withoutKey.satCode()).as("the column is optional").isNull();
         }
     }
 
@@ -392,10 +406,31 @@ class ProductCategoryServiceTest {
             stubSaveReturnsArgument();
 
             var result = productCategoryService.updateCategory(
-                    companyId, child.getId(), new ProductCategoryRequest(root.getId(), "Refrescos", null, 1, true));
+                    companyId,
+                    child.getId(),
+                    new ProductCategoryRequest(root.getId(), "Refrescos", null, null, 1, true));
 
             assertThat(result.categoryName()).isEqualTo("Refrescos");
             assertThat(result.depth()).isEqualTo(2);
+        }
+
+        @Test
+        @DisplayName("replaces the SAT key on update and clears it when the payload omits it")
+        void replacesAndClearsSatCode() {
+            var root = category(UUID.randomUUID(), "Ferretería", null, true, 1);
+            root.setSatCode("27110000");
+            stubLookup(root);
+            stubSaveReturnsArgument();
+
+            var withKey = productCategoryService.updateCategory(
+                    companyId, root.getId(), new ProductCategoryRequest(null, "Ferretería", null, "27111600", 1, true));
+            var cleared = productCategoryService.updateCategory(
+                    companyId, root.getId(), new ProductCategoryRequest(null, "Ferretería", null, null, 1, true));
+
+            assertThat(withKey.satCode()).isEqualTo("27111600");
+            assertThat(cleared.satCode())
+                    .as("an update without a key is how the operator removes a wrong one")
+                    .isNull();
         }
 
         @Test
@@ -407,7 +442,7 @@ class ProductCategoryServiceTest {
             stubSaveReturnsArgument();
 
             var result = productCategoryService.updateCategory(
-                    companyId, child.getId(), new ProductCategoryRequest(null, "Gaseosas", null, 1, true));
+                    companyId, child.getId(), new ProductCategoryRequest(null, "Gaseosas", null, null, 1, true));
 
             assertThat(result.depth()).isEqualTo(1);
             assertThat(result.parentCategoryId()).isNull();
@@ -422,7 +457,7 @@ class ProductCategoryServiceTest {
             assertThatThrownBy(() -> productCategoryService.updateCategory(
                             companyId,
                             root.getId(),
-                            new ProductCategoryRequest(root.getId(), "Bebidas", null, 1, true)))
+                            new ProductCategoryRequest(root.getId(), "Bebidas", null, null, 1, true)))
                     .isInstanceOf(ProductCategoryHierarchyCycleException.class)
                     .hasMessageContaining("its own parent");
 
@@ -440,7 +475,7 @@ class ProductCategoryServiceTest {
             assertThatThrownBy(() -> productCategoryService.updateCategory(
                             companyId,
                             root.getId(),
-                            new ProductCategoryRequest(child.getId(), "Bebidas", null, 1, true)))
+                            new ProductCategoryRequest(child.getId(), "Bebidas", null, null, 1, true)))
                     .isInstanceOf(ProductCategoryHierarchyCycleException.class)
                     .hasMessageContaining("own descendants");
 
@@ -462,7 +497,7 @@ class ProductCategoryServiceTest {
             assertThatThrownBy(() -> productCategoryService.updateCategory(
                             companyId,
                             moving.getId(),
-                            new ProductCategoryRequest(grandchild.getId(), "Zero", null, 1, true)))
+                            new ProductCategoryRequest(grandchild.getId(), "Zero", null, null, 1, true)))
                     .isInstanceOf(ProductCategoryDepthExceededException.class);
 
             verify(productCategoryRepository, never()).save(any(ProductCategory.class));
@@ -482,7 +517,7 @@ class ProductCategoryServiceTest {
             assertThatThrownBy(() -> productCategoryService.updateCategory(
                             companyId,
                             child.getId(),
-                            new ProductCategoryRequest(root.getId(), "Refrescos", null, 1, true)))
+                            new ProductCategoryRequest(root.getId(), "Refrescos", null, null, 1, true)))
                     .isInstanceOf(DuplicateProductCategoryException.class);
         }
 
@@ -496,7 +531,9 @@ class ProductCategoryServiceTest {
             stubSaveReturnsArgument();
 
             var result = productCategoryService.updateCategory(
-                    companyId, child.getId(), new ProductCategoryRequest(root.getId(), "Gaseosas", null, 3, true));
+                    companyId,
+                    child.getId(),
+                    new ProductCategoryRequest(root.getId(), "Gaseosas", null, null, 3, true));
 
             assertThat(result.displayOrder()).isEqualTo(3);
         }
@@ -512,7 +549,7 @@ class ProductCategoryServiceTest {
             assertThatThrownBy(() -> productCategoryService.updateCategory(
                             companyId,
                             moving.getId(),
-                            new ProductCategoryRequest(disabledRoot.getId(), "Gaseosas", null, 1, true)))
+                            new ProductCategoryRequest(disabledRoot.getId(), "Gaseosas", null, null, 1, true)))
                     .isInstanceOf(DisabledParentCategoryException.class);
         }
 
@@ -533,7 +570,7 @@ class ProductCategoryServiceTest {
             assertThatThrownBy(() -> productCategoryService.updateCategory(
                             companyId,
                             nodeB.getId(),
-                            new ProductCategoryRequest(nodeQ.getId(), "Gaseosas", null, 1, true)))
+                            new ProductCategoryRequest(nodeQ.getId(), "Gaseosas", null, null, 1, true)))
                     .isInstanceOf(ProductCategoryDepthExceededException.class);
 
             verify(productCategoryRepository, never()).save(any(ProductCategory.class));
@@ -554,7 +591,7 @@ class ProductCategoryServiceTest {
                     .thenReturn(List.of(root, child, grandchild, untouched));
 
             productCategoryService.updateCategory(
-                    companyId, root.getId(), new ProductCategoryRequest(null, "Bebidas", null, 1, false));
+                    companyId, root.getId(), new ProductCategoryRequest(null, "Bebidas", null, null, 1, false));
 
             assertThat(root.getEnabled()).isFalse();
             assertThat(child.getEnabled()).isFalse();
