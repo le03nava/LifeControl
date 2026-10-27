@@ -9,7 +9,7 @@ import { MatDialog } from '@angular/material/dialog';
 import { MatTabGroup } from '@angular/material/tabs';
 import { MatStepper } from '@angular/material/stepper';
 import { ProductEdit } from './product-edit';
-import { Page, Product } from '../../models/product.models';
+import { Page, Product, ProductAttributeProfile } from '../../models/product.models';
 import { ProductService } from '../../data/product.service';
 import { ProductSupplierService } from '../../data/product-supplier.service';
 import { ProductSupplier } from '../../models/product-supplier.models';
@@ -33,6 +33,7 @@ describe('ProductEdit', () => {
     createProduct: ReturnType<typeof vi.fn>;
     updateProduct: ReturnType<typeof vi.fn>;
     getProductById: ReturnType<typeof vi.fn>;
+    getAttributeProfile: ReturnType<typeof vi.fn>;
   };
   let supplierServiceMock: {
     getSuppliers: ReturnType<typeof vi.fn>;
@@ -225,6 +226,8 @@ describe('ProductEdit', () => {
     categoriesDeferred?: boolean;
     /** Fails `GET /product-categories` with a 500, the shape `categoriesResource` keeps as an error. */
     categoriesFailing?: boolean;
+    /** The attribute profile the product's category resolves to; `null` is the API's `204`. */
+    attributeProfile?: ProductAttributeProfile | null;
   }
 
   function setup(options: SetupOptions = {}): void {
@@ -249,6 +252,7 @@ describe('ProductEdit', () => {
       createProduct: vi.fn(),
       updateProduct: vi.fn(),
       getProductById: vi.fn().mockReturnValue(of(product)),
+      getAttributeProfile: vi.fn().mockReturnValue(of(options.attributeProfile ?? null)),
     };
     supplierServiceMock = {
       getSuppliers: vi.fn().mockReturnValue(of(suppliers)),
@@ -1189,6 +1193,69 @@ describe('ProductEdit', () => {
       expect(fixture.nativeElement.querySelector('app-products-form')?.textContent).not.toContain(
         'Código SAT tomado de:',
       );
+    });
+  });
+
+  describe('attribute profile (S4, S7)', () => {
+    const shoeProfile: ProductAttributeProfile = {
+      profileKey: 'calzado',
+      label: 'Calzado',
+      resolvedRootName: 'Calzado',
+      productAttributes: [
+        {
+          code: 'marca',
+          label: 'Marca',
+          level: 'PRODUCT',
+          kind: 'TEXT',
+          unitLabel: null,
+          required: false,
+          values: [],
+        },
+      ],
+      variantAttributes: [
+        {
+          code: 'color',
+          label: 'Color',
+          level: 'VARIANT',
+          kind: 'ENUM',
+          unitLabel: null,
+          required: false,
+          values: [],
+        },
+      ],
+    };
+
+    it('should read the profile of the product category and hand it to the form (S4)', async () => {
+      setup({
+        edit: true,
+        product: createProductData({
+          id: 'existing-id',
+          categoryId: 'sub2-1',
+          categoryCompanyId: 'company-1',
+        }),
+        categories: createCategoryTree(),
+        attributeProfile: shoeProfile,
+      });
+      await settle();
+
+      expect(productServiceMock.getAttributeProfile).toHaveBeenCalledWith('company-1', 'sub2-1');
+      expect(component.attributeProfile()).toEqual(shoeProfile);
+
+      const form = fixture.debugElement.query(By.directive(ProductsForm))
+        .componentInstance as ProductsForm;
+      expect(form.attributeProfile()).toEqual(shoeProfile);
+      // Only the product level renders on this screen; `color` belongs to the variant dialog.
+      expect(form.productAttributeDefinitions().map((definition) => definition.code)).toEqual([
+        'marca',
+      ]);
+    });
+
+    it('should not read a profile when the product has no category', async () => {
+      setup({ edit: true, categories: createCategoryTree() });
+      await settle();
+
+      expect(productServiceMock.getAttributeProfile).not.toHaveBeenCalled();
+      expect(component.attributeProfile()).toBeUndefined();
     });
   });
 

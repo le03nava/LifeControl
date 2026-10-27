@@ -45,6 +45,12 @@
       </mat-select>
     </mat-form-field>
 
+    <!--
+      The VARIANT-level definitions of the product's category profile (S6, S7). An empty list renders
+      nothing, which is the honest answer for a branch without variant attributes.
+    -->
+    <app-product-attribute-fields [definitions]="attributeDefinitions()" [form]="attributeForm()" />
+
     <div class="form-actions">
       <button mat-button type="button" (click)="onCancel()">Cancelar</button>
       @if (!editMode()) {

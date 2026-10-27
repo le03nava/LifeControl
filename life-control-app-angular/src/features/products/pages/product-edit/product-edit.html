@@ -138,6 +138,15 @@
     <app-error-banner [message]="categoryError" />
   }
 
+  <!--
+    A profile read that failed is stated for the same reason: three empty selects over a saved
+    classification look exactly like a product nobody classified, and an empty field-set over saved
+    attributes would look like a branch that declares none.
+  -->
+  @if (attributeProfileError(); as attributeError) {
+    <app-error-banner [message]="attributeError" />
+  }
+
   <app-products-form
     [formGroup]="productForm()"
     [serverErrors]="serverErrors()"
@@ -146,8 +155,10 @@
     [selectedCompanyId]="selectedCompanyId()"
     [categoryTree]="categoryTree()"
     [categoryPath]="savedCategoryPath()"
+    [attributeProfile]="attributeProfile()"
     (saveProduct)="onSaveProduct($event)"
     (cancelForm)="cancelForm()"
     (companyChange)="onCompanyChange($event)"
+    (categoryChange)="onCategoryChange($event)"
   />
 </ng-template>
