@@ -115,18 +115,20 @@
       />
     </mat-form-field>
 
-    <mat-form-field class="full-width" appearance="outline">
-      <mat-label>Atributos (JSON)</mat-label>
-      <textarea
-        matInput
-        formControlName="attributes"
-        placeholder='{"key": "value"}'
-        rows="4"
-      ></textarea>
-      @if (getErrorMessage(formGroup().controls.attributes); as msg) {
-        <mat-error>{{ msg }}</mat-error>
+    <!--
+      S4, S5: the attribute inputs are rendered from the selected category's profile, and the carrier
+      `attributes` control keeps holding the JSON so the submit path is unchanged. A `VARIANT`-level
+      definition is filtered out by the form, never rendered here.
+    -->
+    @if (attributeProfileKnown()) {
+      <app-product-attribute-fields
+        [definitions]="productAttributeDefinitions()"
+        [form]="attributeForm()"
+      />
+      @if (attributeNotice(); as notice) {
+        <p class="attribute-notice">{{ notice }}</p>
       }
-    </mat-form-field>
+    }
 
     <div class="toggle-container">
       <mat-slide-toggle formControlName="enabled">Activo</mat-slide-toggle>

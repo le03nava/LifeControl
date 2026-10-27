@@ -1,0 +1,103 @@
+<!--
+  One control per `kind`. The group is the host's, so the names below are the definition codes the
+  host wrote into it — never a label, which is only what the operator reads (S5).
+-->
+@if (definitions().length > 0) {
+  <div class="attribute-fields" [formGroup]="form()">
+    @for (definition of definitions(); track definition.code) {
+      @switch (definition.kind) {
+        @case ('TEXT') {
+          <mat-form-field appearance="outline">
+            <mat-label>{{ definition.label }}</mat-label>
+            <input matInput type="text" [formControlName]="definition.code" />
+            @if (errorMessage(control(definition.code)); as msg) {
+              <mat-error>{{ msg }}</mat-error>
+            }
+          </mat-form-field>
+        }
+
+        @case ('ENUM') {
+          <mat-form-field appearance="outline">
+            <mat-label>{{ definition.label }}</mat-label>
+            <mat-select [formControlName]="definition.code">
+              <!-- A required attribute offers no "empty" answer: omitting it is the API's 400, not a pick. -->
+              @if (!definition.required) {
+                <mat-option [value]="null">— Sin valor —</mat-option>
+              }
+              @for (value of definition.values; track value.code) {
+                <mat-option [value]="value.code">{{ value.label }}</mat-option>
+              }
+            </mat-select>
+            @if (errorMessage(control(definition.code)); as msg) {
+              <mat-error>{{ msg }}</mat-error>
+            }
+          </mat-form-field>
+        }
+
+        @case ('MULTI_ENUM') {
+          <mat-form-field appearance="outline">
+            <mat-label>{{ definition.label }}</mat-label>
+            <mat-select multiple [formControlName]="definition.code">
+              @for (value of definition.values; track value.code) {
+                <mat-option [value]="value.code">{{ value.label }}</mat-option>
+              }
+            </mat-select>
+            <mat-hint>
+              @if (definition.required) {
+                Elegí al menos uno.
+              } @else {
+                Podés elegir más de uno, o ninguno.
+              }
+            </mat-hint>
+            @if (errorMessage(control(definition.code)); as msg) {
+              <mat-error>{{ msg }}</mat-error>
+            }
+          </mat-form-field>
+        }
+
+        @case ('MEASUREMENT') {
+          <mat-form-field appearance="outline">
+            <mat-label>{{ definition.label }}</mat-label>
+            <input
+              matInput
+              type="number"
+              min="0"
+              step="any"
+              [formControlName]="valueName(definition)"
+            />
+            @if (definition.unitLabel) {
+              <mat-hint>Unidad sugerida: {{ definition.unitLabel }}</mat-hint>
+            }
+            @if (errorMessage(control(valueName(definition))); as msg) {
+              <mat-error>{{ msg }}</mat-error>
+            }
+          </mat-form-field>
+
+          <mat-form-field appearance="outline">
+            <mat-label>Unidad de {{ definition.label }}</mat-label>
+            <input
+              matInput
+              type="text"
+              [formControlName]="unitName(definition)"
+              [placeholder]="definition.unitLabel ?? 'Ej: cm'"
+            />
+            <mat-hint>
+              La unidad que se guarda con el valor; podés escribir otra distinta de la sugerida.
+            </mat-hint>
+            @if (errorMessage(control(unitName(definition))); as msg) {
+              <mat-error>{{ msg }}</mat-error>
+            }
+          </mat-form-field>
+        }
+
+        @case ('BOOLEAN') {
+          <div class="attribute-toggle">
+            <mat-slide-toggle [formControlName]="definition.code">
+              {{ definition.label }}
+            </mat-slide-toggle>
+          </div>
+        }
+      }
+    }
+  </div>
+}

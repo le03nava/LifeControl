@@ -1,0 +1,33 @@
+// product-attribute-fields.scss — el field-set de una categoría, dentro del grid de su formulario.
+@use '../../../../shared/styles/variables' as *;
+//
+// El host es el grid (`form { display: grid }` en _form-layout.scss), así que la tarjeta ocupa la fila
+// entera y reparte los campos de atributo en su propio grid: la cantidad de atributos la decide el
+// perfil de la categoría, nunca la pantalla.
+:host {
+  display: block;
+  grid-column: 1 / -1;
+}
+
+.attribute-fields {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-md);
+
+  // The two breakpoints are the project's tokens, not literals: `$bp-sm` is 576px and `$bp-md` is 1024px,
+  // and `breakpoints.spec.ts` scans every source for a literal that re-declares a boundary, because a
+  // number copied here is a number that stops matching `_variables.scss` the day the token moves.
+  @media (min-width: $bp-sm) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  @media (min-width: $bp-md) {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.attribute-toggle {
+  display: flex;
+  align-items: center;
+  padding-block: var(--space-sm);
+}
