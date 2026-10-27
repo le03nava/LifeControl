@@ -88,12 +88,12 @@ the user's list on purpose, and the reason is recorded in L5.
   There is no read-only JSON preview: the carrier control still holds the JSON, so a second rendering of the
   same data would be a debug view with no reader. Route: inline. Commit: `28a7328a`.
 - **T7** (S6, S7) — the variant dialog renders and submits the `VARIANT`-level attributes. Route: inline.
-  Commit: `be3814d5`.
+  Commit: `c668f37e`.
 - **T8** (S1–S9) — the API and Angular suites: schema, seed parity, resolution, each `kind`'s validation, the
   form's render-per-category and the variant's colour. Route: inline. Commits: `197883c1`, `5f3d44b7`,
   `6fd6c24a`, `e5f2b884`. **T8b** — the two probe suites an independent verification wrote for the write path and
   for the migrations on a populated database, kept because each case needs the real profile and a real refusal.
-  Commits: `2c4bb8a8`, `f12a2121`.
+  Commits: `40dfc6db`, `cb7e4de0`.
 - **T9** (S1–S9) — the root `AGENTS.md` rows and this record's evidence log. Route: inline. Commit: the
   closing slice.
 
@@ -106,19 +106,25 @@ does not build is reported with its real size instead of being cut at an arbitra
 ships with slice 5, the first slice that changes an existing contract, because that is the one a reviewer
 has to read with the record open.
 
-| Slice | Content | Authored lines | Commit |
-| --- | --- | --- | --- |
-| 1 | V37 + V38: the four tables, the variant column and the seeded profiles | 430 | `1be71da4` |
-| 2 | module: the four entities and their repositories | 542 | `84e4c8cb` |
-| 3 | module: the three DTOs, the validation exception and the catalog service | 432 | `d16a5281` |
-| 4 | module: the read endpoint | 57 | `a40b6e77` |
-| 5 | the write path: authoritative set + effective-set validation, with its tests | 246 | `f6303cf4` |
-| 6 | the attribute suites: schema and seed, catalog service, HTTP contract | ~1490 | `197883c1`, `5f3d44b7`, `6fd6c24a` |
-| 7 | the Angular half: the types and the form model, the profile read, the shared field-set, the variant dialog, the edit page | ~1570 | `b6cdcedf`, `74a94629`, `28a7328a`, `e5f2b884`, `be3814d5`, `05f9b751` |
-| 7b | the breakpoint tokens in the field-set styles | 8 | `c5770252` |
-| 8 | the root `AGENTS.md` rows and this record's final header | ~60 | this commit |
-| 9 | the verifier's two probe suites: the write path, and the migrations on a populated database | ~630 | `2c4bb8a8`, `f12a2121` |
-| 10 | F1: the save projects the declared set and the screen names what it discards | ~180 | `cafdd858` |
+| Slice | PR | Content | Authored lines | Tip |
+| --- | --- | --- | --- | --- |
+| 1 | #648 | V37 + V38: the four tables, the variant column and the seeded profiles | 430 | `1be71da4` |
+| 2 | #649 | module: the four entities and their repositories | 542 | `84e4c8cb` |
+| 3 | #650 | module: the three DTOs, the validation exception and the catalog service | 432 | `d16a5281` |
+| 4 | #651 | module: the read endpoint | 57 | `a40b6e77` |
+| 5 | #652 | the write path: authoritative set and effective-set validation, with its tests | 246 | `f6303cf4` |
+| 6 | #653 | the schema and seed suite, including the V38 replay | 613 | `197883c1` |
+| 7 | #654 | the catalog service suite and the HTTP contract suite | 878 | `6fd6c24a` |
+| 8 | #655 | the frontend types, the form model and the profile read | 446 | `74a94629` |
+| 9 | #656 | the field-set in the product form, its spec and the breakpoint tokens | 704 | `e44fa740` |
+| 10 | #657 | the variant dialog and the edit page | 428 | `90700b98` |
+| 11 | #658 | the verifier's two probe suites and the dead-end fix | 580 | `09242245` |
+| 12 | #659 | the root `AGENTS.md` rows and this record | 96 | this PR (its tip is derived, never stored) |
+
+The breakpoint fix ships in slice 9, not later, and that is deliberate: the guard it satisfies scans the
+whole tree, so a slice that introduces the literal and leaves the fix two slices away is a slice that is
+red on its own. Measured on the first version of the chain: `#656` and `#657` failed `Unit tests (2)`
+until the fix moved to where the code lives.
 
 Slices 2 and 3 exceed 400 on their own and both compiles: the model cannot be committed without the
 repositories that own it, and the service cannot be committed without the DTOs it returns. Cutting them
@@ -211,7 +217,7 @@ lines over budget.
   variant column arrives `NULL`, the seed replay is a no-op). It returned one **blocker**, F1, and it was real:
   the API validates the set that will be STORED while both screens omitted the field when the branch does not
   declare it, so a product or variant holding a code its category no longer declares could never be saved
-  again — not even to fix its name — with no field on screen able to remove the key. Fixed in `cafdd858`: the
+  again — not even to fix its name — with no field on screen able to remove the key. Fixed in `09242245`: the
   save projects the set the branch declares and the screen states which stored codes will be discarded, so
   nothing is erased unannounced and nothing is unsavable. Three specs pin it (`603` products-area tests).
 - **L14** — deferred, 2026-10-27, and the reason it is not fixed here. **F2**: `updateProduct` never re-validates
@@ -222,3 +228,14 @@ lines over budget.
   than into this unit. **F3**, accepted rather than deferred: an API client that sends `attributes: null` on a
   product whose stored set the branch does not accept is still refused; that is the strict rule working, and the
   screens now resolve it with the projection above instead of the API relaxing the check.
+- **L15** — delivery evidence, 2026-10-27. Issue **#647** (`feat: render per-category product attributes from a
+  seeded catalog`), created from `feature.yml` and approved with `status:approved` on the maintainer's explicit
+  instruction. The unit ships as a chain of twelve stacked slices, **#648** to **#659**, one work unit per pull
+  request, each based on its parent and each with exactly one `type:*` label; only the last carries the closing
+  keyword. The first version of the chain put the breakpoint fix in slice 11 while slice 9 introduced the literal
+  it fixes, and CI proved the defect: `#656` and `#657` failed `Unit tests (2)` while the later slice passed
+  because it contained the fix. The four affected refs were rebuilt and republished by the maintainer, after the
+  agent runtime's safety policy refused the force-push it had already been authorized to run; slices 9 to 12 were
+  rebased onto the new tips and the record's slice table now cites the published hashes only, because the rebase
+  orphaned six of the old ones. Nothing is merged: the slices land in order, each retargeted to `main` as its
+  parent merges, and the merge is the maintainer's decision.
