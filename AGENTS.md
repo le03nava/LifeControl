@@ -145,6 +145,29 @@ LifeControl es un sistema de gestión consolidado en un monolito modular `life-c
 
 ---
 
+## Atributos de producto (`products.attributes` / `product_variants.attributes`)
+
+El `jsonb` de atributos existía desde V1 como texto libre y **sin lector**: el índice GIN
+`idx_products_attributes` no lo consulta ninguna query y el único escritor era el textarea de JSON del
+formulario. Es decir, el esquema lo escribía el operador. V37/V38 le ponen catálogo.
+
+| Regla | Valor |
+|-------|-------|
+| Dónde vive el catálogo | `product_attribute_profiles` → `product_attribute_definitions` → `product_attribute_values` (V37). Las definiciones son **globales**; una fila con `company_id` es el override de una empresa, y hoy no existe ninguna: es la costura, no una función |
+| Cómo se engancha a una categoría | `product_attribute_profile_roots(profile_id, root_name, company_id)` une un perfil con el **nombre de la raíz** del árbol (V38 siembra once de las doce raíces habilitadas). Por nombre y no por id porque el catálogo es global y las categorías son por empresa: un id obligaría a una fila por inquilino, y una empresa creada mañana necesitaría definiciones nuevas. El costo está dicho: renombrar una raíz deja de resolver y el endpoint responde 204 |
+| Cómo se resuelve | La categoría del producto sube hasta su raíz y toma el perfil de esa raíz; una fila de la empresa gana sobre la global |
+| La clave es el **código** | `{"material_externo": "piel_vacuno"}`, nunca `{"Material Externo": "Piel Vacuno"}`. El label es presentación y se puede reescribir; el código es lo que filtra un reporte |
+| Tipos (`kind`) | `TEXT`, `ENUM`, `MULTI_ENUM`, `MEASUREMENT` (`{value, unit}`), `BOOLEAN`. `MEASUREMENT` no es un lujo: seis de los atributos pedidos son cantidad + unidad, y "1/2 pulgada" guardado como string no se puede comparar ni convertir |
+| Nivel (`attribute_level`) | `PRODUCT` o `VARIANT`. **Color y acabado son del variante** (dos colores son dos códigos de barras, dos stocks y dos precios); el resto es del producto. `Talla` **no** es un atributo: `product_variants.variant_name` ya es la talla, y un segundo campo sería una segunda fuente de verdad del mismo dato |
+| `unit_label` | Es una **sugerencia** para el formulario y nunca una restricción: la misma rama vende "1/2 pulgada" y "10 milímetros", así que el valor guardado lleva su propia unidad |
+| Escritura | El request **manda**: el mapa reemplaza al guardado en vez de mezclarse (`null` = no tocar). Y se valida el **estado que queda**, no el campo que llegó: un atributo requerido no se saltea omitiendo el mapa |
+| Validación | En el servicio, no en el formulario: código desconocido, valor fuera del conjunto, multi-valor vacío o duplicado, medición sin unidad, texto vacío, no-booleano o requerido faltante son **400** y nombran el código. El formulario no es una frontera de integridad y cualquier otro cliente pasa por el mismo control |
+| Alcance | `GET /api/companies/{companyId}/product-categories/{categoryId}/attribute-profile` → 200 con `productAttributes` y `variantAttributes` separados por nivel, **204** cuando la rama no declara perfil (es una respuesta legítima, no un error) y 404 si la categoría es de otra empresa |
+| Las dos pantallas | El formulario de producto renderiza las definiciones `PRODUCT` y el diálogo de variante las `VARIANT`, del mismo perfil y con el mismo componente, para que no se puedan desincronizar. Al **guardar** cada pantalla proyecta el conjunto que la rama declara y **nombra en pantalla** los códigos guardados que se van a descartar: así nada se borra sin avisar y nada queda imposible de guardar. Con el perfil todavía desconocido (lectura en curso o fallida) no escribe nada y deja el conjunto como vino |
+| Lo que **no** cubre | No hay fecha de caducidad: es del lote, no de la fila de catálogo. No hay GIN sobre `product_variants.attributes`: el de `products.attributes` existe desde V1 y no lo lee ninguna consulta, así que un segundo índice sin lector sólo costaría escrituras. No hay ABM de perfiles: se editan por migración hasta que exista la pantalla |
+
+---
+
 ## Docker Scripts
 
 Scripts en `docker/scripts/`:

@@ -4,9 +4,10 @@
 endpoint, write validation in `ProductService` and `ProductVariantService`) and
 `life-control-app-angular/` (the product form's attribute field-set and the variant dialog). No image pin, no
 delivery script, no tenancy change.
-**Status**: implemented — the backend of the unit is written and its regression baseline is green: V37 and V38,
-the `product/attribute` module, the read endpoint and the write validation. The attribute test suite and both
-screens remain in `## Tasks`.
+**Status**: implemented — the catalog, its seed, the read endpoint, the write validation, both screens and the two
+suites an independent verification wrote are the branch's content. One finding from that verification is
+**deferred**, with the reason recorded in L14: variants are not re-validated when their product is reclassified,
+which is a product decision rather than a detail. The dead-end save it found is fixed and pinned, not deferred.
 **Created**: 2026-10-27 · **Risk**: **item 1 (data)** — `products.attributes` is `jsonb` that a form writes and
 `product_variants.attributes` is a new column, so a defect here stores values nobody can interpret; and the write
 rule changes from a shallow merge to an authoritative set, which is how a product loses an attribute silently.
@@ -72,23 +73,29 @@ the user's list on purpose, and the reason is recorded in L5.
 
 - **T1** (S2-2, S5) — `V37__product_attribute_catalog.sql`: the four tables (`product_attribute_profiles`,
   `product_attribute_definitions`, `product_attribute_values`, `product_attribute_profile_roots`) and
-  `product_variants.attributes`. Route: inline. Commit: `_pending_`.
+  `product_variants.attributes`. Route: inline. Commit: `1be71da4`.
 - **T2** (S1, S3, S7) — `V38__product_attribute_starter_catalog.sql`: the four profiles, their definitions and
-  their allowed values, mapped to the ten enabled roots of `V35`. Route: inline. Commit: `_pending_`.
+  their allowed values, mapped to the eleven enabled roots of `V35` the four blocks cover. Route: inline.
+  Commit: `1be71da4`.
 - **T3** (S2-2, S4) — the `product/attribute` module: entities, repositories, and the resolution service
-  (`category -> root -> profile`, a company row beating a global one). Route: inline. Commit: `_pending_`.
+  (`category -> root -> profile`, a company row beating a global one). Route: inline. Commits: `84e4c8cb`,
+  `d16a5281`.
 - **T4** (S4, S7) — `GET /api/companies/{companyId}/product-categories/{id}/attribute-profile`, partitioned by
-  level, `204` when the branch declares none. Route: inline. Commit: `_pending_`.
+  level, `204` when the branch declares none. Route: inline. Commit: `a40b6e77`.
 - **T5** (S8) — write validation in `ProductService` (product level) and `ProductVariantService` (variant level),
-  and the merge-to-authoritative change in `ProductService:82`. Route: inline. Commit: `_pending_`.
-- **T6** (S4, S5) — the product form: the JSON textarea becomes a rendered field-set driven by T4, with the raw
-  JSON kept read-only. Route: inline. Commit: `_pending_`.
+  and the merge-to-authoritative change in `ProductService:82`. Route: inline. Commit: `f6303cf4`.
+- **T6** (S4, S5) — the product form: the JSON textarea is **replaced** by a rendered field-set driven by T4.
+  There is no read-only JSON preview: the carrier control still holds the JSON, so a second rendering of the
+  same data would be a debug view with no reader. Route: inline. Commit: `28a7328a`.
 - **T7** (S6, S7) — the variant dialog renders and submits the `VARIANT`-level attributes. Route: inline.
-  Commit: `_pending_`.
+  Commit: `be3814d5`.
 - **T8** (S1–S9) — the API and Angular suites: schema, seed parity, resolution, each `kind`'s validation, the
-  form's render-per-category and the variant's colour. Route: inline. Commit: `_pending_`.
-- **T9** (S1–S9) — the root `AGENTS.md` rows and this record's evidence log. Route: inline. Commit:
-  `_pending_`.
+  form's render-per-category and the variant's colour. Route: inline. Commits: `197883c1`, `5f3d44b7`,
+  `6fd6c24a`, `e5f2b884`. **T8b** — the two probe suites an independent verification wrote for the write path and
+  for the migrations on a populated database, kept because each case needs the real profile and a real refusal.
+  Commits: `2c4bb8a8`, `f12a2121`.
+- **T9** (S1–S9) — the root `AGENTS.md` rows and this record's evidence log. Route: inline. Commit: the
+  closing slice.
 
 ## Slices
 
@@ -106,9 +113,12 @@ has to read with the record open.
 | 3 | module: the three DTOs, the validation exception and the catalog service | 432 | `d16a5281` |
 | 4 | module: the read endpoint | 57 | `a40b6e77` |
 | 5 | the write path: authoritative set + effective-set validation, with its tests | 246 | `f6303cf4` |
-| 6 | the attribute suites: schema and seed, catalog service, HTTP contract | ~1490 | `_pending_` |
-| 7 | the Angular field-set and the variant dialog, with their specs | `_pending_` | `_pending_` |
-| 8 | the root `AGENTS.md` rows and this record's final header | `_pending_` | `_pending_` |
+| 6 | the attribute suites: schema and seed, catalog service, HTTP contract | ~1490 | `197883c1`, `5f3d44b7`, `6fd6c24a` |
+| 7 | the Angular half: the types and the form model, the profile read, the shared field-set, the variant dialog, the edit page | ~1570 | `b6cdcedf`, `74a94629`, `28a7328a`, `e5f2b884`, `be3814d5`, `05f9b751` |
+| 7b | the breakpoint tokens in the field-set styles | 8 | `c5770252` |
+| 8 | the root `AGENTS.md` rows and this record's final header | ~60 | this commit |
+| 9 | the verifier's two probe suites: the write path, and the migrations on a populated database | ~630 | `2c4bb8a8`, `f12a2121` |
+| 10 | F1: the save projects the declared set and the screen names what it discards | ~180 | `cafdd858` |
 
 Slices 2 and 3 exceed 400 on their own and both compiles: the model cannot be committed without the
 repositories that own it, and the service cannot be committed without the DTOs it returns. Cutting them
@@ -166,3 +176,49 @@ lines over budget.
   missing mock in the two suites, plus rewriting `shouldMergeAttributes_PartialUpdate` into
   `shouldReplaceAttributes_FullUpdate`, which now pins L4's rule instead of the merge it replaced. The change of
   that test is the item-3 half of the Risk line, recorded here rather than left for a reviewer to notice.
+- **L9** — evidence, 2026-10-27. The full backend suite, not only the product package, after the write-path
+  contract change: `./gradlew test` → **991 suites, 4032 tests, 0 failed, 0 skipped**. This is the measurement the
+  item-3 half of the Risk line needs, because `ProductService` and `ProductVariantService` are reached from
+  inventory, sales and goods receipt — the merge-to-replace change was checked against the whole backend instead
+  of argued from the package it lives in.
+- **L10** — evidence and one correction, 2026-10-27. The Angular half was delivered by a delegated writer and
+  **re-verified here**, not accepted on its report: `npm run lint` clean, `npx prettier --check` clean,
+  `npm run build` complete, and `ng test --include 'src/features/products/**'` → **30 files, 600 tests, 0 failed**.
+  The writer's own risk list named a data-clearing path and it was real: with the profile at `null` (a branch that
+  declares no attributes) the form wrote `{}` into the carrier, so saving a product with stored attributes cleared
+  them, invisibly — nothing is rendered, so the operator could not see what the save deleted. That is exactly what
+  the unit's Risk line forbids, so the write was removed: a branch with no profile is not the form's to author, the
+  carrier is left as it arrived, and an incompatible stored set is refused by the API with a message naming the
+  code. The regression is pinned by an assertion in `products-form.spec.ts` (the same test that checks the 204
+  note now also checks the carrier is byte-identical). The writer also reported, honestly, that it did not capture
+  RED test-first and substituted a mutation probe; that is recorded rather than smoothed over.
+- **L11** — evidence, 2026-10-27. The Angular half's full suite was run, not only the products specs, and it
+  found a defect this unit introduced: `product-attribute-fields.scss` declared its two column breakpoints as
+  literals (`576px`, `1024px`) and the project's `breakpoints.spec.ts` source guard rejected the first, because a
+  literal re-declares the mobile boundary that `$bp-mobile-max` owns. Measured: **3954 of 3955 green, 1 failed**,
+  and the failing test was in `src/shared/constants/` — nowhere near the package being changed, which is exactly
+  why the whole suite runs. The fix uses `$bp-sm`/`$bp-md` plus an explicit `@use` of the variables partial
+  (component styles do not see it globally). Final: **192 files, 3955 tests, 0 failed**, and `npm run build`
+  green.
+- **L12** — evidence, 2026-10-27. Final measurements for this record, both sides, on this branch: backend
+  `./gradlew test` → 991 suites / 4032 tests / 0 failed; frontend `ng test` → 192 files / 3955 tests / 0 failed;
+  `spotlessCheck` clean; `npm run lint`, `prettier --check` and `npm run build` clean.
+- **L13** — finding and fix, 2026-10-27. An independent read-only verification (`gentle-ai-verify`, five questions
+  over `f6303cf4`) returned **PASS** on: no write path reaches the repositories without validating, no value is
+  stored uninterpretable, the level check holds in both directions, the effective-set rule is atomic for a
+  reclassification (the row is untouched when the write is refused), and the migrations are safe on a database
+  that already holds products, variants and categories (measured on a real V36 database: rows survive, the new
+  variant column arrives `NULL`, the seed replay is a no-op). It returned one **blocker**, F1, and it was real:
+  the API validates the set that will be STORED while both screens omitted the field when the branch does not
+  declare it, so a product or variant holding a code its category no longer declares could never be saved
+  again — not even to fix its name — with no field on screen able to remove the key. Fixed in `cafdd858`: the
+  save projects the set the branch declares and the screen states which stored codes will be discarded, so
+  nothing is erased unannounced and nothing is unsavable. Three specs pin it (`603` products-area tests).
+- **L14** — deferred, 2026-10-27, and the reason it is not fixed here. **F2**: `updateProduct` never re-validates
+  the variants of the product it reclassifies, so a variant keeps a code its new branch does not declare; the
+  value is still returned by the API until someone edits the variant, and then the dialog now names it and
+  projects it away. Fixing it means deciding whether a reclassification may fail because of a variant the
+  operator is not looking at — a product decision with its own blast radius, so it goes to its own issue rather
+  than into this unit. **F3**, accepted rather than deferred: an API client that sends `attributes: null` on a
+  product whose stored set the branch does not accept is still refused; that is the strict rule working, and the
+  screens now resolve it with the projection above instead of the API relaxing the check.
