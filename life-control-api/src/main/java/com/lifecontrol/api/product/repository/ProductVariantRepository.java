@@ -103,7 +103,7 @@ public interface ProductVariantRepository extends JpaRepository<ProductVariant, 
             SELECT new com.lifecontrol.api.product.dto.ProductVariantResponse(
                 pv.id, pv.productId, pvss.companyStoreId, pv.barCode, p.sku,
                 pv.variantName, pvss.listPrice, pvss.costPrice, pvss.stock, pv.enabled,
-                pv.createdAt, pv.updatedAt, pv.measureUnitId)
+                pv.createdAt, pv.updatedAt, pv.measureUnitId, pv.attributes)
             FROM ProductVariantStoreStock pvss
             JOIN ProductVariant pv ON pv.id = pvss.productVariantId
             JOIN Product p ON p.id = pv.productId

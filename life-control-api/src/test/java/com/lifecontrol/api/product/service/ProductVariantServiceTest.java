@@ -20,6 +20,7 @@ import com.lifecontrol.api.measureunit.exception.MeasureUnitNotFoundException;
 import com.lifecontrol.api.measureunit.model.MeasureUnit;
 import com.lifecontrol.api.measureunit.model.MeasureUnitType;
 import com.lifecontrol.api.measureunit.repository.MeasureUnitRepository;
+import com.lifecontrol.api.product.attribute.service.ProductAttributeCatalogService;
 import com.lifecontrol.api.product.dto.ProductVariantRequest;
 import com.lifecontrol.api.product.dto.ProductVariantResponse;
 import com.lifecontrol.api.product.dto.ProductVariantSearchResponse;
@@ -85,6 +86,9 @@ class ProductVariantServiceTest {
 
     @Mock
     private InventoryMovementRepository inventoryMovementRepository;
+
+    @Mock
+    private ProductAttributeCatalogService productAttributeCatalogService;
 
     private UUID companyId;
     private UUID companyCountryId;

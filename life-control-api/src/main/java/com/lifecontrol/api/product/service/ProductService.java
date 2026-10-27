@@ -1,5 +1,7 @@
 package com.lifecontrol.api.product.service;
 
+import com.lifecontrol.api.product.attribute.model.ProductAttributeLevel;
+import com.lifecontrol.api.product.attribute.service.ProductAttributeCatalogService;
 import com.lifecontrol.api.product.category.exception.ProductCategoryNotFoundException;
 import com.lifecontrol.api.product.category.model.ProductCategory;
 import com.lifecontrol.api.product.category.repository.ProductCategoryRepository;
@@ -9,7 +11,6 @@ import com.lifecontrol.api.product.exception.DuplicateProductException;
 import com.lifecontrol.api.product.exception.ProductNotFoundException;
 import com.lifecontrol.api.product.model.Product;
 import com.lifecontrol.api.product.repository.ProductRepository;
-import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 import org.slf4j.Logger;
@@ -26,10 +27,15 @@ public class ProductService {
 
     private final ProductRepository productRepository;
     private final ProductCategoryRepository productCategoryRepository;
+    private final ProductAttributeCatalogService productAttributeCatalogService;
 
-    public ProductService(ProductRepository productRepository, ProductCategoryRepository productCategoryRepository) {
+    public ProductService(
+            ProductRepository productRepository,
+            ProductCategoryRepository productCategoryRepository,
+            ProductAttributeCatalogService productAttributeCatalogService) {
         this.productRepository = productRepository;
         this.productCategoryRepository = productCategoryRepository;
+        this.productAttributeCatalogService = productAttributeCatalogService;
     }
 
     @Transactional
@@ -40,6 +46,9 @@ public class ProductService {
             throw new DuplicateProductException("Product with SKU '" + request.sku() + "' already exists");
         }
 
+        var category = resolveCategory(request.categoryId());
+        validateAttributes(category, request.attributes());
+
         var product = Product.builder()
                 .sku(request.sku())
                 .name(request.name())
@@ -47,7 +56,7 @@ public class ProductService {
                 .satCode(request.satCode())
                 .productType(request.productType())
                 .attributes(request.attributes())
-                .category(resolveCategory(request.categoryId()))
+                .category(category)
                 .enabled(true)
                 .build();
 
@@ -68,6 +77,15 @@ public class ProductService {
             throw new DuplicateProductException("Product with SKU '" + request.sku() + "' already exists");
         }
 
+        // The category and the attribute set are validated together and before any setter runs, so a
+        // refused write leaves the entity exactly as it was.
+        var category = resolveCategory(request.categoryId());
+        // The set that will end up stored: the request's, or the stored one when the request sends none.
+        // Both are checked against the category being written, which is what stops a category change
+        // from leaving behind attributes the new branch does not define.
+        var attributesToStore = request.attributes() != null ? request.attributes() : product.getAttributes();
+        validateAttributes(category, attributesToStore);
+
         // Update scalar fields
         product.setSku(request.sku());
         product.setName(request.name());
@@ -75,23 +93,17 @@ public class ProductService {
         product.setSatCode(request.satCode());
         product.setProductType(request.productType());
         // `null` clears the classification on purpose: the form sends what its three selects hold, and
-        // "sin categoría" has to be expressible, not silently ignored like the JSONB blob below.
-        product.setCategory(resolveCategory(request.categoryId()));
+        // "sin categoría" has to be expressible.
+        product.setCategory(category);
 
-        // JSONB merge: shallow via HashMap.putAll()
-        // preserve existing attributes, overwrite/add from request
-        // null = preserve; empty map = clear; non-empty = merge
+        // The request is authoritative for the set it sends: it REPLACES the stored map instead of
+        // merging into it. The previous shallow `putAll` made a key impossible to remove and kept the
+        // attributes of the category the product no longer belongs to alive and invisible until someone
+        // re-opened that branch (record L4). `null` still means "leave the stored set alone" so every
+        // caller that predates the attribute catalog keeps its old meaning.
         if (request.attributes() != null) {
-            if (request.attributes().isEmpty()) {
-                product.setAttributes(new HashMap<>());
-            } else {
-                Map<String, Object> existingAttrs = product.getAttributes();
-                Map<String, Object> merged = existingAttrs != null ? new HashMap<>(existingAttrs) : new HashMap<>();
-                merged.putAll(request.attributes());
-                product.setAttributes(merged);
-            }
+            product.setAttributes(request.attributes());
         }
-        // If request.attributes() is null, keep existing attributes unchanged
 
         var updated = productRepository.save(product);
         logger.info("Product updated successfully with id: {}", updated.getId());
@@ -169,6 +181,22 @@ public class ProductService {
         return productCategoryRepository
                 .findById(categoryId)
                 .orElseThrow(() -> new ProductCategoryNotFoundException(categoryId));
+    }
+
+    /**
+     * Validates a product attribute set against the profile that resolves for the category.
+     *
+     * <p>An unclassified product declares no profile: an empty set passes and any attribute is refused,
+     * which is the same answer a category whose branch has no attachment gets. The company comes from
+     * the category, because {@code products} carries none (V1) and the profile lookup is
+     * company-scoped.</p>
+     */
+    private void validateAttributes(ProductCategory category, Map<String, Object> attributes) {
+        var categoryId = category == null ? null : category.getId();
+        var companyId = category == null || category.getCompany() == null
+                ? null
+                : category.getCompany().getId();
+        productAttributeCatalogService.validate(companyId, categoryId, attributes, ProductAttributeLevel.PRODUCT);
     }
 
     private ProductResponse mapToResponse(Product product) {
