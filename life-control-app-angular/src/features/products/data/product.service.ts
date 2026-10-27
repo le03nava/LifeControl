@@ -1,7 +1,7 @@
 import { inject, Injectable, signal } from '@angular/core';
-import { Product, ProductRequest, Page } from '../models/product.models';
+import { Product, ProductAttributeProfile, ProductRequest, Page } from '../models/product.models';
 import { Observable, throwError } from 'rxjs';
-import { catchError, finalize } from 'rxjs/operators';
+import { catchError, finalize, map } from 'rxjs/operators';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { ConfigService } from '@app/services/config.service';
 
@@ -32,6 +32,16 @@ export class ProductService {
     return `${this.configService.apiUrl}/products`;
   }
 
+  /**
+   * The attribute profile of a category: a company-scoped resource, deliberately read here.
+   *
+   * The URL nests under `product-categories`, not under `products`, because the profile is the
+   * category's and both screens — the product form and the variant dialog — ask for the same one.
+   */
+  private attributeProfileUrl(companyId: string, categoryId: string): string {
+    return `${this.configService.apiUrl}/companies/${companyId}/product-categories/${categoryId}/attribute-profile`;
+  }
+
   getProducts(page = 0, size = 12, search?: string): Observable<Page<Product>> {
     let params = new HttpParams().set('page', page.toString()).set('size', size.toString());
 
@@ -44,6 +54,37 @@ export class ProductService {
 
   getProductById(id: string): Observable<Product> {
     return this.http.get<Product>(`${this.apiUrl}/${id}`);
+  }
+
+  /**
+   * The attribute profile the category declares, or `null` when its branch declares none.
+   *
+   * Nested under the category on the wire (`/companies/{companyId}/product-categories/{categoryId}`),
+   * so the company scope is part of the contract and a category of another company is a `404`. The
+   * `204` is mapped to `null` here rather than left to every caller: it is a legitimate answer — the
+   * seeded catalog attaches profiles to a handful of roots and leaves the rest without one — and its
+   * only meaning is "render no attribute inputs", which is not an error and must not reach the error
+   * signal below.
+   */
+  getAttributeProfile(
+    companyId: string,
+    categoryId: string,
+  ): Observable<ProductAttributeProfile | null> {
+    this._loading.set(true);
+    this._error.set(null);
+
+    return this.http
+      .get<ProductAttributeProfile>(this.attributeProfileUrl(companyId, categoryId), {
+        observe: 'response',
+      })
+      .pipe(
+        map((response) => response.body ?? null),
+        finalize(() => this._loading.set(false)),
+        catchError((err) => {
+          this._error.set('Error al cargar los atributos de la categoría');
+          return throwError(() => err);
+        }),
+      );
   }
 
   getProductsBySupplier(supplierId: string, search?: string): Observable<SupplierProduct[]> {

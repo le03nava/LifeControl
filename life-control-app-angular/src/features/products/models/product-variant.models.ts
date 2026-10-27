@@ -47,6 +47,15 @@ export interface ProductVariant {
    * loads for the picker (D2). The store-scoped list carries this field too.
    */
   measureUnitId: string | null;
+  /**
+   * The `VARIANT`-level entries of the product category's attribute profile, keyed by
+   * attribute `code` (S5, S6): a shoe's `color` and `acabado`.
+   *
+   * `Talla` is deliberately absent — `variantName` already is the size, so a second key
+   * would be a second source of truth for the same fact (record L7). Absent means the
+   * variant holds no attributes, which is the shape every row had before the catalog.
+   */
+  attributes?: Record<string, unknown>;
 }
 
 /**
@@ -79,6 +88,15 @@ export interface ProductVariantRequest {
    * the variant already holds stock or ledger movements (S5).
    */
   measureUnitId: string | null;
+  /**
+   * The `VARIANT`-level attribute set, keyed by attribute `code` (S5, S6).
+   *
+   * Optional on the wire, and **not** the same as `{}`: an absent field leaves the stored
+   * set untouched while `{}` clears it. The dialog therefore omits it when the product's
+   * category declares no variant-level attribute at all — wiping a variant's saved colour
+   * because a screen could not read the profile would be a silent loss.
+   */
+  attributes?: Record<string, unknown>;
 }
 
 /**
