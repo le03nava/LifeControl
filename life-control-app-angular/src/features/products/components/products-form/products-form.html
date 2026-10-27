@@ -128,6 +128,9 @@
       @if (attributeNotice(); as notice) {
         <p class="attribute-notice">{{ notice }}</p>
       }
+      @if (attributeDiscardNotice(); as notice) {
+        <p class="attribute-notice attribute-notice--discard">{{ notice }}</p>
+      }
     }
 
     <div class="toggle-container">

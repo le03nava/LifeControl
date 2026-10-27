@@ -122,9 +122,10 @@ export class ProductsForm {
    * - `undefined` — the host does not know yet: no category is selected, its read is in flight, or it
    *   failed. The field-set and the carrier JSON are left exactly as they are; clearing them here
    *   would drop the attributes the product already stores before the profile that proves them lands.
-   * - `null` — the branch declares no profile (the API's `204`). No inputs render, and the carrier
-   *   becomes an empty object: the write rule is authoritative, so a stored code this branch does not
-   *   declare would be refused.
+   * - `null` — the branch declares no profile (the API's `204`). No inputs render and the carrier is
+   *   left exactly as it arrived, because erasing what the product stores without showing it would be a
+   *   silent delete. The SAVE projects `{}` (see `attributesForSubmit`) and the discard notice names the
+   *   codes that will go, so the product stays saveable without anything disappearing unannounced.
    * - the profile — its `PRODUCT` definitions are the field-set; the `VARIANT` ones belong to the
    *   variant dialog and never render here (S7).
    */
@@ -201,6 +202,31 @@ export class ProductsForm {
 
   /** Whether the profile is known at all, i.e. whether `null` means "this branch declares none". */
   readonly attributeProfileKnown = computed(() => this.attributeProfile() !== undefined);
+
+  /**
+   * Codes stored on the product that this branch does not declare, so a save will discard them.
+   *
+   * Tracked in a signal because the carrier is a plain control property that no `computed` can react to;
+   * it is written whenever the field-set is rebuilt, which is when the profile or the product changes.
+   */
+  private readonly undeclaredCodes = signal<string[]>([]);
+  readonly undeclaredAttributeCodes = this.undeclaredCodes.asReadonly();
+
+  /**
+   * Says out loud what a save is about to discard, or `null` when there is nothing to discard.
+   *
+   * This is the counterpart of the rule that forbids writing `{}` on arrival: the form does not erase
+   * stored attributes behind the operator's back, but it also must not leave the product unsavable. So
+   * the save projects the set the branch declares, and this sentence is what makes that visible before
+   * it happens instead of after.
+   */
+  readonly attributeDiscardNotice = computed<string | null>(() => {
+    const codes = this.undeclaredCodes();
+    if (codes.length === 0) {
+      return null;
+    }
+    return `Estos atributos guardados no pertenecen a la rama de la categoría y se descartarán al guardar: ${codes.join(', ')}.`;
+  });
 
   /**
    * What the screen says when there is nothing to render, or `null` when there is.
@@ -383,6 +409,15 @@ export class ProductsForm {
     const attributeForm = this.attributeForm();
     attributeForm.markAllAsTouched();
 
+    // The carrier is projected from the field-set BEFORE the validity check: what this branch declares
+    // is the authoritative set, so a stored key the branch does not declare cannot keep a product
+    // unsavable forever. When the profile is still unknown nothing is projected and the carrier keeps
+    // whatever the host seeded, which is the only set that can be trusted then.
+    const projected = this.attributesForSubmit();
+    if (projected !== null) {
+      this.formGroup().controls.attributes.setValue(projected);
+    }
+
     if (this.formGroup().valid && attributeForm.valid) {
       const raw = this.formGroup().getRawValue();
 
@@ -491,10 +526,13 @@ export class ProductsForm {
     this.appliedAttributeForm = fg;
 
     const definitions = this.productAttributeDefinitions();
-    const group = createAttributeForm(
-      definitions,
-      parseAttributeJson(fg.controls.attributes.value),
-    );
+    const stored = parseAttributeJson(fg.controls.attributes.value) ?? {};
+    const group = createAttributeForm(definitions, stored);
+
+    // What this branch does not declare, computed from the carrier as it arrived — before any field
+    // edit rewrites it. A branch with no profile declares nothing, so every stored key is undeclared.
+    const declared = new Set(definitions.map((definition) => definition.code));
+    this.undeclaredCodes.set(Object.keys(stored).filter((code) => !declared.has(code)));
 
     this.attributeSubscription?.unsubscribe();
     this.attributeSubscription = null;
@@ -515,6 +553,28 @@ export class ProductsForm {
 
     // Written on arrival as well: the saved JSON may still name codes this branch does not declare.
     this.syncAttributes(definitions, group);
+  }
+
+  /**
+   * The JSON a save must send, or `null` to leave the carrier untouched.
+   *
+   * Three cases, and the difference between the first two is the whole point: an unknown profile
+   * (`undefined`) is "the host has not answered", so nothing is authored; a branch with no profile
+   * (`null`) declares nothing, so the only saveable set is `{}`; a resolved profile sends exactly what
+   * its definitions declare, which is what the API validates. Without this projection a product whose
+   * stored set the current branch does not accept would be unsavable from this screen forever.
+   */
+  private attributesForSubmit(): string | null {
+    const profile = this.attributeProfile();
+    if (profile === undefined) {
+      return null;
+    }
+    if (profile === null) {
+      return '{}';
+    }
+    return JSON.stringify(
+      attributePayload(this.productAttributeDefinitions(), this.attributeForm()),
+    );
   }
 
   /** Mirrors the field-set into the carrier control, which is what `onSave` already reads. */
