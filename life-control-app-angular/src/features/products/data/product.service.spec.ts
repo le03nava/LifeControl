@@ -2,7 +2,7 @@ import { TestBed } from '@angular/core/testing';
 import { HttpClientTestingModule, HttpTestingController } from '@angular/common/http/testing';
 import { firstValueFrom } from 'rxjs';
 import { ProductService } from './product.service';
-import { Product, Page } from '../models/product.models';
+import { Product, Page, ProductAttributeProfile } from '../models/product.models';
 
 describe('ProductService', () => {
   let service: ProductService;
@@ -162,6 +162,73 @@ describe('ProductService', () => {
       req.flush(null);
 
       await deletePromise;
+    });
+  });
+
+  describe('getAttributeProfile', () => {
+    const profile: ProductAttributeProfile = {
+      profileKey: 'ferreteria',
+      label: 'Ferretería',
+      resolvedRootName: 'Ferretería',
+      productAttributes: [
+        {
+          code: 'marca',
+          label: 'Marca',
+          level: 'PRODUCT',
+          kind: 'TEXT',
+          unitLabel: null,
+          required: false,
+          values: [],
+        },
+      ],
+      variantAttributes: [
+        {
+          code: 'color',
+          label: 'Color',
+          level: 'VARIANT',
+          kind: 'ENUM',
+          unitLabel: null,
+          required: true,
+          values: [{ code: 'negro', label: 'Negro Mate' }],
+        },
+      ],
+    };
+
+    // The company is part of the wire, so the assertion names the whole tail of the URL.
+    const expectedPath = '/companies/company-1/product-categories/cat-1/attribute-profile';
+
+    it('should read the profile of the category under its company', async () => {
+      const profilePromise = firstValueFrom(service.getAttributeProfile('company-1', 'cat-1'));
+
+      const req = httpMock.expectOne((r) => r.url.endsWith(expectedPath));
+      expect(req.request.method).toBe('GET');
+      req.flush(profile);
+
+      await expect(profilePromise).resolves.toEqual(profile);
+      expect(service.error()).toBeNull();
+    });
+
+    it('should map a 204 to null, not to an error', async () => {
+      // A branch without a profile is a legitimate answer: the form renders no attribute inputs.
+      const profilePromise = firstValueFrom(service.getAttributeProfile('company-1', 'cat-1'));
+
+      httpMock
+        .expectOne((r) => r.url.endsWith(expectedPath))
+        .flush(null, { status: 204, statusText: 'No Content' });
+
+      await expect(profilePromise).resolves.toBeNull();
+      expect(service.error()).toBeNull();
+    });
+
+    it('should set the error signal when the read fails', async () => {
+      const profilePromise = firstValueFrom(service.getAttributeProfile('company-1', 'cat-1'));
+
+      httpMock
+        .expectOne((r) => r.url.endsWith(expectedPath))
+        .flush('not found', { status: 404, statusText: 'Not Found' });
+
+      await expect(profilePromise).rejects.toBeTruthy();
+      expect(service.error()).toBe('Error al cargar los atributos de la categoría');
     });
   });
 
