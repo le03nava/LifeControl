@@ -20,6 +20,7 @@ import { ApiError } from '@shared/models';
 import { httpErrorMessage } from '@shared/data';
 import {
   Product,
+  ProductAttributeProfile,
   ProductControl,
   ProductFormValue,
   ProductRequest,
@@ -191,6 +192,53 @@ export class ProductEdit implements OnInit, UnsavedChangesAware {
   });
 
   /**
+   * The deepest category the form currently has selected, or `null` when it has none.
+   *
+   * Fed by the form's `categoryChange` and seeded from the loaded product, because the host cannot
+   * derive it: the form writes the `categoryId` control with `emitEvent: false`, and
+   * `savedCategoryPath` deliberately does not track control values (it would feed the form's seeding
+   * effect with the pick itself).
+   */
+  readonly selectedCategoryId = signal<string | null>(null);
+
+  /**
+   * The attribute profile of the selected category (T4), read here and handed to the form as an input.
+   *
+   * The read is the host's because `categoryTree` is: the form is presentational and owns no HTTP. No
+   * request is issued until both halves of the contract are known — the company that owns the
+   * category and the category itself — which is also what keeps an unclassified product silent.
+   */
+  readonly attributeProfileResource = rxResource({
+    params: () => {
+      const companyId = this.selectedCompanyId();
+      const categoryId = this.selectedCategoryId();
+      return companyId && categoryId ? { companyId, categoryId } : undefined;
+    },
+    stream: ({ params }) =>
+      this.productService.getAttributeProfile(params.companyId, params.categoryId),
+  });
+
+  /**
+   * The profile, or `undefined` while it is not known.
+   *
+   * `undefined` and `null` are different answers and the form depends on the difference: `undefined`
+   * is "no answer yet" (no category, a read in flight, or a failed one) and leaves the rendered
+   * field-set alone, while `null` is the API's `204` — this branch declares none — and is what makes
+   * the form say so. `value()` throws unless the read resolved, so it is never read unguarded.
+   */
+  readonly attributeProfile = computed<ProductAttributeProfile | null | undefined>(() =>
+    this.attributeProfileResource.status() === 'resolved'
+      ? (this.attributeProfileResource.value() ?? null)
+      : undefined,
+  );
+
+  /** The profile read failed, in the shared copy; `null` while nothing failed. */
+  readonly attributeProfileError = computed<string | null>(() => {
+    const error = this.attributeProfileResource.error();
+    return error ? httpErrorMessage(error) : null;
+  });
+
+  /**
    * Set when the operator moves to another company's tree (S2).
    *
    * The three selects and the SAT hint live in the form and are only reset through `categoryPath`, so
@@ -293,6 +341,9 @@ export class ProductEdit implements OnInit, UnsavedChangesAware {
           if (product.categoryCompanyId) {
             this.selectedCompanyId.set(product.categoryCompanyId);
           }
+          // The saved classification is the category whose profile the form needs, and it is known
+          // before the tree arrives: the attribute inputs do not depend on the tree at all.
+          this.selectedCategoryId.set(product.categoryId ?? null);
           this.productForm.set(
             this.fb.group({
               id: this.fb.control(product.id),
@@ -350,6 +401,8 @@ export class ProductEdit implements OnInit, UnsavedChangesAware {
     // S2, stated rather than inferred: the classification and the hint that described a node of the
     // previous tree are discarded by the operator's own action.
     this.categoryDiscarded.set(true);
+    // ... and with it the profile: the attribute inputs belong to a category of the previous tree.
+    this.selectedCategoryId.set(null);
     this.selectedCompanyId.set(next);
     void this.router.navigate([], {
       relativeTo: this.route,
@@ -389,6 +442,16 @@ export class ProductEdit implements OnInit, UnsavedChangesAware {
     queryParams['tab'] = requested;
 
     this.router.navigate([], { relativeTo: this.route, queryParams });
+  }
+
+  /**
+   * Follows the form's own selection, so the attribute field-set is the one of the category it shows.
+   *
+   * Clearing the selection is a real answer: with no category there is no profile, and the read is not
+   * even issued.
+   */
+  onCategoryChange(categoryId: string | null): void {
+    this.selectedCategoryId.set(categoryId);
   }
 
   onSaveProduct(productData: ProductFormValue): void {
