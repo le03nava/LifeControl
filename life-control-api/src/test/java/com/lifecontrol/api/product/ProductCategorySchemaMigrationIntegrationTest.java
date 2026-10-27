@@ -287,10 +287,16 @@ class ProductCategorySchemaMigrationIntegrationTest extends AbstractPostgresInte
     @Test
     @DisplayName("fk_products_category rejects a category id that does not exist")
     void productCategoryForeignKeyRejectsAnUnknownId() {
-        assertViolatesConstraint("fk_products_category", """
+        assertViolatesConstraint(
+                "fk_products_category",
+                """
                 INSERT INTO products (id, sku, name, category_id)
                 VALUES (?, ?, ?, ?)
-                """, UUID.randomUUID(), "PCSL-UNKNOWN", "Unknown category product", UUID.randomUUID());
+                """,
+                UUID.randomUUID(),
+                "PCSL-UNKNOWN",
+                "Unknown category product",
+                UUID.randomUUID());
     }
 
     @Test
@@ -307,8 +313,12 @@ class ProductCategorySchemaMigrationIntegrationTest extends AbstractPostgresInte
             var onChild = insertProduct("PCSL-CHILD", childId);
 
             assertThat(unclassified).isEqualTo(1);
-            assertThat(onRoot).as("a root with no children is a complete classification").isEqualTo(1);
-            assertThat(onChild).as("a deeper node is stored instead of its ancestors").isEqualTo(1);
+            assertThat(onRoot)
+                    .as("a root with no children is a complete classification")
+                    .isEqualTo(1);
+            assertThat(onChild)
+                    .as("a deeper node is stored instead of its ancestors")
+                    .isEqualTo(1);
         } finally {
             deleteSeedProducts();
         }

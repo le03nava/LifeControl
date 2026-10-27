@@ -85,10 +85,12 @@ class ProductControllerTest {
                 Map.of("color", "red"),
                 true,
                 now,
-                now, null, null);
+                now,
+                null,
+                null);
 
-        testProductRequest =
-                new ProductRequest("SKU-001", "Test Product", "Test", "SAT-001", "SERVICE", Map.of("color", "red"), null);
+        testProductRequest = new ProductRequest(
+                "SKU-001", "Test Product", "Test", "SAT-001", "SERVICE", Map.of("color", "red"), null);
     }
 
     // ─────────────────────────────────────────────
@@ -110,9 +112,7 @@ class ProductControllerTest {
                             .content(objectMapper.writeValueAsString(testProductRequest)))
                     .andExpect(status().isNotFound())
                     .andExpect(jsonPath("$.status").value(404))
-                    .andExpect(
-                            jsonPath("$.message")
-                                    .value("Product category not found with id: " + unknownCategoryId));
+                    .andExpect(jsonPath("$.message").value("Product category not found with id: " + unknownCategoryId));
         }
 
         @Test
@@ -406,12 +406,14 @@ class ProductControllerTest {
                     Map.of("color", "blue"),
                     true,
                     now,
-                    now, null, null);
+                    now,
+                    null,
+                    null);
             when(productService.updateProduct(eq(productId), any(ProductRequest.class)))
                     .thenReturn(updatedResponse);
 
-            var request =
-                    new ProductRequest("SKU-001", "Updated Name", "Upd", "SAT-NEW", "GOODS", Map.of("color", "blue"), null);
+            var request = new ProductRequest(
+                    "SKU-001", "Updated Name", "Upd", "SAT-NEW", "GOODS", Map.of("color", "blue"), null);
 
             mockMvc.perform(put("/api/products/{id}", productId)
                             .contentType(MediaType.APPLICATION_JSON)
@@ -435,7 +437,9 @@ class ProductControllerTest {
                     Map.of("color", "red", "size", "L", "weight", "2kg"),
                     true,
                     now,
-                    now, null, null);
+                    now,
+                    null,
+                    null);
             when(productService.updateProduct(eq(productId), any(ProductRequest.class)))
                     .thenReturn(mergedResponse);
 
@@ -465,9 +469,7 @@ class ProductControllerTest {
                             .content(objectMapper.writeValueAsString(testProductRequest)))
                     .andExpect(status().isNotFound())
                     .andExpect(jsonPath("$.status").value(404))
-                    .andExpect(
-                            jsonPath("$.message")
-                                    .value("Product category not found with id: " + unknownCategoryId));
+                    .andExpect(jsonPath("$.message").value("Product category not found with id: " + unknownCategoryId));
         }
 
         @Test
