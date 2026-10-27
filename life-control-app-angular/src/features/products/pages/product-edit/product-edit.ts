@@ -10,9 +10,14 @@ import {
 import { NgTemplateOutlet } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
 import { ActivatedRoute, Router, convertToParamMap } from '@angular/router';
-import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
+import { rxResource, takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
+import { map } from 'rxjs';
 import { ProductService } from '../../data/product.service';
+import { ProductCategoryService } from '../../data/product-category.service';
+import { MAX_CATEGORY_DEPTH, ProductCategory } from '../../models/product-category.models';
+import { CompanyService } from '@features/companies/companies/data/company.service';
 import { ApiError } from '@shared/models';
+import { httpErrorMessage } from '@shared/data';
 import {
   Product,
   ProductControl,
@@ -68,6 +73,8 @@ class SpanishStepperIntl extends MatStepperIntl {
 export class ProductEdit implements OnInit, UnsavedChangesAware {
   private readonly route = inject(ActivatedRoute);
   private readonly productService = inject(ProductService);
+  private readonly categoryService = inject(ProductCategoryService);
+  private readonly companyService = inject(CompanyService);
   private readonly fb = inject(NonNullableFormBuilder);
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
@@ -116,6 +123,129 @@ export class ProductEdit implements OnInit, UnsavedChangesAware {
   readonly variantPanelDirty = signal(false);
 
   /**
+   * The companies whose category tree the form can read (S2).
+   *
+   * The picker is read once with the same page size `ProductCategoryList` uses, so both screens offer
+   * the same list of companies.
+   */
+  readonly companies = toSignal(
+    this.companyService.getCompanySelector(0, 1000).pipe(map((page) => page.content)),
+    { initialValue: [] },
+  );
+
+  /**
+   * Which company's tree feeds the three selects, seeded from `?companyId=` and kept there (S2).
+   *
+   * A product is global while its category belongs to one company, so the tree this screen reads is
+   * decided here and not by the header context (see `savedCategoryPath`).
+   */
+  readonly selectedCompanyId = signal<string | null>(
+    this.route.snapshot.queryParamMap.get('companyId'),
+  );
+
+  /**
+   * The selected company's whole tree, disabled nodes included (S8).
+   *
+   * `includeDisabled=true` is not a preference: without it a product classified under a since
+   * disabled category would render three empty selects over a stored `category_id`, i.e. the saved
+   * classification would be invisible and the next save would silently drop it.
+   *
+   * `undefined` params is the "no company selected" state and issues no request, exactly as
+   * `ProductCategoryList.categoriesResource` does.
+   */
+  readonly categoriesResource = rxResource({
+    params: () => {
+      const companyId = this.selectedCompanyId();
+      return companyId ? { companyId } : undefined;
+    },
+    stream: ({ params }) => this.categoryService.getCategories(params.companyId, true),
+    defaultValue: [] as ProductCategory[],
+  });
+
+  /**
+   * Whether the tree for the selected company has actually answered.
+   *
+   * `status()` is the only safe gate here: `value()` throws while a read is in flight or has failed,
+   * and `hasValue()` is `true` from construction because the resource declares `defaultValue: []` —
+   * which is precisely how F1 wiped a saved classification before the tree that proves it arrived.
+   */
+  private readonly treeLoaded = computed(() => this.categoriesResource.status() === 'resolved');
+
+  /**
+   * The selected company's tree, safe to render.
+   *
+   * `categoriesResource.value()` **throws** unless the read resolved (Angular raises
+   * `ResourceValueError`), so it is never read unguarded: a 500 on this read degrades to an empty tree
+   * plus `categoryLoadError` below, exactly as `ProductCategoryList.categories` does. Swallowing the
+   * failure into an empty tree and saying nothing would be the worse answer — the operator would see
+   * three empty selects and conclude the product is unclassified.
+   */
+  readonly categoryTree = computed<ProductCategory[]>(() =>
+    this.treeLoaded() ? this.categoriesResource.value() : [],
+  );
+
+  /** The tree read failed, in the shared copy; `null` while nothing failed. */
+  readonly categoryLoadError = computed<string | null>(() => {
+    const error = this.categoriesResource.error();
+    return error ? httpErrorMessage(error) : null;
+  });
+
+  /**
+   * Set when the operator moves to another company's tree (S2).
+   *
+   * The three selects and the SAT hint live in the form and are only reset through `categoryPath`, so
+   * the operator's own action is what answers `[]` — a *certain* "no classification" — from then on.
+   * It is set only by `onCompanyChange` and not by the seeding in `loadProduct`, which is a write-back
+   * of saved state and must not discard anything. Before F1 existed this clearing was a side effect of
+   * `savedCategoryPath` answering `[]` whenever the leaf was not in the (still empty) tree; that is
+   * exactly the behaviour F1 removes, so the clearing is stated here instead of inferred.
+   */
+  private readonly categoryDiscarded = signal(false);
+
+  /**
+   * The saved classification as ids from the root to the deepest node (S6).
+   *
+   * Three answers, and the difference between them is the point:
+   * - `null` — the host does not know yet (the tree is in flight, or its read failed). The form must
+   *   leave itself alone; applying `[]` here would wipe the saved classification and the next save
+   *   would send `categoryId: null` (F1).
+   * - `[]` — the product is certainly unclassified (it has no `categoryId`), or the operator discarded
+   *   it by moving to another company's tree (S2).
+   * - the ids — resolved through the tree.
+   *
+   * The leaf comes from the `categoryId` control, not from the three selects: the selects can only be
+   * filled once a company's tree has arrived, and a tree that fails to load must not erase the fact
+   * that the product is classified. The levels above it are recovered by walking `parentCategoryId` up
+   * the tree — never stored three times — and the walk stops at `MAX_CATEGORY_DEPTH` so a malformed
+   * parent chain cannot loop.
+   *
+   * Deliberately not reactive to the controls' own `valueChanges`: a recomputation triggered by a pick
+   * would feed the form's silent `categoryPath` effect with the pick itself, and that effect withdraws
+   * the SAT hint the pick just set (S4). It does track `productForm()` and the resource, which is what
+   * makes it compute once the load and the tree have both arrived, in either order.
+   */
+  readonly savedCategoryPath = computed<string[] | null>(() => {
+    if (this.categoryDiscarded()) return [];
+
+    const leafId = this.productForm().controls.categoryId.value;
+    if (!leafId) return [];
+
+    // No answer yet: the tree is loading, or the read failed and `categoryLoadError` states it.
+    if (!this.treeLoaded()) return null;
+
+    const byId = new Map(this.categoryTree().map((node) => [node.id, node]));
+    let current = byId.get(leafId);
+    if (!current) return [];
+
+    const path: string[] = [];
+    while (current && path.length < MAX_CATEGORY_DEPTH) {
+      path.unshift(current.id);
+      current = current.parentCategoryId ? byId.get(current.parentCategoryId) : undefined;
+    }
+    return path;
+  });
+
+  /**
    * The query params, read reactively so an in-place tab switch is observed. A snapshot
    * read would never see the change the click itself writes.
    */
@@ -156,6 +286,13 @@ export class ProductEdit implements OnInit, UnsavedChangesAware {
       .subscribe({
         next: (product) => {
           this.product.set(product);
+          // S6: the product's own classification decides which tree renders its path, so the company
+          // is seeded from the category the API reports. It is a write-back of the saved state, not a
+          // navigation: the operator may be linked with `?companyId=` pointing elsewhere, and the
+          // classification still has to resolve.
+          if (product.categoryCompanyId) {
+            this.selectedCompanyId.set(product.categoryCompanyId);
+          }
           this.productForm.set(
             this.fb.group({
               id: this.fb.control(product.id),
@@ -168,6 +305,10 @@ export class ProductEdit implements OnInit, UnsavedChangesAware {
                 product.attributes ? JSON.stringify(product.attributes) : null,
               ),
               enabled: this.fb.control(product.enabled),
+              categoryId: this.fb.control(product.categoryId ?? ''),
+              categoryRootId: this.fb.control(''),
+              subcategory1Id: this.fb.control(''),
+              subcategory2Id: this.fb.control(''),
             }),
           );
         },
@@ -187,6 +328,34 @@ export class ProductEdit implements OnInit, UnsavedChangesAware {
       productType: this.fb.control<string | null>(null),
       attributes: this.fb.control<string | null>(null),
       enabled: this.fb.control(true),
+      // The three selects are a view of this one id (S3); they stay empty until a company and a tree
+      // are picked, which is also the create-mode state (S10).
+      categoryId: this.fb.control(''),
+      categoryRootId: this.fb.control(''),
+      subcategory1Id: this.fb.control(''),
+      subcategory2Id: this.fb.control(''),
+    });
+  }
+
+  /**
+   * Keeps the company selection in the URL (replace, so mid-form changes do not pollute history),
+   * exactly as `ProductCategoryList.onCompanyChange` does (S2, D2).
+   *
+   * Changing company also discards the classification: the three selects and the SAT hint are reset
+   * through `categoryDiscarded`, not as a side effect of the new tree happening not to contain the old
+   * leaf.
+   */
+  onCompanyChange(companyId: string | null): void {
+    const next = companyId || null;
+    // S2, stated rather than inferred: the classification and the hint that described a node of the
+    // previous tree are discarded by the operator's own action.
+    this.categoryDiscarded.set(true);
+    this.selectedCompanyId.set(next);
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { companyId: next },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
     });
   }
 
@@ -232,6 +401,8 @@ export class ProductEdit implements OnInit, UnsavedChangesAware {
       satCode: productData.satCode,
       productType: productData.productType,
       attributes: productData.attributes,
+      // S3: the deepest selected node, or an explicit `null` — which is how the field is cleared.
+      categoryId: productData.categoryId ?? null,
     };
     if (productData.id === '') {
       this.productService

@@ -1,6 +1,7 @@
 package com.lifecontrol.api.product.model;
 
 import com.lifecontrol.api.common.model.Auditable;
+import com.lifecontrol.api.product.category.model.ProductCategory;
 import jakarta.persistence.*;
 import java.time.LocalDateTime;
 import java.util.Map;
@@ -30,6 +31,28 @@ public class Product extends Auditable {
 
     @Column(length = 50)
     private String productType;
+
+    /**
+     * The company's product category this product is classified under, or {@code null} while nobody
+     * classified it.
+     *
+     * <p>The link points at the <b>deepest selected node</b> of the tree, never at an intermediate
+     * one: the {@code categoria} / {@code subcategoria} / {@code sub-subcategoria} selects the product
+     * form shows are a view of this single column, recovered by walking {@code parentCategory} up.
+     * Three columns would make states the tree forbids representable — a level-2 node that is not the
+     * child of the stored level-1 node — and enforcing that consistency on every write would be an
+     * application rule where one link is already structural.</p>
+     *
+     * <p>Deliberately <b>not</b> company-scoped: {@code products} has no {@code company_id} (V1), while
+     * a category belongs to a company. The company a product is classified under is therefore derived
+     * from its category, not stored twice, and the response reports it as {@code categoryCompanyId}.</p>
+     *
+     * <p>No {@code ON DELETE} action: the category API soft-deletes ({@code enabled = false}), so no
+     * hard delete exists and the default {@code NO ACTION} is the guard against orphaning.</p>
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "category_id")
+    private ProductCategory category;
 
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(columnDefinition = "jsonb")
@@ -66,6 +89,10 @@ public class Product extends Auditable {
         return productType;
     }
 
+    public ProductCategory getCategory() {
+        return category;
+    }
+
     public Map<String, Object> getAttributes() {
         return attributes;
     }
@@ -97,6 +124,10 @@ public class Product extends Auditable {
 
     public void setProductType(String productType) {
         this.productType = productType;
+    }
+
+    public void setCategory(ProductCategory category) {
+        this.category = category;
     }
 
     public void setAttributes(Map<String, Object> attributes) {
@@ -142,6 +173,11 @@ public class Product extends Auditable {
 
         public Builder productType(String productType) {
             product.productType = productType;
+            return this;
+        }
+
+        public Builder category(ProductCategory category) {
+            product.category = category;
             return this;
         }
 

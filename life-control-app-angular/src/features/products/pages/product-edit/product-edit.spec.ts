@@ -4,7 +4,7 @@ import { By } from '@angular/platform-browser';
 import { ActivatedRoute, ParamMap, Router, convertToParamMap } from '@angular/router';
 import { ReactiveFormsModule } from '@angular/forms';
 import { HttpErrorResponse } from '@angular/common/http';
-import { BehaviorSubject, Observable, of, throwError } from 'rxjs';
+import { BehaviorSubject, Observable, of, Subject, throwError } from 'rxjs';
 import { MatDialog } from '@angular/material/dialog';
 import { MatTabGroup } from '@angular/material/tabs';
 import { MatStepper } from '@angular/material/stepper';
@@ -13,11 +13,16 @@ import { Page, Product } from '../../models/product.models';
 import { ProductService } from '../../data/product.service';
 import { ProductSupplierService } from '../../data/product-supplier.service';
 import { ProductSupplier } from '../../models/product-supplier.models';
+import { ProductCategoryService } from '../../data/product-category.service';
+import { ProductCategory } from '../../models/product-category.models';
+import { CompanyService } from '@features/companies/companies/data/company.service';
+import { CompanySelectorOption } from '@features/companies/companies/models/company.models';
 import { ProductVariantService } from '../../data/product-variant.service';
 import { ProductVariant } from '../../models/product-variant.models';
 import { ProductSupplierList } from '../product-supplier-list/product-supplier-list';
 import { ProductVariantList } from '../product-variant-list/product-variant-list';
 import { ProductSupplierDialog } from '../../components/product-supplier-dialog/product-supplier-dialog';
+import { ProductsForm } from '../../components/products-form/products-form';
 import { ProfileService } from '@features/user/profile/data/profile.service';
 import { ProfileResponse } from '@features/user/profile/data/profile.models';
 
@@ -39,9 +44,18 @@ describe('ProductEdit', () => {
     enableVariant: ReturnType<typeof vi.fn>;
   };
   let profileServiceMock: { getProfile: ReturnType<typeof vi.fn> };
+  let companyServiceMock: { getCompanySelector: ReturnType<typeof vi.fn> };
+  let categoryServiceMock: { getCategories: ReturnType<typeof vi.fn> };
   let routerMock: { navigate: ReturnType<typeof vi.fn> };
   let dialogMock: { open: ReturnType<typeof vi.fn> };
   let queryParams$: BehaviorSubject<ParamMap>;
+  /**
+   * The deferred category tree, when a spec asks for one (`categoriesDeferred`).
+   *
+   * Exposed as a field so a spec can decide *when* the tree lands — the real sequence is product
+   * first, tree second, and that ordering is exactly what F1 was about.
+   */
+  let tree$: Subject<ProductCategory[]>;
   let routeMock: {
     snapshot: {
       paramMap: { get: (key: string) => string | null };
@@ -113,6 +127,56 @@ describe('ProductEdit', () => {
     };
   }
 
+  function createCategory(overrides: Partial<ProductCategory> = {}): ProductCategory {
+    return {
+      id: 'root-1',
+      companyId: 'company-1',
+      parentCategoryId: null,
+      categoryName: 'Alimentos',
+      description: null,
+      satCode: null,
+      displayOrder: 0,
+      depth: 1,
+      enabled: true,
+      createdAt: '2026-01-01T00:00:00Z',
+      updatedAt: '2026-01-01T00:00:00Z',
+      ...overrides,
+    };
+  }
+
+  /** The category tree of `company-1`, one full path deep (root -> level 1 -> level 2). */
+  function createCategoryTree(): ProductCategory[] {
+    return [
+      createCategory({ id: 'root-1', categoryName: 'Alimentos', satCode: '11111111' }),
+      createCategory({
+        id: 'sub1-1',
+        parentCategoryId: 'root-1',
+        categoryName: 'Bebidas',
+        depth: 2,
+      }),
+      createCategory({
+        id: 'sub2-1',
+        parentCategoryId: 'sub1-1',
+        categoryName: 'Jugos',
+        satCode: '22222222',
+        depth: 3,
+      }),
+    ];
+  }
+
+  function createCompanyPage(): Page<CompanySelectorOption> {
+    return {
+      content: [{ id: 'company-1', companyKey: 'lc', companyName: 'Life Control' }],
+      totalElements: 1,
+      totalPages: 1,
+      size: 1,
+      number: 0,
+      first: true,
+      last: true,
+      empty: false,
+    };
+  }
+
   function createPage(variants: ProductVariant[], totalElements: number): Page<ProductVariant> {
     return {
       content: variants,
@@ -156,6 +220,11 @@ describe('ProductEdit', () => {
     variants?: ProductVariant[];
     variantTotalElements?: number;
     profileStoreId?: string | null;
+    categories?: ProductCategory[];
+    /** Leaves `GET /product-categories` in flight until the spec pushes onto `tree$`. */
+    categoriesDeferred?: boolean;
+    /** Fails `GET /product-categories` with a 500, the shape `categoriesResource` keeps as an error. */
+    categoriesFailing?: boolean;
   }
 
   function setup(options: SetupOptions = {}): void {
@@ -193,6 +262,15 @@ describe('ProductEdit', () => {
     profileServiceMock = {
       getProfile: vi.fn().mockReturnValue(of(profileResponse(options.profileStoreId ?? null))),
     };
+    companyServiceMock = { getCompanySelector: vi.fn().mockReturnValue(of(createCompanyPage())) };
+    tree$ = new Subject<ProductCategory[]>();
+    categoryServiceMock = {
+      getCategories: options.categoriesFailing
+        ? vi.fn().mockReturnValue(throwError(() => new HttpErrorResponse({ status: 500 })))
+        : options.categoriesDeferred
+          ? vi.fn().mockReturnValue(tree$.asObservable())
+          : vi.fn().mockReturnValue(of(options.categories ?? [])),
+    };
     routerMock = { navigate: vi.fn() };
     dialogMock = { open: vi.fn().mockReturnValue({ afterClosed: () => of(false) }) };
 
@@ -209,6 +287,8 @@ describe('ProductEdit', () => {
         { provide: ProductSupplierService, useValue: supplierServiceMock },
         { provide: ProductVariantService, useValue: variantServiceMock },
         { provide: ProfileService, useValue: profileServiceMock },
+        { provide: CompanyService, useValue: companyServiceMock },
+        { provide: ProductCategoryService, useValue: categoryServiceMock },
         { provide: Router, useValue: routerMock },
         { provide: MatDialog, useValue: dialogMock },
         { provide: ActivatedRoute, useValue: routeMock },
@@ -229,6 +309,21 @@ describe('ProductEdit', () => {
     for (let i = 0; i < 5; i += 1) {
       fixture.detectChanges();
       await fixture.whenStable();
+    }
+    fixture.detectChanges();
+  }
+
+  /**
+   * Settles the render without waiting for pending tasks.
+   *
+   * `settle()` cannot be used with a deliberately open request: `whenStable()` waits for it and the spec
+   * times out. This flushes change detection (which is what runs the effects) over a few microtasks
+   * instead.
+   */
+  async function settleRender(): Promise<void> {
+    for (let i = 0; i < 5; i += 1) {
+      fixture.detectChanges();
+      await Promise.resolve();
     }
     fixture.detectChanges();
   }
@@ -872,7 +967,11 @@ describe('ProductEdit', () => {
       component.onSaveProduct(createProductData({ id: '', ...requestFields }));
 
       expect(productServiceMock.createProduct).toHaveBeenCalledTimes(1);
-      expect(productServiceMock.createProduct.mock.calls[0][0]).toStrictEqual({ ...requestFields });
+      expect(productServiceMock.createProduct.mock.calls[0][0]).toStrictEqual({
+        ...requestFields,
+        // S3: no selection travels as an explicit `null`, which is how the link is cleared.
+        categoryId: null,
+      });
     });
 
     it('sends only the fields ProductRequest declares when updating', () => {
@@ -886,7 +985,210 @@ describe('ProductEdit', () => {
       // `updateProduct(id, data)` takes the id first, so the body is argument 1.
       expect(productServiceMock.updateProduct.mock.calls[0][1]).toStrictEqual({
         ...requestFields,
+        categoryId: null,
       });
+    });
+
+    it('carries the selected category id in the body', () => {
+      setup({ edit: true, categories: createCategoryTree() });
+      const response = createProductData({ id: 'existing-id' });
+      productServiceMock.updateProduct = vi.fn().mockReturnValue(of(response));
+
+      component.onSaveProduct(
+        createProductData({ id: 'existing-id', ...requestFields, categoryId: 'sub2-1' }),
+      );
+
+      expect(productServiceMock.updateProduct.mock.calls[0][1]).toStrictEqual({
+        ...requestFields,
+        categoryId: 'sub2-1',
+      });
+    });
+  });
+
+  describe('product category classification (S1-S8)', () => {
+    it('should resolve a saved path through the product’s own company, keeping the saved SAT code (S6, S8, S9)', async () => {
+      setup({
+        edit: true,
+        queryParams: { companyId: 'company-other' },
+        product: createProductData({
+          id: 'existing-id',
+          categoryId: 'sub2-1',
+          categoryCompanyId: 'company-1',
+          satCode: '99999999',
+        }),
+        categories: createCategoryTree(),
+      });
+      await settle();
+
+      // The classification decides the tree: the product's company wins over the linked one, without
+      // navigating, and the tree is read including the disabled nodes (S8).
+      expect(component.selectedCompanyId()).toBe('company-1');
+      expect(categoryServiceMock.getCategories).toHaveBeenLastCalledWith('company-1', true);
+      expect(routerMock.navigate).not.toHaveBeenCalled();
+
+      // The three selects hold the saved ids, root -> deepest (S6).
+      expect(component.savedCategoryPath()).toEqual(['root-1', 'sub1-1', 'sub2-1']);
+      const controls = component.productForm().controls;
+      expect(controls.categoryRootId.value).toBe('root-1');
+      expect(controls.subcategory1Id.value).toBe('sub1-1');
+      expect(controls.subcategory2Id.value).toBe('sub2-1');
+      expect(controls.categoryId.value).toBe('sub2-1');
+
+      // The code on screen is the product's, not the category's ('22222222'), and the preload is not a
+      // pick so there is no source to announce.
+      expect(controls.satCode.value).toBe('99999999');
+      const formText = fixture.nativeElement.querySelector('app-products-form')?.textContent ?? '';
+      expect(formText).not.toContain('Código SAT tomado de:');
+    });
+
+    it('should seed the company from ?companyId= and write the pick back with replaceUrl (S2)', async () => {
+      setup({
+        edit: true,
+        queryParams: { companyId: 'company-1' },
+        categories: createCategoryTree(),
+      });
+      await settle();
+
+      expect(component.selectedCompanyId()).toBe('company-1');
+      expect(categoryServiceMock.getCategories).toHaveBeenCalledWith('company-1', true);
+
+      routerMock.navigate.mockClear();
+      component.onCompanyChange('company-2');
+      await settle();
+
+      expect(component.selectedCompanyId()).toBe('company-2');
+      expect(routerMock.navigate).toHaveBeenCalledTimes(1);
+      const [commands, extras] = routerMock.navigate.mock.calls[0] as [
+        unknown[],
+        {
+          relativeTo: unknown;
+          queryParams: Record<string, string | null>;
+          queryParamsHandling: string;
+          replaceUrl: boolean;
+        },
+      ];
+      expect(commands).toEqual([]);
+      expect(extras.relativeTo).toBe(TestBed.inject(ActivatedRoute));
+      expect(extras.queryParams).toEqual({ companyId: 'company-2' });
+      expect(extras.queryParamsHandling).toBe('merge');
+      expect(extras.replaceUrl).toBe(true);
+      // The new company's tree is what the selects read next.
+      expect(categoryServiceMock.getCategories).toHaveBeenLastCalledWith('company-2', true);
+    });
+
+    it('should issue no category request until a company is picked (S2, S10)', async () => {
+      setup({ categories: createCategoryTree() });
+      await settle();
+
+      // Create mode, no `?companyId=`: the selects are rendered (S10) over an empty tree and nothing is
+      // requested, which is the `undefined` params state `ProductCategoryList` also uses.
+      expect(component.selectedCompanyId()).toBeNull();
+      expect(categoryServiceMock.getCategories).not.toHaveBeenCalled();
+      expect(fixture.nativeElement.querySelector('app-products-form')).not.toBeNull();
+      expect(component.productForm().controls.categoryId.value).toBe('');
+
+      component.onCompanyChange('company-1');
+      await settle();
+
+      expect(categoryServiceMock.getCategories).toHaveBeenCalledWith('company-1', true);
+      expect(component.categoriesResource.value().length).toBe(3);
+    });
+
+    it('should keep the saved classification while the tree is still in flight (S6, F1)', async () => {
+      setup({
+        edit: true,
+        product: createProductData({
+          id: 'existing-id',
+          categoryId: 'sub2-1',
+          categoryCompanyId: 'company-1',
+          satCode: '99999999',
+        }),
+        categoriesDeferred: true,
+      });
+      // The real wire order: the product answers first, the tree request is still open.
+      await settleRender();
+
+      const controls = component.productForm().controls;
+      expect(categoryServiceMock.getCategories).toHaveBeenCalledWith('company-1', true);
+      // `null` is "unknown yet": the form must not act on it, so the seeded classification survives.
+      expect(component.savedCategoryPath()).toBeNull();
+      expect(controls.categoryId.value).toBe('sub2-1');
+      expect(controls.categoryRootId.value).toBe('');
+      expect(controls.satCode.value).toBe('99999999');
+
+      tree$.next(createCategoryTree());
+      tree$.complete();
+      await settleRender();
+
+      expect(component.savedCategoryPath()).toEqual(['root-1', 'sub1-1', 'sub2-1']);
+      expect(controls.categoryRootId.value).toBe('root-1');
+      expect(controls.subcategory1Id.value).toBe('sub1-1');
+      expect(controls.subcategory2Id.value).toBe('sub2-1');
+      expect(controls.categoryId.value).toBe('sub2-1');
+      // The code is the product's ('22222222' is the category's) and the preload announces nothing.
+      expect(controls.satCode.value).toBe('99999999');
+      const formText = fixture.nativeElement.querySelector('app-products-form')?.textContent ?? '';
+      expect(formText).not.toContain('Código SAT tomado de:');
+    });
+
+    it('should render the tree load failure instead of throwing during change detection (F2)', async () => {
+      setup({
+        edit: true,
+        queryParams: { companyId: 'company-1' },
+        product: createProductData({
+          id: 'existing-id',
+          categoryId: 'sub2-1',
+          categoryCompanyId: 'company-1',
+        }),
+        categoriesFailing: true,
+      });
+      await settle();
+
+      // Degraded, not fatal: the form renders over an empty tree, the path stays "unknown" so the
+      // classification is not wiped, and the failure is stated instead of swallowed.
+      expect(component.categoryLoadError()).toBe(
+        'Ocurrió un error en el servidor. Intentá de nuevo más tarde.',
+      );
+      expect(component.categoryTree()).toEqual([]);
+      expect(component.savedCategoryPath()).toBeNull();
+      expect(component.productForm().controls.categoryId.value).toBe('sub2-1');
+
+      const banner = fixture.nativeElement.querySelector('app-error-banner') as HTMLElement | null;
+      expect(banner?.textContent ?? '').toContain(
+        'Ocurrió un error en el servidor. Intentá de nuevo más tarde.',
+      );
+      expect(fixture.nativeElement.querySelector('app-products-form')).not.toBeNull();
+    });
+
+    it('should clear the three selects and the SAT hint when the company changes (S2)', async () => {
+      setup({
+        edit: true,
+        queryParams: { companyId: 'company-1' },
+        categories: createCategoryTree(),
+      });
+      await settle();
+
+      const form = fixture.debugElement.query(By.directive(ProductsForm))
+        .componentInstance as ProductsForm;
+      form.onRootChange('root-1');
+      fixture.detectChanges();
+
+      // Positive control: the pick really landed, so the clearing below is not the absence of a pick.
+      expect(component.productForm().controls.categoryId.value).toBe('root-1');
+      expect(form.satCodeHint()).toBe('Código SAT tomado de: Alimentos');
+
+      component.onCompanyChange('company-2');
+      await settle();
+
+      const controls = component.productForm().controls;
+      expect(controls.categoryRootId.value).toBe('');
+      expect(controls.subcategory1Id.value).toBe('');
+      expect(controls.subcategory2Id.value).toBe('');
+      expect(controls.categoryId.value).toBe('');
+      expect(form.satCodeHint()).toBeNull();
+      expect(fixture.nativeElement.querySelector('app-products-form')?.textContent).not.toContain(
+        'Código SAT tomado de:',
+      );
     });
   });
 
