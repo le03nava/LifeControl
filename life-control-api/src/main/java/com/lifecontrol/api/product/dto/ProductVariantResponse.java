@@ -2,6 +2,7 @@ package com.lifecontrol.api.product.dto;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -32,6 +33,11 @@ import java.util.UUID;
  * D2 resolves {@code measureUnitShortName} in the Angular client from the catalog it already loads
  * for the picker. Denormalising the short name here would cost a join on the store-scoped JPQL
  * constructor and an N+1 on the definition list, to save the client a lookup it never skips.</p>
+ *
+ * <p>{@code attributes} is the variant-level attribute set (V37): the codes of the attribute profile
+ * that applies to the product's category, with the values it validated. It is <b>appended last</b> for
+ * the same reason {@code measureUnitId} was — the field set is additive, so a client that predates the
+ * attribute catalog keeps reading what it knew and simply ignores the new field.</p>
  */
 public record ProductVariantResponse(
         UUID id,
@@ -46,4 +52,41 @@ public record ProductVariantResponse(
         Boolean enabled,
         LocalDateTime createdAt,
         LocalDateTime updatedAt,
-        UUID measureUnitId) {}
+        UUID measureUnitId,
+        Map<String, Object> attributes) {
+
+    /**
+     * The pre-attributes shape, kept so a caller that predates the variant attribute catalog keeps
+     * compiling. It states {@code attributes = null}, which is exactly what those callers meant.
+     */
+    public ProductVariantResponse(
+            UUID id,
+            UUID productId,
+            UUID companyStoreId,
+            String barCode,
+            String sku,
+            String variantName,
+            BigDecimal listPrice,
+            BigDecimal costPrice,
+            BigDecimal stock,
+            Boolean enabled,
+            LocalDateTime createdAt,
+            LocalDateTime updatedAt,
+            UUID measureUnitId) {
+        this(
+                id,
+                productId,
+                companyStoreId,
+                barCode,
+                sku,
+                variantName,
+                listPrice,
+                costPrice,
+                stock,
+                enabled,
+                createdAt,
+                updatedAt,
+                measureUnitId,
+                null);
+    }
+}

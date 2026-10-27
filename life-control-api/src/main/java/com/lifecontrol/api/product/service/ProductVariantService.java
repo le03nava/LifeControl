@@ -6,6 +6,8 @@ import com.lifecontrol.api.inventory.service.InventoryService;
 import com.lifecontrol.api.measureunit.exception.MeasureUnitNotFoundException;
 import com.lifecontrol.api.measureunit.model.MeasureUnit;
 import com.lifecontrol.api.measureunit.repository.MeasureUnitRepository;
+import com.lifecontrol.api.product.attribute.model.ProductAttributeLevel;
+import com.lifecontrol.api.product.attribute.service.ProductAttributeCatalogService;
 import com.lifecontrol.api.product.dto.ProductVariantRequest;
 import com.lifecontrol.api.product.dto.ProductVariantResponse;
 import com.lifecontrol.api.product.dto.ProductVariantSearchResponse;
@@ -27,6 +29,7 @@ import com.lifecontrol.api.store.exception.CompanyStoreNotFoundException;
 import com.lifecontrol.api.store.model.CompanyStore;
 import com.lifecontrol.api.store.repository.CompanyStoreRepository;
 import java.math.BigDecimal;
+import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 import org.slf4j.Logger;
@@ -62,6 +65,7 @@ public class ProductVariantService {
     private final InventoryService inventoryService;
     private final MeasureUnitRepository measureUnitRepository;
     private final InventoryMovementRepository inventoryMovementRepository;
+    private final ProductAttributeCatalogService productAttributeCatalogService;
 
     public ProductVariantService(
             ProductVariantRepository productVariantRepository,
@@ -71,7 +75,8 @@ public class ProductVariantService {
             CurrentUserContext currentUserContext,
             InventoryService inventoryService,
             MeasureUnitRepository measureUnitRepository,
-            InventoryMovementRepository inventoryMovementRepository) {
+            InventoryMovementRepository inventoryMovementRepository,
+            ProductAttributeCatalogService productAttributeCatalogService) {
         this.productVariantRepository = productVariantRepository;
         this.productVariantStoreStockRepository = productVariantStoreStockRepository;
         this.productRepository = productRepository;
@@ -80,6 +85,7 @@ public class ProductVariantService {
         this.inventoryService = inventoryService;
         this.measureUnitRepository = measureUnitRepository;
         this.inventoryMovementRepository = inventoryMovementRepository;
+        this.productAttributeCatalogService = productAttributeCatalogService;
     }
 
     @Transactional(readOnly = true)
@@ -181,11 +187,16 @@ public class ProductVariantService {
         // No variant is excluded on create: the type gate reads the product's other variants only.
         var measureUnit = validateMeasureUnit(productId, null, request.measureUnitId());
 
+        // The variant's attributes are the VARIANT-level entries of the product's category profile, so
+        // the category decides them and the validation runs before anything is written.
+        validateAttributes(product, request.attributes());
+
         var variant = ProductVariant.builder()
                 .productId(productId)
                 .measureUnitId(measureUnit == null ? null : measureUnit.getId())
                 .barCode(request.barCode())
                 .variantName(request.variantName())
+                .attributes(request.attributes())
                 .enabled(true)
                 .build();
 
@@ -237,9 +248,18 @@ public class ProductVariantService {
         var measureUnit = validateMeasureUnit(productId, variantId, request.measureUnitId());
         verifyMeasureUnitChangeAllowed(variant, measureUnit == null ? null : measureUnit.getId());
 
+        // Same rule as create, over the EFFECTIVE set: `null` still means "leave the stored set alone"
+        // (which is why a caller that predates the attribute catalog cannot wipe it), but the state the
+        // write leaves behind is what gets validated. Validating only the request's field would let a
+        // variant created before its product was classified keep a missing required colour forever.
+        validateAttributes(product, request.attributes() != null ? request.attributes() : variant.getAttributes());
+
         variant.setBarCode(request.barCode());
         variant.setVariantName(request.variantName());
         variant.setMeasureUnitId(measureUnit == null ? null : measureUnit.getId());
+        if (request.attributes() != null) {
+            variant.setAttributes(request.attributes());
+        }
 
         var updated = productVariantRepository.save(variant);
         logger.info("Product variant updated: id={}", variantId);
@@ -509,7 +529,25 @@ public class ProductVariantService {
                 variant.getEnabled(),
                 variant.getCreatedAt(),
                 variant.getUpdatedAt(),
-                variant.getMeasureUnitId());
+                variant.getMeasureUnitId(),
+                variant.getAttributes());
+    }
+
+    /**
+     * Validates a variant attribute set against the product's category profile.
+     *
+     * <p>The variant has no classification of its own: its attributes are the {@code VARIANT}-level
+     * entries of the profile that applies to the <b>product's</b> category, so an unclassified product
+     * declares no profile and any variant attribute is refused. The company comes from that category,
+     * because the profile lookup is company-scoped.</p>
+     */
+    private void validateAttributes(Product product, Map<String, Object> attributes) {
+        var category = product.getCategory();
+        var categoryId = category == null ? null : category.getId();
+        var companyId = category == null || category.getCompany() == null
+                ? null
+                : category.getCompany().getId();
+        productAttributeCatalogService.validate(companyId, categoryId, attributes, ProductAttributeLevel.VARIANT);
     }
 
     private ProductVariantStoreStockResponse toStoreResponse(ProductVariantStoreStock row, BigDecimal stock) {

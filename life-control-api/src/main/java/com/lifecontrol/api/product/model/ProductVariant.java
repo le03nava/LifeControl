@@ -3,7 +3,10 @@ package com.lifecontrol.api.product.model;
 import com.lifecontrol.api.common.model.Auditable;
 import jakarta.persistence.*;
 import java.time.LocalDateTime;
+import java.util.Map;
 import java.util.UUID;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 /**
  * Global sellable definition of a product variant: which product it belongs to, its name/size
@@ -27,6 +30,13 @@ import java.util.UUID;
  * UUID, like the other foreign keys of the model, and the service refuses to change it once the
  * variant holds stock or ledger movements: the stored numbers carry no unit of their own, so
  * reinterpreting them silently is the one thing this column must never allow.</p>
+ *
+ * <p>{@code attributes} holds the VARIANT-level entries of the attribute profile that applies to the
+ * product's category (V37): a shoe's colour and finish. The product owns the rest, and the level of
+ * every attribute is declared by its definition, so one profile serves both screens. A colour belongs
+ * here rather than on the product because two colours are two barcodes, two store rows and two prices.
+ * The keys are definition codes and each value is validated by
+ * {@code ProductAttributeCatalogService} before it is stored — never the raw JSON a client sent.</p>
  */
 @Entity
 @Table(name = "product_variants")
@@ -41,6 +51,10 @@ public class ProductVariant extends Auditable {
 
     @Column(name = "measure_unit_id")
     private UUID measureUnitId;
+
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(columnDefinition = "jsonb")
+    private Map<String, Object> attributes;
 
     @Column(name = "bar_code", nullable = false, length = 100)
     private String barCode;
@@ -79,6 +93,10 @@ public class ProductVariant extends Auditable {
         return enabled;
     }
 
+    public Map<String, Object> getAttributes() {
+        return attributes;
+    }
+
     // Setters
     public void setId(UUID id) {
         this.id = id;
@@ -102,6 +120,10 @@ public class ProductVariant extends Auditable {
 
     public void setEnabled(Boolean enabled) {
         this.enabled = enabled;
+    }
+
+    public void setAttributes(Map<String, Object> attributes) {
+        this.attributes = attributes;
     }
 
     // Builder pattern
@@ -139,6 +161,11 @@ public class ProductVariant extends Auditable {
 
         public Builder enabled(Boolean enabled) {
             variant.enabled = enabled;
+            return this;
+        }
+
+        public Builder attributes(Map<String, Object> attributes) {
+            variant.attributes = attributes;
             return this;
         }
 

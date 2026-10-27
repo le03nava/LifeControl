@@ -2,6 +2,7 @@ package com.lifecontrol.api.product.dto;
 
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -20,6 +21,12 @@ import java.util.UUID;
  * already loads (D2).</p>
  *
  * <p>The sizes mirror the columns: {@code bar_code} is 100 and {@code variant_name} is 255.</p>
+ *
+ * <p>{@code attributes} carries the VARIANT-level entries of the category's attribute profile (V37) —
+ * a shoe's {@code color} and {@code acabado} — and is <b>appended last</b> so the three-argument shape
+ * every existing caller uses keeps compiling through the convenience constructor below. Its values are
+ * validated against the product's category by {@code ProductAttributeCatalogService}; {@code null}
+ * leaves the stored set untouched, and {@code {}} clears it.</p>
  */
 public record ProductVariantRequest(
         @NotBlank(message = "barCode is required") @Size(max = 100, message = "barCode must not exceed 100 characters")
@@ -29,4 +36,15 @@ public record ProductVariantRequest(
         @Size(max = 255, message = "variantName must not exceed 255 characters")
         String variantName,
 
-        UUID measureUnitId) {}
+        UUID measureUnitId,
+
+        Map<String, Object> attributes) {
+
+    /**
+     * The pre-attributes shape, kept so every caller that predates the variant attribute catalog keeps
+     * compiling and keeps meaning "write no variant attributes".
+     */
+    public ProductVariantRequest(String barCode, String variantName, UUID measureUnitId) {
+        this(barCode, variantName, measureUnitId, null);
+    }
+}

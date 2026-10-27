@@ -7,6 +7,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 import com.lifecontrol.api.company.model.Company;
+import com.lifecontrol.api.product.attribute.service.ProductAttributeCatalogService;
 import com.lifecontrol.api.product.category.exception.ProductCategoryNotFoundException;
 import com.lifecontrol.api.product.category.model.ProductCategory;
 import com.lifecontrol.api.product.category.repository.ProductCategoryRepository;
@@ -43,6 +44,9 @@ class ProductServiceTest {
 
     @Mock
     private ProductCategoryRepository productCategoryRepository;
+
+    @Mock
+    private ProductAttributeCatalogService productAttributeCatalogService;
 
     @InjectMocks
     private ProductService productService;
@@ -160,8 +164,8 @@ class ProductServiceTest {
         }
 
         @Test
-        @DisplayName("should merge attributes via putAll (preserve existing, add new)")
-        void shouldMergeAttributes_PartialUpdate() {
+        @DisplayName("should replace attributes with the request's set instead of merging")
+        void shouldReplaceAttributes_FullUpdate() {
             var existing = Product.builder()
                     .id(productId)
                     .sku("SKU-001")
@@ -176,8 +180,9 @@ class ProductServiceTest {
 
             var result = productService.updateProduct(productId, request);
 
-            assertThat(result.attributes()).containsEntry("color", "red");
-            assertThat(result.attributes()).containsEntry("size", "L");
+            // The request is authoritative for the set it sends: a key it omits is gone. The previous
+            // shallow `putAll` kept `color` and `size` alive and invisible (record L4).
+            assertThat(result.attributes()).containsOnlyKeys("weight");
             assertThat(result.attributes()).containsEntry("weight", "2kg");
         }
 
