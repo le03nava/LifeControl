@@ -1,7 +1,12 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { FormControl, FormGroup, Validators } from '@angular/forms';
 import { ProductsForm } from './products-form';
-import { ProductControl } from '../../models/product.models';
+import {
+  ProductAttributeDefinition,
+  ProductAttributeProfile,
+  ProductControl,
+} from '../../models/product.models';
+import { measurementUnitName, measurementValueName } from '../../models/product-attribute-form';
 import { ProductCategory } from '../../models/product-category.models';
 
 describe('ProductsForm', () => {
@@ -274,6 +279,312 @@ describe('ProductsForm', () => {
 
     const emitted = spy.mock.calls[0][0];
     expect(emitted.attributes).toBeUndefined();
+  });
+
+  describe('attribute field-set (S4, S5, S7)', () => {
+    function definition(
+      overrides: Partial<ProductAttributeDefinition> = {},
+    ): ProductAttributeDefinition {
+      return {
+        code: 'marca',
+        label: 'Marca',
+        level: 'PRODUCT',
+        kind: 'TEXT',
+        unitLabel: null,
+        required: false,
+        values: [],
+        ...overrides,
+      };
+    }
+
+    function profile(
+      productAttributes: ProductAttributeDefinition[],
+      variantAttributes: ProductAttributeDefinition[] = [],
+    ): ProductAttributeProfile {
+      return {
+        profileKey: 'ferreteria',
+        label: 'Ferretería',
+        resolvedRootName: 'Ferretería',
+        productAttributes,
+        variantAttributes,
+      };
+    }
+
+    /** The host's half of the contract: it reads the profile and hands it down (T4). */
+    function withProfile(value: ProductAttributeProfile | null): void {
+      fixture.componentRef.setInput('attributeProfile', value);
+      fixture.detectChanges();
+    }
+
+    function labels(): string[] {
+      return Array.from<Element>(fixture.nativeElement.querySelectorAll('mat-label')).map((label) =>
+        (label.textContent ?? '').trim(),
+      );
+    }
+
+    function fieldSet(): HTMLElement | null {
+      return fixture.nativeElement.querySelector('.attribute-fields') as HTMLElement | null;
+    }
+
+    /** The operator's edits, through the rendered field-set (the same way the house specs drive Material). */
+    function fill(values: Record<string, unknown>): void {
+      component.attributeForm().patchValue(values);
+      fixture.detectChanges();
+    }
+
+    /** Saves a product that satisfies the product-level form and returns the emitted `attributes`. */
+    function savePayload(): unknown {
+      const spy = vi.fn();
+      component.saveProduct.subscribe(spy);
+      component.formGroup().patchValue({ sku: 'PROD-ATTR', name: 'Producto con atributos' });
+      component.onSave();
+      return spy.mock.calls[0]?.[0]?.attributes;
+    }
+
+    it('should render the field-set of the selected category (S4)', () => {
+      withProfile(
+        profile([
+          definition({ code: 'marca', label: 'Marca' }),
+          definition({
+            code: 'sistema_rosca',
+            label: 'Sistema de rosca',
+            kind: 'ENUM',
+            values: [{ code: 'npt', label: 'NPT' }],
+          }),
+        ]),
+      );
+
+      expect(labels()).toEqual(expect.arrayContaining(['Marca', 'Sistema de rosca']));
+      expect(fieldSet()?.querySelectorAll('mat-form-field').length).toBe(2);
+    });
+
+    it('should replace the field-set and drop the previous codes when the category changes (S4, L4)', () => {
+      withProfile(profile([definition({ code: 'marca', label: 'Marca' })]));
+      fill({ marca: 'Patito' });
+
+      const garantia = definition({
+        code: 'garantia_meses',
+        label: 'Garantía en meses',
+        kind: 'MEASUREMENT',
+        unitLabel: 'meses',
+      });
+      withProfile(profile([garantia]));
+
+      expect(labels()).not.toContain('Marca');
+      expect(labels()).toContain('Garantía en meses');
+
+      // The write rule is authoritative: a code the new profile does not declare must not travel, or
+      // the API refuses the whole product.
+      fill({ [measurementValueName(garantia)]: 12 });
+      expect(savePayload()).toEqual({ garantia_meses: { value: 12, unit: 'meses' } });
+    });
+
+    it('should render a TEXT definition as an input and write the string (S5)', () => {
+      withProfile(profile([definition({ code: 'marca', label: 'Marca' })]));
+
+      expect(fieldSet()?.querySelector('input[type="text"]')).not.toBeNull();
+
+      fill({ marca: 'Patito' });
+      expect(savePayload()).toEqual({ marca: 'Patito' });
+    });
+
+    it('should render an ENUM definition as a single select and write the value code (S5)', () => {
+      withProfile(
+        profile([
+          definition({
+            code: 'sistema_rosca',
+            label: 'Sistema de rosca',
+            kind: 'ENUM',
+            values: [
+              { code: 'npt', label: 'NPT' },
+              { code: 'metrica', label: 'Milimétrica' },
+            ],
+          }),
+        ]),
+      );
+
+      const select = fieldSet()?.querySelector('mat-select');
+      expect(select).not.toBeNull();
+      expect(select?.hasAttribute('multiple')).toBe(false);
+
+      fill({ sistema_rosca: 'npt' });
+      // The code travels, never the label the operator reads (S5).
+      expect(savePayload()).toEqual({ sistema_rosca: 'npt' });
+    });
+
+    it('should render a MULTI_ENUM definition as a multiple select and write the array (S5)', () => {
+      withProfile(
+        profile([
+          definition({
+            code: 'conectividad',
+            label: 'Conectividad',
+            kind: 'MULTI_ENUM',
+            values: [
+              { code: 'wifi', label: 'Wi-Fi' },
+              { code: 'bluetooth', label: 'Bluetooth' },
+            ],
+          }),
+        ]),
+      );
+
+      expect(fieldSet()?.querySelector('mat-select')?.hasAttribute('multiple')).toBe(true);
+
+      fill({ conectividad: ['wifi', 'bluetooth'] });
+      expect(savePayload()).toEqual({ conectividad: ['wifi', 'bluetooth'] });
+    });
+
+    it('should render a MEASUREMENT as a number plus a unit and store both (S5)', () => {
+      const medida = definition({
+        code: 'medida',
+        label: 'Medida',
+        kind: 'MEASUREMENT',
+        unitLabel: 'pulgada',
+      });
+      withProfile(profile([medida]));
+
+      expect(fieldSet()?.querySelector('input[type="number"]')).not.toBeNull();
+      // The suggested unit is a hint and a default, never a constraint.
+      expect(component.attributeForm().get(measurementUnitName(medida))?.value).toBe('pulgada');
+      expect((fixture.nativeElement as HTMLElement).textContent).toContain('pulgada');
+
+      fill({
+        [measurementValueName(medida)]: 3,
+        [measurementUnitName(medida)]: 'metros',
+      });
+      expect(savePayload()).toEqual({ medida: { value: 3, unit: 'metros' } });
+    });
+
+    it('should render a BOOLEAN definition as a slide toggle and write the flag (S5)', () => {
+      withProfile(
+        profile([definition({ code: 'garantia', label: 'Tiene garantía', kind: 'BOOLEAN' })]),
+      );
+
+      expect(fieldSet()?.querySelector('mat-slide-toggle')).not.toBeNull();
+
+      fill({ garantia: true });
+      expect(savePayload()).toEqual({ garantia: true });
+    });
+
+    it('should leave an optional attribute the operator never filled out of the payload', () => {
+      withProfile(
+        profile([
+          definition({ code: 'marca', label: 'Marca' }),
+          definition({ code: 'modelo', label: 'Modelo' }),
+        ]),
+      );
+
+      fill({ marca: 'Patito' });
+      // Absent, never `""` and never `null`: the API refuses a null inside the map.
+      expect(savePayload()).toEqual({ marca: 'Patito' });
+    });
+
+    it('should block the submit and state the error when a required attribute is missing', () => {
+      withProfile(profile([definition({ code: 'marca', label: 'Marca', required: true })]));
+      const spy = vi.fn();
+      component.saveProduct.subscribe(spy);
+      component.formGroup().patchValue({ sku: 'PROD-ATTR', name: 'Producto con atributos' });
+
+      component.onSave();
+      fixture.detectChanges();
+
+      expect(spy).not.toHaveBeenCalled();
+      expect((fixture.nativeElement as HTMLElement).textContent).toContain(
+        'Este campo es obligatorio.',
+      );
+    });
+
+    it('should never render a VARIANT-level definition on the product form (S7)', () => {
+      withProfile(
+        profile(
+          // A profile that (wrongly) lists a variant attribute among the product ones: the level is
+          // the contract, so the form filters on it rather than trusting the partition slot.
+          [
+            definition({ code: 'marca', label: 'Marca' }),
+            definition({ code: 'color', label: 'Color', level: 'VARIANT', kind: 'ENUM' }),
+          ],
+          [definition({ code: 'acabado', label: 'Acabado', level: 'VARIANT', kind: 'ENUM' })],
+        ),
+      );
+
+      expect(labels()).toContain('Marca');
+      expect(labels()).not.toContain('Color');
+      expect(labels()).not.toContain('Acabado');
+      expect(fieldSet()?.querySelectorAll('mat-form-field').length).toBe(1);
+    });
+
+    it('should say so, without inputs, and not author the carrier when the branch declares no profile (204)', () => {
+      const fg = component.formGroup();
+      fg.controls.attributes.setValue('{"marca":"Patito"}');
+
+      withProfile(null);
+
+      expect(fieldSet()).toBeNull();
+      expect((fixture.nativeElement as HTMLElement).textContent).toContain('no declara atributos');
+      // A branch that declares no profile is not the form's to author: writing `{}` here would clear
+      // the attributes the product already stores, and no screen ever showed them to the operator.
+      expect(fg.controls.attributes.value).toBe('{"marca":"Patito"}');
+    });
+
+    it('should leave the carrier alone while the profile is unknown', () => {
+      // `undefined` is "the host does not know yet"; clearing the carrier here is what would drop the
+      // attributes a product already stores before the profile that proves them arrives.
+      const fg = component.formGroup();
+      fg.controls.attributes.setValue('{"marca":"Patito"}');
+
+      fixture.detectChanges();
+
+      expect(fg.controls.attributes.value).toBe('{"marca":"Patito"}');
+      expect(fieldSet()).toBeNull();
+    });
+
+    it('should keep the saved values when the host seeds the form in edit mode (S5)', () => {
+      withProfile(
+        profile([
+          definition({ code: 'marca', label: 'Marca' }),
+          definition({
+            code: 'sistema_rosca',
+            label: 'Sistema de rosca',
+            kind: 'ENUM',
+            values: [{ code: 'npt', label: 'NPT' }],
+          }),
+        ]),
+      );
+
+      const seeded = createFormGroup();
+      seeded.controls.attributes.setValue('{"marca":"Patito","sistema_rosca":"npt"}');
+      fixture.componentRef.setInput('formGroup', seeded);
+      fixture.detectChanges();
+
+      expect(component.attributeForm().get('marca')?.value).toBe('Patito');
+      expect(component.attributeForm().get('sistema_rosca')?.value).toBe('npt');
+      expect(savePayload()).toEqual({ marca: 'Patito', sistema_rosca: 'npt' });
+    });
+
+    it('should report the deepest selected category so the host can load its profile (S4)', () => {
+      const spy = vi.fn();
+      component.categoryChange.subscribe(spy);
+      fixture.componentRef.setInput('categoryTree', categoryTree);
+      fixture.detectChanges();
+
+      component.onRootChange('root-a');
+      expect(spy).toHaveBeenLastCalledWith('root-a');
+
+      component.onSubcategory1Change('sub1-a');
+      expect(spy).toHaveBeenLastCalledWith('sub1-a');
+
+      component.onRootChange('');
+      expect(spy).toHaveBeenLastCalledWith(null);
+    });
+
+    it('should report a saved path as the selected category too (S4)', () => {
+      const spy = vi.fn();
+      component.categoryChange.subscribe(spy);
+      fixture.componentRef.setInput('categoryTree', categoryTree);
+      fixture.componentRef.setInput('categoryPath', ['root-a', 'sub1-a']);
+      fixture.detectChanges();
+
+      expect(spy).toHaveBeenLastCalledWith('sub1-a');
+    });
   });
 
   describe('category cascade (S1-S8)', () => {
