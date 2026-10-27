@@ -105,7 +105,7 @@ has to read with the record open.
 | 2 | module: the four entities and their repositories | 542 | `84e4c8cb` |
 | 3 | module: the three DTOs, the validation exception and the catalog service | 432 | `d16a5281` |
 | 4 | module: the read endpoint | 57 | `a40b6e77` |
-| 5 | the write path: authoritative set + effective-set validation, with its tests | ~230 | `_pending_` |
+| 5 | the write path: authoritative set + effective-set validation, with its tests | 246 | `f6303cf4` |
 | 6 | the attribute suites: schema and seed, catalog service, HTTP contract | ~1490 | `_pending_` |
 | 7 | the Angular field-set and the variant dialog, with their specs | `_pending_` | `_pending_` |
 | 8 | the root `AGENTS.md` rows and this record's final header | `_pending_` | `_pending_` |
