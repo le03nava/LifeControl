@@ -9,9 +9,9 @@ migration, no gateway change, no existing contract removed or changed.
 `af7807d`), **#459** (`c7460af`) and **#460** (`7ebb21b`), 2026-10-19, and the evidence of each slice is
 recorded in the log below (`L9`–`L15`). **`T6` is complete**: its live run was the one half still
 blocked, and it passes now that the worker defects `G45`–`G47` were closed by `#465`–`#467`
-(`odd/tasks/access-provisioning-worker-repairs.md`, `L8`). **`T9` remains open**, with the scope the
-closure left it: the independent verification is recorded for `PR1` only (`L10`), and none exists for
-`#459`'s and `#460`'s candidates (`L16` records the repair of the sentence this replaces).
+(`odd/tasks/access-provisioning-worker-repairs.md`, `L8`). **`T9` is complete**: `L10` records `PR1`'s independent verification and `L17` records the verification of
+`#459`'s and `#460`'s candidates, which confirmed the first in full and found the second was **not
+runnable as merged**, a defect already repaired on `main` by `bb200f2a`.
 **Created**: 2026-10-19 · **Risk**: **item 5 (delivery/environment)** — `docker-compose.override.yml`,
 `.env.template` and `validate-env.sh` are consumed by all three environments, and `validate-env.sh` is
 the **prod start gate** (`deploy.sh:173-179` exits 1 when it fails), so a check added there can stop a
@@ -150,7 +150,7 @@ turned out not to mean "unused".
 | T6 | S3-E | New `docker/scripts/verify-provisioning-flow.sh`, the peer of `verify-invitation-flow.sh`: disposable employee + contract → the task reaches `APPLIED` → the mail is in Mailpit with its link → the Keycloak account carries its `requiredActions`, the template's roles and the five claims; cleans up on exit and exits non-zero on any failure. **Implemented in `fda95e6`; its live run is blocked by `G45` of `odd/tasks/employee-access-provisioning.md`, so it ships with the verdict it would give rather than with a verified pass** (`L13`) | inline | `fda95e6` |
 | T7 | S3-F, S5.2 | Documentation: the `AGENTS.md` line that documents the no-rewrite behaviour **names its consequence** and points at the report; `odd/tasks/employee-access-provisioning.md` gains this defect as its own gap with its resolution | inline | `fda95e6` |
 | T8 | S4, S5.1 | Local evidence, no commit: reconcile `.env.dev` explicitly (never `S6`-C2 by script), then the end-to-end run — employee + contract, the task applying, the mail in Mailpit, the account in Keycloak with its roles and claims. **Executed, with a negative outcome** (`L12`): the switch, the dev default and the report were proven, and the flow itself did not complete | inline | `L12` |
-| T9 | S3, risk item 5 | Independent verification of the three candidates (the named high-risk item) and the native review the returned plan asks for. `PR1`'s candidate is done (`L10`); the rest waits with `T6`, behind the same `G45` | inline | `L10` |
+| T9 | S3, risk item 5 | Independent verification of the three candidates (the named high-risk item). `PR1`'s candidate is done (`L10`); `#459`'s and `#460`'s are done in `L17`, which also retires the `G45` blocker this row shared with `T6`. The second half of the row — the native review — has **no candidate to bind**: the RDD switch is on, but native review operates on the tree's current candidate and this worktree has none (`gentle_review inspect` answers `empty_candidate_base_ref_required`), so a review applies to whatever this verification opens, never retroactively to a historical commit | inline | `L17` |
 
 Slice plan, for the review budget: **PR1** = `T1`+`T2`+`T3` (`fix(docker)`); **PR2** = `T4`+`T5`
 (`feat(provisioning)`); **PR3** = `T6`+`T7` (`chore`). Each carries exactly one `type:*` label, and
@@ -389,3 +389,84 @@ means superseding it on the record rather than rewriting the frozen narrative
 (`.agents/skills/project-conventions/references/feature-records.md`, rule 4). What survives `T9` is its
 real remainder: the independent verification of `#459`'s and `#460`'s candidates, which no entry in
 this log records — `L10` covers `PR1` alone.
+
+**L17** *(the independent verification of the two remaining candidates — `T9`, executed 2026-10-27 on
+`main` @ `88f2c7c5`)*. Scope: `PR2`'s candidate `#459` (`ae6b389` + `b0f21a4`, base `8a799a9`) and
+`PR3`'s candidate `#460` (`fda95e6`, base `b0f21a4`). The route is **not** `L10`'s: the delegation was
+refused by the runtime, which admits an independent verifier only for a change that declares a named
+high-risk item in the session that asks, so the verification ran **inline** with `L10`'s evidence
+standard applied unchanged — frozen commits read from Git (`git show`), suites run on a
+`git archive b0f21a4 | tar -x` **scratch copy** rather than in the working tree (`main` is a hundred
+commits past these candidates, so the tree is not the candidate), and a mutation proving a test fails
+when the claim breaks.
+
+**`#459`'s candidate — confirmed in full, 0 blockers.** Every claimed item holds, each read from the
+frozen commit: (1) `S3-D`/`S5.3`/`S6-C4` the startup `WARN` lives in `ProvisioningWorkerStateLogger`, a
+`@Component` **outside** `ProvisioningWorkerSchedulerConfig`'s
+`@ConditionalOnProperty(... havingValue="true")`, reading `@Value("${app.provisioning.worker.enabled:false}")`
+directly and firing once on `ApplicationReadyEvent` — the one placement that can speak while the gated
+class is not loaded; (2) the field is appended as the record's last component and built from
+`provisioningWorkerProperties.enabled()`, whose bean the **ungated** `ProvisioningWorkerConfig`
+registers, so the field and the scheduler's condition read one source and cannot disagree (`L11`'s own
+correction, re-measured); (3) `T5` renders through `workerDisabled = computed(() => this.overview()?.workerEnabled === false)`,
+the notice sits **outside** `@if (canWrite())`, and an absent field yields `undefined === false` →
+nothing, so both `L11` claims hold; (4) `b0f21a4` pins the mapping in both directions against the
+mocked properties; (5) the five deletions are exactly two test call sites widened by the record's new
+component and two assertion lines, one of which gains the `$.workerEnabled` check — no production
+contract removed, renamed or re-typed. Measurements: `./gradlew --offline test` over the four touched
+classes at the candidate — **84 tests, 0 failures, 0 errors** (4 `ProvisioningWorkerStateLoggerTest`,
+25 `AccessProvisioningQueryServiceTest`, 18 controller, 37 controller-security) — and
+`ng test --include=…/access-section.spec.ts` at the same scratch — **38 tests passed**, coverage
+98.76 % statements. Mutation: inverting the mapping to `!provisioningWorkerProperties.enabled()` fails
+exactly the two mapping tests (`25 tests completed, 2 failed`, `BUILD FAILED`), and restoring it
+answers `BUILD SUCCESSFUL` with 25/0 — the suite is what keeps the screen honest, measured rather than
+assumed. No advisory was withheld: nothing in this candidate is worth a follow-up.
+
+**`#460`'s candidate — its guarantees hold, and it shipped unable to run.** T6's claims are all
+present in `fda95e6:docker/scripts/verify-provisioning-flow.sh`: the worker-off refusal names
+`WORKER_ENABLED` and treats an **absent** `workerEnabled` as unknown rather than off (`S6-C4`'s
+fail-safe reaching a script); the link base must answer the discovery document **and** report an issuer
+equal to that base; `requiredActions` must be exactly `UPDATE_PASSWORD` + `VERIFY_EMAIL`; the five
+`company_*` claims are asserted in **both** directions, including that a level the derivation does not
+hold carries no attribute at all; the disposable operator's password is generated, used in one request
+body and **never printed or written**; and `trap cleanup EXIT` closes the assignment and contract,
+soft-deletes the employee and deletes both Keycloak accounts with `local rc=$?` restored at the end.
+`T7` is confirmed too: `AGENTS.md` states the default's consequence, points at `validate-env.sh`'s
+report and names the three suites, and `employee-access-provisioning.md` gains `G44` with its closure
+plus the two honest supersessions of its own enumerations.
+
+The finding is the rest of it, and it is `L13`'s limitation turning out to be real rather than
+sentimental: **at `fda95e6` the script could not run at all**, and three separate defects were repaired
+later by `bb200f2a` ("make the provisioning verdict script actually run"). (a) `APP_CID` was read at a
+point where `kc_admin` did not exist yet, so the first Admin call answered `kc_admin: command not
+found` and the empty result surfaced two lines later as `$1: unbound variable` inside `json_first_id` —
+bash resolves a command at call time, so the definition order is the defect. (b) the disposable
+operator was created without `firstName`/`lastName`, which this realm's user profile requires for the
+`user` role, so the password grant answered `invalid_grant` / "Account is not fully set up" even with
+`emailVerified=true`: the operator token could never be obtained. (c) the JSON helpers were called
+with their payload **piped on stdin** while they take it as an argument, which under `set -u` is an
+unbound `$2`. The lesson is the one `L13` deserved to be read with: helper functions driven RED/GREEN
+in a scratch harness prove the **helper**, not its call sites, and a `bash -n` parse cannot see an
+argument-order bug or a missing required attribute — only an end-to-end run can, and this one had
+never been run when it merged.
+
+What the live run measures **today** (`main` @ `88f2c7c5`, the repaired script): `./docker/scripts/verify-provisioning-flow.sh dev`
+exits **1** and refuses at a named **data precondition**, not a code defect — the company it resolves
+(`12e71128-…`, domain `acme.com`) has **no enabled position**, so the contract cannot be created, and
+the script says so and points at HR › Positions. Cleanup was proven live on each of the two runs: the
+disposable operator was created and deleted every time, `0` realm users match `w6b-provision`, and
+Mailpit held 6 messages before and after. Consequence stated rather than smoothed: **the full green
+run recorded in `odd/tasks/access-provisioning-worker-repairs.md` `L8` is not reproducible on today's
+dev data** — that is a precondition of the environment, not a claim of this record, and what a future
+operator needs is a dev stack whose chosen company has an enabled position. The 20 suites of
+`docker/scripts/tests/*.test.sh` pass at this commit (0 failures); `shellcheck` is still not installed
+on this machine, so CI's `--severity=warning` pass remains the only one.
+
+One advisory, recorded because the row above asked for the peer comparison and **not** as a defect of
+this candidate: `T6` scoped the script as the peer of `verify-invitation-flow.sh`, and the peer asserts
+the action token's `redirect_uri` claim (emitted as `reduri` by Keycloak 26) equals `WEB_APP_URL`, while
+this script asserts the link's base and issuer but not that claim. `T6` never claimed it, so nothing
+here is unmet; it is a gap between two scripts that now answer neighbouring questions. And the second
+half of `T9`'s row has no object: with `main` clean and only this record's own edit in the worktree,
+`gentle_review inspect` answers `empty_candidate_base_ref_required`, so a native review binds to
+whatever this verification opens next — it cannot be attached retroactively to a historical candidate.
