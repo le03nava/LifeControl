@@ -6,6 +6,7 @@ import {
   effect,
   inject,
   signal,
+  untracked,
 } from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
 import { NonNullableFormBuilder, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
@@ -14,7 +15,10 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ApiError } from '@shared/models';
 import { httpErrorMessage } from '@shared/data';
 import { ProductVariantService } from '../../data/product-variant.service';
+import { ProductService } from '../../data/product.service';
 import { MeasureUnitService } from '../../data/measure-unit.service';
+import { Product, ProductAttributeDefinition } from '../../models/product.models';
+import { createAttributeForm } from '../../models/product-attribute-form';
 import {
   MeasureUnit,
   ProductVariant,
@@ -72,6 +76,13 @@ export interface ProductVariantDialogData {
  * remembers the entity of the last successful write and closes with it on every exit
  * path (D34), so an operator who adds several variants and then cancels still hands the
  * list the last one it must reload for; `null` keeps meaning "nothing was persisted".
+ *
+ * The **variant-level** attributes (S6, S7) are the product's category profile, so this
+ * dialog reads it once: the product (for its classification) and then that category's
+ * profile. A failed read leaves the field-set empty rather than blocking the write — a
+ * barcode and a name are still a valid variant — and the request then omits `attributes`
+ * instead of clearing the stored set. `Talla` is not among them on purpose: `variantName`
+ * already is the size (record L7).
  */
 @Component({
   selector: 'app-product-variant-dialog',
@@ -85,6 +96,7 @@ export class ProductVariantDialog {
     inject<MatDialogRef<ProductVariantDialog, ProductVariant | null>>(MatDialogRef);
   private readonly fb = inject(NonNullableFormBuilder);
   private readonly productVariantService = inject(ProductVariantService);
+  private readonly productService = inject(ProductService);
   private readonly measureUnitService = inject(MeasureUnitService);
   private readonly dialog = inject(MatDialog);
   private readonly destroyRef = inject(DestroyRef);
@@ -98,6 +110,15 @@ export class ProductVariantDialog {
   );
   /** The enabled unit catalog, offered whole: never narrowed by `unitType` (S4). */
   readonly measureUnits = signal<MeasureUnit[]>([]);
+
+  /** The `VARIANT`-level definitions of the product's category profile; empty when it declares none. */
+  private readonly variantDefinitionsState = signal<ProductAttributeDefinition[]>([]);
+  readonly variantDefinitions = this.variantDefinitionsState.asReadonly();
+
+  /** The field-set those definitions render, seeded from the variant being edited. */
+  private readonly attributeFormState = signal<FormGroup>(new FormGroup({}));
+  readonly attributeForm = this.attributeFormState.asReadonly();
+
   readonly serverErrors = signal<Record<string, string>>({});
   /** Write failures shown in the banner; the dialog stays open. */
   readonly generalError = signal<string | null>(null);
@@ -132,6 +153,28 @@ export class ProductVariantDialog {
         next: (units) => this.measureUnits.set(units),
         error: () => this.measureUnits.set([]),
       });
+
+    // The attribute profile belongs to the product's category, and the dialog only receives the
+    // product's id: the product is read for its classification, then that category's profile. A failed
+    // read leaves the field-set empty instead of blocking a write the operator can still make.
+    this.productService
+      .getProductById(this.data.productId)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (product) => this.loadVariantDefinitions(product),
+        error: () => this.variantDefinitionsState.set([]),
+      });
+
+    // The field-set is rebuilt when the definitions arrive (once per dialog) and by the add-another
+    // reset. Seeding reads the variant only here, so an edit shows the values the row already stores.
+    effect(() => {
+      const definitions = this.variantDefinitions();
+      untracked(() =>
+        this.attributeFormState.set(
+          createAttributeForm(definitions, this.data.variant?.attributes ?? {}),
+        ),
+      );
+    });
 
     // Only operator edits reach this: the form is built from the loaded variant and is
     // never patched afterwards, the add-another reset clears it with `emitEvent: false`
@@ -194,6 +237,8 @@ export class ProductVariantDialog {
       { barCode: '', variantName: '', measureUnitId: null },
       { emitEvent: false },
     );
+    // The attribute field-set starts empty for the next variant, with the profile it already has.
+    this.attributeFormState.set(createAttributeForm(this.variantDefinitions(), {}));
     this.dirty.set(false);
     // A stale server error must not survive into the next entry: clear the banner and
     // the field map, and let the form's effect strip the applied `serverError` keys.
@@ -246,6 +291,36 @@ export class ProductVariantDialog {
       variantName: this.fb.control('', [Validators.required, Validators.maxLength(255)]),
       measureUnitId: this.fb.control<string | null>(null),
     });
+  }
+
+  /**
+   * Reads the profile its category resolves to and keeps the variant-level definitions.
+   *
+   * The split by level is the catalog's own (`variantAttributes`), and it is filtered again here as a
+   * guard, not as a second opinion: a product-level attribute rendered on a variant is exactly the
+   * confusion the level exists to prevent (S7).
+   */
+  private loadVariantDefinitions(product: Product): void {
+    const companyId = product.categoryCompanyId;
+    const categoryId = product.categoryId;
+    if (!companyId || !categoryId) {
+      // An unclassified product declares no profile: any attribute would be refused by the API.
+      this.variantDefinitionsState.set([]);
+      return;
+    }
+
+    this.productService
+      .getAttributeProfile(companyId, categoryId)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (profile) =>
+          this.variantDefinitionsState.set(
+            (profile?.variantAttributes ?? []).filter(
+              (definition) => definition.level === 'VARIANT',
+            ),
+          ),
+        error: () => this.variantDefinitionsState.set([]),
+      });
   }
 
   private handleServerError(err: HttpErrorResponse): void {

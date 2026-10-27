@@ -2,6 +2,9 @@ import { ChangeDetectionStrategy, Component, effect, input, output } from '@angu
 import { AbstractControl, FormControl, FormGroup, ReactiveFormsModule } from '@angular/forms';
 import { Subscription } from 'rxjs';
 import { MeasureUnit, ProductVariantRequest } from '../../models/product-variant.models';
+import { ProductAttributeDefinition } from '../../models/product.models';
+import { attributePayload } from '../../models/product-attribute-form';
+import { ProductAttributeFields } from '../product-attribute-fields/product-attribute-fields';
 import { MatButtonModule } from '@angular/material/button';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
@@ -42,6 +45,12 @@ export interface ProductVariantControl {
  * to the matching control exactly as `companies-form` does. The 409 collision is
  * NOT a field error (the backend gives no field attribution), so it never
  * travels through this input: the page renders it as a form-level banner.
+ *
+ * `attributeForm` and `attributeDefinitions` are the **variant-level** field-set of
+ * the product's category profile (S6, S7). Both come from the dialog, which reads the
+ * profile: this component stays presentational and the definitions it renders are the
+ * ones that belong to a variant — `color` and `acabado`, never a product-level
+ * attribute, and never `Talla`, which is `variantName` itself (record L7).
  */
 @Component({
   selector: 'app-product-variant-form',
@@ -54,6 +63,7 @@ export interface ProductVariantControl {
     MatButtonModule,
     MatIconModule,
     MatSelectModule,
+    ProductAttributeFields,
   ],
   templateUrl: './product-variant-form.html',
   styleUrl: './product-variant-form.scss',
@@ -70,6 +80,19 @@ export class ProductVariantForm {
    * read failed, which leaves only the "Sin unidad" option — never a broken control.
    */
   measureUnits = input<MeasureUnit[]>([]);
+
+  /**
+   * The variant-level attribute field-set, built by the dialog from the category's profile.
+   *
+   * A separate group on purpose: the definition count is the catalog's, not this form's, so adding
+   * `attributes` to `ProductVariantControl` would make every control map depend on a profile that
+   * has not arrived yet. An empty group (no profile, or a branch without variant attributes) is
+   * valid and writes nothing.
+   */
+  attributeForm = input<FormGroup>(new FormGroup({}));
+
+  /** The `VARIANT` definitions rendered by `attributeForm`, in the catalog's display order. */
+  attributeDefinitions = input<ProductAttributeDefinition[]>([]);
 
   saveVariant = output<ProductVariantRequest>();
   saveVariantAndContinue = output<ProductVariantRequest>();
@@ -154,8 +177,9 @@ export class ProductVariantForm {
     if (this.saving()) return;
 
     this.formGroup().markAllAsTouched();
+    this.attributeForm().markAllAsTouched();
 
-    if (this.formGroup().valid) {
+    if (this.formGroup().valid && this.attributeForm().valid) {
       this.saveVariant.emit(this.toRequest());
     }
   }
@@ -164,8 +188,9 @@ export class ProductVariantForm {
     if (this.saving()) return;
 
     this.formGroup().markAllAsTouched();
+    this.attributeForm().markAllAsTouched();
 
-    if (this.formGroup().valid) {
+    if (this.formGroup().valid && this.attributeForm().valid) {
       this.saveVariantAndContinue.emit(this.toRequest());
     }
   }
@@ -175,14 +200,23 @@ export class ProductVariantForm {
    *
    * `measureUnitId` is sent explicitly, `null` included: the field is optional on the
    * wire, and omitting it would leave the stored unit untouched instead of clearing it.
+   *
+   * `attributes` is the opposite and is omitted when the branch declares no variant-level
+   * attribute: an absent set leaves the stored one untouched, while an empty one clears it,
+   * and a screen that could not read the profile must not wipe a saved colour.
    */
   private toRequest(): ProductVariantRequest {
     const raw = this.formGroup().getRawValue();
-    return {
+    const definitions = this.attributeDefinitions();
+    const request: ProductVariantRequest = {
       barCode: raw.barCode,
       variantName: raw.variantName,
       measureUnitId: raw.measureUnitId ?? null,
     };
+    if (definitions.length > 0) {
+      request.attributes = attributePayload(definitions, this.attributeForm());
+    }
+    return request;
   }
 
   onCancel(): void {

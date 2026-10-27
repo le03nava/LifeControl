@@ -5,12 +5,18 @@ import { MAT_DIALOG_DATA, MatDialog, MatDialogRef } from '@angular/material/dial
 import { of, Subject, throwError } from 'rxjs';
 import { ProductVariantDialog, ProductVariantDialogData } from './product-variant-dialog';
 import { ProductVariantService } from '../../data/product-variant.service';
+import { ProductService } from '../../data/product.service';
 import { MeasureUnitService } from '../../data/measure-unit.service';
 import {
   MeasureUnit,
   ProductVariant,
   ProductVariantRequest,
 } from '../../models/product-variant.models';
+import {
+  Product,
+  ProductAttributeDefinition,
+  ProductAttributeProfile,
+} from '../../models/product.models';
 import { ProductVariantForm } from '../product-variant-form/product-variant-form';
 import { ConfirmDialog } from '@shared/ui';
 
@@ -25,6 +31,10 @@ describe('ProductVariantDialog', () => {
     updateVariant: ReturnType<typeof vi.fn>;
   };
   let measureUnitServiceMock: { getMeasureUnits: ReturnType<typeof vi.fn> };
+  let productServiceMock: {
+    getProductById: ReturnType<typeof vi.fn>;
+    getAttributeProfile: ReturnType<typeof vi.fn>;
+  };
 
   const productId = 'prod-1';
   const kilogram: MeasureUnit = {
@@ -61,7 +71,30 @@ describe('ProductVariantDialog', () => {
     measureUnitId: 'mu-kg',
   };
 
-  function setup(options: { data?: ProductVariantDialogData } = {}): void {
+  /** A product as the dialog reads it: only its classification matters here. */
+  function createProduct(overrides: Partial<Product> = {}): Product {
+    return {
+      id: productId,
+      sku: 'SKU-001',
+      name: 'Zapato de vestir',
+      enabled: true,
+      createdAt: '',
+      updatedAt: '',
+      categoryId: null,
+      categoryCompanyId: null,
+      ...overrides,
+    };
+  }
+
+  interface SetupOptions {
+    data?: ProductVariantDialogData;
+    /** The product the dialog reads for its classification; unclassified by default. */
+    product?: Partial<Product>;
+    /** The profile its category resolves to; `null` is the API's `204` (no profile). */
+    profile?: ProductAttributeProfile | null;
+  }
+
+  function setup(options: SetupOptions = {}): void {
     dialogRef = { close: vi.fn(), disableClose: false };
     dialogMock = { open: vi.fn().mockReturnValue({ afterClosed: () => of(true) }) };
     productVariantServiceMock = {
@@ -70,6 +103,12 @@ describe('ProductVariantDialog', () => {
       updateVariant: vi.fn().mockReturnValue(of(variant)),
     };
     measureUnitServiceMock = { getMeasureUnits: vi.fn().mockReturnValue(of(catalog)) };
+    // The dialog reads the product for its classification and then that category's profile; the
+    // default product is unclassified, so no profile is read and no attribute input renders.
+    productServiceMock = {
+      getProductById: vi.fn().mockReturnValue(of(createProduct(options.product))),
+      getAttributeProfile: vi.fn().mockReturnValue(of(options.profile ?? null)),
+    };
 
     TestBed.configureTestingModule({
       imports: [ProductVariantDialog],
@@ -78,6 +117,7 @@ describe('ProductVariantDialog', () => {
         { provide: MatDialog, useValue: dialogMock },
         { provide: MAT_DIALOG_DATA, useValue: options.data ?? { productId } },
         { provide: ProductVariantService, useValue: productVariantServiceMock },
+        { provide: ProductService, useValue: productServiceMock },
         { provide: MeasureUnitService, useValue: measureUnitServiceMock },
       ],
     });
@@ -541,6 +581,131 @@ describe('ProductVariantDialog', () => {
       component.cancel();
 
       expect(dialogRef.close).toHaveBeenCalledWith(variant);
+    });
+  });
+
+  describe('variant attributes (S6, S7)', () => {
+    const color: ProductAttributeDefinition = {
+      code: 'color',
+      label: 'Color',
+      level: 'VARIANT',
+      kind: 'ENUM',
+      unitLabel: null,
+      required: true,
+      values: [
+        { code: 'negro', label: 'Negro Mate' },
+        { code: 'rojo', label: 'Charol Rojo' },
+      ],
+    };
+
+    const acabado: ProductAttributeDefinition = {
+      code: 'acabado',
+      label: 'Acabado',
+      level: 'VARIANT',
+      kind: 'ENUM',
+      unitLabel: null,
+      required: false,
+      values: [{ code: 'mate', label: 'Mate' }],
+    };
+
+    const shoeProfile: ProductAttributeProfile = {
+      profileKey: 'calzado',
+      label: 'Calzado',
+      resolvedRootName: 'Calzado',
+      productAttributes: [
+        {
+          code: 'marca',
+          label: 'Marca',
+          level: 'PRODUCT',
+          kind: 'TEXT',
+          unitLabel: null,
+          required: false,
+          values: [],
+        },
+      ],
+      variantAttributes: [color, acabado],
+    };
+
+    /** A product classified under company-1, which is what makes a profile resolvable at all. */
+    const classified: Partial<Product> = {
+      categoryId: 'cat-1',
+      categoryCompanyId: 'company-1',
+    };
+
+    function variantForm(): ProductVariantForm {
+      return fixture.debugElement.query(By.directive(ProductVariantForm))
+        .componentInstance as ProductVariantForm;
+    }
+
+    it('should read the profile of the product category and render only its variant level (S7)', () => {
+      setup({ product: classified, profile: shoeProfile });
+      fixture.detectChanges();
+      fixture.detectChanges();
+
+      expect(productServiceMock.getAttributeProfile).toHaveBeenCalledWith('company-1', 'cat-1');
+      expect(component.variantDefinitions()).toEqual([color, acabado]);
+
+      const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+      expect(text).toContain('Color');
+      expect(text).toContain('Acabado');
+      // A product-level attribute belongs to the product form, never to this dialog.
+      expect(text).not.toContain('Marca');
+    });
+
+    it('should submit the colour as the variant attributes (S6)', () => {
+      setup({ product: classified, profile: shoeProfile });
+      fixture.detectChanges();
+      fixture.detectChanges();
+
+      component.definitionForm().patchValue({ barCode: 'BAR-1', variantName: 'Talla 38' });
+      component.attributeForm().get('color')?.setValue('negro');
+
+      variantForm().onSave();
+
+      expect(productVariantServiceMock.createVariant).toHaveBeenCalledWith(productId, {
+        barCode: 'BAR-1',
+        variantName: 'Talla 38',
+        measureUnitId: null,
+        attributes: { color: 'negro' },
+      });
+    });
+
+    it('should seed and submit the values a variant already stores', () => {
+      setup({
+        data: {
+          productId,
+          variant: { ...variant, attributes: { color: 'negro', acabado: 'mate' } },
+        },
+        product: classified,
+        profile: shoeProfile,
+      });
+      fixture.detectChanges();
+      fixture.detectChanges();
+
+      variantForm().onSave();
+
+      expect(productVariantServiceMock.updateVariant).toHaveBeenCalledWith(
+        productId,
+        'var-1',
+        expect.objectContaining({ attributes: { color: 'negro', acabado: 'mate' } }),
+      );
+    });
+
+    it('should leave the stored attributes alone when the category declares no variant attribute', () => {
+      // `attributes` is omitted, not sent as `{}`: an empty set would clear what the row already holds.
+      setup();
+      fixture.detectChanges();
+      fixture.detectChanges();
+
+      component.definitionForm().patchValue({ barCode: 'BAR-1', variantName: 'Talla 38' });
+      variantForm().onSave();
+
+      expect(productServiceMock.getAttributeProfile).not.toHaveBeenCalled();
+      expect(productVariantServiceMock.createVariant).toHaveBeenCalledWith(productId, {
+        barCode: 'BAR-1',
+        variantName: 'Talla 38',
+        measureUnitId: null,
+      });
     });
   });
 
