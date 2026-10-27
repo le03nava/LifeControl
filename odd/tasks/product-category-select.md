@@ -178,7 +178,7 @@ mergean. Cada slice compila y pasa sus checks **solo**, verificado en su propia 
 
 | # | Branch | Contenido | Líneas | Verificación propia |
 |---|--------|-----------|--------|---------------------|
-| 1 | `feat/product-category-select-1` | V36 y el esquema | 181 | `./gradlew test --tests "com.lifecontrol.api.product.*"` → BUILD SUCCESSFUL |
+| 1 | `feat/product-category-select-1` | V36 y el esquema | 191 | `./gradlew test --tests "com.lifecontrol.api.product.*"` → BUILD SUCCESSFUL |
 | 2 | `feat/product-category-select-2` | El contrato de la API | 389 | idem → BUILD SUCCESSFUL |
 | 3 | `feat/product-category-select-3` | El formulario y su contrato | 657 | `ng test --include=products-form.spec.ts --include=product-edit.spec.ts` → 85/85 |
 | 4 | `feat/product-category-select-4` | El árbol, el camino guardado y este registro | 478 | idem → 92/92, y la suite completa 3931/3931 |
@@ -200,4 +200,4 @@ estado verificado de punta a punta; la cadena es la que se entrega.
 | 2026-10-26 | Full suite Angular, re-corrida después de las correcciones de F1/F2: `ng test --no-watch` → **192 archivos, 3931 tests, 0 fallos**; `eslint src/features/products` limpio; `prettier --check` limpio tras `--write`. |
 | 2026-10-26 | Verifier independiente (riesgo item 1) → **fail** en la primera pasada: F1 (pérdida silenciosa de la clasificación cuando el árbol llega después del producto, S6) y F2 (throw en change detection si la lectura del árbol falla). Ambos corregidos y fijados por test (D10): `product-edit.spec.ts` 66/66 y `products-form.spec.ts` 26/26, 92/92 en conjunto. |
 | 2026-10-26 | Hallazgos del verifier del lado backend: el comentario de V36 justificaba el índice ausente con el lado equivocado del FK (corregido, A1) y el `@EntityGraph` traía `category` pero no `category.company`, dejando el N+1 que el propio comentario negaba (corregido, A3). `ProductControllerTest` suma el 404 de la ruta de update (P3). |
-| 2026-10-26 | Cadena construida y verificada slice por slice: S1 181 líneas/backend verde, S2 389/backend verde, S3 657/85 tests, S4 478/92 tests. Commit hashes de la cadena al momento de escribirla: S1 `3bb6508e`, S2 `26922d2c`, S3 `abb1c969`, S4 `dd2fbcf8`. |
+| 2026-10-26 | Cadena construida y verificada slice por slice: S1/backend verde, S2/backend verde, S3 85 tests, S4 92 tests. La rama publicada es la que manda: cada slice arrastra un commit `style(...)` con el `google-java-format` que exige el job `Static analysis`, y los hijos mergean el padre hacia adelante en vez de reescribir historia publicada. |
