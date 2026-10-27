@@ -64,10 +64,10 @@ class ProductCategorySchemaMigrationIntegrationTest extends AbstractPostgresInte
     }
 
     @Test
-    @DisplayName("applies every migration through V35 and leaves no pending migration")
-    void flywayHeadIsV35() {
+    @DisplayName("applies every migration through V36 and leaves no pending migration")
+    void flywayHeadIsV36() {
         assertThat(flyway.info().current()).isNotNull();
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("35");
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("36");
         assertThat(flyway.info().pending()).isEmpty();
     }
 
@@ -259,6 +259,105 @@ class ProductCategorySchemaMigrationIntegrationTest extends AbstractPostgresInte
                 """, Integer.class);
 
         assertThat(versionColumns).isZero();
+    }
+
+    // ──────────────────────────────────────
+    // V36 — products.category_id
+    // ──────────────────────────────────────
+
+    @Test
+    @DisplayName("V36 adds a nullable products.category_id guarded by fk_products_category")
+    void productsCarryANullableCategoryForeignKey() {
+        var nullable = jdbcTemplate.queryForObject("""
+                SELECT is_nullable FROM information_schema.columns
+                WHERE table_schema = 'public' AND table_name = 'products' AND column_name = 'category_id'
+                """, String.class);
+        var foreignKeys = jdbcTemplate.queryForObject("""
+                SELECT COUNT(*) FROM information_schema.table_constraints
+                WHERE table_schema = 'public'
+                  AND table_name = 'products'
+                  AND constraint_name = 'fk_products_category'
+                  AND constraint_type = 'FOREIGN KEY'
+                """, Integer.class);
+
+        assertThat(nullable).as("an unclassified product is a legal row").isEqualTo("YES");
+        assertThat(foreignKeys).as("fk_products_category exists").isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("fk_products_category rejects a category id that does not exist")
+    void productCategoryForeignKeyRejectsAnUnknownId() {
+        assertViolatesConstraint(
+                "fk_products_category",
+                """
+                INSERT INTO products (id, sku, name, category_id)
+                VALUES (?, ?, ?, ?)
+                """,
+                UUID.randomUUID(),
+                "PCSL-UNKNOWN",
+                "Unknown category product",
+                UUID.randomUUID());
+    }
+
+    @Test
+    @DisplayName("any level is a legal classification: a root, a child and no category are all accepted")
+    void anyLevelIsALegalClassification() {
+        var companyId = categoryCompanyId();
+        var rootId = insertCategory(companyId, "Calzado");
+        var childId = insertCategory(companyId, "Botas");
+        jdbcTemplate.update("UPDATE product_categories SET parent_category_id = ? WHERE id = ?", rootId, childId);
+
+        try {
+            var unclassified = insertProduct("PCSL-NONE", null);
+            var onRoot = insertProduct("PCSL-ROOT", rootId);
+            var onChild = insertProduct("PCSL-CHILD", childId);
+
+            assertThat(unclassified).isEqualTo(1);
+            assertThat(onRoot)
+                    .as("a root with no children is a complete classification")
+                    .isEqualTo(1);
+            assertThat(onChild)
+                    .as("a deeper node is stored instead of its ancestors")
+                    .isEqualTo(1);
+        } finally {
+            deleteSeedProducts();
+        }
+    }
+
+    @Test
+    @DisplayName("a category with a classified product cannot be hard-deleted: NO ACTION guards the link")
+    void referencedCategoryCannotBeHardDeleted() {
+        var companyId = categoryCompanyId();
+        var rootId = insertCategory(companyId, "Alimentos");
+
+        try {
+            insertProduct("PCSL-REFERENCED", rootId);
+
+            // The API soft-deletes (`enabled = false`), so this path exists only for a direct SQL
+            // delete — which is exactly what the default NO ACTION has to refuse.
+            assertViolatesConstraint("fk_products_category", "DELETE FROM product_categories WHERE id = ?", rootId);
+        } finally {
+            deleteSeedProducts();
+        }
+    }
+
+    /** Inserts a minimal product row; returns the affected-row count so the caller can assert it. */
+    private int insertProduct(String sku, UUID categoryId) {
+        return jdbcTemplate.update("""
+                INSERT INTO products (id, sku, name, category_id)
+                VALUES (?, ?, ?, ?)
+                """, UUID.randomUUID(), sku, "Seed product " + sku, categoryId);
+    }
+
+    /**
+     * Removes only the rows these tests create, by SKU prefix.
+     *
+     * <p>{@code products} outlives the category reset, and a leftover row holding a {@code category_id}
+     * would make the next method's {@code DELETE FROM product_categories} fail on the foreign key. The
+     * prefix keeps the sweep from touching fixtures other suites own.</p>
+     */
+    private void deleteSeedProducts() {
+        jdbcTemplate.update("DELETE FROM products WHERE sku LIKE 'PCSL-%'");
     }
 
     /**
