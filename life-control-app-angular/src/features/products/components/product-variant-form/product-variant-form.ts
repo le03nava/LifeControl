@@ -94,6 +94,17 @@ export class ProductVariantForm {
   /** The `VARIANT` definitions rendered by `attributeForm`, in the catalog's display order. */
   attributeDefinitions = input<ProductAttributeDefinition[]>([]);
 
+  /**
+   * Whether the profile behind those definitions is KNOWN, as opposed to still loading or failed.
+   *
+   * The difference decides what an empty `attributeDefinitions` means, and it is not cosmetic: a
+   * resolved profile with no variant attributes says "this branch declares none", so the request must
+   * send `{}` — otherwise a stored colour the current branch does not accept makes the variant
+   * unsavable forever. An unknown profile says "nobody knows yet", and then the request omits the field
+   * and leaves the stored set alone.
+   */
+  attributeProfileKnown = input<boolean>(false);
+
   saveVariant = output<ProductVariantRequest>();
   saveVariantAndContinue = output<ProductVariantRequest>();
   cancelForm = output<void>();
@@ -201,9 +212,12 @@ export class ProductVariantForm {
    * `measureUnitId` is sent explicitly, `null` included: the field is optional on the
    * wire, and omitting it would leave the stored unit untouched instead of clearing it.
    *
-   * `attributes` is the opposite and is omitted when the branch declares no variant-level
-   * attribute: an absent set leaves the stored one untouched, while an empty one clears it,
-   * and a screen that could not read the profile must not wipe a saved colour.
+   * `attributes` follows the same shape: when the branch's profile is KNOWN it sends exactly what the
+   * definitions declare, `{}` included — the branch's set is authoritative, and omitting it would leave
+   * a stored code the API then refuses on every later save. When the profile is not known (still
+   * loading, or the read failed) the field is omitted, because an absent set leaves the stored one
+   * untouched while an empty one clears it, and a screen that could not read the profile must not wipe a
+   * saved colour.
    */
   private toRequest(): ProductVariantRequest {
     const raw = this.formGroup().getRawValue();
@@ -215,6 +229,8 @@ export class ProductVariantForm {
     };
     if (definitions.length > 0) {
       request.attributes = attributePayload(definitions, this.attributeForm());
+    } else if (this.attributeProfileKnown()) {
+      request.attributes = {};
     }
     return request;
   }

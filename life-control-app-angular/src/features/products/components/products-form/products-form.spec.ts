@@ -525,6 +525,43 @@ describe('ProductsForm', () => {
       expect(fg.controls.attributes.value).toBe('{"marca":"Patito"}');
     });
 
+    it('should project the declared set on save, so an undeclared stored key cannot block it (F1)', () => {
+      // The API validates the STORED set, so a key this branch does not declare would refuse every save
+      // of the product — name edits included — with no field on screen able to remove it. The save
+      // therefore sends exactly what the branch declares, and the notice names what goes.
+      const fg = component.formGroup();
+      fg.controls.sku.setValue('SKU-1');
+      fg.controls.name.setValue('Producto');
+      fg.controls.attributes.setValue('{"marca":"Patito","modelo":"X"}');
+      withProfile(profile([definition({ code: 'marca', label: 'Marca' })]));
+
+      expect((fixture.nativeElement as HTMLElement).textContent).toContain('modelo');
+
+      const spy = vi.fn();
+      component.saveProduct.subscribe(spy);
+      component.onSave();
+
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(spy.mock.calls[0][0].attributes).toEqual({ marca: 'Patito' });
+    });
+
+    it('should save {} for a branch with no profile and name what it discards', () => {
+      const fg = component.formGroup();
+      fg.controls.sku.setValue('SKU-2');
+      fg.controls.name.setValue('Producto');
+      fg.controls.attributes.setValue('{"material":"pvc"}');
+      withProfile(null);
+
+      expect((fixture.nativeElement as HTMLElement).textContent).toContain('material');
+
+      const spy = vi.fn();
+      component.saveProduct.subscribe(spy);
+      component.onSave();
+
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(spy.mock.calls[0][0].attributes).toEqual({});
+    });
+
     it('should leave the carrier alone while the profile is unknown', () => {
       // `undefined` is "the host does not know yet"; clearing the carrier here is what would drop the
       // attributes a product already stores before the profile that proves them arrives.

@@ -10,6 +10,10 @@
   <app-error-banner [message]="errorMessage" />
 }
 
+@if (discardNotice(); as notice) {
+  <p class="discard-notice">{{ notice }}</p>
+}
+
 <app-product-variant-form
   [formGroup]="definitionForm()"
   [serverErrors]="serverErrors()"
@@ -18,6 +22,7 @@
   [measureUnits]="measureUnits()"
   [attributeForm]="attributeForm()"
   [attributeDefinitions]="variantDefinitions()"
+  [attributeProfileKnown]="profileKnown()"
   (saveVariant)="onSaveVariant($event)"
   (saveVariantAndContinue)="onSaveVariantAndContinue($event)"
   (cancelForm)="cancel()"

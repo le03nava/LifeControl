@@ -691,8 +691,10 @@ describe('ProductVariantDialog', () => {
       );
     });
 
-    it('should leave the stored attributes alone when the category declares no variant attribute', () => {
-      // `attributes` is omitted, not sent as `{}`: an empty set would clear what the row already holds.
+    it('should send {} for an unclassified product, so a stored colour cannot block the save (F1)', () => {
+      // An unclassified product declares no profile, and the API validates the STORED set: keeping
+      // `{"color":"negro"}` would refuse every later save of this variant, with no field on screen able
+      // to remove it. The request says `{}` and the dialog names what it discards.
       setup();
       fixture.detectChanges();
       fixture.detectChanges();
@@ -705,7 +707,20 @@ describe('ProductVariantDialog', () => {
         barCode: 'BAR-1',
         variantName: 'Talla 38',
         measureUnitId: null,
+        attributes: {},
       });
+    });
+
+    it('should name the stored attributes it will discard when the branch declares none (F1)', () => {
+      setup({
+        data: { productId, variant: { ...variant, attributes: { color: 'negro' } } },
+        product: { categoryId: 'cat-1', categoryCompanyId: 'company-1' },
+        profile: null,
+      });
+      fixture.detectChanges();
+      fixture.detectChanges();
+
+      expect((fixture.nativeElement as HTMLElement).textContent).toContain('color');
     });
   });
 

@@ -115,6 +115,35 @@ export class ProductVariantDialog {
   private readonly variantDefinitionsState = signal<ProductAttributeDefinition[]>([]);
   readonly variantDefinitions = this.variantDefinitionsState.asReadonly();
 
+  /**
+   * Whether the profile behind those definitions resolved, as opposed to still loading or failing.
+   *
+   * It decides what an empty definition list means for the write: "this branch declares none" sends
+   * `{}`, while "nobody knows yet" omits the field and leaves the stored set alone.
+   */
+  private readonly profileKnownState = signal(false);
+  readonly profileKnown = this.profileKnownState.asReadonly();
+
+  /**
+   * Codes the edited variant stores that the current branch does not declare, so saving discards them.
+   *
+   * Stated on screen because the alternative is a dead end: the API validates the stored set, so a
+   * variant holding a code its branch no longer declares cannot be saved until it is projected away —
+   * and the operator is entitled to see which ones go before agreeing to that.
+   */
+  readonly discardNotice = computed<string | null>(() => {
+    if (!this.profileKnown()) {
+      return null;
+    }
+    const stored = this.data.variant?.attributes ?? {};
+    const declared = new Set(this.variantDefinitions().map((definition) => definition.code));
+    const undeclared = Object.keys(stored).filter((code) => !declared.has(code));
+    if (undeclared.length === 0) {
+      return null;
+    }
+    return `Esta variante guarda atributos que la rama de la categoría no declara y se descartarán al guardar: ${undeclared.join(', ')}.`;
+  });
+
   /** The field-set those definitions render, seeded from the variant being edited. */
   private readonly attributeFormState = signal<FormGroup>(new FormGroup({}));
   readonly attributeForm = this.attributeFormState.asReadonly();
@@ -304,8 +333,10 @@ export class ProductVariantDialog {
     const companyId = product.categoryCompanyId;
     const categoryId = product.categoryId;
     if (!companyId || !categoryId) {
-      // An unclassified product declares no profile: any attribute would be refused by the API.
+      // An unclassified product declares no profile: any attribute would be refused by the API, so the
+      // branch IS known to declare none and the request must say `{}` rather than keep a stored set.
       this.variantDefinitionsState.set([]);
+      this.profileKnownState.set(true);
       return;
     }
 
@@ -313,13 +344,19 @@ export class ProductVariantDialog {
       .getAttributeProfile(companyId, categoryId)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (profile) =>
+        next: (profile) => {
+          this.profileKnownState.set(true);
           this.variantDefinitionsState.set(
             (profile?.variantAttributes ?? []).filter(
               (definition) => definition.level === 'VARIANT',
             ),
-          ),
-        error: () => this.variantDefinitionsState.set([]),
+          );
+        },
+        error: () => {
+          // A failed read is not "no attributes": the request omits the field and keeps the stored set.
+          this.profileKnownState.set(false);
+          this.variantDefinitionsState.set([]);
+        },
       });
   }
 
