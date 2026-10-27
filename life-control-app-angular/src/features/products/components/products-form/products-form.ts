@@ -2,15 +2,31 @@ import {
   ChangeDetectionStrategy,
   Component,
   computed,
+  DestroyRef,
   effect,
+  inject,
   input,
   output,
   signal,
+  untracked,
 } from '@angular/core';
 import { AbstractControl, FormGroup, ReactiveFormsModule } from '@angular/forms';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Subscription } from 'rxjs';
-import { ProductControl, ProductFormValue } from '../../models/product.models';
+import {
+  ProductAttributeDefinition,
+  ProductAttributeProfile,
+  ProductControl,
+  ProductFormValue,
+} from '../../models/product.models';
+import {
+  attributeDefinitionsKey,
+  attributePayload,
+  createAttributeForm,
+  parseAttributeJson,
+} from '../../models/product-attribute-form';
 import { MAX_CATEGORY_DEPTH, ProductCategory } from '../../models/product-category.models';
+import { ProductAttributeFields } from '../product-attribute-fields/product-attribute-fields';
 import { CompanySelectorOption } from '@features/companies/companies/models/company.models';
 import { MatButtonModule } from '@angular/material/button';
 import { MatFormFieldModule } from '@angular/material/form-field';
@@ -39,6 +55,7 @@ interface CategoryOption {
     MatButtonModule,
     MatSlideToggleModule,
     MatIconModule,
+    ProductAttributeFields,
   ],
   templateUrl: './products-form.html',
   styleUrl: './products-form.scss',
@@ -89,6 +106,30 @@ export class ProductsForm {
   cancelForm = output<void>();
   companyChange = output<string | null>();
 
+  /**
+   * The deepest selected category, reported so the host can fetch its attribute profile.
+   *
+   * The host cannot derive this from the `categoryId` control: the form writes it with `emitEvent:
+   * false` and the host's own path computed deliberately does not track control values, so the two
+   * places that write the classification — a user pick and the host's seeding — report it here.
+   */
+  categoryChange = output<string | null>();
+
+  /**
+   * The attribute profile the selected category resolves to (T4).
+   *
+   * Three answers, and the difference between them is load-bearing:
+   * - `undefined` — the host does not know yet: no category is selected, its read is in flight, or it
+   *   failed. The field-set and the carrier JSON are left exactly as they are; clearing them here
+   *   would drop the attributes the product already stores before the profile that proves them lands.
+   * - `null` — the branch declares no profile (the API's `204`). No inputs render, and the carrier
+   *   becomes an empty object: the write rule is authoritative, so a stored code this branch does not
+   *   declare would be refused.
+   * - the profile — its `PRODUCT` definitions are the field-set; the `VARIANT` ones belong to the
+   *   variant dialog and never render here (S7).
+   */
+  attributeProfile = input<ProductAttributeProfile | null | undefined>(undefined);
+
   readonly defaultErrorMessages: Record<string, (error: unknown) => string> = {
     required: () => 'Este campo es obligatorio.',
     minlength: (err) =>
@@ -112,6 +153,8 @@ export class ProductsForm {
     sub1: '',
     sub2: '',
   });
+
+  private readonly destroyRef = inject(DestroyRef);
 
   /** Where the value currently in the SAT input came from, or `null` when it did not come from one. */
   private readonly satCodeSource = signal<string | null>(null);
@@ -140,6 +183,53 @@ export class ProductsForm {
   /** Whether the previous level has a pick, i.e. whether the next one can be chosen at all. */
   readonly hasSubcategory1 = computed(() => this.selection().root !== '');
   readonly hasSubcategory2 = computed(() => this.selection().sub1 !== '');
+
+  /** The `PRODUCT`-level definitions of the profile: the only ones this screen renders (S7). */
+  readonly productAttributeDefinitions = computed<ProductAttributeDefinition[]>(() =>
+    (this.attributeProfile()?.productAttributes ?? []).filter(
+      (definition) => definition.level === 'PRODUCT',
+    ),
+  );
+
+  /**
+   * The rendered field-set. Its size is the profile's, not the form's, so it is a group of its own
+   * rather than a nested group of `ProductControl` — which is what keeps the host's form
+   * construction untouched.
+   */
+  private readonly attributeFormState = signal<FormGroup>(new FormGroup({}));
+  readonly attributeForm = this.attributeFormState.asReadonly();
+
+  /** Whether the profile is known at all, i.e. whether `null` means "this branch declares none". */
+  readonly attributeProfileKnown = computed(() => this.attributeProfile() !== undefined);
+
+  /**
+   * What the screen says when there is nothing to render, or `null` when there is.
+   *
+   * A `204` is a legitimate answer and not an error, so the copy states the fact rather than warning
+   * about it; a branch whose attributes are all variant-level is a different fact and gets its own
+   * sentence, because "no attributes" would be false there.
+   */
+  readonly attributeNotice = computed<string | null>(() => {
+    if (!this.attributeProfileKnown()) {
+      return null;
+    }
+    if (this.attributeProfile() === null) {
+      return 'La categoría elegida no declara atributos: no hay inputs de atributos para esta rama.';
+    }
+    if (this.productAttributeDefinitions().length === 0) {
+      return 'Los atributos de esta rama son de la variante: se cargan al crear cada variante.';
+    }
+    return null;
+  });
+
+  /** Identity of the rendered field-set; a re-fetch of the same profile must not rebuild it. */
+  private readonly attributeFieldKey = computed(() =>
+    attributeDefinitionsKey(this.productAttributeDefinitions()),
+  );
+
+  private appliedAttributeKey: string | null = null;
+  private appliedAttributeForm: FormGroup<ProductControl> | null = null;
+  private attributeSubscription: Subscription | null = null;
 
   protected getErrorMessage(
     control: AbstractControl | null,
@@ -215,6 +305,21 @@ export class ProductsForm {
       this.selection.set({ root, sub1, sub2 });
       this.applyLevelAvailability(root, sub1);
       this.withdrawHint();
+      // The applied path is the classification this form now shows, so it is reported like a pick: a
+      // product that lost its classification (a company change, F1's `[]`) must not keep asking for the
+      // previous category's attribute profile.
+      this.categoryChange.emit(sub2 || sub1 || root || null);
+    });
+
+    // S4, S5: the rendered field-set follows the profile and the JSON carrier is rewritten from it. The
+    // key is compared instead of the definitions array so a re-fetch of the same profile does not
+    // rebuild the controls under the operator's hands, and the writing is untracked because it writes
+    // the same carrier it reads.
+    effect(() => {
+      const fieldKey = this.attributeFieldKey();
+      const fg = this.formGroup();
+      if (this.attributeProfile() === undefined) return;
+      untracked(() => this.applyAttributeDefinitions(fieldKey, fg));
     });
 
     // S4: the hint describes the value the form itself wrote. Once the operator types something else
@@ -273,8 +378,12 @@ export class ProductsForm {
 
   onSave(): void {
     this.formGroup().markAllAsTouched();
+    // The field-set is its own group (its size is the profile's), so its required attributes are
+    // checked here instead of through the carrier control.
+    const attributeForm = this.attributeForm();
+    attributeForm.markAllAsTouched();
 
-    if (this.formGroup().valid) {
+    if (this.formGroup().valid && attributeForm.valid) {
       const raw = this.formGroup().getRawValue();
 
       let parsedAttributes: Record<string, unknown> | undefined;
@@ -316,6 +425,7 @@ export class ProductsForm {
    */
   private commitSelection(deepestId: string, pickedId: string): void {
     this.formGroup().controls.categoryId.setValue(deepestId, { emitEvent: false });
+    this.categoryChange.emit(deepestId === '' ? null : deepestId);
 
     const node =
       pickedId === ''
@@ -364,6 +474,56 @@ export class ProductsForm {
   private withdrawHint(): void {
     this.suggestedSatCode = null;
     this.satCodeSource.set(null);
+  }
+
+  /**
+   * Rebuilds the field-set of the current profile and re-seeds the carrier control from it.
+   *
+   * Seeding reads the carrier's own JSON, which is what preserves the saved values in edit mode and,
+   * at the same time, drops whatever the previous category declared: a code the new profile does not
+   * list has no control, so it is not part of the payload the API is about to receive (L4).
+   */
+  private applyAttributeDefinitions(fieldKey: string, fg: FormGroup<ProductControl>): void {
+    if (fieldKey === this.appliedAttributeKey && fg === this.appliedAttributeForm) {
+      return;
+    }
+    this.appliedAttributeKey = fieldKey;
+    this.appliedAttributeForm = fg;
+
+    const definitions = this.productAttributeDefinitions();
+    const group = createAttributeForm(
+      definitions,
+      parseAttributeJson(fg.controls.attributes.value),
+    );
+
+    this.attributeSubscription?.unsubscribe();
+    this.attributeSubscription = null;
+    this.attributeFormState.set(group);
+
+    // A branch that declares no profile is NOT the form's to author. Writing `{}` into the carrier here
+    // would erase the attributes a product already stores, silently: they are never rendered, so the
+    // operator cannot see what the save is about to delete. The carrier is left exactly as it arrived,
+    // and an incompatible stored set is refused by the API with a message naming the code — visible,
+    // which is the whole difference between this rule and a wipe.
+    if (this.attributeProfile() === null) {
+      return;
+    }
+
+    this.attributeSubscription = group.valueChanges
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(() => this.syncAttributes(definitions, group));
+
+    // Written on arrival as well: the saved JSON may still name codes this branch does not declare.
+    this.syncAttributes(definitions, group);
+  }
+
+  /** Mirrors the field-set into the carrier control, which is what `onSave` already reads. */
+  private syncAttributes(definitions: ProductAttributeDefinition[], group: FormGroup): void {
+    const json = JSON.stringify(attributePayload(definitions, group));
+    const control = this.formGroup().controls.attributes;
+    if (control.value !== json) {
+      control.setValue(json);
+    }
   }
 
   /**

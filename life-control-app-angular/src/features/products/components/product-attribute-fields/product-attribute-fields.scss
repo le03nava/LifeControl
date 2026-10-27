@@ -1,0 +1,29 @@
+// product-attribute-fields.scss — el field-set de una categoría, dentro del grid de su formulario.
+//
+// El host es el grid (`form { display: grid }` en _form-layout.scss), así que la tarjeta ocupa la fila
+// entera y reparte los campos de atributo en su propio grid: la cantidad de atributos la decide el
+// perfil de la categoría, nunca la pantalla.
+:host {
+  display: block;
+  grid-column: 1 / -1;
+}
+
+.attribute-fields {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-md);
+
+  @media (min-width: 576px) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  @media (min-width: 1024px) {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.attribute-toggle {
+  display: flex;
+  align-items: center;
+  padding-block: var(--space-sm);
+}
