@@ -9,16 +9,23 @@ import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
 /**
- * Global sellable definition of a product variant: which product it belongs to, its name/size
- * and its barcode.
+ * Sellable definition of a product variant: which product it belongs to, its name/size and its
+ * barcode.
  *
- * <p>This row is GLOBAL, not per store. The stock and the prices that differ per store live in
- * {@link ProductVariantStoreStock}, one row per {@code (variant, store)}. The split exists because
- * the barcode of a given product in a given size is identical in every branch, so a store-scoped
- * row under a global unique barcode could never represent the same variant in two stores.</p>
+ * <p>This row is <b>company-scoped, not per store</b>. It belongs to one product of one company, and
+ * the stock and the prices that differ per store live in {@link ProductVariantStoreStock}, one row per
+ * {@code (variant, store)}. The split exists because the barcode of a given product in a given size is
+ * identical in every branch of the <i>same</i> company, so a store-scoped row under a unique barcode
+ * could never represent the same variant in two stores.</p>
  *
- * <p>Constraints owned by the database: {@code bar_code} is {@code NOT NULL} and globally unique
- * (D2), and {@code (product_id, variant_name)} is unique (D3). The entity deliberately carries no
+ * <p>Two tenants are separate businesses and legitimately use the same barcode, so {@code companyId}
+ * (V39) is what the contract step makes the barcode unique against: {@code UNIQUE (company_id,
+ * bar_code)} replaces the global key V14 introduced. It is a plain {@code UUID} like
+ * {@link #productId} rather than a {@code @ManyToOne}, which is this entity's own established style —
+ * the product is a {@code @ManyToOne} on {@link Product}, and every reference drawn from here is an id.</p>
+ *
+ * <p>Constraints owned by the database: {@code bar_code} is {@code NOT NULL}, and
+ * {@code (product_id, variant_name)} is unique (D3). The entity deliberately carries no
  * {@code sku}: the variant sku was removed by decision D2, and the product sku is the only sku
  * that remains.</p>
  *
@@ -49,6 +56,18 @@ public class ProductVariant extends Auditable {
     @Column(name = "product_id", nullable = false)
     private UUID productId;
 
+    /**
+     * The company that owns this variant, copied from its product (V39).
+     *
+     * <p>Denormalized on purpose: {@code UNIQUE (company_id, bar_code)} cannot be expressed over a
+     * table's neighbour, so the owner has to sit on the row the key covers. The copy is not a second
+     * source of truth once the contract step lands — the composite foreign key
+     * {@code (company_id, product_id) -> products (company_id, id)} makes a variant whose company
+     * disagrees with its product's unrepresentable.</p>
+     */
+    @Column(name = "company_id")
+    private UUID companyId;
+
     @Column(name = "measure_unit_id")
     private UUID measureUnitId;
 
@@ -75,6 +94,10 @@ public class ProductVariant extends Auditable {
 
     public UUID getProductId() {
         return productId;
+    }
+
+    public UUID getCompanyId() {
+        return companyId;
     }
 
     public UUID getMeasureUnitId() {
@@ -104,6 +127,10 @@ public class ProductVariant extends Auditable {
 
     public void setProductId(UUID productId) {
         this.productId = productId;
+    }
+
+    public void setCompanyId(UUID companyId) {
+        this.companyId = companyId;
     }
 
     public void setMeasureUnitId(UUID measureUnitId) {
@@ -141,6 +168,11 @@ public class ProductVariant extends Auditable {
 
         public Builder productId(UUID productId) {
             variant.productId = productId;
+            return this;
+        }
+
+        public Builder companyId(UUID companyId) {
+            variant.companyId = companyId;
             return this;
         }
 

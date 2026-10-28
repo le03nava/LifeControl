@@ -1,5 +1,6 @@
 package com.lifecontrol.api.product.service;
 
+import com.lifecontrol.api.company.model.Company;
 import com.lifecontrol.api.product.attribute.model.ProductAttributeLevel;
 import com.lifecontrol.api.product.attribute.service.ProductAttributeCatalogService;
 import com.lifecontrol.api.product.category.exception.ProductCategoryNotFoundException;
@@ -57,6 +58,7 @@ public class ProductService {
                 .productType(request.productType())
                 .attributes(request.attributes())
                 .category(category)
+                .company(companyOf(category))
                 .enabled(true)
                 .build();
 
@@ -95,6 +97,13 @@ public class ProductService {
         // `null` clears the classification on purpose: the form sends what its three selects hold, and
         // "sin categoría" has to be expressible.
         product.setCategory(category);
+        // The owner follows the classification (V39): a reclassified product belongs to the company of
+        // the branch it now sits under, so the materialized column can never disagree with the category
+        // the response reports. A request that clears the category leaves the owner where it was —
+        // unclassifying a product is not a transfer of ownership.
+        if (category != null) {
+            product.setCompany(companyOf(category));
+        }
 
         // The request is authoritative for the set it sends: it REPLACES the stored map instead of
         // merging into it. The previous shallow `putAll` made a key impossible to remove and kept the
@@ -162,10 +171,11 @@ public class ProductService {
     /**
      * Resolves the category a request points at, or {@code null} when it sends none.
      *
-     * <p>The lookup is deliberately <b>not</b> company-scoped: a {@code ProductRequest} carries no
-     * company — {@code products} has none (V1) — so there is nothing to scope it by, and the category's
-     * own company is what the response reports. That is safe because the column is a real foreign key:
-     * the id either names one existing row of one company, or it does not exist at all.</p>
+     * <p>The lookup is deliberately <b>not</b> company-scoped, and the reason changed with V39: a
+     * {@code ProductRequest} still carries no company, so the resolved category is what says who owns the
+     * product ({@link #companyOf}) instead of the other way round. That is safe because the column is a
+     * real foreign key: the id either names one existing row of one company, or it does not exist at
+     * all.</p>
      *
      * <p>The {@code enabled} flag is not checked. A category is soft-deleted, so requiring it here would
      * freeze every later edit of the products already classified under it — an operator fixing a typo
@@ -188,8 +198,8 @@ public class ProductService {
      *
      * <p>An unclassified product declares no profile: an empty set passes and any attribute is refused,
      * which is the same answer a category whose branch has no attachment gets. The company comes from
-     * the category, because {@code products} carries none (V1) and the profile lookup is
-     * company-scoped.</p>
+     * the category, because the profile lookup is company-scoped and the category is where the request
+     * names one — a product does not carry an attribute profile of its own.</p>
      */
     private void validateAttributes(ProductCategory category, Map<String, Object> attributes) {
         var categoryId = category == null ? null : category.getId();
@@ -197,6 +207,18 @@ public class ProductService {
                 ? null
                 : category.getCompany().getId();
         productAttributeCatalogService.validate(companyId, categoryId, attributes, ProductAttributeLevel.PRODUCT);
+    }
+
+    /**
+     * The company that owns a category, or {@code null} when the product is unclassified.
+     *
+     * <p>This is the expand-step rule of {@code V39}: the product's owner column is populated from the
+     * category it is filed under, because that is the only owner the request carries today. It is a
+     * method rather than an inline expression so the day the company arrives in the path — no longer
+     * derived, merely checked against the category — there is exactly one call site to change.</p>
+     */
+    private Company companyOf(ProductCategory category) {
+        return category == null ? null : category.getCompany();
     }
 
     private ProductResponse mapToResponse(Product product) {

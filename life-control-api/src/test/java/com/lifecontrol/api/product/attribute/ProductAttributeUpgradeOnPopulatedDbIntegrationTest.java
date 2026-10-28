@@ -86,7 +86,16 @@ class ProductAttributeUpgradeOnPopulatedDbIntegrationTest extends AbstractPostgr
                 .dataSource(url, user, password)
                 .locations("classpath:db/migration")
                 .load();
-        assertThat(toHead.migrate().migrationsExecuted).isEqualTo(2);
+        // The count used to be the literal 2, which made every later migration fail a test about the
+        // V37/V38 path — V39 of the product-catalog unit is the first one to prove it, and it never
+        // touches attributes. What this test measures is the PATH from a populated V36 database to
+        // whatever ships last, so the versions are derived from the migration set exactly like the head
+        // is (record `flyway-head-single-source`), and nothing is typed here.
+        var applied = toHead.migrate().migrations;
+        assertThat(applied)
+                .extracting(migration -> migration.version)
+                .startsWith("37")
+                .endsWith(latestMigrationVersion());
 
         // The pre-existing variant gains the column empty — not with a default, which would silently
         // claim a colour nobody entered.

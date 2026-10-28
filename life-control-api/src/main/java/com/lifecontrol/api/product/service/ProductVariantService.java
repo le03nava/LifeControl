@@ -153,9 +153,11 @@ public class ProductVariantService {
     }
 
     /**
-     * Creates the GLOBAL definition of a variant. The owning product is the path variable, not part
-     * of the request. Both uniqueness rules are checked here and, ultimately, by the database:
-     * {@code bar_code} globally (D2) and {@code (product_id, variant_name)} (D3).
+     * Creates the company-scoped definition of a variant. The owning product is the path variable, not
+     * part of the request, and the variant copies the product's company (V39) because the barcode key
+     * that replaces the global one has to live on the row it covers. Both uniqueness rules are checked
+     * here and, ultimately, by the database: {@code (company_id, bar_code)} once the contract step
+     * lands, and {@code (product_id, variant_name)} (D3) today.
      *
      * @throws ProductNotFoundException when the product does not exist
      * @throws DuplicateProductVariantException when the barcode or the (product, name) pair already
@@ -193,6 +195,10 @@ public class ProductVariantService {
 
         var variant = ProductVariant.builder()
                 .productId(productId)
+                .companyId(
+                        product.getCompany() == null
+                                ? null
+                                : product.getCompany().getId())
                 .measureUnitId(measureUnit == null ? null : measureUnit.getId())
                 .barCode(request.barCode())
                 .variantName(request.variantName())
