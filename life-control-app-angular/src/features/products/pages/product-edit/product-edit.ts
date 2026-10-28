@@ -9,7 +9,7 @@ import {
 } from '@angular/core';
 import { NgTemplateOutlet } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
-import { ActivatedRoute, Router, convertToParamMap } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink, convertToParamMap } from '@angular/router';
 import { rxResource, takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { map } from 'rxjs';
 import { ProductService } from '../../data/product.service';
@@ -58,6 +58,7 @@ class SpanishStepperIntl extends MatStepperIntl {
   selector: 'app-product-edit',
   imports: [
     NgTemplateOutlet,
+    RouterLink,
     ErrorBanner,
     PageHeader,
     ProductsForm,
@@ -84,14 +85,28 @@ export class ProductEdit implements OnInit, UnsavedChangesAware {
   productId = signal<string | null>(this.route.snapshot.paramMap.get('id'));
 
   /**
-   * The company this product belongs to: the route's, and the only company this screen can write in.
+   * Which company's tree feeds the form: `?companyId=`, seeded once and then kept in the URL.
    *
-   * It is not page state and not a query param any more. A product belongs to one company, every write
-   * is scoped to it on the wire (`/api/companies/{companyId}/products`), and the API refuses a category
-   * of another company — so the screen's company and the product's owner cannot disagree, and the
-   * second company field the response used to carry (`categoryCompanyId`) is gone.
+   * A signal and not a plain read, because on **create** the operator chooses it here — the form's
+   * `Empresa` field is enabled (S3) — and the tree has to follow that pick without the router destroying
+   * the component. `ProductCategoryList`'s shape: a signal seeded from the query parameter and written
+   * back with `replaceUrl`.
+   *
+   * On **edit** it is simply what the URL said, and it is required: a product id alone cannot be
+   * addressed on `/api/companies/{companyId}/products`, and the field is disabled because the product's
+   * owner is fixed. `null` there is a stated error, not a company to invent (see the template).
    */
-  readonly companyId = productsCompanyId(this.route);
+  readonly selectedCompanyId = signal<string | null>(productsCompanyId(this.route));
+
+  /**
+   * The company every read and write of this screen is scoped to: the chosen one.
+   *
+   * Two names on purpose, because they are two different facts: `selectedCompanyId` is the state the
+   * operator can change on create, and this is the scope every request is sent under. It is also not a
+   * response field — the product's own `companyId` proves the row belongs there, it does not decide the
+   * screen, so a second read of it could only disagree with the URL.
+   */
+  readonly companyId = computed(() => this.selectedCompanyId());
 
   productForm = signal<FormGroup<ProductControl>>(this.createForm());
 
@@ -144,15 +159,6 @@ export class ProductEdit implements OnInit, UnsavedChangesAware {
     this.companyService.getCompanySelector(0, 1000).pipe(map((page) => page.content)),
     { initialValue: [] },
   );
-
-  /**
-   * Which company's tree feeds the three selects. Fixed by the URL, never chosen here.
-   *
-   * The `Empresa` select therefore only *reports* it: changing it would mean writing a product of one
-   * company into another, which the API does not allow, so the form disables it once the product exists
-   * (and `onCompanyChange` navigates instead of mutating state — see below).
-   */
-  readonly selectedCompanyId = signal<string | null>(this.companyId);
 
   /**
    * The selected company's whole tree, disabled nodes included (S8).
@@ -323,8 +329,10 @@ export class ProductEdit implements OnInit, UnsavedChangesAware {
   }
 
   private loadProduct(id: string): void {
-    const companyId = this.companyId;
+    const companyId = this.companyId();
     if (!companyId) {
+      // Nothing to read: `GET /api/companies/{companyId}/products/{id}` has no company-free form, and
+      // the template states the missing company instead of rendering a form over a product nobody loaded.
       return;
     }
     this.productService
@@ -381,20 +389,30 @@ export class ProductEdit implements OnInit, UnsavedChangesAware {
   }
 
   /**
-   * Keeps the products screen honest about the company: it is the URL's, so a change is a navigation.
+   * Keeps the create screen's company in the URL and lets the tree follow it.
    *
-   * Choosing a different company cannot move a saved product — the API scopes every write to the
-   * product's own company and refuses a category of another one — so while a product exists this does
-   * nothing. Before it exists there is nothing to move, so a change simply continues on the other
-   * company's create screen, which is what the operator asked for; the route's
-   * `unsavedChangesGuard` asks first if the form holds edits.
+   * `replaceUrl`, exactly as `ProductCategoryList.onCompanyChange` does: the pick is not a step in a flow,
+   * it is the same form under another company, and a history entry per pick would make the back button
+   * walk the operator through every company they tried. `merge` so `?tab=` and `?storeId=` survive.
+   *
+   * On **edit** this does nothing at all. The previous shape navigated to another company's create
+   * screen; now that the company is a query parameter, navigating is exactly what S3 removed — the
+   * operator would lose the product they were editing. The field is disabled there anyway, so this is
+   * the belt-and-braces path: a reported change must not move a saved product, nor discard the
+   * classification the screen cannot carry to another company.
    */
   onCompanyChange(companyId: string | null): void {
     const next = companyId || null;
-    if (!next || this.productId() !== null) {
+    if (this.productId() !== null) {
       return;
     }
-    void this.router.navigate(['/products/c', next, 'create']);
+    this.selectedCompanyId.set(next);
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { companyId: next },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
   }
 
   /**
@@ -440,6 +458,15 @@ export class ProductEdit implements OnInit, UnsavedChangesAware {
   }
 
   onSaveProduct(productData: ProductFormValue): void {
+    // No company, no endpoint: every write is scoped to `/api/companies/{companyId}/products`, so this
+    // refuses instead of guessing one. On create it is reachable only before the operator picks in the
+    // form's `Empresa` field; on edit the screen states the missing company as soon as it loads.
+    const companyId = this.companyId();
+    if (!companyId) {
+      this.generalError.set('Elegí una empresa antes de guardar el producto.');
+      return;
+    }
+
     // The wire body is built explicitly against `ProductRequest` (S4): the response model also
     // carries `id` and `enabled`, and the API rejects the body before validating any field.
     const request: ProductRequest = {
@@ -454,7 +481,7 @@ export class ProductEdit implements OnInit, UnsavedChangesAware {
     };
     if (productData.id === '') {
       this.productService
-        .createProduct(this.requireCompanyId(), request)
+        .createProduct(companyId, request)
         .pipe(takeUntilDestroyed(this.destroyRef))
         .subscribe({
           next: (createdProduct) => {
@@ -464,12 +491,9 @@ export class ProductEdit implements OnInit, UnsavedChangesAware {
               // stays for the pre-existing edit-mode case where the product load failed
               // and the form still holds its empty-id initial value.
               this.productForm().markAsPristine();
-              this.router.navigate([
-                '/products/c',
-                this.requireCompanyId(),
-                'edit',
-                createdProduct.id,
-              ]);
+              void this.router.navigate(['/products/edit', createdProduct.id], {
+                queryParams: { companyId },
+              });
               return;
             }
             this.adoptCreatedProduct(createdProduct);
@@ -483,7 +507,7 @@ export class ProductEdit implements OnInit, UnsavedChangesAware {
         });
     } else {
       this.productService
-        .updateProduct(this.requireCompanyId(), productData.id, request)
+        .updateProduct(companyId, productData.id, request)
         .pipe(takeUntilDestroyed(this.destroyRef))
         .subscribe({
           next: (updatedProduct) => {
@@ -495,7 +519,7 @@ export class ProductEdit implements OnInit, UnsavedChangesAware {
             if (this.isEditMode()) {
               // The route is guarded by `unsavedChangesGuard`; a successful save
               // must reach the list without the discard prompt firing.
-              this.router.navigate(['/products/c', this.requireCompanyId(), 'list']);
+              void this.router.navigate(['/products/list'], { queryParams: { companyId } });
             }
             // In the create stepper this is a back-edit of step 1 (D26) and the operator
             // stays where they are: the step is the editing surface, and leaving would
@@ -531,33 +555,21 @@ export class ProductEdit implements OnInit, UnsavedChangesAware {
   /**
    * Post-persist exit (D27): the product exists, so leaving lands on its workspace. Before
    * the product exists the same affordance is the pre-persist exit and lands on the list.
+   *
+   * Both destinations carry the company, because both are scoped screens (`/products/list` shows one
+   * company's catalog). With no company there is nothing scoped to go to, and the hub is the one
+   * destination that does not need one.
    */
   finish(): void {
     const id = this.productId();
-    const companyId = this.companyId;
-    if (!companyId) {
-      this.router.navigate(['/products']);
-      return;
-    }
-    this.router.navigate(
-      id ? ['/products/c', companyId, 'edit', id] : ['/products/c', companyId, 'list'],
-    );
-  }
-
-  /**
-   * The company of the route, or the picker.
-   *
-   * Every write needs it, and the route always supplies it under `c/:companyId`. This is the one place
-   * that would rather fail loud than send a request to a company-blind URL, so a route that somehow
-   * lost its segment navigates to the picker instead of guessing.
-   */
-  private requireCompanyId(): string {
-    const companyId = this.companyId;
+    const companyId = this.companyId();
     if (!companyId) {
       void this.router.navigate(['/products']);
-      throw new Error('ProductEdit requires a :companyId route segment');
+      return;
     }
-    return companyId;
+    void this.router.navigate(id ? ['/products/edit', id] : ['/products/list'], {
+      queryParams: { companyId },
+    });
   }
 
   /**
@@ -596,10 +608,12 @@ export class ProductEdit implements OnInit, UnsavedChangesAware {
   }
 
   cancelForm(): void {
-    // The edit workspace's Cancelar returns to the list, as it always has. The create
-    // stepper's Cancelar is the pre-persist exit and shares the post-persist one (D27).
-    if (this.isEditMode() && this.companyId) {
-      this.router.navigate(['/products/c', this.companyId, 'list']);
+    // The edit workspace's Cancelar returns to the list, as it always has — with the company, because the
+    // list is the catalog of one company. The create stepper's Cancelar is the pre-persist exit and
+    // shares the post-persist one (D27).
+    const companyId = this.companyId();
+    if (this.isEditMode() && companyId) {
+      void this.router.navigate(['/products/list'], { queryParams: { companyId } });
       return;
     }
     this.finish();

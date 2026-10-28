@@ -37,7 +37,7 @@ export class ProductVariantListHost {
   /** The product whose variants are listed, read from the route param `id`. */
   readonly productId = signal<string | null>(this.route.snapshot.paramMap.get('id'));
 
-  /** The company the product belongs to, read from the route param `companyId`. */
+  /** The company the product belongs to, from the link: `?companyId=`. */
   readonly companyId = productsCompanyId(this.route);
 
   /**

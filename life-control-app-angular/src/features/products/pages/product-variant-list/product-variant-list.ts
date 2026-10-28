@@ -107,7 +107,7 @@ export class ProductVariantList {
    *
    * An input and not a route read: this component is rendered both by the product workspace and as the
    * stepper's step 3, so the shell that knows the company passes it down instead of each rendering path
-   * reading the `:companyId` segment on its own.
+   * reading `?companyId=` on its own.
    */
   readonly companyId = input.required<string>();
 
@@ -285,17 +285,18 @@ export class ProductVariantList {
       }
     });
   }
-
   /**
-   * Query params that carry the store to the sibling screens.
+   * Query params that carry the screen's context into the variant editor.
    *
-   * Only when the URL named it: a store that came from the profile is re-resolved
-   * by the next screen, and writing it into the link would claim a store the
-   * operator never chose.
+   * The **company** always: the editor is product-scoped and every read and write below it is sent under
+   * `/api/companies/{companyId}/...`, so a link without it cannot open the row (S1). The **store** only
+   * when the URL named it: a store that came from the profile is re-resolved by the next screen, and
+   * writing it into the link would claim a store the operator never chose.
    */
-  private storeQueryParams(): { storeId: string } | undefined {
+  private editorQueryParams(): { companyId: string; storeId?: string } {
+    const companyId = this.companyId();
     const storeId = this.storeId();
-    return storeId && this.storeSource() === 'query' ? { storeId } : undefined;
+    return storeId && this.storeSource() === 'query' ? { companyId, storeId } : { companyId };
   }
 
   /**
@@ -412,10 +413,9 @@ export class ProductVariantList {
    */
   editVariant(row: ProductVariant): void {
     if (this.storeScoped()) {
-      this.router.navigate(
-        ['/products/c', this.companyId(), 'edit', this.productId(), 'variants', 'edit', row.id],
-        { queryParams: this.storeQueryParams() },
-      );
+      void this.router.navigate(['/products/edit', this.productId(), 'variants', 'edit', row.id], {
+        queryParams: this.editorQueryParams(),
+      });
       return;
     }
 

@@ -9,9 +9,14 @@
   <form [formGroup]="formGroup()" (ngSubmit)="onSave()">
     <mat-form-field appearance="outline">
       <mat-label>Empresa</mat-label>
+      <!--
+        Disabled unless the host says this is a create form: the company decides which tree the category
+        selects list and which endpoint the save is sent to, so it is editable only while there is no
+        product to move between companies.
+      -->
       <mat-select
         [value]="selectedCompanyId()"
-        [disabled]="isEditMode()"
+        [disabled]="!companyEditable() || isEditMode()"
         (selectionChange)="onCompanyChange($event.value)"
       >
         <mat-option value="">— Seleccionar empresa —</mat-option>

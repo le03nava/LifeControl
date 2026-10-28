@@ -127,12 +127,13 @@ describe('ProductVariantListHost', () => {
         {
           provide: ActivatedRoute,
           useValue: {
+            // `id` is a path param and the company is not: it travels as `?companyId=`, so the stub
+            // answers each one from where the screen has to read it.
             snapshot: {
-              paramMap: {
-                get: (key: string) =>
-                  key === 'id' ? productId : key === 'companyId' ? mockCompanyId : null,
+              paramMap: { get: (key: string) => (key === 'id' ? productId : null) },
+              queryParamMap: {
+                get: (key: string) => (key === 'companyId' ? mockCompanyId : null),
               },
-              queryParamMap: { get: () => null },
             },
           },
         },
@@ -181,11 +182,13 @@ describe('ProductVariantListHost', () => {
     expect(child().productId()).toBe('prod-42');
   });
 
-  it('should load the header product exactly once', async () => {
+  it('should load the header product exactly once, under the company the link named', async () => {
     setup({ productId: 'prod-42' });
     await settle();
 
     expect(productServiceMock.getProductById).toHaveBeenCalledTimes(1);
+    // The company comes from `?companyId=` and nowhere else: the route stub cannot answer it as a path
+    // param, so this call is the proof of the source.
     expect(productServiceMock.getProductById).toHaveBeenCalledWith(mockCompanyId, 'prod-42');
   });
 

@@ -1,5 +1,7 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { FormControl, FormGroup, Validators } from '@angular/forms';
+import { By } from '@angular/platform-browser';
+import { MatSelect } from '@angular/material/select';
 import { ProductsForm } from './products-form';
 import {
   ProductAttributeDefinition,
@@ -654,6 +656,33 @@ describe('ProductsForm', () => {
       );
       // The three level selects are real controls of the form, not just labels.
       expect(fixture.nativeElement.querySelectorAll('mat-select').length).toBe(4);
+    });
+
+    describe('the Empresa field (S3)', () => {
+      function empresaSelect(): MatSelect {
+        return fixture.debugElement.queryAll(By.directive(MatSelect))[0]
+          .componentInstance as MatSelect;
+      }
+
+      it('should keep the Empresa select disabled when the host says nothing', () => {
+        // The default is closed on purpose: a host that does not say what it is editing must not hand out
+        // a company choice, because the choice decides the tree and the endpoint of the save.
+        withTree();
+
+        expect(empresaSelect().disabled).toBe(true);
+      });
+
+      it('should enable the Empresa select on create and keep it disabled on edit', () => {
+        fixture.componentRef.setInput('companyEditable', true);
+        withTree();
+        expect(empresaSelect().disabled).toBe(false);
+
+        // Even asked to, an existing product's company stays fixed: the field could only contradict the
+        // company that owns it.
+        fixture.componentRef.setInput('editMode', true);
+        fixture.detectChanges();
+        expect(empresaSelect().disabled).toBe(true);
+      });
     });
 
     it('should keep a pick across a change-detection flush (S1, S4)', () => {

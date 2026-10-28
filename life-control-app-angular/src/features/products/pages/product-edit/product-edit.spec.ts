@@ -7,6 +7,7 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { BehaviorSubject, Observable, of, Subject, throwError } from 'rxjs';
 import { MatDialog } from '@angular/material/dialog';
 import { MatTabGroup } from '@angular/material/tabs';
+import { MatSelect } from '@angular/material/select';
 import { MatStepper } from '@angular/material/stepper';
 import { ProductEdit } from './product-edit';
 import { Page, Product, ProductAttributeProfile } from '../../models/product.models';
@@ -47,7 +48,12 @@ describe('ProductEdit', () => {
   let profileServiceMock: { getProfile: ReturnType<typeof vi.fn> };
   let companyServiceMock: { getCompanySelector: ReturnType<typeof vi.fn> };
   let categoryServiceMock: { getCategories: ReturnType<typeof vi.fn> };
-  let routerMock: { navigate: ReturnType<typeof vi.fn> };
+  let routerMock: {
+    navigate: ReturnType<typeof vi.fn>;
+    createUrlTree: ReturnType<typeof vi.fn>;
+    serializeUrl: ReturnType<typeof vi.fn>;
+    events: Subject<unknown>;
+  };
   let dialogMock: { open: ReturnType<typeof vi.fn> };
   let queryParams$: BehaviorSubject<ParamMap>;
   /**
@@ -220,6 +226,13 @@ describe('ProductEdit', () => {
   interface SetupOptions {
     edit?: boolean;
     product?: Product;
+    /**
+     * The company the link names, `?companyId=`.
+     *
+     * Defaults to {@link companyId} because every existing case is a scoped link; `null` builds a link
+     * that names none, which is a state this screen has to answer for (S1/S3).
+     */
+    companyId?: string | null;
     queryParams?: Record<string, string>;
     suppliers?: ProductSupplier[];
     variants?: ProductVariant[];
@@ -242,12 +255,23 @@ describe('ProductEdit', () => {
     const variants = options.variants ?? [createVariant(0), createVariant(1)];
     const variantTotalElements = options.variantTotalElements ?? variants.length;
 
-    queryParams$ = new BehaviorSubject<ParamMap>(convertToParamMap(options.queryParams ?? {}));
+    const scopedCompanyId = options.companyId === undefined ? companyId : options.companyId;
+    const initialQueryParams: Record<string, string> = { ...(options.queryParams ?? {}) };
+    if (scopedCompanyId) {
+      initialQueryParams['companyId'] = scopedCompanyId;
+    } else {
+      delete initialQueryParams['companyId'];
+    }
+
+    queryParams$ = new BehaviorSubject<ParamMap>(convertToParamMap(initialQueryParams));
 
     routeMock = {
       snapshot: {
+        // Only `id` is a path param any more: the company travels as `?companyId=`, so a read that still
+        // expected a `:companyId` segment could not produce one here — which is what makes these
+        // assertions pin the source instead of the value.
         paramMap: {
-          get: (key: string) => (key === 'id' ? productId : key === 'companyId' ? companyId : null),
+          get: (key: string) => (key === 'id' ? productId : null),
         },
         queryParamMap: { get: (key: string) => queryParams$.value.get(key) },
       },
@@ -281,7 +305,15 @@ describe('ProductEdit', () => {
           ? vi.fn().mockReturnValue(tree$.asObservable())
           : vi.fn().mockReturnValue(of(options.categories ?? [])),
     };
-    routerMock = { navigate: vi.fn() };
+    routerMock = {
+      navigate: vi.fn(),
+      // `RouterLink` asks the router for the URL tree so it can render an `href`. Only the "no company"
+      // state uses it, and the navigation assertions still read the spy, so this only has to be a value
+      // the renderer can write.
+      createUrlTree: vi.fn((commands: unknown[]) => commands.join('/')),
+      serializeUrl: vi.fn((url: string) => url),
+      events: new Subject<unknown>(),
+    };
     dialogMock = { open: vi.fn().mockReturnValue({ afterClosed: () => of(false) }) };
 
     TestBed.resetTestingModule();
@@ -473,24 +505,31 @@ describe('ProductEdit', () => {
     expect(routerMock.navigate).not.toHaveBeenCalled();
   });
 
-  it('should navigate to products admin on update success', () => {
+  it('should navigate to the product list on update success', () => {
     setup({ edit: true });
     productServiceMock.updateProduct = vi.fn().mockReturnValue(of({} as Product));
 
     component.onSaveProduct(createProductData({ id: 'existing-id' }));
-    expect(routerMock.navigate).toHaveBeenCalledWith(['/products/c', companyId, 'list']);
+    // The list is a scoped screen, so leaving the workspace carries the company the product belongs to.
+    expect(routerMock.navigate).toHaveBeenCalledWith(['/products/list'], {
+      queryParams: { companyId },
+    });
   });
 
-  it('should navigate to products admin on cancel in create mode', () => {
+  it('should navigate to the product list on cancel in create mode', () => {
     setup();
     component.cancelForm();
-    expect(routerMock.navigate).toHaveBeenCalledWith(['/products/c', companyId, 'list']);
+    expect(routerMock.navigate).toHaveBeenCalledWith(['/products/list'], {
+      queryParams: { companyId },
+    });
   });
 
   it('should keep the edit workspace cancel going to the list, not to its own URL', () => {
     setup({ edit: true });
     component.cancelForm();
-    expect(routerMock.navigate).toHaveBeenCalledWith(['/products/c', companyId, 'list']);
+    expect(routerMock.navigate).toHaveBeenCalledWith(['/products/list'], {
+      queryParams: { companyId },
+    });
   });
 
   describe('hasUnsavedChanges', () => {
@@ -529,7 +568,9 @@ describe('ProductEdit', () => {
       component.onSaveProduct(createProductData({ id: 'existing-id' }));
 
       expect(component.hasUnsavedChanges()).toBe(false);
-      expect(routerMock.navigate).toHaveBeenCalledWith(['/products/c', companyId, 'list']);
+      expect(routerMock.navigate).toHaveBeenCalledWith(['/products/list'], {
+        queryParams: { companyId },
+      });
     });
 
     it('should clear the flag after a successful create', () => {
@@ -682,19 +723,18 @@ describe('ProductEdit', () => {
       );
       terminate?.click();
 
-      expect(routerMock.navigate).toHaveBeenCalledWith([
-        '/products/c',
-        companyId,
-        'edit',
-        'new-id',
-      ]);
+      expect(routerMock.navigate).toHaveBeenCalledWith(['/products/edit', 'new-id'], {
+        queryParams: { companyId },
+      });
     });
 
     it('should navigate to the list on Terminar before the product exists (D27)', () => {
       setup();
       component.finish();
 
-      expect(routerMock.navigate).toHaveBeenCalledWith(['/products/c', companyId, 'list']);
+      expect(routerMock.navigate).toHaveBeenCalledWith(['/products/list'], {
+        queryParams: { companyId },
+      });
     });
 
     it('should navigate to the workspace on Cancelar once the product exists (D27)', () => {
@@ -702,12 +742,9 @@ describe('ProductEdit', () => {
       createProductThroughStepOne();
       component.cancelForm();
 
-      expect(routerMock.navigate).toHaveBeenCalledWith([
-        '/products/c',
-        companyId,
-        'edit',
-        'new-id',
-      ]);
+      expect(routerMock.navigate).toHaveBeenCalledWith(['/products/edit', 'new-id'], {
+        queryParams: { companyId },
+      });
     });
 
     it('should report unsaved changes after a back-edit on step 1 (T12)', () => {
@@ -909,7 +946,7 @@ describe('ProductEdit', () => {
   });
 
   describe('tab navigation writes ?tab=', () => {
-    it('should navigate with the new tab, relativeTo the route, preserving storeId', async () => {
+    it('should navigate with the new tab, relativeTo the route, preserving storeId and the company', async () => {
       setup({ edit: true, queryParams: { storeId: 'store-1' } });
       await settle();
 
@@ -924,7 +961,13 @@ describe('ProductEdit', () => {
       ];
       expect(commands).toEqual([]);
       expect(extras.relativeTo).toBe(TestBed.inject(ActivatedRoute));
-      expect(extras.queryParams).toEqual({ storeId: 'store-1', tab: 'proveedores' });
+      // The company survives the tab switch: the `Proveedores` and `Variantes` tabs are scoped to it, so
+      // dropping it would send the operator to a workspace that cannot read its own product.
+      expect(extras.queryParams).toEqual({
+        storeId: 'store-1',
+        companyId,
+        tab: 'proveedores',
+      });
     });
 
     it('should not re-navigate when the requested tab already matches the param', async () => {
@@ -1029,12 +1072,12 @@ describe('ProductEdit', () => {
   });
 
   describe('product category classification (S1-S8)', () => {
-    it('should resolve a saved path through the company of the route, keeping the saved SAT code (S6, S8, S9)', async () => {
+    it('should resolve a saved path through the company of the link, keeping the saved SAT code (S6, S8, S9)', async () => {
       setup({
         edit: true,
-        // A leftover `?companyId=` from an old bookmark must not decide anything: the route's segment is
-        // the screen's company, and the product belongs to it.
-        queryParams: { companyId: 'company-other' },
+        // The company is the link's (`?companyId=`): that is the only source, and the product's own
+        // `companyId` is what proves the row belongs to it.
+        companyId: 'company-7',
         product: createProductData({
           id: 'existing-id',
           categoryId: 'sub2-1',
@@ -1044,10 +1087,10 @@ describe('ProductEdit', () => {
       });
       await settle();
 
-      // The route decides the tree, without navigating, and the tree is read including the disabled
-      // nodes (S8).
-      expect(component.selectedCompanyId()).toBe(companyId);
-      expect(categoryServiceMock.getCategories).toHaveBeenLastCalledWith(companyId, true);
+      // The query parameter decides the tree, without navigating, and the tree is read including the
+      // disabled nodes (S8).
+      expect(component.selectedCompanyId()).toBe('company-7');
+      expect(categoryServiceMock.getCategories).toHaveBeenLastCalledWith('company-7', true);
       expect(routerMock.navigate).not.toHaveBeenCalled();
 
       // The three selects hold the saved ids, root -> deepest (S6).
@@ -1083,22 +1126,31 @@ describe('ProductEdit', () => {
       expect(categoryServiceMock.getCategories).toHaveBeenLastCalledWith(companyId, true);
     });
 
-    it('should read the route company’s tree in create mode without asking for a company (S2, S10)', async () => {
+    it('should read the link company’s tree in create mode without asking again (S2, S10)', async () => {
       setup({ categories: createCategoryTree() });
       await settle();
 
-      // The company arrives in the path (`/products/c/:companyId/create`), so the tree load is not
-      // waiting on a pick: it is already the route's company's tree.
+      // The company arrives as `?companyId=` (the operator came from All Products), so the tree load is
+      // not waiting on a pick: it is already that company's tree, and the form's `Empresa` field only
+      // has to show what the link said.
       expect(component.selectedCompanyId()).toBe(companyId);
       expect(categoryServiceMock.getCategories).toHaveBeenCalledWith(companyId, true);
       expect(fixture.nativeElement.querySelector('app-products-form')).not.toBeNull();
       expect(component.productForm().controls.categoryId.value).toBe('');
 
-      // Picking another company before the product exists is a navigation to that company's create
-      // screen, not a filter: there is no product to move yet.
+      // Picking another company before the product exists is *not* a navigation away: the choice is written
+      // into the URL in place (S3) and the tree follows it.
       routerMock.navigate.mockClear();
       component.onCompanyChange('company-2');
-      expect(routerMock.navigate).toHaveBeenCalledWith(['/products/c', 'company-2', 'create']);
+      expect(component.selectedCompanyId()).toBe('company-2');
+      expect(routerMock.navigate).toHaveBeenCalledWith([], {
+        relativeTo: TestBed.inject(ActivatedRoute),
+        queryParams: { companyId: 'company-2' },
+        queryParamsHandling: 'merge',
+        replaceUrl: true,
+      });
+      await settle();
+      expect(categoryServiceMock.getCategories).toHaveBeenLastCalledWith('company-2', true);
     });
 
     it('should keep the saved classification while the tree is still in flight (S6, F1)', async () => {
@@ -1185,6 +1237,64 @@ describe('ProductEdit', () => {
       const controls = component.productForm().controls;
       expect(controls.categoryId.value).toBe('root-1');
       expect(form.satCodeHint()).toBe('Código SAT tomado de: Alimentos');
+    });
+  });
+
+  describe('the company comes from ?companyId= (S1, S3)', () => {
+    /** The form's `Empresa` select, the first of its four selects. */
+    function empresaSelect(f: ComponentFixture<ProductEdit>): MatSelect {
+      return f.debugElement.queryAll(By.directive(MatSelect))[0].componentInstance as MatSelect;
+    }
+
+    it('should issue no request and say where to open the product when an edit link names no company', async () => {
+      setup({ edit: true, companyId: null });
+      await settle();
+
+      // A product id alone is not addressable on `/api/companies/{companyId}/products`, and inventing a
+      // company would read and write in someone else's catalog. So: no request at all.
+      expect(productServiceMock.getProductById).not.toHaveBeenCalled();
+      expect(categoryServiceMock.getCategories).not.toHaveBeenCalled();
+
+      const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+      expect(text).toContain('no se puede abrir sin su empresa');
+      // And the way out is a link to the screen that does ask for the company.
+      expect(fixture.nativeElement.querySelector('a[href="/products/list"]')).not.toBeNull();
+      expect(fixture.nativeElement.querySelector('mat-tab-group')).toBeNull();
+    });
+
+    it('should refuse to save a new product without a company', () => {
+      setup({ companyId: null });
+      productServiceMock.createProduct = vi
+        .fn()
+        .mockReturnValue(of(createProductData({ id: 'new-id' })));
+
+      component.onSaveProduct(createProductData());
+
+      expect(productServiceMock.createProduct).not.toHaveBeenCalled();
+      expect(component.generalError()).toContain('Elegí una empresa');
+    });
+
+    it('should preselect the Empresa field from the link on create', async () => {
+      setup({ companyId: 'company-4', categories: createCategoryTree() });
+      await settle();
+
+      const form = fixture.debugElement.query(By.directive(ProductsForm))
+        .componentInstance as ProductsForm;
+
+      expect(component.selectedCompanyId()).toBe('company-4');
+      expect(form.selectedCompanyId()).toBe('company-4');
+    });
+
+    it('should enable the Empresa field on create and keep it disabled on edit', async () => {
+      setup({ edit: true, categories: createCategoryTree() });
+      await settle();
+      expect(empresaSelect(fixture).disabled).toBe(true);
+
+      setup({ categories: createCategoryTree() });
+      await settle();
+
+      // Create asks for the company in its own form (S3): the field is the operator's, not the link's.
+      expect(empresaSelect(fixture).disabled).toBe(false);
     });
   });
 

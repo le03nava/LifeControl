@@ -56,6 +56,26 @@ function redirectData(
   return { params, queryParams } as Parameters<RedirectFunction>[0];
 }
 
+/**
+ * The URL a redirect route produces for the given params.
+ *
+ * Every redirect below is a `RedirectFunction` (its target is built from the params), so the assertion
+ * has to run it — asserting that a function exists says nothing about where it goes.
+ */
+function redirectUrl(
+  path: string,
+  params: Record<string, string>,
+  queryParams: Record<string, string> = {},
+): string {
+  const route = childAt(path);
+  expect(route).toBeDefined();
+  expect(route?.loadComponent).toBeUndefined();
+  const redirect = route?.redirectTo as RedirectFunction;
+  expect(typeof redirect).toBe('function');
+  const produced = TestBed.runInInjectionContext(() => redirect(redirectData(params, queryParams)));
+  return (produced as UrlTree).toString();
+}
+
 describe('productRoutes', () => {
   beforeEach(() => {
     // `redirectTo` functions run in an injection context and this one injects the
@@ -125,8 +145,8 @@ describe('productRoutes', () => {
   });
 
   it('should guard the product create and edit routes against unsaved changes', () => {
-    const create = childAt('c/:companyId/create');
-    const edit = childAt('c/:companyId/edit/:id');
+    const create = childAt('create');
+    const edit = childAt('edit/:id');
 
     expect(create).toBeDefined();
     expect(edit).toBeDefined();
@@ -137,10 +157,10 @@ describe('productRoutes', () => {
   });
 
   it('should guard the variant-list host route against unsaved changes', () => {
-    const variants = childAt('c/:companyId/edit/:id/variants');
+    const variants = childAt('edit/:id/variants');
 
     expect(variants).toBeDefined();
-    // The host is the activated component on this route, and it now forwards the
+    // The host is the activated component on this route, and it forwards the
     // container's inline per-store panel flag; without this registration a dirty
     // panel's stock and prices would be discarded by a stray navigation.
     // `toEqual([guard])`, never `toContain(guard)`: `expect(undefined)
@@ -149,8 +169,8 @@ describe('productRoutes', () => {
   });
 
   it('should leave the unrelated product routes unguarded', () => {
-    const list = childAt('c/:companyId/list');
-    const suppliers = childAt('c/:companyId/edit/:id/suppliers');
+    const list = childAt('list');
+    const suppliers = childAt('edit/:id/suppliers');
 
     expect(list).toBeDefined();
     expect(suppliers).toBeDefined();
@@ -167,32 +187,46 @@ describe('productRoutes', () => {
     }
   });
 
-  describe('the company segment (T6)', () => {
-    it('should render the company picker at /products and the list under the company', async () => {
-      // The two rules a reviewer cannot read off the service: `/products` is the picker (a page, not a
-      // redirect), and the product list is addressed through the company it belongs to.
+  describe('the products front door (S1)', () => {
+    it('should render the products hub at /products, not a company question', async () => {
+      // The requirement, stated by the maintainer: pressing Products shows the area's options. A page
+      // that asks for a company first is the shape being removed, so the picker must not come back here
+      // (and `product-company-picker` is deleted, so this spec also fails if it is resurrected).
       const root = childAt('');
-      const list = childAt('c/:companyId/list');
 
       expect(root).toBeDefined();
       expect(root?.redirectTo).toBeUndefined();
-      expect(await loadName(root!)).toBe('ProductCompanyPicker');
+      expect(await loadName(root!)).toBe('ProductsAdminComponent');
+    });
 
-      expect(list).toBeDefined();
-      expect(list?.redirectTo).toBeUndefined();
+    it('should address the product screens without a company segment', async () => {
+      const list = childAt('list');
+      const create = childAt('create');
+      const edit = childAt('edit/:id');
+
       expect(await loadName(list!)).toBe('ProductList');
+      expect(await loadName(create!)).toBe('ProductEdit');
+      expect(await loadName(edit!)).toBe('ProductEdit');
     });
 
-    it('should render the company hub at c/:companyId', async () => {
-      const hub = childAt('c/:companyId');
-
-      expect(hub).toBeDefined();
-      expect(await loadName(hub!)).toBe('ProductsAdminComponent');
+    it('should keep every screen path company-free', () => {
+      // The company is a query parameter (`?companyId=`) from here on, chosen inside the screen. A
+      // route that grew a `:companyId` segment again would put the question back in front of the area,
+      // which is the single thing S1 asks not to do.
+      //
+      // Redirects are the deliberate exception and the reason this loop filters them out: the whole
+      // split of "which routes are company-free" is about the screens, while `c/:companyId/**` exists
+      // only to carry a legacy URL's company into a company-free one (asserted in the next describe).
+      for (const route of children().filter((route) => !isRedirect(route))) {
+        expect(route.path ?? '').not.toContain('companyId');
+      }
     });
+  });
 
-    it('should keep the deliberate company-free screens outside the segment', () => {
-      // Pinned by exact path: each of these was left out of `c/:companyId` on purpose, and moving one
-      // inside would either remove a picker the page owns (`categories`), break a store-addressed read
+  describe('the deliberate company-free screens', () => {
+    it('should keep categories, the store-scoped search and suppliers outside any company context', () => {
+      // Pinned by exact path: each of these was left out of the company context on purpose. Moving one
+      // inside would remove a picker the page owns (`categories`), break a store-addressed read
       // (`variants`), or scope a resource that is global by decision (`suppliers`).
       for (const path of [
         'categories',
@@ -207,89 +241,155 @@ describe('productRoutes', () => {
         expect(route?.redirectTo).toBeUndefined();
       }
     });
+  });
 
-    it('should redirect every legacy company-free URL to the picker', () => {
-      // Bookmarks and the dashboard cards exist. None of these paths carries a company, so there is
-      // nothing to redirect *into*: they land on the screen whose whole job is to ask for one.
-      const legacyPaths = [
-        'list',
-        'create',
-        'edit/:id',
-        'edit/:id/variants',
-        'edit/:id/variants/create',
-        'edit/:id/variants/edit/:variantId',
-        'edit/:id/suppliers',
-        'edit/:id/suppliers/create',
-        'edit/:id/suppliers/edit/:supplierId',
-      ];
+  describe('legacy company-segment URLs (S1)', () => {
+    /**
+     * Every URL the previous shape published, with the company preserved.
+     *
+     * These are bookmarks, dashboard cards and — until T2 lands — the app's own links. A 404 would be a
+     * worse answer than the same screen with the company that was already in the URL.
+     */
+    const legacyToNew: readonly {
+      path: string;
+      params: Record<string, string>;
+      expected: string;
+    }[] = [
+      { path: 'c/:companyId', params: { companyId: 'company-1' }, expected: '/products' },
+      {
+        path: 'c/:companyId/list',
+        params: { companyId: 'company-1' },
+        expected: '/products/list?companyId=company-1',
+      },
+      {
+        path: 'c/:companyId/create',
+        params: { companyId: 'company-1' },
+        expected: '/products/create?companyId=company-1',
+      },
+      {
+        path: 'c/:companyId/edit/:id',
+        params: { companyId: 'company-1', id: 'prod-1' },
+        expected: '/products/edit/prod-1?companyId=company-1',
+      },
+      {
+        path: 'c/:companyId/edit/:id/variants',
+        params: { companyId: 'company-1', id: 'prod-1' },
+        expected: '/products/edit/prod-1/variants?companyId=company-1',
+      },
+      {
+        path: 'c/:companyId/edit/:id/variants/edit/:variantId',
+        params: { companyId: 'company-1', id: 'prod-1', variantId: 'var-1' },
+        expected: '/products/edit/prod-1/variants/edit/var-1?companyId=company-1',
+      },
+      {
+        path: 'c/:companyId/edit/:id/suppliers',
+        params: { companyId: 'company-1', id: 'prod-1' },
+        expected: '/products/edit/prod-1?companyId=company-1&tab=proveedores',
+      },
+    ];
 
-      for (const path of legacyPaths) {
+    it('should redirect each one to its company-free screen carrying the company', () => {
+      for (const { path, params, expected } of legacyToNew) {
+        expect(redirectUrl(path, params)).toBe(expected);
+      }
+    });
+
+    it('should preserve storeId on every one of them', () => {
+      // `storeId` is the store context the variant panel prices and stocks; dropping it on the redirect
+      // would silently send the operator to a different store's panel. The separator is derived because
+      // the hub's target carries no query at all, so appending with a hardcoded `&` would build
+      // `/products&storeId=…`, which is not a URL.
+      for (const { path, params, expected } of legacyToNew) {
+        const separator = expected.includes('?') ? '&' : '?';
+        const url = redirectUrl(path, params, { storeId: 'store-9' });
+        expect(url).toBe(`${expected}${separator}storeId=store-9`);
+      }
+    });
+
+    it('should carry no inert canActivate/data on any legacy redirect', () => {
+      for (const { path } of legacyToNew) {
         const route = childAt(path);
 
+        // Asserted first, or the property assertions below pass vacuously on an undefined lookup.
         expect(route).toBeDefined();
-        // A string target, not a function: there is no company in these params to build a scoped URL
-        // from, so the target is fixed.
-        expect(route?.redirectTo).toBe('/products');
-        // A redirect route never activates, so a `loadComponent` here would be dead config.
-        expect(route?.loadComponent).toBeUndefined();
         // Deliberate: a redirect never activates, so a guard would never run and Angular throws
-        // `RuntimeError 4014` when `redirectTo` is combined with `canActivate`.
-        expect(route?.canActivate).toBeUndefined();
-        expect(route?.data).toBeUndefined();
+        // `RuntimeError 4014` when `redirectTo` is combined with `canActivate`. The target screen keeps
+        // its own gate, so effective access is unchanged.
+        expect(route!.canActivate).toBeUndefined();
+        expect(route!.data).toBeUndefined();
       }
     });
   });
 
-  describe('product-scoped list routes (T9, D13/D14/D17)', () => {
-    it('should redirect the product-scoped supplier list into the workspace tab', () => {
-      const suppliers = childAt('c/:companyId/edit/:id/suppliers');
-
-      expect(suppliers).toBeDefined();
-      // A function, not a string: the target is built from the route params.
-      expect(typeof suppliers?.redirectTo).toBe('function');
-      // A redirect route never activates, so a `loadComponent` here would be dead config.
-      expect(suppliers?.loadComponent).toBeUndefined();
-
-      const redirect = suppliers?.redirectTo as RedirectFunction;
-      const produced = TestBed.runInInjectionContext(() =>
-        redirect(redirectData({ companyId: 'company-1', id: 'prod-1' })),
-      );
-
-      // Assert the produced value, not merely that a function is present.
-      expect((produced as UrlTree).toString()).toBe(
-        '/products/c/company-1/edit/prod-1?tab=proveedores',
+  describe('the supplier tab redirects (D13/D19)', () => {
+    it('should send the product-scoped supplier list into the workspace Proveedores tab', () => {
+      // A product's *links* to a supplier hang off the product, which belongs to a company, so this
+      // keeps landing on the product's workspace tab rather than on the global supplier catalog.
+      expect(redirectUrl('edit/:id/suppliers', { id: 'prod-1' }, { companyId: 'company-1' })).toBe(
+        '/products/edit/prod-1?companyId=company-1&tab=proveedores',
       );
     });
 
-    it('should preserve storeId when redirecting the product-scoped supplier list', () => {
-      const suppliers = childAt('c/:companyId/edit/:id/suppliers');
-      const redirect = suppliers?.redirectTo as RedirectFunction;
-
-      const produced = TestBed.runInInjectionContext(() =>
-        redirect(redirectData({ companyId: 'company-1', id: 'prod-1' }, { storeId: 'store-9' })),
-      );
-
-      expect((produced as UrlTree).toString()).toBe(
-        '/products/c/company-1/edit/prod-1?tab=proveedores&storeId=store-9',
-      );
+    it('should send both legacy supplier create/edit URLs into the same tab', () => {
+      for (const path of ['edit/:id/suppliers/create', 'edit/:id/suppliers/edit/:supplierId']) {
+        expect(
+          redirectUrl(path, { id: 'prod-1', supplierId: 'ps-1' }, { companyId: 'company-1' }),
+        ).toBe('/products/edit/prod-1?companyId=company-1&tab=proveedores');
+      }
     });
 
-    it('should carry no inert canActivate/data on the redirect route', () => {
-      const suppliers = childAt('c/:companyId/edit/:id/suppliers');
-
-      // Deliberate: a redirect never activates, so the guards would never run. The
-      // target `edit/:id` keeps its own admin gate, so access is unchanged.
-      expect(suppliers?.canActivate).toBeUndefined();
-      expect(suppliers?.data).toBeUndefined();
+    it('should preserve storeId when redirecting into the tab', () => {
+      const url = redirectUrl(
+        'edit/:id/suppliers/create',
+        { id: 'prod-1' },
+        { storeId: 'store-9' },
+      );
+      expect(url).toBe('/products/edit/prod-1?tab=proveedores&storeId=store-9');
     });
 
-    it('should keep c/:companyId/edit/:id/variants resolving through the thin host, never a redirect (D17)', async () => {
-      const variants = childAt('c/:companyId/edit/:id/variants');
+    it('should carry no inert canActivate/data on the supplier redirects', () => {
+      for (const path of [
+        'edit/:id/suppliers',
+        'edit/:id/suppliers/create',
+        'edit/:id/suppliers/edit/:supplierId',
+      ]) {
+        const route = childAt(path);
+        expect(route).toBeDefined();
+        expect(route!.canActivate).toBeUndefined();
+        expect(route!.data).toBeUndefined();
+      }
+    });
+  });
+
+  describe('the variant create redirect (D19)', () => {
+    it('should redirect edit/:id/variants/create into the Variantes workspace', () => {
+      expect(
+        redirectUrl('edit/:id/variants/create', { id: 'prod-1' }, { companyId: 'company-1' }),
+      ).toBe('/products/edit/prod-1/variants?companyId=company-1');
+    });
+
+    it('should preserve storeId on the variant create redirect', () => {
+      expect(
+        redirectUrl('edit/:id/variants/create', { id: 'prod-1' }, { storeId: 'store-9' }),
+      ).toBe('/products/edit/prod-1/variants?storeId=store-9');
+    });
+
+    it('should carry no inert canActivate/data on it', () => {
+      const create = childAt('edit/:id/variants/create');
+      expect(create).toBeDefined();
+      expect(create!.canActivate).toBeUndefined();
+      expect(create!.data).toBeUndefined();
+    });
+  });
+
+  describe('the variant screens (D17/D18)', () => {
+    it('should keep edit/:id/variants resolving through the thin host, never a redirect', async () => {
+      const variants = childAt('edit/:id/variants');
 
       expect(variants).toBeDefined();
-      // Redirecting here would deny `lc-sales` the variant list, whose only entry
-      // point is product-variant-stock-search.ts: the route is `VARIANT_ROLES`
-      // while its would-be target `edit/:id` is admin-only.
+      // Redirecting here would deny `lc-sales` the variant list, whose only entry point is
+      // product-variant-stock-search.ts: the route is `VARIANT_ROLES` while its would-be target
+      // `edit/:id` is admin-only.
       expect(variants?.redirectTo).toBeUndefined();
       expect(variants?.canActivate).toEqual([keycloakRoleGuard]);
       expect(variants?.data).toEqual({
@@ -298,147 +398,13 @@ describe('productRoutes', () => {
       });
       expect(await loadName(variants!)).toBe('ProductVariantListHost');
     });
-  });
 
-  describe('legacy supplier create/edit redirects (D19)', () => {
-    const legacySupplierPaths = [
-      'c/:companyId/edit/:id/suppliers/create',
-      'c/:companyId/edit/:id/suppliers/edit/:supplierId',
-    ];
-
-    it('should redirect c/:companyId/edit/:id/suppliers/create into the workspace Proveedores tab', () => {
-      const create = childAt('c/:companyId/edit/:id/suppliers/create');
-
-      expect(create).toBeDefined();
-      expect(typeof create?.redirectTo).toBe('function');
-      // A redirect route never activates, so a `loadComponent` here would be dead config.
-      expect(create?.loadComponent).toBeUndefined();
-
-      const redirect = create?.redirectTo as RedirectFunction;
-      const produced = TestBed.runInInjectionContext(() =>
-        redirect(redirectData({ companyId: 'company-1', id: 'prod-1' })),
-      );
-
-      expect((produced as UrlTree).toString()).toBe(
-        '/products/c/company-1/edit/prod-1?tab=proveedores',
-      );
-    });
-
-    it('should redirect c/:companyId/edit/:id/suppliers/edit/:supplierId into the workspace Proveedores tab', () => {
-      const edit = childAt('c/:companyId/edit/:id/suppliers/edit/:supplierId');
+    it('should keep the variant editor resolving with its guard and variant roles (D18)', async () => {
+      const edit = childAt('edit/:id/variants/edit/:variantId');
 
       expect(edit).toBeDefined();
-      expect(typeof edit?.redirectTo).toBe('function');
-      expect(edit?.loadComponent).toBeUndefined();
-
-      const redirect = edit?.redirectTo as RedirectFunction;
-      const produced = TestBed.runInInjectionContext(() =>
-        redirect(redirectData({ companyId: 'company-1', id: 'prod-1', supplierId: 'ps-1' })),
-      );
-
-      expect((produced as UrlTree).toString()).toBe(
-        '/products/c/company-1/edit/prod-1?tab=proveedores',
-      );
-    });
-
-    it('should preserve storeId on both legacy supplier redirects', () => {
-      for (const path of legacySupplierPaths) {
-        const route = childAt(path);
-        expect(route).toBeDefined();
-        const redirect = route!.redirectTo as RedirectFunction;
-
-        const produced = TestBed.runInInjectionContext(() =>
-          redirect(
-            redirectData(
-              { companyId: 'company-1', id: 'prod-1', supplierId: 'ps-1' },
-              { storeId: 'store-9' },
-            ),
-          ),
-        );
-
-        expect((produced as UrlTree).toString()).toBe(
-          '/products/c/company-1/edit/prod-1?tab=proveedores&storeId=store-9',
-        );
-      }
-    });
-
-    it('should carry no inert canActivate/data on either legacy redirect route', () => {
-      for (const path of legacySupplierPaths) {
-        const route = childAt(path);
-        // Asserted first, or the property assertions below pass vacuously on an
-        // undefined lookup.
-        expect(route).toBeDefined();
-
-        // Deliberate: a redirect never activates, so a guard would never run and
-        // Angular throws `RuntimeError 4014` when `redirectTo` is combined with
-        // `canActivate`. `data` is omitted because it would be inert on a route that
-        // never activates and would read as a gate. The target `edit/:id` keeps its
-        // own admin gate, so effective access is unchanged.
-        expect(route!.canActivate).toBeUndefined();
-        expect(route!.data).toBeUndefined();
-      }
-    });
-  });
-
-  describe('legacy variant create redirect (D19)', () => {
-    it('should redirect c/:companyId/edit/:id/variants/create into the Variantes workspace', () => {
-      const create = childAt('c/:companyId/edit/:id/variants/create');
-
-      expect(create).toBeDefined();
-      // A function, not a string: the target is built from the route params.
-      expect(typeof create?.redirectTo).toBe('function');
-      // A redirect route never activates, so a `loadComponent` here would be dead config.
-      expect(create?.loadComponent).toBeUndefined();
-
-      const redirect = create?.redirectTo as RedirectFunction;
-      const produced = TestBed.runInInjectionContext(() =>
-        redirect(redirectData({ companyId: 'company-1', id: 'prod-1' })),
-      );
-
-      // Assert the produced value, not merely that a function is present.
-      expect((produced as UrlTree).toString()).toBe('/products/c/company-1/edit/prod-1/variants');
-    });
-
-    it('should preserve storeId when redirecting the legacy variant create URL', () => {
-      const create = childAt('c/:companyId/edit/:id/variants/create');
-
-      // Asserted first, or the property assertions below pass vacuously on an
-      // undefined lookup.
-      expect(create).toBeDefined();
-
-      const redirect = create?.redirectTo as RedirectFunction;
-
-      const produced = TestBed.runInInjectionContext(() =>
-        redirect(redirectData({ companyId: 'company-1', id: 'prod-1' }, { storeId: 'store-9' })),
-      );
-
-      expect((produced as UrlTree).toString()).toBe(
-        '/products/c/company-1/edit/prod-1/variants?storeId=store-9',
-      );
-    });
-
-    it('should carry no inert canActivate/data on the legacy variant create redirect', () => {
-      const create = childAt('c/:companyId/edit/:id/variants/create');
-
-      // Asserted first, or the property assertions below pass vacuously on an
-      // undefined lookup.
-      expect(create).toBeDefined();
-
-      // Deliberate: a redirect never activates, so a guard would never run and
-      // Angular throws `RuntimeError 4014` when `redirectTo` is combined with
-      // `canActivate`. `data` is omitted because it would be inert on a route that
-      // never activates and would read as a gate. The target `edit/:id/variants`
-      // keeps its own `VARIANT_ROLES` gate.
-      expect(create!.canActivate).toBeUndefined();
-      expect(create!.data).toBeUndefined();
-    });
-
-    it('should keep c/:companyId/edit/:id/variants/edit/:variantId resolving with its guard and variant roles (D18)', async () => {
-      const edit = childAt('c/:companyId/edit/:id/variants/edit/:variantId');
-
-      expect(edit).toBeDefined();
-      // D18: the store-scoped editor keeps resolving; it is the sales principal's
-      // only route to the per-store stock/prices panel.
+      // D18: the store-scoped editor keeps resolving; it is the sales principal's only route to the
+      // per-store stock/prices panel.
       expect(edit?.redirectTo).toBeUndefined();
       expect(edit?.canActivate).toEqual([keycloakRoleGuard]);
       expect(edit?.data).toEqual({

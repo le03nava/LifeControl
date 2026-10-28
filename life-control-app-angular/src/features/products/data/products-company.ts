@@ -1,19 +1,28 @@
 import type { ActivatedRoute } from '@angular/router';
 
 /**
- * The company segment of the current products route: `/products/c/:companyId/...`.
+ * The company context of the current products screen, carried as `?companyId=`.
  *
- * Read from the route, never from a query param and never from a response body. The company is the
- * resource's owner on the wire (`/api/companies/{companyId}/products`), so it is part of the URL that
- * addresses it: a screen that derived it from anything else could disagree with the path it is
- * standing on, which is exactly the second source of truth this unit removed.
+ * The company is **chosen inside the screen** — the `Empresa` filter of All Products, the `Empresa`
+ * field of the create form — and then kept in the URL, exactly as `ProductCategoryList` and the
+ * store-scoped variant search already do. It is not a path segment: `/products/c/:companyId/...` was
+ * the previous shape, and it was removed on the maintainer's request (record `products-company-filter`,
+ * S1/S3) because a segment puts the question in front of the whole area instead of inside the screen
+ * that actually needs the answer.
  *
- * A snapshot read is correct and not a shortcut: `:companyId` is a path segment, so it cannot change
- * without the router destroying the component that reads it.
+ * Read from the route, never from a response body: the company is the resource's owner on the wire
+ * (`/api/companies/{companyId}/products`), so it is part of the URL that addresses it. A screen that
+ * derived it from anything else could disagree with the URL it is standing on, which is exactly the
+ * second source of truth this unit removed.
  *
- * `null` means the URL is one of the company-free screens — `/products` (the picker), `categories`,
- * `variants` (the store-addressed search) or `suppliers` — and those never build a scoped request.
+ * A snapshot read is what the screens that only *seed* from it need. A query param can change without
+ * the router destroying the component — an in-page `replaceUrl` write does precisely that — so a screen
+ * whose selection is editable keeps its own signal, seeded from here and written back to the URL. This
+ * function is that seed, not a live value.
+ *
+ * `null` means the URL names no company: `/products` (the hub), `categories`, `variants` (the
+ * store-addressed search) or `suppliers`, and no screen builds a scoped request from it.
  */
 export function productsCompanyId(route: ActivatedRoute): string | null {
-  return route.snapshot.paramMap.get('companyId');
+  return route.snapshot.queryParamMap.get('companyId');
 }
