@@ -42,8 +42,8 @@ One line per task: ID, specs, route, commit. Route is `inline` unless a Delegati
 | T2 | Move: `/api/companies/{companyId}/products` with `verifyCompanyAccess`, the company required on write, the category required to belong to it, duplicate SKU per company | S4 | delegated (`gentle-ai-worker`) | `e9f9ecba` |
 | T3 | Variants: barcode unique per company, variant search scoped by the store's company | S4 | delegated (`gentle-ai-worker`) | `f25de7d2` |
 | T4 | Contract: V40 makes both columns `NOT NULL`, adds the composite FKs, drops the global unique keys and replaces them per company | S2, S4 | delegated (`gentle-ai-worker`) | `155d13ae` |
-| T5 | Consumers: `InventoryService`, `PurchaseOrderService`, `SalesOrderService` resolve a variant **with** the document's company | S4 | inline | `-` |
-| T6 | Frontend: `product.service.ts` and the product routes call the scoped path, and the `categoryCompanyId` workaround goes away | S4 | inline | `-` |
+| T5 | Consumers: `InventoryService`, `PurchaseOrderService`, `SalesOrderService` resolve a variant **with** the document's company | S4 | delegated (`gentle-ai-worker`) | `25cb646f` |
+| T6 | Frontend: the products area takes its company from the route (`/products/c/:companyId`), the `categoryCompanyId` workaround goes away, and the dead `/api/products/**` gateway route is removed | S4, S6 | delegated (`gentle-ai-worker`) | `-` |
 
 The slices are ordered so each one leaves the suite green: a `NOT NULL` column cannot arrive before the write
 surface knows where the company comes from, and the API cannot move before the column exists. That is why the
@@ -130,3 +130,21 @@ first and alone.
   budget. T1, T3 and the docs commits are inside it. The delivery strategy in §Tasks stands — a chain of pull
   requests with T2 read first and alone — but if the maintainer prefers, T4 can be split at the migration
   boundary from its fixture updates, and the remaining slices stay small.
+- **L12** — the maintainer's decision for T6, 2026-10-27, verbatim: «Segmento /products/c/:companyId/...». The
+  products area takes its company from the **route**, not from a query parameter: `/products` becomes a company
+  picker, the product workspace lives under `/products/c/:companyId`, and the paths the app already links
+  (`/products/list`, `/products/create`, `/products/edit/:id`, …) redirect rather than 404. Two areas stay outside
+  the segment because they are not a company's workspace: `/products/categories` (a company-independent browser
+  that chooses its company inside the page — its own documented decision) and `/products/suppliers` (suppliers
+  are global by decision; only the product's *links* to them are company-scoped). The rejected alternatives were
+  the `?companyId=` query parameter — which `product-edit` uses today, and which would have been the smaller diff
+  — and an app-wide company context in the shell, which does not exist yet and is its own unit.
+- **L13** — T5 evidence, 2026-10-27, commit `25cb646f` (delegated). All four lookups moved in one slice because
+  the same question was being asked at four different depths: the purchase order bound the variant to a product,
+  the sales order asked for a bare id (`existsByIdAndEnabledTrue` — the weakest check in the codebase), the
+  inventory engine asked for a bare id, and the store-stock write never asked. `CompanyStoreOwnerResolver` is
+  now the single store → zone → region → country → company derivation, so the guard and the queries cannot
+  derive different tenants. RED observed for each rule as a *behavioral* failure (a foreign line was accepted and
+  the order saved; a receipt moved another tenant's stock; the store-stock pair answered 200), GREEN 4104 tests.
+  The item L8 recorded as open — the store-stock pair — is closed on the write path, and the record keeps the
+  distinction the schema still cannot make.

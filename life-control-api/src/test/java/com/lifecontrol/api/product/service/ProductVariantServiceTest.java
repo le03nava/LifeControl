@@ -41,6 +41,7 @@ import com.lifecontrol.api.product.repository.ProductVariantStoreStockRepository
 import com.lifecontrol.api.store.exception.CompanyStoreNotFoundException;
 import com.lifecontrol.api.store.model.CompanyStore;
 import com.lifecontrol.api.store.repository.CompanyStoreRepository;
+import com.lifecontrol.api.store.service.CompanyStoreOwnerResolver;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -52,7 +53,6 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.Page;
@@ -98,7 +98,13 @@ class ProductVariantServiceTest {
     private UUID zoneId;
     private CompanyStore testCompanyStore;
 
-    @InjectMocks
+    /**
+     * The real derivation, not a mock: the store fixtures already carry the whole
+     * company &rarr; country &rarr; region &rarr; zone &rarr; store chain, so the tenant every
+     * store-scoped rule derives is the one the fixture describes instead of a canned answer.
+     */
+    private final CompanyStoreOwnerResolver companyStoreOwnerResolver = new CompanyStoreOwnerResolver();
+
     private ProductVariantService productVariantService;
 
     private UUID productId;
@@ -120,6 +126,9 @@ class ProductVariantServiceTest {
         productId = UUID.randomUUID();
         variantId = UUID.randomUUID();
         companyStoreId = UUID.randomUUID();
+        // Assigned before the variant fixture: a variant carries the company that owns it, and the
+        // store-stock write compares that column with the store's owner.
+        companyId = UUID.randomUUID();
         var now = LocalDateTime.now();
 
         testProduct = Product.builder()
@@ -132,6 +141,7 @@ class ProductVariantServiceTest {
         testVariant = ProductVariant.builder()
                 .id(variantId)
                 .productId(productId)
+                .companyId(companyId)
                 .barCode("7501234567890")
                 .variantName("Talla M")
                 .enabled(true)
@@ -171,7 +181,6 @@ class ProductVariantServiceTest {
                 .enabled(true)
                 .build();
 
-        companyId = UUID.randomUUID();
         companyCountryId = UUID.randomUUID();
         regionId = UUID.randomUUID();
         zoneId = UUID.randomUUID();
@@ -180,6 +189,18 @@ class ProductVariantServiceTest {
         // itself, because the endpoint path carries only the store id, so the fixture must carry
         // the whole chain.
         testCompanyStore = storeOf(companyId, companyCountryId, regionId, zoneId, companyStoreId);
+
+        productVariantService = new ProductVariantService(
+                productVariantRepository,
+                productVariantStoreStockRepository,
+                productRepository,
+                companyStoreRepository,
+                companyStoreOwnerResolver,
+                currentUserContext,
+                inventoryService,
+                measureUnitRepository,
+                inventoryMovementRepository,
+                productAttributeCatalogService);
     }
 
     /**
@@ -940,7 +961,7 @@ class ProductVariantServiceTest {
                     .costPrice(new BigDecimal("120.00"))
                     .build();
 
-            when(productVariantRepository.existsById(variantId)).thenReturn(true);
+            when(productVariantRepository.findById(variantId)).thenReturn(Optional.of(testVariant));
             when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
             when(productVariantStoreStockRepository.findByProductVariantIdAndCompanyStoreIdForUpdate(
                             variantId, companyStoreId))
@@ -976,7 +997,7 @@ class ProductVariantServiceTest {
                     .costPrice(new BigDecimal("120.00"))
                     .build();
 
-            when(productVariantRepository.existsById(variantId)).thenReturn(true);
+            when(productVariantRepository.findById(variantId)).thenReturn(Optional.of(testVariant));
             when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
             when(productVariantStoreStockRepository.findByProductVariantIdAndCompanyStoreIdForUpdate(
                             variantId, companyStoreId))
@@ -1006,7 +1027,7 @@ class ProductVariantServiceTest {
                     .stock(BigDecimal.ZERO)
                     .build();
 
-            when(productVariantRepository.existsById(variantId)).thenReturn(true);
+            when(productVariantRepository.findById(variantId)).thenReturn(Optional.of(testVariant));
             when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
             when(productVariantStoreStockRepository.findByProductVariantIdAndCompanyStoreIdForUpdate(
                             variantId, companyStoreId))
@@ -1028,7 +1049,7 @@ class ProductVariantServiceTest {
         @Test
         @DisplayName("should throw ProductVariantNotFoundException when the variant does not exist")
         void upsertStoreStock_UnknownVariant_ThrowsException() {
-            when(productVariantRepository.existsById(variantId)).thenReturn(false);
+            when(productVariantRepository.findById(variantId)).thenReturn(Optional.empty());
 
             assertThatThrownBy(() -> productVariantService.upsertStoreStock(
                             variantId,
@@ -1043,7 +1064,7 @@ class ProductVariantServiceTest {
         @Test
         @DisplayName("should throw CompanyStoreNotFoundException when the store does not exist")
         void upsertStoreStock_UnknownStore_ThrowsException() {
-            when(productVariantRepository.existsById(variantId)).thenReturn(true);
+            when(productVariantRepository.findById(variantId)).thenReturn(Optional.of(testVariant));
             when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.empty());
 
             assertThatThrownBy(() -> productVariantService.upsertStoreStock(
@@ -1059,7 +1080,7 @@ class ProductVariantServiceTest {
         @Test
         @DisplayName("should reject a store outside the caller's scope and write nothing")
         void upsertStoreStock_StoreOutsideCallerScope_IsRejected() {
-            when(productVariantRepository.existsById(variantId)).thenReturn(true);
+            when(productVariantRepository.findById(variantId)).thenReturn(Optional.of(testVariant));
             when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
             doThrow(new AccessDeniedException("Access denied"))
                     .when(currentUserContext)
@@ -1076,6 +1097,34 @@ class ProductVariantServiceTest {
                     .verifyCompanyStoreAccess(companyId, companyCountryId, regionId, zoneId, companyStoreId);
             verify(productVariantStoreStockRepository, never()).insertStoreStockIfAbsent(any(), any());
             verify(productVariantStoreStockRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("should refuse to stock a variant of another company in this store and write nothing")
+        void upsertStoreStock_ForeignCompanyVariant_IsRefusedAndNothingIsWritten() {
+            // The store exists, the caller holds a grant over it, and the variant exists and is
+            // enabled: what is missing is that the pair belongs to one company, and nothing in the
+            // schema forbids it (company_stores carries no company_id, so the store's company is
+            // derived through zone -> region -> country).
+            var otherCompanyId = UUID.randomUUID();
+            var storeOfAnotherCompany =
+                    storeOf(otherCompanyId, UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), companyStoreId);
+
+            when(productVariantRepository.findById(variantId)).thenReturn(Optional.of(testVariant));
+            when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(storeOfAnotherCompany));
+
+            assertThatThrownBy(() -> productVariantService.upsertStoreStock(
+                            variantId,
+                            companyStoreId,
+                            new ProductVariantStoreStockRequest(BigDecimal.ONE, BigDecimal.ONE, null)))
+                    .isInstanceOf(ProductVariantNotFoundException.class)
+                    .hasMessageContaining("Product variant not found with id");
+
+            // Nothing written and nothing asked of the engine: the row, the prices and the stock
+            // of a foreign tenant are all untouched.
+            verify(productVariantStoreStockRepository, never()).insertStoreStockIfAbsent(any(), any());
+            verify(productVariantStoreStockRepository, never()).save(any());
+            verify(inventoryService, never()).applyStockAdjustment(any(), any(), any(), any());
         }
     }
 

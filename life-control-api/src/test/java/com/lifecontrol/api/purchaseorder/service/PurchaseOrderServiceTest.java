@@ -48,6 +48,7 @@ import com.lifecontrol.api.status.repository.StatusTypeRepository;
 import com.lifecontrol.api.store.exception.CompanyStoreNotFoundException;
 import com.lifecontrol.api.store.model.CompanyStore;
 import com.lifecontrol.api.store.repository.CompanyStoreRepository;
+import com.lifecontrol.api.store.service.CompanyStoreOwnerResolver;
 import com.lifecontrol.api.supplier.exception.SupplierNotFoundException;
 import com.lifecontrol.api.supplier.model.Supplier;
 import com.lifecontrol.api.supplier.repository.SupplierRepository;
@@ -62,7 +63,6 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.ApplicationEventPublisher;
@@ -110,7 +110,13 @@ class PurchaseOrderServiceTest {
     @Mock
     private CurrentUserContext currentUserContext;
 
-    @InjectMocks
+    /**
+     * The real derivation, not a mock: the store fixture carries the whole
+     * company &rarr; country &rarr; region &rarr; zone &rarr; store chain, so the tenant the line
+     * lookup asks for is the one the fixture describes.
+     */
+    private final CompanyStoreOwnerResolver companyStoreOwnerResolver = new CompanyStoreOwnerResolver();
+
     private PurchaseOrderService service;
 
     private UUID poId, detailId, supplierId, storeId, pmId, productId, statusId, draftStatusId;
@@ -270,6 +276,20 @@ class PurchaseOrderServiceTest {
                 .enabled(true)
                 .build();
         purchaseOrder.setDetails(new ArrayList<>());
+
+        service = new PurchaseOrderService(
+                purchaseOrderRepository,
+                detailRepository,
+                supplierRepository,
+                companyStoreRepository,
+                companyStoreOwnerResolver,
+                productRepository,
+                productVariantRepository,
+                productVariantStoreStockRepository,
+                paymentMethodRepository,
+                statusRepository,
+                eventPublisher,
+                currentUserContext);
 
         detail = PurchaseOrderDetail.builder()
                 .id(detailId)
@@ -437,7 +457,8 @@ class PurchaseOrderServiceTest {
             when(statusRepository.findById(draftStatusId)).thenReturn(Optional.of(draftStatus));
             when(statusRepository.findById(pendingStatus.getId())).thenReturn(Optional.of(pendingStatus));
             when(productRepository.findById(productId)).thenReturn(Optional.of(product));
-            when(productVariantRepository.findByIdAndProductIdAndEnabledTrue(variantId, productId))
+            when(productVariantRepository.findByIdAndProductIdAndCompanyIdAndEnabledTrue(
+                            variantId, productId, companyId))
                     .thenReturn(Optional.of(productVariant));
             when(productVariantStoreStockRepository.existsByProductVariantIdAndCompanyStoreId(variantId, storeId))
                     .thenReturn(true);
@@ -456,6 +477,46 @@ class PurchaseOrderServiceTest {
             var savedPO = captor.getValue();
             assertThat(savedPO.getDetails()).hasSize(1);
             assertThat(savedPO.getDetails().getFirst().getTotal()).isEqualByComparingTo(new BigDecimal("450.00"));
+        }
+
+        @Test
+        @DisplayName("should refuse a line naming another company's variant and persist nothing")
+        void refusesLineNamingAnotherCompanysVariant() {
+            // The hole this pins: the variant belongs to another company, is enabled, and is even
+            // stocked at the order's store. Nothing in the schema forbids the (variant, store) pair
+            // — company_stores has no company_id and the composite FKs only tie a variant to its
+            // product — so the only gate is the company the lookup is asked for.
+            var detailReq = new PurchaseOrderDetailRequest(
+                    productId, variantId, BigDecimal.ONE, new BigDecimal("10.00"), null, pendingStatus.getId());
+            var request =
+                    new PurchaseOrderRequest(supplierId, storeId, pmId, draftStatusId, "Comments", List.of(detailReq));
+
+            when(supplierRepository.findById(supplierId)).thenReturn(Optional.of(supplier));
+            when(companyStoreRepository.findById(storeId)).thenReturn(Optional.of(store));
+            when(paymentMethodRepository.findById(pmId)).thenReturn(Optional.of(paymentMethod));
+            when(statusRepository.findById(draftStatusId)).thenReturn(Optional.of(draftStatus));
+            when(productRepository.findById(productId)).thenReturn(Optional.of(product));
+            // The order's store belongs to companyId, and no variant of that company carries this id:
+            // that is what a variant of another tenant looks like once the lookup is scoped.
+            when(productVariantRepository.findByIdAndProductIdAndCompanyIdAndEnabledTrue(
+                            variantId, productId, companyId))
+                    .thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> service.createPurchaseOrder(request))
+                    .isInstanceOf(ProductVariantNotFoundException.class)
+                    .hasMessageContaining("Product variant not found");
+
+            // The company asked for is the one that owns the order's store — not the product's, not
+            // the caller's — which is the only thing that separates a reachable variant from a
+            // foreign one.
+            verify(productVariantRepository)
+                    .findByIdAndProductIdAndCompanyIdAndEnabledTrue(variantId, productId, companyId);
+            // The per-store half is never reached, and the refusal is the whole line, not just the
+            // link: no stock question, no order, no line and no event.
+            verify(productVariantStoreStockRepository, never()).existsByProductVariantIdAndCompanyStoreId(any(), any());
+            verify(purchaseOrderRepository, never()).save(any());
+            verify(detailRepository, never()).saveAll(any());
+            verify(eventPublisher, never()).publishEvent(any());
         }
 
         @Test
@@ -591,7 +652,8 @@ class PurchaseOrderServiceTest {
             when(statusRepository.findByTypeNameAndStatusName("PURCHASE_ORDER_DETAIL", "Pending"))
                     .thenReturn(Optional.of(pendingStatus));
             when(productRepository.findById(productId)).thenReturn(Optional.of(product));
-            when(productVariantRepository.findByIdAndProductIdAndEnabledTrue(variantId, productId))
+            when(productVariantRepository.findByIdAndProductIdAndCompanyIdAndEnabledTrue(
+                            variantId, productId, companyId))
                     .thenReturn(Optional.of(productVariant));
             when(productVariantStoreStockRepository.existsByProductVariantIdAndCompanyStoreId(variantId, storeId))
                     .thenReturn(true);
@@ -745,7 +807,8 @@ class PurchaseOrderServiceTest {
 
             when(purchaseOrderRepository.findById(poId)).thenReturn(Optional.of(purchaseOrder));
             when(productRepository.findById(productId)).thenReturn(Optional.of(product));
-            when(productVariantRepository.findByIdAndProductIdAndEnabledTrue(variantId, productId))
+            when(productVariantRepository.findByIdAndProductIdAndCompanyIdAndEnabledTrue(
+                            variantId, productId, companyId))
                     .thenReturn(Optional.of(productVariant));
             when(productVariantStoreStockRepository.existsByProductVariantIdAndCompanyStoreId(variantId, storeId))
                     .thenReturn(true);
@@ -797,7 +860,8 @@ class PurchaseOrderServiceTest {
             when(purchaseOrderRepository.findById(poId)).thenReturn(Optional.of(purchaseOrder));
             when(detailRepository.findById(detailId)).thenReturn(Optional.of(detail));
             when(productRepository.findById(productId)).thenReturn(Optional.of(product));
-            when(productVariantRepository.findByIdAndProductIdAndEnabledTrue(variantId, productId))
+            when(productVariantRepository.findByIdAndProductIdAndCompanyIdAndEnabledTrue(
+                            variantId, productId, companyId))
                     .thenReturn(Optional.of(productVariant));
             when(productVariantStoreStockRepository.existsByProductVariantIdAndCompanyStoreId(variantId, storeId))
                     .thenReturn(true);
@@ -908,7 +972,8 @@ class PurchaseOrderServiceTest {
             when(statusRepository.findById(draftStatusId)).thenReturn(Optional.of(draftStatus));
             when(statusRepository.findById(pendingStatus.getId())).thenReturn(Optional.of(pendingStatus));
             when(productRepository.findById(productId)).thenReturn(Optional.of(product));
-            when(productVariantRepository.findByIdAndProductIdAndEnabledTrue(variantId, productId))
+            when(productVariantRepository.findByIdAndProductIdAndCompanyIdAndEnabledTrue(
+                            variantId, productId, companyId))
                     .thenReturn(Optional.of(productVariant));
             when(productVariantStoreStockRepository.existsByProductVariantIdAndCompanyStoreId(variantId, storeId))
                     .thenReturn(true);
@@ -946,7 +1011,8 @@ class PurchaseOrderServiceTest {
             when(paymentMethodRepository.findById(pmId)).thenReturn(Optional.of(paymentMethod));
             when(statusRepository.findById(draftStatusId)).thenReturn(Optional.of(draftStatus));
             when(productRepository.findById(productId)).thenReturn(Optional.of(product));
-            when(productVariantRepository.findByIdAndProductIdAndEnabledTrue(variantId, productId))
+            when(productVariantRepository.findByIdAndProductIdAndCompanyIdAndEnabledTrue(
+                            variantId, productId, companyId))
                     .thenReturn(Optional.empty());
 
             assertThatThrownBy(() -> service.createPurchaseOrder(request))
@@ -967,7 +1033,8 @@ class PurchaseOrderServiceTest {
 
             when(purchaseOrderRepository.findById(poId)).thenReturn(Optional.of(purchaseOrder));
             when(productRepository.findById(productId)).thenReturn(Optional.of(product));
-            when(productVariantRepository.findByIdAndProductIdAndEnabledTrue(variantId, productId))
+            when(productVariantRepository.findByIdAndProductIdAndCompanyIdAndEnabledTrue(
+                            variantId, productId, companyId))
                     .thenReturn(Optional.of(productVariant));
             when(productVariantStoreStockRepository.existsByProductVariantIdAndCompanyStoreId(variantId, storeId))
                     .thenReturn(true);
@@ -998,7 +1065,8 @@ class PurchaseOrderServiceTest {
 
             when(purchaseOrderRepository.findById(poId)).thenReturn(Optional.of(purchaseOrder));
             when(productRepository.findById(productId)).thenReturn(Optional.of(product));
-            when(productVariantRepository.findByIdAndProductIdAndEnabledTrue(variantId, productId))
+            when(productVariantRepository.findByIdAndProductIdAndCompanyIdAndEnabledTrue(
+                            variantId, productId, companyId))
                     .thenReturn(Optional.empty());
 
             assertThatThrownBy(() -> service.addPurchaseOrderDetail(poId, detailReq))
@@ -1019,7 +1087,8 @@ class PurchaseOrderServiceTest {
             when(purchaseOrderRepository.findById(poId)).thenReturn(Optional.of(purchaseOrder));
             when(detailRepository.findById(detailId)).thenReturn(Optional.of(detail));
             when(productRepository.findById(productId)).thenReturn(Optional.of(product));
-            when(productVariantRepository.findByIdAndProductIdAndEnabledTrue(variantId, productId))
+            when(productVariantRepository.findByIdAndProductIdAndCompanyIdAndEnabledTrue(
+                            variantId, productId, companyId))
                     .thenReturn(Optional.empty());
 
             assertThatThrownBy(() -> service.updatePurchaseOrderDetail(poId, detailId, updatedReq))
@@ -1040,7 +1109,8 @@ class PurchaseOrderServiceTest {
             when(purchaseOrderRepository.findById(poId)).thenReturn(Optional.of(purchaseOrder));
             when(detailRepository.findById(detailId)).thenReturn(Optional.of(detail));
             when(productRepository.findById(productId)).thenReturn(Optional.of(product));
-            when(productVariantRepository.findByIdAndProductIdAndEnabledTrue(variantId, productId))
+            when(productVariantRepository.findByIdAndProductIdAndCompanyIdAndEnabledTrue(
+                            variantId, productId, companyId))
                     .thenReturn(Optional.of(productVariant));
             when(productVariantStoreStockRepository.existsByProductVariantIdAndCompanyStoreId(variantId, storeId))
                     .thenReturn(true);

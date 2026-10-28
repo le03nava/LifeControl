@@ -28,6 +28,7 @@ import com.lifecontrol.api.product.repository.ProductVariantStoreStockRepository
 import com.lifecontrol.api.store.exception.CompanyStoreNotFoundException;
 import com.lifecontrol.api.store.model.CompanyStore;
 import com.lifecontrol.api.store.repository.CompanyStoreRepository;
+import com.lifecontrol.api.store.service.CompanyStoreOwnerResolver;
 import java.math.BigDecimal;
 import java.util.Map;
 import java.util.Objects;
@@ -61,7 +62,9 @@ import org.springframework.transaction.annotation.Transactional;
  * variant directly and derive their scope from the store. For them the derived company is not only the
  * thing the access guard verifies ({@link #verifyStoreAccess}) but a <b>predicate of the query</b>: the
  * store grant says who may read the store, it says nothing about which tenant's rows a per-store row
- * joins onto, so the company travels into the SQL of every store-scoped read that returns variants.</p>
+ * joins onto, so the company travels into the SQL of every store-scoped read that returns variants.
+ * It is also what makes the store-stock write refuse a pair whose two sides belong to different
+ * companies ({@link #upsertStoreStock}).
  */
 @Service
 public class ProductVariantService {
@@ -72,6 +75,7 @@ public class ProductVariantService {
     private final ProductVariantStoreStockRepository productVariantStoreStockRepository;
     private final ProductRepository productRepository;
     private final CompanyStoreRepository companyStoreRepository;
+    private final CompanyStoreOwnerResolver companyStoreOwnerResolver;
     private final CurrentUserContext currentUserContext;
     private final InventoryService inventoryService;
     private final MeasureUnitRepository measureUnitRepository;
@@ -83,6 +87,7 @@ public class ProductVariantService {
             ProductVariantStoreStockRepository productVariantStoreStockRepository,
             ProductRepository productRepository,
             CompanyStoreRepository companyStoreRepository,
+            CompanyStoreOwnerResolver companyStoreOwnerResolver,
             CurrentUserContext currentUserContext,
             InventoryService inventoryService,
             MeasureUnitRepository measureUnitRepository,
@@ -92,6 +97,7 @@ public class ProductVariantService {
         this.productVariantStoreStockRepository = productVariantStoreStockRepository;
         this.productRepository = productRepository;
         this.companyStoreRepository = companyStoreRepository;
+        this.companyStoreOwnerResolver = companyStoreOwnerResolver;
         this.currentUserContext = currentUserContext;
         this.inventoryService = inventoryService;
         this.measureUnitRepository = measureUnitRepository;
@@ -157,7 +163,7 @@ public class ProductVariantService {
         verifyStoreAccess(store);
 
         return productVariantRepository.findStoreScopedByProductIdAndStoreId(
-                companyIdOf(store), productId, companyStoreId, pageable);
+                companyStoreOwnerResolver.companyIdOf(store), productId, companyStoreId, pageable);
     }
 
     @Transactional(readOnly = true)
@@ -350,7 +356,23 @@ public class ProductVariantService {
      * while no location row and no movement did — so the arithmetic stays in the engine, and a store
      * without a settings row is refused by it rather than guessed here.</p>
      *
-     * @throws ProductVariantNotFoundException when the variant does not exist
+     * <p>The row pairs one company's variant with one company's store, and nothing in the schema
+     * forbids the two being different: {@code product_variant_store_stock} has no company of its
+     * own, its unique key is {@code (product_variant_id, company_store_id)}, and the composite
+     * foreign keys only tie the variant to its own product and the store to its own zone. Tolerating
+     * that pair is what keeps the store-scoped reads filtering it out afterwards
+     * ({@link #searchVariants}, {@code listVariants}), and it would let a caller holding a grant on
+     * one store attach another tenant's catalog to it. The write is refused with the vocabulary the
+     * catalog already uses for a pair that is not addressable — {@link
+     * ProductVariantNotFoundException}, which is a 404: the same answer the purchase-order path gives
+     * for a variant that cannot be reached from the document's store. A variant of another company is
+     * indistinguishable from one that does not exist, so no new status is invented for it.</p>
+     *
+     * <p>The pair check runs <b>after</b> {@link #verifyStoreAccess}, so a caller with no grant still
+     * receives the 403 that says so before anything about tenants is disclosed.</p>
+     *
+     * @throws ProductVariantNotFoundException when the variant does not exist, or does not belong to
+     *     the company that owns the store
      * @throws CompanyStoreNotFoundException when the store does not exist
      * @throws org.springframework.security.access.AccessDeniedException when the caller holds no
      *     grant for the store's scope (403)
@@ -360,14 +382,18 @@ public class ProductVariantService {
     @Transactional
     public ProductVariantStoreStockResponse upsertStoreStock(
             UUID variantId, UUID companyStoreId, ProductVariantStoreStockRequest request) {
-        if (!productVariantRepository.existsById(variantId)) {
-            throw new ProductVariantNotFoundException(variantId);
-        }
+        var variant = productVariantRepository
+                .findById(variantId)
+                .orElseThrow(() -> new ProductVariantNotFoundException(variantId));
 
         var store = companyStoreRepository
                 .findById(companyStoreId)
                 .orElseThrow(() -> new CompanyStoreNotFoundException(companyStoreId));
         verifyStoreAccess(store);
+
+        if (!companyStoreOwnerResolver.companyIdOf(store).equals(variant.getCompanyId())) {
+            throw new ProductVariantNotFoundException(variantId);
+        }
 
         logger.info("Upserting variant store stock: variantId={}, companyStoreId={}", variantId, companyStoreId);
 
@@ -427,7 +453,8 @@ public class ProductVariantService {
         verifyStoreAccess(store);
 
         var trimmed = query.trim();
-        return productVariantRepository.searchByQuery(companyIdOf(store), trimmed, storeId, pageable);
+        return productVariantRepository.searchByQuery(
+                companyStoreOwnerResolver.companyIdOf(store), trimmed, storeId, pageable);
     }
 
     // ─── Private Helpers ──────────────────────────────────────────────────
@@ -468,24 +495,11 @@ public class ProductVariantService {
         var country = region.getCompanyCountry();
 
         currentUserContext.verifyCompanyStoreAccess(
-                companyIdOf(store), country.getId(), region.getId(), zone.getId(), store.getId());
-    }
-
-    /**
-     * The company that owns a store, derived through zone &rarr; region &rarr; country.
-     *
-     * <p>{@code company_stores} carries no {@code company_id} (V1): a store hangs off a zone, the zone
-     * off a region, the region off a country, and the country off the company. That chain is the only
-     * way from a store to its tenant, so both the access guard and the company predicate of the
-     * store-scoped reads derive it <b>here</b> — one derivation, so the two cannot disagree about which
-     * tenant a store belongs to.</p>
-     */
-    private UUID companyIdOf(CompanyStore store) {
-        return store.getCompanyZone()
-                .getCompanyRegion()
-                .getCompanyCountry()
-                .getCompany()
-                .getId();
+                companyStoreOwnerResolver.companyIdOf(store),
+                country.getId(),
+                region.getId(),
+                zone.getId(),
+                store.getId());
     }
 
     private ProductVariant findVariantOfProduct(UUID productId, UUID variantId) {

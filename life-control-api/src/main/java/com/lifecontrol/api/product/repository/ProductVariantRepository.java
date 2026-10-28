@@ -37,8 +37,22 @@ public interface ProductVariantRepository extends JpaRepository<ProductVariant, 
      */
     Page<ProductVariant> findByProductIdOrderByCreatedAtDesc(UUID productId, Pageable pageable);
 
-    /** Definition lookup scoped to its owning product, enabled only, for the purchase-order path. */
-    Optional<ProductVariant> findByIdAndProductIdAndEnabledTrue(UUID id, UUID productId);
+    /**
+     * Definition lookup scoped to its owning product <b>and</b> its company, enabled only, for the
+     * purchase-order path.
+     *
+     * <p>All three predicates are load-bearing and none of them implies another. The product says the
+     * line names a variant of the product it also names; the company says the pair belongs to the
+     * tenant that owns the order's store — nothing else does, because the order's store and the
+     * line's catalog row are joined by no constraint at all; and {@code enabled} keeps a
+     * soft-deleted definition unsellable. Dropping the company is what allowed a line to name
+     * another tenant's variant while passing every other check.</p>
+     *
+     * <p>The company is required to be the store's, not the product's: {@code V40}'s composite
+     * foreign keys already tie a variant to its own product's company, so asking with the product's
+     * company would restate the schema and answer nothing about the order.</p>
+     */
+    Optional<ProductVariant> findByIdAndProductIdAndCompanyIdAndEnabledTrue(UUID id, UUID productId, UUID companyId);
 
     // ─── Duplicate gates (D2 barcode, D3 product+variant name) ────────────
 
@@ -68,13 +82,27 @@ public interface ProductVariantRepository extends JpaRepository<ProductVariant, 
     boolean existsByProductIdAndVariantNameAndIdNot(UUID productId, String variantName, UUID id);
 
     /**
-     * Whether the definition exists AND is still sellable.
+     * Whether the definition exists, is still sellable <b>and</b> belongs to {@code companyId}.
      *
      * <p>The sales path must use this rather than {@code existsById}: the split removed
      * {@code ProductVariantRepository#findByIdForUpdate}, whose query filtered {@code enabled = true},
-     * so a soft-deleted variant silently became sellable again.</p>
+     * so a soft-deleted variant silently became sellable again. And it must ask for a company: an
+     * existence question by bare id — no product, no store, no company — is the weakest check this
+     * repository can answer, and it accepts another tenant's variant as readily as its own. The
+     * company here is the one that owns the order's store.</p>
      */
-    boolean existsByIdAndEnabledTrue(UUID id);
+    boolean existsByIdAndCompanyIdAndEnabledTrue(UUID id, UUID companyId);
+
+    /**
+     * Definition lookup scoped to its company, enabled only, for the inventory engine.
+     *
+     * <p>The receipt and the sale deduction receive nothing but a variant id and a store id, so a
+     * bare {@code findById} would let either of them move the stock of a variant that belongs to a
+     * different tenant than the store does. The company is the one the store derives, and it is read
+     * before the per-store lock: refusing after the lock would already be holding a row it should
+     * never have touched.</p>
+     */
+    Optional<ProductVariant> findByIdAndCompanyIdAndEnabledTrue(UUID id, UUID companyId);
 
     // ─── Measure-unit type coherence (D4) ─────────────────────────────────
 

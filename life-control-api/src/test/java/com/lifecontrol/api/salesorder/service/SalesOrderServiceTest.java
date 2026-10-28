@@ -55,6 +55,7 @@ import com.lifecontrol.api.status.repository.StatusRepository;
 import com.lifecontrol.api.store.exception.CompanyStoreNotFoundException;
 import com.lifecontrol.api.store.model.CompanyStore;
 import com.lifecontrol.api.store.repository.CompanyStoreRepository;
+import com.lifecontrol.api.store.service.CompanyStoreOwnerResolver;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -67,7 +68,6 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.Page;
@@ -109,7 +109,13 @@ class SalesOrderServiceTest {
     @Mock
     private CurrentUserContext currentUserContext;
 
-    @InjectMocks
+    /**
+     * The real derivation, not a mock: the store fixture carries the whole
+     * company &rarr; country &rarr; region &rarr; zone &rarr; store chain, so the tenant every
+     * variant lookup asks for is the one the fixture describes.
+     */
+    private final CompanyStoreOwnerResolver companyStoreOwnerResolver = new CompanyStoreOwnerResolver();
+
     private SalesOrderService salesOrderService;
 
     private UUID orderId;
@@ -273,6 +279,19 @@ class SalesOrderServiceTest {
                 .build();
 
         testOrderRequest = new SalesOrderRequest(customerId, companyStoreId, shiftId, "user123", null);
+
+        salesOrderService = new SalesOrderService(
+                salesOrderRepository,
+                itemRepository,
+                customerRepository,
+                companyStoreRepository,
+                companyStoreOwnerResolver,
+                shiftRepository,
+                productVariantRepository,
+                inventoryService,
+                statusRepository,
+                paymentMethodRepository,
+                currentUserContext);
 
         testItem = SalesOrderItem.builder()
                 .id(itemId)
@@ -1178,11 +1197,37 @@ class SalesOrderServiceTest {
     class AddSalesOrderItemTests {
 
         @Test
+        @DisplayName("should refuse an item naming another company's variant and write nothing")
+        void addSalesOrderItem_ForeignCompanyVariant_IsRefusedAndNothingIsPersisted() {
+            // The variant exists, is enabled and is sellable in the abstract: what it is not is a
+            // variant of the company that owns the order's store. A bare existsById answers `true`
+            // for it — no product, no store, no company — which is what this pins.
+            when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
+            when(statusRepository.findById(borradorStatus.getId())).thenReturn(Optional.of(borradorStatus));
+            when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
+            when(productVariantRepository.existsByIdAndCompanyIdAndEnabledTrue(variantId, companyId))
+                    .thenReturn(false);
+
+            assertThatThrownBy(() -> salesOrderService.addSalesOrderItem(orderId, testItemRequest))
+                    .isInstanceOf(ProductVariantNotFoundException.class)
+                    .hasMessageContaining("Product variant not found");
+
+            // The question was asked of the tenant that owns the order's store, not of the table.
+            verify(productVariantRepository).existsByIdAndCompanyIdAndEnabledTrue(variantId, companyId);
+            // Nothing persisted and nothing sold: no line, no deduction, no total recalculation.
+            verify(itemRepository, never()).save(any());
+            verify(inventoryService, never()).applySaleBatch(any(), any(), any());
+            verify(salesOrderRepository, never()).save(any());
+        }
+
+        @Test
         @DisplayName("should add item with finalPrice = listPrice - discountApplied")
         void addSalesOrderItem_Success() {
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
             when(statusRepository.findById(borradorStatus.getId())).thenReturn(Optional.of(borradorStatus));
-            when(productVariantRepository.existsByIdAndEnabledTrue(variantId)).thenReturn(true);
+            when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
+            when(productVariantRepository.existsByIdAndCompanyIdAndEnabledTrue(variantId, companyId))
+                    .thenReturn(true);
             when(statusRepository.findByTypeNameAndStatusName("SALES_ORDER_ITEM", "Pending"))
                     .thenReturn(Optional.of(pendienteItemStatus));
             when(itemRepository.save(any(SalesOrderItem.class))).thenReturn(testItem);
@@ -1210,7 +1255,9 @@ class SalesOrderServiceTest {
         void addSalesOrderItem_RecalculatesTotalAmount() {
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
             when(statusRepository.findById(borradorStatus.getId())).thenReturn(Optional.of(borradorStatus));
-            when(productVariantRepository.existsByIdAndEnabledTrue(variantId)).thenReturn(true);
+            when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
+            when(productVariantRepository.existsByIdAndCompanyIdAndEnabledTrue(variantId, companyId))
+                    .thenReturn(true);
             when(statusRepository.findByTypeNameAndStatusName("SALES_ORDER_ITEM", "Pending"))
                     .thenReturn(Optional.of(pendienteItemStatus));
             when(itemRepository.save(any(SalesOrderItem.class))).thenReturn(testItem);
@@ -1295,7 +1342,9 @@ class SalesOrderServiceTest {
 
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(activeOrder));
             when(statusRepository.findById(activoStatus.getId())).thenReturn(Optional.of(activoStatus));
-            when(productVariantRepository.existsByIdAndEnabledTrue(variantId)).thenReturn(true);
+            when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
+            when(productVariantRepository.existsByIdAndCompanyIdAndEnabledTrue(variantId, companyId))
+                    .thenReturn(true);
             when(statusRepository.findByTypeNameAndStatusName("SALES_ORDER_ITEM", "Pending"))
                     .thenReturn(Optional.of(pendienteItemStatus));
             when(itemRepository.save(any(SalesOrderItem.class))).thenReturn(testItem);
@@ -1331,7 +1380,9 @@ class SalesOrderServiceTest {
 
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(pendingOrder));
             when(statusRepository.findById(enviadaStatus.getId())).thenReturn(Optional.of(enviadaStatus));
-            when(productVariantRepository.existsByIdAndEnabledTrue(variantId)).thenReturn(true);
+            when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
+            when(productVariantRepository.existsByIdAndCompanyIdAndEnabledTrue(variantId, companyId))
+                    .thenReturn(true);
             when(statusRepository.findByTypeNameAndStatusName("SALES_ORDER_ITEM", "Pending"))
                     .thenReturn(Optional.of(pendienteItemStatus));
             when(itemRepository.save(any(SalesOrderItem.class))).thenReturn(testItem);
@@ -1365,7 +1416,9 @@ class SalesOrderServiceTest {
 
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(pendingOrder));
             when(statusRepository.findById(enviadaStatus.getId())).thenReturn(Optional.of(enviadaStatus));
-            when(productVariantRepository.existsByIdAndEnabledTrue(variantId)).thenReturn(true);
+            when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
+            when(productVariantRepository.existsByIdAndCompanyIdAndEnabledTrue(variantId, companyId))
+                    .thenReturn(true);
             when(statusRepository.findByTypeNameAndStatusName("SALES_ORDER_ITEM", "Pending"))
                     .thenReturn(Optional.of(pendienteItemStatus));
             when(itemRepository.save(any(SalesOrderItem.class))).thenReturn(testItem);
@@ -1386,7 +1439,9 @@ class SalesOrderServiceTest {
         void addSalesOrderItem_FirstItem_AutoTransitionsToActive() {
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
             when(statusRepository.findById(borradorStatus.getId())).thenReturn(Optional.of(borradorStatus));
-            when(productVariantRepository.existsByIdAndEnabledTrue(variantId)).thenReturn(true);
+            when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
+            when(productVariantRepository.existsByIdAndCompanyIdAndEnabledTrue(variantId, companyId))
+                    .thenReturn(true);
             when(statusRepository.findByTypeNameAndStatusName("SALES_ORDER_ITEM", "Pending"))
                     .thenReturn(Optional.of(pendienteItemStatus));
             var savedItem = SalesOrderItem.builder()
@@ -1437,7 +1492,9 @@ class SalesOrderServiceTest {
             when(statusRepository.findById(borradorStatus.getId())).thenReturn(Optional.of(borradorStatus));
             // The gate requires a live definition: the split removed findByIdForUpdate, whose query
             // filtered enabled = true, so a soft-deleted variant must not become sellable again.
-            when(productVariantRepository.existsByIdAndEnabledTrue(variantId)).thenReturn(false);
+            when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
+            when(productVariantRepository.existsByIdAndCompanyIdAndEnabledTrue(variantId, companyId))
+                    .thenReturn(false);
 
             assertThatThrownBy(() -> salesOrderService.addSalesOrderItem(orderId, testItemRequest))
                     .isInstanceOf(ProductVariantNotFoundException.class)
@@ -1461,7 +1518,9 @@ class SalesOrderServiceTest {
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
             when(statusRepository.findById(borradorStatus.getId())).thenReturn(Optional.of(borradorStatus));
             when(itemRepository.findById(itemId)).thenReturn(Optional.of(testItem));
-            when(productVariantRepository.existsByIdAndEnabledTrue(variantId)).thenReturn(true);
+            when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
+            when(productVariantRepository.existsByIdAndCompanyIdAndEnabledTrue(variantId, companyId))
+                    .thenReturn(true);
             when(itemRepository.save(any(SalesOrderItem.class))).thenReturn(testItem);
             when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId)).thenReturn(List.of(testItem));
             when(statusRepository.findById(pendienteItemStatus.getId())).thenReturn(Optional.of(pendienteItemStatus));
@@ -1485,7 +1544,9 @@ class SalesOrderServiceTest {
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
             when(statusRepository.findById(borradorStatus.getId())).thenReturn(Optional.of(borradorStatus));
             when(itemRepository.findById(itemId)).thenReturn(Optional.of(testItem));
-            when(productVariantRepository.existsByIdAndEnabledTrue(variantId)).thenReturn(true);
+            when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
+            when(productVariantRepository.existsByIdAndCompanyIdAndEnabledTrue(variantId, companyId))
+                    .thenReturn(true);
             when(itemRepository.save(any(SalesOrderItem.class))).thenReturn(testItem);
             when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId)).thenReturn(List.of(testItem));
             when(statusRepository.findById(pendienteItemStatus.getId())).thenReturn(Optional.of(pendienteItemStatus));
@@ -1506,7 +1567,9 @@ class SalesOrderServiceTest {
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
             when(statusRepository.findById(borradorStatus.getId())).thenReturn(Optional.of(borradorStatus));
             when(itemRepository.findById(itemId)).thenReturn(Optional.of(testItem));
-            when(productVariantRepository.existsByIdAndEnabledTrue(variantId)).thenReturn(true);
+            when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
+            when(productVariantRepository.existsByIdAndCompanyIdAndEnabledTrue(variantId, companyId))
+                    .thenReturn(true);
             when(itemRepository.save(any(SalesOrderItem.class))).thenReturn(testItem);
             when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId)).thenReturn(List.of(testItem));
             when(statusRepository.findById(pendienteItemStatus.getId())).thenReturn(Optional.of(pendienteItemStatus));
@@ -1526,7 +1589,9 @@ class SalesOrderServiceTest {
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
             when(statusRepository.findById(borradorStatus.getId())).thenReturn(Optional.of(borradorStatus));
             when(itemRepository.findById(itemId)).thenReturn(Optional.of(testItem));
-            when(productVariantRepository.existsByIdAndEnabledTrue(variantId)).thenReturn(true);
+            when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
+            when(productVariantRepository.existsByIdAndCompanyIdAndEnabledTrue(variantId, companyId))
+                    .thenReturn(true);
             when(itemRepository.save(any(SalesOrderItem.class))).thenReturn(testItem);
             when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId)).thenReturn(List.of(testItem));
             when(statusRepository.findById(pendienteItemStatus.getId())).thenReturn(Optional.of(pendienteItemStatus));
@@ -1549,7 +1614,8 @@ class SalesOrderServiceTest {
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
             when(statusRepository.findById(borradorStatus.getId())).thenReturn(Optional.of(borradorStatus));
             when(itemRepository.findById(itemId)).thenReturn(Optional.of(testItem));
-            when(productVariantRepository.existsByIdAndEnabledTrue(newVariantId))
+            when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
+            when(productVariantRepository.existsByIdAndCompanyIdAndEnabledTrue(newVariantId, companyId))
                     .thenReturn(true);
             when(itemRepository.save(any(SalesOrderItem.class))).thenReturn(testItem);
             when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId)).thenReturn(List.of(testItem));
@@ -1575,7 +1641,8 @@ class SalesOrderServiceTest {
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
             when(statusRepository.findById(borradorStatus.getId())).thenReturn(Optional.of(borradorStatus));
             when(itemRepository.findById(itemId)).thenReturn(Optional.of(testItem));
-            when(productVariantRepository.existsByIdAndEnabledTrue(newVariantId))
+            when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
+            when(productVariantRepository.existsByIdAndCompanyIdAndEnabledTrue(newVariantId, companyId))
                     .thenReturn(true);
             when(itemRepository.save(any(SalesOrderItem.class))).thenReturn(testItem);
             when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId)).thenReturn(List.of(testItem));
@@ -1597,7 +1664,9 @@ class SalesOrderServiceTest {
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
             when(statusRepository.findById(borradorStatus.getId())).thenReturn(Optional.of(borradorStatus));
             when(itemRepository.findById(itemId)).thenReturn(Optional.of(testItem));
-            when(productVariantRepository.existsByIdAndEnabledTrue(variantId)).thenReturn(true);
+            when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
+            when(productVariantRepository.existsByIdAndCompanyIdAndEnabledTrue(variantId, companyId))
+                    .thenReturn(true);
             doThrow(new InsufficientStockException(variantId, new BigDecimal("8.00"), new BigDecimal("1.00")))
                     .when(inventoryService)
                     .applySaleBatch(any(), any(), any());
@@ -1690,7 +1759,9 @@ class SalesOrderServiceTest {
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(activeOrder));
             when(statusRepository.findById(activoStatus.getId())).thenReturn(Optional.of(activoStatus));
             when(itemRepository.findById(itemId)).thenReturn(Optional.of(testItem));
-            when(productVariantRepository.existsByIdAndEnabledTrue(variantId)).thenReturn(true);
+            when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
+            when(productVariantRepository.existsByIdAndCompanyIdAndEnabledTrue(variantId, companyId))
+                    .thenReturn(true);
             when(itemRepository.save(any(SalesOrderItem.class))).thenReturn(testItem);
             when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId)).thenReturn(List.of(testItem));
             when(statusRepository.findById(pendienteItemStatus.getId())).thenReturn(Optional.of(pendienteItemStatus));
@@ -1724,7 +1795,9 @@ class SalesOrderServiceTest {
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(pendingOrder));
             when(statusRepository.findById(enviadaStatus.getId())).thenReturn(Optional.of(enviadaStatus));
             when(itemRepository.findById(itemId)).thenReturn(Optional.of(testItem));
-            when(productVariantRepository.existsByIdAndEnabledTrue(variantId)).thenReturn(true);
+            when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
+            when(productVariantRepository.existsByIdAndCompanyIdAndEnabledTrue(variantId, companyId))
+                    .thenReturn(true);
             when(itemRepository.save(any(SalesOrderItem.class))).thenReturn(testItem);
             when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId)).thenReturn(List.of(testItem));
             when(statusRepository.findById(pendienteItemStatus.getId())).thenReturn(Optional.of(pendienteItemStatus));

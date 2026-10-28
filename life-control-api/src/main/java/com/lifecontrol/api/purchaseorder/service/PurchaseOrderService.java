@@ -38,6 +38,7 @@ import com.lifecontrol.api.status.service.StatusValidator;
 import com.lifecontrol.api.store.exception.CompanyStoreNotFoundException;
 import com.lifecontrol.api.store.model.CompanyStore;
 import com.lifecontrol.api.store.repository.CompanyStoreRepository;
+import com.lifecontrol.api.store.service.CompanyStoreOwnerResolver;
 import com.lifecontrol.api.supplier.exception.SupplierNotFoundException;
 import com.lifecontrol.api.supplier.model.Supplier;
 import com.lifecontrol.api.supplier.repository.SupplierRepository;
@@ -92,6 +93,7 @@ public class PurchaseOrderService {
     private final PurchaseOrderDetailRepository detailRepository;
     private final SupplierRepository supplierRepository;
     private final CompanyStoreRepository companyStoreRepository;
+    private final CompanyStoreOwnerResolver companyStoreOwnerResolver;
     private final ProductRepository productRepository;
     private final ProductVariantRepository productVariantRepository;
     private final ProductVariantStoreStockRepository productVariantStoreStockRepository;
@@ -105,6 +107,7 @@ public class PurchaseOrderService {
             PurchaseOrderDetailRepository detailRepository,
             SupplierRepository supplierRepository,
             CompanyStoreRepository companyStoreRepository,
+            CompanyStoreOwnerResolver companyStoreOwnerResolver,
             ProductRepository productRepository,
             ProductVariantRepository productVariantRepository,
             ProductVariantStoreStockRepository productVariantStoreStockRepository,
@@ -116,6 +119,7 @@ public class PurchaseOrderService {
         this.detailRepository = detailRepository;
         this.supplierRepository = supplierRepository;
         this.companyStoreRepository = companyStoreRepository;
+        this.companyStoreOwnerResolver = companyStoreOwnerResolver;
         this.productRepository = productRepository;
         this.productVariantRepository = productVariantRepository;
         this.productVariantStoreStockRepository = productVariantStoreStockRepository;
@@ -191,7 +195,6 @@ public class PurchaseOrderService {
         // row, and the 201 would then report lines no read route can return.
         var newDetails = new ArrayList<PurchaseOrderDetail>();
         if (request.details() != null && !request.details().isEmpty()) {
-            var companyStoreId = store.getId();
             // A line may omit statusId: the field is optional on the DTO, and the update route
             // already answers such a line with the PENDING default. Both write routes take the same
             // DTO, so the create route resolves the same default instead of passing the null id to
@@ -204,7 +207,7 @@ public class PurchaseOrderService {
                     : null;
             for (var detailReq : request.details()) {
                 var product = validateProductExists(detailReq.productId());
-                var productVariant = resolveProductVariant(detailReq.productVariantId(), product, companyStoreId);
+                var productVariant = resolveProductVariant(detailReq.productVariantId(), product, store);
                 var detailStatus = detailReq.statusId() != null
                         ? StatusValidator.requireStatusOfType(
                                 statusRepository, detailReq.statusId(), "PURCHASE_ORDER_DETAIL")
@@ -272,7 +275,6 @@ public class PurchaseOrderService {
             po.getDetails().clear();
 
             if (!request.details().isEmpty()) {
-                var companyStoreId = store.getId();
                 var defaultDetailStatus = statusRepository
                         .findByTypeNameAndStatusName("PURCHASE_ORDER_DETAIL", "Pending")
                         .orElseThrow(() -> new StatusNotFoundException(
@@ -280,7 +282,7 @@ public class PurchaseOrderService {
 
                 for (var detailReq : request.details()) {
                     var product = validateProductExists(detailReq.productId());
-                    var productVariant = resolveProductVariant(detailReq.productVariantId(), product, companyStoreId);
+                    var productVariant = resolveProductVariant(detailReq.productVariantId(), product, store);
                     var detailStatus = detailReq.statusId() != null
                             ? StatusValidator.requireStatusOfType(
                                     statusRepository, detailReq.statusId(), "PURCHASE_ORDER_DETAIL")
@@ -377,8 +379,7 @@ public class PurchaseOrderService {
 
         var po = loadAndValidateDraftPO(purchaseOrderId);
         var product = validateProductExists(request.productId());
-        var productVariant = resolveProductVariant(
-                request.productVariantId(), product, po.getCompanyStore().getId());
+        var productVariant = resolveProductVariant(request.productVariantId(), product, po.getCompanyStore());
         var detailStatus =
                 StatusValidator.requireStatusOfType(statusRepository, request.statusId(), "PURCHASE_ORDER_DETAIL");
         var total = lineTotal(request.unitPrice(), request.quantity());
@@ -415,9 +416,7 @@ public class PurchaseOrderService {
 
         var product = validateProductExists(request.productId());
         var productVariant = resolveProductVariant(
-                request.productVariantId(),
-                product,
-                detail.getPurchaseOrder().getCompanyStore().getId());
+                request.productVariantId(), product, detail.getPurchaseOrder().getCompanyStore());
         var detailStatus =
                 StatusValidator.requireStatusOfType(statusRepository, request.statusId(), "PURCHASE_ORDER_DETAIL");
         var total = lineTotal(request.unitPrice(), request.quantity());
@@ -657,7 +656,11 @@ public class PurchaseOrderService {
         var country = region.getCompanyCountry();
 
         currentUserContext.verifyCompanyStoreAccess(
-                country.getCompany().getId(), country.getId(), region.getId(), zone.getId(), store.getId());
+                companyStoreOwnerResolver.companyIdOf(store),
+                country.getId(),
+                region.getId(),
+                zone.getId(),
+                store.getId());
     }
 
     private PaymentMethod validatePaymentMethodExists(UUID id) {
@@ -675,10 +678,17 @@ public class PurchaseOrderService {
     }
 
     /**
-     * Resolves the variant reference against the line's product and the purchase order's store:
-     * the {@code (variant, product)} pair must exist on the global definition, and the
-     * {@code (variant, store)} pair must exist on the per-store row. A variant that is not reachable
-     * through both is a 404.
+     * Resolves the variant reference against the line's product, the purchase order's store and the
+     * company that owns that store: the {@code (variant, product)} pair must exist on the definition,
+     * the definition must belong to the store's company, and the {@code (variant, store)} pair must
+     * exist on the per-store row. A variant that is not reachable through all three is a 404.
+     *
+     * <p>The company predicate is not decoration. The product is resolved globally and the store's
+     * stock row is a plain pair, so without it a line could name a product and variant of one tenant
+     * against a store of another — both halves exist, both are enabled, and the order is written. The
+     * company comes from the store, never from the product: `V40`'s composite foreign keys already
+     * ensure the variant agrees with its own product, and agreeing with <b>this store</b> is the only
+     * thing left to check.</p>
      *
      * <p>The HTTP contract requires the variant: {@link PurchaseOrderDetailRequest} rejects a missing
      * {@code productVariantId} with 400 before this method runs, and since V14 the database column is
@@ -686,13 +696,14 @@ public class PurchaseOrderService {
      * (decision D5): a {@code null} id now fails the {@code @NotNull} gate instead of silently
      * leaving the relation unset.</p>
      */
-    private ProductVariant resolveProductVariant(UUID productVariantId, Product product, UUID companyStoreId) {
+    private ProductVariant resolveProductVariant(UUID productVariantId, Product product, CompanyStore store) {
         var variant = productVariantRepository
-                .findByIdAndProductIdAndEnabledTrue(productVariantId, product.getId())
+                .findByIdAndProductIdAndCompanyIdAndEnabledTrue(
+                        productVariantId, product.getId(), companyStoreOwnerResolver.companyIdOf(store))
                 .orElseThrow(() -> new ProductVariantNotFoundException(productVariantId));
 
         if (!productVariantStoreStockRepository.existsByProductVariantIdAndCompanyStoreId(
-                productVariantId, companyStoreId)) {
+                productVariantId, store.getId())) {
             throw new ProductVariantNotFoundException(productVariantId);
         }
         return variant;

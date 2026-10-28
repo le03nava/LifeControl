@@ -8,6 +8,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -17,6 +18,10 @@ import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
+import com.lifecontrol.api.company.model.Company;
+import com.lifecontrol.api.company.model.CompanyCountry;
+import com.lifecontrol.api.company.model.CompanyRegion;
+import com.lifecontrol.api.company.model.CompanyZone;
 import com.lifecontrol.api.inventory.exception.StoreInventorySettingsNotFoundException;
 import com.lifecontrol.api.inventory.model.InventoryMovement;
 import com.lifecontrol.api.inventory.model.MovementType;
@@ -33,6 +38,9 @@ import com.lifecontrol.api.product.model.ProductVariantStoreStock;
 import com.lifecontrol.api.product.repository.ProductVariantRepository;
 import com.lifecontrol.api.product.repository.ProductVariantStoreStockRepository;
 import com.lifecontrol.api.salesorder.exception.InsufficientStockException;
+import com.lifecontrol.api.store.model.CompanyStore;
+import com.lifecontrol.api.store.repository.CompanyStoreRepository;
+import com.lifecontrol.api.store.service.CompanyStoreOwnerResolver;
 import java.math.BigDecimal;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
@@ -91,9 +99,52 @@ class InventoryServiceSaleMovementTest {
     @Mock
     private StoreInventorySettingsRepository storeInventorySettingsRepository;
 
+    @Mock
+    private CompanyStoreRepository companyStoreRepository;
+
     private InventoryService inventoryService;
 
     private final Map<UUID, ProductVariantLocation> balances = new LinkedHashMap<>();
+
+    /** The company that owns this fixture's store, derived through the chain the resolver walks. */
+    private static final UUID STORE_COMPANY_ID = UUID.fromString("00000000-0000-0000-0000-0000000000c0");
+
+    /**
+     * The store of the fixture, with the whole company &rarr; country &rarr; region &rarr; zone
+     * &rarr; store chain: the engine derives the tenant from the store argument, so a fixture without
+     * the chain would be asking a question it cannot answer.
+     */
+    private static CompanyStore storeOwnedBy(UUID ownerCompanyId, UUID storeId) {
+        var company = Company.builder()
+                .id(ownerCompanyId)
+                .companyKey("SA-KEY")
+                .companyName("Sales Movement Test Company")
+                .rfc("SALE123456ABC")
+                .enabled(true)
+                .build();
+        var country =
+                CompanyCountry.builder().id(UUID.randomUUID()).company(company).build();
+        var region = CompanyRegion.builder()
+                .id(UUID.randomUUID())
+                .companyCountry(country)
+                .regionCode("01")
+                .regionName("Sales Region")
+                .enabled(true)
+                .build();
+        var zone = CompanyZone.builder()
+                .id(UUID.randomUUID())
+                .companyRegion(region)
+                .zoneCode("01")
+                .zoneName("Sales Zone")
+                .enabled(true)
+                .build();
+        return CompanyStore.builder()
+                .id(storeId)
+                .companyZone(zone)
+                .storeName("Sales Movement Test Store")
+                .enabled(true)
+                .build();
+    }
 
     private ListAppender<ILoggingEvent> logAppender;
     private Logger serviceLogger;
@@ -106,7 +157,16 @@ class InventoryServiceSaleMovementTest {
                 productVariantStoreStockRepository,
                 productVariantLocationRepository,
                 inventoryMovementRepository,
-                storeInventorySettingsRepository);
+                storeInventorySettingsRepository,
+                companyStoreRepository,
+                new CompanyStoreOwnerResolver());
+
+        // The engine derives the tenant from the store argument before it reads the definition, so
+        // every non-quantity path needs the fixture's store to exist. Lenient because the quantity
+        // guard rejects before the store is read.
+        lenient()
+                .when(companyStoreRepository.findById(STORE_ID))
+                .thenReturn(Optional.of(storeOwnedBy(STORE_COMPANY_ID, STORE_ID)));
 
         serviceLogger = (Logger) LoggerFactory.getLogger(InventoryService.class);
         previousLogLevel = serviceLogger.getLevel();
@@ -125,7 +185,7 @@ class InventoryServiceSaleMovementTest {
     // ---------------------------------------------------------------- fixtures
 
     private void givenEnabledVariant() {
-        when(productVariantRepository.findById(VARIANT_ID))
+        when(productVariantRepository.findByIdAndCompanyIdAndEnabledTrue(VARIANT_ID, STORE_COMPANY_ID))
                 .thenReturn(Optional.of(ProductVariant.builder()
                         .id(VARIANT_ID)
                         .barCode("7501234567890")
@@ -447,10 +507,32 @@ class InventoryServiceSaleMovementTest {
         @Test
         @DisplayName("should reject an unknown variant with ProductVariantNotFoundException")
         void rejectsUnknownVariant() {
-            when(productVariantRepository.findById(VARIANT_ID)).thenReturn(Optional.empty());
+            when(productVariantRepository.findByIdAndCompanyIdAndEnabledTrue(VARIANT_ID, STORE_COMPANY_ID))
+                    .thenReturn(Optional.empty());
 
             assertThatThrownBy(() -> deduct("1.00")).isInstanceOf(ProductVariantNotFoundException.class);
 
+            verifyNoInteractions(productVariantStoreStockRepository);
+            verifyNoInteractions(productVariantLocationRepository);
+            verifyNoInteractions(inventoryMovementRepository);
+        }
+
+        @Test
+        @DisplayName("should refuse a sale of another company's variant and write nothing")
+        void refusesSaleOfAnotherCompanysVariant() {
+            // Stocked, enabled, sellable in the abstract — and owned by another company, so the
+            // lookup asked with the store's company answers nothing. A deduction that resolves the
+            // variant by bare id moves another tenant's balance; the store it is sold from already
+            // says which tenant may be touched.
+            when(productVariantRepository.findByIdAndCompanyIdAndEnabledTrue(VARIANT_ID, STORE_COMPANY_ID))
+                    .thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> deduct("2.00")).isInstanceOf(ProductVariantNotFoundException.class);
+
+            // The only company asked about is the one that owns the store.
+            verify(productVariantRepository).findByIdAndCompanyIdAndEnabledTrue(VARIANT_ID, STORE_COMPANY_ID);
+            // Nothing persisted and nothing locked: no aggregate update, no balance update, no SALE
+            // row, and the store row was never even looked for.
             verifyNoInteractions(productVariantStoreStockRepository);
             verifyNoInteractions(productVariantLocationRepository);
             verifyNoInteractions(inventoryMovementRepository);
@@ -694,7 +776,7 @@ class InventoryServiceSaleMovementTest {
 
             InOrder lockOrder = inOrder(
                     productVariantRepository, productVariantStoreStockRepository, productVariantLocationRepository);
-            lockOrder.verify(productVariantRepository).findById(VARIANT_ID);
+            lockOrder.verify(productVariantRepository).findByIdAndCompanyIdAndEnabledTrue(VARIANT_ID, STORE_COMPANY_ID);
             lockOrder
                     .verify(productVariantStoreStockRepository)
                     .findByProductVariantIdAndCompanyStoreIdForUpdate(VARIANT_ID, STORE_ID);
@@ -751,7 +833,7 @@ class InventoryServiceSaleMovementTest {
                     .storeLocationId(LOCATION_A)
                     .stock(new BigDecimal("10.00"))
                     .build();
-            when(productVariantRepository.findById(SECOND_VARIANT_ID))
+            when(productVariantRepository.findByIdAndCompanyIdAndEnabledTrue(SECOND_VARIANT_ID, STORE_COMPANY_ID))
                     .thenReturn(Optional.of(ProductVariant.builder()
                             .id(SECOND_VARIANT_ID)
                             .barCode("7501234567891")
