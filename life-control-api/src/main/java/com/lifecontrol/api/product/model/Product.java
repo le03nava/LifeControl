@@ -27,23 +27,26 @@ public class Product extends Auditable {
      * representable that the model forbids — a product classified under another company's category, and
      * a product nobody can attribute at all.</p>
      *
-     * <p>Nullable only during the expand step {@code V39}: the column becomes {@code NOT NULL} in
-     * {@code V40}, which is also where the composite foreign key to the category tree and the
-     * per-company unique keys arrive. Until then every write populates it from the company named by the
-     * request path, and a category owned by another company is refused before anything is stored.</p>
+     * <p>Required, and enforced by the database since {@code V40}: {@code products.company_id} is
+     * {@code NOT NULL}, the SKU is unique per company ({@code uq_products_company_sku}) and the
+     * category has to belong to the same one ({@code fk_products_category_same_company}). The owner is
+     * stored rather than derived from {@link #category} because deriving it was the V36 shape and it
+     * left two states representable that the model forbids: a product classified under another
+     * company's category, and a product nobody can attribute at all.</p>
      */
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "company_id")
+    @JoinColumn(name = "company_id", nullable = false)
     private Company company;
 
     /**
      * The catalog key of this product.
      *
-     * <p>Its uniqueness is <b>global</b> on the column today, inherited from V1, and moves to
-     * {@code (company_id, sku)} in the contract step of this unit — which is why the flag still sits
-     * here: the entity has to describe the constraint the database actually has.</p>
+     * <p>Its uniqueness is <b>per company</b> ({@code uq_products_company_sku}, V40), which replaced
+     * the global key V1 created — two businesses legitimately sell the same SKU. The entity carries
+     * no {@code unique} flag because the key spans two columns: the constraint the database has is
+     * named in the migration, and this field describes a single column.</p>
      */
-    @Column(length = 50, nullable = false, unique = true)
+    @Column(length = 50, nullable = false)
     private String sku;
 
     @Column(length = 255, nullable = false)
@@ -69,10 +72,11 @@ public class Product extends Auditable {
      * child of the stored level-1 node — and enforcing that consistency on every write would be an
      * application rule where one link is already structural.</p>
      *
-     * <p>Its company-scoping arrives in the contract step, not here: the composite foreign key
-     * {@code (company_id, category_id) -> product_categories (company_id, id)} is what makes "a product of
-     * company A under a category of company B" unreachable, and it needs both sides {@code NOT NULL}
-     * first.</p>
+     * <p>The company-scoping is structural since {@code V40}: the composite foreign key
+     * {@code (company_id, category_id) -> product_categories (company_id, id)} is what makes "a product
+     * of company A under a category of company B" unreachable. It is {@code MATCH SIMPLE} (the
+     * database's default), so an unclassified product — a null {@link #category} — skips the check
+     * entirely.</p>
      *
      * <p>No {@code ON DELETE} action: the category API soft-deletes ({@code enabled = false}), so no
      * hard delete exists and the default {@code NO ACTION} is the guard against orphaning.</p>

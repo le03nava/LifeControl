@@ -171,16 +171,16 @@ public class ProductVariantService {
     /**
      * Creates the company-scoped definition of a variant. The owning product is the path variable, not
      * part of the request, and the variant takes the company from the path (V39) because the barcode key
-     * that replaces the global one has to live on the row it covers — the product was already checked to
-     * belong to that company, so the copy cannot disagree with it. Both uniqueness rules are checked
-     * here and, ultimately, by the database: {@code (company_id, bar_code)} once the contract step
-     * lands, and {@code (product_id, variant_name)} (D3) today.
+     * has to live on the row it covers — the product was already checked to belong to that company, and
+     * since {@code V40} the composite foreign key makes a disagreeing pair unwritable. Both uniqueness
+     * rules are checked here and enforced by the database too: {@code (company_id, bar_code)} and
+     * {@code (product_id, variant_name)} (D3).
      *
      * <p>The barcode gate is asked for <b>this company's</b> key, never for the table's: a barcode taken
-     * in another company is not a conflict, because two tenants are separate businesses. The database
-     * still enforces V14's global {@code uk_product_variants_bar_code}, so until the contract step a
-     * live insert of a repeated cross-company barcode is refused by the index — this method is the
-     * service half of the rule and the record says so.</p>
+     * in another company is not a conflict, because two tenants are separate businesses. V40 replaced
+     * V14's global key with {@code uq_product_variants_company_bar_code}, so the service and the index
+     * answer the same question and this method is where the 409 gets a message instead of a constraint
+     * name.</p>
      *
      * @throws ProductNotFoundException when the product does not exist
      * @throws DuplicateProductVariantException when the barcode or the (product, name) pair already

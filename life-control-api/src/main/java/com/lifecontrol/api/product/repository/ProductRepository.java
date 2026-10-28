@@ -28,7 +28,8 @@ import org.springframework.stereotype.Repository;
  *
  * <p>The SKU key is per company ({@code (company_id, sku)}), which is why both uniqueness finders take
  * the company: the same SKU in two companies is two legitimate catalog entries. The database enforces
- * the same shape from {@code V40} on; until then these finders are the service-level rule.</p>
+ * the same shape since {@code V40} replaced V1's global key, so a direct SQL insert cannot disagree
+ * with the API.</p>
  */
 @Repository
 public interface ProductRepository extends JpaRepository<Product, UUID> {

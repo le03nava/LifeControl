@@ -50,11 +50,10 @@ public interface ProductVariantRepository extends JpaRepository<ProductVariant, 
      * {@code (company_id, bar_code)} — derived here from the column, exactly like
      * {@code ProductRepository#existsBySkuAndCompanyId} does for the product SKU.</p>
      *
-     * <p>Until the contract step lands this is a <b>service</b> rule only: the database still carries
-     * V14's global {@code uk_product_variants_bar_code}, so a live insert of the same barcode in two
-     * companies is refused by the index itself. Replacing that index with
-     * {@code UNIQUE (company_id, bar_code)} is the contract step and nothing in this interface can
-     * make the database agree sooner.</p>
+     * <p>Since {@code V40} the database carries the same key — {@code uq_product_variants_company_bar_code}
+     * replaced V14's global one — so this finder and the index agree, and a cross-company repeat is
+     * accepted by both. The pair is deliberate: the finder answers 409 with the offending value, and the
+     * index is what a writer bypassing this API runs into.</p>
      */
     boolean existsByBarCodeAndCompanyId(String barCode, UUID companyId);
 

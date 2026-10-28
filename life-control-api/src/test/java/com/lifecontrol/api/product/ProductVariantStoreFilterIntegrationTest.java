@@ -254,6 +254,7 @@ class ProductVariantStoreFilterIntegrationTest extends AbstractPostgresIntegrati
     private ProductVariant createVariant(UUID targetProductId, UUID companyStoreId, String variantName) {
         var variant = ProductVariant.builder()
                 .productId(targetProductId)
+                .companyId(companyId)
                 .barCode("VF-BAR-" + UUID.randomUUID().toString().substring(0, 12))
                 .variantName(variantName)
                 .enabled(true)
