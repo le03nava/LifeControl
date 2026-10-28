@@ -54,9 +54,14 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p>The product-scoped methods take the company named by the path as well, and every one of them
  * resolves the product <b>within</b> it ({@link #validateProductExists(UUID, UUID)}) before reading or
- * writing a variant: the variant table hangs off the product, so the product's company is the scope.
- * The two store-scoped operations ({@link #upsertStoreStock} and {@link #searchVariants}) address the
- * variant directly and derive their scope from the store, as they did before.</p>
+ * writing a variant: the variant table hangs off the product, so the product's company is the scope —
+ * including the barcode key, which is unique per company and not per table.
+ *
+ * <p>The two store-scoped operations ({@link #upsertStoreStock} and {@link #searchVariants}) address the
+ * variant directly and derive their scope from the store. For them the derived company is not only the
+ * thing the access guard verifies ({@link #verifyStoreAccess}) but a <b>predicate of the query</b>: the
+ * store grant says who may read the store, it says nothing about which tenant's rows a per-store row
+ * joins onto, so the company travels into the SQL of every store-scoped read that returns variants.</p>
  */
 @Service
 public class ProductVariantService {
@@ -122,7 +127,10 @@ public class ProductVariantService {
      * the query string, so {@code @PreAuthorize} alone only proves the caller holds some variant role.
      * The company &rarr; country &rarr; region &rarr; zone &rarr; store chain is derived from the
      * store and verified with {@link #verifyStoreAccess} before the query, exactly like
-     * {@link #searchVariants}. This branch and {@link #searchVariants} always filter
+     * {@link #searchVariants}. The company that chain reaches is also the <b>query predicate</b>: a
+     * store belongs to one tenant, and the rows its per-store table joins onto are rows of whatever
+     * tenant wrote them, so a store of another tenant cannot be used to read this product's variants.
+     * This branch and {@link #searchVariants} always filter
      * {@code enabled = true} regardless of {@code includeDisabled}, because they feed the
      * purchase-order variant picker and the point-of-sale selector.</p>
      *
@@ -148,7 +156,8 @@ public class ProductVariantService {
                 .orElseThrow(() -> new CompanyStoreNotFoundException(companyStoreId));
         verifyStoreAccess(store);
 
-        return productVariantRepository.findStoreScopedByProductIdAndStoreId(productId, companyStoreId, pageable);
+        return productVariantRepository.findStoreScopedByProductIdAndStoreId(
+                companyIdOf(store), productId, companyStoreId, pageable);
     }
 
     @Transactional(readOnly = true)
@@ -166,6 +175,12 @@ public class ProductVariantService {
      * belong to that company, so the copy cannot disagree with it. Both uniqueness rules are checked
      * here and, ultimately, by the database: {@code (company_id, bar_code)} once the contract step
      * lands, and {@code (product_id, variant_name)} (D3) today.
+     *
+     * <p>The barcode gate is asked for <b>this company's</b> key, never for the table's: a barcode taken
+     * in another company is not a conflict, because two tenants are separate businesses. The database
+     * still enforces V14's global {@code uk_product_variants_bar_code}, so until the contract step a
+     * live insert of a repeated cross-company barcode is refused by the index — this method is the
+     * service half of the rule and the record says so.</p>
      *
      * @throws ProductNotFoundException when the product does not exist
      * @throws DuplicateProductVariantException when the barcode or the (product, name) pair already
@@ -185,7 +200,7 @@ public class ProductVariantService {
                 request.barCode(),
                 request.variantName());
 
-        if (productVariantRepository.existsByBarCode(request.barCode())) {
+        if (productVariantRepository.existsByBarCodeAndCompanyId(request.barCode(), companyId)) {
             throw new DuplicateProductVariantException(
                     "Product variant with barCode already exists: " + request.barCode());
         }
@@ -244,7 +259,8 @@ public class ProductVariantService {
         var variant = findVariantOfProduct(productId, variantId);
 
         if (!variant.getBarCode().equals(request.barCode())
-                && productVariantRepository.existsByBarCodeAndIdNot(request.barCode(), variantId)) {
+                && productVariantRepository.existsByBarCodeAndCompanyIdAndIdNot(
+                        request.barCode(), companyId, variantId)) {
             throw new DuplicateProductVariantException(
                     "Product variant with barCode already exists: " + request.barCode());
         }
@@ -390,6 +406,12 @@ public class ProductVariantService {
      * query short-circuits to an empty page before the store is read, so it neither leaks nor
      * requires the grant.</p>
      *
+     * <p>The company that chain reaches then travels into the query as a <b>predicate</b>, not as a
+     * post-filter: the grant proves who may read this store, never which tenant the variants joined
+     * onto it belong to, and a per-store row can name a variant of another company (the pair is not
+     * constrained by the schema — {@code company_stores} has no {@code company_id} at all). Filtering
+     * after the fact would answer the same question one step too late.</p>
+     *
      * @throws CompanyStoreNotFoundException when the store does not exist
      * @throws org.springframework.security.access.AccessDeniedException when the caller holds no
      *     grant for the store's scope (403)
@@ -405,7 +427,7 @@ public class ProductVariantService {
         verifyStoreAccess(store);
 
         var trimmed = query.trim();
-        return productVariantRepository.searchByQuery(trimmed, storeId, pageable);
+        return productVariantRepository.searchByQuery(companyIdOf(store), trimmed, storeId, pageable);
     }
 
     // ─── Private Helpers ──────────────────────────────────────────────────
@@ -446,7 +468,24 @@ public class ProductVariantService {
         var country = region.getCompanyCountry();
 
         currentUserContext.verifyCompanyStoreAccess(
-                country.getCompany().getId(), country.getId(), region.getId(), zone.getId(), store.getId());
+                companyIdOf(store), country.getId(), region.getId(), zone.getId(), store.getId());
+    }
+
+    /**
+     * The company that owns a store, derived through zone &rarr; region &rarr; country.
+     *
+     * <p>{@code company_stores} carries no {@code company_id} (V1): a store hangs off a zone, the zone
+     * off a region, the region off a country, and the country off the company. That chain is the only
+     * way from a store to its tenant, so both the access guard and the company predicate of the
+     * store-scoped reads derive it <b>here</b> — one derivation, so the two cannot disagree about which
+     * tenant a store belongs to.</p>
+     */
+    private UUID companyIdOf(CompanyStore store) {
+        return store.getCompanyZone()
+                .getCompanyRegion()
+                .getCompanyCountry()
+                .getCompany()
+                .getId();
     }
 
     private ProductVariant findVariantOfProduct(UUID productId, UUID variantId) {

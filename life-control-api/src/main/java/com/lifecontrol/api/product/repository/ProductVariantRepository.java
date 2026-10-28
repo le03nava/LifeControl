@@ -42,9 +42,27 @@ public interface ProductVariantRepository extends JpaRepository<ProductVariant, 
 
     // ─── Duplicate gates (D2 barcode, D3 product+variant name) ────────────
 
-    boolean existsByBarCode(String barCode);
+    /**
+     * Whether the barcode is already taken <b>inside one company</b>.
+     *
+     * <p>The variant belongs to a company (V39), and two tenants are separate businesses that
+     * legitimately sell the same barcode, so the key that gates the write is
+     * {@code (company_id, bar_code)} — derived here from the column, exactly like
+     * {@code ProductRepository#existsBySkuAndCompanyId} does for the product SKU.</p>
+     *
+     * <p>Until the contract step lands this is a <b>service</b> rule only: the database still carries
+     * V14's global {@code uk_product_variants_bar_code}, so a live insert of the same barcode in two
+     * companies is refused by the index itself. Replacing that index with
+     * {@code UNIQUE (company_id, bar_code)} is the contract step and nothing in this interface can
+     * make the database agree sooner.</p>
+     */
+    boolean existsByBarCodeAndCompanyId(String barCode, UUID companyId);
 
-    boolean existsByBarCodeAndIdNot(String barCode, UUID id);
+    /**
+     * The update half of {@link #existsByBarCodeAndCompanyId(String, UUID)}: the same key, excluding
+     * the variant being written so it cannot conflict with itself.
+     */
+    boolean existsByBarCodeAndCompanyIdAndIdNot(String barCode, UUID companyId, UUID id);
 
     boolean existsByProductIdAndVariantName(UUID productId, String variantName);
 
@@ -98,6 +116,11 @@ public interface ProductVariantRepository extends JpaRepository<ProductVariant, 
      * Lists a product's enabled variants narrowed to one store, projecting the store prices and
      * stock into {@link ProductVariantResponse}. The constructor argument order matches the record
      * exactly; {@code sku} is the PRODUCT sku because the variant sku no longer exists (D2).
+     *
+     * <p>The company is a <b>predicate</b> on the joined product, not something the caller is trusted
+     * to have checked: the store in the query string is only authorizing, and the rows the store join
+     * reaches are rows of whatever tenant wrote them. The company passed here is the one the store
+     * itself belongs to, so a store of another tenant cannot be used to read this product's variants.</p>
      */
     @Query("""
             SELECT new com.lifecontrol.api.product.dto.ProductVariantResponse(
@@ -109,16 +132,25 @@ public interface ProductVariantRepository extends JpaRepository<ProductVariant, 
             JOIN Product p ON p.id = pv.productId
             WHERE pv.productId = :productId
               AND pvss.companyStoreId = :storeId
+              AND p.company.id = :companyId
               AND pv.enabled = true
             ORDER BY pv.createdAt DESC
             """)
     Page<ProductVariantResponse> findStoreScopedByProductIdAndStoreId(
-            @Param("productId") UUID productId, @Param("storeId") UUID storeId, Pageable pageable);
+            @Param("companyId") UUID companyId,
+            @Param("productId") UUID productId,
+            @Param("storeId") UUID storeId,
+            Pageable pageable);
 
     /**
      * Searches the variants of one store by barcode, product sku, variant name or product name,
      * projecting the store prices and stock into {@link ProductVariantSearchResponse}. The
      * constructor argument order matches the record exactly.
+     *
+     * <p>The company is the tenant that owns the queried store, and it is a <b>predicate</b>: the store
+     * grant answers who may read the store, never which tenant the rows joined onto it belong to, and
+     * the store join reaches whichever variant a per-store row names. A post-filter would be the same
+     * rule written where the leak already happened, so it is written here, in the query.</p>
      */
     @Query("""
             SELECT new com.lifecontrol.api.product.dto.ProductVariantSearchResponse(
@@ -135,9 +167,13 @@ public interface ProductVariantRepository extends JpaRepository<ProductVariant, 
                OR LOWER(COALESCE(pv.barCode, '')) LIKE LOWER(CONCAT('%', :query, '%'))
                OR LOWER(COALESCE(p.sku, '')) LIKE LOWER(CONCAT('%', :query, '%')))
             AND pvss.companyStoreId = :storeId
+            AND p.company.id = :companyId
             AND pv.enabled = true
             ORDER BY pv.variantName
             """)
     Page<ProductVariantSearchResponse> searchByQuery(
-            @Param("query") String query, @Param("storeId") UUID storeId, Pageable pageable);
+            @Param("companyId") UUID companyId,
+            @Param("query") String query,
+            @Param("storeId") UUID storeId,
+            Pageable pageable);
 }

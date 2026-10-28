@@ -51,6 +51,12 @@ import tools.jackson.databind.ObjectMapper;
  * join, not by the controller. Runs against real PostgreSQL with Flyway enabled; a valid result
  * proves the join maps to real SQL. The parameterless call must keep returning the product's
  * definitions, with the store-scoped fields null.</p>
+ *
+ * <p>The store-scoped branch is also predicated on the company that owns the store, and that half is
+ * only provable here: a mock can confirm which arguments reached the call, never that the predicate
+ * kept a foreign store's rows out. The case that makes it necessary is the last test — a variant of
+ * this company stocked at a store of another one, which the store join reaches and the company
+ * predicate does not.</p>
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -99,6 +105,7 @@ class ProductVariantStoreFilterIntegrationTest extends AbstractPostgresIntegrati
     private UUID productId;
     private UUID storeAId;
     private UUID storeBId;
+    private UUID foreignStoreId;
     private UUID variantAId;
     private UUID variantBId;
 
@@ -186,6 +193,50 @@ class ProductVariantStoreFilterIntegrationTest extends AbstractPostgresIntegrati
 
         storeAId = findOrCreateStore(zone, "Variant Filter Store A");
         storeBId = findOrCreateStore(zone, "Variant Filter Store B");
+
+        // A second tenant with its own tree and one store: the counterpart of the company predicate
+        // of the store-scoped branch, which is the tenant the store belongs to and not this suite's.
+        var foreignZone = seedForeignZone();
+        foreignStoreId = findOrCreateStore(foreignZone, "Variant Filter Foreign Store");
+    }
+
+    /** Find-or-create the company &rarr; country &rarr; region &rarr; zone chain of a second tenant. */
+    private CompanyZone seedForeignZone() {
+        var country = countryRepository.findByCountryCode("MX").orElseThrow();
+
+        var company = companyRepository
+                .findByCompanyKey("VARIANT-FILTER-FOREIGN-KEY")
+                .orElseGet(() -> companyRepository.save(Company.builder()
+                        .companyKey("VARIANT-FILTER-FOREIGN-KEY")
+                        .companyName("Variant Filter Foreign Company")
+                        .rfc("VFFC010101AB")
+                        .enabled(true)
+                        .build()));
+
+        var companyCountry = companyCountryRepository
+                .findByCompanyIdAndCountryId(company.getId(), country.getId())
+                .orElseGet(() -> companyCountryRepository.save(CompanyCountry.builder()
+                        .company(company)
+                        .country(country)
+                        .build()));
+
+        var region = companyRegionRepository.findByCompanyCountryIdOrderByRegionNameAsc(companyCountry.getId()).stream()
+                .findFirst()
+                .orElseGet(() -> companyRegionRepository.save(CompanyRegion.builder()
+                        .companyCountry(companyCountry)
+                        .regionCode("VF")
+                        .regionName("Variant Filter Foreign Region")
+                        .enabled(true)
+                        .build()));
+
+        return companyZoneRepository.findByCompanyRegionIdOrderByZoneNameAsc(region.getId()).stream()
+                .findFirst()
+                .orElseGet(() -> companyZoneRepository.save(CompanyZone.builder()
+                        .companyRegion(region)
+                        .zoneCode("VF")
+                        .zoneName("Variant Filter Foreign Zone")
+                        .enabled(true)
+                        .build()));
     }
 
     private UUID findOrCreateStore(CompanyZone zone, String storeName) {
@@ -211,14 +262,7 @@ class ProductVariantStoreFilterIntegrationTest extends AbstractPostgresIntegrati
         var saved = productVariantRepository.save(variant);
         createdVariantIds.add(saved.getId());
 
-        var storeStock = productVariantStoreStockRepository.save(ProductVariantStoreStock.builder()
-                .productVariantId(saved.getId())
-                .companyStoreId(companyStoreId)
-                .listPrice(new BigDecimal("10.00"))
-                .costPrice(new BigDecimal("5.00"))
-                .stock(BigDecimal.ZERO)
-                .build());
-        createdStoreStockIds.add(storeStock.getId());
+        stockVariantAt(saved.getId(), companyStoreId);
         return saved;
     }
 
@@ -335,6 +379,36 @@ class ProductVariantStoreFilterIntegrationTest extends AbstractPostgresIntegrati
         var variant = productVariantRepository.findById(targetVariantId).orElseThrow();
         variant.setEnabled(false);
         productVariantRepository.save(variant);
+    }
+
+    @Test
+    @DisplayName("should answer nothing when the store belongs to another company")
+    void listVariants_StoreOfAnotherCompany_ReturnsNothing() throws Exception {
+        // The row the store join reaches belongs to this company's product but to the other tenant's
+        // store. Stocking a variant in a store of another company is not refused anywhere (the pair
+        // has no constraint, and `company_stores` has no company column), so the company predicate of
+        // the query is what keeps it out: without it this call returns the variant.
+        stockVariantAt(variantAId, foreignStoreId);
+
+        mockMvc.perform(get(VARIANTS_URL, companyId, productId)
+                        .param("storeId", foreignStoreId.toString())
+                        .with(jwt().authorities(ROLE_LC_ADMIN)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content.length()").value(0))
+                .andExpect(jsonPath("$.totalElements").value(0));
+    }
+
+    /** Writes one more per-store row for an existing variant. */
+    private UUID stockVariantAt(UUID targetVariantId, UUID targetStoreId) {
+        var storeStock = productVariantStoreStockRepository.save(ProductVariantStoreStock.builder()
+                .productVariantId(targetVariantId)
+                .companyStoreId(targetStoreId)
+                .listPrice(new BigDecimal("10.00"))
+                .costPrice(new BigDecimal("5.00"))
+                .stock(BigDecimal.ZERO)
+                .build());
+        createdStoreStockIds.add(storeStock.getId());
+        return storeStock.getId();
     }
 
     /**
