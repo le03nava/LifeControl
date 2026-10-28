@@ -608,6 +608,7 @@ class ProductVariantStoreStockWriteIntegrationTest extends AbstractPostgresInteg
     private UUID createVariant(String variantName) {
         var saved = productVariantRepository.save(ProductVariant.builder()
                 .productId(productId)
+                .companyId(companyId)
                 .barCode("VS-BAR-" + UUID.randomUUID().toString().substring(0, 12))
                 .variantName(variantName)
                 .enabled(true)

@@ -262,11 +262,17 @@ class ProductCategorySchemaMigrationIntegrationTest extends AbstractPostgresInte
     }
 
     // ──────────────────────────────────────
-    // V36 — products.category_id
+    // V36 — products.category_id, as V40 left it
     // ──────────────────────────────────────
+    //
+    // V36 added a plain FK because a product had no `company_id` then; V40 replaced it with the
+    // composite `(company_id, category_id) -> product_categories (company_id, id)`. The nullable
+    // column V36 introduced is what survives unchanged — a product nobody classified is still a
+    // legal row — and the assertions below name the constraint the database has at head, so this
+    // suite keeps measuring the classification link instead of the migration that once carried it.
 
     @Test
-    @DisplayName("V36 adds a nullable products.category_id guarded by fk_products_category")
+    @DisplayName("products.category_id stays nullable and is guarded by fk_products_category_same_company")
     void productsCarryANullableCategoryForeignKey() {
         var nullable = jdbcTemplate.queryForObject("""
                 SELECT is_nullable FROM information_schema.columns
@@ -276,26 +282,27 @@ class ProductCategorySchemaMigrationIntegrationTest extends AbstractPostgresInte
                 SELECT COUNT(*) FROM information_schema.table_constraints
                 WHERE table_schema = 'public'
                   AND table_name = 'products'
-                  AND constraint_name = 'fk_products_category'
+                  AND constraint_name = 'fk_products_category_same_company'
                   AND constraint_type = 'FOREIGN KEY'
                 """, Integer.class);
 
         assertThat(nullable).as("an unclassified product is a legal row").isEqualTo("YES");
-        assertThat(foreignKeys).as("fk_products_category exists").isEqualTo(1);
+        assertThat(foreignKeys).as("fk_products_category_same_company exists").isEqualTo(1);
     }
 
     @Test
-    @DisplayName("fk_products_category rejects a category id that does not exist")
+    @DisplayName("fk_products_category_same_company rejects a category id that does not exist")
     void productCategoryForeignKeyRejectsAnUnknownId() {
         assertViolatesConstraint(
-                "fk_products_category",
+                "fk_products_category_same_company",
                 """
-                INSERT INTO products (id, sku, name, category_id)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO products (id, sku, name, company_id, category_id)
+                VALUES (?, ?, ?, ?, ?)
                 """,
                 UUID.randomUUID(),
                 "PCSL-UNKNOWN",
                 "Unknown category product",
+                categoryCompanyId(),
                 UUID.randomUUID());
     }
 
@@ -308,9 +315,9 @@ class ProductCategorySchemaMigrationIntegrationTest extends AbstractPostgresInte
         jdbcTemplate.update("UPDATE product_categories SET parent_category_id = ? WHERE id = ?", rootId, childId);
 
         try {
-            var unclassified = insertProduct("PCSL-NONE", null);
-            var onRoot = insertProduct("PCSL-ROOT", rootId);
-            var onChild = insertProduct("PCSL-CHILD", childId);
+            var unclassified = insertProduct(companyId, "PCSL-NONE", null);
+            var onRoot = insertProduct(companyId, "PCSL-ROOT", rootId);
+            var onChild = insertProduct(companyId, "PCSL-CHILD", childId);
 
             assertThat(unclassified).isEqualTo(1);
             assertThat(onRoot)
@@ -331,22 +338,23 @@ class ProductCategorySchemaMigrationIntegrationTest extends AbstractPostgresInte
         var rootId = insertCategory(companyId, "Alimentos");
 
         try {
-            insertProduct("PCSL-REFERENCED", rootId);
+            insertProduct(companyId, "PCSL-REFERENCED", rootId);
 
             // The API soft-deletes (`enabled = false`), so this path exists only for a direct SQL
             // delete — which is exactly what the default NO ACTION has to refuse.
-            assertViolatesConstraint("fk_products_category", "DELETE FROM product_categories WHERE id = ?", rootId);
+            assertViolatesConstraint(
+                    "fk_products_category_same_company", "DELETE FROM product_categories WHERE id = ?", rootId);
         } finally {
             deleteSeedProducts();
         }
     }
 
     /** Inserts a minimal product row; returns the affected-row count so the caller can assert it. */
-    private int insertProduct(String sku, UUID categoryId) {
+    private int insertProduct(UUID companyId, String sku, UUID categoryId) {
         return jdbcTemplate.update("""
-                INSERT INTO products (id, sku, name, category_id)
-                VALUES (?, ?, ?, ?)
-                """, UUID.randomUUID(), sku, "Seed product " + sku, categoryId);
+                INSERT INTO products (id, sku, name, company_id, category_id)
+                VALUES (?, ?, ?, ?, ?)
+                """, UUID.randomUUID(), sku, "Seed product " + sku, companyId, categoryId);
     }
 
     /**

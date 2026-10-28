@@ -19,15 +19,18 @@ import org.hibernate.type.SqlTypes;
  * could never represent the same variant in two stores.</p>
  *
  * <p>Two tenants are separate businesses and legitimately use the same barcode, so {@code companyId}
- * (V39) is what the contract step makes the barcode unique against: {@code UNIQUE (company_id,
- * bar_code)} replaces the global key V14 introduced. It is a plain {@code UUID} like
+ * (V39) is what the barcode is unique against: {@code uq_product_variants_company_bar_code} replaces
+ * the global key V14 introduced, and it is what makes {@code V39}'s copy of the owner necessary — a
+ * unique key cannot be expressed over a table's neighbour. It is a plain {@code UUID} like
  * {@link #productId} rather than a {@code @ManyToOne}, which is this entity's own established style —
  * the product is a {@code @ManyToOne} on {@link Product}, and every reference drawn from here is an id.</p>
  *
- * <p>Constraints owned by the database: {@code bar_code} is {@code NOT NULL}, and
- * {@code (product_id, variant_name)} is unique (D3). The entity deliberately carries no
- * {@code sku}: the variant sku was removed by decision D2, and the product sku is the only sku
- * that remains.</p>
+ * <p>Constraints owned by the database: {@code bar_code} and {@code company_id} are {@code NOT NULL},
+ * {@code (product_id, variant_name)} is unique (D3, V14), and
+ * {@code fk_product_variants_product_same_company} binds the pair {@code (company_id, product_id)} to
+ * the product's own company since {@code V40} — the copy of the owner is therefore not a second source
+ * of truth. The entity deliberately carries no {@code sku}: the variant sku was removed by decision
+ * D2, and the product sku is the only sku that remains.</p>
  *
  * <p>{@code measureUnitId} is the unit every quantity of this variant is expressed in (V29). It
  * lives here and not on {@link Product} because the same article is legitimately sold in pieces and
@@ -61,11 +64,11 @@ public class ProductVariant extends Auditable {
      *
      * <p>Denormalized on purpose: {@code UNIQUE (company_id, bar_code)} cannot be expressed over a
      * table's neighbour, so the owner has to sit on the row the key covers. The copy is not a second
-     * source of truth once the contract step lands — the composite foreign key
+     * source of truth: since V40 the composite foreign key
      * {@code (company_id, product_id) -> products (company_id, id)} makes a variant whose company
-     * disagrees with its product's unrepresentable.</p>
+     * disagrees with its product's unrepresentable, and the column is {@code NOT NULL}.</p>
      */
-    @Column(name = "company_id")
+    @Column(name = "company_id", nullable = false)
     private UUID companyId;
 
     @Column(name = "measure_unit_id")

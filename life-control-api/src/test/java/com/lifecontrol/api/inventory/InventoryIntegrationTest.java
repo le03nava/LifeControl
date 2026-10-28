@@ -307,11 +307,13 @@ class InventoryIntegrationTest extends AbstractPostgresIntegrationTest {
         var product = productRepository.save(Product.builder()
                 .sku("INV-SKU-" + UUID.randomUUID().toString().substring(0, 12))
                 .name("Inventory Test Product")
+                .company(companyRepository.findById(companyId).orElseThrow())
                 .enabled(true)
                 .build());
 
         var variant = productVariantRepository.save(ProductVariant.builder()
                 .productId(product.getId())
+                .companyId(companyId)
                 .barCode("INV-BAR-" + UUID.randomUUID().toString().substring(0, 12))
                 .variantName("Variant-" + UUID.randomUUID().toString().substring(0, 8))
                 .enabled(true)

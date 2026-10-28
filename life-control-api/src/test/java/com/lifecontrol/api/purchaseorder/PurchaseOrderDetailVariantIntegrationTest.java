@@ -130,6 +130,8 @@ class PurchaseOrderDetailVariantIntegrationTest extends AbstractPostgresIntegrat
 
     private UUID supplierId;
     private UUID storeId;
+
+    private UUID companyId;
     private UUID paymentMethodId;
     private UUID draftStatusId;
     private UUID pendingDetailStatusId;
@@ -203,6 +205,7 @@ class PurchaseOrderDetailVariantIntegrationTest extends AbstractPostgresIntegrat
                         .build()));
 
         storeId = store.getId();
+        companyId = company.getId();
 
         var supplier = supplierRepository
                 .findByRfc("PORC010101ABC")
@@ -238,6 +241,7 @@ class PurchaseOrderDetailVariantIntegrationTest extends AbstractPostgresIntegrat
         return productRepository.save(Product.builder()
                 .sku("PO-SKU-" + UUID.randomUUID().toString().substring(0, 12))
                 .name("PO Receipt Product")
+                .company(companyRepository.findById(companyId).orElseThrow())
                 .enabled(true)
                 .build());
     }
@@ -245,6 +249,7 @@ class PurchaseOrderDetailVariantIntegrationTest extends AbstractPostgresIntegrat
     private ProductVariant createVariant(UUID productId, UUID variantStoreId) {
         var variant = new ProductVariant();
         variant.setProductId(productId);
+        variant.setCompanyId(companyId);
         variant.setBarCode("PO-BAR-" + UUID.randomUUID().toString().substring(0, 12));
         variant.setVariantName("Variant-" + UUID.randomUUID().toString().substring(0, 8));
         variant.setEnabled(true);

@@ -20,9 +20,17 @@ import org.springframework.jdbc.datasource.init.ScriptUtils;
  * <p>Every other schema suite migrates an empty database, which is the one case where an additive
  * migration cannot hurt anything. This one builds a second database at V36, fills it the way production
  * is actually filled — a company, a seeded branch, a product carrying the old free-form attributes, a
- * variant without them — and then migrates to head. It is the only place the three claims that matter
- * here are measured together: the existing rows survive, the new variant column arrives empty rather than
- * with a default, and replaying the seed script is a no-op.</p>
+ * variant without them — and then migrates it to <b>V38</b>. It is the only place the three claims that
+ * matter here are measured together: the existing rows survive, the new variant column arrives empty
+ * rather than with a default, and replaying the seed script is a no-op.</p>
+ *
+ * <p>The target is V38 because that is the last migration whose premise this test describes, and the
+ * two versions are pinned instead of derived: V39 (the catalog's company column) is still purely
+ * additive, but V40 discards every row that cannot be attributed to a company — a separate, deliberate
+ * decision of the product-catalog unit (its {@code TRUNCATE} is the contract that makes {@code NOT NULL}
+ * possible, not an attribute upgrade). Measuring to head would therefore assert that rows survive a
+ * migration that exists to remove them, and the assertion would have to be deleted to stay green. The
+ * target is written here and cannot drift: a migration appended later does not enter this range.</p>
  */
 @DisplayName("Product attribute upgrade on a populated database")
 class ProductAttributeUpgradeOnPopulatedDbIntegrationTest extends AbstractPostgresIntegrationTest {
@@ -82,20 +90,16 @@ class ProductAttributeUpgradeOnPopulatedDbIntegrationTest extends AbstractPostgr
                 "PROBE-LEGACY-BC-1",
                 "26");
 
-        var toHead = Flyway.configure()
+        var throughV38 = Flyway.configure()
                 .dataSource(url, user, password)
                 .locations("classpath:db/migration")
+                .target(MigrationVersion.fromVersion("38"))
                 .load();
-        // The count used to be the literal 2, which made every later migration fail a test about the
-        // V37/V38 path — V39 of the product-catalog unit is the first one to prove it, and it never
-        // touches attributes. What this test measures is the PATH from a populated V36 database to
-        // whatever ships last, so the versions are derived from the migration set exactly like the head
-        // is (record `flyway-head-single-source`), and nothing is typed here.
-        var applied = toHead.migrate().migrations;
-        assertThat(applied)
+        // Exactly the two versions this test is about, pinned where the test can see them: V39 is
+        // additive and V40 discards rows (see the class javadoc), so the range stops here on purpose.
+        assertThat(throughV38.migrate().migrations)
                 .extracting(migration -> migration.version)
-                .startsWith("37")
-                .endsWith(latestMigrationVersion());
+                .containsExactly("37", "38");
 
         // The pre-existing variant gains the column empty — not with a default, which would silently
         // claim a colour nobody entered.

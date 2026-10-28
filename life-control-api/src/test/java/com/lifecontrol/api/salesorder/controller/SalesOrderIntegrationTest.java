@@ -169,6 +169,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
 
     private UUID customerId;
     private UUID companyStoreId;
+    private UUID companyId;
     private UUID shiftId;
     private UUID salesLocationId;
     private UUID secondaryLocationId;
@@ -347,6 +348,11 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                         .build()));
 
         companyStoreId = store.getId();
+        companyId = store.getCompanyZone()
+                .getCompanyRegion()
+                .getCompanyCountry()
+                .getCompany()
+                .getId();
 
         // The sales path now deducts through InventoryService, which needs a per-location balance
         // and the store's sales location to allocate against. Seed them once per store.
@@ -444,6 +450,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
         return productRepository.save(Product.builder()
                 .sku("SKU-" + UUID.randomUUID().toString().substring(0, 12))
                 .name("Test Product")
+                .company(companyRepository.findById(companyId).orElseThrow())
                 .enabled(true)
                 .build());
     }
@@ -454,6 +461,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
     private ProductVariant createTestVariant(BigDecimal stock) {
         var variant = new ProductVariant();
         variant.setProductId(createTestProduct().getId());
+        variant.setCompanyId(companyId);
         variant.setBarCode("BAR-" + UUID.randomUUID().toString().substring(0, 12));
         variant.setVariantName("Variant-" + UUID.randomUUID().toString().substring(0, 8));
         variant.setEnabled(true);
@@ -468,6 +476,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
     private ProductVariant createTestVariantB(BigDecimal stock) {
         var variant = new ProductVariant();
         variant.setProductId(createTestProduct().getId());
+        variant.setCompanyId(companyId);
         variant.setBarCode("BAR-" + UUID.randomUUID().toString().substring(0, 12));
         variant.setVariantName("VariantB-" + UUID.randomUUID().toString().substring(0, 8));
         variant.setEnabled(true);
@@ -483,6 +492,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
     private ProductVariant createVariantWithoutStoreStock() {
         var variant = new ProductVariant();
         variant.setProductId(createTestProduct().getId());
+        variant.setCompanyId(companyId);
         variant.setBarCode("BAR-" + UUID.randomUUID().toString().substring(0, 12));
         variant.setVariantName("VariantNoStore-" + UUID.randomUUID().toString().substring(0, 8));
         variant.setEnabled(true);

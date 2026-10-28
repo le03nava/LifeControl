@@ -201,6 +201,8 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
             new SimpleGrantedAuthority("ROLE_lc-company-store-read");
 
     private CompanyStore store;
+
+    private Company company;
     private StoreLocation receivingLocation;
     private Supplier supplier;
     private PaymentMethod paymentMethod;
@@ -264,7 +266,7 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
     private void seedCompanyHierarchy() {
         var country = countryRepository.findByCountryCode("MX").orElseThrow();
 
-        var company = companyRepository
+        company = companyRepository
                 .findByCompanyKey("GOODS-RECEIPT-KEY")
                 .orElseGet(() -> companyRepository.save(Company.builder()
                         .companyKey("GOODS-RECEIPT-KEY")
@@ -388,11 +390,13 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
         var product = productRepository.save(Product.builder()
                 .sku("GR-SKU-" + UUID.randomUUID().toString().substring(0, 12))
                 .name("Goods Receipt Product")
+                .company(company)
                 .enabled(true)
                 .build());
 
         var variant = productVariantRepository.save(ProductVariant.builder()
                 .productId(product.getId())
+                .companyId(company.getId())
                 .barCode("GR-BAR-" + UUID.randomUUID().toString().substring(0, 12))
                 .variantName("Variant-" + UUID.randomUUID().toString().substring(0, 8))
                 .enabled(true)
@@ -495,10 +499,12 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
         var product = productRepository.save(Product.builder()
                 .sku("GR-SKU-" + UUID.randomUUID().toString().substring(0, 12))
                 .name("Goods Receipt Product")
+                .company(company)
                 .enabled(true)
                 .build());
         var variant = productVariantRepository.save(ProductVariant.builder()
                 .productId(product.getId())
+                .companyId(company.getId())
                 .barCode("GR-BAR-" + UUID.randomUUID().toString().substring(0, 12))
                 .variantName("Variant-" + UUID.randomUUID().toString().substring(0, 8))
                 .enabled(true)
