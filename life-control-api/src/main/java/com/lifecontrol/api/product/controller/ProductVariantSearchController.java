@@ -34,7 +34,7 @@ public class ProductVariantSearchController {
     @Operation(
             summary = "Search product variants",
             description =
-                    "Searches product variants by barcode, SKU, variant name, or product name, scoped to a company store. Returns paginated results enriched with product name and SKU.")
+                    "Searches product variants by barcode, SKU, variant name, or product name, scoped to a company store and to the company that owns that store. Returns paginated results enriched with product name and SKU.")
     public ResponseEntity<Page<ProductVariantSearchResponse>> searchVariants(
             @RequestParam String q, @RequestParam UUID storeId, @PageableDefault(size = 20) Pageable pageable) {
         var result = productVariantService.searchVariants(q, storeId, pageable);

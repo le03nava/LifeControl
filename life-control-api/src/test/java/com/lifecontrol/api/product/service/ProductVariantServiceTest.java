@@ -176,34 +176,45 @@ class ProductVariantServiceTest {
         regionId = UUID.randomUUID();
         zoneId = UUID.randomUUID();
 
+        // The store guard derives company -> country -> region -> zone -> store from the store
+        // itself, because the endpoint path carries only the store id, so the fixture must carry
+        // the whole chain.
+        testCompanyStore = storeOf(companyId, companyCountryId, regionId, zoneId, companyStoreId);
+    }
+
+    /**
+     * Builds the company &rarr; country &rarr; region &rarr; zone &rarr; store chain a store-only
+     * endpoint has to derive its tenant from, so a fixture can express a store of <b>another</b>
+     * company without rebuilding the whole tree inline.
+     */
+    private static CompanyStore storeOf(
+            UUID ownerCompanyId, UUID ownerCountryId, UUID ownerRegionId, UUID ownerZoneId, UUID storeId) {
         var company = Company.builder()
-                .id(companyId)
+                .id(ownerCompanyId)
                 .companyKey("TEST-KEY")
                 .companyName("Test Company")
                 .rfc("TEST123456ABC")
                 .enabled(true)
                 .build();
-        var companyCountry =
-                CompanyCountry.builder().id(companyCountryId).company(company).build();
+        var country =
+                CompanyCountry.builder().id(ownerCountryId).company(company).build();
         var region = CompanyRegion.builder()
-                .id(regionId)
-                .companyCountry(companyCountry)
+                .id(ownerRegionId)
+                .companyCountry(country)
                 .regionCode("01")
                 .regionName("Test Region")
                 .enabled(true)
                 .build();
         var zone = CompanyZone.builder()
-                .id(zoneId)
+                .id(ownerZoneId)
                 .companyRegion(region)
                 .zoneCode("01")
                 .zoneName("Test Zone")
                 .enabled(true)
                 .build();
-        // The store guard derives company -> country -> region -> zone -> store from the store
-        // itself, because the endpoint path carries only the store id, so the fixture must carry
-        // the whole chain.
-        testCompanyStore = CompanyStore.builder()
-                .id(companyStoreId)
+
+        return CompanyStore.builder()
+                .id(storeId)
                 .companyZone(zone)
                 .storeName("Test Store")
                 .enabled(true)
@@ -257,7 +268,7 @@ class ProductVariantServiceTest {
                     .hasMessageContaining("Product not found with id");
 
             verify(productVariantRepository, never()).findByProductIdAndEnabledTrueOrderByCreatedAtDesc(any(), any());
-            verify(productVariantRepository, never()).findStoreScopedByProductIdAndStoreId(any(), any(), any());
+            verify(productVariantRepository, never()).findStoreScopedByProductIdAndStoreId(any(), any(), any(), any());
         }
 
         @Test
@@ -282,7 +293,8 @@ class ProductVariantServiceTest {
 
             when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
             when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
-            when(productVariantRepository.findStoreScopedByProductIdAndStoreId(productId, companyStoreId, pageable))
+            when(productVariantRepository.findStoreScopedByProductIdAndStoreId(
+                            companyId, productId, companyStoreId, pageable))
                     .thenReturn(expectedPage);
 
             Page<ProductVariantResponse> result =
@@ -296,8 +308,33 @@ class ProductVariantServiceTest {
             // The store-scoped branch must verify the chain derived from the store, not the raw id.
             verify(currentUserContext)
                     .verifyCompanyStoreAccess(companyId, companyCountryId, regionId, zoneId, companyStoreId);
-            verify(productVariantRepository).findStoreScopedByProductIdAndStoreId(productId, companyStoreId, pageable);
+            verify(productVariantRepository)
+                    .findStoreScopedByProductIdAndStoreId(companyId, productId, companyStoreId, pageable);
             verify(productVariantRepository, never()).findByProductIdAndEnabledTrueOrderByCreatedAtDesc(any(), any());
+        }
+
+        @Test
+        @DisplayName("should predicate the store-scoped list on the store's company, not the path's")
+        void listVariants_StoreOfAnotherCompany_PredicatesByTheStoresCompany() {
+            // A store belongs to one tenant and the product to another; the rows the store join
+            // reaches belong to the store's tenant, so that is the company the query must carry —
+            // the product lookup already proved the path's company, which is a different question.
+            var pageable = PageRequest.of(0, 12);
+            var otherCompanyId = UUID.randomUUID();
+            var otherStoreId = UUID.randomUUID();
+            var otherStore =
+                    storeOf(otherCompanyId, UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), otherStoreId);
+
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
+            when(companyStoreRepository.findById(otherStoreId)).thenReturn(Optional.of(otherStore));
+            when(productVariantRepository.findStoreScopedByProductIdAndStoreId(
+                            otherCompanyId, productId, otherStoreId, pageable))
+                    .thenReturn(Page.empty(pageable));
+
+            productVariantService.listVariants(companyId, productId, otherStoreId, pageable);
+
+            verify(productVariantRepository)
+                    .findStoreScopedByProductIdAndStoreId(otherCompanyId, productId, otherStoreId, pageable);
         }
 
         @Test
@@ -313,7 +350,7 @@ class ProductVariantServiceTest {
             assertThatThrownBy(() -> productVariantService.listVariants(companyId, productId, companyStoreId, pageable))
                     .isInstanceOf(AccessDeniedException.class);
 
-            verify(productVariantRepository, never()).findStoreScopedByProductIdAndStoreId(any(), any(), any());
+            verify(productVariantRepository, never()).findStoreScopedByProductIdAndStoreId(any(), any(), any(), any());
         }
 
         @Test
@@ -328,7 +365,7 @@ class ProductVariantServiceTest {
                     .hasMessageContaining("Store not found with id");
 
             verify(currentUserContext, never()).verifyCompanyStoreAccess(any(), any(), any(), any(), any());
-            verify(productVariantRepository, never()).findStoreScopedByProductIdAndStoreId(any(), any(), any());
+            verify(productVariantRepository, never()).findStoreScopedByProductIdAndStoreId(any(), any(), any(), any());
         }
 
         @Test
@@ -351,7 +388,7 @@ class ProductVariantServiceTest {
             verify(companyStoreRepository, never()).findById(any());
             verify(currentUserContext, never()).verifyCompanyStoreAccess(any(), any(), any(), any(), any());
             verify(productVariantRepository).findByProductIdAndEnabledTrueOrderByCreatedAtDesc(productId, pageable);
-            verify(productVariantRepository, never()).findStoreScopedByProductIdAndStoreId(any(), any(), any());
+            verify(productVariantRepository, never()).findStoreScopedByProductIdAndStoreId(any(), any(), any(), any());
         }
 
         @Test
@@ -443,14 +480,16 @@ class ProductVariantServiceTest {
 
             when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
             when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
-            when(productVariantRepository.findStoreScopedByProductIdAndStoreId(productId, companyStoreId, pageable))
+            when(productVariantRepository.findStoreScopedByProductIdAndStoreId(
+                            companyId, productId, companyStoreId, pageable))
                     .thenReturn(expectedPage);
 
             productVariantService.listVariants(companyId, productId, companyStoreId, true, pageable);
 
             verify(currentUserContext)
                     .verifyCompanyStoreAccess(companyId, companyCountryId, regionId, zoneId, companyStoreId);
-            verify(productVariantRepository).findStoreScopedByProductIdAndStoreId(productId, companyStoreId, pageable);
+            verify(productVariantRepository)
+                    .findStoreScopedByProductIdAndStoreId(companyId, productId, companyStoreId, pageable);
             verify(productVariantRepository, never()).findByProductIdOrderByCreatedAtDesc(any(), any());
             verify(productVariantRepository, never()).findByProductIdAndEnabledTrueOrderByCreatedAtDesc(any(), any());
         }
@@ -536,7 +575,8 @@ class ProductVariantServiceTest {
         @DisplayName("should create the global definition and return the response")
         void createVariant_Success() {
             when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
-            when(productVariantRepository.existsByBarCode("7501234567890")).thenReturn(false);
+            when(productVariantRepository.existsByBarCodeAndCompanyId("7501234567890", companyId))
+                    .thenReturn(false);
             when(productVariantRepository.existsByProductIdAndVariantName(productId, "Talla M"))
                     .thenReturn(false);
             when(productVariantRepository.save(any(ProductVariant.class))).thenReturn(testVariant);
@@ -561,7 +601,8 @@ class ProductVariantServiceTest {
             // The product was resolved within the company already, so the copy cannot disagree with it;
             // what this pins is that the owner is the path's, not something re-derived from the product.
             when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
-            when(productVariantRepository.existsByBarCode("7501234567890")).thenReturn(false);
+            when(productVariantRepository.existsByBarCodeAndCompanyId("7501234567890", companyId))
+                    .thenReturn(false);
             when(productVariantRepository.existsByProductIdAndVariantName(productId, "Talla M"))
                     .thenReturn(false);
             when(productVariantRepository.save(any(ProductVariant.class))).thenAnswer(inv -> inv.getArgument(0));
@@ -587,7 +628,8 @@ class ProductVariantServiceTest {
         @DisplayName("should throw DuplicateProductVariantException when the barCode exists")
         void createVariant_DuplicateBarCode_ThrowsException() {
             when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
-            when(productVariantRepository.existsByBarCode("7501234567890")).thenReturn(true);
+            when(productVariantRepository.existsByBarCodeAndCompanyId("7501234567890", companyId))
+                    .thenReturn(true);
 
             assertThatThrownBy(() -> productVariantService.createVariant(companyId, productId, testVariantRequest))
                     .isInstanceOf(DuplicateProductVariantException.class)
@@ -597,10 +639,42 @@ class ProductVariantServiceTest {
         }
 
         @Test
+        @DisplayName("should answer 409 for the same barCode inside the company and accept it in another")
+        void createVariant_BarCodeKeyIsPerCompany() {
+            // Inside one company the same barCode is a conflict ...
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
+            when(productVariantRepository.existsByBarCodeAndCompanyId("7501234567890", companyId))
+                    .thenReturn(true);
+
+            assertThatThrownBy(() -> productVariantService.createVariant(companyId, productId, testVariantRequest))
+                    .isInstanceOf(DuplicateProductVariantException.class)
+                    .hasMessageContaining("barCode already exists");
+
+            // ... and for another company it is not, because the gate is asked for that company's key
+            // instead of the table's. The per-company unique index does not exist yet: V39 left V14's
+            // global `uk_product_variants_bar_code` in place, so a live insert of the same barcode in
+            // two companies is still refused by the index itself and the contract step (which the
+            // record owns) is what makes the database agree. This test pins the service half only.
+            var otherCompanyId = UUID.randomUUID();
+            when(productRepository.findByIdAndCompanyId(productId, otherCompanyId))
+                    .thenReturn(Optional.of(testProduct));
+            when(productVariantRepository.existsByBarCodeAndCompanyId("7501234567890", otherCompanyId))
+                    .thenReturn(false);
+            when(productVariantRepository.existsByProductIdAndVariantName(productId, "Talla M"))
+                    .thenReturn(false);
+            when(productVariantRepository.save(any(ProductVariant.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            productVariantService.createVariant(otherCompanyId, productId, testVariantRequest);
+
+            verify(productVariantRepository).save(argThat(variant -> otherCompanyId.equals(variant.getCompanyId())));
+        }
+
+        @Test
         @DisplayName("should throw DuplicateProductVariantException when (product, variantName) exists")
         void createVariant_DuplicateVariantName_ThrowsException() {
             when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
-            when(productVariantRepository.existsByBarCode("7501234567890")).thenReturn(false);
+            when(productVariantRepository.existsByBarCodeAndCompanyId("7501234567890", companyId))
+                    .thenReturn(false);
             when(productVariantRepository.existsByProductIdAndVariantName(productId, "Talla M"))
                     .thenReturn(true);
 
@@ -626,7 +700,7 @@ class ProductVariantServiceTest {
 
             when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
             when(productVariantRepository.findById(variantId)).thenReturn(Optional.of(testVariant));
-            when(productVariantRepository.existsByBarCodeAndIdNot("7509876543210", variantId))
+            when(productVariantRepository.existsByBarCodeAndCompanyIdAndIdNot("7509876543210", companyId, variantId))
                     .thenReturn(false);
             when(productVariantRepository.existsByProductIdAndVariantNameAndIdNot(productId, "Talla L", variantId))
                     .thenReturn(false);
@@ -701,7 +775,7 @@ class ProductVariantServiceTest {
 
             when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
             when(productVariantRepository.findById(variantId)).thenReturn(Optional.of(testVariant));
-            when(productVariantRepository.existsByBarCodeAndIdNot("7509876543210", variantId))
+            when(productVariantRepository.existsByBarCodeAndCompanyIdAndIdNot("7509876543210", companyId, variantId))
                     .thenReturn(true);
 
             assertThatThrownBy(
@@ -724,7 +798,27 @@ class ProductVariantServiceTest {
             productVariantService.updateVariant(
                     companyId, productId, variantId, new ProductVariantRequest("7501234567890", "Talla L", null));
 
-            verify(productVariantRepository, never()).existsByBarCodeAndIdNot(any(), any());
+            verify(productVariantRepository, never()).existsByBarCodeAndCompanyIdAndIdNot(any(), any(), any());
+        }
+
+        @Test
+        @DisplayName("should key the barCode gate by the company on update too")
+        void updateVariant_BarCodeGateIsPerCompany() {
+            var updateRequest = new ProductVariantRequest("7509876543210", "Talla L", null);
+
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
+            when(productVariantRepository.findById(variantId)).thenReturn(Optional.of(testVariant));
+            when(productVariantRepository.existsByBarCodeAndCompanyIdAndIdNot("7509876543210", companyId, variantId))
+                    .thenReturn(false);
+            when(productVariantRepository.existsByProductIdAndVariantNameAndIdNot(productId, "Talla L", variantId))
+                    .thenReturn(false);
+            when(productVariantRepository.save(any(ProductVariant.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            productVariantService.updateVariant(companyId, productId, variantId, updateRequest);
+
+            // The exclusion is the variant being written, inside the company: a barcode another
+            // company already uses is not a conflict here either.
+            verify(productVariantRepository).existsByBarCodeAndCompanyIdAndIdNot("7509876543210", companyId, variantId);
         }
     }
 
@@ -1015,7 +1109,7 @@ class ProductVariantServiceTest {
             var expectedPage = new PageImpl<>(List.of(searchResponse), pageable, 1);
 
             when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
-            when(productVariantRepository.searchByQuery(query, companyStoreId, pageable))
+            when(productVariantRepository.searchByQuery(companyId, query, companyStoreId, pageable))
                     .thenReturn(expectedPage);
 
             var result = productVariantService.searchVariants(query, companyStoreId, pageable);
@@ -1029,7 +1123,7 @@ class ProductVariantServiceTest {
             assertThat(item.productName()).isEqualTo("Producto Test");
             assertThat(item.productSku()).isEqualTo("PROD-001");
             assertThat(item.variantName()).isEqualTo("Talla M");
-            verify(productVariantRepository).searchByQuery(query, companyStoreId, pageable);
+            verify(productVariantRepository).searchByQuery(companyId, query, companyStoreId, pageable);
         }
 
         @Test
@@ -1039,7 +1133,7 @@ class ProductVariantServiceTest {
             var pageable = PageRequest.of(0, 20);
 
             when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
-            when(productVariantRepository.searchByQuery(query, companyStoreId, pageable))
+            when(productVariantRepository.searchByQuery(companyId, query, companyStoreId, pageable))
                     .thenReturn(Page.empty(pageable));
 
             productVariantService.searchVariants(query, companyStoreId, pageable);
@@ -1063,7 +1157,7 @@ class ProductVariantServiceTest {
             assertThatThrownBy(() -> productVariantService.searchVariants(query, companyStoreId, pageable))
                     .isInstanceOf(AccessDeniedException.class);
 
-            verify(productVariantRepository, never()).searchByQuery(any(), any(), any());
+            verify(productVariantRepository, never()).searchByQuery(any(), any(), any(), any());
         }
 
         @Test
@@ -1079,7 +1173,7 @@ class ProductVariantServiceTest {
                     .hasMessageContaining("Store not found with id");
 
             verify(currentUserContext, never()).verifyCompanyStoreAccess(any(), any(), any(), any(), any());
-            verify(productVariantRepository, never()).searchByQuery(any(), any(), any());
+            verify(productVariantRepository, never()).searchByQuery(any(), any(), any(), any());
         }
 
         @Test
@@ -1095,7 +1189,7 @@ class ProductVariantServiceTest {
             // The blank short-circuit must neither read nor guard the store.
             verify(companyStoreRepository, never()).findById(any());
             verify(currentUserContext, never()).verifyCompanyStoreAccess(any(), any(), any(), any(), any());
-            verify(productVariantRepository, never()).searchByQuery(any(), any(), any());
+            verify(productVariantRepository, never()).searchByQuery(any(), any(), any(), any());
         }
 
         @Test
@@ -1111,7 +1205,25 @@ class ProductVariantServiceTest {
             // The blank short-circuit must neither read nor guard the store.
             verify(companyStoreRepository, never()).findById(any());
             verify(currentUserContext, never()).verifyCompanyStoreAccess(any(), any(), any(), any(), any());
-            verify(productVariantRepository, never()).searchByQuery(any(), any(), any());
+            verify(productVariantRepository, never()).searchByQuery(any(), any(), any(), any());
+        }
+
+        @Test
+        @DisplayName("should predicate the search on the company that owns the store")
+        void searchVariants_ScopesTheQueryByTheStoreCompany() {
+            var query = "martillo";
+            var pageable = PageRequest.of(0, 20);
+
+            when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
+            when(productVariantRepository.searchByQuery(companyId, query, companyStoreId, pageable))
+                    .thenReturn(Page.empty(pageable));
+
+            productVariantService.searchVariants(query, companyStoreId, pageable);
+
+            // The company is the one the store's chain reaches (zone -> region -> country -> company),
+            // the same derivation the access guard uses, and it travels into the query. A post-filter
+            // would answer the same question one step too late: the page would already hold the rows.
+            verify(productVariantRepository).searchByQuery(companyId, query, companyStoreId, pageable);
         }
 
         @Test
@@ -1137,14 +1249,14 @@ class ProductVariantServiceTest {
             var expectedPage = new PageImpl<>(List.of(searchResponse), pageable, 1);
 
             when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
-            when(productVariantRepository.searchByQuery(query, companyStoreId, pageable))
+            when(productVariantRepository.searchByQuery(companyId, query, companyStoreId, pageable))
                     .thenReturn(expectedPage);
 
             var result = productVariantService.searchVariants(query, companyStoreId, pageable);
 
             assertThat(result.getNumber()).isEqualTo(1);
             assertThat(result.getSize()).isEqualTo(5);
-            verify(productVariantRepository).searchByQuery(query, companyStoreId, pageable);
+            verify(productVariantRepository).searchByQuery(companyId, query, companyStoreId, pageable);
         }
     }
 
@@ -1440,7 +1552,8 @@ class ProductVariantServiceTest {
 
         private void stubCreateGates() {
             when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
-            when(productVariantRepository.existsByBarCode("7501234567890")).thenReturn(false);
+            when(productVariantRepository.existsByBarCodeAndCompanyId("7501234567890", companyId))
+                    .thenReturn(false);
             when(productVariantRepository.existsByProductIdAndVariantName(productId, "Talla M"))
                     .thenReturn(false);
             when(productVariantRepository.save(any(ProductVariant.class))).thenAnswer(inv -> inv.getArgument(0));
