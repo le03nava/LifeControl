@@ -41,7 +41,7 @@ One line per task: ID, specs, route, commit. Route is `inline` unless a Delegati
 | T1 | Expand: V39 adds nullable `company_id` to `products` and `product_variants`, the entity fields, and the writes that populate them (a product takes its category's company; a variant takes its product's) | S2, S4 | inline | `1bb45dac` |
 | T2 | Move: `/api/companies/{companyId}/products` with `verifyCompanyAccess`, the company required on write, the category required to belong to it, duplicate SKU per company | S4 | delegated (`gentle-ai-worker`) | `e9f9ecba` |
 | T3 | Variants: barcode unique per company, variant search scoped by the store's company | S4 | delegated (`gentle-ai-worker`) | `f25de7d2` |
-| T4 | Contract: V40 makes both columns `NOT NULL`, adds the composite FKs, drops the global unique keys and replaces them per company | S2, S4 | inline | `-` |
+| T4 | Contract: V40 makes both columns `NOT NULL`, adds the composite FKs, drops the global unique keys and replaces them per company | S2, S4 | delegated (`gentle-ai-worker`) | `155d13ae` |
 | T5 | Consumers: `InventoryService`, `PurchaseOrderService`, `SalesOrderService` resolve a variant **with** the document's company | S4 | inline | `-` |
 | T6 | Frontend: `product.service.ts` and the product routes call the scoped path, and the `categoryCompanyId` workaround goes away | S4 | inline | `-` |
 
@@ -115,3 +115,18 @@ first and alone.
   must be retargeted to **V38**, the last migration whose premise it describes, and pin exactly the two versions
   it targets. The derived form L5 introduced was right while V39 was purely additive and becomes wrong in T4 —
   the record says so instead of leaving a test to be discovered failing.
+- **L10** — T4 evidence, 2026-10-27, commit `155d13ae` (delegated). V40 drops
+  `products_sku_key`, `uq_product_variants_bar_code`, `fk_products_category` and
+  `product_variants_product_id_fkey`, and adds `uq_products_company_id`, `uq_product_variants_company_id`,
+  `uq_products_company_sku`, `uq_product_variants_company_bar_code`, `fk_products_category_same_company` and
+  `fk_product_variants_product_same_company`. The discard is one `TRUNCATE` over the product/operational chain
+  with V14's shape and banner. RED before the migration: 7 of the 9 new schema assertions failed against the
+  V39 head (two `NOT NULL` assertions, two `DuplicateKeyException`s where the global keys refused the second
+  tenant, two composite-FK assertions, and the presence check); GREEN after: 9/9. Gate: BUILD SUCCESSFUL, 4088
+  tests. L9's correction landed as planned: the V36 upgrade test now targets V38 and pins `containsExactly("37",
+  "38")`, which cannot drift because the target is written in the test.
+- **L11** — review-workload note, recorded because it is the maintainer's call and not mine to bury: the branch
+  is now **~3.700 authored lines** across seven commits, and two slices (T2 ≈1.400, T4 ≈600) exceed the ~400-line
+  budget. T1, T3 and the docs commits are inside it. The delivery strategy in §Tasks stands — a chain of pull
+  requests with T2 read first and alone — but if the maintainer prefers, T4 can be split at the migration
+  boundary from its fixture updates, and the remaining slices stay small.
