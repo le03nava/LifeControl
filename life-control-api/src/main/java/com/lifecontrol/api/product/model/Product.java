@@ -1,6 +1,7 @@
 package com.lifecontrol.api.product.model;
 
 import com.lifecontrol.api.common.model.Auditable;
+import com.lifecontrol.api.company.model.Company;
 import com.lifecontrol.api.product.category.model.ProductCategory;
 import jakarta.persistence.*;
 import java.time.LocalDateTime;
@@ -17,6 +18,31 @@ public class Product extends Auditable {
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
+    /**
+     * The company that owns this product (V39).
+     *
+     * <p>A product is one tenant's catalog entry, not a shared definition: its SKU is unique per
+     * company and its category has to belong to the same one, so the owner is stored here instead of
+     * being derived from {@link #category}. Deriving it was the V36 shape and it left two states
+     * representable that the model forbids — a product classified under another company's category, and
+     * a product nobody can attribute at all.</p>
+     *
+     * <p>Nullable only during the expand step {@code V39}: the column becomes {@code NOT NULL} in
+     * {@code V40}, which is also where the composite foreign key to the category tree and the
+     * per-company unique keys arrive. Until then the create path populates it from the category it is
+     * classified under, so no write invents a company and no write invents an absence.</p>
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "company_id")
+    private Company company;
+
+    /**
+     * The catalog key of this product.
+     *
+     * <p>Its uniqueness is <b>global</b> on the column today, inherited from V1, and moves to
+     * {@code (company_id, sku)} in the contract step of this unit — which is why the flag still sits
+     * here: the entity has to describe the constraint the database actually has.</p>
+     */
     @Column(length = 50, nullable = false, unique = true)
     private String sku;
 
@@ -43,9 +69,10 @@ public class Product extends Auditable {
      * child of the stored level-1 node — and enforcing that consistency on every write would be an
      * application rule where one link is already structural.</p>
      *
-     * <p>Deliberately <b>not</b> company-scoped: {@code products} has no {@code company_id} (V1), while
-     * a category belongs to a company. The company a product is classified under is therefore derived
-     * from its category, not stored twice, and the response reports it as {@code categoryCompanyId}.</p>
+     * <p>Its company-scoping arrives in the contract step, not here: the composite foreign key
+     * {@code (company_id, category_id) -> product_categories (company_id, id)} is what makes "a product of
+     * company A under a category of company B" unreachable, and it needs both sides {@code NOT NULL}
+     * first.</p>
      *
      * <p>No {@code ON DELETE} action: the category API soft-deletes ({@code enabled = false}), so no
      * hard delete exists and the default {@code NO ACTION} is the guard against orphaning.</p>
@@ -93,6 +120,10 @@ public class Product extends Auditable {
         return category;
     }
 
+    public Company getCompany() {
+        return company;
+    }
+
     public Map<String, Object> getAttributes() {
         return attributes;
     }
@@ -128,6 +159,10 @@ public class Product extends Auditable {
 
     public void setCategory(ProductCategory category) {
         this.category = category;
+    }
+
+    public void setCompany(Company company) {
+        this.company = company;
     }
 
     public void setAttributes(Map<String, Object> attributes) {
@@ -178,6 +213,11 @@ public class Product extends Auditable {
 
         public Builder category(ProductCategory category) {
             product.category = category;
+            return this;
+        }
+
+        public Builder company(Company company) {
+            product.company = company;
             return this;
         }
 

@@ -123,6 +123,47 @@ class ProductServiceTest {
         }
 
         @Test
+        @DisplayName("should take the company of the category it is classified under")
+        void shouldTakeTheCategoryCompany() {
+            var companyId = UUID.randomUUID();
+            var categoryId = UUID.randomUUID();
+            var company = Company.builder()
+                    .id(companyId)
+                    .companyKey("acme")
+                    .companyName("Acme")
+                    .build();
+            var category = ProductCategory.builder()
+                    .id(categoryId)
+                    .company(company)
+                    .categoryName("Calzado")
+                    .build();
+            var request = new ProductRequest("SKU-CAT", "Zapato", null, null, null, null, categoryId);
+
+            when(productRepository.existsBySku("SKU-CAT")).thenReturn(false);
+            when(productCategoryRepository.findById(categoryId)).thenReturn(Optional.of(category));
+            when(productRepository.save(any(Product.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            productService.createProduct(request);
+
+            verify(productRepository)
+                    .save(argThat(product -> product.getCompany() != null
+                            && companyId.equals(product.getCompany().getId())));
+        }
+
+        @Test
+        @DisplayName("should store no company when the request carries no category")
+        void shouldStoreNoCompanyWithoutCategory() {
+            var request = new ProductRequest("SKU-ORPHAN", "Sin clasificar", null, null, null, null, null);
+
+            when(productRepository.existsBySku("SKU-ORPHAN")).thenReturn(false);
+            when(productRepository.save(any(Product.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            productService.createProduct(request);
+
+            verify(productRepository).save(argThat(product -> product.getCompany() == null));
+        }
+
+        @Test
         @DisplayName("should throw DuplicateProductException when SKU already exists")
         void shouldThrowDuplicateProductException_WhenSkuExists() {
             var request = new ProductRequest("SKU-DUP", "Dup Product", null, null, null, null, null);

@@ -1,0 +1,80 @@
+# ODD feature: product-catalog-tenancy
+
+**Repository**: LifeControl — `life-control-api/` (two migrations, the `product` module's entities, services,
+repositories and controller, and the lookups in `inventory/`, `purchaseorder/` and `salesorder/`) and
+`life-control-app-angular/` (the product feature's service and routes). No supplier change, no store-tree
+change, no image pin, no delivery script.
+**Status**: implemented — `T1` is on the branch and `T2`–`T6` are the rest of the plan; nothing is deferred.
+**Created**: 2026-10-27 · **Issue**: **#660** (`feat: scope the product catalog per company`, `status:approved`)
+· **Branch**: `feat/product-catalog-tenancy` · **Risk**: **item 1 (data)**, **item 2 (security)** and **item 3
+(contract)** — `products` is the aggregate four other modules resolve by bare UUID, the change moves a tenancy
+boundary, and it moves `/api/products` out of the wire contract the Angular app already consumes.
+
+## Specs
+
+**S1** — *the user, 2026-10-27, verbatim*: «ahorita el catalogo de productos es global o es por empresa?» The
+question that opened the unit. The answer measured from the tree: `products` and `suppliers` are global
+(`V1:184-196`, `V1:145-165`), `product_categories` is per company (`V31:41-50`), and the attribute catalog is
+global with a per-company override seam nobody uses (`V37:100-130`).
+
+**S2** — *the user, 2026-10-27, verbatim*: «si evalualo por la migración de datos no te preocupes no hay una
+version productiva». The data consequence is accepted: no backfill, and rows that cannot be attributed to a
+company may be discarded rather than migrated.
+
+**S3** — *the user, 2026-10-27, verbatim*: «si aprueba y arranca» — the authorization to approve **#660** and
+start the work.
+
+**S4** — *the user's three scoping decisions, 2026-10-27, quoted from the answers*: `products + variants
+(barcode por empresa)`, `Mover a /api/companies/{companyId}/products`, `No, unidad aparte` (suppliers). Read
+together: a product and a variant each belong to one company, SKU and barcode are unique **per company**, the
+company travels in the path like every other scoped module, and `suppliers` stays global as its own later unit.
+
+**S5** — the acceptance criteria are the ones **#660** carries; this record does not restate them. Where the
+two disagree, the issue wins and the record is corrected.
+
+## Tasks
+
+One line per task: ID, specs, route, commit. Route is `inline` unless a Delegation Trigger fired.
+
+| ID | What | Specs | Route | Commit |
+| --- | --- | --- | --- | --- |
+| T1 | Expand: V39 adds nullable `company_id` to `products` and `product_variants`, the entity fields, and the writes that populate them (a product takes its category's company; a variant takes its product's) | S2, S4 | inline | `1bb45dac` |
+| T2 | Move: `/api/companies/{companyId}/products` with `verifyCompanyAccess`, the company required on write, the category required to belong to it, duplicate SKU per company | S4 | inline | `-` |
+| T3 | Variants: barcode unique per company, variant search scoped by the store's company | S4 | inline | `-` |
+| T4 | Contract: V40 makes both columns `NOT NULL`, adds the composite FKs, drops the global unique keys and replaces them per company | S2, S4 | inline | `-` |
+| T5 | Consumers: `InventoryService`, `PurchaseOrderService`, `SalesOrderService` resolve a variant **with** the document's company | S4 | inline | `-` |
+| T6 | Frontend: `product.service.ts` and the product routes call the scoped path, and the `categoryCompanyId` workaround goes away | S4 | inline | `-` |
+
+The slices are ordered so each one leaves the suite green: a `NOT NULL` column cannot arrive before the write
+surface knows where the company comes from, and the API cannot move before the column exists. That is why the
+plan is six slices and not the five the issue's scope statement supports — the constraint is CI, not scope.
+
+## Log
+
+- **L1** — the request, 2026-10-27, verbatim: «ahorita el catalogo de productos es global o es por empresa?»
+- **L2** — the request, 2026-10-27, verbatim: «si evalualo por la migración de datos no te preocupes no hay una
+  version productiva».
+- **L3** — the evaluation, 2026-10-27. What the tree says, with the evidence the plan rests on:
+  `ProductController` maps `/api/products` and never calls `verifyCompanyAccess`, so a role is the only gate;
+  `products.sku` (`V1:186`) and `product_variants.bar_code` (`V14:74`) are globally unique; `products.category_id`
+  is a plain FK by decision (`V36:19-24`); every operational lookup resolves a variant by bare UUID after
+  checking only the store (`InventoryService:132-137`, `:241-246`, `PurchaseOrderService:689-697`,
+  `SalesOrderService:858-862`, `ProductVariantService.searchVariants:386-397`); and the client already carries
+  `categoryCompanyId` because `/api/products` has no company segment (`product.models.ts:24-28`). Two facts
+  cheapen the unit: `V31:50` already created `UNIQUE (company_id, id)` on the category tree, which is the target
+  a composite FK needs; and every operational document already carries `company_store_id NOT NULL`, so the
+  company is derivable at every call site without touching those tables. One thing cannot be closed
+  structurally — "a variant of A stocked in a store of B" — because `company_stores` has no `company_id`
+  (the company is derived through zone → region → country, `V1:127-136`); it stays a service rule plus a test.
+- **L4** — approval and start, 2026-10-27. Issue **#660** created from `feature.yml` and approved with
+  `status:approved` on the maintainer's instruction (S3). Worktree
+  `~/workspace/LifeControl-worktrees/feat-product-catalog-tenancy`, branch `feat/product-catalog-tenancy`, cut
+  from `main` at `cc0ff642` with `./.github/scripts/new-unit.sh`.
+- **L5** — T1 evidence, 2026-10-27. Red first: `should take the company of the category it is classified under` and
+  `should give the variant the company of its product` failed with `WantedButNotInvoked` before the services set
+  the column, and passed after. Gate run `./gradlew spotlessCheck spotbugsMain test --no-daemon` in
+  `life-control-api`: BUILD SUCCESSFUL, 4046 tests. One pre-existing assertion failed on the way and was fixed
+  rather than bumped: `ProductAttributeUpgradeOnPopulatedDbIntegrationTest` asserted the literal count `2`
+  migrations from a populated V36 database, so V39 — which has nothing to do with attributes — made a test about
+  the V37/V38 upgrade path fail. It now derives the applied range (`startsWith("37")` … `endsWith(latestMigrationVersion())`),
+  which is the same duplication the Flyway head removed from seven suites.

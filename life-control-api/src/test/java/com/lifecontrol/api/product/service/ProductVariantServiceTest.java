@@ -3,6 +3,7 @@ package com.lifecontrol.api.product.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -547,6 +548,23 @@ class ProductVariantServiceTest {
             assertThat(result.enabled()).isTrue();
             verify(productRepository).findById(productId);
             verify(productVariantRepository).save(any(ProductVariant.class));
+        }
+
+        @Test
+        @DisplayName("should give the variant the company of its product")
+        void createVariant_TakesTheProductCompany() {
+            var companyId = UUID.randomUUID();
+            testProduct.setCompany(
+                    Company.builder().id(companyId).companyName("Acme").build());
+            when(productRepository.findById(productId)).thenReturn(Optional.of(testProduct));
+            when(productVariantRepository.existsByBarCode("7501234567890")).thenReturn(false);
+            when(productVariantRepository.existsByProductIdAndVariantName(productId, "Talla M"))
+                    .thenReturn(false);
+            when(productVariantRepository.save(any(ProductVariant.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            productVariantService.createVariant(productId, testVariantRequest);
+
+            verify(productVariantRepository).save(argThat(variant -> companyId.equals(variant.getCompanyId())));
         }
 
         @Test
