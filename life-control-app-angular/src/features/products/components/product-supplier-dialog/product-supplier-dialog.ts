@@ -43,6 +43,8 @@ const SUPPLIER_PAGE_SIZE = 20;
 
 /** Payload the opener passes to {@link ProductSupplierDialog}. */
 export interface ProductSupplierDialogData {
+  /** The company that owns the product: the scope of the assignment write. */
+  companyId: string;
   productId: string;
   /** The row the list already holds; present only in edit mode. */
   assignment?: ProductSupplier;
@@ -171,12 +173,13 @@ export class ProductSupplierDialog implements OnInit {
   }
 
   onSaveAssignment(data: ProductSupplierRequest): void {
+    const companyId = this.data.companyId;
     const productId = this.data.productId;
     const assignment = this.data.assignment;
 
     const request$ = assignment
-      ? this.productSupplierService.updateSupplier(productId, assignment.id, data)
-      : this.productSupplierService.addSupplier(productId, data);
+      ? this.productSupplierService.updateSupplier(companyId, productId, assignment.id, data)
+      : this.productSupplierService.addSupplier(companyId, productId, data);
 
     request$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (saved) => this.dialogRef.close(saved),
@@ -230,7 +233,7 @@ export class ProductSupplierDialog implements OnInit {
 
   private loadAssignedSuppliers(): void {
     this.productSupplierService
-      .getSuppliers(this.data.productId)
+      .getSuppliers(this.data.companyId, this.data.productId)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (assignments) => this.assignedSuppliers.set(assignments),

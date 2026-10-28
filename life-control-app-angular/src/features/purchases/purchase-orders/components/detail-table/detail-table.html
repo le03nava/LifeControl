@@ -291,8 +291,9 @@
             </mat-autocomplete>
           </mat-form-field>
 
-          <!-- Variant (scoped to the picked product and the order's store) -->
+          <!-- Variant (scoped to the picked product, the order's store and the order's company) -->
           <app-product-variant-picker
+            [companyId]="companyId()"
             [productId]="newProductId() || null"
             [storeId]="storeId()"
             [disabled]="!isDraft()"

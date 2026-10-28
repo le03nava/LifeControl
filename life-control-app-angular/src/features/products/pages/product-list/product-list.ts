@@ -8,11 +8,12 @@ import {
   computed,
 } from '@angular/core';
 import { rxResource, takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { Router, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { PageHeader } from '@shared/ui';
 import { httpErrorMessage } from '@shared/data';
 import { observeMobileViewport } from '@shared/responsive/mobile-viewport';
 import { ProductService } from '../../data/product.service';
+import { productsCompanyId } from '../../data/products-company';
 import { ProductsCard } from '../../components';
 import { MatIconModule } from '@angular/material/icon';
 import { MatPaginatorModule } from '@angular/material/paginator';
@@ -40,9 +41,13 @@ import { DeleteProductDialogComponent } from '../../ui/delete-product-dialog/del
 })
 export class ProductList {
   productService = inject(ProductService);
+  private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly dialog = inject(MatDialog);
   private readonly destroyRef = inject(DestroyRef);
+
+  /** The company this list belongs to, from the route: `/products/c/:companyId/list`. */
+  readonly companyId = productsCompanyId(this.route);
 
   // Paginación
   readonly pageSize = signal(12);
@@ -60,13 +65,24 @@ export class ProductList {
 
   // rxResource: llama al backend automáticamente cuando cambian pageIndex, pageSize o _debouncedSearch
   readonly productsResource = rxResource({
-    params: () => ({
-      page: this.pageIndex(),
-      size: this.pageSize(),
-      search: this._debouncedSearch(),
-    }),
+    params: () => {
+      const companyId = this.companyId;
+      return companyId
+        ? {
+            companyId,
+            page: this.pageIndex(),
+            size: this.pageSize(),
+            search: this._debouncedSearch(),
+          }
+        : undefined;
+    },
     stream: ({ params }) =>
-      this.productService.getProducts(params.page, params.size, params.search || undefined),
+      this.productService.getProducts(
+        params.companyId,
+        params.page,
+        params.size,
+        params.search || undefined,
+      ),
   });
 
   // Computed helpers
@@ -98,7 +114,10 @@ export class ProductList {
   }
 
   editProduct(id: string): void {
-    this.router.navigate([`/products/edit/${id}`]);
+    if (!this.companyId) {
+      return;
+    }
+    this.router.navigate(['/products/c', this.companyId, 'edit', id]);
   }
 
   /**
@@ -108,7 +127,10 @@ export class ProductList {
    * page's route gate, its visibility rules or any other action.
    */
   manageVariants(id: string): void {
-    this.router.navigate(['/products/edit', id, 'variants']);
+    if (!this.companyId) {
+      return;
+    }
+    this.router.navigate(['/products/c', this.companyId, 'edit', id, 'variants']);
   }
 
   confirmDelete(productInfo: { id: string; name: string }): void {
@@ -119,9 +141,9 @@ export class ProductList {
       .afterClosed()
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((result: boolean) => {
-        if (result) {
+        if (result && this.companyId) {
           this.productService
-            .deleteProduct(productInfo.id)
+            .deleteProduct(this.companyId, productInfo.id)
             .pipe(takeUntilDestroyed(this.destroyRef))
             .subscribe({
               next: () => this.productsResource.reload(),

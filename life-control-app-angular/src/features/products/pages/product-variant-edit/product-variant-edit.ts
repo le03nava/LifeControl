@@ -16,6 +16,7 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatDialog } from '@angular/material/dialog';
 import { MatIconModule } from '@angular/material/icon';
 import { ProductService } from '../../data/product.service';
+import { productsCompanyId } from '../../data/products-company';
 import { ProductVariantService } from '../../data/product-variant.service';
 import { ProductVariant } from '../../models/product-variant.models';
 import { ProductVariantDialog } from '../../components/product-variant-dialog/product-variant-dialog';
@@ -56,6 +57,9 @@ export class ProductVariantEdit implements OnInit, UnsavedChangesAware {
   /** The variant being edited. Mandatory in practice: the create URL redirects away. */
   readonly variantId = signal<string | null>(this.route.snapshot.paramMap.get('variantId'));
 
+  /** The company that owns the product: read from the route and sent on every call. */
+  readonly companyId = productsCompanyId(this.route);
+
   /** The variant loaded from the API, or `null` until the read settles. */
   readonly loadedVariant = signal<ProductVariant | null>(null);
 
@@ -74,12 +78,12 @@ export class ProductVariantEdit implements OnInit, UnsavedChangesAware {
 
   /** The owning product, loaded only to name it in the header. */
   readonly productResource = rxResource({
-    params: () => ({ productId: this.productId() }),
+    params: () => ({ companyId: this.companyId, productId: this.productId() }),
     stream: ({ params }) => {
-      if (!params.productId) {
+      if (!params.companyId || !params.productId) {
         return of(null);
       }
-      return this.productService.getProductById(params.productId);
+      return this.productService.getProductById(params.companyId, params.productId);
     },
   });
   readonly product = computed(() =>
@@ -101,7 +105,9 @@ export class ProductVariantEdit implements OnInit, UnsavedChangesAware {
     // definition to, so fail closed instead of rendering a broken page.
     effect(() => {
       if (!this.productId()) {
-        this.router.navigate(['/products/list']);
+        this.router.navigate(
+          this.companyId ? ['/products/c', this.companyId, 'list'] : ['/products'],
+        );
       }
     });
   }
@@ -109,8 +115,8 @@ export class ProductVariantEdit implements OnInit, UnsavedChangesAware {
   ngOnInit(): void {
     const variantId = this.variantId();
     const productId = this.productId();
-    if (variantId && productId) {
-      this.loadVariant(productId, variantId);
+    if (variantId && productId && this.companyId) {
+      this.loadVariant(this.companyId, productId, variantId);
     }
   }
 
@@ -122,13 +128,14 @@ export class ProductVariantEdit implements OnInit, UnsavedChangesAware {
   openDefinitionDialog(): void {
     const variant = this.loadedVariant();
     const productId = this.productId();
-    if (!variant || !productId) {
+    const companyId = this.companyId;
+    if (!variant || !productId || !companyId) {
       return;
     }
 
     this.dialog
       .open(ProductVariantDialog, {
-        data: { productId, variant },
+        data: { companyId, productId, variant },
         width: '560px',
       })
       .afterClosed()
@@ -151,9 +158,9 @@ export class ProductVariantEdit implements OnInit, UnsavedChangesAware {
     return this.storeStockDirty();
   }
 
-  private loadVariant(productId: string, variantId: string): void {
+  private loadVariant(companyId: string, productId: string, variantId: string): void {
     this.productVariantService
-      .getVariantById(productId, variantId)
+      .getVariantById(companyId, productId, variantId)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (variant) => {

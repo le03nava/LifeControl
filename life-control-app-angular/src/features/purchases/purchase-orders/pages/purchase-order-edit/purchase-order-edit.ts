@@ -10,8 +10,8 @@ import {
 import { HttpErrorResponse } from '@angular/common/http';
 import { CurrencyPipe } from '@angular/common';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
-import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { catchError, EMPTY, Subject, switchMap } from 'rxjs';
+import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
+import { catchError, EMPTY, startWith, Subject, switchMap } from 'rxjs';
 import { NonNullableFormBuilder, FormGroup, Validators, ReactiveFormsModule } from '@angular/forms';
 import { PurchaseOrderService } from '../../data/purchase-order.service';
 import { ProductService } from '@features/products/data/product.service';
@@ -79,6 +79,21 @@ export class PurchaseOrderEdit implements OnInit {
   readonly serverErrors = signal<Record<string, string>>({});
   readonly generalError = signal<string | null>(null);
   readonly saving = signal(false);
+
+  /**
+   * The company the order belongs to: the header's cascade root, read reactively.
+   *
+   * It is the company every product read of this screen is scoped to — the supplier's product list and,
+   * through {@link DetailTable}, the variant picker — because a product belongs to one company and both
+   * endpoints now take it in the path. There is no second place this is chosen: the cascade group is the
+   * order's own company, and `null` is the honest answer while an order being created has none yet.
+   */
+  readonly orderCompanyId = toSignal(
+    this.headerForm().controls.company.controls.companyId.valueChanges.pipe(
+      startWith(this.headerForm().controls.company.controls.companyId.value),
+    ),
+    { initialValue: this.headerForm().controls.company.controls.companyId.value },
+  );
 
   // ─── Loaded order data (edit mode) ─────────────────────
   readonly loadedOrder = signal<PurchaseOrder | null>(null);
@@ -187,11 +202,16 @@ export class PurchaseOrderEdit implements OnInit {
     this.supplierId$
       .pipe(
         switchMap((supplierId) => {
-          if (!supplierId) {
+          // The company is the order's, read at request time (the cascade group may have been filled by
+          // the picker or by the order load). No company is not "any company": it is an order that is not
+          // attributable yet, so no request is issued and the list stays empty rather than showing a
+          // company-blind catalogue.
+          const companyId = this.orderCompanyId();
+          if (!supplierId || !companyId) {
             this.supplierProducts.set([]);
             return EMPTY;
           }
-          return this.productService.getProductsBySupplier(supplierId).pipe(
+          return this.productService.getProductsBySupplier(companyId, supplierId).pipe(
             catchError(() => {
               this.supplierProducts.set([]);
               return EMPTY;

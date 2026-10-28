@@ -19,16 +19,27 @@ export interface Product {
    */
   categoryId?: string | null;
   /**
-   * Company that owns `categoryId`, so the form can load the right tree to render the saved path.
+   * Company that **owns this product**, which is also the scope it is addressed through.
    *
-   * Required because `/api/products` carries no company segment: without it a product classified under
-   * company A could not resolve its own path while the screen's company context pointed at B.
+   * It is the product's own owner and not the screen's context: the products area reads its company
+   * from the route (`/products/c/:companyId/...`) and this field is what proves the row belongs there.
+   * The `categoryCompanyId` this replaces existed only because `/api/products` carried no company
+   * segment, so a product could not resolve its own category path while the context pointed at another
+   * company. The write path now refuses a category of another company, so the two companies can never
+   * disagree, and the screen's company arrives from the URL instead of from the response: a second
+   * company field on the row would be a second source of truth for the same fact.
    */
-  categoryCompanyId?: string | null;
+  companyId: string;
 }
 
-/** The form value the edit page consumes: the domain model minus the two server-owned keys. */
-export type ProductFormValue = Omit<Product, 'createdAt' | 'updatedAt'>;
+/**
+ * The form value the edit page consumes: the domain model minus the server-owned keys.
+ *
+ * `companyId` is omitted along with the timestamps because it is not an editing surface: it is the
+ * route's segment and the scope every write is sent under, so a form value that carried it could only
+ * ever restate it — or, worse, contradict it.
+ */
+export type ProductFormValue = Omit<Product, 'createdAt' | 'updatedAt' | 'companyId'>;
 
 export interface Page<T> {
   content: T[];

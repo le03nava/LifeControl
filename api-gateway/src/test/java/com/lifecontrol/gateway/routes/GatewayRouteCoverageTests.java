@@ -96,6 +96,28 @@ class GatewayRouteCoverageTests {
                 .collect(Collectors.joining(System.lineSeparator())));
   }
 
+  /**
+   * The product catalog moved under {@code /api/companies/{companyId}/products}, so {@code
+   * /api/products/**} no longer has a controller to serve it.
+   *
+   * <p>A dead proxy route is not harmless the day a client still points at it: it resolves, forwards,
+   * and answers the API's 404 as if the API had been asked — which is what made the stale client look
+   * like a backend bug instead of a moved contract. This pins the removal so a copy-paste that
+   * reintroduces {@code /api/products} fails here rather than in a topology. {@code /api/companies/**}
+   * already reaches the same service, and the variant prefixes have their own routes.</p>
+   */
+  @Test
+  void doesNotProxyTheRemovedProductsPrefix() throws IOException {
+    String routes = Files.readString(routesSource(repositoryRoot()));
+
+    assertTrue(
+        !routes.contains("/api/products/**"),
+        "api-gateway still declares a /api/products/** route, but life-control-api serves the product"
+            + " catalog under /api/companies/{companyId}/products and no controller maps"
+            + " /api/products. Remove the dead route (or, if the prefix came back, add the controller"
+            + " before the proxy).");
+  }
+
   private static Set<String> prefixesIn(Set<Path> sources, Pattern pattern) throws IOException {
     Set<String> prefixes = new TreeSet<>();
     for (Path source : sources) {

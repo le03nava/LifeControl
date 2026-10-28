@@ -93,6 +93,8 @@ describe('DetailTable', () => {
     f.componentRef.setInput('isDraft', isDraft);
     f.componentRef.setInput('availableProducts', PRODUCTS);
     f.componentRef.setInput('storeId', 'store-1');
+    // The variant picker is company-scoped: the table forwards the order's company like the store.
+    f.componentRef.setInput('companyId', 'company-1');
     f.componentRef.setInput('showReceiptProgress', showReceiptProgress);
     f.detectChanges();
     return f;
@@ -289,7 +291,13 @@ describe('DetailTable', () => {
 
       component.onNewProductChange('prod-1');
       f.detectChanges();
-      expect(variantService.getVariants).toHaveBeenCalledWith('prod-1', 'store-1', 0, 50);
+      expect(variantService.getVariants).toHaveBeenCalledWith(
+        'company-1',
+        'prod-1',
+        'store-1',
+        0,
+        50,
+      );
 
       pickerOf(f).onSelectionChange('var-2');
       f.detectChanges();
@@ -501,6 +509,8 @@ describe('DetailTable (mobile)', () => {
     f.componentRef.setInput('isDraft', true);
     f.componentRef.setInput('availableProducts', PRODUCTS);
     f.componentRef.setInput('storeId', 'store-1');
+    // The variant picker is company-scoped: the table forwards the order's company like the store.
+    f.componentRef.setInput('companyId', 'company-1');
     f.componentRef.setInput('showReceiptProgress', showReceiptProgress);
     f.detectChanges();
     return f;

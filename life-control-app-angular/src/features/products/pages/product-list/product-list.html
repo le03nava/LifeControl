@@ -1,6 +1,6 @@
 <div class="product-list-page">
   <app-page-header title="Productos" subtitle="Gestión de productos del catálogo">
-    <button mat-flat-button color="primary" routerLink="/products/create">
+    <button mat-flat-button color="primary" [routerLink]="['/products/c', companyId, 'create']">
       <mat-icon fontIcon="add" /> Agregar Producto
     </button>
   </app-page-header>

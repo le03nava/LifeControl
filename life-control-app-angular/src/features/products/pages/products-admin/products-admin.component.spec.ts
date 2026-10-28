@@ -1,5 +1,5 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { provideRouter, RouterLink } from '@angular/router';
+import { ActivatedRoute, convertToParamMap, provideRouter, RouterLink } from '@angular/router';
 import { PageHeader } from '@shared/ui';
 import { MatCardModule } from '@angular/material/card';
 import { MatIconModule } from '@angular/material/icon';
@@ -13,7 +13,15 @@ describe('ProductsAdminComponent', () => {
   beforeEach(async () => {
     await TestBed.configureTestingModule({
       imports: [ProductsAdminComponent, PageHeader, MatCardModule, MatIconModule],
-      providers: [provideRouter([])],
+      providers: [
+        provideRouter([]),
+        // The hub is `/products/c/:companyId`: the company comes from the route, so the spec supplies
+        // the same param map the router would.
+        {
+          provide: ActivatedRoute,
+          useValue: { snapshot: { paramMap: convertToParamMap({ companyId: 'company-1' }) } },
+        },
+      ],
     }).compileComponents();
 
     fixture = TestBed.createComponent(ProductsAdminComponent);
@@ -36,11 +44,11 @@ describe('ProductsAdminComponent', () => {
     expect(cards).toHaveLength(5);
   });
 
-  it('should have routerLink on the All Products card pointing to /products/list', () => {
+  it('should have routerLink on the All Products card pointing into the scoped catalog', () => {
     const allProductsCard = fixture.debugElement.queryAll(By.css('.dashboard-card'))[0];
     expect(allProductsCard).toBeTruthy();
     expect(allProductsCard.classes['card--disabled']).toBeFalsy();
-    expect(component.cards[0].route).toBe('/products/list');
+    expect(component.cards()[0].route).toBe('/products/c/company-1/list');
     expect(allProductsCard.injector.get(RouterLink)).toBeTruthy();
   });
 
@@ -99,15 +107,32 @@ describe('ProductsAdminComponent', () => {
   it('should point the Categories card at the categories screen instead of a placeholder', () => {
     // S3: the card existed with `route: null, disabled: true` and led nowhere. It
     // is now the screen's only entry point, so both halves are pinned.
-    const categories = component.cards.find((card) => card.title === 'Categories');
+    const categories = component
+      .cards()
+      .find((card: { title: string; disabled: boolean }) => card.title === 'Categories');
 
     expect(categories).toBeDefined();
     expect(categories?.route).toBe('/products/categories');
     expect(categories?.disabled).toBe(false);
   });
 
+  it('should scope the catalog cards to the company in the route', () => {
+    // The two cards that open a company-scoped screen carry the segment; the two whose destination is
+    // deliberately company-free (`Categories` picks its company inside the page, `Suppliers` is a global
+    // catalog) do not. A copy-paste that scoped everything would break those two, and one that scoped
+    // nothing would send the ABM at `/products/...` paths that now only redirect to the picker.
+    const routes = Object.fromEntries(component.cards().map((card) => [card.title, card.route]));
+
+    expect(routes['All Products']).toBe('/products/c/company-1/list');
+    expect(routes['New Product']).toBe('/products/c/company-1/create');
+    expect(routes['Categories']).toBe('/products/categories');
+    expect(routes['Suppliers']).toBe('/products/suppliers');
+  });
+
   it('should keep Product Types as the only remaining placeholder', () => {
-    const placeholders = component.cards.filter((card) => card.disabled);
+    const placeholders = component
+      .cards()
+      .filter((card: { title: string; disabled: boolean }) => card.disabled);
 
     expect(placeholders).toHaveLength(1);
     expect(placeholders[0].title).toBe('Product Types');

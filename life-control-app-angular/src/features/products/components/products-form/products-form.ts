@@ -76,11 +76,12 @@ export class ProductsForm {
   editMode = input<boolean | null>(null);
 
   /**
-   * The companies whose category tree the host can read, for the `Empresa` select.
+   * The companies the `Empresa` select can name.
    *
-   * The company is chosen here and not taken from the app's company context: a product is global
-   * while its category belongs to a company, so the classification and the tree that renders it have
-   * to agree even when the header points somewhere else (S2).
+   * The host passes the selector read whole so the saved company renders by name, but the value itself
+   * is **not** chosen here any more: it is the route's (`/products/c/:companyId/...`), because the
+   * product belongs to that company and every write is scoped to it. The select is therefore disabled
+   * once the product exists, and a change before that is a navigation, not a filter (S2).
    */
   companies = input<CompanySelectorOption[]>([]);
   selectedCompanyId = input<string | null>(null);

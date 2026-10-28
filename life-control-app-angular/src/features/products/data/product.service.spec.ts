@@ -8,6 +8,9 @@ describe('ProductService', () => {
   let service: ProductService;
   let httpMock: HttpTestingController;
 
+  /** The company every call is scoped to; the API serves products only under one. */
+  const companyId = 'company-1';
+
   const mockProduct: Product = {
     id: '1',
     sku: 'SKU-001',
@@ -19,6 +22,7 @@ describe('ProductService', () => {
     enabled: true,
     createdAt: '',
     updatedAt: '',
+    companyId,
   };
 
   beforeEach(() => {
@@ -38,6 +42,55 @@ describe('ProductService', () => {
     expect(service).toBeTruthy();
   });
 
+  describe('company scope', () => {
+    it('should build the collection under the company segment', () => {
+      // The whole point of the move: there is no company-blind `/products` to fall back to, so the base
+      // URL a caller can build is the scoped one and nothing else.
+      expect(service.productsUrl(companyId)).toMatch(/\/companies\/company-1\/products$/);
+      expect(service.productsUrl(companyId)).not.toMatch(/\/api\/products$/);
+    });
+
+    it('should send every product call through the scoped collection', async () => {
+      const page: Page<Product> = {
+        content: [mockProduct],
+        totalElements: 1,
+        totalPages: 1,
+        size: 12,
+        number: 0,
+        first: true,
+        last: true,
+        empty: false,
+      };
+      const scoped = service.productsUrl(companyId);
+
+      const listPromise = firstValueFrom(service.getProducts(companyId));
+      httpMock.expectOne((r) => r.url === scoped && r.method === 'GET').flush(page);
+      await listPromise;
+
+      const readPromise = firstValueFrom(service.getProductById(companyId, '1'));
+      httpMock.expectOne((r) => r.url === `${scoped}/1` && r.method === 'GET').flush(mockProduct);
+      await readPromise;
+
+      const createPromise = firstValueFrom(service.createProduct(companyId, mockProduct));
+      httpMock.expectOne((r) => r.url === scoped && r.method === 'POST').flush(mockProduct);
+      await createPromise;
+
+      const updatePromise = firstValueFrom(service.updateProduct(companyId, '1', mockProduct));
+      httpMock.expectOne((r) => r.url === `${scoped}/1` && r.method === 'PUT').flush(mockProduct);
+      await updatePromise;
+
+      const deletePromise = firstValueFrom(service.deleteProduct(companyId, '1'));
+      httpMock.expectOne((r) => r.url === `${scoped}/1` && r.method === 'DELETE').flush(null);
+      await deletePromise;
+
+      const bySupplierPromise = firstValueFrom(service.getProductsBySupplier(companyId, 'sup-1'));
+      httpMock
+        .expectOne((r) => r.url === `${scoped}/by-supplier/sup-1` && r.method === 'GET')
+        .flush([]);
+      await bySupplierPromise;
+    });
+  });
+
   describe('getProducts', () => {
     it('should fetch paginated products with default params', async () => {
       const mockPage: Page<Product> = {
@@ -51,9 +104,11 @@ describe('ProductService', () => {
         empty: false,
       };
 
-      const pagePromise = firstValueFrom(service.getProducts(0, 12));
+      const pagePromise = firstValueFrom(service.getProducts(companyId, 0, 12));
 
-      const req = httpMock.expectOne((r) => r.url === service.apiUrl && r.method === 'GET');
+      const req = httpMock.expectOne(
+        (r) => r.url === service.productsUrl(companyId) && r.method === 'GET',
+      );
       expect(req.request.params.get('page')).toBe('0');
       expect(req.request.params.get('size')).toBe('12');
       expect(req.request.params.has('search')).toBe(false);
@@ -77,9 +132,11 @@ describe('ProductService', () => {
         empty: true,
       };
 
-      const pagePromise = firstValueFrom(service.getProducts(0, 12, 'Test'));
+      const pagePromise = firstValueFrom(service.getProducts(companyId, 0, 12, 'Test'));
 
-      const req = httpMock.expectOne((r) => r.url === service.apiUrl && r.method === 'GET');
+      const req = httpMock.expectOne(
+        (r) => r.url === service.productsUrl(companyId) && r.method === 'GET',
+      );
       expect(req.request.params.get('search')).toBe('Test');
       req.flush(mockPage);
 
@@ -99,9 +156,11 @@ describe('ProductService', () => {
         empty: true,
       };
 
-      const pagePromise = firstValueFrom(service.getProducts(2, 24));
+      const pagePromise = firstValueFrom(service.getProducts(companyId, 2, 24));
 
-      const req = httpMock.expectOne((r) => r.url === service.apiUrl && r.method === 'GET');
+      const req = httpMock.expectOne(
+        (r) => r.url === service.productsUrl(companyId) && r.method === 'GET',
+      );
       expect(req.request.params.get('page')).toBe('2');
       expect(req.request.params.get('size')).toBe('24');
       req.flush(mockPage);
@@ -114,9 +173,9 @@ describe('ProductService', () => {
 
   describe('getProductById', () => {
     it('should fetch a single product by ID', async () => {
-      const productPromise = firstValueFrom(service.getProductById('1'));
+      const productPromise = firstValueFrom(service.getProductById(companyId, '1'));
 
-      const req = httpMock.expectOne(`${service.apiUrl}/1`);
+      const req = httpMock.expectOne(`${service.productsUrl(companyId)}/1`);
       expect(req.request.method).toBe('GET');
       req.flush(mockProduct);
 
@@ -129,9 +188,9 @@ describe('ProductService', () => {
     it('should create a new product', async () => {
       const mockResponse: Product = { ...mockProduct, id: 'new-id' };
 
-      const responsePromise = firstValueFrom(service.createProduct(mockProduct));
+      const responsePromise = firstValueFrom(service.createProduct(companyId, mockProduct));
 
-      const req = httpMock.expectOne(`${service.apiUrl}`);
+      const req = httpMock.expectOne(`${service.productsUrl(companyId)}`);
       expect(req.request.method).toBe('POST');
       req.flush(mockResponse);
 
@@ -142,9 +201,9 @@ describe('ProductService', () => {
 
   describe('updateProduct', () => {
     it('should update an existing product', async () => {
-      const responsePromise = firstValueFrom(service.updateProduct('1', mockProduct));
+      const responsePromise = firstValueFrom(service.updateProduct(companyId, '1', mockProduct));
 
-      const req = httpMock.expectOne(`${service.apiUrl}/1`);
+      const req = httpMock.expectOne(`${service.productsUrl(companyId)}/1`);
       expect(req.request.method).toBe('PUT');
       req.flush(mockProduct);
 
@@ -155,9 +214,9 @@ describe('ProductService', () => {
 
   describe('deleteProduct', () => {
     it('should delete a product', async () => {
-      const deletePromise = firstValueFrom(service.deleteProduct('1'));
+      const deletePromise = firstValueFrom(service.deleteProduct(companyId, '1'));
 
-      const req = httpMock.expectOne(`${service.apiUrl}/1`);
+      const req = httpMock.expectOne(`${service.productsUrl(companyId)}/1`);
       expect(req.request.method).toBe('DELETE');
       req.flush(null);
 

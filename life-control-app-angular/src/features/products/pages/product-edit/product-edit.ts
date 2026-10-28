@@ -13,6 +13,7 @@ import { ActivatedRoute, Router, convertToParamMap } from '@angular/router';
 import { rxResource, takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { map } from 'rxjs';
 import { ProductService } from '../../data/product.service';
+import { productsCompanyId } from '../../data/products-company';
 import { ProductCategoryService } from '../../data/product-category.service';
 import { MAX_CATEGORY_DEPTH, ProductCategory } from '../../models/product-category.models';
 import { CompanyService } from '@features/companies/companies/data/company.service';
@@ -82,6 +83,16 @@ export class ProductEdit implements OnInit, UnsavedChangesAware {
 
   productId = signal<string | null>(this.route.snapshot.paramMap.get('id'));
 
+  /**
+   * The company this product belongs to: the route's, and the only company this screen can write in.
+   *
+   * It is not page state and not a query param any more. A product belongs to one company, every write
+   * is scoped to it on the wire (`/api/companies/{companyId}/products`), and the API refuses a category
+   * of another company — so the screen's company and the product's owner cannot disagree, and the
+   * second company field the response used to carry (`categoryCompanyId`) is gone.
+   */
+  readonly companyId = productsCompanyId(this.route);
+
   productForm = signal<FormGroup<ProductControl>>(this.createForm());
 
   /**
@@ -135,14 +146,13 @@ export class ProductEdit implements OnInit, UnsavedChangesAware {
   );
 
   /**
-   * Which company's tree feeds the three selects, seeded from `?companyId=` and kept there (S2).
+   * Which company's tree feeds the three selects. Fixed by the URL, never chosen here.
    *
-   * A product is global while its category belongs to one company, so the tree this screen reads is
-   * decided here and not by the header context (see `savedCategoryPath`).
+   * The `Empresa` select therefore only *reports* it: changing it would mean writing a product of one
+   * company into another, which the API does not allow, so the form disables it once the product exists
+   * (and `onCompanyChange` navigates instead of mutating state — see below).
    */
-  readonly selectedCompanyId = signal<string | null>(
-    this.route.snapshot.queryParamMap.get('companyId'),
-  );
+  readonly selectedCompanyId = signal<string | null>(this.companyId);
 
   /**
    * The selected company's whole tree, disabled nodes included (S8).
@@ -239,26 +249,13 @@ export class ProductEdit implements OnInit, UnsavedChangesAware {
   });
 
   /**
-   * Set when the operator moves to another company's tree (S2).
-   *
-   * The three selects and the SAT hint live in the form and are only reset through `categoryPath`, so
-   * the operator's own action is what answers `[]` — a *certain* "no classification" — from then on.
-   * It is set only by `onCompanyChange` and not by the seeding in `loadProduct`, which is a write-back
-   * of saved state and must not discard anything. Before F1 existed this clearing was a side effect of
-   * `savedCategoryPath` answering `[]` whenever the leaf was not in the (still empty) tree; that is
-   * exactly the behaviour F1 removes, so the clearing is stated here instead of inferred.
-   */
-  private readonly categoryDiscarded = signal(false);
-
-  /**
    * The saved classification as ids from the root to the deepest node (S6).
    *
-   * Three answers, and the difference between them is the point:
+   * Two answers, and the difference between them is the point:
    * - `null` — the host does not know yet (the tree is in flight, or its read failed). The form must
    *   leave itself alone; applying `[]` here would wipe the saved classification and the next save
    *   would send `categoryId: null` (F1).
-   * - `[]` — the product is certainly unclassified (it has no `categoryId`), or the operator discarded
-   *   it by moving to another company's tree (S2).
+   * - `[]` — the product is certainly unclassified (it has no `categoryId`).
    * - the ids — resolved through the tree.
    *
    * The leaf comes from the `categoryId` control, not from the three selects: the selects can only be
@@ -273,8 +270,6 @@ export class ProductEdit implements OnInit, UnsavedChangesAware {
    * makes it compute once the load and the tree have both arrived, in either order.
    */
   readonly savedCategoryPath = computed<string[] | null>(() => {
-    if (this.categoryDiscarded()) return [];
-
     const leafId = this.productForm().controls.categoryId.value;
     if (!leafId) return [];
 
@@ -328,19 +323,16 @@ export class ProductEdit implements OnInit, UnsavedChangesAware {
   }
 
   private loadProduct(id: string): void {
+    const companyId = this.companyId;
+    if (!companyId) {
+      return;
+    }
     this.productService
-      .getProductById(id)
+      .getProductById(companyId, id)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (product) => {
           this.product.set(product);
-          // S6: the product's own classification decides which tree renders its path, so the company
-          // is seeded from the category the API reports. It is a write-back of the saved state, not a
-          // navigation: the operator may be linked with `?companyId=` pointing elsewhere, and the
-          // classification still has to resolve.
-          if (product.categoryCompanyId) {
-            this.selectedCompanyId.set(product.categoryCompanyId);
-          }
           // The saved classification is the category whose profile the form needs, and it is known
           // before the tree arrives: the attribute inputs do not depend on the tree at all.
           this.selectedCategoryId.set(product.categoryId ?? null);
@@ -389,27 +381,20 @@ export class ProductEdit implements OnInit, UnsavedChangesAware {
   }
 
   /**
-   * Keeps the company selection in the URL (replace, so mid-form changes do not pollute history),
-   * exactly as `ProductCategoryList.onCompanyChange` does (S2, D2).
+   * Keeps the products screen honest about the company: it is the URL's, so a change is a navigation.
    *
-   * Changing company also discards the classification: the three selects and the SAT hint are reset
-   * through `categoryDiscarded`, not as a side effect of the new tree happening not to contain the old
-   * leaf.
+   * Choosing a different company cannot move a saved product — the API scopes every write to the
+   * product's own company and refuses a category of another one — so while a product exists this does
+   * nothing. Before it exists there is nothing to move, so a change simply continues on the other
+   * company's create screen, which is what the operator asked for; the route's
+   * `unsavedChangesGuard` asks first if the form holds edits.
    */
   onCompanyChange(companyId: string | null): void {
     const next = companyId || null;
-    // S2, stated rather than inferred: the classification and the hint that described a node of the
-    // previous tree are discarded by the operator's own action.
-    this.categoryDiscarded.set(true);
-    // ... and with it the profile: the attribute inputs belong to a category of the previous tree.
-    this.selectedCategoryId.set(null);
-    this.selectedCompanyId.set(next);
-    void this.router.navigate([], {
-      relativeTo: this.route,
-      queryParams: { companyId: next },
-      queryParamsHandling: 'merge',
-      replaceUrl: true,
-    });
+    if (!next || this.productId() !== null) {
+      return;
+    }
+    void this.router.navigate(['/products/c', next, 'create']);
   }
 
   /**
@@ -469,7 +454,7 @@ export class ProductEdit implements OnInit, UnsavedChangesAware {
     };
     if (productData.id === '') {
       this.productService
-        .createProduct(request)
+        .createProduct(this.requireCompanyId(), request)
         .pipe(takeUntilDestroyed(this.destroyRef))
         .subscribe({
           next: (createdProduct) => {
@@ -479,7 +464,12 @@ export class ProductEdit implements OnInit, UnsavedChangesAware {
               // stays for the pre-existing edit-mode case where the product load failed
               // and the form still holds its empty-id initial value.
               this.productForm().markAsPristine();
-              this.router.navigate(['/products/edit', createdProduct.id]);
+              this.router.navigate([
+                '/products/c',
+                this.requireCompanyId(),
+                'edit',
+                createdProduct.id,
+              ]);
               return;
             }
             this.adoptCreatedProduct(createdProduct);
@@ -493,7 +483,7 @@ export class ProductEdit implements OnInit, UnsavedChangesAware {
         });
     } else {
       this.productService
-        .updateProduct(productData.id, request)
+        .updateProduct(this.requireCompanyId(), productData.id, request)
         .pipe(takeUntilDestroyed(this.destroyRef))
         .subscribe({
           next: (updatedProduct) => {
@@ -505,7 +495,7 @@ export class ProductEdit implements OnInit, UnsavedChangesAware {
             if (this.isEditMode()) {
               // The route is guarded by `unsavedChangesGuard`; a successful save
               // must reach the list without the discard prompt firing.
-              this.router.navigate(['/products']);
+              this.router.navigate(['/products/c', this.requireCompanyId(), 'list']);
             }
             // In the create stepper this is a back-edit of step 1 (D26) and the operator
             // stays where they are: the step is the editing surface, and leaving would
@@ -544,7 +534,30 @@ export class ProductEdit implements OnInit, UnsavedChangesAware {
    */
   finish(): void {
     const id = this.productId();
-    this.router.navigate(id ? ['/products/edit', id] : ['/products']);
+    const companyId = this.companyId;
+    if (!companyId) {
+      this.router.navigate(['/products']);
+      return;
+    }
+    this.router.navigate(
+      id ? ['/products/c', companyId, 'edit', id] : ['/products/c', companyId, 'list'],
+    );
+  }
+
+  /**
+   * The company of the route, or the picker.
+   *
+   * Every write needs it, and the route always supplies it under `c/:companyId`. This is the one place
+   * that would rather fail loud than send a request to a company-blind URL, so a route that somehow
+   * lost its segment navigates to the picker instead of guessing.
+   */
+  private requireCompanyId(): string {
+    const companyId = this.companyId;
+    if (!companyId) {
+      void this.router.navigate(['/products']);
+      throw new Error('ProductEdit requires a :companyId route segment');
+    }
+    return companyId;
   }
 
   /**
@@ -585,8 +598,8 @@ export class ProductEdit implements OnInit, UnsavedChangesAware {
   cancelForm(): void {
     // The edit workspace's Cancelar returns to the list, as it always has. The create
     // stepper's Cancelar is the pre-persist exit and shares the post-persist one (D27).
-    if (this.isEditMode()) {
-      this.router.navigate(['/products']);
+    if (this.isEditMode() && this.companyId) {
+      this.router.navigate(['/products/c', this.companyId, 'list']);
       return;
     }
     this.finish();

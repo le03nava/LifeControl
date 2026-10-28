@@ -16,7 +16,9 @@ describe('ProductVariantService', () => {
   let service: ProductVariantService;
   let httpMock: HttpTestingController;
 
-  const productsUrl = 'http://localhost:9000/api/products';
+  /** The company every product-nested call is scoped to. */
+  const companyId = 'company-1';
+  const productsUrl = `http://localhost:9000/api/companies/${companyId}/products`;
   const variantsUrl = 'http://localhost:9000/api/variants';
 
   const mockVariant: ProductVariant = {
@@ -68,9 +70,17 @@ describe('ProductVariantService', () => {
     expect(service).toBeTruthy();
   });
 
+  it('should build the product-nested routes under the company segment', () => {
+    // The definition half of this service hangs off a product, and a product belongs to a company: the
+    // path is `/api/companies/{companyId}/products/{productId}/variants`, with no company-blind base.
+    expect(service.productsUrl(companyId)).toBe(productsUrl);
+    // The store half is store-addressed and deliberately keeps no company segment.
+    expect(variantsUrl).toBe('http://localhost:9000/api/variants');
+  });
+
   describe('getVariants', () => {
     it('should request the nested URL with page and size but no storeId by default', async () => {
-      const promise = firstValueFrom(service.getVariants('prod-1'));
+      const promise = firstValueFrom(service.getVariants(companyId, 'prod-1'));
 
       const req = httpMock.expectOne(
         (r) => r.url === `${productsUrl}/prod-1/variants` && r.method === 'GET',
@@ -86,7 +96,7 @@ describe('ProductVariantService', () => {
     });
 
     it('should send the storeId and forward explicit page and size when provided', async () => {
-      const promise = firstValueFrom(service.getVariants('prod-9', 'store-7', 2, 25));
+      const promise = firstValueFrom(service.getVariants(companyId, 'prod-9', 'store-7', 2, 25));
 
       const req = httpMock.expectOne(
         (r) => r.url === `${productsUrl}/prod-9/variants` && r.method === 'GET',
@@ -101,7 +111,7 @@ describe('ProductVariantService', () => {
     });
 
     it('should never send storeId as an empty string', async () => {
-      const promise = firstValueFrom(service.getVariants('prod-1', ''));
+      const promise = firstValueFrom(service.getVariants(companyId, 'prod-1', ''));
 
       const req = httpMock.expectOne((r) => r.url === `${productsUrl}/prod-1/variants`);
       expect(req.request.params.has('storeId')).toBe(false);
@@ -111,7 +121,7 @@ describe('ProductVariantService', () => {
     });
 
     it('should omit includeDisabled from the request by default', async () => {
-      const promise = firstValueFrom(service.getVariants('prod-1'));
+      const promise = firstValueFrom(service.getVariants(companyId, 'prod-1'));
 
       const req = httpMock.expectOne((r) => r.url === `${productsUrl}/prod-1/variants`);
       expect(req.request.params.has('includeDisabled')).toBe(false);
@@ -121,7 +131,9 @@ describe('ProductVariantService', () => {
     });
 
     it('should omit includeDisabled when explicitly passed as false', async () => {
-      const promise = firstValueFrom(service.getVariants('prod-1', undefined, 0, 12, false));
+      const promise = firstValueFrom(
+        service.getVariants(companyId, 'prod-1', undefined, 0, 12, false),
+      );
 
       const req = httpMock.expectOne((r) => r.url === `${productsUrl}/prod-1/variants`);
       expect(req.request.params.has('includeDisabled')).toBe(false);
@@ -131,7 +143,9 @@ describe('ProductVariantService', () => {
     });
 
     it('should send includeDisabled=true only when the caller opts in', async () => {
-      const promise = firstValueFrom(service.getVariants('prod-1', undefined, 0, 12, true));
+      const promise = firstValueFrom(
+        service.getVariants(companyId, 'prod-1', undefined, 0, 12, true),
+      );
 
       const req = httpMock.expectOne((r) => r.url === `${productsUrl}/prod-1/variants`);
       expect(req.request.params.get('includeDisabled')).toBe('true');
@@ -141,7 +155,7 @@ describe('ProductVariantService', () => {
     });
 
     it('should map a 404 to the not-found message on the error signal', async () => {
-      const promise = firstValueFrom(service.getVariants('prod-missing'));
+      const promise = firstValueFrom(service.getVariants(companyId, 'prod-missing'));
 
       const req = httpMock.expectOne((r) => r.url === `${productsUrl}/prod-missing/variants`);
       req.flush('not found', { status: 404, statusText: 'Not Found' });
@@ -153,7 +167,7 @@ describe('ProductVariantService', () => {
 
   describe('getVariantById', () => {
     it('should GET the variant scoped to its product', async () => {
-      const promise = firstValueFrom(service.getVariantById('prod-1', 'var-1'));
+      const promise = firstValueFrom(service.getVariantById(companyId, 'prod-1', 'var-1'));
 
       const req = httpMock.expectOne(
         (r) => r.url === `${productsUrl}/prod-1/variants/var-1` && r.method === 'GET',
@@ -165,7 +179,7 @@ describe('ProductVariantService', () => {
     });
 
     it('should map a 403 to the permission message on the error signal', async () => {
-      const promise = firstValueFrom(service.getVariantById('prod-1', 'var-1'));
+      const promise = firstValueFrom(service.getVariantById(companyId, 'prod-1', 'var-1'));
 
       const req = httpMock.expectOne(`${productsUrl}/prod-1/variants/var-1`);
       req.flush('forbidden', { status: 403, statusText: 'Forbidden' });
@@ -185,7 +199,7 @@ describe('ProductVariantService', () => {
     };
 
     it('should POST the global definition body to the nested URL', async () => {
-      const promise = firstValueFrom(service.createVariant('prod-1', request));
+      const promise = firstValueFrom(service.createVariant(companyId, 'prod-1', request));
 
       const req = httpMock.expectOne(`${productsUrl}/prod-1/variants`);
       expect(req.request.method).toBe('POST');
@@ -197,7 +211,7 @@ describe('ProductVariantService', () => {
     });
 
     it('should map a 409 to the duplicate message on the error signal', async () => {
-      const promise = firstValueFrom(service.createVariant('prod-1', request));
+      const promise = firstValueFrom(service.createVariant(companyId, 'prod-1', request));
 
       const req = httpMock.expectOne(`${productsUrl}/prod-1/variants`);
       req.flush('conflict', { status: 409, statusText: 'Conflict' });
@@ -209,7 +223,7 @@ describe('ProductVariantService', () => {
     });
 
     it('should map an unexpected status to the generic create message', async () => {
-      const promise = firstValueFrom(service.createVariant('prod-1', request));
+      const promise = firstValueFrom(service.createVariant(companyId, 'prod-1', request));
 
       const req = httpMock.expectOne(`${productsUrl}/prod-1/variants`);
       req.flush('boom', { status: 500, statusText: 'Server Error' });
@@ -227,7 +241,7 @@ describe('ProductVariantService', () => {
     };
 
     it('should PUT the body to the variant URL', async () => {
-      const promise = firstValueFrom(service.updateVariant('prod-1', 'var-1', request));
+      const promise = firstValueFrom(service.updateVariant(companyId, 'prod-1', 'var-1', request));
 
       const req = httpMock.expectOne(`${productsUrl}/prod-1/variants/var-1`);
       expect(req.request.method).toBe('PUT');
@@ -239,7 +253,7 @@ describe('ProductVariantService', () => {
     });
 
     it('should map a 409 to the duplicate message on the error signal', async () => {
-      const promise = firstValueFrom(service.updateVariant('prod-1', 'var-1', request));
+      const promise = firstValueFrom(service.updateVariant(companyId, 'prod-1', 'var-1', request));
 
       const req = httpMock.expectOne(`${productsUrl}/prod-1/variants/var-1`);
       req.flush('conflict', { status: 409, statusText: 'Conflict' });
@@ -253,7 +267,7 @@ describe('ProductVariantService', () => {
 
   describe('deleteVariant', () => {
     it('should DELETE the variant under its product', async () => {
-      const promise = firstValueFrom(service.deleteVariant('prod-1', 'var-1'));
+      const promise = firstValueFrom(service.deleteVariant(companyId, 'prod-1', 'var-1'));
 
       const req = httpMock.expectOne(`${productsUrl}/prod-1/variants/var-1`);
       expect(req.request.method).toBe('DELETE');
@@ -263,7 +277,7 @@ describe('ProductVariantService', () => {
     });
 
     it('should map a 404 to the not-found message on the error signal', async () => {
-      const promise = firstValueFrom(service.deleteVariant('prod-1', 'var-1'));
+      const promise = firstValueFrom(service.deleteVariant(companyId, 'prod-1', 'var-1'));
 
       const req = httpMock.expectOne(`${productsUrl}/prod-1/variants/var-1`);
       req.flush('not found', { status: 404, statusText: 'Not Found' });
@@ -275,7 +289,7 @@ describe('ProductVariantService', () => {
 
   describe('enableVariant', () => {
     it('should PATCH the enable endpoint', async () => {
-      const promise = firstValueFrom(service.enableVariant('prod-1', 'var-1'));
+      const promise = firstValueFrom(service.enableVariant(companyId, 'prod-1', 'var-1'));
 
       const req = httpMock.expectOne(`${productsUrl}/prod-1/variants/var-1/enable`);
       expect(req.request.method).toBe('PATCH');
@@ -286,7 +300,7 @@ describe('ProductVariantService', () => {
     });
 
     it('should map a 403 to the permission message on the error signal', async () => {
-      const promise = firstValueFrom(service.enableVariant('prod-1', 'var-1'));
+      const promise = firstValueFrom(service.enableVariant(companyId, 'prod-1', 'var-1'));
 
       const req = httpMock.expectOne(`${productsUrl}/prod-1/variants/var-1/enable`);
       req.flush('forbidden', { status: 403, statusText: 'Forbidden' });
@@ -383,7 +397,7 @@ describe('ProductVariantService', () => {
 
   describe('clearError', () => {
     it('should clear the error signal', async () => {
-      const promise = firstValueFrom(service.deleteVariant('prod-1', 'var-1'));
+      const promise = firstValueFrom(service.deleteVariant(companyId, 'prod-1', 'var-1'));
       httpMock
         .expectOne(`${productsUrl}/prod-1/variants/var-1`)
         .flush('boom', { status: 500, statusText: 'Server Error' });

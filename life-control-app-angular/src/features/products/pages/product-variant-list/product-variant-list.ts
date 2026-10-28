@@ -103,6 +103,15 @@ export class ProductVariantList {
   readonly productId = input.required<string>();
 
   /**
+   * The company that owns the product, so every read and write of this tab is scoped to it.
+   *
+   * An input and not a route read: this component is rendered both by the product workspace and as the
+   * stepper's step 3, so the shell that knows the company passes it down instead of each rendering path
+   * reading the `:companyId` segment on its own.
+   */
+  readonly companyId = input.required<string>();
+
+  /**
    * The variant count of the current view, emitted on every successful read.
    *
    * The current view's `totalElements`, not the loaded page: a store-scoped view
@@ -202,6 +211,7 @@ export class ProductVariantList {
         return undefined;
       }
       return {
+        companyId: this.companyId(),
         productId: this.productId(),
         storeId: this.activeStoreId(),
         page: this.pageIndex(),
@@ -211,6 +221,7 @@ export class ProductVariantList {
     },
     stream: ({ params }) =>
       this.productVariantService.getVariants(
+        params.companyId,
         params.productId,
         params.storeId ?? undefined,
         params.page,
@@ -401,9 +412,10 @@ export class ProductVariantList {
    */
   editVariant(row: ProductVariant): void {
     if (this.storeScoped()) {
-      this.router.navigate(['/products/edit', this.productId(), 'variants', 'edit', row.id], {
-        queryParams: this.storeQueryParams(),
-      });
+      this.router.navigate(
+        ['/products/c', this.companyId(), 'edit', this.productId(), 'variants', 'edit', row.id],
+        { queryParams: this.storeQueryParams() },
+      );
       return;
     }
 
@@ -418,7 +430,7 @@ export class ProductVariantList {
   private openVariantDialog(variant?: ProductVariant): void {
     this.dialog
       .open(ProductVariantDialog, {
-        data: { productId: this.productId(), variant },
+        data: { companyId: this.companyId(), productId: this.productId(), variant },
         width: '560px',
       })
       .afterClosed()
@@ -452,7 +464,7 @@ export class ProductVariantList {
         if (result) {
           // Soft delete: the backend flips `enabled` to false, it does not remove the row.
           this.productVariantService
-            .deleteVariant(this.productId(), variant.id)
+            .deleteVariant(this.companyId(), this.productId(), variant.id)
             .pipe(takeUntilDestroyed(this.destroyRef))
             .subscribe({ next: () => this.variantsResource.reload() });
         }
@@ -461,7 +473,7 @@ export class ProductVariantList {
 
   enableVariant(variantId: string): void {
     this.productVariantService
-      .enableVariant(this.productId(), variantId)
+      .enableVariant(this.companyId(), this.productId(), variantId)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({ next: () => this.variantsResource.reload() });
   }

@@ -37,6 +37,8 @@ describe('ProductVariantDialog', () => {
   };
 
   const productId = 'prod-1';
+  /** The company the dialog is scoped to: the opener passes it with the product. */
+  const companyId = 'company-1';
   const kilogram: MeasureUnit = {
     id: 'mu-kg',
     measureUnitName: 'Kilogramo',
@@ -81,7 +83,7 @@ describe('ProductVariantDialog', () => {
       createdAt: '',
       updatedAt: '',
       categoryId: null,
-      categoryCompanyId: null,
+      companyId,
       ...overrides,
     };
   }
@@ -115,7 +117,7 @@ describe('ProductVariantDialog', () => {
       providers: [
         { provide: MatDialogRef, useValue: dialogRef },
         { provide: MatDialog, useValue: dialogMock },
-        { provide: MAT_DIALOG_DATA, useValue: options.data ?? { productId } },
+        { provide: MAT_DIALOG_DATA, useValue: options.data ?? { companyId, productId } },
         { provide: ProductVariantService, useValue: productVariantServiceMock },
         { provide: ProductService, useValue: productServiceMock },
         { provide: MeasureUnitService, useValue: measureUnitServiceMock },
@@ -139,7 +141,7 @@ describe('ProductVariantDialog', () => {
   });
 
   it('should be in edit mode when a variant is passed', () => {
-    setup({ data: { productId, variant } });
+    setup({ data: { companyId, productId, variant } });
     fixture.detectChanges();
     expect(component.editMode()).toBe(true);
   });
@@ -157,7 +159,7 @@ describe('ProductVariantDialog', () => {
     });
 
     it('should build the form from the variant in edit mode', () => {
-      setup({ data: { productId, variant } });
+      setup({ data: { companyId, productId, variant } });
       fixture.detectChanges();
 
       expect(component.definitionForm().getRawValue()).toEqual({
@@ -211,7 +213,7 @@ describe('ProductVariantDialog', () => {
     });
 
     it('should render the edit title', () => {
-      setup({ data: { productId, variant } });
+      setup({ data: { companyId, productId, variant } });
       fixture.detectChanges();
 
       expect(fixture.nativeElement.querySelector('h2')?.textContent?.trim()).toBe(
@@ -233,18 +235,23 @@ describe('ProductVariantDialog', () => {
 
       component.onSaveVariant(request);
 
-      expect(productVariantServiceMock.createVariant).toHaveBeenCalledWith(productId, request);
+      expect(productVariantServiceMock.createVariant).toHaveBeenCalledWith(
+        companyId,
+        productId,
+        request,
+      );
       expect(productVariantServiceMock.updateVariant).not.toHaveBeenCalled();
       expect(dialogRef.close).toHaveBeenCalledWith(variant);
     });
 
     it('should update the variant and close with the saved entity in edit mode', () => {
-      setup({ data: { productId, variant } });
+      setup({ data: { companyId, productId, variant } });
       fixture.detectChanges();
 
       component.onSaveVariant(request);
 
       expect(productVariantServiceMock.updateVariant).toHaveBeenCalledWith(
+        companyId,
         productId,
         'var-1',
         request,
@@ -263,7 +270,7 @@ describe('ProductVariantDialog', () => {
         measureUnitId: 'mu-pza',
       });
 
-      expect(productVariantServiceMock.createVariant).toHaveBeenCalledWith(productId, {
+      expect(productVariantServiceMock.createVariant).toHaveBeenCalledWith(companyId, productId, {
         barCode: 'BAR-1',
         variantName: 'Talla 40',
         measureUnitId: 'mu-pza',
@@ -271,7 +278,7 @@ describe('ProductVariantDialog', () => {
     });
 
     it('should carry the chosen unit in the update request', () => {
-      setup({ data: { productId, variant } });
+      setup({ data: { companyId, productId, variant } });
       fixture.detectChanges();
 
       component.onSaveVariant({
@@ -280,11 +287,16 @@ describe('ProductVariantDialog', () => {
         measureUnitId: 'mu-pza',
       });
 
-      expect(productVariantServiceMock.updateVariant).toHaveBeenCalledWith(productId, 'var-1', {
-        barCode: 'BAR-1',
-        variantName: 'Talla 40',
-        measureUnitId: 'mu-pza',
-      });
+      expect(productVariantServiceMock.updateVariant).toHaveBeenCalledWith(
+        companyId,
+        productId,
+        'var-1',
+        {
+          barCode: 'BAR-1',
+          variantName: 'Talla 40',
+          measureUnitId: 'mu-pza',
+        },
+      );
     });
 
     it('should send a null unit when none was chosen', () => {
@@ -293,7 +305,7 @@ describe('ProductVariantDialog', () => {
 
       component.onSaveVariant({ barCode: 'BAR-1', variantName: 'Talla 40', measureUnitId: null });
 
-      expect(productVariantServiceMock.createVariant).toHaveBeenCalledWith(productId, {
+      expect(productVariantServiceMock.createVariant).toHaveBeenCalledWith(companyId, productId, {
         barCode: 'BAR-1',
         variantName: 'Talla 40',
         measureUnitId: null,
@@ -395,7 +407,11 @@ describe('ProductVariantDialog', () => {
       component.onSaveVariantAndContinue(request);
       fixture.detectChanges();
 
-      expect(productVariantServiceMock.createVariant).toHaveBeenCalledWith(productId, request);
+      expect(productVariantServiceMock.createVariant).toHaveBeenCalledWith(
+        companyId,
+        productId,
+        request,
+      );
       expect(dialogRef.close).not.toHaveBeenCalled();
       expect(component.definitionForm().getRawValue()).toEqual({
         barCode: '',
@@ -500,11 +516,16 @@ describe('ProductVariantDialog', () => {
       });
 
       expect(productVariantServiceMock.createVariant).toHaveBeenCalledTimes(2);
-      expect(productVariantServiceMock.createVariant).toHaveBeenNthCalledWith(2, productId, {
-        barCode: '7791234567892',
-        variantName: 'Talla 42',
-        measureUnitId: null,
-      });
+      expect(productVariantServiceMock.createVariant).toHaveBeenNthCalledWith(
+        2,
+        companyId,
+        productId,
+        {
+          barCode: '7791234567892',
+          variantName: 'Talla 42',
+          measureUnitId: null,
+        },
+      );
     });
 
     it('should not issue a second POST while the first is in flight', () => {
@@ -629,7 +650,6 @@ describe('ProductVariantDialog', () => {
     /** A product classified under company-1, which is what makes a profile resolvable at all. */
     const classified: Partial<Product> = {
       categoryId: 'cat-1',
-      categoryCompanyId: 'company-1',
     };
 
     function variantForm(): ProductVariantForm {
@@ -662,7 +682,7 @@ describe('ProductVariantDialog', () => {
 
       variantForm().onSave();
 
-      expect(productVariantServiceMock.createVariant).toHaveBeenCalledWith(productId, {
+      expect(productVariantServiceMock.createVariant).toHaveBeenCalledWith(companyId, productId, {
         barCode: 'BAR-1',
         variantName: 'Talla 38',
         measureUnitId: null,
@@ -673,6 +693,7 @@ describe('ProductVariantDialog', () => {
     it('should seed and submit the values a variant already stores', () => {
       setup({
         data: {
+          companyId,
           productId,
           variant: { ...variant, attributes: { color: 'negro', acabado: 'mate' } },
         },
@@ -685,6 +706,7 @@ describe('ProductVariantDialog', () => {
       variantForm().onSave();
 
       expect(productVariantServiceMock.updateVariant).toHaveBeenCalledWith(
+        companyId,
         productId,
         'var-1',
         expect.objectContaining({ attributes: { color: 'negro', acabado: 'mate' } }),
@@ -703,7 +725,7 @@ describe('ProductVariantDialog', () => {
       variantForm().onSave();
 
       expect(productServiceMock.getAttributeProfile).not.toHaveBeenCalled();
-      expect(productVariantServiceMock.createVariant).toHaveBeenCalledWith(productId, {
+      expect(productVariantServiceMock.createVariant).toHaveBeenCalledWith(companyId, productId, {
         barCode: 'BAR-1',
         variantName: 'Talla 38',
         measureUnitId: null,
@@ -713,8 +735,8 @@ describe('ProductVariantDialog', () => {
 
     it('should name the stored attributes it will discard when the branch declares none (F1)', () => {
       setup({
-        data: { productId, variant: { ...variant, attributes: { color: 'negro' } } },
-        product: { categoryId: 'cat-1', categoryCompanyId: 'company-1' },
+        data: { companyId, productId, variant: { ...variant, attributes: { color: 'negro' } } },
+        product: { categoryId: 'cat-1' },
         profile: null,
       });
       fixture.detectChanges();
@@ -726,7 +748,7 @@ describe('ProductVariantDialog', () => {
 
   describe('unsaved input protection', () => {
     it('should start clean when the form is built from the loaded variant', () => {
-      setup({ data: { productId, variant } });
+      setup({ data: { companyId, productId, variant } });
       fixture.detectChanges();
 
       expect(component.formDirty()).toBe(false);

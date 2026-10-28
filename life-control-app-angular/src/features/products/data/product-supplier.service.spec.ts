@@ -37,14 +37,21 @@ describe('ProductSupplierService', () => {
     expect(service).toBeTruthy();
   });
 
+  it('should build the product collection under the company segment', () => {
+    // The link is company-scoped even though the supplier is global: it hangs off the product, and the
+    // product belongs to a company, so there is no company-blind `/products` to fall back to.
+    expect(service.productsUrl('company-1')).toMatch(/\/companies\/company-1\/products$/);
+  });
+
   describe('getSuppliers', () => {
     it('should fetch suppliers for a product', async () => {
       const mockSuppliers: ProductSupplier[] = [mockSupplier];
 
-      const promise = firstValueFrom(service.getSuppliers('prod-1'));
+      const promise = firstValueFrom(service.getSuppliers('company-1', 'prod-1'));
 
       const req = httpMock.expectOne(
-        (r) => r.url === `${service.apiUrl}/prod-1/suppliers` && r.method === 'GET',
+        (r) =>
+          r.url === `${service.productsUrl('company-1')}/prod-1/suppliers` && r.method === 'GET',
       );
       expect(req.request.method).toBe('GET');
       req.flush(mockSuppliers);
@@ -56,9 +63,9 @@ describe('ProductSupplierService', () => {
     });
 
     it('should construct URL with productId', async () => {
-      const promise = firstValueFrom(service.getSuppliers('prod-99'));
+      const promise = firstValueFrom(service.getSuppliers('company-1', 'prod-99'));
 
-      const req = httpMock.expectOne(`${service.apiUrl}/prod-99/suppliers`);
+      const req = httpMock.expectOne(`${service.productsUrl('company-1')}/prod-99/suppliers`);
       expect(req.request.url).toContain('prod-99');
       req.flush([]);
 
@@ -75,9 +82,9 @@ describe('ProductSupplierService', () => {
         enabled: true,
       };
 
-      const promise = firstValueFrom(service.addSupplier('prod-1', request));
+      const promise = firstValueFrom(service.addSupplier('company-1', 'prod-1', request));
 
-      const req = httpMock.expectOne(`${service.apiUrl}/prod-1/suppliers`);
+      const req = httpMock.expectOne(`${service.productsUrl('company-1')}/prod-1/suppliers`);
       expect(req.request.method).toBe('POST');
       expect(req.request.body).toEqual(request);
       req.flush(mockSupplier);
@@ -96,9 +103,11 @@ describe('ProductSupplierService', () => {
         enabled: true,
       };
 
-      const promise = firstValueFrom(service.updateSupplier('prod-1', 'ps-1', request));
+      const promise = firstValueFrom(
+        service.updateSupplier('company-1', 'prod-1', 'ps-1', request),
+      );
 
-      const req = httpMock.expectOne(`${service.apiUrl}/prod-1/suppliers/ps-1`);
+      const req = httpMock.expectOne(`${service.productsUrl('company-1')}/prod-1/suppliers/ps-1`);
       expect(req.request.method).toBe('PUT');
       expect(req.request.body).toEqual(request);
       req.flush(mockSupplier);
@@ -110,9 +119,9 @@ describe('ProductSupplierService', () => {
 
   describe('removeSupplier', () => {
     it('should DELETE supplier assignment', async () => {
-      const promise = firstValueFrom(service.removeSupplier('prod-1', 'ps-1'));
+      const promise = firstValueFrom(service.removeSupplier('company-1', 'prod-1', 'ps-1'));
 
-      const req = httpMock.expectOne(`${service.apiUrl}/prod-1/suppliers/ps-1`);
+      const req = httpMock.expectOne(`${service.productsUrl('company-1')}/prod-1/suppliers/ps-1`);
       expect(req.request.method).toBe('DELETE');
       req.flush(null);
 

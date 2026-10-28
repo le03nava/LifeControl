@@ -4,6 +4,7 @@ import { ActivatedRoute } from '@angular/router';
 import { of } from 'rxjs';
 import { PageHeader } from '@shared/ui';
 import { ProductService } from '../../data/product.service';
+import { productsCompanyId } from '../../data/products-company';
 import { ProductVariantList } from '../product-variant-list/product-variant-list';
 
 /**
@@ -36,6 +37,9 @@ export class ProductVariantListHost {
   /** The product whose variants are listed, read from the route param `id`. */
   readonly productId = signal<string | null>(this.route.snapshot.paramMap.get('id'));
 
+  /** The company the product belongs to, read from the route param `companyId`. */
+  readonly companyId = productsCompanyId(this.route);
+
   /**
    * Whether the variant list's inline per-store panel holds unpersisted edits.
    *
@@ -54,12 +58,12 @@ export class ProductVariantListHost {
    * mount, because the route param cannot change without a full route change.
    */
   readonly productResource = rxResource({
-    params: () => ({ productId: this.productId() }),
+    params: () => ({ companyId: this.companyId, productId: this.productId() }),
     stream: ({ params }) => {
-      if (!params.productId) {
+      if (!params.companyId || !params.productId) {
         return of(null);
       }
-      return this.productService.getProductById(params.productId);
+      return this.productService.getProductById(params.companyId, params.productId);
     },
   });
 

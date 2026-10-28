@@ -35,6 +35,8 @@ describe('ProductVariantList', () => {
   let dialogMock: { open: ReturnType<typeof vi.fn> };
 
   const mockProductId = 'prod-1';
+  /** The company that owns the product: every read and write of the tab is scoped to it. */
+  const mockCompanyId = 'company-1';
 
   function createVariant(index: number, overrides: Partial<ProductVariant> = {}): ProductVariant {
     return {
@@ -135,6 +137,7 @@ describe('ProductVariantList', () => {
           ? vi.fn().mockReturnValue(new Subject<Page<ProductVariant>>())
           : vi.fn(
               (
+                _companyId: string,
                 _productId: string,
                 storeId?: string,
                 _page = 0,
@@ -219,6 +222,7 @@ describe('ProductVariantList', () => {
 
     fixture = TestBed.createComponent(ProductVariantList);
     component = fixture.componentInstance;
+    fixture.componentRef.setInput('companyId', mockCompanyId);
     fixture.componentRef.setInput('productId', productId);
   }
 
@@ -331,6 +335,7 @@ describe('ProductVariantList', () => {
       await settle();
 
       expect(variantServiceMock.getVariants).toHaveBeenCalledWith(
+        mockCompanyId,
         'prod-42',
         undefined,
         0,
@@ -344,6 +349,7 @@ describe('ProductVariantList', () => {
       await settle();
 
       expect(variantServiceMock.getVariants).toHaveBeenCalledWith(
+        mockCompanyId,
         mockProductId,
         undefined,
         0,
@@ -390,7 +396,11 @@ describe('ProductVariantList', () => {
       component.confirmDisable(createVariant(2));
       await settle();
 
-      expect(variantServiceMock.deleteVariant).toHaveBeenCalledWith(mockProductId, 'var-2');
+      expect(variantServiceMock.deleteVariant).toHaveBeenCalledWith(
+        mockCompanyId,
+        mockProductId,
+        'var-2',
+      );
       expect(emitted).toEqual([2, 1]);
     });
 
@@ -558,7 +568,7 @@ describe('ProductVariantList', () => {
 
       actionButtons[0].click();
       expect(dialogMock.open).toHaveBeenCalledWith(ProductVariantDialog, {
-        data: { productId: mockProductId },
+        data: { companyId: mockCompanyId, productId: mockProductId },
         width: '560px',
       });
     });
@@ -579,7 +589,7 @@ describe('ProductVariantList', () => {
 
       emptyButtons[0].click();
       expect(dialogMock.open).toHaveBeenCalledWith(ProductVariantDialog, {
-        data: { productId: mockProductId },
+        data: { companyId: mockCompanyId, productId: mockProductId },
         width: '560px',
       });
     });
@@ -648,6 +658,7 @@ describe('ProductVariantList', () => {
       expect(component.pageIndex()).toBe(1);
       expect(component.pageSize()).toBe(24);
       expect(variantServiceMock.getVariants).toHaveBeenCalledWith(
+        mockCompanyId,
         mockProductId,
         undefined,
         1,
@@ -664,6 +675,7 @@ describe('ProductVariantList', () => {
 
       expect(component.includeDisabled()).toBe(false);
       expect(variantServiceMock.getVariants).toHaveBeenCalledWith(
+        mockCompanyId,
         mockProductId,
         undefined,
         0,
@@ -683,6 +695,7 @@ describe('ProductVariantList', () => {
 
       expect(component.includeDisabled()).toBe(true);
       expect(variantServiceMock.getVariants).toHaveBeenCalledWith(
+        mockCompanyId,
         mockProductId,
         undefined,
         0,
@@ -709,6 +722,7 @@ describe('ProductVariantList', () => {
 
       expect(profileServiceMock.getProfile).toHaveBeenCalled();
       expect(variantServiceMock.getVariants).toHaveBeenCalledWith(
+        mockCompanyId,
         mockProductId,
         'store-from-profile',
         0,
@@ -765,6 +779,7 @@ describe('ProductVariantList', () => {
 
       expect(component.storeScoped()).toBe(false);
       expect(variantServiceMock.getVariants).toHaveBeenCalledWith(
+        mockCompanyId,
         mockProductId,
         undefined,
         0,
@@ -795,6 +810,7 @@ describe('ProductVariantList', () => {
       expect(component.storeUnconfigured()).toBe(false);
       expect(component.storeScoped()).toBe(false);
       expect(variantServiceMock.getVariants).toHaveBeenCalledWith(
+        mockCompanyId,
         mockProductId,
         undefined,
         0,
@@ -838,7 +854,7 @@ describe('ProductVariantList', () => {
       component.editVariant(createVariant(1));
 
       expect(routerMock.navigate).toHaveBeenCalledWith(
-        ['/products/edit', mockProductId, 'variants', 'edit', 'var-1'],
+        ['/products/c', mockCompanyId, 'edit', mockProductId, 'variants', 'edit', 'var-1'],
         { queryParams: { storeId: 'store-from-link' } },
       );
     });
@@ -851,7 +867,7 @@ describe('ProductVariantList', () => {
 
       // The next screen re-resolves it from the profile; the link stays honest.
       expect(routerMock.navigate).toHaveBeenCalledWith(
-        ['/products/edit', mockProductId, 'variants', 'edit', 'var-1'],
+        ['/products/c', mockCompanyId, 'edit', mockProductId, 'variants', 'edit', 'var-1'],
         { queryParams: undefined },
       );
     });
@@ -865,7 +881,7 @@ describe('ProductVariantList', () => {
       component.editVariant(row);
 
       expect(dialogMock.open).toHaveBeenCalledWith(ProductVariantDialog, {
-        data: { productId: mockProductId, variant: row },
+        data: { companyId: mockCompanyId, productId: mockProductId, variant: row },
         width: '560px',
       });
       expect(routerMock.navigate).not.toHaveBeenCalled();
@@ -877,7 +893,7 @@ describe('ProductVariantList', () => {
       component.addVariant();
 
       expect(dialogMock.open).toHaveBeenCalledWith(ProductVariantDialog, {
-        data: { productId: mockProductId },
+        data: { companyId: mockCompanyId, productId: mockProductId },
         width: '560px',
       });
       expect(routerMock.navigate).not.toHaveBeenCalled();
@@ -921,7 +937,7 @@ describe('ProductVariantList', () => {
 
       expect(dialogMock.open).not.toHaveBeenCalled();
       expect(routerMock.navigate).toHaveBeenCalledWith(
-        ['/products/edit', mockProductId, 'variants', 'edit', 'var-1'],
+        ['/products/c', mockCompanyId, 'edit', mockProductId, 'variants', 'edit', 'var-1'],
         { queryParams: undefined },
       );
     });
@@ -943,7 +959,11 @@ describe('ProductVariantList', () => {
 
       component.confirmDisable(createVariant(1));
 
-      expect(variantServiceMock.deleteVariant).toHaveBeenCalledWith(mockProductId, 'var-1');
+      expect(variantServiceMock.deleteVariant).toHaveBeenCalledWith(
+        mockCompanyId,
+        mockProductId,
+        'var-1',
+      );
       expect(reloadSpy).toHaveBeenCalled();
     });
   });
@@ -974,7 +994,11 @@ describe('ProductVariantList', () => {
       (enableButton.nativeElement as HTMLButtonElement).click();
       fixture.detectChanges();
 
-      expect(variantServiceMock.enableVariant).toHaveBeenCalledWith(mockProductId, 'var-2');
+      expect(variantServiceMock.enableVariant).toHaveBeenCalledWith(
+        mockCompanyId,
+        mockProductId,
+        'var-2',
+      );
       expect(reloadSpy).toHaveBeenCalled();
     });
   });
