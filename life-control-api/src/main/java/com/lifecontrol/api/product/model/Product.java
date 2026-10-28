@@ -29,8 +29,8 @@ public class Product extends Auditable {
      *
      * <p>Nullable only during the expand step {@code V39}: the column becomes {@code NOT NULL} in
      * {@code V40}, which is also where the composite foreign key to the category tree and the
-     * per-company unique keys arrive. Until then the create path populates it from the category it is
-     * classified under, so no write invents a company and no write invents an absence.</p>
+     * per-company unique keys arrive. Until then every write populates it from the company named by the
+     * request path, and a category owned by another company is refused before anything is stored.</p>
      */
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "company_id")

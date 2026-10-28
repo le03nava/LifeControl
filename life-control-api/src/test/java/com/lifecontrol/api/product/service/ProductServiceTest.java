@@ -6,7 +6,9 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
+import com.lifecontrol.api.common.auth.CurrentUserContext;
 import com.lifecontrol.api.company.model.Company;
+import com.lifecontrol.api.company.repository.CompanyRepository;
 import com.lifecontrol.api.product.attribute.service.ProductAttributeCatalogService;
 import com.lifecontrol.api.product.category.exception.ProductCategoryNotFoundException;
 import com.lifecontrol.api.product.category.model.ProductCategory;
@@ -48,15 +50,31 @@ class ProductServiceTest {
     @Mock
     private ProductAttributeCatalogService productAttributeCatalogService;
 
+    @Mock
+    private CompanyRepository companyRepository;
+
+    @Mock
+    private CurrentUserContext currentUserContext;
+
     @InjectMocks
     private ProductService productService;
 
+    private UUID companyId;
+    private Company company;
     private UUID productId;
     private Product testProduct;
     private ProductRequest testRequest;
 
     @BeforeEach
     void setUp() {
+        companyId = UUID.randomUUID();
+        company = Company.builder()
+                .id(companyId)
+                .companyKey("acme")
+                .companyName("Acme")
+                .build();
+        when(companyRepository.findById(companyId)).thenReturn(Optional.of(company));
+
         productId = UUID.randomUUID();
         testProduct = Product.builder()
                 .id(productId)
@@ -79,7 +97,8 @@ class ProductServiceTest {
         void shouldCreateProduct_WithAllFields() {
             var request = new ProductRequest(
                     "SKU-NEW", "New Product", "NP", "SAT-NEW", "GOODS", Map.of("color", "red", "weight", "2kg"), null);
-            when(productRepository.existsBySku("SKU-NEW")).thenReturn(false);
+            when(productRepository.existsBySkuAndCompanyId("SKU-NEW", companyId))
+                    .thenReturn(false);
             when(productRepository.save(any(Product.class))).thenAnswer(inv -> {
                 var p = (Product) inv.getArgument(0);
                 // Simulate JPA assigning ID and timestamps
@@ -88,7 +107,7 @@ class ProductServiceTest {
                 return p;
             });
 
-            var result = productService.createProduct(request);
+            var result = productService.createProduct(companyId, request);
 
             assertThat(result).isNotNull();
             assertThat(result.sku()).isEqualTo("SKU-NEW");
@@ -106,7 +125,8 @@ class ProductServiceTest {
         @DisplayName("should create product without attributes")
         void shouldCreateProduct_WithoutAttributes() {
             var request = new ProductRequest("SKU-SIMPLE", "Simple Product", null, null, null, null, null);
-            when(productRepository.existsBySku("SKU-SIMPLE")).thenReturn(false);
+            when(productRepository.existsBySkuAndCompanyId("SKU-SIMPLE", companyId))
+                    .thenReturn(false);
             when(productRepository.save(any(Product.class))).thenAnswer(inv -> {
                 var p = (Product) inv.getArgument(0);
                 p.setId(productId);
@@ -114,7 +134,7 @@ class ProductServiceTest {
                 return p;
             });
 
-            var result = productService.createProduct(request);
+            var result = productService.createProduct(companyId, request);
 
             assertThat(result).isNotNull();
             assertThat(result.sku()).isEqualTo("SKU-SIMPLE");
@@ -123,15 +143,9 @@ class ProductServiceTest {
         }
 
         @Test
-        @DisplayName("should take the company of the category it is classified under")
-        void shouldTakeTheCategoryCompany() {
-            var companyId = UUID.randomUUID();
+        @DisplayName("should store the company named by the path")
+        void shouldStoreTheCompanyNamedByThePath() {
             var categoryId = UUID.randomUUID();
-            var company = Company.builder()
-                    .id(companyId)
-                    .companyKey("acme")
-                    .companyName("Acme")
-                    .build();
             var category = ProductCategory.builder()
                     .id(categoryId)
                     .company(company)
@@ -139,37 +153,58 @@ class ProductServiceTest {
                     .build();
             var request = new ProductRequest("SKU-CAT", "Zapato", null, null, null, null, categoryId);
 
-            when(productRepository.existsBySku("SKU-CAT")).thenReturn(false);
+            when(productRepository.existsBySkuAndCompanyId("SKU-CAT", companyId))
+                    .thenReturn(false);
             when(productCategoryRepository.findById(categoryId)).thenReturn(Optional.of(category));
             when(productRepository.save(any(Product.class))).thenAnswer(inv -> inv.getArgument(0));
 
-            productService.createProduct(request);
+            var result = productService.createProduct(companyId, request);
 
             verify(productRepository)
                     .save(argThat(product -> product.getCompany() != null
                             && companyId.equals(product.getCompany().getId())));
+            assertThat(result.companyId()).isEqualTo(companyId);
         }
 
         @Test
-        @DisplayName("should store no company when the request carries no category")
-        void shouldStoreNoCompanyWithoutCategory() {
+        @DisplayName("should store the company named by the path when the request carries no category")
+        void shouldStoreTheCompanyWithoutCategory() {
             var request = new ProductRequest("SKU-ORPHAN", "Sin clasificar", null, null, null, null, null);
 
-            when(productRepository.existsBySku("SKU-ORPHAN")).thenReturn(false);
+            when(productRepository.existsBySkuAndCompanyId("SKU-ORPHAN", companyId))
+                    .thenReturn(false);
             when(productRepository.save(any(Product.class))).thenAnswer(inv -> inv.getArgument(0));
 
-            productService.createProduct(request);
+            var result = productService.createProduct(companyId, request);
 
-            verify(productRepository).save(argThat(product -> product.getCompany() == null));
+            verify(productRepository)
+                    .save(argThat(
+                            product -> companyId.equals(product.getCompany().getId())));
+            assertThat(result.companyId()).isEqualTo(companyId);
+            assertThat(result.categoryId()).isNull();
+        }
+
+        @Test
+        @DisplayName("should verify the caller's access to the company before writing anything")
+        void shouldVerifyCompanyAccess() {
+            var request = new ProductRequest("SKU-GUARD", "Guardado", null, null, null, null, null);
+            when(productRepository.existsBySkuAndCompanyId("SKU-GUARD", companyId))
+                    .thenReturn(false);
+            when(productRepository.save(any(Product.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            productService.createProduct(companyId, request);
+
+            verify(currentUserContext).verifyCompanyAccess(companyId);
         }
 
         @Test
         @DisplayName("should throw DuplicateProductException when SKU already exists")
         void shouldThrowDuplicateProductException_WhenSkuExists() {
             var request = new ProductRequest("SKU-DUP", "Dup Product", null, null, null, null, null);
-            when(productRepository.existsBySku("SKU-DUP")).thenReturn(true);
+            when(productRepository.existsBySkuAndCompanyId("SKU-DUP", companyId))
+                    .thenReturn(true);
 
-            assertThatThrownBy(() -> productService.createProduct(request))
+            assertThatThrownBy(() -> productService.createProduct(companyId, request))
                     .isInstanceOf(DuplicateProductException.class)
                     .hasMessageContaining("SKU-DUP");
 
@@ -193,10 +228,10 @@ class ProductServiceTest {
                     .build();
             var request = new ProductRequest("SKU-001", "New Name", "New", "SAT-NEW", "GOODS", null, null);
 
-            when(productRepository.findById(productId)).thenReturn(Optional.of(existing));
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(existing));
             when(productRepository.save(any(Product.class))).thenAnswer(inv -> inv.getArgument(0));
 
-            var result = productService.updateProduct(productId, request);
+            var result = productService.updateProduct(companyId, productId, request);
 
             assertThat(result.name()).isEqualTo("New Name");
             assertThat(result.shortName()).isEqualTo("New");
@@ -216,10 +251,10 @@ class ProductServiceTest {
                     .build();
             var request = new ProductRequest("SKU-001", "Product", null, null, null, Map.of("weight", "2kg"), null);
 
-            when(productRepository.findById(productId)).thenReturn(Optional.of(existing));
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(existing));
             when(productRepository.save(any(Product.class))).thenAnswer(inv -> inv.getArgument(0));
 
-            var result = productService.updateProduct(productId, request);
+            var result = productService.updateProduct(companyId, productId, request);
 
             // The request is authoritative for the set it sends: a key it omits is gone. The previous
             // shallow `putAll` kept `color` and `size` alive and invisible (record L4).
@@ -240,10 +275,10 @@ class ProductServiceTest {
                     .build();
             var request = new ProductRequest("SKU-001", "Product", null, null, null, null, null);
 
-            when(productRepository.findById(productId)).thenReturn(Optional.of(existing));
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(existing));
             when(productRepository.save(any(Product.class))).thenAnswer(inv -> inv.getArgument(0));
 
-            var result = productService.updateProduct(productId, request);
+            var result = productService.updateProduct(companyId, productId, request);
 
             assertThat(result.attributes()).containsEntry("color", "blue");
         }
@@ -260,10 +295,10 @@ class ProductServiceTest {
                     .build();
             var request = new ProductRequest("SKU-001", "Product", null, null, null, Map.of(), null);
 
-            when(productRepository.findById(productId)).thenReturn(Optional.of(existing));
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(existing));
             when(productRepository.save(any(Product.class))).thenAnswer(inv -> inv.getArgument(0));
 
-            var result = productService.updateProduct(productId, request);
+            var result = productService.updateProduct(companyId, productId, request);
 
             assertThat(result.attributes()).isEmpty();
         }
@@ -279,10 +314,11 @@ class ProductServiceTest {
                     .build();
             var request = new ProductRequest("SKU-002", "Product", null, null, null, null, null);
 
-            when(productRepository.findById(productId)).thenReturn(Optional.of(existing));
-            when(productRepository.existsBySkuAndIdNot("SKU-002", productId)).thenReturn(true);
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(existing));
+            when(productRepository.existsBySkuAndCompanyIdAndIdNot("SKU-002", companyId, productId))
+                    .thenReturn(true);
 
-            assertThatThrownBy(() -> productService.updateProduct(productId, request))
+            assertThatThrownBy(() -> productService.updateProduct(companyId, productId, request))
                     .isInstanceOf(DuplicateProductException.class)
                     .hasMessageContaining("SKU-002");
 
@@ -300,22 +336,22 @@ class ProductServiceTest {
                     .build();
             var request = new ProductRequest("SKU-001", "New Name", null, null, null, null, null);
 
-            when(productRepository.findById(productId)).thenReturn(Optional.of(existing));
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(existing));
             when(productRepository.save(any(Product.class))).thenAnswer(inv -> inv.getArgument(0));
 
-            var result = productService.updateProduct(productId, request);
+            var result = productService.updateProduct(companyId, productId, request);
 
             assertThat(result.sku()).isEqualTo("SKU-001");
-            verify(productRepository, never()).existsBySkuAndIdNot(any(), any());
+            verify(productRepository, never()).existsBySkuAndCompanyIdAndIdNot(any(), any(), any());
         }
 
         @Test
         @DisplayName("should throw ProductNotFoundException when product not found")
         void shouldThrowProductNotFoundException_WhenNotFound() {
             var request = new ProductRequest("SKU-001", "Product", null, null, null, null, null);
-            when(productRepository.findById(productId)).thenReturn(Optional.empty());
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.empty());
 
-            assertThatThrownBy(() -> productService.updateProduct(productId, request))
+            assertThatThrownBy(() -> productService.updateProduct(companyId, productId, request))
                     .isInstanceOf(ProductNotFoundException.class)
                     .hasMessageContaining(productId.toString());
         }
@@ -335,10 +371,10 @@ class ProductServiceTest {
                     .enabled(true)
                     .build();
 
-            when(productRepository.findById(productId)).thenReturn(Optional.of(active));
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(active));
             when(productRepository.save(any(Product.class))).thenAnswer(inv -> inv.getArgument(0));
 
-            productService.deleteProduct(productId);
+            productService.deleteProduct(companyId, productId);
 
             assertThat(active.getEnabled()).isFalse();
             verify(productRepository).save(active);
@@ -354,9 +390,9 @@ class ProductServiceTest {
                     .enabled(false)
                     .build();
 
-            when(productRepository.findById(productId)).thenReturn(Optional.of(disabled));
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(disabled));
 
-            assertThatThrownBy(() -> productService.deleteProduct(productId))
+            assertThatThrownBy(() -> productService.deleteProduct(companyId, productId))
                     .isInstanceOf(ProductNotFoundException.class)
                     .hasMessageContaining(productId.toString());
 
@@ -366,9 +402,9 @@ class ProductServiceTest {
         @Test
         @DisplayName("should throw ProductNotFoundException when product does not exist")
         void shouldThrowProductNotFoundException_WhenNotFound() {
-            when(productRepository.findById(productId)).thenReturn(Optional.empty());
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.empty());
 
-            assertThatThrownBy(() -> productService.deleteProduct(productId))
+            assertThatThrownBy(() -> productService.deleteProduct(companyId, productId))
                     .isInstanceOf(ProductNotFoundException.class)
                     .hasMessageContaining(productId.toString());
         }
@@ -390,9 +426,9 @@ class ProductServiceTest {
                     .updatedAt(LocalDateTime.now())
                     .build();
 
-            when(productRepository.findById(productId)).thenReturn(Optional.of(enabled));
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(enabled));
 
-            var result = productService.findProduct(productId);
+            var result = productService.findProduct(companyId, productId);
 
             assertThat(result).isNotNull();
             assertThat(result.id()).isEqualTo(productId);
@@ -409,9 +445,9 @@ class ProductServiceTest {
                     .enabled(false)
                     .build();
 
-            when(productRepository.findById(productId)).thenReturn(Optional.of(disabled));
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(disabled));
 
-            assertThatThrownBy(() -> productService.findProduct(productId))
+            assertThatThrownBy(() -> productService.findProduct(companyId, productId))
                     .isInstanceOf(ProductNotFoundException.class)
                     .hasMessageContaining(productId.toString());
         }
@@ -419,9 +455,9 @@ class ProductServiceTest {
         @Test
         @DisplayName("should throw ProductNotFoundException when product does not exist")
         void shouldThrowProductNotFoundException_WhenNotFound() {
-            when(productRepository.findById(productId)).thenReturn(Optional.empty());
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.empty());
 
-            assertThatThrownBy(() -> productService.findProduct(productId))
+            assertThatThrownBy(() -> productService.findProduct(companyId, productId))
                     .isInstanceOf(ProductNotFoundException.class)
                     .hasMessageContaining(productId.toString());
         }
@@ -438,15 +474,16 @@ class ProductServiceTest {
         void shouldListEnabledProducts_WithoutSearch() {
             var products = List.of(testProduct);
             var page = new PageImpl<>(products, pageable, 1);
-            when(productRepository.findByEnabledTrue(pageable)).thenReturn(page);
+            when(productRepository.findByCompanyIdAndEnabledTrue(companyId, pageable))
+                    .thenReturn(page);
 
-            var result = productService.listProducts(pageable, null, false);
+            var result = productService.listProducts(companyId, pageable, null, false);
 
             assertThat(result).isNotNull();
             assertThat(result.getContent()).hasSize(1);
             assertThat(result.getTotalElements()).isEqualTo(1);
-            verify(productRepository).findByEnabledTrue(pageable);
-            verify(productRepository, never()).findAll(pageable);
+            verify(productRepository).findByCompanyIdAndEnabledTrue(companyId, pageable);
+            verify(productRepository, never()).findByCompanyId(any(), any());
         }
 
         @Test
@@ -454,13 +491,13 @@ class ProductServiceTest {
         void shouldListAllProducts_WhenIncludeDisabled() {
             var products = List.of(testProduct);
             var page = new PageImpl<>(products, pageable, 1);
-            when(productRepository.findAll(pageable)).thenReturn(page);
+            when(productRepository.findByCompanyId(companyId, pageable)).thenReturn(page);
 
-            var result = productService.listProducts(pageable, null, true);
+            var result = productService.listProducts(companyId, pageable, null, true);
 
             assertThat(result).isNotNull();
             assertThat(result.getContent()).hasSize(1);
-            verify(productRepository).findAll(pageable);
+            verify(productRepository).findByCompanyId(companyId, pageable);
         }
 
         @Test
@@ -468,14 +505,14 @@ class ProductServiceTest {
         void shouldSearchEnabledProducts_WithSearchTerm() {
             var products = List.of(testProduct);
             var page = new PageImpl<>(products, pageable, 1);
-            when(productRepository.findBySearchTermAndEnabledTrue("widget", pageable))
+            when(productRepository.findByCompanyIdAndSearchTermAndEnabledTrue(companyId, "widget", pageable))
                     .thenReturn(page);
 
-            var result = productService.listProducts(pageable, "widget", false);
+            var result = productService.listProducts(companyId, pageable, "widget", false);
 
             assertThat(result).isNotNull();
             assertThat(result.getContent()).hasSize(1);
-            verify(productRepository).findBySearchTermAndEnabledTrue("widget", pageable);
+            verify(productRepository).findByCompanyIdAndSearchTermAndEnabledTrue(companyId, "widget", pageable);
         }
 
         @Test
@@ -483,23 +520,24 @@ class ProductServiceTest {
         void shouldSearchAllProducts_WithSearchTerm() {
             var products = List.of(testProduct);
             var page = new PageImpl<>(products, pageable, 25);
-            when(productRepository.findBySearchTerm(eq("widget"), any(Pageable.class)))
+            when(productRepository.findByCompanyIdAndSearchTerm(eq(companyId), eq("widget"), any(Pageable.class)))
                     .thenReturn(page);
 
-            var result = productService.listProducts(pageable, "widget", true);
+            var result = productService.listProducts(companyId, pageable, "widget", true);
 
             assertThat(result).isNotNull();
             assertThat(result.getTotalElements()).isEqualTo(25);
-            verify(productRepository).findBySearchTerm(eq("widget"), any(Pageable.class));
+            verify(productRepository).findByCompanyIdAndSearchTerm(eq(companyId), eq("widget"), any(Pageable.class));
         }
 
         @Test
         @DisplayName("should return empty page when no products match")
         void shouldReturnEmptyPage_WhenNoMatch() {
             var page = new PageImpl<Product>(List.of(), pageable, 0);
-            when(productRepository.findByEnabledTrue(pageable)).thenReturn(page);
+            when(productRepository.findByCompanyIdAndEnabledTrue(companyId, pageable))
+                    .thenReturn(page);
 
-            var result = productService.listProducts(pageable, null, false);
+            var result = productService.listProducts(companyId, pageable, null, false);
 
             assertThat(result.getContent()).isEmpty();
             assertThat(result.getTotalElements()).isEqualTo(0);
@@ -510,14 +548,179 @@ class ProductServiceTest {
         void shouldIncludePaginationMetadata() {
             var products = List.of(testProduct, testProduct, testProduct);
             var page = new PageImpl<>(products, PageRequest.of(1, 10), 25);
-            when(productRepository.findByEnabledTrue(PageRequest.of(1, 10))).thenReturn(page);
+            when(productRepository.findByCompanyIdAndEnabledTrue(companyId, PageRequest.of(1, 10)))
+                    .thenReturn(page);
 
-            var result = productService.listProducts(PageRequest.of(1, 10), null, false);
+            var result = productService.listProducts(companyId, PageRequest.of(1, 10), null, false);
 
             assertThat(result.getNumber()).isEqualTo(1);
             assertThat(result.getSize()).isEqualTo(10);
             assertThat(result.getTotalElements()).isEqualTo(25);
             assertThat(result.getTotalPages()).isEqualTo(3);
+        }
+    }
+
+    /**
+     * The tenancy boundary of T2, asserted where a mock can express it: the company in the path owns the
+     * product, a row of another company is a 404 instead of a 200, and the SKU key is per company. The
+     * database side of the same rules (the composite key and the per-company unique index) arrives with
+     * V40 and is deliberately not what these pin.
+     */
+    @Nested
+    @DisplayName("company scope")
+    class CompanyScopeTests {
+
+        @Test
+        @DisplayName("should answer 404 when the product belongs to another company")
+        void shouldAnswerNotFoundForAnotherCompanysProduct() {
+            // What the company-scoped query answers for a row of another company: nothing.
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> productService.findProduct(companyId, productId))
+                    .isInstanceOf(ProductNotFoundException.class)
+                    .hasMessageContaining(productId.toString());
+        }
+
+        @Test
+        @DisplayName("should answer 404 when update names another company's product and write nothing")
+        void shouldAnswerNotFoundWhenUpdateNamesAnotherCompanysProduct() {
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> productService.updateProduct(companyId, productId, testRequest))
+                    .isInstanceOf(ProductNotFoundException.class)
+                    .hasMessageContaining(productId.toString());
+
+            verify(productRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("should answer 404 when delete names another company's product and write nothing")
+        void shouldAnswerNotFoundWhenDeleteNamesAnotherCompanysProduct() {
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> productService.deleteProduct(companyId, productId))
+                    .isInstanceOf(ProductNotFoundException.class)
+                    .hasMessageContaining(productId.toString());
+
+            verify(productRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("should refuse a category of another company on create and store nothing")
+        void shouldRefuseAnotherCompanysCategoryOnCreate() {
+            var categoryId = UUID.randomUUID();
+            var foreignCategory = ProductCategory.builder()
+                    .id(categoryId)
+                    .company(Company.builder()
+                            .id(UUID.randomUUID())
+                            .companyKey("otra")
+                            .companyName("Otra")
+                            .build())
+                    .categoryName("Calzado")
+                    .build();
+            var request = new ProductRequest("SKU-FOREIGN", "Ajeno", null, null, null, null, categoryId);
+
+            when(productRepository.existsBySkuAndCompanyId("SKU-FOREIGN", companyId))
+                    .thenReturn(false);
+            when(productCategoryRepository.findById(categoryId)).thenReturn(Optional.of(foreignCategory));
+
+            assertThatThrownBy(() -> productService.createProduct(companyId, request))
+                    .isInstanceOf(ProductCategoryNotFoundException.class)
+                    .hasMessageContaining(categoryId.toString());
+
+            verify(productRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("should refuse a category of another company on update and leave the row untouched")
+        void shouldRefuseAnotherCompanysCategoryOnUpdate() {
+            var categoryId = UUID.randomUUID();
+            var foreignCategory = ProductCategory.builder()
+                    .id(categoryId)
+                    .company(Company.builder()
+                            .id(UUID.randomUUID())
+                            .companyKey("otra")
+                            .companyName("Otra")
+                            .build())
+                    .categoryName("Calzado")
+                    .build();
+            var stored = ProductCategory.builder()
+                    .id(UUID.randomUUID())
+                    .company(company)
+                    .build();
+            var existing = Product.builder()
+                    .id(productId)
+                    .sku("SKU-001")
+                    .name("Test Product")
+                    .enabled(true)
+                    .company(company)
+                    .category(stored)
+                    .build();
+            var request = new ProductRequest("SKU-001", "Renombrado", null, null, null, null, categoryId);
+
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(existing));
+            when(productCategoryRepository.findById(categoryId)).thenReturn(Optional.of(foreignCategory));
+
+            assertThatThrownBy(() -> productService.updateProduct(companyId, productId, request))
+                    .isInstanceOf(ProductCategoryNotFoundException.class)
+                    .hasMessageContaining(categoryId.toString());
+
+            assertThat(existing.getCategory()).isSameAs(stored);
+            assertThat(existing.getName()).isEqualTo("Test Product");
+            verify(productRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("should accept the same SKU in another company")
+        void shouldAcceptTheSameSkuInAnotherCompany() {
+            // The row this SKU collides with lives in another company, so the company-scoped key is free.
+            var request = new ProductRequest("SKU-SHARED", "Compartido", null, null, null, null, null);
+            when(productRepository.existsBySkuAndCompanyId("SKU-SHARED", companyId))
+                    .thenReturn(false);
+            when(productRepository.save(any(Product.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            var result = productService.createProduct(companyId, request);
+
+            assertThat(result.sku()).isEqualTo("SKU-SHARED");
+            assertThat(result.companyId()).isEqualTo(companyId);
+            verify(productRepository)
+                    .save(argThat(
+                            product -> companyId.equals(product.getCompany().getId())));
+        }
+
+        @Test
+        @DisplayName("should refuse a repeated SKU inside one company")
+        void shouldRefuseARepeatedSkuInsideOneCompany() {
+            var request = new ProductRequest("SKU-DUP", "Repetido", null, null, null, null, null);
+            when(productRepository.existsBySkuAndCompanyId("SKU-DUP", companyId))
+                    .thenReturn(true);
+
+            assertThatThrownBy(() -> productService.createProduct(companyId, request))
+                    .isInstanceOf(DuplicateProductException.class)
+                    .hasMessageContaining("SKU-DUP");
+
+            verify(productRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("should list only the products of the company")
+        void shouldListOnlyTheProductsOfTheCompany() {
+            var pageable = PageRequest.of(0, 10);
+            var mine = Product.builder()
+                    .id(UUID.randomUUID())
+                    .sku("SKU-MINE")
+                    .name("Mía")
+                    .enabled(true)
+                    .company(company)
+                    .build();
+            when(productRepository.findByCompanyIdAndEnabledTrue(companyId, pageable))
+                    .thenReturn(new PageImpl<>(List.of(mine), pageable, 1));
+
+            var result = productService.listProducts(companyId, pageable, null, false);
+
+            // The scope is a predicate of the query, not a filter applied to another company's page.
+            assertThat(result.getContent()).extracting(r -> r.sku()).containsExactly("SKU-MINE");
+            verify(productRepository).findByCompanyIdAndEnabledTrue(companyId, pageable);
         }
     }
 
@@ -538,7 +741,9 @@ class ProductServiceTest {
         @BeforeEach
         void setUpCategoryIds() {
             categoryId = UUID.randomUUID();
-            categoryCompanyId = UUID.randomUUID();
+            // The write path refuses a category of another company, so the fixture's category is one of
+            // the product's own company: the two ids agree by construction, which is the T2 model.
+            categoryCompanyId = companyId;
         }
 
         @Test
@@ -546,7 +751,8 @@ class ProductServiceTest {
         void shouldStoreCategory_WhenCreateReceivesAnId() {
             var category = aCategory(categoryId, categoryCompanyId);
             var request = new ProductRequest("SKU-CAT", "Classified", null, null, null, null, categoryId);
-            when(productRepository.existsBySku("SKU-CAT")).thenReturn(false);
+            when(productRepository.existsBySkuAndCompanyId("SKU-CAT", companyId))
+                    .thenReturn(false);
             when(productCategoryRepository.findById(categoryId)).thenReturn(Optional.of(category));
             when(productRepository.save(any(Product.class))).thenAnswer(inv -> {
                 var p = (Product) inv.getArgument(0);
@@ -555,7 +761,7 @@ class ProductServiceTest {
                 return p;
             });
 
-            var result = productService.createProduct(request);
+            var result = productService.createProduct(companyId, request);
 
             var captor = ArgumentCaptor.forClass(Product.class);
             verify(productRepository).save(captor.capture());
@@ -568,7 +774,8 @@ class ProductServiceTest {
         @DisplayName("should leave the product unclassified and report two nulls when no id is sent")
         void shouldLeaveCategoryNull_WhenCreateReceivesNoId() {
             var request = new ProductRequest("SKU-PLAIN", "Plain", null, null, null, null, null);
-            when(productRepository.existsBySku("SKU-PLAIN")).thenReturn(false);
+            when(productRepository.existsBySkuAndCompanyId("SKU-PLAIN", companyId))
+                    .thenReturn(false);
             when(productRepository.save(any(Product.class))).thenAnswer(inv -> {
                 var p = (Product) inv.getArgument(0);
                 p.setId(productId);
@@ -576,7 +783,7 @@ class ProductServiceTest {
                 return p;
             });
 
-            var result = productService.createProduct(request);
+            var result = productService.createProduct(companyId, request);
 
             assertThat(result.categoryId()).isNull();
             assertThat(result.categoryCompanyId()).isNull();
@@ -588,10 +795,11 @@ class ProductServiceTest {
         void shouldRejectUnknownCategory_WhenCreateReceivesAnUnknownId() {
             var unknown = UUID.randomUUID();
             var request = new ProductRequest("SKU-BAD", "Bad", null, null, null, null, unknown);
-            when(productRepository.existsBySku("SKU-BAD")).thenReturn(false);
+            when(productRepository.existsBySkuAndCompanyId("SKU-BAD", companyId))
+                    .thenReturn(false);
             when(productCategoryRepository.findById(unknown)).thenReturn(Optional.empty());
 
-            assertThatThrownBy(() -> productService.createProduct(request))
+            assertThatThrownBy(() -> productService.createProduct(companyId, request))
                     .isInstanceOf(ProductCategoryNotFoundException.class)
                     .hasMessageContaining(unknown.toString());
 
@@ -611,10 +819,10 @@ class ProductServiceTest {
                     .category(mock(ProductCategory.class))
                     .build();
             var request = new ProductRequest("SKU-001", "Test Product", null, null, null, null, null);
-            when(productRepository.findById(productId)).thenReturn(Optional.of(existing));
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(existing));
             when(productRepository.save(any(Product.class))).thenAnswer(inv -> inv.getArgument(0));
 
-            var result = productService.updateProduct(productId, request);
+            var result = productService.updateProduct(companyId, productId, request);
 
             assertThat(existing.getCategory()).isNull();
             assertThat(result.categoryId()).isNull();
@@ -635,11 +843,11 @@ class ProductServiceTest {
                     .category(previous)
                     .build();
             var request = new ProductRequest("SKU-001", "Test Product", null, null, null, null, categoryId);
-            when(productRepository.findById(productId)).thenReturn(Optional.of(existing));
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(existing));
             when(productCategoryRepository.findById(categoryId)).thenReturn(Optional.of(replacement));
             when(productRepository.save(any(Product.class))).thenAnswer(inv -> inv.getArgument(0));
 
-            var result = productService.updateProduct(productId, request);
+            var result = productService.updateProduct(companyId, productId, request);
 
             assertThat(existing.getCategory()).isSameAs(replacement);
             assertThat(result.categoryId()).isEqualTo(categoryId);

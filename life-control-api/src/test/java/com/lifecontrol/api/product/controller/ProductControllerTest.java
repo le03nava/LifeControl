@@ -59,6 +59,7 @@ class ProductControllerTest {
     @InjectMocks
     private ProductController productController;
 
+    private UUID companyId;
     private UUID productId;
     private ProductResponse testProductResponse;
     private ProductRequest testProductRequest;
@@ -72,6 +73,7 @@ class ProductControllerTest {
                 .build();
         objectMapper = JsonMapper.builder().build();
 
+        companyId = UUID.randomUUID();
         productId = UUID.randomUUID();
         now = LocalDateTime.now();
 
@@ -87,27 +89,28 @@ class ProductControllerTest {
                 now,
                 now,
                 null,
-                null);
+                null,
+                companyId);
 
         testProductRequest = new ProductRequest(
                 "SKU-001", "Test Product", "Test", "SAT-001", "SERVICE", Map.of("color", "red"), null);
     }
 
     // ─────────────────────────────────────────────
-    // POST /api/products
+    // POST /api/companies/{companyId}/products
     // ─────────────────────────────────────────────
     @Nested
-    @DisplayName("POST /api/products")
+    @DisplayName("POST /api/companies/{companyId}/products")
     class CreateProductTests {
 
         @Test
         @DisplayName("should return 404 when the category does not exist")
         void createProduct_UnknownCategory_Returns404() throws Exception {
             var unknownCategoryId = UUID.randomUUID();
-            when(productService.createProduct(any(ProductRequest.class)))
+            when(productService.createProduct(eq(companyId), any(ProductRequest.class)))
                     .thenThrow(new ProductCategoryNotFoundException(unknownCategoryId));
 
-            mockMvc.perform(post("/api/products")
+            mockMvc.perform(post("/api/companies/{companyId}/products", companyId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(testProductRequest)))
                     .andExpect(status().isNotFound())
@@ -118,9 +121,10 @@ class ProductControllerTest {
         @Test
         @DisplayName("should return 201 with the created product when valid request with all fields")
         void createProduct_WithAllFields_Returns201() throws Exception {
-            when(productService.createProduct(any(ProductRequest.class))).thenReturn(testProductResponse);
+            when(productService.createProduct(eq(companyId), any(ProductRequest.class)))
+                    .thenReturn(testProductResponse);
 
-            mockMvc.perform(post("/api/products")
+            mockMvc.perform(post("/api/companies/{companyId}/products", companyId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(testProductRequest)))
                     .andExpect(status().isCreated())
@@ -132,8 +136,12 @@ class ProductControllerTest {
                     .andExpect(jsonPath("$.productType").value("SERVICE"))
                     .andExpect(jsonPath("$.attributes.color").value("red"))
                     .andExpect(jsonPath("$.enabled").value(true))
+                    .andExpect(jsonPath("$.companyId").value(companyId.toString()))
                     .andExpect(jsonPath("$.createdAt").exists())
                     .andExpect(jsonPath("$.updatedAt").exists());
+
+            // The path is the owner: the service is asked to create the product OF that company.
+            verify(productService).createProduct(eq(companyId), any(ProductRequest.class));
         }
 
         @Test
@@ -141,10 +149,23 @@ class ProductControllerTest {
         void createProduct_WithoutAttributes_Returns201() throws Exception {
             var request = new ProductRequest("SKU-SIMPLE", "Simple Product", null, null, null, null, null);
             var response = new ProductResponse(
-                    productId, "SKU-SIMPLE", "Simple Product", null, null, null, null, true, now, now, null, null);
-            when(productService.createProduct(any(ProductRequest.class))).thenReturn(response);
+                    productId,
+                    "SKU-SIMPLE",
+                    "Simple Product",
+                    null,
+                    null,
+                    null,
+                    null,
+                    true,
+                    now,
+                    now,
+                    null,
+                    null,
+                    companyId);
+            when(productService.createProduct(eq(companyId), any(ProductRequest.class)))
+                    .thenReturn(response);
 
-            mockMvc.perform(post("/api/products")
+            mockMvc.perform(post("/api/companies/{companyId}/products", companyId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(request)))
                     .andExpect(status().isCreated())
@@ -155,10 +176,10 @@ class ProductControllerTest {
         @Test
         @DisplayName("should return 409 Conflict when duplicate SKU")
         void createProduct_DuplicateSku_Returns409() throws Exception {
-            when(productService.createProduct(any(ProductRequest.class)))
+            when(productService.createProduct(eq(companyId), any(ProductRequest.class)))
                     .thenThrow(new DuplicateProductException("Product with SKU 'SKU-001' already exists"));
 
-            mockMvc.perform(post("/api/products")
+            mockMvc.perform(post("/api/companies/{companyId}/products", companyId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(testProductRequest)))
                     .andExpect(status().isConflict())
@@ -172,7 +193,7 @@ class ProductControllerTest {
         void createProduct_MissingRequiredFields_Returns400() throws Exception {
             var invalidRequest = new ProductRequest("", "", null, null, null, null, null);
 
-            mockMvc.perform(post("/api/products")
+            mockMvc.perform(post("/api/companies/{companyId}/products", companyId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(invalidRequest)))
                     .andExpect(status().isBadRequest())
@@ -185,10 +206,10 @@ class ProductControllerTest {
     }
 
     // ─────────────────────────────────────────────
-    // GET /api/products
+    // GET /api/companies/{companyId}/products
     // ─────────────────────────────────────────────
     @Nested
-    @DisplayName("GET /api/products")
+    @DisplayName("GET /api/companies/{companyId}/products")
     class ListProductsTests {
 
         @Test
@@ -196,10 +217,12 @@ class ProductControllerTest {
         void listProducts_Default_Returns200() throws Exception {
             var pageable = PageRequest.of(0, 12);
             var page = new PageImpl<>(List.of(testProductResponse), pageable, 1);
-            when(productService.listProducts(any(Pageable.class), eq(null), eq(false)))
+            when(productService.listProducts(eq(companyId), any(Pageable.class), eq(null), eq(false)))
                     .thenReturn(page);
 
-            mockMvc.perform(get("/api/products").param("page", "0").param("size", "12"))
+            mockMvc.perform(get("/api/companies/{companyId}/products", companyId)
+                            .param("page", "0")
+                            .param("size", "12"))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.content").isArray())
                     .andExpect(jsonPath("$.content[0].sku").value("SKU-001"))
@@ -207,6 +230,9 @@ class ProductControllerTest {
                     .andExpect(jsonPath("$.totalPages").value(1))
                     .andExpect(jsonPath("$.number").value(0))
                     .andExpect(jsonPath("$.size").value(12));
+
+            // The company is the scope of the read, so it travels to the service on every call.
+            verify(productService).listProducts(eq(companyId), any(Pageable.class), eq(null), eq(false));
         }
 
         @Test
@@ -214,10 +240,10 @@ class ProductControllerTest {
         void listProducts_WithSearch_Returns200() throws Exception {
             var pageable = PageRequest.of(0, 12);
             var page = new PageImpl<>(List.of(testProductResponse), pageable, 1);
-            when(productService.listProducts(any(Pageable.class), eq("Widget"), eq(false)))
+            when(productService.listProducts(eq(companyId), any(Pageable.class), eq("Widget"), eq(false)))
                     .thenReturn(page);
 
-            mockMvc.perform(get("/api/products")
+            mockMvc.perform(get("/api/companies/{companyId}/products", companyId)
                             .param("page", "0")
                             .param("size", "12")
                             .param("search", "Widget"))
@@ -231,10 +257,10 @@ class ProductControllerTest {
         void listProducts_IncludeDisabled_Returns200() throws Exception {
             var pageable = PageRequest.of(0, 12);
             var page = new PageImpl<>(List.of(testProductResponse), pageable, 1);
-            when(productService.listProducts(any(Pageable.class), eq(null), eq(true)))
+            when(productService.listProducts(eq(companyId), any(Pageable.class), eq(null), eq(true)))
                     .thenReturn(page);
 
-            mockMvc.perform(get("/api/products")
+            mockMvc.perform(get("/api/companies/{companyId}/products", companyId)
                             .param("page", "0")
                             .param("size", "12")
                             .param("includeDisabled", "true"))
@@ -247,10 +273,12 @@ class ProductControllerTest {
         void listProducts_EmptyPage_Returns200() throws Exception {
             var pageable = PageRequest.of(0, 12);
             var page = new PageImpl<ProductResponse>(List.of(), pageable, 0);
-            when(productService.listProducts(any(Pageable.class), eq(null), eq(false)))
+            when(productService.listProducts(eq(companyId), any(Pageable.class), eq(null), eq(false)))
                     .thenReturn(page);
 
-            mockMvc.perform(get("/api/products").param("page", "0").param("size", "12"))
+            mockMvc.perform(get("/api/companies/{companyId}/products", companyId)
+                            .param("page", "0")
+                            .param("size", "12"))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.content").isEmpty())
                     .andExpect(jsonPath("$.totalElements").value(0))
@@ -259,10 +287,10 @@ class ProductControllerTest {
     }
 
     // ─────────────────────────────────────────────
-    // GET /api/products/by-supplier/{supplierId}
+    // GET /api/companies/{companyId}/products/by-supplier/{supplierId}
     // ─────────────────────────────────────────────
     @Nested
-    @DisplayName("GET /api/products/by-supplier/{supplierId}")
+    @DisplayName("GET /api/companies/{companyId}/products/by-supplier/{supplierId}")
     class GetProductsBySupplierTests {
 
         private UUID supplierId;
@@ -278,10 +306,10 @@ class ProductControllerTest {
             var products = List.of(
                     new SupplierProductResponse(productId, "Test Product", "SKU-001"),
                     new SupplierProductResponse(UUID.randomUUID(), "Another Product", "SKU-002"));
-            when(productSupplierService.listProductsBySupplier(supplierId, null))
+            when(productSupplierService.listProductsBySupplier(companyId, supplierId, null))
                     .thenReturn(products);
 
-            mockMvc.perform(get("/api/products/by-supplier/{supplierId}", supplierId))
+            mockMvc.perform(get("/api/companies/{companyId}/products/by-supplier/{supplierId}", companyId, supplierId))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$").isArray())
                     .andExpect(jsonPath("$[0].productId").value(productId.toString()))
@@ -293,10 +321,10 @@ class ProductControllerTest {
         @Test
         @DisplayName("should return 200 with empty list when supplier has no products")
         void getProductsBySupplier_EmptyList() throws Exception {
-            when(productSupplierService.listProductsBySupplier(supplierId, null))
+            when(productSupplierService.listProductsBySupplier(companyId, supplierId, null))
                     .thenReturn(List.of());
 
-            mockMvc.perform(get("/api/products/by-supplier/{supplierId}", supplierId))
+            mockMvc.perform(get("/api/companies/{companyId}/products/by-supplier/{supplierId}", companyId, supplierId))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$").isArray())
                     .andExpect(jsonPath("$").isEmpty());
@@ -306,10 +334,10 @@ class ProductControllerTest {
         @DisplayName("should filter by search term when provided")
         void getProductsBySupplier_WithSearch() throws Exception {
             var products = List.of(new SupplierProductResponse(productId, "Test Product", "SKU-001"));
-            when(productSupplierService.listProductsBySupplier(supplierId, "Test"))
+            when(productSupplierService.listProductsBySupplier(companyId, supplierId, "Test"))
                     .thenReturn(products);
 
-            mockMvc.perform(get("/api/products/by-supplier/{supplierId}", supplierId)
+            mockMvc.perform(get("/api/companies/{companyId}/products/by-supplier/{supplierId}", companyId, supplierId)
                             .param("search", "Test"))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$").isArray())
@@ -318,18 +346,18 @@ class ProductControllerTest {
     }
 
     // ─────────────────────────────────────────────
-    // GET /api/products/{id}
+    // GET /api/companies/{companyId}/products/{id}
     // ─────────────────────────────────────────────
     @Nested
-    @DisplayName("GET /api/products/{id}")
+    @DisplayName("GET /api/companies/{companyId}/products/{id}")
     class GetProductByIdTests {
 
         @Test
         @DisplayName("should return 200 with product when found")
         void getProductById_Found_Returns200() throws Exception {
-            when(productService.findProduct(productId)).thenReturn(testProductResponse);
+            when(productService.findProduct(companyId, productId)).thenReturn(testProductResponse);
 
-            mockMvc.perform(get("/api/products/{id}", productId))
+            mockMvc.perform(get("/api/companies/{companyId}/products/{id}", companyId, productId))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.id").value(productId.toString()))
                     .andExpect(jsonPath("$.sku").value("SKU-001"))
@@ -342,7 +370,7 @@ class ProductControllerTest {
         void getProductById_Classified_ReturnsCategoryAndItsCompany() throws Exception {
             var categoryId = UUID.randomUUID();
             var categoryCompanyId = UUID.randomUUID();
-            when(productService.findProduct(productId))
+            when(productService.findProduct(companyId, productId))
                     .thenReturn(new ProductResponse(
                             productId,
                             "SKU-001",
@@ -355,9 +383,10 @@ class ProductControllerTest {
                             now,
                             now,
                             categoryId,
-                            categoryCompanyId));
+                            categoryCompanyId,
+                            companyId));
 
-            mockMvc.perform(get("/api/products/{id}", productId))
+            mockMvc.perform(get("/api/companies/{companyId}/products/{id}", companyId, productId))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.categoryId").value(categoryId.toString()))
                     .andExpect(jsonPath("$.categoryCompanyId").value(categoryCompanyId.toString()));
@@ -366,9 +395,9 @@ class ProductControllerTest {
         @Test
         @DisplayName("should return 404 when product not found")
         void getProductById_NotFound_Returns404() throws Exception {
-            when(productService.findProduct(productId)).thenThrow(new ProductNotFoundException(productId));
+            when(productService.findProduct(companyId, productId)).thenThrow(new ProductNotFoundException(productId));
 
-            mockMvc.perform(get("/api/products/{id}", productId))
+            mockMvc.perform(get("/api/companies/{companyId}/products/{id}", companyId, productId))
                     .andExpect(status().isNotFound())
                     .andExpect(jsonPath("$.status").value(404))
                     .andExpect(jsonPath("$.message").value("Product not found with id: " + productId))
@@ -376,21 +405,33 @@ class ProductControllerTest {
         }
 
         @Test
+        @DisplayName("should return 404 when the product belongs to another company")
+        void getProductById_OtherCompany_Returns404() throws Exception {
+            // 404, not 403: the company segment is the scope, so the row is not addressable from here.
+            when(productService.findProduct(companyId, productId)).thenThrow(new ProductNotFoundException(productId));
+
+            mockMvc.perform(get("/api/companies/{companyId}/products/{id}", companyId, productId))
+                    .andExpect(status().isNotFound())
+                    .andExpect(jsonPath("$.status").value(404))
+                    .andExpect(jsonPath("$.message").value("Product not found with id: " + productId));
+        }
+
+        @Test
         @DisplayName("should return 404 when product is soft-deleted")
         void getProductById_SoftDeleted_Returns404() throws Exception {
-            when(productService.findProduct(productId)).thenThrow(new ProductNotFoundException(productId));
+            when(productService.findProduct(companyId, productId)).thenThrow(new ProductNotFoundException(productId));
 
-            mockMvc.perform(get("/api/products/{id}", productId))
+            mockMvc.perform(get("/api/companies/{companyId}/products/{id}", companyId, productId))
                     .andExpect(status().isNotFound())
                     .andExpect(jsonPath("$.status").value(404));
         }
     }
 
     // ─────────────────────────────────────────────
-    // PUT /api/products/{id}
+    // PUT /api/companies/{companyId}/products/{id}
     // ─────────────────────────────────────────────
     @Nested
-    @DisplayName("PUT /api/products/{id}")
+    @DisplayName("PUT /api/companies/{companyId}/products/{id}")
     class UpdateProductTests {
 
         @Test
@@ -408,14 +449,15 @@ class ProductControllerTest {
                     now,
                     now,
                     null,
-                    null);
-            when(productService.updateProduct(eq(productId), any(ProductRequest.class)))
+                    null,
+                    companyId);
+            when(productService.updateProduct(eq(companyId), eq(productId), any(ProductRequest.class)))
                     .thenReturn(updatedResponse);
 
             var request = new ProductRequest(
                     "SKU-001", "Updated Name", "Upd", "SAT-NEW", "GOODS", Map.of("color", "blue"), null);
 
-            mockMvc.perform(put("/api/products/{id}", productId)
+            mockMvc.perform(put("/api/companies/{companyId}/products/{id}", companyId, productId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(request)))
                     .andExpect(status().isOk())
@@ -439,14 +481,15 @@ class ProductControllerTest {
                     now,
                     now,
                     null,
-                    null);
-            when(productService.updateProduct(eq(productId), any(ProductRequest.class)))
+                    null,
+                    companyId);
+            when(productService.updateProduct(eq(companyId), eq(productId), any(ProductRequest.class)))
                     .thenReturn(mergedResponse);
 
             // Only send "weight" — expects existing "color" and "size" preserved
             var request = new ProductRequest("SKU-001", "Product", null, null, null, Map.of("weight", "2kg"), null);
 
-            mockMvc.perform(put("/api/products/{id}", productId)
+            mockMvc.perform(put("/api/companies/{companyId}/products/{id}", companyId, productId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(request)))
                     .andExpect(status().isOk())
@@ -461,10 +504,10 @@ class ProductControllerTest {
             // The create path is not the only writer: an edit that repoints the classification at a
             // deleted id has to answer with the same contract instead of an FK violation.
             var unknownCategoryId = UUID.randomUUID();
-            when(productService.updateProduct(eq(productId), any(ProductRequest.class)))
+            when(productService.updateProduct(eq(companyId), eq(productId), any(ProductRequest.class)))
                     .thenThrow(new ProductCategoryNotFoundException(unknownCategoryId));
 
-            mockMvc.perform(put("/api/products/{id}", productId)
+            mockMvc.perform(put("/api/companies/{companyId}/products/{id}", companyId, productId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(testProductRequest)))
                     .andExpect(status().isNotFound())
@@ -475,10 +518,10 @@ class ProductControllerTest {
         @Test
         @DisplayName("should return 404 when product not found")
         void updateProduct_NotFound_Returns404() throws Exception {
-            when(productService.updateProduct(eq(productId), any(ProductRequest.class)))
+            when(productService.updateProduct(eq(companyId), eq(productId), any(ProductRequest.class)))
                     .thenThrow(new ProductNotFoundException(productId));
 
-            mockMvc.perform(put("/api/products/{id}", productId)
+            mockMvc.perform(put("/api/companies/{companyId}/products/{id}", companyId, productId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(testProductRequest)))
                     .andExpect(status().isNotFound())
@@ -490,12 +533,12 @@ class ProductControllerTest {
         @Test
         @DisplayName("should return 409 Conflict when SKU conflicts with another product")
         void updateProduct_SkuConflict_Returns409() throws Exception {
-            when(productService.updateProduct(eq(productId), any(ProductRequest.class)))
+            when(productService.updateProduct(eq(companyId), eq(productId), any(ProductRequest.class)))
                     .thenThrow(new DuplicateProductException("Product with SKU 'SKU-CONFLICT' already exists"));
 
             var request = new ProductRequest("SKU-CONFLICT", "Product", null, null, null, null, null);
 
-            mockMvc.perform(put("/api/products/{id}", productId)
+            mockMvc.perform(put("/api/companies/{companyId}/products/{id}", companyId, productId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(request)))
                     .andExpect(status().isConflict())
@@ -506,18 +549,19 @@ class ProductControllerTest {
     }
 
     // ─────────────────────────────────────────────
-    // DELETE /api/products/{id}
+    // DELETE /api/companies/{companyId}/products/{id}
     // ─────────────────────────────────────────────
     @Nested
-    @DisplayName("DELETE /api/products/{id}")
+    @DisplayName("DELETE /api/companies/{companyId}/products/{id}")
     class DeleteProductTests {
 
         @Test
         @DisplayName("should return 204 when active product soft-deleted")
         void deleteProduct_Active_Returns204() throws Exception {
-            mockMvc.perform(delete("/api/products/{id}", productId)).andExpect(status().isNoContent());
+            mockMvc.perform(delete("/api/companies/{companyId}/products/{id}", companyId, productId))
+                    .andExpect(status().isNoContent());
 
-            verify(productService).deleteProduct(productId);
+            verify(productService).deleteProduct(companyId, productId);
         }
 
         @Test
@@ -525,9 +569,9 @@ class ProductControllerTest {
         void deleteProduct_AlreadyDeleted_Returns404() throws Exception {
             doThrow(new ProductNotFoundException(productId))
                     .when(productService)
-                    .deleteProduct(productId);
+                    .deleteProduct(companyId, productId);
 
-            mockMvc.perform(delete("/api/products/{id}", productId))
+            mockMvc.perform(delete("/api/companies/{companyId}/products/{id}", companyId, productId))
                     .andExpect(status().isNotFound())
                     .andExpect(jsonPath("$.status").value(404))
                     .andExpect(jsonPath("$.message").value("Product not found with id: " + productId))
@@ -539,9 +583,9 @@ class ProductControllerTest {
         void deleteProduct_NotFound_Returns404() throws Exception {
             doThrow(new ProductNotFoundException(productId))
                     .when(productService)
-                    .deleteProduct(productId);
+                    .deleteProduct(companyId, productId);
 
-            mockMvc.perform(delete("/api/products/{id}", productId))
+            mockMvc.perform(delete("/api/companies/{companyId}/products/{id}", companyId, productId))
                     .andExpect(status().isNotFound())
                     .andExpect(jsonPath("$.status").value(404))
                     .andExpect(jsonPath("$.message").value("Product not found with id: " + productId));
@@ -558,9 +602,9 @@ class ProductControllerTest {
         @Test
         @DisplayName("should include correlationId, path, timestamp in 404 responses")
         void error404_ContainsContractFields() throws Exception {
-            when(productService.findProduct(productId)).thenThrow(new ProductNotFoundException(productId));
+            when(productService.findProduct(companyId, productId)).thenThrow(new ProductNotFoundException(productId));
 
-            mockMvc.perform(get("/api/products/{id}", productId))
+            mockMvc.perform(get("/api/companies/{companyId}/products/{id}", companyId, productId))
                     .andExpect(status().isNotFound())
                     .andExpect(jsonPath("$.status").value(404))
                     .andExpect(jsonPath("$.message").isNotEmpty())
@@ -571,10 +615,10 @@ class ProductControllerTest {
         @Test
         @DisplayName("should include correlationId, path, timestamp in 409 responses")
         void error409_ContainsContractFields() throws Exception {
-            when(productService.createProduct(any(ProductRequest.class)))
+            when(productService.createProduct(eq(companyId), any(ProductRequest.class)))
                     .thenThrow(new DuplicateProductException("Product with SKU 'SKU-001' already exists"));
 
-            mockMvc.perform(post("/api/products")
+            mockMvc.perform(post("/api/companies/{companyId}/products", companyId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(testProductRequest)))
                     .andExpect(status().isConflict())
@@ -589,7 +633,7 @@ class ProductControllerTest {
         void error400_ContainsContractFields() throws Exception {
             var invalidRequest = new ProductRequest("", "", null, null, null, null, null);
 
-            mockMvc.perform(post("/api/products")
+            mockMvc.perform(post("/api/companies/{companyId}/products", companyId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(invalidRequest)))
                     .andExpect(status().isBadRequest())

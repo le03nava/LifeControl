@@ -5,6 +5,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
+import com.lifecontrol.api.common.auth.CurrentUserContext;
+import com.lifecontrol.api.company.model.Company;
 import com.lifecontrol.api.product.exception.ProductNotFoundException;
 import com.lifecontrol.api.product.model.Product;
 import com.lifecontrol.api.product.repository.ProductRepository;
@@ -44,9 +46,13 @@ class ProductSupplierServiceTest {
     @Mock
     private SupplierRepository supplierRepository;
 
+    @Mock
+    private CurrentUserContext currentUserContext;
+
     @InjectMocks
     private ProductSupplierService service;
 
+    private UUID companyId;
     private UUID productId;
     private UUID supplierId;
     private UUID relationId;
@@ -59,6 +65,7 @@ class ProductSupplierServiceTest {
 
     @BeforeEach
     void setUp() {
+        companyId = UUID.randomUUID();
         productId = UUID.randomUUID();
         supplierId = UUID.randomUUID();
         relationId = UUID.randomUUID();
@@ -70,6 +77,11 @@ class ProductSupplierServiceTest {
                 .sku("SKU-001")
                 .name("Test Product")
                 .enabled(true)
+                .company(Company.builder()
+                        .id(companyId)
+                        .companyKey("acme")
+                        .companyName("Acme")
+                        .build())
                 .build();
 
         testSupplier = Supplier.builder()
@@ -105,10 +117,10 @@ class ProductSupplierServiceTest {
         @Test
         @DisplayName("should return list of suppliers for existing product")
         void listSuppliersByProductId_Success() {
-            when(productRepository.existsById(productId)).thenReturn(true);
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
             when(productSupplierRepository.findByProductId(productId)).thenReturn(List.of(testRelation));
 
-            List<ProductSupplierResponse> result = service.listSuppliersByProductId(productId);
+            List<ProductSupplierResponse> result = service.listSuppliersByProductId(companyId, productId);
 
             assertThat(result).hasSize(1);
             assertThat(result.get(0).id()).isEqualTo(relationId);
@@ -123,10 +135,10 @@ class ProductSupplierServiceTest {
         @Test
         @DisplayName("should return empty list when product has no suppliers")
         void listSuppliersByProductId_EmptyList() {
-            when(productRepository.existsById(productId)).thenReturn(true);
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
             when(productSupplierRepository.findByProductId(productId)).thenReturn(List.of());
 
-            List<ProductSupplierResponse> result = service.listSuppliersByProductId(productId);
+            List<ProductSupplierResponse> result = service.listSuppliersByProductId(companyId, productId);
 
             assertThat(result).isEmpty();
         }
@@ -134,9 +146,9 @@ class ProductSupplierServiceTest {
         @Test
         @DisplayName("should throw ProductNotFoundException when product does not exist")
         void listSuppliersByProductId_ProductNotFound_ThrowsException() {
-            when(productRepository.existsById(productId)).thenReturn(false);
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.empty());
 
-            assertThatThrownBy(() -> service.listSuppliersByProductId(productId))
+            assertThatThrownBy(() -> service.listSuppliersByProductId(companyId, productId))
                     .isInstanceOf(ProductNotFoundException.class);
         }
     }
@@ -161,10 +173,10 @@ class ProductSupplierServiceTest {
                     .supplier(testSupplier)
                     .build();
 
-            when(productSupplierRepository.findBySupplierIdWithSearch(supplierId, null))
+            when(productSupplierRepository.findByCompanyIdAndSupplierIdWithSearch(companyId, supplierId, null))
                     .thenReturn(List.of(testRelation, searchRelation));
 
-            var result = service.listProductsBySupplier(supplierId, null);
+            var result = service.listProductsBySupplier(companyId, supplierId, null);
 
             assertThat(result).hasSize(2);
             assertThat(result.get(0).productId()).isEqualTo(productId);
@@ -176,10 +188,10 @@ class ProductSupplierServiceTest {
         @Test
         @DisplayName("should return empty list when supplier has no products")
         void listProductsBySupplier_EmptyList() {
-            when(productSupplierRepository.findBySupplierIdWithSearch(supplierId, null))
+            when(productSupplierRepository.findByCompanyIdAndSupplierIdWithSearch(companyId, supplierId, null))
                     .thenReturn(List.of());
 
-            var result = service.listProductsBySupplier(supplierId, null);
+            var result = service.listProductsBySupplier(companyId, supplierId, null);
 
             assertThat(result).isEmpty();
         }
@@ -200,10 +212,10 @@ class ProductSupplierServiceTest {
                     .supplier(testSupplier)
                     .build();
 
-            when(productSupplierRepository.findBySupplierIdWithSearch(supplierId, "Searchable"))
+            when(productSupplierRepository.findByCompanyIdAndSupplierIdWithSearch(companyId, supplierId, "Searchable"))
                     .thenReturn(List.of(searchRelation));
 
-            var result = service.listProductsBySupplier(supplierId, "Searchable");
+            var result = service.listProductsBySupplier(companyId, supplierId, "Searchable");
 
             assertThat(result).hasSize(1);
             assertThat(result.get(0).productName()).isEqualTo("Searchable Product");
@@ -220,7 +232,7 @@ class ProductSupplierServiceTest {
         void addSupplierToProduct_Success() {
             var request = new ProductSupplierRequest(supplierId, new BigDecimal("200.00"), false, true);
 
-            when(productRepository.findById(productId)).thenReturn(Optional.of(testProduct));
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
             when(supplierRepository.findById(supplierId)).thenReturn(Optional.of(testSupplier));
             when(productSupplierRepository.existsByProductIdAndSupplierId(productId, supplierId))
                     .thenReturn(false);
@@ -238,7 +250,7 @@ class ProductSupplierServiceTest {
                         .build();
             });
 
-            var result = service.addSupplierToProduct(productId, request);
+            var result = service.addSupplierToProduct(companyId, productId, request);
 
             assertThat(result).isNotNull();
             assertThat(result.id()).isEqualTo(relationId);
@@ -266,7 +278,7 @@ class ProductSupplierServiceTest {
                     .updatedAt(now)
                     .build();
 
-            when(productRepository.findById(productId)).thenReturn(Optional.of(testProduct));
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
             when(supplierRepository.findById(supplierId)).thenReturn(Optional.of(testSupplier));
             when(productSupplierRepository.existsByProductIdAndSupplierId(productId, supplierId))
                     .thenReturn(false);
@@ -288,7 +300,7 @@ class ProductSupplierServiceTest {
                 return ps;
             });
 
-            var result = service.addSupplierToProduct(productId, request);
+            var result = service.addSupplierToProduct(companyId, productId, request);
 
             assertThat(result).isNotNull();
             assertThat(result.main()).isTrue();
@@ -302,7 +314,7 @@ class ProductSupplierServiceTest {
         void addSupplierToProduct_MainFlag_NoPreviousMain() {
             var request = new ProductSupplierRequest(supplierId, new BigDecimal("300.00"), true, true);
 
-            when(productRepository.findById(productId)).thenReturn(Optional.of(testProduct));
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
             when(supplierRepository.findById(supplierId)).thenReturn(Optional.of(testSupplier));
             when(productSupplierRepository.existsByProductIdAndSupplierId(productId, supplierId))
                     .thenReturn(false);
@@ -321,7 +333,7 @@ class ProductSupplierServiceTest {
                         .build();
             });
 
-            var result = service.addSupplierToProduct(productId, request);
+            var result = service.addSupplierToProduct(companyId, productId, request);
 
             assertThat(result).isNotNull();
             assertThat(result.main()).isTrue();
@@ -332,9 +344,9 @@ class ProductSupplierServiceTest {
         void addSupplierToProduct_ProductNotFound_ThrowsException() {
             var request = new ProductSupplierRequest(supplierId, BigDecimal.TEN, false, true);
 
-            when(productRepository.findById(productId)).thenReturn(Optional.empty());
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.empty());
 
-            assertThatThrownBy(() -> service.addSupplierToProduct(productId, request))
+            assertThatThrownBy(() -> service.addSupplierToProduct(companyId, productId, request))
                     .isInstanceOf(ProductNotFoundException.class);
         }
 
@@ -343,10 +355,10 @@ class ProductSupplierServiceTest {
         void addSupplierToProduct_SupplierNotFound_ThrowsException() {
             var request = new ProductSupplierRequest(supplierId, BigDecimal.TEN, false, true);
 
-            when(productRepository.findById(productId)).thenReturn(Optional.of(testProduct));
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
             when(supplierRepository.findById(supplierId)).thenReturn(Optional.empty());
 
-            assertThatThrownBy(() -> service.addSupplierToProduct(productId, request))
+            assertThatThrownBy(() -> service.addSupplierToProduct(companyId, productId, request))
                     .isInstanceOf(SupplierNotFoundException.class);
         }
 
@@ -355,12 +367,12 @@ class ProductSupplierServiceTest {
         void addSupplierToProduct_Duplicate_ThrowsException() {
             var request = new ProductSupplierRequest(supplierId, BigDecimal.TEN, false, true);
 
-            when(productRepository.findById(productId)).thenReturn(Optional.of(testProduct));
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
             when(supplierRepository.findById(supplierId)).thenReturn(Optional.of(testSupplier));
             when(productSupplierRepository.existsByProductIdAndSupplierId(productId, supplierId))
                     .thenReturn(true);
 
-            assertThatThrownBy(() -> service.addSupplierToProduct(productId, request))
+            assertThatThrownBy(() -> service.addSupplierToProduct(companyId, productId, request))
                     .isInstanceOf(DuplicateProductSupplierException.class)
                     .hasMessageContaining("Test Supplier");
         }
@@ -375,11 +387,12 @@ class ProductSupplierServiceTest {
         void updateSupplier_Success() {
             var request = new ProductSupplierRequest(supplierId, new BigDecimal("250.50"), false, false);
 
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
             when(productSupplierRepository.findByProductIdAndId(productId, relationId))
                     .thenReturn(Optional.of(testRelation));
             when(productSupplierRepository.save(any(ProductSupplier.class))).thenAnswer(inv -> inv.getArgument(0));
 
-            var result = service.updateSupplier(productId, relationId, request);
+            var result = service.updateSupplier(companyId, productId, relationId, request);
 
             assertThat(result).isNotNull();
             assertThat(result.purchaseCost()).isEqualByComparingTo("250.50");
@@ -402,12 +415,13 @@ class ProductSupplierServiceTest {
                     .updatedAt(now)
                     .build();
 
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
             when(productSupplierRepository.findByProductIdAndId(productId, relationId))
                     .thenReturn(Optional.of(testRelation)); // current relation is NOT main
             when(productSupplierRepository.findMainByProductId(productId)).thenReturn(Optional.of(existingMain));
             when(productSupplierRepository.save(any(ProductSupplier.class))).thenAnswer(inv -> inv.getArgument(0));
 
-            var result = service.updateSupplier(productId, relationId, request);
+            var result = service.updateSupplier(companyId, productId, relationId, request);
 
             assertThat(result.main()).isTrue();
             assertThat(existingMain.getMain()).isFalse();
@@ -430,11 +444,12 @@ class ProductSupplierServiceTest {
 
             var request = new ProductSupplierRequest(supplierId, new BigDecimal("200.00"), true, true);
 
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
             when(productSupplierRepository.findByProductIdAndId(productId, relationId))
                     .thenReturn(Optional.of(alreadyMain));
             when(productSupplierRepository.save(any(ProductSupplier.class))).thenAnswer(inv -> inv.getArgument(0));
 
-            var result = service.updateSupplier(productId, relationId, request);
+            var result = service.updateSupplier(companyId, productId, relationId, request);
 
             assertThat(result.main()).isTrue();
             verify(productSupplierRepository, never()).findMainByProductId(any());
@@ -445,11 +460,75 @@ class ProductSupplierServiceTest {
         void updateSupplier_NotFound_ThrowsException() {
             var request = new ProductSupplierRequest(supplierId, BigDecimal.TEN, false, true);
 
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
             when(productSupplierRepository.findByProductIdAndId(productId, relationId))
                     .thenReturn(Optional.empty());
 
-            assertThatThrownBy(() -> service.updateSupplier(productId, relationId, request))
+            assertThatThrownBy(() -> service.updateSupplier(companyId, productId, relationId, request))
                     .isInstanceOf(ProductSupplierNotFoundException.class);
+        }
+    }
+
+    /**
+     * The tenancy boundary: suppliers are global, but a product is one company's, so every method here
+     * resolves the product <b>within</b> the company named by the path. A product of another company is a
+     * 404 and no relation of it is ever read or written.
+     */
+    @Nested
+    @DisplayName("company scope")
+    class CompanyScopeTests {
+
+        @Test
+        @DisplayName("should answer 404 when listing the suppliers of another company's product")
+        void listSuppliers_OtherCompany_ThrowsNotFound() {
+            assertThatThrownBy(() -> service.listSuppliersByProductId(companyId, productId))
+                    .isInstanceOf(ProductNotFoundException.class)
+                    .hasMessageContaining(productId.toString());
+
+            verify(productSupplierRepository, never()).findByProductId(any());
+        }
+
+        @Test
+        @DisplayName("should answer 404 when adding a supplier to another company's product")
+        void addSupplier_OtherCompany_ThrowsNotFound() {
+            var request = new ProductSupplierRequest(supplierId, BigDecimal.TEN, false, true);
+
+            assertThatThrownBy(() -> service.addSupplierToProduct(companyId, productId, request))
+                    .isInstanceOf(ProductNotFoundException.class)
+                    .hasMessageContaining(productId.toString());
+
+            verify(productSupplierRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("should answer 404 when updating a relation of another company's product")
+        void updateSupplier_OtherCompany_ThrowsNotFound() {
+            var request = new ProductSupplierRequest(supplierId, BigDecimal.TEN, false, true);
+
+            assertThatThrownBy(() -> service.updateSupplier(companyId, productId, relationId, request))
+                    .isInstanceOf(ProductNotFoundException.class);
+
+            verify(productSupplierRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("should answer 404 when removing a relation of another company's product")
+        void removeSupplier_OtherCompany_ThrowsNotFound() {
+            assertThatThrownBy(() -> service.removeSupplierFromProduct(companyId, productId, relationId))
+                    .isInstanceOf(ProductNotFoundException.class);
+
+            verify(productSupplierRepository, never()).delete(any());
+        }
+
+        @Test
+        @DisplayName("should verify the caller's access to the company on every read and write")
+        void verifiesCompanyAccess() {
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
+            when(productSupplierRepository.findByProductId(productId)).thenReturn(List.of());
+
+            service.listSuppliersByProductId(companyId, productId);
+
+            verify(currentUserContext).verifyCompanyAccess(companyId);
         }
     }
 
@@ -460,10 +539,11 @@ class ProductSupplierServiceTest {
         @Test
         @DisplayName("should delete relation successfully")
         void removeSupplierFromProduct_Success() {
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
             when(productSupplierRepository.findByProductIdAndId(productId, relationId))
                     .thenReturn(Optional.of(testRelation));
 
-            service.removeSupplierFromProduct(productId, relationId);
+            service.removeSupplierFromProduct(companyId, productId, relationId);
 
             verify(productSupplierRepository).delete(testRelation);
         }
@@ -471,10 +551,11 @@ class ProductSupplierServiceTest {
         @Test
         @DisplayName("should throw ProductSupplierNotFoundException when relation not found")
         void removeSupplierFromProduct_NotFound_ThrowsException() {
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
             when(productSupplierRepository.findByProductIdAndId(productId, relationId))
                     .thenReturn(Optional.empty());
 
-            assertThatThrownBy(() -> service.removeSupplierFromProduct(productId, relationId))
+            assertThatThrownBy(() -> service.removeSupplierFromProduct(companyId, productId, relationId))
                     .isInstanceOf(ProductSupplierNotFoundException.class);
         }
     }

@@ -43,7 +43,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import tools.jackson.databind.ObjectMapper;
 
 /**
- * Persistence-level verification that {@code GET /api/products/{productId}/variants} can be
+ * Persistence-level verification that {@code GET /api/companies/{companyId}/products/{productId}/variants} can be
  * narrowed to a single store through the optional {@code storeId} query param.
  *
  * <p>After the variant-identity split the definitions are GLOBAL and the per-store presence lives
@@ -95,6 +95,7 @@ class ProductVariantStoreFilterIntegrationTest extends AbstractPostgresIntegrati
 
     private static final SimpleGrantedAuthority ROLE_LC_ADMIN = new SimpleGrantedAuthority("ROLE_lc-admin");
 
+    private UUID companyId;
     private UUID productId;
     private UUID storeAId;
     private UUID storeBId;
@@ -113,6 +114,7 @@ class ProductVariantStoreFilterIntegrationTest extends AbstractPostgresIntegrati
         var product = productRepository.save(Product.builder()
                 .sku("VARSTORE-" + UUID.randomUUID().toString().substring(0, 8))
                 .name("Variant Store Filter Product")
+                .company(companyRepository.findById(companyId).orElseThrow())
                 .enabled(true)
                 .build());
         productId = product.getId();
@@ -155,6 +157,7 @@ class ProductVariantStoreFilterIntegrationTest extends AbstractPostgresIntegrati
                         .rfc("VFTC010101ABC")
                         .enabled(true)
                         .build()));
+        companyId = company.getId();
 
         var companyCountry = companyCountryRepository
                 .findByCompanyIdAndCountryId(company.getId(), country.getId())
@@ -227,12 +230,12 @@ class ProductVariantStoreFilterIntegrationTest extends AbstractPostgresIntegrati
         return ids;
     }
 
-    private static final String VARIANTS_URL = "/api/products/{productId}/variants";
+    private static final String VARIANTS_URL = "/api/companies/{companyId}/products/{productId}/variants";
 
     @Test
     @DisplayName("should return only store A's variants when storeId is store A")
     void listVariants_StoreA_ReturnsOnlyStoreAVariants() throws Exception {
-        var result = mockMvc.perform(get(VARIANTS_URL, productId)
+        var result = mockMvc.perform(get(VARIANTS_URL, companyId, productId)
                         .param("storeId", storeAId.toString())
                         .with(jwt().authorities(ROLE_LC_ADMIN)))
                 .andExpect(status().isOk())
@@ -251,7 +254,7 @@ class ProductVariantStoreFilterIntegrationTest extends AbstractPostgresIntegrati
     @Test
     @DisplayName("should return only store B's variants when storeId is store B")
     void listVariants_StoreB_ReturnsOnlyStoreBVariants() throws Exception {
-        var result = mockMvc.perform(get(VARIANTS_URL, productId)
+        var result = mockMvc.perform(get(VARIANTS_URL, companyId, productId)
                         .param("storeId", storeBId.toString())
                         .with(jwt().authorities(ROLE_LC_ADMIN)))
                 .andExpect(status().isOk())
@@ -270,7 +273,7 @@ class ProductVariantStoreFilterIntegrationTest extends AbstractPostgresIntegrati
     @Test
     @DisplayName("should return variants from every store when storeId is omitted")
     void listVariants_WithoutStoreId_ReturnsVariantsFromBothStores() throws Exception {
-        var result = mockMvc.perform(get(VARIANTS_URL, productId).with(jwt().authorities(ROLE_LC_ADMIN)))
+        var result = mockMvc.perform(get(VARIANTS_URL, companyId, productId).with(jwt().authorities(ROLE_LC_ADMIN)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content.length()").value(2))
                 .andExpect(jsonPath("$.totalElements").value(2))
@@ -289,7 +292,8 @@ class ProductVariantStoreFilterIntegrationTest extends AbstractPostgresIntegrati
         softDeleteVariant(variantAId);
 
         // Default: the soft-deleted definition is filtered out, so re-enable would be unreachable.
-        var defaultResult = mockMvc.perform(get(VARIANTS_URL, productId).with(jwt().authorities(ROLE_LC_ADMIN)))
+        var defaultResult = mockMvc.perform(
+                        get(VARIANTS_URL, companyId, productId).with(jwt().authorities(ROLE_LC_ADMIN)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content.length()").value(1))
                 .andExpect(jsonPath("$.totalElements").value(1))
@@ -298,7 +302,7 @@ class ProductVariantStoreFilterIntegrationTest extends AbstractPostgresIntegrati
                 .containsExactly(variantBId.toString());
 
         // Opt-in: the disabled definition reappears so it can be re-enabled.
-        var includeResult = mockMvc.perform(get(VARIANTS_URL, productId)
+        var includeResult = mockMvc.perform(get(VARIANTS_URL, companyId, productId)
                         .param("includeDisabled", "true")
                         .with(jwt().authorities(ROLE_LC_ADMIN)))
                 .andExpect(status().isOk())
@@ -314,7 +318,7 @@ class ProductVariantStoreFilterIntegrationTest extends AbstractPostgresIntegrati
     void listVariants_StoreScoped_IgnoresIncludeDisabled() throws Exception {
         softDeleteVariant(variantAId);
 
-        var result = mockMvc.perform(get(VARIANTS_URL, productId)
+        var result = mockMvc.perform(get(VARIANTS_URL, companyId, productId)
                         .param("storeId", storeAId.toString())
                         .param("includeDisabled", "true")
                         .with(jwt().authorities(ROLE_LC_ADMIN)))
