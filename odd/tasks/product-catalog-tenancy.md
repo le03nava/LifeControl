@@ -40,7 +40,7 @@ One line per task: ID, specs, route, commit. Route is `inline` unless a Delegati
 | --- | --- | --- | --- | --- |
 | T1 | Expand: V39 adds nullable `company_id` to `products` and `product_variants`, the entity fields, and the writes that populate them (a product takes its category's company; a variant takes its product's) | S2, S4 | inline | `1bb45dac` |
 | T2 | Move: `/api/companies/{companyId}/products` with `verifyCompanyAccess`, the company required on write, the category required to belong to it, duplicate SKU per company | S4 | delegated (`gentle-ai-worker`) | `e9f9ecba` |
-| T3 | Variants: barcode unique per company, variant search scoped by the store's company | S4 | inline | `-` |
+| T3 | Variants: barcode unique per company, variant search scoped by the store's company | S4 | delegated (`gentle-ai-worker`) | `f25de7d2` |
 | T4 | Contract: V40 makes both columns `NOT NULL`, adds the composite FKs, drops the global unique keys and replaces them per company | S2, S4 | inline | `-` |
 | T5 | Consumers: `InventoryService`, `PurchaseOrderService`, `SalesOrderService` resolve a variant **with** the document's company | S4 | inline | `-` |
 | T6 | Frontend: `product.service.ts` and the product routes call the scoped path, and the `categoryCompanyId` workaround goes away | S4 | inline | `-` |
@@ -101,3 +101,17 @@ first and alone.
   and a same-SKU insert across two companies would still be refused by the database (T4); and
   `ProductVariantService` scopes the variant endpoints through their product, while the barcode key and the
   search predicate stay global (T3).
+- **L8** — T3 evidence, 2026-10-27, commit `f25de7d2` (delegated). The barcode gate is the company's and the
+  search is predicated on the store's company, derived once in `companyIdOf(store)` so the access guard and the
+  queries cannot disagree. The search proof is real SQL: `VariantSearchCompanyScopeIntegrationTest` builds two
+  companies with one store each plus a variant of company B stocked at a store of company A, and the search
+  through company A's store answers exactly one row — observed RED as `expected:<1> but was:<2>` before the
+  predicate existed. Gate: BUILD SUCCESSFUL, 4079 tests. Left open and recorded rather than implied: the store
+  stock row that pairs a variant of A with a store of B is still writable (issue non-goal — `company_stores` has
+  no `company_id`); T3 makes both store-scoped reads blind to it instead of refusing the write.
+- **L9** — a premise the next slice has to correct, found while preparing T4. `ProductAttributeUpgradeOnPopulatedDbIntegrationTest`
+  asserts that the rows it seeds into a populated V36 database **survive** the migration to head. T4's V40
+  discards every row that cannot be attributed to a company, so that premise stops holding at head: the test
+  must be retargeted to **V38**, the last migration whose premise it describes, and pin exactly the two versions
+  it targets. The derived form L5 introduced was right while V39 was purely additive and becomes wrong in T4 —
+  the record says so instead of leaving a test to be discovered failing.
