@@ -38,7 +38,7 @@ One line per task: ID, specs, route, commit. Route is `inline` unless a Delegati
 
 | ID | What | Specs | Route | Commit |
 | --- | --- | --- | --- | --- |
-| T1 | Expand: V39 adds nullable `company_id` to `products` and `product_variants`, the entity fields, and the writes that populate them (a product takes its category's company; a variant takes its product's) | S2, S4 | inline | `0b0192e1` |
+| T1 | Expand: V39 adds nullable `company_id` to `products` and `product_variants`, the entity fields, and the writes that populate them (a product takes its category's company; a variant takes its product's) | S2, S4 | inline | `1bb45dac` |
 | T2 | Move: `/api/companies/{companyId}/products` with `verifyCompanyAccess`, the company required on write, the category required to belong to it, duplicate SKU per company | S4 | inline | `-` |
 | T3 | Variants: barcode unique per company, variant search scoped by the store's company | S4 | inline | `-` |
 | T4 | Contract: V40 makes both columns `NOT NULL`, adds the composite FKs, drops the global unique keys and replaces them per company | S2, S4 | inline | `-` |
