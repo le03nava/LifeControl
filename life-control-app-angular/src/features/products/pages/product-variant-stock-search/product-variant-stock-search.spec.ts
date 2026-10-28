@@ -8,6 +8,8 @@ import { ProductVariantService } from '../../data/product-variant.service';
 import { ProductVariantSearchResult } from '../../models/product-variant.models';
 import { ProfileResponse } from '@features/user/profile/data/profile.models';
 import { ProfileService } from '@features/user/profile/data/profile.service';
+import { CompanyService } from '@features/companies/companies/data/company.service';
+import { CompanySelectorOption, Page } from '@features/companies/companies/models/company.models';
 
 describe('ProductVariantStockSearch', () => {
   let component: ProductVariantStockSearch;
@@ -15,6 +17,23 @@ describe('ProductVariantStockSearch', () => {
   let variantServiceMock: { searchVariants: ReturnType<typeof vi.fn> };
   let profileServiceMock: { getProfile: ReturnType<typeof vi.fn> };
   let routerMock: { navigate: ReturnType<typeof vi.fn> };
+  let companyServiceMock: { getCompanySelector: ReturnType<typeof vi.fn> };
+
+  /** The company the editor link is scoped to; the page asks for it, the search never needs it. */
+  const companyId = 'company-1';
+
+  function companyPage(): Page<CompanySelectorOption> {
+    return {
+      content: [{ id: companyId, companyKey: 'lc', companyName: 'Life Control' }],
+      totalElements: 1,
+      totalPages: 1,
+      size: 1,
+      number: 0,
+      first: true,
+      last: true,
+      empty: false,
+    };
+  }
 
   const row = (
     overrides: Partial<ProductVariantSearchResult> = {},
@@ -69,6 +88,7 @@ describe('ProductVariantStockSearch', () => {
   function setup(
     options: {
       queryStoreId?: string | null;
+      queryCompanyId?: string | null;
       profileStoreId?: string | null;
       profileError?: boolean;
       rows?: ProductVariantSearchResult[];
@@ -77,6 +97,7 @@ describe('ProductVariantStockSearch', () => {
     } = {},
   ) {
     const queryStoreId = options.queryStoreId ?? null;
+    const queryCompanyId = options.queryCompanyId ?? null;
     const profileStoreId =
       options.profileStoreId !== undefined ? options.profileStoreId : 'store-1';
 
@@ -91,6 +112,7 @@ describe('ProductVariantStockSearch', () => {
         : vi.fn().mockReturnValue(of(profileResponse(profileStoreId))),
     };
     routerMock = { navigate: vi.fn() };
+    companyServiceMock = { getCompanySelector: vi.fn().mockReturnValue(of(companyPage())) };
 
     TestBed.configureTestingModule({
       imports: [ProductVariantStockSearch],
@@ -98,12 +120,14 @@ describe('ProductVariantStockSearch', () => {
         { provide: ProductVariantService, useValue: variantServiceMock },
         { provide: ProfileService, useValue: profileServiceMock },
         { provide: Router, useValue: routerMock },
+        { provide: CompanyService, useValue: companyServiceMock },
         {
           provide: ActivatedRoute,
           useValue: {
             snapshot: {
               queryParamMap: {
-                get: (key: string) => (key === 'storeId' ? queryStoreId : null),
+                get: (key: string) =>
+                  key === 'storeId' ? queryStoreId : key === 'companyId' ? queryCompanyId : null,
               },
             },
           },
@@ -335,23 +359,59 @@ describe('ProductVariantStockSearch', () => {
     fixture.detectChanges();
     await settle();
 
+    component.onCompanyChange(companyId);
     component.editVariant(row({ productId: 'prod-9', id: 'var-9' }));
 
+    // The editor is product-scoped, so the link carries the company the search itself does not need.
     expect(routerMock.navigate).toHaveBeenCalledWith(
-      ['/products/edit', 'prod-9', 'variants', 'edit', 'var-9'],
+      ['/products/c', companyId, 'edit', 'prod-9', 'variants', 'edit', 'var-9'],
       { queryParams: undefined },
     );
   });
 
   it('should carry a store named by the link into the editor', async () => {
-    setup({ queryStoreId: 'store-9' });
+    setup({ queryStoreId: 'store-9', queryCompanyId: companyId });
     await settle();
 
     component.editVariant(row());
 
     expect(routerMock.navigate).toHaveBeenCalledWith(
-      ['/products/edit', 'prod-1', 'variants', 'edit', 'var-1'],
+      ['/products/c', companyId, 'edit', 'prod-1', 'variants', 'edit', 'var-1'],
       { queryParams: { storeId: 'store-9' } },
     );
+  });
+
+  it('should seed the company from the link and keep a pick there', async () => {
+    setup({ queryCompanyId: companyId });
+    await settle();
+
+    expect(component.selectedCompanyId()).toBe(companyId);
+    // The company list is the same claim-authorized selector the other scoped screens offer.
+    expect(companyServiceMock.getCompanySelector).toHaveBeenCalledWith(0, 1000);
+
+    routerMock.navigate.mockClear();
+    component.onCompanyChange('company-2');
+
+    expect(component.selectedCompanyId()).toBe('company-2');
+    // Written back to the URL (replace), so a shared link reproduces the screen.
+    expect(routerMock.navigate).toHaveBeenCalledWith(
+      [],
+      expect.objectContaining({
+        queryParams: { companyId: 'company-2' },
+        queryParamsHandling: 'merge',
+        replaceUrl: true,
+      }),
+    );
+  });
+
+  it('should not open a row until a company is named', async () => {
+    setup();
+    await settle();
+
+    component.editVariant(row());
+
+    // The search is store-addressed and needs no company; the product-scoped editor does, and inventing
+    // one would put the operator into somebody else's catalog.
+    expect(routerMock.navigate).not.toHaveBeenCalled();
   });
 });

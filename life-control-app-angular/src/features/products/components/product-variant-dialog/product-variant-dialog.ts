@@ -48,6 +48,8 @@ const VARIANT_CONFLICT_MESSAGE =
 
 /** Payload the opener passes to {@link ProductVariantDialog}. */
 export interface ProductVariantDialogData {
+  /** The company that owns the product: the scope of every request this dialog makes. */
+  companyId: string;
   productId: string;
   /** The row the list already holds; present only in edit mode. */
   variant?: ProductVariant;
@@ -187,7 +189,7 @@ export class ProductVariantDialog {
     // product's id: the product is read for its classification, then that category's profile. A failed
     // read leaves the field-set empty instead of blocking a write the operator can still make.
     this.productService
-      .getProductById(this.data.productId)
+      .getProductById(this.data.companyId, this.data.productId)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (product) => this.loadVariantDefinitions(product),
@@ -235,12 +237,13 @@ export class ProductVariantDialog {
     // covers any other caller.
     if (this.savingState()) return;
 
+    const companyId = this.data.companyId;
     const productId = this.data.productId;
     const variant = this.data.variant;
 
     const request$ = variant
-      ? this.productVariantService.updateVariant(productId, variant.id, request)
-      : this.productVariantService.createVariant(productId, request);
+      ? this.productVariantService.updateVariant(companyId, productId, variant.id, request)
+      : this.productVariantService.createVariant(companyId, productId, request);
 
     this.savingState.set(true);
 
@@ -325,14 +328,19 @@ export class ProductVariantDialog {
   /**
    * Reads the profile its category resolves to and keeps the variant-level definitions.
    *
+   * The company is the explicit one the opener passed, not a field of the product: the dialog lives
+   * inside the company segment the screen is standing on, and the product's own `companyId` is the
+   * same value — deriving it from the row would be the second source of truth this unit removed (the
+   * `categoryCompanyId` field this replaced existed only because the old path carried no company).
+   *
    * The split by level is the catalog's own (`variantAttributes`), and it is filtered again here as a
    * guard, not as a second opinion: a product-level attribute rendered on a variant is exactly the
    * confusion the level exists to prevent (S7).
    */
   private loadVariantDefinitions(product: Product): void {
-    const companyId = product.categoryCompanyId;
+    const companyId = this.data.companyId;
     const categoryId = product.categoryId;
-    if (!companyId || !categoryId) {
+    if (!categoryId) {
       // An unclassified product declares no profile: any attribute would be refused by the API, so the
       // branch IS known to declare none and the request must say `{}` rather than keep a stored set.
       this.variantDefinitionsState.set([]);

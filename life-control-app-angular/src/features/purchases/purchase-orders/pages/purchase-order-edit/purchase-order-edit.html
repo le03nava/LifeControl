@@ -61,6 +61,7 @@
       [isDraft]="isDraft()"
       [availableProducts]="supplierProducts()"
       [storeId]="variantStoreId()"
+      [companyId]="orderCompanyId()"
       [showReceiptProgress]="!!loadedOrder()"
       (itemsChanged)="onItemsChanged($event)"
     />

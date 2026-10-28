@@ -1,16 +1,19 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { CurrencyPipe } from '@angular/common';
 import { ActivatedRoute, Router } from '@angular/router';
-import { rxResource } from '@angular/core/rxjs-interop';
+import { rxResource, toSignal } from '@angular/core/rxjs-interop';
+import { map } from 'rxjs';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
 import { MatPaginatorModule } from '@angular/material/paginator';
+import { MatSelectModule } from '@angular/material/select';
 import { MatTableModule } from '@angular/material/table';
 import { ErrorBanner, PageHeader } from '@shared/ui';
 import { httpErrorMessage } from '@shared/data';
+import { CompanyService } from '@features/companies/companies/data/company.service';
 import { ProductVariantService } from '../../data/product-variant.service';
 import { VariantStoreContext } from '../../data/variant-store-context.service';
 import { ProductVariantSearchResult } from '../../models/product-variant.models';
@@ -33,6 +36,13 @@ const MIN_QUERY_LENGTH = 2;
  * operator's configured store -> `null`, fail closed), the same rule as the other
  * variant screens.
  *
+ * **The company is asked for here, and only for the editor link.** The endpoint this page reads is
+ * store-addressed (`/api/product-variants/search?storeId=`), so the search itself has no company; but
+ * a row opens the product-scoped editor, whose path and every request below it are scoped to the
+ * company that owns the product. Asking for it on this page — the same inline choice
+ * `ProductCategoryList` makes, kept in `?companyId=` — is what keeps the sales role's only entry point
+ * at a stable URL instead of routing it through `/products`, whose destination is the admin-only hub.
+ *
  * **Search runs on submit, not on every keystroke.** The sales variant selector
  * debounces because it is an autocomplete; this is a page of results, and the primary
  * flow is scanning or typing an identifier and pressing Enter. Skipping the debounce
@@ -53,6 +63,7 @@ const MIN_QUERY_LENGTH = 2;
     CurrencyPipe,
     ErrorBanner,
     PageHeader,
+    MatSelectModule,
   ],
   templateUrl: './product-variant-stock-search.html',
   styleUrl: './product-variant-stock-search.scss',
@@ -61,9 +72,32 @@ const MIN_QUERY_LENGTH = 2;
 })
 export class ProductVariantStockSearch {
   private readonly variantService = inject(ProductVariantService);
+  private readonly companyService = inject(CompanyService);
   private readonly storeContext = inject(VariantStoreContext);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
+
+  /**
+   * The companies the editor link can be scoped to.
+   *
+   * Read from the claim-authorized selector, the same list every other company choice in this feature
+   * offers, so the page cannot name a company the scoped screens would refuse.
+   */
+  readonly companies = toSignal(
+    this.companyService.getCompanySelector(0, 1000).pipe(map((page) => page.content)),
+    { initialValue: [] },
+  );
+
+  /**
+   * The company the product being opened belongs to, seeded from `?companyId=` and kept there.
+   *
+   * Deliberately not derived from the row: the search projection does not carry a company, because the
+   * search itself does not need one. `null` is a real state — the operator has not said yet — and it
+   * only disables the edit action, never the search.
+   */
+  readonly selectedCompanyId = signal<string | null>(
+    this.route.snapshot.queryParamMap.get('companyId'),
+  );
 
   readonly storeId = this.storeContext.storeId;
   readonly storePending = this.storeContext.pending;
@@ -154,8 +188,28 @@ export class ProductVariantStockSearch {
   }
 
   editVariant(row: ProductVariantSearchResult): void {
-    this.router.navigate(['/products/edit', row.productId, 'variants', 'edit', row.id], {
-      queryParams: this.storeQueryParams(),
+    const companyId = this.selectedCompanyId();
+    if (!companyId) {
+      return;
+    }
+    this.router.navigate(
+      ['/products/c', companyId, 'edit', row.productId, 'variants', 'edit', row.id],
+      { queryParams: this.storeQueryParams() },
+    );
+  }
+
+  /**
+   * Keeps the chosen company in the URL (replace, so a change does not pollute history), exactly as
+   * `ProductCategoryList.onCompanyChange` and the product form's company field do.
+   */
+  onCompanyChange(companyId: string | null): void {
+    const next = companyId || null;
+    this.selectedCompanyId.set(next);
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { companyId: next },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
     });
   }
 

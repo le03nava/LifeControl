@@ -28,8 +28,15 @@ export class ProductService {
   readonly loading = this._loading.asReadonly();
   readonly error = this._error.asReadonly();
 
-  get apiUrl(): string {
-    return `${this.configService.apiUrl}/products`;
+  /**
+   * The products collection of one company: the only base this service builds.
+   *
+   * The company is a path segment because it is the resource's owner. There is deliberately no
+   * company-blind base to fall back to — a `/products` URL is no longer served, and a method that still
+   * built one would send every list, read and write at a path that answers nothing.
+   */
+  productsUrl(companyId: string): string {
+    return `${this.configService.apiUrl}/companies/${companyId}/products`;
   }
 
   /**
@@ -42,18 +49,18 @@ export class ProductService {
     return `${this.configService.apiUrl}/companies/${companyId}/product-categories/${categoryId}/attribute-profile`;
   }
 
-  getProducts(page = 0, size = 12, search?: string): Observable<Page<Product>> {
+  getProducts(companyId: string, page = 0, size = 12, search?: string): Observable<Page<Product>> {
     let params = new HttpParams().set('page', page.toString()).set('size', size.toString());
 
     if (search) {
       params = params.set('search', search);
     }
 
-    return this.http.get<Page<Product>>(this.apiUrl, { params });
+    return this.http.get<Page<Product>>(this.productsUrl(companyId), { params });
   }
 
-  getProductById(id: string): Observable<Product> {
-    return this.http.get<Product>(`${this.apiUrl}/${id}`);
+  getProductById(companyId: string, id: string): Observable<Product> {
+    return this.http.get<Product>(`${this.productsUrl(companyId)}/${id}`);
   }
 
   /**
@@ -87,19 +94,26 @@ export class ProductService {
       );
   }
 
-  getProductsBySupplier(supplierId: string, search?: string): Observable<SupplierProduct[]> {
+  getProductsBySupplier(
+    companyId: string,
+    supplierId: string,
+    search?: string,
+  ): Observable<SupplierProduct[]> {
     let params = new HttpParams();
     if (search) {
       params = params.set('search', search);
     }
-    return this.http.get<SupplierProduct[]>(`${this.apiUrl}/by-supplier/${supplierId}`, { params });
+    return this.http.get<SupplierProduct[]>(
+      `${this.productsUrl(companyId)}/by-supplier/${supplierId}`,
+      { params },
+    );
   }
 
-  createProduct(data: ProductRequest): Observable<Product> {
+  createProduct(companyId: string, data: ProductRequest): Observable<Product> {
     this._loading.set(true);
     this._error.set(null);
 
-    return this.http.post<Product>(this.apiUrl, data).pipe(
+    return this.http.post<Product>(this.productsUrl(companyId), data).pipe(
       finalize(() => this._loading.set(false)),
       catchError((err) => {
         this._error.set('Error al crear el producto');
@@ -108,11 +122,11 @@ export class ProductService {
     );
   }
 
-  updateProduct(id: string, data: ProductRequest): Observable<Product> {
+  updateProduct(companyId: string, id: string, data: ProductRequest): Observable<Product> {
     this._loading.set(true);
     this._error.set(null);
 
-    return this.http.put<Product>(`${this.apiUrl}/${id}`, data).pipe(
+    return this.http.put<Product>(`${this.productsUrl(companyId)}/${id}`, data).pipe(
       finalize(() => this._loading.set(false)),
       catchError((err) => {
         this._error.set('Error al actualizar el producto');
@@ -121,11 +135,11 @@ export class ProductService {
     );
   }
 
-  deleteProduct(id: string): Observable<void> {
+  deleteProduct(companyId: string, id: string): Observable<void> {
     this._loading.set(true);
     this._error.set(null);
 
-    return this.http.delete<void>(`${this.apiUrl}/${id}`).pipe(
+    return this.http.delete<void>(`${this.productsUrl(companyId)}/${id}`).pipe(
       finalize(() => this._loading.set(false)),
       catchError((err) => {
         this._error.set('Error al eliminar el producto');

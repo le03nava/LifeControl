@@ -26,16 +26,6 @@ public class Routes {
   }
 
   @Bean
-  public RouterFunction<ServerResponse> productServiceRoute() {
-    return GatewayRouterFunctions.route("product_service")
-        .route(RequestPredicates.path("/api/products/**"), HandlerFunctions.http())
-        .before(BeforeFilterFunctions.uri(props.lifeControlApiUri()))
-        .filter(CircuitBreakerFilterFunctions.circuitBreaker("productServiceCircuitBreaker",
-            URI.create("forward:/fallbackRoute")))
-        .build();
-  }
-
-  @Bean
   public RouterFunction<ServerResponse> companyServiceRoute() {
     return GatewayRouterFunctions.route("company_service")
         .route(RequestPredicates.path("/api/companies/**"), HandlerFunctions.http())

@@ -29,6 +29,7 @@ describe('ProductVariantListHost', () => {
   let profileServiceMock: { getProfile: ReturnType<typeof vi.fn> };
 
   const mockProductId = 'prod-1';
+  const mockCompanyId = 'company-1';
 
   function createProduct(overrides: Partial<Product> = {}): Product {
     return {
@@ -38,6 +39,7 @@ describe('ProductVariantListHost', () => {
       enabled: true,
       createdAt: '2026-01-01T00:00:00Z',
       updatedAt: '2026-01-01T00:00:00Z',
+      companyId: mockCompanyId,
       ...overrides,
     };
   }
@@ -126,7 +128,10 @@ describe('ProductVariantListHost', () => {
           provide: ActivatedRoute,
           useValue: {
             snapshot: {
-              paramMap: { get: (key: string) => (key === 'id' ? productId : null) },
+              paramMap: {
+                get: (key: string) =>
+                  key === 'id' ? productId : key === 'companyId' ? mockCompanyId : null,
+              },
               queryParamMap: { get: () => null },
             },
           },
@@ -181,7 +186,7 @@ describe('ProductVariantListHost', () => {
     await settle();
 
     expect(productServiceMock.getProductById).toHaveBeenCalledTimes(1);
-    expect(productServiceMock.getProductById).toHaveBeenCalledWith('prod-42');
+    expect(productServiceMock.getProductById).toHaveBeenCalledWith(mockCompanyId, 'prod-42');
   });
 
   it('should render exactly one page header and one variant list', async () => {

@@ -27,12 +27,18 @@ const VARIANT_PAGE_SIZE = 50;
 /**
  * Variant picker for one purchase order line.
  *
- * Loads `GET /api/products/{productId}/variants?storeId=<uuid>` once both the
- * product and the store are known, and renders `variantName` next to the
+ * Loads `GET /api/companies/{companyId}/products/{productId}/variants?storeId=<uuid>` once the
+ * company, the product and the store are known, and renders `variantName` next to the
  * `barCode` and `costPrice` so two variants of the same product stay
  * distinguishable. The barcode labels the option rather than the sku: the sku
  * belongs to the product, so it is identical across sizes and would not tell two
  * variants apart.
+ *
+ * The company is the **order's own** (its `company` group), handed down by the order screen: a product
+ * belongs to one company, so the read is scoped to it and there is no company-blind variant list to
+ * fall back to. With no company chosen yet — an unsaved order — nothing is requested at all, exactly
+ * like the product and store gates below: issuing the request without it is not possible, and guessing
+ * one would list another tenant's catalogue.
  *
  * The selected variant id is a two-way `model` so the parent can reset it after
  * adding a line; `variantSelected` carries the whole variant, because the parent
@@ -53,6 +59,14 @@ const VARIANT_PAGE_SIZE = 50;
 export class ProductVariantPicker {
   private readonly variantService = inject(ProductVariantService);
   private readonly destroyRef = inject(DestroyRef);
+
+  /**
+   * Company that owns the product, i.e. the order's company.
+   *
+   * Required as an input, nullable as a value: the parent must decide it, and `null` means the order has
+   * no company yet, which is a real state (an unsaved order) and not a licence to guess.
+   */
+  readonly companyId = input.required<string | null>();
 
   /** Product whose variants are offered. */
   readonly productId = input<string | null>(null);
@@ -78,8 +92,10 @@ export class ProductVariantPicker {
   readonly loading = this._loading.asReadonly();
   readonly loadFailed = this._loadFailed.asReadonly();
 
-  /** True while no product or no store is available: nothing can be requested. */
-  readonly missingContext = computed(() => !this.productId() || !this.storeId());
+  /** True while no company, no product or no store is available: nothing can be requested. */
+  readonly missingContext = computed(
+    () => !this.companyId() || !this.productId() || !this.storeId(),
+  );
 
   readonly controlDisabled = computed(() => this.disabled() || this.missingContext());
 
@@ -96,13 +112,14 @@ export class ProductVariantPicker {
   readonly hasMore = computed(() => this._totalElements() > this._variants().length);
 
   constructor() {
-    // Reload whenever the product or the store changes. A scope change
-    // invalidates everything loaded for the previous product/store, so the
+    // Reload whenever the company, the product or the store changes. A scope change
+    // invalidates everything loaded for the previous company/product/store, so the
     // options, the page total, the failure flag and the two-way selection are
     // cleared up front (before the new request resolves). Otherwise a variant
     // from the old scope would stay selectable and could be added to a line the
     // backend then rejects with a 404.
     effect(() => {
+      const companyId = this.companyId();
       const productId = this.productId();
       const storeId = this.storeId();
 
@@ -111,7 +128,7 @@ export class ProductVariantPicker {
       this._loadFailed.set(false);
       this.variantId.set(null);
 
-      if (!productId || !storeId) {
+      if (!companyId || !productId || !storeId) {
         this._loading.set(false);
         return;
       }
@@ -119,7 +136,7 @@ export class ProductVariantPicker {
       this._loading.set(true);
 
       this.variantService
-        .getVariants(productId, storeId, 0, VARIANT_PAGE_SIZE)
+        .getVariants(companyId, productId, storeId, 0, VARIANT_PAGE_SIZE)
         .pipe(takeUntilDestroyed(this.destroyRef))
         .subscribe({
           next: (page) => {

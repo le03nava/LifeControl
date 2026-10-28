@@ -16,10 +16,14 @@ import {
  * Sole owner of every product-variant endpoint.
  *
  * The backend splits the resource in two path roots: the GLOBAL definition lives
- * under `/api/products/{productId}/variants` (create, read, update, delete,
- * re-enable), while the PER-STORE stock and pricing row lives under
- * `/api/variants/{variantId}/stores/{storeId}`. Both are addressed from here so
- * no other service duplicates variant calls.
+ * under `/api/companies/{companyId}/products/{productId}/variants` (create, read,
+ * update, delete, re-enable), while the PER-STORE stock and pricing row lives under
+ * `/api/variants/{variantId}/stores/{storeId}` — store-addressed, no company in it.
+ * Both are addressed from here so no other service duplicates variant calls.
+ *
+ * The company is a path segment of the first root because the product it hangs off
+ * belongs to one, so every method of that half takes it and there is no company-blind
+ * base to fall back to.
  *
  * The list endpoint paginates and, when `storeId` is given, populates the
  * store-scoped fields of each variant; omitting it returns the product's global
@@ -42,9 +46,9 @@ export class ProductVariantService {
   readonly loading = this._loading.asReadonly();
   readonly error = this._error.asReadonly();
 
-  /** Base of the product-nested variant routes. */
-  private get productsUrl(): string {
-    return `${this.configService.apiUrl}/products`;
+  /** Base of the company-scoped, product-nested variant routes. */
+  productsUrl(companyId: string): string {
+    return `${this.configService.apiUrl}/companies/${companyId}/products`;
   }
 
   /** Base of the store-scoped variant routes. */
@@ -66,6 +70,7 @@ export class ProductVariantService {
    * store-scoped and search reads always exclude disabled variants, so callers
    * must never combine it with `storeId`.
    *
+   * @param companyId the company that owns the product
    * @param productId the product whose variants are wanted
    * @param storeId the store that narrows the list and fills in prices and stock
    * @param page zero-based page index
@@ -74,6 +79,7 @@ export class ProductVariantService {
    * soft-deleted definitions; defaults to `false` (excludes them)
    */
   getVariants(
+    companyId: string,
     productId: string,
     storeId?: string,
     page = 0,
@@ -94,7 +100,7 @@ export class ProductVariantService {
     }
 
     return this.http
-      .get<Page<ProductVariant>>(`${this.productsUrl}/${productId}/variants`, { params })
+      .get<Page<ProductVariant>>(`${this.productsUrl(companyId)}/${productId}/variants`, { params })
       .pipe(
         catchError((err: HttpErrorResponse) => {
           this._error.set(this.mapError(err, 'Error al cargar las variantes'));
@@ -105,12 +111,16 @@ export class ProductVariantService {
   }
 
   /** Reads one variant scoped to its product. */
-  getVariantById(productId: string, variantId: string): Observable<ProductVariant> {
+  getVariantById(
+    companyId: string,
+    productId: string,
+    variantId: string,
+  ): Observable<ProductVariant> {
     this._loading.set(true);
     this._error.set(null);
 
     return this.http
-      .get<ProductVariant>(`${this.productsUrl}/${productId}/variants/${variantId}`)
+      .get<ProductVariant>(`${this.productsUrl(companyId)}/${productId}/variants/${variantId}`)
       .pipe(
         catchError((err: HttpErrorResponse) => {
           this._error.set(this.mapError(err, 'Error al cargar la variante'));
@@ -121,12 +131,16 @@ export class ProductVariantService {
   }
 
   /** Creates the global definition of a variant (barcode + name). */
-  createVariant(productId: string, request: ProductVariantRequest): Observable<ProductVariant> {
+  createVariant(
+    companyId: string,
+    productId: string,
+    request: ProductVariantRequest,
+  ): Observable<ProductVariant> {
     this._loading.set(true);
     this._error.set(null);
 
     return this.http
-      .post<ProductVariant>(`${this.productsUrl}/${productId}/variants`, request)
+      .post<ProductVariant>(`${this.productsUrl(companyId)}/${productId}/variants`, request)
       .pipe(
         catchError((err: HttpErrorResponse) => {
           this._error.set(this.mapError(err, 'Error al crear la variante'));
@@ -138,6 +152,7 @@ export class ProductVariantService {
 
   /** Updates the global definition of a variant. Store values are not part of it. */
   updateVariant(
+    companyId: string,
     productId: string,
     variantId: string,
     request: ProductVariantRequest,
@@ -146,7 +161,10 @@ export class ProductVariantService {
     this._error.set(null);
 
     return this.http
-      .put<ProductVariant>(`${this.productsUrl}/${productId}/variants/${variantId}`, request)
+      .put<ProductVariant>(
+        `${this.productsUrl(companyId)}/${productId}/variants/${variantId}`,
+        request,
+      )
       .pipe(
         catchError((err: HttpErrorResponse) => {
           this._error.set(this.mapError(err, 'Error al actualizar la variante'));
@@ -157,26 +175,35 @@ export class ProductVariantService {
   }
 
   /** Soft-deletes a variant by disabling it. */
-  deleteVariant(productId: string, variantId: string): Observable<void> {
-    this._loading.set(true);
-    this._error.set(null);
-
-    return this.http.delete<void>(`${this.productsUrl}/${productId}/variants/${variantId}`).pipe(
-      catchError((err: HttpErrorResponse) => {
-        this._error.set(this.mapError(err, 'Error al eliminar la variante'));
-        return throwError(() => err);
-      }),
-      finalize(() => this._loading.set(false)),
-    );
-  }
-
-  /** Re-enables a soft-deleted variant. */
-  enableVariant(productId: string, variantId: string): Observable<ProductVariant> {
+  deleteVariant(companyId: string, productId: string, variantId: string): Observable<void> {
     this._loading.set(true);
     this._error.set(null);
 
     return this.http
-      .patch<ProductVariant>(`${this.productsUrl}/${productId}/variants/${variantId}/enable`, {})
+      .delete<void>(`${this.productsUrl(companyId)}/${productId}/variants/${variantId}`)
+      .pipe(
+        catchError((err: HttpErrorResponse) => {
+          this._error.set(this.mapError(err, 'Error al eliminar la variante'));
+          return throwError(() => err);
+        }),
+        finalize(() => this._loading.set(false)),
+      );
+  }
+
+  /** Re-enables a soft-deleted variant. */
+  enableVariant(
+    companyId: string,
+    productId: string,
+    variantId: string,
+  ): Observable<ProductVariant> {
+    this._loading.set(true);
+    this._error.set(null);
+
+    return this.http
+      .patch<ProductVariant>(
+        `${this.productsUrl(companyId)}/${productId}/variants/${variantId}/enable`,
+        {},
+      )
       .pipe(
         catchError((err: HttpErrorResponse) => {
           this._error.set(this.mapError(err, 'Error al habilitar la variante'));

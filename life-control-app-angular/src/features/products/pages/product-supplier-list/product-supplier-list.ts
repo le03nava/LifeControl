@@ -43,6 +43,14 @@ export class ProductSupplierList {
   /** The product whose supplier assignments are shown. Owned by the workspace shell. */
   readonly productId = input.required<string>();
 
+  /**
+   * The company that owns the product. The link is company-scoped even though the supplier is global.
+   *
+   * An input and not a route read, for the same reason as the variant tab: the workspace and the
+   * create stepper both render this list, and the shell that knows the company passes it.
+   */
+  readonly companyId = input.required<string>();
+
   /** The loaded supplier count, emitted on every successful read. */
   readonly countChange = output<number>();
 
@@ -59,8 +67,9 @@ export class ProductSupplierList {
   ];
 
   readonly suppliersResource = rxResource({
-    params: () => ({ productId: this.productId() }),
-    stream: ({ params }) => this.productSupplierService.getSuppliers(params.productId),
+    params: () => ({ companyId: this.companyId(), productId: this.productId() }),
+    stream: ({ params }) =>
+      this.productSupplierService.getSuppliers(params.companyId, params.productId),
   });
 
   readonly suppliers = computed(() =>
@@ -97,10 +106,10 @@ export class ProductSupplierList {
     this.dialog
       .open<
         ProductSupplierDialog,
-        { productId: string; assignment?: ProductSupplier },
+        { companyId: string; productId: string; assignment?: ProductSupplier },
         ProductSupplier | null
       >(ProductSupplierDialog, {
-        data: { productId: this.productId(), assignment },
+        data: { companyId: this.companyId(), productId: this.productId(), assignment },
         width: '560px',
       })
       .afterClosed()
@@ -123,7 +132,7 @@ export class ProductSupplierList {
       .subscribe((result) => {
         if (result) {
           this.productSupplierService
-            .removeSupplier(this.productId(), psId)
+            .removeSupplier(this.companyId(), this.productId(), psId)
             .pipe(takeUntilDestroyed(this.destroyRef))
             .subscribe({
               next: () => this.suppliersResource.reload(),

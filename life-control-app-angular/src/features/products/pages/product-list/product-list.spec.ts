@@ -1,5 +1,5 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { provideRouter, Router } from '@angular/router';
+import { ActivatedRoute, convertToParamMap, provideRouter, Router } from '@angular/router';
 import { MatIconModule } from '@angular/material/icon';
 import { MatPaginatorModule } from '@angular/material/paginator';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
@@ -20,10 +20,37 @@ describe('ProductList', () => {
   let productService: ProductServiceMock;
   let router: Router;
 
+  /** The company the list is scoped to; it arrives from the route, like every scoped screen. */
+  const companyId = 'company-1';
+
   const mockProducts: Product[] = [
-    { id: '1', sku: 'SKU-001', name: 'Alpha Widget', enabled: true, createdAt: '', updatedAt: '' },
-    { id: '2', sku: 'SKU-002', name: 'Beta Gadget', enabled: true, createdAt: '', updatedAt: '' },
-    { id: '3', sku: 'SKU-003', name: 'Gamma Tool', enabled: false, createdAt: '', updatedAt: '' },
+    {
+      id: '1',
+      sku: 'SKU-001',
+      name: 'Alpha Widget',
+      enabled: true,
+      createdAt: '',
+      updatedAt: '',
+      companyId,
+    },
+    {
+      id: '2',
+      sku: 'SKU-002',
+      name: 'Beta Gadget',
+      enabled: true,
+      createdAt: '',
+      updatedAt: '',
+      companyId,
+    },
+    {
+      id: '3',
+      sku: 'SKU-003',
+      name: 'Gamma Tool',
+      enabled: false,
+      createdAt: '',
+      updatedAt: '',
+      companyId,
+    },
   ];
 
   const createMockPage = (products: Product[], page = 0, size = 12): Page<Product> => ({
@@ -47,6 +74,10 @@ describe('ProductList', () => {
       imports: [ProductList, MatIconModule, MatPaginatorModule, MatDialogModule],
       providers: [
         provideRouter([]),
+        {
+          provide: ActivatedRoute,
+          useValue: { snapshot: { paramMap: convertToParamMap({ companyId }) } },
+        },
         { provide: ProductService, useValue: productService },
         {
           provide: MatDialog,
@@ -69,17 +100,23 @@ describe('ProductList', () => {
 
   it('should load products on creation via rxResource', () => {
     fixture.detectChanges();
-    expect(productService.getProducts).toHaveBeenCalledWith(0, 12, undefined);
+    expect(productService.getProducts).toHaveBeenCalledWith(companyId, 0, 12, undefined);
   });
 
   it('should navigate to edit page', () => {
     component.editProduct('123');
-    expect(router.navigate).toHaveBeenCalledWith(['/products/edit/123']);
+    expect(router.navigate).toHaveBeenCalledWith(['/products/c', companyId, 'edit', '123']);
   });
 
   it('should navigate to the product variants page', () => {
     component.manageVariants('123');
-    expect(router.navigate).toHaveBeenCalledWith(['/products/edit', '123', 'variants']);
+    expect(router.navigate).toHaveBeenCalledWith([
+      '/products/c',
+      companyId,
+      'edit',
+      '123',
+      'variants',
+    ]);
   });
 
   it('should open delete dialog', () => {
@@ -94,7 +131,7 @@ describe('ProductList', () => {
       dialogRef as unknown as ReturnType<MatDialog['open']>,
     );
     component.confirmDelete({ id: '1', name: 'Alpha Widget' });
-    expect(productService.deleteProduct).toHaveBeenCalledWith('1');
+    expect(productService.deleteProduct).toHaveBeenCalledWith(companyId, '1');
   });
 
   it('should NOT delete product when dialog cancels', () => {
@@ -140,7 +177,7 @@ describe('ProductList', () => {
     fixture.detectChanges();
 
     // API should be called with search param
-    expect(productService.getProducts).toHaveBeenCalledWith(0, 12, 'Alpha');
+    expect(productService.getProducts).toHaveBeenCalledWith(companyId, 0, 12, 'Alpha');
 
     vi.useRealTimers();
   });
@@ -150,14 +187,14 @@ describe('ProductList', () => {
     fixture.detectChanges();
     vi.advanceTimersByTime(0);
 
-    expect(productService.getProducts).toHaveBeenCalledWith(0, 12, undefined);
+    expect(productService.getProducts).toHaveBeenCalledWith(companyId, 0, 12, undefined);
 
     // Change page
     component.onPageChange({ pageIndex: 1, pageSize: 12 });
     fixture.detectChanges();
     vi.advanceTimersByTime(0);
 
-    expect(productService.getProducts).toHaveBeenCalledWith(1, 12, undefined);
+    expect(productService.getProducts).toHaveBeenCalledWith(companyId, 1, 12, undefined);
 
     vi.useRealTimers();
   });

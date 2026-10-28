@@ -27,6 +27,8 @@ describe('ProductVariantEdit', () => {
   const mockProductId = 'prod-1';
   const mockVariantId = 'var-1';
 
+  const mockCompanyId = 'company-1';
+
   const mockProduct: Product = {
     id: mockProductId,
     sku: 'SKU-001',
@@ -34,6 +36,7 @@ describe('ProductVariantEdit', () => {
     enabled: true,
     createdAt: '',
     updatedAt: '',
+    companyId: mockCompanyId,
   };
 
   const mockVariant: ProductVariant = {
@@ -144,6 +147,7 @@ describe('ProductVariantEdit', () => {
                 get: (key: string) => {
                   if (key === 'id') return productId;
                   if (key === 'variantId') return variantId;
+                  if (key === 'companyId') return mockCompanyId;
                   return null;
                 },
               },
@@ -170,7 +174,7 @@ describe('ProductVariantEdit', () => {
 
   it('should load the product for the header', async () => {
     await setup();
-    expect(productServiceMock.getProductById).toHaveBeenCalledWith(mockProductId);
+    expect(productServiceMock.getProductById).toHaveBeenCalledWith(mockCompanyId, mockProductId);
     expect(component.product()?.name).toBe('Producto de prueba');
   });
 
@@ -185,6 +189,7 @@ describe('ProductVariantEdit', () => {
     await setup();
 
     expect(productVariantServiceMock.getVariantById).toHaveBeenCalledWith(
+      mockCompanyId,
       mockProductId,
       mockVariantId,
     );
@@ -201,7 +206,7 @@ describe('ProductVariantEdit', () => {
   it('should fail closed to the product list when the route carries no productId', async () => {
     await setup({ productId: null });
 
-    expect(routerMock.navigate).toHaveBeenCalledWith(['/products/list']);
+    expect(routerMock.navigate).toHaveBeenCalledWith(['/products/c', mockCompanyId, 'list']);
   });
 
   describe('definition dialog', () => {
@@ -220,7 +225,7 @@ describe('ProductVariantEdit', () => {
       component.openDefinitionDialog();
 
       expect(dialogMock.open).toHaveBeenCalledWith(ProductVariantDialog, {
-        data: { productId: mockProductId, variant: mockVariant },
+        data: { companyId: mockCompanyId, productId: mockProductId, variant: mockVariant },
         width: '560px',
       });
     });

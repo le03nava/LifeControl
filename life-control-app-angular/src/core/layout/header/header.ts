@@ -92,6 +92,8 @@ export class Header implements OnInit {
     if (this.isAdmin()) {
       menuItems.push({
         id: '3',
+        // The products picker: the catalog is per company, so `/products` asks which one before any
+        // scoped screen (`/products/c/:companyId/...`).
         routeLink: '/products',
         textLink: 'Products',
         icon: 'inventory_2',
@@ -102,6 +104,12 @@ export class Header implements OnInit {
     // child of Products: sales has a store and a real job there (per-store stock and
     // prices), while the products ABM stays admin-only. Gated on exactly the role pair
     // the backend authorises on the variant endpoints.
+    //
+    // It stays outside the company segment and this entry keeps pointing at it, because the read it
+    // serves is store-addressed (`/api/product-variants/search?storeId=`): the page has no company of
+    // its own and asks for one only to open a row in the product-scoped editor. Sending it through
+    // `/products` instead would put this role's only entry point behind the company picker, whose
+    // destination is the admin-only hub.
     if (this.isAdmin() || this.isSalesRole()) {
       menuItems.push({
         id: '7',

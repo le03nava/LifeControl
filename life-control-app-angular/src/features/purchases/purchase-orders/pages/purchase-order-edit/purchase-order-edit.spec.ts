@@ -290,17 +290,44 @@ describe('PurchaseOrderEdit', () => {
       expect(buttons.length).toBe(1);
     });
 
-    it('should load supplier products when supplier changes', () => {
+    it('should load supplier products when supplier changes, scoped to the order company', () => {
       const mockProducts = [{ productId: 'prod-1', productName: 'Widget A', sku: 'SKU-001' }];
       productService.getProductsBySupplier = vi.fn().mockReturnValue(of(mockProducts));
 
       const form = component.headerForm();
+      form.controls.company.controls.companyId.setValue('company-1');
       form.controls.supplierId.setValue('sup-1');
 
-      expect(productService.getProductsBySupplier).toHaveBeenCalledWith('sup-1');
+      // The assertion that fails if the company were dropped: the read is company-scoped on the wire, so
+      // a call without it either does not compile or hits a `/api/products` path nothing serves.
+      expect(productService.getProductsBySupplier).toHaveBeenCalledWith('company-1', 'sup-1');
       expect(component.supplierProducts()).toEqual([
         { id: 'prod-1', name: 'Widget A', sku: 'SKU-001' },
       ]);
+    });
+
+    it('should request no supplier products while the order has no company', () => {
+      // An unsaved order has no company yet. Nothing is requested and the list stays empty: a
+      // company-blind read would answer with another tenant's catalogue.
+      productService.getProductsBySupplier = vi.fn().mockReturnValue(of([]));
+
+      const form = component.headerForm();
+      form.controls.company.controls.companyId.setValue(null);
+      form.controls.supplierId.setValue('sup-1');
+
+      expect(productService.getProductsBySupplier).not.toHaveBeenCalled();
+      expect(component.supplierProducts()).toEqual([]);
+    });
+
+    it('should expose the order company the variant picker is scoped to', () => {
+      // The same company reaches the picker through `<app-detail-table [companyId]>`; this is the value
+      // that binding reads, and it tracks the cascade group rather than a second copy.
+      const form = component.headerForm();
+      expect(component.orderCompanyId()).toBeNull();
+
+      form.controls.company.controls.companyId.setValue('company-1');
+
+      expect(component.orderCompanyId()).toBe('company-1');
     });
 
     it('should call service.create with form data on valid save', () => {

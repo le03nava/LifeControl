@@ -22,6 +22,22 @@
     </p>
 
     <!--
+      The company is only needed to open a row in the product-scoped editor, so it is asked for once,
+      next to the store, and kept in `?companyId=`: the search itself is store-addressed and needs no
+      company, which is why the field never blocks searching — only editing.
+    -->
+    <mat-form-field appearance="outline" class="company-field" subscriptSizing="dynamic">
+      <mat-label>Empresa del producto a editar</mat-label>
+      <mat-select [value]="selectedCompanyId()" (selectionChange)="onCompanyChange($event.value)">
+        <mat-option value="">— Seleccionar empresa —</mat-option>
+        @for (company of companies(); track company.id) {
+          <mat-option [value]="company.id">{{ company.companyName }}</mat-option>
+        }
+      </mat-select>
+      <mat-hint>La empresa es del producto que abrís: el stock se busca por tienda.</mat-hint>
+    </mat-form-field>
+
+    <!--
       Submit-driven, not keystroke-driven: the endpoint requires a query, and the flow
       this page serves is scanning or typing an identifier and pressing Enter.
     -->
@@ -109,6 +125,7 @@
                   <button
                     mat-icon-button
                     type="button"
+                    [disabled]="!selectedCompanyId()"
                     (click)="editVariant(row)"
                     aria-label="Editar stock y precios"
                   >

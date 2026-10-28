@@ -49,6 +49,8 @@ describe('ProductSupplierDialog', () => {
   let supplierServiceMock: { getSuppliers: ReturnType<typeof vi.fn> };
 
   const productId = 'prod-1';
+  /** The company the assignment is scoped to: the opener passes it with the product. */
+  const companyId = 'company-1';
   const assignment: ProductSupplier = {
     id: 'ps-1',
     productId,
@@ -84,7 +86,7 @@ describe('ProductSupplierDialog', () => {
       providers: [
         { provide: MatDialogRef, useValue: dialogRef },
         { provide: MatDialog, useValue: dialogMock },
-        { provide: MAT_DIALOG_DATA, useValue: options.data ?? { productId } },
+        { provide: MAT_DIALOG_DATA, useValue: options.data ?? { companyId, productId } },
         { provide: ProductSupplierService, useValue: productSupplierServiceMock },
         { provide: SupplierService, useValue: supplierServiceMock },
       ],
@@ -107,7 +109,7 @@ describe('ProductSupplierDialog', () => {
   });
 
   it('should be in edit mode when an assignment is passed', () => {
-    setup({ data: { productId, assignment } });
+    setup({ data: { companyId, productId, assignment } });
     fixture.detectChanges();
     expect(component.editMode()).toBe(true);
   });
@@ -127,7 +129,7 @@ describe('ProductSupplierDialog', () => {
     });
 
     it('should build the form from the assignment in edit mode', () => {
-      setup({ data: { productId, assignment } });
+      setup({ data: { companyId, productId, assignment } });
       fixture.detectChanges();
 
       expect(component.assignmentForm().getRawValue()).toEqual({
@@ -151,7 +153,7 @@ describe('ProductSupplierDialog', () => {
     });
 
     it('should render the edit title', () => {
-      setup({ data: { productId, assignment } });
+      setup({ data: { companyId, productId, assignment } });
       fixture.detectChanges();
 
       expect(fixture.nativeElement.querySelector('h2')?.textContent?.trim()).toBe(
@@ -165,7 +167,7 @@ describe('ProductSupplierDialog', () => {
       setup({ assignments: [assignment] });
       fixture.detectChanges();
 
-      expect(productSupplierServiceMock.getSuppliers).toHaveBeenCalledWith(productId);
+      expect(productSupplierServiceMock.getSuppliers).toHaveBeenCalledWith(companyId, productId);
       expect(component.assignedSuppliers()).toEqual([assignment]);
     });
 
@@ -204,7 +206,7 @@ describe('ProductSupplierDialog', () => {
 
     it('should keep the currently assigned supplier selectable in edit mode', () => {
       setup({
-        data: { productId, assignment },
+        data: { companyId, productId, assignment },
         searchResult: [supplier('sup-1', 'Uno'), supplier('sup-2', 'Dos')],
         assignments: [assignment, { ...assignment, id: 'ps-2', supplierId: 'sup-2' }],
       });
@@ -215,7 +217,7 @@ describe('ProductSupplierDialog', () => {
 
     it('should keep the current supplier even when the result page omits it', () => {
       setup({
-        data: { productId, assignment },
+        data: { companyId, productId, assignment },
         searchResult: [supplier('sup-2', 'Dos')],
         assignments: [assignment, { ...assignment, id: 'ps-2', supplierId: 'sup-2' }],
       });
@@ -353,7 +355,7 @@ describe('ProductSupplierDialog', () => {
         enabled: true,
       });
 
-      expect(productSupplierServiceMock.addSupplier).toHaveBeenCalledWith(productId, {
+      expect(productSupplierServiceMock.addSupplier).toHaveBeenCalledWith(companyId, productId, {
         supplierId: 'sup-1',
         purchaseCost: 10,
         main: false,
@@ -364,7 +366,7 @@ describe('ProductSupplierDialog', () => {
     });
 
     it('should update the assignment and close with the saved entity in edit mode', () => {
-      setup({ data: { productId, assignment } });
+      setup({ data: { companyId, productId, assignment } });
       fixture.detectChanges();
 
       component.onSaveAssignment({
@@ -374,12 +376,17 @@ describe('ProductSupplierDialog', () => {
         enabled: true,
       });
 
-      expect(productSupplierServiceMock.updateSupplier).toHaveBeenCalledWith(productId, 'ps-1', {
-        supplierId: 'sup-1',
-        purchaseCost: 99,
-        main: false,
-        enabled: true,
-      });
+      expect(productSupplierServiceMock.updateSupplier).toHaveBeenCalledWith(
+        companyId,
+        productId,
+        'ps-1',
+        {
+          supplierId: 'sup-1',
+          purchaseCost: 99,
+          main: false,
+          enabled: true,
+        },
+      );
       expect(productSupplierServiceMock.addSupplier).not.toHaveBeenCalled();
       expect(dialogRef.close).toHaveBeenCalledWith(assignment);
     });
@@ -460,7 +467,7 @@ describe('ProductSupplierDialog', () => {
 
   describe('unsaved input protection', () => {
     it('should start clean when the form is built from the loaded assignment', () => {
-      setup({ data: { productId, assignment } });
+      setup({ data: { companyId, productId, assignment } });
       fixture.detectChanges();
 
       expect(component.formDirty()).toBe(false);

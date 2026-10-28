@@ -98,6 +98,15 @@ export class DetailTable {
   readonly storeId = input.required<string>();
 
   /**
+   * Company that owns the order, forwarded to the variant picker.
+   *
+   * Defaults to `null` on purpose: this table is presentational and owns no order state, so a host that
+   * has no company yet (an unsaved order) simply binds nothing, and the picker fails closed instead of
+   * reading a catalogue it cannot scope.
+   */
+  readonly companyId = input<string | null>(null);
+
+  /**
    * Opt-in reception progress view: adds the received-quantity and line-status
    * columns. Defaults to `false`, so the draft editor renders exactly as before.
    */

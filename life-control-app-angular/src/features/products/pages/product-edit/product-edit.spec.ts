@@ -86,6 +86,9 @@ describe('ProductEdit', () => {
     });
   }
 
+  /** The company of the route below: every read and write of this screen is scoped to it. */
+  const companyId = 'company-1';
+
   function createProductData(overrides: Partial<Product> = {}): Product {
     return {
       id: '',
@@ -94,6 +97,7 @@ describe('ProductEdit', () => {
       enabled: true,
       createdAt: '',
       updatedAt: '',
+      companyId,
       ...overrides,
     };
   }
@@ -242,7 +246,9 @@ describe('ProductEdit', () => {
 
     routeMock = {
       snapshot: {
-        paramMap: { get: (key: string) => (key === 'id' ? productId : null) },
+        paramMap: {
+          get: (key: string) => (key === 'id' ? productId : key === 'companyId' ? companyId : null),
+        },
         queryParamMap: { get: (key: string) => queryParams$.value.get(key) },
       },
       queryParamMap: queryParams$.asObservable(),
@@ -427,7 +433,7 @@ describe('ProductEdit', () => {
     });
     await settle();
 
-    expect(productServiceMock.getProductById).toHaveBeenCalledWith('existing-id');
+    expect(productServiceMock.getProductById).toHaveBeenCalledWith(companyId, 'existing-id');
     expect(component.productForm().controls.name.value).toBe('Existing Product');
   });
 
@@ -459,6 +465,7 @@ describe('ProductEdit', () => {
     component.onSaveProduct(createProductData({ id: 'new-id', name: 'Renombrado' }));
 
     expect(productServiceMock.updateProduct).toHaveBeenCalledWith(
+      companyId,
       'new-id',
       expect.objectContaining({ name: 'Renombrado' }),
     );
@@ -471,19 +478,19 @@ describe('ProductEdit', () => {
     productServiceMock.updateProduct = vi.fn().mockReturnValue(of({} as Product));
 
     component.onSaveProduct(createProductData({ id: 'existing-id' }));
-    expect(routerMock.navigate).toHaveBeenCalledWith(['/products']);
+    expect(routerMock.navigate).toHaveBeenCalledWith(['/products/c', companyId, 'list']);
   });
 
   it('should navigate to products admin on cancel in create mode', () => {
     setup();
     component.cancelForm();
-    expect(routerMock.navigate).toHaveBeenCalledWith(['/products']);
+    expect(routerMock.navigate).toHaveBeenCalledWith(['/products/c', companyId, 'list']);
   });
 
   it('should keep the edit workspace cancel going to the list, not to its own URL', () => {
     setup({ edit: true });
     component.cancelForm();
-    expect(routerMock.navigate).toHaveBeenCalledWith(['/products']);
+    expect(routerMock.navigate).toHaveBeenCalledWith(['/products/c', companyId, 'list']);
   });
 
   describe('hasUnsavedChanges', () => {
@@ -522,7 +529,7 @@ describe('ProductEdit', () => {
       component.onSaveProduct(createProductData({ id: 'existing-id' }));
 
       expect(component.hasUnsavedChanges()).toBe(false);
-      expect(routerMock.navigate).toHaveBeenCalledWith(['/products']);
+      expect(routerMock.navigate).toHaveBeenCalledWith(['/products/c', companyId, 'list']);
     });
 
     it('should clear the flag after a successful create', () => {
@@ -675,14 +682,19 @@ describe('ProductEdit', () => {
       );
       terminate?.click();
 
-      expect(routerMock.navigate).toHaveBeenCalledWith(['/products/edit', 'new-id']);
+      expect(routerMock.navigate).toHaveBeenCalledWith([
+        '/products/c',
+        companyId,
+        'edit',
+        'new-id',
+      ]);
     });
 
     it('should navigate to the list on Terminar before the product exists (D27)', () => {
       setup();
       component.finish();
 
-      expect(routerMock.navigate).toHaveBeenCalledWith(['/products']);
+      expect(routerMock.navigate).toHaveBeenCalledWith(['/products/c', companyId, 'list']);
     });
 
     it('should navigate to the workspace on Cancelar once the product exists (D27)', () => {
@@ -690,7 +702,12 @@ describe('ProductEdit', () => {
       createProductThroughStepOne();
       component.cancelForm();
 
-      expect(routerMock.navigate).toHaveBeenCalledWith(['/products/edit', 'new-id']);
+      expect(routerMock.navigate).toHaveBeenCalledWith([
+        '/products/c',
+        companyId,
+        'edit',
+        'new-id',
+      ]);
     });
 
     it('should report unsaved changes after a back-edit on step 1 (T12)', () => {
@@ -749,7 +766,9 @@ describe('ProductEdit', () => {
 
       expect(dialogMock.open).toHaveBeenCalledWith(
         ProductSupplierDialog,
-        expect.objectContaining({ data: { productId: 'new-id', assignment: undefined } }),
+        expect.objectContaining({
+          data: { companyId, productId: 'new-id', assignment: undefined },
+        }),
       );
     });
 
@@ -971,7 +990,7 @@ describe('ProductEdit', () => {
       component.onSaveProduct(createProductData({ id: '', ...requestFields }));
 
       expect(productServiceMock.createProduct).toHaveBeenCalledTimes(1);
-      expect(productServiceMock.createProduct.mock.calls[0][0]).toStrictEqual({
+      expect(productServiceMock.createProduct.mock.calls[0][1]).toStrictEqual({
         ...requestFields,
         // S3: no selection travels as an explicit `null`, which is how the link is cleared.
         categoryId: null,
@@ -986,8 +1005,8 @@ describe('ProductEdit', () => {
       component.onSaveProduct(createProductData({ id: 'existing-id', ...requestFields }));
 
       expect(productServiceMock.updateProduct).toHaveBeenCalledTimes(1);
-      // `updateProduct(id, data)` takes the id first, so the body is argument 1.
-      expect(productServiceMock.updateProduct.mock.calls[0][1]).toStrictEqual({
+      // `updateProduct(companyId, id, data)`: the body is the last argument.
+      expect(productServiceMock.updateProduct.mock.calls[0][2]).toStrictEqual({
         ...requestFields,
         categoryId: null,
       });
@@ -1002,7 +1021,7 @@ describe('ProductEdit', () => {
         createProductData({ id: 'existing-id', ...requestFields, categoryId: 'sub2-1' }),
       );
 
-      expect(productServiceMock.updateProduct.mock.calls[0][1]).toStrictEqual({
+      expect(productServiceMock.updateProduct.mock.calls[0][2]).toStrictEqual({
         ...requestFields,
         categoryId: 'sub2-1',
       });
@@ -1010,24 +1029,25 @@ describe('ProductEdit', () => {
   });
 
   describe('product category classification (S1-S8)', () => {
-    it('should resolve a saved path through the product’s own company, keeping the saved SAT code (S6, S8, S9)', async () => {
+    it('should resolve a saved path through the company of the route, keeping the saved SAT code (S6, S8, S9)', async () => {
       setup({
         edit: true,
+        // A leftover `?companyId=` from an old bookmark must not decide anything: the route's segment is
+        // the screen's company, and the product belongs to it.
         queryParams: { companyId: 'company-other' },
         product: createProductData({
           id: 'existing-id',
           categoryId: 'sub2-1',
-          categoryCompanyId: 'company-1',
           satCode: '99999999',
         }),
         categories: createCategoryTree(),
       });
       await settle();
 
-      // The classification decides the tree: the product's company wins over the linked one, without
-      // navigating, and the tree is read including the disabled nodes (S8).
-      expect(component.selectedCompanyId()).toBe('company-1');
-      expect(categoryServiceMock.getCategories).toHaveBeenLastCalledWith('company-1', true);
+      // The route decides the tree, without navigating, and the tree is read including the disabled
+      // nodes (S8).
+      expect(component.selectedCompanyId()).toBe(companyId);
+      expect(categoryServiceMock.getCategories).toHaveBeenLastCalledWith(companyId, true);
       expect(routerMock.navigate).not.toHaveBeenCalled();
 
       // The three selects hold the saved ids, root -> deepest (S6).
@@ -1045,57 +1065,40 @@ describe('ProductEdit', () => {
       expect(formText).not.toContain('Código SAT tomado de:');
     });
 
-    it('should seed the company from ?companyId= and write the pick back with replaceUrl (S2)', async () => {
-      setup({
-        edit: true,
-        queryParams: { companyId: 'company-1' },
-        categories: createCategoryTree(),
-      });
+    it('should refuse to move a saved product to another company (S2)', async () => {
+      setup({ edit: true, categories: createCategoryTree() });
       await settle();
 
-      expect(component.selectedCompanyId()).toBe('company-1');
-      expect(categoryServiceMock.getCategories).toHaveBeenCalledWith('company-1', true);
+      expect(component.selectedCompanyId()).toBe(companyId);
+      expect(categoryServiceMock.getCategories).toHaveBeenCalledWith(companyId, true);
 
       routerMock.navigate.mockClear();
       component.onCompanyChange('company-2');
       await settle();
 
-      expect(component.selectedCompanyId()).toBe('company-2');
-      expect(routerMock.navigate).toHaveBeenCalledTimes(1);
-      const [commands, extras] = routerMock.navigate.mock.calls[0] as [
-        unknown[],
-        {
-          relativeTo: unknown;
-          queryParams: Record<string, string | null>;
-          queryParamsHandling: string;
-          replaceUrl: boolean;
-        },
-      ];
-      expect(commands).toEqual([]);
-      expect(extras.relativeTo).toBe(TestBed.inject(ActivatedRoute));
-      expect(extras.queryParams).toEqual({ companyId: 'company-2' });
-      expect(extras.queryParamsHandling).toBe('merge');
-      expect(extras.replaceUrl).toBe(true);
-      // The new company's tree is what the selects read next.
-      expect(categoryServiceMock.getCategories).toHaveBeenLastCalledWith('company-2', true);
+      // The API scopes every write to the product's own company and refuses a category of another one,
+      // so the screen cannot move it: no navigation, and the tree stays the one the URL named.
+      expect(component.selectedCompanyId()).toBe(companyId);
+      expect(routerMock.navigate).not.toHaveBeenCalled();
+      expect(categoryServiceMock.getCategories).toHaveBeenLastCalledWith(companyId, true);
     });
 
-    it('should issue no category request until a company is picked (S2, S10)', async () => {
+    it('should read the route company’s tree in create mode without asking for a company (S2, S10)', async () => {
       setup({ categories: createCategoryTree() });
       await settle();
 
-      // Create mode, no `?companyId=`: the selects are rendered (S10) over an empty tree and nothing is
-      // requested, which is the `undefined` params state `ProductCategoryList` also uses.
-      expect(component.selectedCompanyId()).toBeNull();
-      expect(categoryServiceMock.getCategories).not.toHaveBeenCalled();
+      // The company arrives in the path (`/products/c/:companyId/create`), so the tree load is not
+      // waiting on a pick: it is already the route's company's tree.
+      expect(component.selectedCompanyId()).toBe(companyId);
+      expect(categoryServiceMock.getCategories).toHaveBeenCalledWith(companyId, true);
       expect(fixture.nativeElement.querySelector('app-products-form')).not.toBeNull();
       expect(component.productForm().controls.categoryId.value).toBe('');
 
-      component.onCompanyChange('company-1');
-      await settle();
-
-      expect(categoryServiceMock.getCategories).toHaveBeenCalledWith('company-1', true);
-      expect(component.categoriesResource.value().length).toBe(3);
+      // Picking another company before the product exists is a navigation to that company's create
+      // screen, not a filter: there is no product to move yet.
+      routerMock.navigate.mockClear();
+      component.onCompanyChange('company-2');
+      expect(routerMock.navigate).toHaveBeenCalledWith(['/products/c', 'company-2', 'create']);
     });
 
     it('should keep the saved classification while the tree is still in flight (S6, F1)', async () => {
@@ -1104,7 +1107,6 @@ describe('ProductEdit', () => {
         product: createProductData({
           id: 'existing-id',
           categoryId: 'sub2-1',
-          categoryCompanyId: 'company-1',
           satCode: '99999999',
         }),
         categoriesDeferred: true,
@@ -1142,7 +1144,6 @@ describe('ProductEdit', () => {
         product: createProductData({
           id: 'existing-id',
           categoryId: 'sub2-1',
-          categoryCompanyId: 'company-1',
         }),
         categoriesFailing: true,
       });
@@ -1164,12 +1165,8 @@ describe('ProductEdit', () => {
       expect(fixture.nativeElement.querySelector('app-products-form')).not.toBeNull();
     });
 
-    it('should clear the three selects and the SAT hint when the company changes (S2)', async () => {
-      setup({
-        edit: true,
-        queryParams: { companyId: 'company-1' },
-        categories: createCategoryTree(),
-      });
+    it('should keep the pick and its SAT hint when the company select reports another company (S2)', async () => {
+      setup({ edit: true, categories: createCategoryTree() });
       await settle();
 
       const form = fixture.debugElement.query(By.directive(ProductsForm))
@@ -1177,22 +1174,17 @@ describe('ProductEdit', () => {
       form.onRootChange('root-1');
       fixture.detectChanges();
 
-      // Positive control: the pick really landed, so the clearing below is not the absence of a pick.
       expect(component.productForm().controls.categoryId.value).toBe('root-1');
       expect(form.satCodeHint()).toBe('Código SAT tomado de: Alimentos');
 
+      // The select is disabled once the product exists, so this is the belt-and-braces path: a reported
+      // change must not silently discard a classification the screen cannot move to another company.
       component.onCompanyChange('company-2');
       await settle();
 
       const controls = component.productForm().controls;
-      expect(controls.categoryRootId.value).toBe('');
-      expect(controls.subcategory1Id.value).toBe('');
-      expect(controls.subcategory2Id.value).toBe('');
-      expect(controls.categoryId.value).toBe('');
-      expect(form.satCodeHint()).toBeNull();
-      expect(fixture.nativeElement.querySelector('app-products-form')?.textContent).not.toContain(
-        'Código SAT tomado de:',
-      );
+      expect(controls.categoryId.value).toBe('root-1');
+      expect(form.satCodeHint()).toBe('Código SAT tomado de: Alimentos');
     });
   });
 
@@ -1231,7 +1223,6 @@ describe('ProductEdit', () => {
         product: createProductData({
           id: 'existing-id',
           categoryId: 'sub2-1',
-          categoryCompanyId: 'company-1',
         }),
         categories: createCategoryTree(),
         attributeProfile: shoeProfile,

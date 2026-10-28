@@ -16,6 +16,7 @@ describe('ProductsCard', () => {
     enabled: true,
     createdAt: '2024-01-01',
     updatedAt: '2024-01-01',
+    companyId: 'company-1',
   };
 
   beforeEach(async () => {

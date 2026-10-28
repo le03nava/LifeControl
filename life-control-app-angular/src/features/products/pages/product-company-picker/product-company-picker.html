@@ -1,0 +1,56 @@
+<div class="company-picker">
+  <app-page-header
+    title="Productos"
+    subtitle="Elegí la empresa: el catálogo de productos es por empresa"
+    [showActions]="false"
+  />
+
+  @if (loading()) {
+    <div class="loading-skeleton">
+      @for (_ of [1, 2, 3]; track $index) {
+        <div class="skeleton-card" [style.--i]="$index">
+          <div class="skeleton-title"></div>
+          <div class="skeleton-line"></div>
+        </div>
+      }
+    </div>
+  } @else if (error(); as err) {
+    <div class="error-state">
+      <mat-icon fontIcon="error" />
+      <p>{{ httpErrorMessage(err) }}</p>
+      <button mat-stroked-button type="button" (click)="onRetry()">Reintentar</button>
+    </div>
+  } @else {
+    @let list = companies();
+    @if (list && list.length > 0) {
+      <div class="company-grid">
+        @for (company of list; track company.id; let i = $index) {
+          <div class="card-wrapper" [style.--i]="i">
+            <mat-card
+              class="company-card"
+              appearance="outlined"
+              [routerLink]="['/products/c', company.id]"
+            >
+              <mat-card-content>
+                <div class="card-icon">
+                  <mat-icon fontIcon="business" />
+                </div>
+                <h2 class="card-title">{{ company.companyName }}</h2>
+                <p class="card-subtitle">{{ company.companyKey }}</p>
+                <span class="card-action">Administrar productos →</span>
+              </mat-card-content>
+            </mat-card>
+          </div>
+        }
+      </div>
+    } @else {
+      <div class="empty-state">
+        <mat-icon fontIcon="business" />
+        <h3 class="empty-title">No hay empresas disponibles</h3>
+        <p class="empty-subtitle">
+          El catálogo de productos es por empresa: sin una empresa no hay catálogo que administrar.
+        </p>
+      </div>
+    }
+  }
+</div>

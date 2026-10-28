@@ -19,6 +19,8 @@ describe('ProductSupplierList', () => {
   let dialogMock: { open: ReturnType<typeof vi.fn> };
 
   const mockProductId = 'prod-1';
+  /** The company that owns the product: the assignment list is scoped to it. */
+  const mockCompanyId = 'company-1';
 
   function createSuppliers(overrides: Partial<ProductSupplier>[] = []): ProductSupplier[] {
     if (overrides.length > 0) return overrides.map((o, i) => createSupplier(i, o));
@@ -78,6 +80,7 @@ describe('ProductSupplierList', () => {
 
     fixture = TestBed.createComponent(ProductSupplierList);
     component = fixture.componentInstance;
+    fixture.componentRef.setInput('companyId', mockCompanyId);
     fixture.componentRef.setInput('productId', mockProductId);
   }
 
@@ -110,7 +113,7 @@ describe('ProductSupplierList', () => {
     it('should fetch suppliers for the productId it is given', async () => {
       setup();
       await settle();
-      expect(serviceMock.getSuppliers).toHaveBeenCalledWith(mockProductId);
+      expect(serviceMock.getSuppliers).toHaveBeenCalledWith(mockCompanyId, mockProductId);
     });
   });
 
@@ -151,7 +154,7 @@ describe('ProductSupplierList', () => {
       component.confirmDelete('ps-0', 'Supplier 0');
       await settle();
 
-      expect(serviceMock.removeSupplier).toHaveBeenCalledWith(mockProductId, 'ps-0');
+      expect(serviceMock.removeSupplier).toHaveBeenCalledWith(mockCompanyId, mockProductId, 'ps-0');
       expect(emitted).toEqual([2, 1]);
     });
 
@@ -195,7 +198,7 @@ describe('ProductSupplierList', () => {
 
       actionButtons[0].click();
       expect(dialogMock.open).toHaveBeenCalledWith(ProductSupplierDialog, {
-        data: { productId: mockProductId, assignment: undefined },
+        data: { companyId: mockCompanyId, productId: mockProductId, assignment: undefined },
         width: '560px',
       });
     });
@@ -216,7 +219,7 @@ describe('ProductSupplierList', () => {
 
       emptyButtons[0].click();
       expect(dialogMock.open).toHaveBeenCalledWith(ProductSupplierDialog, {
-        data: { productId: mockProductId, assignment: undefined },
+        data: { companyId: mockCompanyId, productId: mockProductId, assignment: undefined },
         width: '560px',
       });
     });
@@ -230,7 +233,7 @@ describe('ProductSupplierList', () => {
       component.addSupplier();
 
       expect(dialogMock.open).toHaveBeenCalledWith(ProductSupplierDialog, {
-        data: { productId: mockProductId, assignment: undefined },
+        data: { companyId: mockCompanyId, productId: mockProductId, assignment: undefined },
         width: '560px',
       });
     });
@@ -243,7 +246,7 @@ describe('ProductSupplierList', () => {
       component.editSupplier(row);
 
       expect(dialogMock.open).toHaveBeenCalledWith(ProductSupplierDialog, {
-        data: { productId: mockProductId, assignment: row },
+        data: { companyId: mockCompanyId, productId: mockProductId, assignment: row },
         width: '560px',
       });
     });
@@ -292,7 +295,7 @@ describe('ProductSupplierList', () => {
       component.confirmDelete('ps-1', 'Supplier 0');
 
       expect(dialogMock.open).toHaveBeenCalled();
-      expect(serviceMock.removeSupplier).toHaveBeenCalledWith(mockProductId, 'ps-1');
+      expect(serviceMock.removeSupplier).toHaveBeenCalledWith(mockCompanyId, mockProductId, 'ps-1');
     });
   });
 

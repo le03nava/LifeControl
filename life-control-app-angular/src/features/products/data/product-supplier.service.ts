@@ -11,27 +11,46 @@ export class ProductSupplierService {
   private readonly configService = inject(ConfigService);
   private readonly http = inject(HttpClient);
 
-  get apiUrl(): string {
-    return `${this.configService.apiUrl}/products`;
+  /**
+   * The products collection of one company, which is the owner of every assignment below.
+   *
+   * A product-supplier link is company-scoped even though the supplier itself is global (a decision of
+   * its own unit): the link hangs off the product, and the product belongs to a company.
+   */
+  productsUrl(companyId: string): string {
+    return `${this.configService.apiUrl}/companies/${companyId}/products`;
   }
 
-  getSuppliers(productId: string): Observable<ProductSupplier[]> {
-    return this.http.get<ProductSupplier[]>(`${this.apiUrl}/${productId}/suppliers`);
+  getSuppliers(companyId: string, productId: string): Observable<ProductSupplier[]> {
+    return this.http.get<ProductSupplier[]>(
+      `${this.productsUrl(companyId)}/${productId}/suppliers`,
+    );
   }
 
-  addSupplier(productId: string, data: ProductSupplierRequest): Observable<ProductSupplier> {
-    return this.http.post<ProductSupplier>(`${this.apiUrl}/${productId}/suppliers`, data);
+  addSupplier(
+    companyId: string,
+    productId: string,
+    data: ProductSupplierRequest,
+  ): Observable<ProductSupplier> {
+    return this.http.post<ProductSupplier>(
+      `${this.productsUrl(companyId)}/${productId}/suppliers`,
+      data,
+    );
   }
 
   updateSupplier(
+    companyId: string,
     productId: string,
     psId: string,
     data: ProductSupplierRequest,
   ): Observable<ProductSupplier> {
-    return this.http.put<ProductSupplier>(`${this.apiUrl}/${productId}/suppliers/${psId}`, data);
+    return this.http.put<ProductSupplier>(
+      `${this.productsUrl(companyId)}/${productId}/suppliers/${psId}`,
+      data,
+    );
   }
 
-  removeSupplier(productId: string, psId: string): Observable<void> {
-    return this.http.delete<void>(`${this.apiUrl}/${productId}/suppliers/${psId}`);
+  removeSupplier(companyId: string, productId: string, psId: string): Observable<void> {
+    return this.http.delete<void>(`${this.productsUrl(companyId)}/${productId}/suppliers/${psId}`);
   }
 }

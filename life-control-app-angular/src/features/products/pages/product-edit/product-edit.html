@@ -20,6 +20,7 @@
     <mat-tab [label]="supplierTabLabel()">
       <div class="tab-content">
         <app-product-supplier-list
+          [companyId]="companyId!"
           [productId]="productId()!"
           (countChange)="supplierCount.set($event)"
         />
@@ -29,6 +30,7 @@
     <mat-tab [label]="variantTabLabel()">
       <div class="tab-content">
         <app-product-variant-list
+          [companyId]="companyId!"
           [productId]="productId()!"
           (countChange)="variantCount.set($event)"
           (dirtyChange)="variantPanelDirty.set($event)"
@@ -79,7 +81,7 @@
       -->
       <ng-template matStepContent>
         @if (productId(); as id) {
-          <app-product-supplier-list [productId]="id" />
+          <app-product-supplier-list [companyId]="companyId!" [productId]="id" />
         } @else {
           <p class="step-hint">Primero guardá los datos del producto.</p>
         }
@@ -104,6 +106,7 @@
       <ng-template matStepContent>
         @if (productId(); as id) {
           <app-product-variant-list
+            [companyId]="companyId!"
             [productId]="id"
             (dirtyChange)="variantPanelDirty.set($event)"
           />
