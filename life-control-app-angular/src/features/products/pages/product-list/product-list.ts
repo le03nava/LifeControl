@@ -7,11 +7,13 @@ import {
   signal,
   computed,
 } from '@angular/core';
-import { rxResource, takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { rxResource, takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
+import { ActivatedRoute, Router } from '@angular/router';
 import { PageHeader } from '@shared/ui';
 import { httpErrorMessage } from '@shared/data';
 import { observeMobileViewport } from '@shared/responsive/mobile-viewport';
+import { CompanyService } from '@features/companies/companies/data/company.service';
+import { map } from 'rxjs';
 import { ProductService } from '../../data/product.service';
 import { productsCompanyId } from '../../data/products-company';
 import { ProductsCard } from '../../components';
@@ -20,6 +22,7 @@ import { MatPaginatorModule } from '@angular/material/paginator';
 import { MatButtonModule } from '@angular/material/button';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
+import { MatSelectModule } from '@angular/material/select';
 import { MatDialog } from '@angular/material/dialog';
 import { DeleteProductDialogComponent } from '../../ui/delete-product-dialog/delete-product-dialog';
 
@@ -27,7 +30,6 @@ import { DeleteProductDialogComponent } from '../../ui/delete-product-dialog/del
   selector: 'app-product-list',
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
-    RouterLink,
     PageHeader,
     ProductsCard,
     MatIconModule,
@@ -35,19 +37,43 @@ import { DeleteProductDialogComponent } from '../../ui/delete-product-dialog/del
     MatButtonModule,
     MatFormFieldModule,
     MatInputModule,
+    MatSelectModule,
   ],
   templateUrl: './product-list.html',
   styleUrl: './product-list.scss',
 })
 export class ProductList {
   productService = inject(ProductService);
+  private readonly companyService = inject(CompanyService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly dialog = inject(MatDialog);
   private readonly destroyRef = inject(DestroyRef);
 
-  /** The company this list belongs to, from the route: `/products/c/:companyId/list`. */
-  readonly companyId = productsCompanyId(this.route);
+  /**
+   * The companies the `Empresa` filter can name.
+   *
+   * The claim-authorized selector, exactly as `ProductCategoryList` reads it: any authenticated caller
+   * is allowed to paint a company choice, so the filter offers precisely the companies whose catalog it
+   * can then read.
+   */
+  readonly companies = toSignal(
+    this.companyService.getCompanySelector(0, 1000).pipe(map((page) => page.content)),
+    { initialValue: [] },
+  );
+
+  /**
+   * The company whose catalog is listed, seeded from `?companyId=` and kept there.
+   *
+   * The list has no cross-company read (S2): `GET /api/companies/{companyId}/products` is the only
+   * endpoint, so this is a filter and not a view toggle. `null` is therefore a real state and not an
+   * error — the screen asks for a company instead of rendering an empty grid, which would claim that a
+   * company nobody named has no products.
+   *
+   * A signal and not the route's plain value, because the operator changes it here: the choice is
+   * written back into the URL by {@link onCompanyChange}, so a copied link reproduces the list.
+   */
+  readonly selectedCompanyId = signal<string | null>(productsCompanyId(this.route));
 
   // Paginación
   readonly pageSize = signal(12);
@@ -63,10 +89,11 @@ export class ProductList {
   // Search debounced: se usa para la llamada API (300ms después de que el user deja de tipear)
   private readonly _debouncedSearch = signal('');
 
-  // rxResource: llama al backend automáticamente cuando cambian pageIndex, pageSize o _debouncedSearch
+  // rxResource: llama al backend automáticamente cuando cambian pageIndex, pageSize o _debouncedSearch.
+  // `undefined` params es el estado "sin empresa elegida" y no emite ninguna request.
   readonly productsResource = rxResource({
     params: () => {
-      const companyId = this.companyId;
+      const companyId = this.selectedCompanyId();
       return companyId
         ? {
             companyId,
@@ -113,11 +140,50 @@ export class ProductList {
     });
   }
 
-  editProduct(id: string): void {
-    if (!this.companyId) {
+  /**
+   * Keeps the choice in the URL and lets the request follow it.
+   *
+   * `replaceUrl` because choosing a company is not a step in a flow: it is the same page with a
+   * different filter, and a history entry per pick would make the back button walk the operator through
+   * every company they looked at. `merge` so the other params on the screen survive.
+   *
+   * The page and the search are cleared because both belonged to the previous company: keeping them
+   * would page into, and filter by, a catalog the operator just left.
+   */
+  onCompanyChange(companyId: string): void {
+    const next = companyId || null;
+    this.selectedCompanyId.set(next);
+    this.pageIndex.set(0);
+    this.searchQuery.set('');
+    this._debouncedSearch.set('');
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { companyId: next },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
+  }
+
+  /**
+   * Opens the create form for the chosen company, which is the same company it will be saved under.
+   *
+   * The form asks for it too (its `Empresa` field, preselected from here), so this is a convenience and
+   * not the only source: a product created from a bare `/products/create` is still possible.
+   */
+  createProduct(): void {
+    const companyId = this.selectedCompanyId();
+    if (!companyId) {
       return;
     }
-    this.router.navigate(['/products/c', this.companyId, 'edit', id]);
+    void this.router.navigate(['/products/create'], { queryParams: { companyId } });
+  }
+
+  editProduct(id: string): void {
+    const companyId = this.selectedCompanyId();
+    if (!companyId) {
+      return;
+    }
+    void this.router.navigate(['/products/edit', id], { queryParams: { companyId } });
   }
 
   /**
@@ -127,10 +193,11 @@ export class ProductList {
    * page's route gate, its visibility rules or any other action.
    */
   manageVariants(id: string): void {
-    if (!this.companyId) {
+    const companyId = this.selectedCompanyId();
+    if (!companyId) {
       return;
     }
-    this.router.navigate(['/products/c', this.companyId, 'edit', id, 'variants']);
+    void this.router.navigate(['/products/edit', id, 'variants'], { queryParams: { companyId } });
   }
 
   confirmDelete(productInfo: { id: string; name: string }): void {
@@ -141,9 +208,10 @@ export class ProductList {
       .afterClosed()
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((result: boolean) => {
-        if (result && this.companyId) {
+        const companyId = this.selectedCompanyId();
+        if (result && companyId) {
           this.productService
-            .deleteProduct(this.companyId, productInfo.id)
+            .deleteProduct(companyId, productInfo.id)
             .pipe(takeUntilDestroyed(this.destroyRef))
             .subscribe({
               next: () => this.productsResource.reload(),

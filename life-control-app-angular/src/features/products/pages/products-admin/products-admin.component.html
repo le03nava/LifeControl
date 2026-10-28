@@ -6,7 +6,7 @@
   />
 
   <div class="dashboard-cards">
-    @for (card of cards(); track card.title; let i = $index) {
+    @for (card of cards; track card.title; let i = $index) {
       <div class="card-wrapper" [style.--i]="i">
         <mat-card
           class="dashboard-card"

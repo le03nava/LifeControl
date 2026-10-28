@@ -1,12 +1,36 @@
 <div class="product-list-page">
   <app-page-header title="Productos" subtitle="Gestión de productos del catálogo">
-    <button mat-flat-button color="primary" [routerLink]="['/products/c', companyId, 'create']">
+    <!--
+      Disabled while no company is chosen, because the create form is company-scoped: opening it from a
+      bare `/products/list` would only ask the same question one screen later.
+    -->
+    <button
+      mat-flat-button
+      color="primary"
+      type="button"
+      [disabled]="!selectedCompanyId()"
+      (click)="createProduct()"
+    >
       <mat-icon fontIcon="add" /> Agregar Producto
     </button>
   </app-page-header>
 
   <!-- Search Filter -->
   <div class="filters-section">
+    <!--
+      The company is a filter of this screen and not a question in front of the area (S1): it decides
+      whose catalog the grid shows, and the URL keeps it so a copied link reproduces the list.
+    -->
+    <mat-form-field appearance="outline" class="company-selector" subscriptSizing="dynamic">
+      <mat-label>Empresa</mat-label>
+      <mat-select [value]="selectedCompanyId()" (selectionChange)="onCompanyChange($event.value)">
+        <mat-option value="">— Seleccionar empresa —</mat-option>
+        @for (company of companies(); track company.id) {
+          <mat-option [value]="company.id">{{ company.companyName }}</mat-option>
+        }
+      </mat-select>
+    </mat-form-field>
+
     <mat-form-field appearance="outline" class="search-field" subscriptSizing="dynamic">
       <mat-icon matPrefix>search</mat-icon>
       <input
@@ -32,7 +56,17 @@
 
   <!-- Products Grid -->
   <div class="products-grid">
-    @if (loading()) {
+    <!--
+      With no company there is nothing to list and no request to issue: the grid would read as "this
+      company has no products" about a company nobody named. The choice lives in the filter above.
+    -->
+    @if (!selectedCompanyId()) {
+      <div class="empty-state">
+        <mat-icon fontIcon="business" class="empty-state-icon" />
+        <h3 class="empty-title">Elegí una empresa</h3>
+        <p class="empty-subtitle">Seleccioná una empresa para ver su catálogo</p>
+      </div>
+    } @else if (loading()) {
       <div class="loading-skeleton">
         @for (_ of [1, 2, 3, 4]; track $index) {
           <div class="skeleton-card" [style.--i]="$index">

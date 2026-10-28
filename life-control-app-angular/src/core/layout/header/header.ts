@@ -92,8 +92,9 @@ export class Header implements OnInit {
     if (this.isAdmin()) {
       menuItems.push({
         id: '3',
-        // The products picker: the catalog is per company, so `/products` asks which one before any
-        // scoped screen (`/products/c/:companyId/...`).
+        // `/products` is the area's hub: pressing Products shows its options (All Products, New Product,
+        // Categories, Suppliers) without asking for a company first. The company is chosen inside All
+        // Products and then travels as `?companyId=`, because a product belongs to one.
         routeLink: '/products',
         textLink: 'Products',
         icon: 'inventory_2',
