@@ -1,6 +1,9 @@
 package com.lifecontrol.api.product.service;
 
+import com.lifecontrol.api.common.auth.CurrentUserContext;
+import com.lifecontrol.api.company.exception.CompanyNotFoundException;
 import com.lifecontrol.api.company.model.Company;
+import com.lifecontrol.api.company.repository.CompanyRepository;
 import com.lifecontrol.api.product.attribute.model.ProductAttributeLevel;
 import com.lifecontrol.api.product.attribute.service.ProductAttributeCatalogService;
 import com.lifecontrol.api.product.category.exception.ProductCategoryNotFoundException;
@@ -21,6 +24,19 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+/**
+ * Business logic for the company-scoped product catalog.
+ *
+ * <p>Mirrors {@link com.lifecontrol.api.product.category.service.ProductCategoryService}: every public
+ * method starts by resolving the company through {@link #resolveCompany(UUID)}, whose first statement is
+ * {@link CurrentUserContext#verifyCompanyAccess(UUID)}, and every single-row lookup is {@code companyId}
+ * scoped, so a product of another company is a {@link ProductNotFoundException} rather than a 200.</p>
+ *
+ * <p>The company in the path is the <b>owner</b> of the product, not something derived from the
+ * classification. The category a request names is therefore <em>checked against</em> that company
+ * ({@link #resolveCategory(UUID, UUID)}) instead of saying who owns the product, which is what makes "a
+ * product of company A filed under a category of company B" unreachable through this API.</p>
+ */
 @Service
 public class ProductService {
 
@@ -29,25 +45,33 @@ public class ProductService {
     private final ProductRepository productRepository;
     private final ProductCategoryRepository productCategoryRepository;
     private final ProductAttributeCatalogService productAttributeCatalogService;
+    private final CompanyRepository companyRepository;
+    private final CurrentUserContext currentUserContext;
 
     public ProductService(
             ProductRepository productRepository,
             ProductCategoryRepository productCategoryRepository,
-            ProductAttributeCatalogService productAttributeCatalogService) {
+            ProductAttributeCatalogService productAttributeCatalogService,
+            CompanyRepository companyRepository,
+            CurrentUserContext currentUserContext) {
         this.productRepository = productRepository;
         this.productCategoryRepository = productCategoryRepository;
         this.productAttributeCatalogService = productAttributeCatalogService;
+        this.companyRepository = companyRepository;
+        this.currentUserContext = currentUserContext;
     }
 
     @Transactional
-    public ProductResponse createProduct(ProductRequest request) {
-        logger.info("Creating product with SKU: {}", request.sku());
+    public ProductResponse createProduct(UUID companyId, ProductRequest request) {
+        logger.info("Creating product with SKU {} in company {}", request.sku(), companyId);
 
-        if (productRepository.existsBySku(request.sku())) {
+        var company = resolveCompany(companyId);
+
+        if (productRepository.existsBySkuAndCompanyId(request.sku(), companyId)) {
             throw new DuplicateProductException("Product with SKU '" + request.sku() + "' already exists");
         }
 
-        var category = resolveCategory(request.categoryId());
+        var category = resolveCategory(companyId, request.categoryId());
         validateAttributes(category, request.attributes());
 
         var product = Product.builder()
@@ -58,7 +82,7 @@ public class ProductService {
                 .productType(request.productType())
                 .attributes(request.attributes())
                 .category(category)
-                .company(companyOf(category))
+                .company(company)
                 .enabled(true)
                 .build();
 
@@ -69,19 +93,21 @@ public class ProductService {
     }
 
     @Transactional
-    public ProductResponse updateProduct(UUID id, ProductRequest request) {
-        logger.info("Updating product with id: {}", id);
+    public ProductResponse updateProduct(UUID companyId, UUID id, ProductRequest request) {
+        logger.info("Updating product with id: {} in company {}", id, companyId);
 
-        var product = productRepository.findById(id).orElseThrow(() -> new ProductNotFoundException(id));
+        var company = resolveCompany(companyId);
+        var product = requireProduct(companyId, id);
 
         // Check SKU uniqueness only if SKU changed
-        if (!product.getSku().equals(request.sku()) && productRepository.existsBySkuAndIdNot(request.sku(), id)) {
+        if (!product.getSku().equals(request.sku())
+                && productRepository.existsBySkuAndCompanyIdAndIdNot(request.sku(), companyId, id)) {
             throw new DuplicateProductException("Product with SKU '" + request.sku() + "' already exists");
         }
 
         // The category and the attribute set are validated together and before any setter runs, so a
         // refused write leaves the entity exactly as it was.
-        var category = resolveCategory(request.categoryId());
+        var category = resolveCategory(companyId, request.categoryId());
         // The set that will end up stored: the request's, or the stored one when the request sends none.
         // Both are checked against the category being written, which is what stops a category change
         // from leaving behind attributes the new branch does not define.
@@ -97,13 +123,10 @@ public class ProductService {
         // `null` clears the classification on purpose: the form sends what its three selects hold, and
         // "sin categoría" has to be expressible.
         product.setCategory(category);
-        // The owner follows the classification (V39): a reclassified product belongs to the company of
-        // the branch it now sits under, so the materialized column can never disagree with the category
-        // the response reports. A request that clears the category leaves the owner where it was —
-        // unclassifying a product is not a transfer of ownership.
-        if (category != null) {
-            product.setCompany(companyOf(category));
-        }
+        // The path names the owner, so the write states it instead of deriving it. The lookup above is
+        // already company-scoped, so this is the same company the row carried; stating it is what keeps
+        // the column from depending on the classification, which a request may clear.
+        product.setCompany(company);
 
         // The request is authoritative for the set it sends: it REPLACES the stored map instead of
         // merging into it. The previous shallow `putAll` made a key impossible to remove and kept the
@@ -121,10 +144,11 @@ public class ProductService {
     }
 
     @Transactional
-    public void deleteProduct(UUID id) {
-        logger.info("Soft-deleting product with id: {}", id);
+    public void deleteProduct(UUID companyId, UUID id) {
+        logger.info("Soft-deleting product with id: {} in company {}", id, companyId);
 
-        var product = productRepository.findById(id).orElseThrow(() -> new ProductNotFoundException(id));
+        resolveCompany(companyId);
+        var product = requireProduct(companyId, id);
 
         if (!product.getEnabled()) {
             throw new ProductNotFoundException(id);
@@ -137,8 +161,9 @@ public class ProductService {
     }
 
     @Transactional(readOnly = true)
-    public ProductResponse findProduct(UUID id) {
-        var product = productRepository.findById(id).orElseThrow(() -> new ProductNotFoundException(id));
+    public ProductResponse findProduct(UUID companyId, UUID id) {
+        resolveCompany(companyId);
+        var product = requireProduct(companyId, id);
 
         if (!product.getEnabled()) {
             throw new ProductNotFoundException(id);
@@ -148,20 +173,23 @@ public class ProductService {
     }
 
     @Transactional(readOnly = true)
-    public Page<ProductResponse> listProducts(Pageable pageable, String search, boolean includeDisabled) {
+    public Page<ProductResponse> listProducts(
+            UUID companyId, Pageable pageable, String search, boolean includeDisabled) {
+        resolveCompany(companyId);
+
         Page<Product> page;
 
         if (search != null && !search.isBlank()) {
             if (includeDisabled) {
-                page = productRepository.findBySearchTerm(search.trim(), pageable);
+                page = productRepository.findByCompanyIdAndSearchTerm(companyId, search.trim(), pageable);
             } else {
-                page = productRepository.findBySearchTermAndEnabledTrue(search.trim(), pageable);
+                page = productRepository.findByCompanyIdAndSearchTermAndEnabledTrue(companyId, search.trim(), pageable);
             }
         } else {
             if (includeDisabled) {
-                page = productRepository.findAll(pageable);
+                page = productRepository.findByCompanyId(companyId, pageable);
             } else {
-                page = productRepository.findByEnabledTrue(pageable);
+                page = productRepository.findByCompanyIdAndEnabledTrue(companyId, pageable);
             }
         }
 
@@ -169,28 +197,62 @@ public class ProductService {
     }
 
     /**
-     * Resolves the category a request points at, or {@code null} when it sends none.
+     * Verifies company access and then loads the company, in that order.
      *
-     * <p>The lookup is deliberately <b>not</b> company-scoped, and the reason changed with V39: a
-     * {@code ProductRequest} still carries no company, so the resolved category is what says who owns the
-     * product ({@link #companyOf}) instead of the other way round. That is safe because the column is a
-     * real foreign key: the id either names one existing row of one company, or it does not exist at
-     * all.</p>
+     * <p>The access check is deliberately the first statement: a caller without access to the company is
+     * denied before any row is loaded, which is the contract
+     * {@link com.lifecontrol.api.product.category.service.ProductCategoryService} established for the
+     * company-scoped catalogs.</p>
      *
-     * <p>The {@code enabled} flag is not checked. A category is soft-deleted, so requiring it here would
-     * freeze every later edit of the products already classified under it — an operator fixing a typo
-     * in the name would be told the category is gone.</p>
-     *
-     * @throws ProductCategoryNotFoundException when the id names no category, which the existing 404
-     *     contract answers instead of letting the FK violation surface as a 500
+     * @throws org.springframework.security.access.AccessDeniedException when the current user cannot
+     *     access the company
+     * @throws CompanyNotFoundException when the company does not exist
      */
-    private ProductCategory resolveCategory(java.util.UUID categoryId) {
+    private Company resolveCompany(UUID companyId) {
+        currentUserContext.verifyCompanyAccess(companyId);
+        return companyRepository.findById(companyId).orElseThrow(() -> new CompanyNotFoundException(companyId));
+    }
+
+    /**
+     * Loads a product that belongs to the company named by the path, or answers 404.
+     *
+     * <p>The lookup is company-scoped rather than a load-then-compare, so a row of another company is not
+     * even materialized and the answer cannot drift from the scope the query used.</p>
+     */
+    private Product requireProduct(UUID companyId, UUID id) {
+        return productRepository
+                .findByIdAndCompanyId(id, companyId)
+                .orElseThrow(() -> new ProductNotFoundException(id));
+    }
+
+    /**
+     * Resolves the category a request points at, or {@code null} when it sends none, and checks that it
+     * belongs to the company named by the path.
+     *
+     * <p>The company comes from the path and the product is owned by it; the category is therefore
+     * <b>checked against</b> the owner instead of saying who the owner is. Both refusals are the same 404
+     * on purpose: a category of another company is not addressable from here, so naming one must not
+     * reveal that it exists — and the write stores nothing, because this runs before any setter.</p>
+     *
+     * <p>The {@code enabled} flag is not checked. A category is soft-deleted, so requiring it here
+     * would freeze every later edit of the products already classified under it — an operator fixing a
+     * typo in the name would be told the category is gone.</p>
+     *
+     * @throws ProductCategoryNotFoundException when the id names no category of the company, which the
+     *     404 contract answers instead of letting the FK violation surface as a 500
+     */
+    private ProductCategory resolveCategory(UUID companyId, UUID categoryId) {
         if (categoryId == null) {
             return null;
         }
-        return productCategoryRepository
+        var category = productCategoryRepository
                 .findById(categoryId)
                 .orElseThrow(() -> new ProductCategoryNotFoundException(categoryId));
+        if (category.getCompany() == null
+                || !companyId.equals(category.getCompany().getId())) {
+            throw new ProductCategoryNotFoundException(categoryId);
+        }
+        return category;
     }
 
     /**
@@ -209,20 +271,9 @@ public class ProductService {
         productAttributeCatalogService.validate(companyId, categoryId, attributes, ProductAttributeLevel.PRODUCT);
     }
 
-    /**
-     * The company that owns a category, or {@code null} when the product is unclassified.
-     *
-     * <p>This is the expand-step rule of {@code V39}: the product's owner column is populated from the
-     * category it is filed under, because that is the only owner the request carries today. It is a
-     * method rather than an inline expression so the day the company arrives in the path — no longer
-     * derived, merely checked against the category — there is exactly one call site to change.</p>
-     */
-    private Company companyOf(ProductCategory category) {
-        return category == null ? null : category.getCompany();
-    }
-
     private ProductResponse mapToResponse(Product product) {
         var category = product.getCategory();
+        var company = product.getCompany();
         return new ProductResponse(
                 product.getId(),
                 product.getSku(),
@@ -235,6 +286,9 @@ public class ProductService {
                 product.getCreatedAt(),
                 product.getUpdatedAt(),
                 category == null ? null : category.getId(),
-                category == null ? null : category.getCompany().getId());
+                category == null || category.getCompany() == null
+                        ? null
+                        : category.getCompany().getId(),
+                company == null ? null : company.getId());
     }
 }

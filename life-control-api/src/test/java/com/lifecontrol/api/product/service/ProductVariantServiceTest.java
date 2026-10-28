@@ -58,6 +58,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.security.access.AccessDeniedException;
 
 @ExtendWith(MockitoExtension.class)
@@ -222,11 +223,11 @@ class ProductVariantServiceTest {
             var pageable = PageRequest.of(0, 12);
             var expectedPage = new PageImpl<>(List.of(testVariant), pageable, 1);
 
-            when(productRepository.findById(productId)).thenReturn(Optional.of(testProduct));
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
             when(productVariantRepository.findByProductIdAndEnabledTrueOrderByCreatedAtDesc(productId, pageable))
                     .thenReturn(expectedPage);
 
-            Page<ProductVariantResponse> result = productVariantService.listVariants(productId, pageable);
+            Page<ProductVariantResponse> result = productVariantService.listVariants(companyId, productId, pageable);
 
             assertThat(result).isNotNull();
             assertThat(result.getContent()).hasSize(1);
@@ -242,16 +243,16 @@ class ProductVariantServiceTest {
             assertThat(result.getContent().get(0).sku()).isEqualTo("PROD-001");
             assertThat(result.getTotalElements()).isEqualTo(1);
             assertThat(result.getTotalPages()).isEqualTo(1);
-            verify(productRepository).findById(productId);
+            verify(productRepository).findByIdAndCompanyId(productId, companyId);
         }
 
         @Test
         @DisplayName("should throw ProductNotFoundException when product does not exist")
         void listVariants_ProductNotFound_ThrowsException() {
             var pageable = PageRequest.of(0, 12);
-            when(productRepository.findById(productId)).thenReturn(Optional.empty());
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.empty());
 
-            assertThatThrownBy(() -> productVariantService.listVariants(productId, pageable))
+            assertThatThrownBy(() -> productVariantService.listVariants(companyId, productId, pageable))
                     .isInstanceOf(ProductNotFoundException.class)
                     .hasMessageContaining("Product not found with id");
 
@@ -279,13 +280,13 @@ class ProductVariantServiceTest {
                     null);
             var expectedPage = new PageImpl<>(List.of(storeResponse), pageable, 1);
 
-            when(productRepository.findById(productId)).thenReturn(Optional.of(testProduct));
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
             when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
             when(productVariantRepository.findStoreScopedByProductIdAndStoreId(productId, companyStoreId, pageable))
                     .thenReturn(expectedPage);
 
             Page<ProductVariantResponse> result =
-                    productVariantService.listVariants(productId, companyStoreId, pageable);
+                    productVariantService.listVariants(companyId, productId, companyStoreId, pageable);
 
             assertThat(result).isNotNull();
             assertThat(result.getContent()).hasSize(1);
@@ -303,13 +304,13 @@ class ProductVariantServiceTest {
         @DisplayName("should reject a store outside the caller's scope and read nothing")
         void listVariants_StoreOutsideCallerScope_Throws403() {
             var pageable = PageRequest.of(0, 12);
-            when(productRepository.findById(productId)).thenReturn(Optional.of(testProduct));
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
             when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
             doThrow(new AccessDeniedException("Access denied"))
                     .when(currentUserContext)
                     .verifyCompanyStoreAccess(companyId, companyCountryId, regionId, zoneId, companyStoreId);
 
-            assertThatThrownBy(() -> productVariantService.listVariants(productId, companyStoreId, pageable))
+            assertThatThrownBy(() -> productVariantService.listVariants(companyId, productId, companyStoreId, pageable))
                     .isInstanceOf(AccessDeniedException.class);
 
             verify(productVariantRepository, never()).findStoreScopedByProductIdAndStoreId(any(), any(), any());
@@ -319,10 +320,10 @@ class ProductVariantServiceTest {
         @DisplayName("should throw CompanyStoreNotFoundException when the store does not exist")
         void listVariants_UnknownStore_ThrowsException() {
             var pageable = PageRequest.of(0, 12);
-            when(productRepository.findById(productId)).thenReturn(Optional.of(testProduct));
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
             when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.empty());
 
-            assertThatThrownBy(() -> productVariantService.listVariants(productId, companyStoreId, pageable))
+            assertThatThrownBy(() -> productVariantService.listVariants(companyId, productId, companyStoreId, pageable))
                     .isInstanceOf(CompanyStoreNotFoundException.class)
                     .hasMessageContaining("Store not found with id");
 
@@ -336,11 +337,12 @@ class ProductVariantServiceTest {
             var pageable = PageRequest.of(0, 12);
             var expectedPage = new PageImpl<>(List.of(testVariant), pageable, 1);
 
-            when(productRepository.findById(productId)).thenReturn(Optional.of(testProduct));
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
             when(productVariantRepository.findByProductIdAndEnabledTrueOrderByCreatedAtDesc(productId, pageable))
                     .thenReturn(expectedPage);
 
-            Page<ProductVariantResponse> result = productVariantService.listVariants(productId, (UUID) null, pageable);
+            Page<ProductVariantResponse> result =
+                    productVariantService.listVariants(companyId, productId, (UUID) null, pageable);
 
             assertThat(result).isNotNull();
             assertThat(result.getContent()).hasSize(1);
@@ -358,11 +360,11 @@ class ProductVariantServiceTest {
             var pageable = PageRequest.of(0, 12);
             var expectedPage = new PageImpl<ProductVariant>(List.of(), pageable, 0);
 
-            when(productRepository.findById(productId)).thenReturn(Optional.of(testProduct));
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
             when(productVariantRepository.findByProductIdAndEnabledTrueOrderByCreatedAtDesc(productId, pageable))
                     .thenReturn(expectedPage);
 
-            Page<ProductVariantResponse> result = productVariantService.listVariants(productId, pageable);
+            Page<ProductVariantResponse> result = productVariantService.listVariants(companyId, productId, pageable);
 
             assertThat(result).isNotNull();
             assertThat(result.getContent()).isEmpty();
@@ -375,11 +377,12 @@ class ProductVariantServiceTest {
             var pageable = PageRequest.of(0, 12);
             var expectedPage = new PageImpl<>(List.of(testVariant), pageable, 1);
 
-            when(productRepository.findById(productId)).thenReturn(Optional.of(testProduct));
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
             when(productVariantRepository.findByProductIdAndEnabledTrueOrderByCreatedAtDesc(productId, pageable))
                     .thenReturn(expectedPage);
 
-            Page<ProductVariantResponse> result = productVariantService.listVariants(productId, null, false, pageable);
+            Page<ProductVariantResponse> result =
+                    productVariantService.listVariants(companyId, productId, null, false, pageable);
 
             assertThat(result.getContent()).hasSize(1);
             verify(productVariantRepository).findByProductIdAndEnabledTrueOrderByCreatedAtDesc(productId, pageable);
@@ -401,11 +404,12 @@ class ProductVariantServiceTest {
                     .build();
             var expectedPage = new PageImpl<>(List.of(testVariant, disabledVariant), pageable, 2);
 
-            when(productRepository.findById(productId)).thenReturn(Optional.of(testProduct));
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
             when(productVariantRepository.findByProductIdOrderByCreatedAtDesc(productId, pageable))
                     .thenReturn(expectedPage);
 
-            Page<ProductVariantResponse> result = productVariantService.listVariants(productId, null, true, pageable);
+            Page<ProductVariantResponse> result =
+                    productVariantService.listVariants(companyId, productId, null, true, pageable);
 
             assertThat(result.getContent()).hasSize(2);
             assertThat(result.getContent())
@@ -421,11 +425,11 @@ class ProductVariantServiceTest {
             var pageable = PageRequest.of(0, 12);
             var expectedPage = new PageImpl<>(List.of(testVariant), pageable, 1);
 
-            when(productRepository.findById(productId)).thenReturn(Optional.of(testProduct));
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
             when(productVariantRepository.findByProductIdAndEnabledTrueOrderByCreatedAtDesc(productId, pageable))
                     .thenReturn(expectedPage);
 
-            productVariantService.listVariants(productId, pageable);
+            productVariantService.listVariants(companyId, productId, pageable);
 
             verify(productVariantRepository).findByProductIdAndEnabledTrueOrderByCreatedAtDesc(productId, pageable);
             verify(productVariantRepository, never()).findByProductIdOrderByCreatedAtDesc(any(), any());
@@ -437,12 +441,12 @@ class ProductVariantServiceTest {
             var pageable = PageRequest.of(0, 12);
             var expectedPage = new PageImpl<ProductVariantResponse>(List.of(), pageable, 0);
 
-            when(productRepository.findById(productId)).thenReturn(Optional.of(testProduct));
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
             when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
             when(productVariantRepository.findStoreScopedByProductIdAndStoreId(productId, companyStoreId, pageable))
                     .thenReturn(expectedPage);
 
-            productVariantService.listVariants(productId, companyStoreId, true, pageable);
+            productVariantService.listVariants(companyId, productId, companyStoreId, true, pageable);
 
             verify(currentUserContext)
                     .verifyCompanyStoreAccess(companyId, companyCountryId, regionId, zoneId, companyStoreId);
@@ -462,10 +466,10 @@ class ProductVariantServiceTest {
         @Test
         @DisplayName("should return variant when found and scoped to product")
         void getVariant_Found_ScopedToProduct() {
-            when(productRepository.findById(productId)).thenReturn(Optional.of(testProduct));
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
             when(productVariantRepository.findById(variantId)).thenReturn(Optional.of(testVariant));
 
-            ProductVariantResponse result = productVariantService.getVariant(productId, variantId);
+            ProductVariantResponse result = productVariantService.getVariant(companyId, productId, variantId);
 
             assertThat(result).isNotNull();
             assertThat(result.id()).isEqualTo(variantId);
@@ -480,9 +484,9 @@ class ProductVariantServiceTest {
         @Test
         @DisplayName("should throw ProductNotFoundException when product does not exist")
         void getVariant_ProductNotFound_ThrowsException() {
-            when(productRepository.findById(productId)).thenReturn(Optional.empty());
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.empty());
 
-            assertThatThrownBy(() -> productVariantService.getVariant(productId, variantId))
+            assertThatThrownBy(() -> productVariantService.getVariant(companyId, productId, variantId))
                     .isInstanceOf(ProductNotFoundException.class)
                     .hasMessageContaining("Product not found with id");
 
@@ -492,10 +496,10 @@ class ProductVariantServiceTest {
         @Test
         @DisplayName("should throw ProductVariantNotFoundException when variant not found")
         void getVariant_VariantNotFound_ThrowsException() {
-            when(productRepository.findById(productId)).thenReturn(Optional.of(testProduct));
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
             when(productVariantRepository.findById(variantId)).thenReturn(Optional.empty());
 
-            assertThatThrownBy(() -> productVariantService.getVariant(productId, variantId))
+            assertThatThrownBy(() -> productVariantService.getVariant(companyId, productId, variantId))
                     .isInstanceOf(ProductVariantNotFoundException.class)
                     .hasMessageContaining("Product variant not found with id");
         }
@@ -512,10 +516,10 @@ class ProductVariantServiceTest {
                     .enabled(true)
                     .build();
 
-            when(productRepository.findById(productId)).thenReturn(Optional.of(testProduct));
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
             when(productVariantRepository.findById(variantId)).thenReturn(Optional.of(otherVariant));
 
-            assertThatThrownBy(() -> productVariantService.getVariant(productId, variantId))
+            assertThatThrownBy(() -> productVariantService.getVariant(companyId, productId, variantId))
                     .isInstanceOf(ProductVariantNotFoundException.class)
                     .hasMessageContaining("Product variant not found with id");
         }
@@ -531,13 +535,14 @@ class ProductVariantServiceTest {
         @Test
         @DisplayName("should create the global definition and return the response")
         void createVariant_Success() {
-            when(productRepository.findById(productId)).thenReturn(Optional.of(testProduct));
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
             when(productVariantRepository.existsByBarCode("7501234567890")).thenReturn(false);
             when(productVariantRepository.existsByProductIdAndVariantName(productId, "Talla M"))
                     .thenReturn(false);
             when(productVariantRepository.save(any(ProductVariant.class))).thenReturn(testVariant);
 
-            ProductVariantResponse result = productVariantService.createVariant(productId, testVariantRequest);
+            ProductVariantResponse result =
+                    productVariantService.createVariant(companyId, productId, testVariantRequest);
 
             assertThat(result).isNotNull();
             assertThat(result.id()).isEqualTo(variantId);
@@ -546,23 +551,22 @@ class ProductVariantServiceTest {
             assertThat(result.barCode()).isEqualTo("7501234567890");
             assertThat(result.sku()).isEqualTo("PROD-001");
             assertThat(result.enabled()).isTrue();
-            verify(productRepository).findById(productId);
+            verify(productRepository).findByIdAndCompanyId(productId, companyId);
             verify(productVariantRepository).save(any(ProductVariant.class));
         }
 
         @Test
-        @DisplayName("should give the variant the company of its product")
-        void createVariant_TakesTheProductCompany() {
-            var companyId = UUID.randomUUID();
-            testProduct.setCompany(
-                    Company.builder().id(companyId).companyName("Acme").build());
-            when(productRepository.findById(productId)).thenReturn(Optional.of(testProduct));
+        @DisplayName("should give the variant the company named by the path")
+        void createVariant_TakesThePathCompany() {
+            // The product was resolved within the company already, so the copy cannot disagree with it;
+            // what this pins is that the owner is the path's, not something re-derived from the product.
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
             when(productVariantRepository.existsByBarCode("7501234567890")).thenReturn(false);
             when(productVariantRepository.existsByProductIdAndVariantName(productId, "Talla M"))
                     .thenReturn(false);
             when(productVariantRepository.save(any(ProductVariant.class))).thenAnswer(inv -> inv.getArgument(0));
 
-            productVariantService.createVariant(productId, testVariantRequest);
+            productVariantService.createVariant(companyId, productId, testVariantRequest);
 
             verify(productVariantRepository).save(argThat(variant -> companyId.equals(variant.getCompanyId())));
         }
@@ -570,9 +574,9 @@ class ProductVariantServiceTest {
         @Test
         @DisplayName("should throw ProductNotFoundException when product does not exist")
         void createVariant_ProductNotFound_ThrowsException() {
-            when(productRepository.findById(productId)).thenReturn(Optional.empty());
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.empty());
 
-            assertThatThrownBy(() -> productVariantService.createVariant(productId, testVariantRequest))
+            assertThatThrownBy(() -> productVariantService.createVariant(companyId, productId, testVariantRequest))
                     .isInstanceOf(ProductNotFoundException.class)
                     .hasMessageContaining("Product not found with id");
 
@@ -582,10 +586,10 @@ class ProductVariantServiceTest {
         @Test
         @DisplayName("should throw DuplicateProductVariantException when the barCode exists")
         void createVariant_DuplicateBarCode_ThrowsException() {
-            when(productRepository.findById(productId)).thenReturn(Optional.of(testProduct));
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
             when(productVariantRepository.existsByBarCode("7501234567890")).thenReturn(true);
 
-            assertThatThrownBy(() -> productVariantService.createVariant(productId, testVariantRequest))
+            assertThatThrownBy(() -> productVariantService.createVariant(companyId, productId, testVariantRequest))
                     .isInstanceOf(DuplicateProductVariantException.class)
                     .hasMessageContaining("barCode already exists");
 
@@ -595,12 +599,12 @@ class ProductVariantServiceTest {
         @Test
         @DisplayName("should throw DuplicateProductVariantException when (product, variantName) exists")
         void createVariant_DuplicateVariantName_ThrowsException() {
-            when(productRepository.findById(productId)).thenReturn(Optional.of(testProduct));
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
             when(productVariantRepository.existsByBarCode("7501234567890")).thenReturn(false);
             when(productVariantRepository.existsByProductIdAndVariantName(productId, "Talla M"))
                     .thenReturn(true);
 
-            assertThatThrownBy(() -> productVariantService.createVariant(productId, testVariantRequest))
+            assertThatThrownBy(() -> productVariantService.createVariant(companyId, productId, testVariantRequest))
                     .isInstanceOf(DuplicateProductVariantException.class)
                     .hasMessageContaining("already exists for product");
 
@@ -620,7 +624,7 @@ class ProductVariantServiceTest {
         void updateVariant_Success() {
             var updateRequest = new ProductVariantRequest("7509876543210", "Talla L", null);
 
-            when(productRepository.findById(productId)).thenReturn(Optional.of(testProduct));
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
             when(productVariantRepository.findById(variantId)).thenReturn(Optional.of(testVariant));
             when(productVariantRepository.existsByBarCodeAndIdNot("7509876543210", variantId))
                     .thenReturn(false);
@@ -628,7 +632,8 @@ class ProductVariantServiceTest {
                     .thenReturn(false);
             when(productVariantRepository.save(any(ProductVariant.class))).thenAnswer(inv -> inv.getArgument(0));
 
-            ProductVariantResponse result = productVariantService.updateVariant(productId, variantId, updateRequest);
+            ProductVariantResponse result =
+                    productVariantService.updateVariant(companyId, productId, variantId, updateRequest);
 
             assertThat(result).isNotNull();
             assertThat(result.barCode()).isEqualTo("7509876543210");
@@ -641,9 +646,10 @@ class ProductVariantServiceTest {
         @Test
         @DisplayName("should throw ProductNotFoundException when product does not exist")
         void updateVariant_ProductNotFound_ThrowsException() {
-            when(productRepository.findById(productId)).thenReturn(Optional.empty());
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.empty());
 
-            assertThatThrownBy(() -> productVariantService.updateVariant(productId, variantId, testVariantRequest))
+            assertThatThrownBy(() ->
+                            productVariantService.updateVariant(companyId, productId, variantId, testVariantRequest))
                     .isInstanceOf(ProductNotFoundException.class)
                     .hasMessageContaining("Product not found with id");
 
@@ -654,10 +660,11 @@ class ProductVariantServiceTest {
         @Test
         @DisplayName("should throw ProductVariantNotFoundException when variant not found")
         void updateVariant_VariantNotFound_ThrowsException() {
-            when(productRepository.findById(productId)).thenReturn(Optional.of(testProduct));
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
             when(productVariantRepository.findById(variantId)).thenReturn(Optional.empty());
 
-            assertThatThrownBy(() -> productVariantService.updateVariant(productId, variantId, testVariantRequest))
+            assertThatThrownBy(() ->
+                            productVariantService.updateVariant(companyId, productId, variantId, testVariantRequest))
                     .isInstanceOf(ProductVariantNotFoundException.class)
                     .hasMessageContaining("Product variant not found with id");
 
@@ -676,10 +683,11 @@ class ProductVariantServiceTest {
                     .enabled(true)
                     .build();
 
-            when(productRepository.findById(productId)).thenReturn(Optional.of(testProduct));
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
             when(productVariantRepository.findById(variantId)).thenReturn(Optional.of(otherVariant));
 
-            assertThatThrownBy(() -> productVariantService.updateVariant(productId, variantId, testVariantRequest))
+            assertThatThrownBy(() ->
+                            productVariantService.updateVariant(companyId, productId, variantId, testVariantRequest))
                     .isInstanceOf(ProductVariantNotFoundException.class)
                     .hasMessageContaining("Product variant not found with id");
 
@@ -691,12 +699,13 @@ class ProductVariantServiceTest {
         void updateVariant_DuplicateBarCode_ThrowsException() {
             var updateRequest = new ProductVariantRequest("7509876543210", "Talla M", null);
 
-            when(productRepository.findById(productId)).thenReturn(Optional.of(testProduct));
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
             when(productVariantRepository.findById(variantId)).thenReturn(Optional.of(testVariant));
             when(productVariantRepository.existsByBarCodeAndIdNot("7509876543210", variantId))
                     .thenReturn(true);
 
-            assertThatThrownBy(() -> productVariantService.updateVariant(productId, variantId, updateRequest))
+            assertThatThrownBy(
+                            () -> productVariantService.updateVariant(companyId, productId, variantId, updateRequest))
                     .isInstanceOf(DuplicateProductVariantException.class)
                     .hasMessageContaining("barCode already exists");
 
@@ -706,14 +715,14 @@ class ProductVariantServiceTest {
         @Test
         @DisplayName("should skip the barCode gate when the barCode is unchanged")
         void updateVariant_SameBarCode_DoesNotProbeDuplicate() {
-            when(productRepository.findById(productId)).thenReturn(Optional.of(testProduct));
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
             when(productVariantRepository.findById(variantId)).thenReturn(Optional.of(testVariant));
             when(productVariantRepository.existsByProductIdAndVariantNameAndIdNot(productId, "Talla L", variantId))
                     .thenReturn(false);
             when(productVariantRepository.save(any(ProductVariant.class))).thenAnswer(inv -> inv.getArgument(0));
 
             productVariantService.updateVariant(
-                    productId, variantId, new ProductVariantRequest("7501234567890", "Talla L", null));
+                    companyId, productId, variantId, new ProductVariantRequest("7501234567890", "Talla L", null));
 
             verify(productVariantRepository, never()).existsByBarCodeAndIdNot(any(), any());
         }
@@ -729,11 +738,11 @@ class ProductVariantServiceTest {
         @Test
         @DisplayName("should soft-delete variant by setting enabled to false")
         void deleteVariant_Success() {
-            when(productRepository.findById(productId)).thenReturn(Optional.of(testProduct));
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
             when(productVariantRepository.findById(variantId)).thenReturn(Optional.of(testVariant));
             when(productVariantRepository.save(any(ProductVariant.class))).thenAnswer(inv -> inv.getArgument(0));
 
-            productVariantService.deleteVariant(productId, variantId);
+            productVariantService.deleteVariant(companyId, productId, variantId);
 
             assertThat(testVariant.getEnabled()).isFalse();
             verify(productVariantRepository).findById(variantId);
@@ -743,9 +752,9 @@ class ProductVariantServiceTest {
         @Test
         @DisplayName("should throw ProductNotFoundException when product does not exist")
         void deleteVariant_ProductNotFound_ThrowsException() {
-            when(productRepository.findById(productId)).thenReturn(Optional.empty());
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.empty());
 
-            assertThatThrownBy(() -> productVariantService.deleteVariant(productId, variantId))
+            assertThatThrownBy(() -> productVariantService.deleteVariant(companyId, productId, variantId))
                     .isInstanceOf(ProductNotFoundException.class)
                     .hasMessageContaining("Product not found with id");
 
@@ -756,10 +765,10 @@ class ProductVariantServiceTest {
         @Test
         @DisplayName("should throw ProductVariantNotFoundException when variant not found")
         void deleteVariant_VariantNotFound_ThrowsException() {
-            when(productRepository.findById(productId)).thenReturn(Optional.of(testProduct));
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
             when(productVariantRepository.findById(variantId)).thenReturn(Optional.empty());
 
-            assertThatThrownBy(() -> productVariantService.deleteVariant(productId, variantId))
+            assertThatThrownBy(() -> productVariantService.deleteVariant(companyId, productId, variantId))
                     .isInstanceOf(ProductVariantNotFoundException.class)
                     .hasMessageContaining("Product variant not found with id");
 
@@ -778,11 +787,11 @@ class ProductVariantServiceTest {
         @DisplayName("should re-enable a soft-deleted variant by setting enabled to true")
         void enableVariant_Success() {
             testVariant.setEnabled(false);
-            when(productRepository.findById(productId)).thenReturn(Optional.of(testProduct));
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
             when(productVariantRepository.findById(variantId)).thenReturn(Optional.of(testVariant));
             when(productVariantRepository.save(any(ProductVariant.class))).thenAnswer(inv -> inv.getArgument(0));
 
-            var response = productVariantService.enableVariant(productId, variantId);
+            var response = productVariantService.enableVariant(companyId, productId, variantId);
 
             assertThat(testVariant.getEnabled()).isTrue();
             assertThat(response.enabled()).isTrue();
@@ -793,9 +802,9 @@ class ProductVariantServiceTest {
         @Test
         @DisplayName("should throw ProductNotFoundException when product does not exist")
         void enableVariant_ProductNotFound_ThrowsException() {
-            when(productRepository.findById(productId)).thenReturn(Optional.empty());
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.empty());
 
-            assertThatThrownBy(() -> productVariantService.enableVariant(productId, variantId))
+            assertThatThrownBy(() -> productVariantService.enableVariant(companyId, productId, variantId))
                     .isInstanceOf(ProductNotFoundException.class)
                     .hasMessageContaining("Product not found with id");
 
@@ -805,10 +814,10 @@ class ProductVariantServiceTest {
         @Test
         @DisplayName("should throw ProductVariantNotFoundException when variant not found")
         void enableVariant_VariantNotFound_ThrowsException() {
-            when(productRepository.findById(productId)).thenReturn(Optional.of(testProduct));
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
             when(productVariantRepository.findById(variantId)).thenReturn(Optional.empty());
 
-            assertThatThrownBy(() -> productVariantService.enableVariant(productId, variantId))
+            assertThatThrownBy(() -> productVariantService.enableVariant(companyId, productId, variantId))
                     .isInstanceOf(ProductVariantNotFoundException.class)
                     .hasMessageContaining("Product variant not found with id");
 
@@ -1156,7 +1165,7 @@ class ProductVariantServiceTest {
             var captor = ArgumentCaptor.forClass(ProductVariant.class);
 
             var result = productVariantService.createVariant(
-                    productId, new ProductVariantRequest("7501234567890", "Talla M", pieceUnitId));
+                    companyId, productId, new ProductVariantRequest("7501234567890", "Talla M", pieceUnitId));
 
             assertThat(result.measureUnitId()).isEqualTo(pieceUnitId);
             verify(productVariantRepository).save(captor.capture());
@@ -1169,7 +1178,7 @@ class ProductVariantServiceTest {
             stubCreateGates();
 
             var result = productVariantService.createVariant(
-                    productId, new ProductVariantRequest("7501234567890", "Talla M", null));
+                    companyId, productId, new ProductVariantRequest("7501234567890", "Talla M", null));
 
             assertThat(result.measureUnitId()).isNull();
             // No unit was named, so neither the catalog nor the D4 query is read (S7).
@@ -1180,11 +1189,11 @@ class ProductVariantServiceTest {
         @Test
         @DisplayName("should reject an unknown unit with 404 and write nothing")
         void createVariant_UnknownUnit_ThrowsNotFound() {
-            when(productRepository.findById(productId)).thenReturn(Optional.of(testProduct));
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
             when(measureUnitRepository.findById(pieceUnitId)).thenReturn(Optional.empty());
 
             assertThatThrownBy(() -> productVariantService.createVariant(
-                            productId, new ProductVariantRequest("7501234567890", "Talla M", pieceUnitId)))
+                            companyId, productId, new ProductVariantRequest("7501234567890", "Talla M", pieceUnitId)))
                     .isInstanceOf(MeasureUnitNotFoundException.class)
                     .hasMessageContaining("Measure unit not found with id");
 
@@ -1202,11 +1211,11 @@ class ProductVariantServiceTest {
                     .satCode("H87")
                     .enabled(false)
                     .build();
-            when(productRepository.findById(productId)).thenReturn(Optional.of(testProduct));
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
             when(measureUnitRepository.findById(pieceUnitId)).thenReturn(Optional.of(disabledUnit));
 
             assertThatThrownBy(() -> productVariantService.createVariant(
-                            productId, new ProductVariantRequest("7501234567890", "Talla M", pieceUnitId)))
+                            companyId, productId, new ProductVariantRequest("7501234567890", "Talla M", pieceUnitId)))
                     .isInstanceOf(IllegalArgumentException.class)
                     .hasMessageContaining("Measure unit is disabled")
                     .hasMessageContaining("Pza");
@@ -1218,13 +1227,13 @@ class ProductVariantServiceTest {
         @Test
         @DisplayName("should reject a unit_type that contradicts the product's other variants with 400")
         void createVariant_UnitTypeMismatch_Throws400() {
-            when(productRepository.findById(productId)).thenReturn(Optional.of(testProduct));
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
             when(measureUnitRepository.findById(pieceUnitId)).thenReturn(Optional.of(pieceUnit));
             when(productVariantRepository.findUsedMeasureUnitTypesByProductId(productId))
                     .thenReturn(List.of(MeasureUnitType.SERVICE));
 
             assertThatThrownBy(() -> productVariantService.createVariant(
-                            productId, new ProductVariantRequest("7501234567890", "Talla M", pieceUnitId)))
+                            companyId, productId, new ProductVariantRequest("7501234567890", "Talla M", pieceUnitId)))
                     .isInstanceOf(MeasureUnitTypeMismatchException.class)
                     .hasMessageContaining("already uses measure units of type SERVICE")
                     .hasMessageContaining("cannot use a measure unit of type PRODUCT");
@@ -1235,7 +1244,7 @@ class ProductVariantServiceTest {
         @Test
         @DisplayName("should accept the first declaration even with stock, without probing quantity")
         void updateVariant_FirstDeclarationWithStock_IsAllowed() {
-            when(productRepository.findById(productId)).thenReturn(Optional.of(testProduct));
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
             when(productVariantRepository.findById(variantId)).thenReturn(Optional.of(testVariant));
             when(measureUnitRepository.findById(pieceUnitId)).thenReturn(Optional.of(pieceUnit));
             when(productVariantRepository.findUsedMeasureUnitTypesByProductIdExcludingVariantId(productId, variantId))
@@ -1243,7 +1252,10 @@ class ProductVariantServiceTest {
             when(productVariantRepository.save(any(ProductVariant.class))).thenAnswer(inv -> inv.getArgument(0));
 
             var result = productVariantService.updateVariant(
-                    productId, variantId, new ProductVariantRequest("7501234567890", "Talla M", pieceUnitId));
+                    companyId,
+                    productId,
+                    variantId,
+                    new ProductVariantRequest("7501234567890", "Talla M", pieceUnitId));
 
             assertThat(result.measureUnitId()).isEqualTo(pieceUnitId);
             assertThat(testVariant.getMeasureUnitId()).isEqualTo(pieceUnitId);
@@ -1256,7 +1268,7 @@ class ProductVariantServiceTest {
         @DisplayName("should reject unit -> unit while a store holds stock, leaving the variant untouched")
         void updateVariant_ChangeWithStock_IsRejected() {
             testVariant.setMeasureUnitId(pieceUnitId);
-            when(productRepository.findById(productId)).thenReturn(Optional.of(testProduct));
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
             when(productVariantRepository.findById(variantId)).thenReturn(Optional.of(testVariant));
             when(measureUnitRepository.findById(kilogramUnitId)).thenReturn(Optional.of(kilogramUnit));
             when(productVariantRepository.findUsedMeasureUnitTypesByProductIdExcludingVariantId(productId, variantId))
@@ -1265,6 +1277,7 @@ class ProductVariantServiceTest {
                     .thenReturn(true);
 
             assertThatThrownBy(() -> productVariantService.updateVariant(
+                            companyId,
                             productId,
                             variantId,
                             new ProductVariantRequest("7501234567890", "Talla M", kilogramUnitId)))
@@ -1280,7 +1293,7 @@ class ProductVariantServiceTest {
         @DisplayName("should reject unit -> unit while the ledger holds a movement")
         void updateVariant_ChangeWithMovement_IsRejected() {
             testVariant.setMeasureUnitId(pieceUnitId);
-            when(productRepository.findById(productId)).thenReturn(Optional.of(testProduct));
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
             when(productVariantRepository.findById(variantId)).thenReturn(Optional.of(testVariant));
             when(measureUnitRepository.findById(kilogramUnitId)).thenReturn(Optional.of(kilogramUnit));
             when(productVariantRepository.findUsedMeasureUnitTypesByProductIdExcludingVariantId(productId, variantId))
@@ -1291,6 +1304,7 @@ class ProductVariantServiceTest {
                     .thenReturn(true);
 
             assertThatThrownBy(() -> productVariantService.updateVariant(
+                            companyId,
                             productId,
                             variantId,
                             new ProductVariantRequest("7501234567890", "Talla M", kilogramUnitId)))
@@ -1305,7 +1319,7 @@ class ProductVariantServiceTest {
         @DisplayName("should allow unit -> unit when there is no stock and no movement")
         void updateVariant_ChangeWithoutQuantityMeaning_IsAllowed() {
             testVariant.setMeasureUnitId(pieceUnitId);
-            when(productRepository.findById(productId)).thenReturn(Optional.of(testProduct));
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
             when(productVariantRepository.findById(variantId)).thenReturn(Optional.of(testVariant));
             when(measureUnitRepository.findById(kilogramUnitId)).thenReturn(Optional.of(kilogramUnit));
             when(productVariantRepository.findUsedMeasureUnitTypesByProductIdExcludingVariantId(productId, variantId))
@@ -1317,7 +1331,10 @@ class ProductVariantServiceTest {
             when(productVariantRepository.save(any(ProductVariant.class))).thenAnswer(inv -> inv.getArgument(0));
 
             var result = productVariantService.updateVariant(
-                    productId, variantId, new ProductVariantRequest("7501234567890", "Talla M", kilogramUnitId));
+                    companyId,
+                    productId,
+                    variantId,
+                    new ProductVariantRequest("7501234567890", "Talla M", kilogramUnitId));
 
             assertThat(result.measureUnitId()).isEqualTo(kilogramUnitId);
             assertThat(testVariant.getMeasureUnitId()).isEqualTo(kilogramUnitId);
@@ -1327,13 +1344,16 @@ class ProductVariantServiceTest {
         @DisplayName("should reject unit -> null while a store holds stock")
         void updateVariant_ClearUnitWithStock_IsRejected() {
             testVariant.setMeasureUnitId(pieceUnitId);
-            when(productRepository.findById(productId)).thenReturn(Optional.of(testProduct));
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
             when(productVariantRepository.findById(variantId)).thenReturn(Optional.of(testVariant));
             when(productVariantStoreStockRepository.existsByProductVariantIdAndStockNot(variantId, BigDecimal.ZERO))
                     .thenReturn(true);
 
             assertThatThrownBy(() -> productVariantService.updateVariant(
-                            productId, variantId, new ProductVariantRequest("7501234567890", "Talla M", null)))
+                            companyId,
+                            productId,
+                            variantId,
+                            new ProductVariantRequest("7501234567890", "Talla M", null)))
                     .isInstanceOf(MeasureUnitChangeNotAllowedException.class)
                     .hasMessageContaining("cannot be changed");
 
@@ -1346,7 +1366,7 @@ class ProductVariantServiceTest {
         @DisplayName("should allow an unchanged unit without probing the quantity meaning")
         void updateVariant_UnchangedUnit_IsAllowedWithoutProbes() {
             testVariant.setMeasureUnitId(pieceUnitId);
-            when(productRepository.findById(productId)).thenReturn(Optional.of(testProduct));
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
             when(productVariantRepository.findById(variantId)).thenReturn(Optional.of(testVariant));
             when(measureUnitRepository.findById(pieceUnitId)).thenReturn(Optional.of(pieceUnit));
             when(productVariantRepository.findUsedMeasureUnitTypesByProductIdExcludingVariantId(productId, variantId))
@@ -1354,7 +1374,10 @@ class ProductVariantServiceTest {
             when(productVariantRepository.save(any(ProductVariant.class))).thenAnswer(inv -> inv.getArgument(0));
 
             var result = productVariantService.updateVariant(
-                    productId, variantId, new ProductVariantRequest("7501234567890", "Talla M", pieceUnitId));
+                    companyId,
+                    productId,
+                    variantId,
+                    new ProductVariantRequest("7501234567890", "Talla M", pieceUnitId));
 
             assertThat(result.measureUnitId()).isEqualTo(pieceUnitId);
             verify(productVariantStoreStockRepository, never()).existsByProductVariantIdAndStockNot(any(), any());
@@ -1365,11 +1388,12 @@ class ProductVariantServiceTest {
         @DisplayName("should report the 404 of an unknown unit before the 409 of a blocked change")
         void updateVariant_UnknownUnitWithStock_ReportsNotFoundFirst() {
             testVariant.setMeasureUnitId(pieceUnitId);
-            when(productRepository.findById(productId)).thenReturn(Optional.of(testProduct));
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
             when(productVariantRepository.findById(variantId)).thenReturn(Optional.of(testVariant));
             when(measureUnitRepository.findById(kilogramUnitId)).thenReturn(Optional.empty());
 
             assertThatThrownBy(() -> productVariantService.updateVariant(
+                            companyId,
                             productId,
                             variantId,
                             new ProductVariantRequest("7501234567890", "Talla M", kilogramUnitId)))
@@ -1384,7 +1408,7 @@ class ProductVariantServiceTest {
         @DisplayName("should exclude the variant being updated from the unit_type gate")
         void updateVariant_TypeGateExcludesTheVariantItself() {
             testVariant.setMeasureUnitId(pieceUnitId);
-            when(productRepository.findById(productId)).thenReturn(Optional.of(testProduct));
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
             when(productVariantRepository.findById(variantId)).thenReturn(Optional.of(testVariant));
             when(measureUnitRepository.findById(pieceUnitId)).thenReturn(Optional.of(pieceUnit));
             when(productVariantRepository.findUsedMeasureUnitTypesByProductIdExcludingVariantId(productId, variantId))
@@ -1392,7 +1416,10 @@ class ProductVariantServiceTest {
             when(productVariantRepository.save(any(ProductVariant.class))).thenAnswer(inv -> inv.getArgument(0));
 
             productVariantService.updateVariant(
-                    productId, variantId, new ProductVariantRequest("7501234567890", "Talla M", pieceUnitId));
+                    companyId,
+                    productId,
+                    variantId,
+                    new ProductVariantRequest("7501234567890", "Talla M", pieceUnitId));
 
             verify(productVariantRepository)
                     .findUsedMeasureUnitTypesByProductIdExcludingVariantId(productId, variantId);
@@ -1403,20 +1430,94 @@ class ProductVariantServiceTest {
         @DisplayName("should carry the unit id in the read projection")
         void getVariant_CarriesMeasureUnitId() {
             testVariant.setMeasureUnitId(pieceUnitId);
-            when(productRepository.findById(productId)).thenReturn(Optional.of(testProduct));
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
             when(productVariantRepository.findById(variantId)).thenReturn(Optional.of(testVariant));
 
-            var result = productVariantService.getVariant(productId, variantId);
+            var result = productVariantService.getVariant(companyId, productId, variantId);
 
             assertThat(result.measureUnitId()).isEqualTo(pieceUnitId);
         }
 
         private void stubCreateGates() {
-            when(productRepository.findById(productId)).thenReturn(Optional.of(testProduct));
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
             when(productVariantRepository.existsByBarCode("7501234567890")).thenReturn(false);
             when(productVariantRepository.existsByProductIdAndVariantName(productId, "Talla M"))
                     .thenReturn(false);
             when(productVariantRepository.save(any(ProductVariant.class))).thenAnswer(inv -> inv.getArgument(0));
+        }
+    }
+
+    /**
+     * The tenancy boundary of the nested endpoints: a variant hangs off a product, and the product is
+     * addressed through its company, so a product of another company is a 404 on every one of them and
+     * nothing of it is read or written. The barcode key and the variant search are a later slice and are
+     * deliberately not part of this suite.
+     */
+    @Nested
+    @DisplayName("company scope")
+    class CompanyScopeTests {
+
+        private final Pageable pageable = PageRequest.of(0, 12);
+
+        @Test
+        @DisplayName("should answer 404 when listing the variants of another company's product")
+        void listVariants_OtherCompany_ThrowsNotFound() {
+            assertThatThrownBy(() -> productVariantService.listVariants(companyId, productId, pageable))
+                    .isInstanceOf(ProductNotFoundException.class)
+                    .hasMessageContaining(productId.toString());
+        }
+
+        @Test
+        @DisplayName("should answer 404 when reading a variant of another company's product")
+        void getVariant_OtherCompany_ThrowsNotFound() {
+            assertThatThrownBy(() -> productVariantService.getVariant(companyId, productId, variantId))
+                    .isInstanceOf(ProductNotFoundException.class)
+                    .hasMessageContaining(productId.toString());
+        }
+
+        @Test
+        @DisplayName("should answer 404 and write nothing when creating a variant of another company's product")
+        void createVariant_OtherCompany_ThrowsNotFoundAndWritesNothing() {
+            assertThatThrownBy(() -> productVariantService.createVariant(companyId, productId, testVariantRequest))
+                    .isInstanceOf(ProductNotFoundException.class)
+                    .hasMessageContaining(productId.toString());
+
+            verify(productVariantRepository, never()).save(any(ProductVariant.class));
+        }
+
+        @Test
+        @DisplayName("should answer 404 and write nothing when updating a variant of another company's product")
+        void updateVariant_OtherCompany_ThrowsNotFoundAndWritesNothing() {
+            assertThatThrownBy(() ->
+                            productVariantService.updateVariant(companyId, productId, variantId, testVariantRequest))
+                    .isInstanceOf(ProductNotFoundException.class)
+                    .hasMessageContaining(productId.toString());
+
+            verify(productVariantRepository, never()).save(any(ProductVariant.class));
+        }
+
+        @Test
+        @DisplayName("should answer 404 and write nothing when deleting a variant of another company's product")
+        void deleteVariant_OtherCompany_ThrowsNotFoundAndWritesNothing() {
+            assertThatThrownBy(() -> productVariantService.deleteVariant(companyId, productId, variantId))
+                    .isInstanceOf(ProductNotFoundException.class)
+                    .hasMessageContaining(productId.toString());
+
+            verify(productVariantRepository, never()).save(any(ProductVariant.class));
+            assertThat(testVariant.getEnabled()).isTrue();
+        }
+
+        @Test
+        @DisplayName("should answer 404 and write nothing when re-enabling a variant of another company's product")
+        void enableVariant_OtherCompany_ThrowsNotFoundAndWritesNothing() {
+            testVariant.setEnabled(false);
+
+            assertThatThrownBy(() -> productVariantService.enableVariant(companyId, productId, variantId))
+                    .isInstanceOf(ProductNotFoundException.class)
+                    .hasMessageContaining(productId.toString());
+
+            verify(productVariantRepository, never()).save(any(ProductVariant.class));
+            assertThat(testVariant.getEnabled()).isFalse();
         }
     }
 }

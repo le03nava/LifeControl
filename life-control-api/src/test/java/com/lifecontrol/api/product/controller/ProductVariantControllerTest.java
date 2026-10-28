@@ -75,6 +75,7 @@ class ProductVariantControllerTest {
     @InjectMocks
     private ProductVariantStoreController productVariantStoreController;
 
+    private UUID companyId;
     private UUID productId;
     private UUID variantId;
     private UUID storeId;
@@ -98,6 +99,7 @@ class ProductVariantControllerTest {
                 .build();
         objectMapper = JsonMapper.builder().build();
 
+        companyId = UUID.randomUUID();
         productId = UUID.randomUUID();
         variantId = UUID.randomUUID();
         storeId = UUID.randomUUID();
@@ -138,10 +140,10 @@ class ProductVariantControllerTest {
     }
 
     // ─────────────────────────────────────────────
-    // GET /api/products/{productId}/variants
+    // GET /api/companies/{companyId}/products/{productId}/variants
     // ─────────────────────────────────────────────
     @Nested
-    @DisplayName("GET /api/products/{productId}/variants")
+    @DisplayName("GET /api/companies/{companyId}/products/{productId}/variants")
     class ListVariantsTests {
 
         @Test
@@ -150,10 +152,11 @@ class ProductVariantControllerTest {
             var pageable = PageRequest.of(0, 12);
             var page = new PageImpl<>(List.of(testVariantResponse), pageable, 1);
 
-            when(productVariantService.listVariants(eq(productId), isNull(), eq(false), any(Pageable.class)))
+            when(productVariantService.listVariants(
+                            eq(companyId), eq(productId), isNull(), eq(false), any(Pageable.class)))
                     .thenReturn(page);
 
-            mockMvc.perform(get("/api/products/{productId}/variants", productId)
+            mockMvc.perform(get("/api/companies/{companyId}/products/{productId}/variants", companyId, productId)
                             .param("page", "0")
                             .param("size", "12"))
                     .andExpect(status().isOk())
@@ -168,7 +171,8 @@ class ProductVariantControllerTest {
                     .andExpect(jsonPath("$.number").value(0))
                     .andExpect(jsonPath("$.size").value(12));
 
-            verify(productVariantService).listVariants(eq(productId), isNull(), eq(false), any(Pageable.class));
+            verify(productVariantService)
+                    .listVariants(eq(companyId), eq(productId), isNull(), eq(false), any(Pageable.class));
         }
 
         @Test
@@ -177,14 +181,16 @@ class ProductVariantControllerTest {
             var pageable = PageRequest.of(0, 12);
             var page = new PageImpl<>(List.of(testVariantResponse), pageable, 1);
 
-            when(productVariantService.listVariants(eq(productId), isNull(), eq(false), any(Pageable.class)))
+            when(productVariantService.listVariants(
+                            eq(companyId), eq(productId), isNull(), eq(false), any(Pageable.class)))
                     .thenReturn(page);
 
-            mockMvc.perform(get("/api/products/{productId}/variants", productId))
+            mockMvc.perform(get("/api/companies/{companyId}/products/{productId}/variants", companyId, productId))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.totalElements").value(1));
 
-            verify(productVariantService).listVariants(eq(productId), isNull(), eq(false), any(Pageable.class));
+            verify(productVariantService)
+                    .listVariants(eq(companyId), eq(productId), isNull(), eq(false), any(Pageable.class));
         }
 
         @Test
@@ -193,14 +199,17 @@ class ProductVariantControllerTest {
             var pageable = PageRequest.of(0, 12);
             var page = new PageImpl<>(List.of(testVariantResponse), pageable, 1);
 
-            when(productVariantService.listVariants(eq(productId), isNull(), eq(true), any(Pageable.class)))
+            when(productVariantService.listVariants(
+                            eq(companyId), eq(productId), isNull(), eq(true), any(Pageable.class)))
                     .thenReturn(page);
 
-            mockMvc.perform(get("/api/products/{productId}/variants", productId).param("includeDisabled", "true"))
+            mockMvc.perform(get("/api/companies/{companyId}/products/{productId}/variants", companyId, productId)
+                            .param("includeDisabled", "true"))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.totalElements").value(1));
 
-            verify(productVariantService).listVariants(eq(productId), isNull(), eq(true), any(Pageable.class));
+            verify(productVariantService)
+                    .listVariants(eq(companyId), eq(productId), isNull(), eq(true), any(Pageable.class));
         }
 
         @Test
@@ -209,24 +218,29 @@ class ProductVariantControllerTest {
             var pageable = PageRequest.of(0, 12);
             var page = new PageImpl<>(List.of(testVariantResponse), pageable, 1);
 
-            when(productVariantService.listVariants(eq(productId), eq(storeId), eq(false), any(Pageable.class)))
+            when(productVariantService.listVariants(
+                            eq(companyId), eq(productId), eq(storeId), eq(false), any(Pageable.class)))
                     .thenReturn(page);
 
-            mockMvc.perform(get("/api/products/{productId}/variants", productId).param("storeId", storeId.toString()))
+            mockMvc.perform(get("/api/companies/{companyId}/products/{productId}/variants", companyId, productId)
+                            .param("storeId", storeId.toString()))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.content[0].id").value(variantId.toString()))
                     .andExpect(jsonPath("$.totalElements").value(1));
 
-            verify(productVariantService).listVariants(eq(productId), eq(storeId), eq(false), any(Pageable.class));
+            verify(productVariantService)
+                    .listVariants(eq(companyId), eq(productId), eq(storeId), eq(false), any(Pageable.class));
         }
 
         @Test
         @DisplayName("should return 403 when the caller holds no grant for the store")
         void listVariants_StoreOutsideCallerScope_Returns403() throws Exception {
-            when(productVariantService.listVariants(eq(productId), eq(storeId), eq(false), any(Pageable.class)))
+            when(productVariantService.listVariants(
+                            eq(companyId), eq(productId), eq(storeId), eq(false), any(Pageable.class)))
                     .thenThrow(new AccessDeniedException("Access denied"));
 
-            mockMvc.perform(get("/api/products/{productId}/variants", productId).param("storeId", storeId.toString()))
+            mockMvc.perform(get("/api/companies/{companyId}/products/{productId}/variants", companyId, productId)
+                            .param("storeId", storeId.toString()))
                     .andExpect(status().isForbidden())
                     .andExpect(jsonPath("$.status").value(403));
         }
@@ -237,34 +251,36 @@ class ProductVariantControllerTest {
             var pageable = PageRequest.of(0, 12);
             var page = new PageImpl<ProductVariantResponse>(List.of(), pageable, 0);
 
-            when(productVariantService.listVariants(eq(productId), isNull(), eq(false), any(Pageable.class)))
+            when(productVariantService.listVariants(
+                            eq(companyId), eq(productId), isNull(), eq(false), any(Pageable.class)))
                     .thenReturn(page);
 
-            mockMvc.perform(get("/api/products/{productId}/variants", productId)
+            mockMvc.perform(get("/api/companies/{companyId}/products/{productId}/variants", companyId, productId)
                             .param("page", "0")
                             .param("size", "12"))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.content").isEmpty())
                     .andExpect(jsonPath("$.totalElements").value(0));
 
-            verify(productVariantService).listVariants(eq(productId), isNull(), eq(false), any(Pageable.class));
+            verify(productVariantService)
+                    .listVariants(eq(companyId), eq(productId), isNull(), eq(false), any(Pageable.class));
         }
     }
 
     // ─────────────────────────────────────────────
-    // POST /api/products/{productId}/variants
+    // POST /api/companies/{companyId}/products/{productId}/variants
     // ─────────────────────────────────────────────
     @Nested
-    @DisplayName("POST /api/products/{productId}/variants")
+    @DisplayName("POST /api/companies/{companyId}/products/{productId}/variants")
     class CreateVariantTests {
 
         @Test
         @DisplayName("should return 201 with the created definition")
         void createVariant_ValidRequest_Returns201() throws Exception {
-            when(productVariantService.createVariant(eq(productId), any(ProductVariantRequest.class)))
+            when(productVariantService.createVariant(eq(companyId), eq(productId), any(ProductVariantRequest.class)))
                     .thenReturn(testVariantResponse);
 
-            mockMvc.perform(post("/api/products/{productId}/variants", productId)
+            mockMvc.perform(post("/api/companies/{companyId}/products/{productId}/variants", companyId, productId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(testVariantRequest)))
                     .andExpect(status().isCreated())
@@ -281,7 +297,7 @@ class ProductVariantControllerTest {
         void createVariant_MissingRequiredFields_Returns400() throws Exception {
             var invalidRequest = new ProductVariantRequest(null, null, null);
 
-            mockMvc.perform(post("/api/products/{productId}/variants", productId)
+            mockMvc.perform(post("/api/companies/{companyId}/products/{productId}/variants", companyId, productId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(invalidRequest)))
                     .andExpect(status().isBadRequest())
@@ -295,11 +311,11 @@ class ProductVariantControllerTest {
         @Test
         @DisplayName("should return 409 when the barCode is duplicated")
         void createVariant_DuplicateBarCode_Returns409() throws Exception {
-            when(productVariantService.createVariant(eq(productId), any(ProductVariantRequest.class)))
+            when(productVariantService.createVariant(eq(companyId), eq(productId), any(ProductVariantRequest.class)))
                     .thenThrow(new DuplicateProductVariantException(
                             "Product variant with barCode already exists: 7501234567890"));
 
-            mockMvc.perform(post("/api/products/{productId}/variants", productId)
+            mockMvc.perform(post("/api/companies/{companyId}/products/{productId}/variants", companyId, productId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(testVariantRequest)))
                     .andExpect(status().isConflict())
@@ -310,18 +326,23 @@ class ProductVariantControllerTest {
     }
 
     // ─────────────────────────────────────────────
-    // GET /api/products/{productId}/variants/{variantId}
+    // GET /api/companies/{companyId}/products/{productId}/variants/{variantId}
     // ─────────────────────────────────────────────
     @Nested
-    @DisplayName("GET /api/products/{productId}/variants/{variantId}")
+    @DisplayName("GET /api/companies/{companyId}/products/{productId}/variants/{variantId}")
     class GetVariantTests {
 
         @Test
         @DisplayName("should return 200 with variant when found")
         void getVariant_Found_Returns200() throws Exception {
-            when(productVariantService.getVariant(productId, variantId)).thenReturn(testVariantResponse);
+            when(productVariantService.getVariant(companyId, productId, variantId))
+                    .thenReturn(testVariantResponse);
 
-            mockMvc.perform(get("/api/products/{productId}/variants/{variantId}", productId, variantId))
+            mockMvc.perform(get(
+                            "/api/companies/{companyId}/products/{productId}/variants/{variantId}",
+                            companyId,
+                            productId,
+                            variantId))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.id").value(variantId.toString()))
                     .andExpect(jsonPath("$.productId").value(productId.toString()))
@@ -332,10 +353,14 @@ class ProductVariantControllerTest {
         @Test
         @DisplayName("should return 404 when variant not found")
         void getVariant_NotFound_Returns404() throws Exception {
-            when(productVariantService.getVariant(productId, variantId))
+            when(productVariantService.getVariant(companyId, productId, variantId))
                     .thenThrow(new ProductVariantNotFoundException(variantId));
 
-            mockMvc.perform(get("/api/products/{productId}/variants/{variantId}", productId, variantId))
+            mockMvc.perform(get(
+                            "/api/companies/{companyId}/products/{productId}/variants/{variantId}",
+                            companyId,
+                            productId,
+                            variantId))
                     .andExpect(status().isNotFound())
                     .andExpect(jsonPath("$.status").value(404))
                     .andExpect(jsonPath("$.message").value("Product variant not found with id: " + variantId))
@@ -344,19 +369,24 @@ class ProductVariantControllerTest {
     }
 
     // ─────────────────────────────────────────────
-    // PUT /api/products/{productId}/variants/{variantId}
+    // PUT /api/companies/{companyId}/products/{productId}/variants/{variantId}
     // ─────────────────────────────────────────────
     @Nested
-    @DisplayName("PUT /api/products/{productId}/variants/{variantId}")
+    @DisplayName("PUT /api/companies/{companyId}/products/{productId}/variants/{variantId}")
     class UpdateVariantTests {
 
         @Test
         @DisplayName("should return 200 with updated variant")
         void updateVariant_Success_Returns200() throws Exception {
-            when(productVariantService.updateVariant(eq(productId), eq(variantId), any(ProductVariantRequest.class)))
+            when(productVariantService.updateVariant(
+                            eq(companyId), eq(productId), eq(variantId), any(ProductVariantRequest.class)))
                     .thenReturn(testVariantResponse);
 
-            mockMvc.perform(put("/api/products/{productId}/variants/{variantId}", productId, variantId)
+            mockMvc.perform(put(
+                                    "/api/companies/{companyId}/products/{productId}/variants/{variantId}",
+                                    companyId,
+                                    productId,
+                                    variantId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(testVariantRequest)))
                     .andExpect(status().isOk())
@@ -367,10 +397,15 @@ class ProductVariantControllerTest {
         @Test
         @DisplayName("should return 404 when variant not found")
         void updateVariant_NotFound_Returns404() throws Exception {
-            when(productVariantService.updateVariant(eq(productId), eq(variantId), any(ProductVariantRequest.class)))
+            when(productVariantService.updateVariant(
+                            eq(companyId), eq(productId), eq(variantId), any(ProductVariantRequest.class)))
                     .thenThrow(new ProductVariantNotFoundException(variantId));
 
-            mockMvc.perform(put("/api/products/{productId}/variants/{variantId}", productId, variantId)
+            mockMvc.perform(put(
+                                    "/api/companies/{companyId}/products/{productId}/variants/{variantId}",
+                                    companyId,
+                                    productId,
+                                    variantId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(testVariantRequest)))
                     .andExpect(status().isNotFound())
@@ -381,19 +416,23 @@ class ProductVariantControllerTest {
     }
 
     // ─────────────────────────────────────────────
-    // DELETE /api/products/{productId}/variants/{variantId}
+    // DELETE /api/companies/{companyId}/products/{productId}/variants/{variantId}
     // ─────────────────────────────────────────────
     @Nested
-    @DisplayName("DELETE /api/products/{productId}/variants/{variantId}")
+    @DisplayName("DELETE /api/companies/{companyId}/products/{productId}/variants/{variantId}")
     class DeleteVariantTests {
 
         @Test
         @DisplayName("should return 204 on successful soft delete")
         void deleteVariant_Success_Returns204() throws Exception {
-            mockMvc.perform(delete("/api/products/{productId}/variants/{variantId}", productId, variantId))
+            mockMvc.perform(delete(
+                            "/api/companies/{companyId}/products/{productId}/variants/{variantId}",
+                            companyId,
+                            productId,
+                            variantId))
                     .andExpect(status().isNoContent());
 
-            verify(productVariantService).deleteVariant(productId, variantId);
+            verify(productVariantService).deleteVariant(companyId, productId, variantId);
         }
 
         @Test
@@ -401,9 +440,13 @@ class ProductVariantControllerTest {
         void deleteVariant_NotFound_Returns404() throws Exception {
             doThrow(new ProductVariantNotFoundException(variantId))
                     .when(productVariantService)
-                    .deleteVariant(productId, variantId);
+                    .deleteVariant(companyId, productId, variantId);
 
-            mockMvc.perform(delete("/api/products/{productId}/variants/{variantId}", productId, variantId))
+            mockMvc.perform(delete(
+                            "/api/companies/{companyId}/products/{productId}/variants/{variantId}",
+                            companyId,
+                            productId,
+                            variantId))
                     .andExpect(status().isNotFound())
                     .andExpect(jsonPath("$.status").value(404))
                     .andExpect(jsonPath("$.message").value("Product variant not found with id: " + variantId))
@@ -412,32 +455,41 @@ class ProductVariantControllerTest {
     }
 
     // ─────────────────────────────────────────────
-    // PATCH /api/products/{productId}/variants/{variantId}/enable
+    // PATCH /api/companies/{companyId}/products/{productId}/variants/{variantId}/enable
     // ─────────────────────────────────────────────
     @Nested
-    @DisplayName("PATCH /api/products/{productId}/variants/{variantId}/enable")
+    @DisplayName("PATCH /api/companies/{companyId}/products/{productId}/variants/{variantId}/enable")
     class EnableVariantTests {
 
         @Test
         @DisplayName("should return 200 with the re-enabled variant")
         void enableVariant_Success_Returns200() throws Exception {
-            when(productVariantService.enableVariant(productId, variantId)).thenReturn(testVariantResponse);
+            when(productVariantService.enableVariant(companyId, productId, variantId))
+                    .thenReturn(testVariantResponse);
 
-            mockMvc.perform(patch("/api/products/{productId}/variants/{variantId}/enable", productId, variantId))
+            mockMvc.perform(patch(
+                            "/api/companies/{companyId}/products/{productId}/variants/{variantId}/enable",
+                            companyId,
+                            productId,
+                            variantId))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.id").value(variantId.toString()))
                     .andExpect(jsonPath("$.enabled").value(true));
 
-            verify(productVariantService).enableVariant(productId, variantId);
+            verify(productVariantService).enableVariant(companyId, productId, variantId);
         }
 
         @Test
         @DisplayName("should return 404 when variant not found")
         void enableVariant_NotFound_Returns404() throws Exception {
-            when(productVariantService.enableVariant(productId, variantId))
+            when(productVariantService.enableVariant(companyId, productId, variantId))
                     .thenThrow(new ProductVariantNotFoundException(variantId));
 
-            mockMvc.perform(patch("/api/products/{productId}/variants/{variantId}/enable", productId, variantId))
+            mockMvc.perform(patch(
+                            "/api/companies/{companyId}/products/{productId}/variants/{variantId}/enable",
+                            companyId,
+                            productId,
+                            variantId))
                     .andExpect(status().isNotFound())
                     .andExpect(jsonPath("$.status").value(404))
                     .andExpect(jsonPath("$.message").value("Product variant not found with id: " + variantId));

@@ -7,12 +7,18 @@ import java.util.UUID;
 /**
  * Read model of a product.
  *
+ * <p>{@code companyId} is the company that owns the product, and it is also the scope the resource is
+ * addressed through: {@code /api/companies/{companyId}/products}. It is reported so a caller can prove
+ * the owner it is acting under, not so it can discover one — a product of another company is never
+ * returned by any endpoint of this resource.</p>
+ *
  * <p>{@code categoryId} is the deepest node of the company's category tree the product is classified
  * under, and {@code categoryCompanyId} is the company that owns that node — both {@code null} for an
- * unclassified product. The second one exists because the form needs it: {@code /api/products} carries
- * no company segment, so a caller cannot otherwise know which company's tree to load to render the
- * saved path, and a product classified under company A must still resolve while the screen's company
- * context points at B.</p>
+ * unclassified product. The two companies now agree whenever both are present, because the write path
+ * refuses a category of another company; {@code categoryCompanyId} is kept because the product form
+ * renders its three selects from the tree the response names, and it does so from this one field without
+ * a second lookup. It used to be the only way for a client to learn the owning company, which is what
+ * the missing company segment in the path made necessary — that is no longer true.</p>
  *
  * <p>The category's own {@code satCode} is deliberately <b>not</b> here: the product's {@code satCode}
  * is a suggestion the operator accepted or edited, so the value that belongs in a response is the one
@@ -30,4 +36,5 @@ public record ProductResponse(
         LocalDateTime createdAt,
         LocalDateTime updatedAt,
         UUID categoryId,
-        UUID categoryCompanyId) {}
+        UUID categoryCompanyId,
+        UUID companyId) {}

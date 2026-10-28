@@ -133,8 +133,9 @@ class ProductVariantStoreStockWriteIntegrationTest extends AbstractPostgresInteg
     private static final SimpleGrantedAuthority ROLE_LC_ADMIN = new SimpleGrantedAuthority("ROLE_lc-admin");
 
     private static final String STORE_STOCK_URL = "/api/variants/{variantId}/stores/{storeId}";
-    private static final String VARIANTS_URL = "/api/products/{productId}/variants";
+    private static final String VARIANTS_URL = "/api/companies/{companyId}/products/{productId}/variants";
 
+    private UUID companyId;
     private UUID productId;
     private UUID storeAId;
     private UUID storeBId;
@@ -156,6 +157,7 @@ class ProductVariantStoreStockWriteIntegrationTest extends AbstractPostgresInteg
         var product = productRepository.save(Product.builder()
                 .sku("VARSTOCK-" + UUID.randomUUID().toString().substring(0, 8))
                 .name("Variant Store Stock Product")
+                .company(companyRepository.findById(companyId).orElseThrow())
                 .enabled(true)
                 .build());
         productId = product.getId();
@@ -328,7 +330,7 @@ class ProductVariantStoreStockWriteIntegrationTest extends AbstractPostgresInteg
         assertThat(productVariantRepository.findByProductId(productId)).hasSize(2);
 
         // And the read the UI uses reports each store's own stock for the same definition.
-        mockMvc.perform(get(VARIANTS_URL, productId)
+        mockMvc.perform(get(VARIANTS_URL, companyId, productId)
                         .param("storeId", storeAId.toString())
                         .with(jwt().authorities(ROLE_LC_ADMIN)))
                 .andExpect(status().isOk())
@@ -337,7 +339,7 @@ class ProductVariantStoreStockWriteIntegrationTest extends AbstractPostgresInteg
                 .andExpect(jsonPath("$.content[0].companyStoreId").value(storeAId.toString()))
                 .andExpect(jsonPath("$.content[0].stock").value(5));
 
-        mockMvc.perform(get(VARIANTS_URL, productId)
+        mockMvc.perform(get(VARIANTS_URL, companyId, productId)
                         .param("storeId", storeBId.toString())
                         .with(jwt().authorities(ROLE_LC_ADMIN)))
                 .andExpect(status().isOk())
@@ -354,7 +356,7 @@ class ProductVariantStoreStockWriteIntegrationTest extends AbstractPostgresInteg
 
         // Store B has no row for the definition, so the inner join leaves it out: writing a store
         // row is what makes a definition operational in that store.
-        mockMvc.perform(get(VARIANTS_URL, productId)
+        mockMvc.perform(get(VARIANTS_URL, companyId, productId)
                         .param("storeId", storeBId.toString())
                         .with(jwt().authorities(ROLE_LC_ADMIN)))
                 .andExpect(status().isOk())
@@ -629,6 +631,7 @@ class ProductVariantStoreStockWriteIntegrationTest extends AbstractPostgresInteg
                         .rfc("VSWT010101ABC")
                         .enabled(true)
                         .build()));
+        companyId = company.getId();
 
         var companyCountry = companyCountryRepository
                 .findByCompanyIdAndCountryId(company.getId(), country.getId())

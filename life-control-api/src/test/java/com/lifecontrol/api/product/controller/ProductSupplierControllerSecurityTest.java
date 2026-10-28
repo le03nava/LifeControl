@@ -81,6 +81,7 @@ class ProductSupplierControllerSecurityTest {
     @MockitoBean
     private RateLimitProperties rateLimitProperties;
 
+    private final UUID companyId = UUID.randomUUID();
     private final UUID productId = UUID.randomUUID();
     private final UUID relationId = UUID.randomUUID();
     private final UUID supplierId = UUID.randomUUID();
@@ -102,19 +103,20 @@ class ProductSupplierControllerSecurityTest {
                 LocalDateTime.now());
     }
 
-    // ─── GET /api/products/{productId}/suppliers ───────────────
+    // ─── GET /api/companies/{companyId}/products/{productId}/suppliers ───────────────
 
     @Nested
-    @DisplayName("GET /api/products/{productId}/suppliers")
+    @DisplayName("GET /api/companies/{companyId}/products/{productId}/suppliers")
     class GetProductSuppliersSecurity {
 
         @Test
         @WithMockUser(roles = {"lc-admin"})
         @DisplayName("returns 200 OK for user with lc-admin role")
         void adminCanGetSuppliers() throws Exception {
-            when(productSupplierService.listSuppliersByProductId(productId)).thenReturn(List.of(buildResponse()));
+            when(productSupplierService.listSuppliersByProductId(companyId, productId))
+                    .thenReturn(List.of(buildResponse()));
 
-            mockMvc.perform(get("/api/products/{productId}/suppliers", productId))
+            mockMvc.perform(get("/api/companies/{companyId}/products/{productId}/suppliers", companyId, productId))
                     .andExpect(status().isOk());
         }
 
@@ -122,16 +124,17 @@ class ProductSupplierControllerSecurityTest {
         @WithMockUser(roles = {"lc-product-supplier"})
         @DisplayName("returns 200 OK for user with lc-product-supplier role")
         void domainRoleCanGetSuppliers() throws Exception {
-            when(productSupplierService.listSuppliersByProductId(productId)).thenReturn(List.of(buildResponse()));
+            when(productSupplierService.listSuppliersByProductId(companyId, productId))
+                    .thenReturn(List.of(buildResponse()));
 
-            mockMvc.perform(get("/api/products/{productId}/suppliers", productId))
+            mockMvc.perform(get("/api/companies/{companyId}/products/{productId}/suppliers", companyId, productId))
                     .andExpect(status().isOk());
         }
 
         @Test
         @DisplayName("returns 401 Unauthorized for unauthenticated request")
         void unauthenticatedReturns401() throws Exception {
-            mockMvc.perform(get("/api/products/{productId}/suppliers", productId))
+            mockMvc.perform(get("/api/companies/{companyId}/products/{productId}/suppliers", companyId, productId))
                     .andExpect(status().isUnauthorized());
         }
 
@@ -139,7 +142,7 @@ class ProductSupplierControllerSecurityTest {
         @WithMockUser
         @DisplayName("returns 403 Forbidden for authenticated user with no roles")
         void userWithNoRolesGetsForbidden() throws Exception {
-            mockMvc.perform(get("/api/products/{productId}/suppliers", productId))
+            mockMvc.perform(get("/api/companies/{companyId}/products/{productId}/suppliers", companyId, productId))
                     .andExpect(status().isForbidden());
         }
 
@@ -147,25 +150,26 @@ class ProductSupplierControllerSecurityTest {
         @WithMockUser(roles = {"other-role"})
         @DisplayName("returns 403 Forbidden for user with wrong role")
         void userWithWrongRoleGetsForbidden() throws Exception {
-            mockMvc.perform(get("/api/products/{productId}/suppliers", productId))
+            mockMvc.perform(get("/api/companies/{companyId}/products/{productId}/suppliers", companyId, productId))
                     .andExpect(status().isForbidden());
         }
     }
 
-    // ─── POST /api/products/{productId}/suppliers ──────────────
+    // ─── POST /api/companies/{companyId}/products/{productId}/suppliers ──────────────
 
     @Nested
-    @DisplayName("POST /api/products/{productId}/suppliers")
+    @DisplayName("POST /api/companies/{companyId}/products/{productId}/suppliers")
     class PostProductSupplierSecurity {
 
         @Test
         @WithMockUser(roles = {"lc-admin"})
         @DisplayName("returns 201 Created for user with lc-admin role")
         void adminCanCreateRelation() throws Exception {
-            when(productSupplierService.addSupplierToProduct(eq(productId), any(ProductSupplierRequest.class)))
+            when(productSupplierService.addSupplierToProduct(
+                            eq(companyId), eq(productId), any(ProductSupplierRequest.class)))
                     .thenReturn(buildResponse());
 
-            mockMvc.perform(post("/api/products/{productId}/suppliers", productId)
+            mockMvc.perform(post("/api/companies/{companyId}/products/{productId}/suppliers", companyId, productId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(buildRequest())))
                     .andExpect(status().isCreated());
@@ -175,10 +179,11 @@ class ProductSupplierControllerSecurityTest {
         @WithMockUser(roles = {"lc-product-supplier"})
         @DisplayName("returns 201 Created for user with lc-product-supplier role")
         void domainRoleCanCreateRelation() throws Exception {
-            when(productSupplierService.addSupplierToProduct(eq(productId), any(ProductSupplierRequest.class)))
+            when(productSupplierService.addSupplierToProduct(
+                            eq(companyId), eq(productId), any(ProductSupplierRequest.class)))
                     .thenReturn(buildResponse());
 
-            mockMvc.perform(post("/api/products/{productId}/suppliers", productId)
+            mockMvc.perform(post("/api/companies/{companyId}/products/{productId}/suppliers", companyId, productId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(buildRequest())))
                     .andExpect(status().isCreated());
@@ -187,7 +192,7 @@ class ProductSupplierControllerSecurityTest {
         @Test
         @DisplayName("returns 401 Unauthorized for unauthenticated request")
         void unauthenticatedReturns401() throws Exception {
-            mockMvc.perform(post("/api/products/{productId}/suppliers", productId)
+            mockMvc.perform(post("/api/companies/{companyId}/products/{productId}/suppliers", companyId, productId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(buildRequest())))
                     .andExpect(status().isUnauthorized());
@@ -197,7 +202,7 @@ class ProductSupplierControllerSecurityTest {
         @WithMockUser
         @DisplayName("returns 403 Forbidden for authenticated user with no roles")
         void userWithNoRolesGetsForbidden() throws Exception {
-            mockMvc.perform(post("/api/products/{productId}/suppliers", productId)
+            mockMvc.perform(post("/api/companies/{companyId}/products/{productId}/suppliers", companyId, productId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(buildRequest())))
                     .andExpect(status().isForbidden());
@@ -207,17 +212,17 @@ class ProductSupplierControllerSecurityTest {
         @WithMockUser(roles = {"other-role"})
         @DisplayName("returns 403 Forbidden for user with wrong role")
         void userWithWrongRoleGetsForbidden() throws Exception {
-            mockMvc.perform(post("/api/products/{productId}/suppliers", productId)
+            mockMvc.perform(post("/api/companies/{companyId}/products/{productId}/suppliers", companyId, productId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(buildRequest())))
                     .andExpect(status().isForbidden());
         }
     }
 
-    // ─── PUT /api/products/{productId}/suppliers/{id} ──────────
+    // ─── PUT /api/companies/{companyId}/products/{productId}/suppliers/{id} ──────────
 
     @Nested
-    @DisplayName("PUT /api/products/{productId}/suppliers/{id}")
+    @DisplayName("PUT /api/companies/{companyId}/products/{productId}/suppliers/{id}")
     class PutProductSupplierSecurity {
 
         @Test
@@ -225,10 +230,14 @@ class ProductSupplierControllerSecurityTest {
         @DisplayName("returns 200 OK for user with lc-admin role")
         void adminCanUpdateRelation() throws Exception {
             when(productSupplierService.updateSupplier(
-                            eq(productId), eq(relationId), any(ProductSupplierRequest.class)))
+                            eq(companyId), eq(productId), eq(relationId), any(ProductSupplierRequest.class)))
                     .thenReturn(buildResponse());
 
-            mockMvc.perform(put("/api/products/{productId}/suppliers/{id}", productId, relationId)
+            mockMvc.perform(put(
+                                    "/api/companies/{companyId}/products/{productId}/suppliers/{id}",
+                                    companyId,
+                                    productId,
+                                    relationId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(buildRequest())))
                     .andExpect(status().isOk());
@@ -239,10 +248,14 @@ class ProductSupplierControllerSecurityTest {
         @DisplayName("returns 200 OK for user with lc-product-supplier role")
         void domainRoleCanUpdateRelation() throws Exception {
             when(productSupplierService.updateSupplier(
-                            eq(productId), eq(relationId), any(ProductSupplierRequest.class)))
+                            eq(companyId), eq(productId), eq(relationId), any(ProductSupplierRequest.class)))
                     .thenReturn(buildResponse());
 
-            mockMvc.perform(put("/api/products/{productId}/suppliers/{id}", productId, relationId)
+            mockMvc.perform(put(
+                                    "/api/companies/{companyId}/products/{productId}/suppliers/{id}",
+                                    companyId,
+                                    productId,
+                                    relationId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(buildRequest())))
                     .andExpect(status().isOk());
@@ -251,7 +264,11 @@ class ProductSupplierControllerSecurityTest {
         @Test
         @DisplayName("returns 401 Unauthorized for unauthenticated request")
         void unauthenticatedReturns401() throws Exception {
-            mockMvc.perform(put("/api/products/{productId}/suppliers/{id}", productId, relationId)
+            mockMvc.perform(put(
+                                    "/api/companies/{companyId}/products/{productId}/suppliers/{id}",
+                                    companyId,
+                                    productId,
+                                    relationId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(buildRequest())))
                     .andExpect(status().isUnauthorized());
@@ -261,7 +278,11 @@ class ProductSupplierControllerSecurityTest {
         @WithMockUser
         @DisplayName("returns 403 Forbidden for authenticated user with no roles")
         void userWithNoRolesGetsForbidden() throws Exception {
-            mockMvc.perform(put("/api/products/{productId}/suppliers/{id}", productId, relationId)
+            mockMvc.perform(put(
+                                    "/api/companies/{companyId}/products/{productId}/suppliers/{id}",
+                                    companyId,
+                                    productId,
+                                    relationId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(buildRequest())))
                     .andExpect(status().isForbidden());
@@ -271,24 +292,32 @@ class ProductSupplierControllerSecurityTest {
         @WithMockUser(roles = {"other-role"})
         @DisplayName("returns 403 Forbidden for user with wrong role")
         void userWithWrongRoleGetsForbidden() throws Exception {
-            mockMvc.perform(put("/api/products/{productId}/suppliers/{id}", productId, relationId)
+            mockMvc.perform(put(
+                                    "/api/companies/{companyId}/products/{productId}/suppliers/{id}",
+                                    companyId,
+                                    productId,
+                                    relationId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(buildRequest())))
                     .andExpect(status().isForbidden());
         }
     }
 
-    // ─── DELETE /api/products/{productId}/suppliers/{id} ───────
+    // ─── DELETE /api/companies/{companyId}/products/{productId}/suppliers/{id} ───────
 
     @Nested
-    @DisplayName("DELETE /api/products/{productId}/suppliers/{id}")
+    @DisplayName("DELETE /api/companies/{companyId}/products/{productId}/suppliers/{id}")
     class DeleteProductSupplierSecurity {
 
         @Test
         @WithMockUser(roles = {"lc-admin"})
         @DisplayName("returns 204 No Content for user with lc-admin role")
         void adminCanDeleteRelation() throws Exception {
-            mockMvc.perform(delete("/api/products/{productId}/suppliers/{id}", productId, relationId))
+            mockMvc.perform(delete(
+                            "/api/companies/{companyId}/products/{productId}/suppliers/{id}",
+                            companyId,
+                            productId,
+                            relationId))
                     .andExpect(status().isNoContent());
         }
 
@@ -296,14 +325,22 @@ class ProductSupplierControllerSecurityTest {
         @WithMockUser(roles = {"lc-product-supplier"})
         @DisplayName("returns 204 No Content for user with lc-product-supplier role")
         void domainRoleCanDeleteRelation() throws Exception {
-            mockMvc.perform(delete("/api/products/{productId}/suppliers/{id}", productId, relationId))
+            mockMvc.perform(delete(
+                            "/api/companies/{companyId}/products/{productId}/suppliers/{id}",
+                            companyId,
+                            productId,
+                            relationId))
                     .andExpect(status().isNoContent());
         }
 
         @Test
         @DisplayName("returns 401 Unauthorized for unauthenticated request")
         void unauthenticatedReturns401() throws Exception {
-            mockMvc.perform(delete("/api/products/{productId}/suppliers/{id}", productId, relationId))
+            mockMvc.perform(delete(
+                            "/api/companies/{companyId}/products/{productId}/suppliers/{id}",
+                            companyId,
+                            productId,
+                            relationId))
                     .andExpect(status().isUnauthorized());
         }
 
@@ -311,7 +348,11 @@ class ProductSupplierControllerSecurityTest {
         @WithMockUser
         @DisplayName("returns 403 Forbidden for authenticated user with no roles")
         void userWithNoRolesGetsForbidden() throws Exception {
-            mockMvc.perform(delete("/api/products/{productId}/suppliers/{id}", productId, relationId))
+            mockMvc.perform(delete(
+                            "/api/companies/{companyId}/products/{productId}/suppliers/{id}",
+                            companyId,
+                            productId,
+                            relationId))
                     .andExpect(status().isForbidden());
         }
 
@@ -319,7 +360,11 @@ class ProductSupplierControllerSecurityTest {
         @WithMockUser(roles = {"other-role"})
         @DisplayName("returns 403 Forbidden for user with wrong role")
         void userWithWrongRoleGetsForbidden() throws Exception {
-            mockMvc.perform(delete("/api/products/{productId}/suppliers/{id}", productId, relationId))
+            mockMvc.perform(delete(
+                            "/api/companies/{companyId}/products/{productId}/suppliers/{id}",
+                            companyId,
+                            productId,
+                            relationId))
                     .andExpect(status().isForbidden());
         }
     }

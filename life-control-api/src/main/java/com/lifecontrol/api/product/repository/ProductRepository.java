@@ -14,45 +14,64 @@ import org.springframework.stereotype.Repository;
 /**
  * Product persistence.
  *
- * <p>Every finder that feeds a response carries the graph {@code {"category", "category.company"}}: the
- * response projects {@code categoryCompanyId}, which is a property of the category's <em>own</em> parent
- * row, and both hops are {@code LAZY}. Fetching only {@code category} would leave the company a proxy,
- * so a page of twenty classified products would still issue twenty extra selects — the classic N+1 the
- * relation would otherwise introduce on a read that had none. Two joins answer it instead.</p>
+ * <p>Every read the product resource serves is <b>company-scoped</b>: the company is part of the path
+ * ({@code /api/companies/{companyId}/products}), so the finders carry it instead of letting the caller
+ * filter afterwards, and a page can never be post-filtered into a lie about its own totals. The
+ * unscoped finders that fed the previous global catalog are gone rather than left unused, because one of
+ * them being picked up later is exactly how a cross-tenant read would come back.</p>
+ *
+ * <p>Every finder that feeds a response carries the graph {@code {"category", "category.company",
+ * "company"}}: the response projects {@code categoryId}, {@code categoryCompanyId} and {@code companyId},
+ * and all three hops are {@code LAZY}. Fetching only {@code category} would leave the companies a proxy,
+ * so a page of twenty classified products would still issue forty extra selects — the classic N+1 the
+ * relation would otherwise introduce on a read that had none. Three joins answer it instead.</p>
+ *
+ * <p>The SKU key is per company ({@code (company_id, sku)}), which is why both uniqueness finders take
+ * the company: the same SKU in two companies is two legitimate catalog entries. The database enforces
+ * the same shape from {@code V40} on; until then these finders are the service-level rule.</p>
  */
 @Repository
 public interface ProductRepository extends JpaRepository<Product, UUID> {
 
-    boolean existsBySku(String sku);
+    /** Whether the company already holds this SKU. */
+    boolean existsBySkuAndCompanyId(String sku, UUID companyId);
 
-    boolean existsBySkuAndIdNot(String sku, UUID id);
+    /** Whether another product of the same company already holds this SKU. */
+    boolean existsBySkuAndCompanyIdAndIdNot(String sku, UUID companyId, UUID id);
 
-    /** Overridden only to attach the graph: {@code findById} feeds the response of every write too. */
+    /** Overridden only to attach the graph: {@code findById} is still used by the order modules. */
     @Override
-    @EntityGraph(attributePaths = {"category", "category.company"})
+    @EntityGraph(attributePaths = {"category", "category.company", "company"})
     Optional<Product> findById(UUID id);
 
-    @Override
-    @EntityGraph(attributePaths = {"category", "category.company"})
-    Page<Product> findAll(Pageable pageable);
+    /** A product of the company, or empty — a row of another company is indistinguishable from none. */
+    @EntityGraph(attributePaths = {"category", "category.company", "company"})
+    Optional<Product> findByIdAndCompanyId(UUID id, UUID companyId);
 
-    @EntityGraph(attributePaths = {"category", "category.company"})
-    Page<Product> findByEnabledTrue(Pageable pageable);
+    @EntityGraph(attributePaths = {"category", "category.company", "company"})
+    Page<Product> findByCompanyIdAndEnabledTrue(UUID companyId, Pageable pageable);
 
-    @EntityGraph(attributePaths = {"category", "category.company"})
+    @EntityGraph(attributePaths = {"category", "category.company", "company"})
+    Page<Product> findByCompanyId(UUID companyId, Pageable pageable);
+
+    @EntityGraph(attributePaths = {"category", "category.company", "company"})
     @Query("""
         SELECT p FROM Product p
-        WHERE (LOWER(p.name) LIKE LOWER(CONCAT('%', :search, '%'))
+        WHERE p.company.id = :companyId
+        AND (LOWER(p.name) LIKE LOWER(CONCAT('%', :search, '%'))
             OR LOWER(p.sku) LIKE LOWER(CONCAT('%', :search, '%')))
         AND p.enabled = true
         """)
-    Page<Product> findBySearchTermAndEnabledTrue(@Param("search") String search, Pageable pageable);
+    Page<Product> findByCompanyIdAndSearchTermAndEnabledTrue(
+            @Param("companyId") UUID companyId, @Param("search") String search, Pageable pageable);
 
-    @EntityGraph(attributePaths = {"category", "category.company"})
+    @EntityGraph(attributePaths = {"category", "category.company", "company"})
     @Query("""
         SELECT p FROM Product p
-        WHERE LOWER(p.name) LIKE LOWER(CONCAT('%', :search, '%'))
-           OR LOWER(p.sku) LIKE LOWER(CONCAT('%', :search, '%'))
+        WHERE p.company.id = :companyId
+        AND (LOWER(p.name) LIKE LOWER(CONCAT('%', :search, '%'))
+            OR LOWER(p.sku) LIKE LOWER(CONCAT('%', :search, '%')))
         """)
-    Page<Product> findBySearchTerm(@Param("search") String search, Pageable pageable);
+    Page<Product> findByCompanyIdAndSearchTerm(
+            @Param("companyId") UUID companyId, @Param("search") String search, Pageable pageable);
 }

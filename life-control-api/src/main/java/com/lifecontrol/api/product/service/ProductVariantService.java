@@ -51,6 +51,12 @@ import org.springframework.transaction.annotation.Transactional;
  * service resolves it against the catalog and applies the two guards that keep the stored quantities
  * readable — {@code unit_type} coherence inside the product (D4) and immutability once the variant
  * acquired a quantity meaning (D3).</p>
+ *
+ * <p>The product-scoped methods take the company named by the path as well, and every one of them
+ * resolves the product <b>within</b> it ({@link #validateProductExists(UUID, UUID)}) before reading or
+ * writing a variant: the variant table hangs off the product, so the product's company is the scope.
+ * The two store-scoped operations ({@link #upsertStoreStock} and {@link #searchVariants}) address the
+ * variant directly and derive their scope from the store, as they did before.</p>
  */
 @Service
 public class ProductVariantService {
@@ -89,13 +95,14 @@ public class ProductVariantService {
     }
 
     @Transactional(readOnly = true)
-    public Page<ProductVariantResponse> listVariants(UUID productId, Pageable pageable) {
-        return listVariants(productId, null, false, pageable);
+    public Page<ProductVariantResponse> listVariants(UUID companyId, UUID productId, Pageable pageable) {
+        return listVariants(companyId, productId, null, false, pageable);
     }
 
     @Transactional(readOnly = true)
-    public Page<ProductVariantResponse> listVariants(UUID productId, UUID companyStoreId, Pageable pageable) {
-        return listVariants(productId, companyStoreId, false, pageable);
+    public Page<ProductVariantResponse> listVariants(
+            UUID companyId, UUID productId, UUID companyStoreId, Pageable pageable) {
+        return listVariants(companyId, productId, companyStoreId, false, pageable);
     }
 
     /**
@@ -126,8 +133,8 @@ public class ProductVariantService {
      */
     @Transactional(readOnly = true)
     public Page<ProductVariantResponse> listVariants(
-            UUID productId, UUID companyStoreId, boolean includeDisabled, Pageable pageable) {
-        var product = validateProductExists(productId);
+            UUID companyId, UUID productId, UUID companyStoreId, boolean includeDisabled, Pageable pageable) {
+        var product = validateProductExists(companyId, productId);
 
         if (companyStoreId == null) {
             var page = includeDisabled
@@ -145,8 +152,8 @@ public class ProductVariantService {
     }
 
     @Transactional(readOnly = true)
-    public ProductVariantResponse getVariant(UUID productId, UUID variantId) {
-        var product = validateProductExists(productId);
+    public ProductVariantResponse getVariant(UUID companyId, UUID productId, UUID variantId) {
+        var product = validateProductExists(companyId, productId);
 
         var variant = findVariantOfProduct(productId, variantId);
         return toResponse(variant, product.getSku());
@@ -154,8 +161,9 @@ public class ProductVariantService {
 
     /**
      * Creates the company-scoped definition of a variant. The owning product is the path variable, not
-     * part of the request, and the variant copies the product's company (V39) because the barcode key
-     * that replaces the global one has to live on the row it covers. Both uniqueness rules are checked
+     * part of the request, and the variant takes the company from the path (V39) because the barcode key
+     * that replaces the global one has to live on the row it covers — the product was already checked to
+     * belong to that company, so the copy cannot disagree with it. Both uniqueness rules are checked
      * here and, ultimately, by the database: {@code (company_id, bar_code)} once the contract step
      * lands, and {@code (product_id, variant_name)} (D3) today.
      *
@@ -168,8 +176,8 @@ public class ProductVariantService {
      *     variants (400)
      */
     @Transactional
-    public ProductVariantResponse createVariant(UUID productId, ProductVariantRequest request) {
-        var product = validateProductExists(productId);
+    public ProductVariantResponse createVariant(UUID companyId, UUID productId, ProductVariantRequest request) {
+        var product = validateProductExists(companyId, productId);
 
         logger.info(
                 "Creating product variant: productId={}, barCode={}, variantName={}",
@@ -195,10 +203,7 @@ public class ProductVariantService {
 
         var variant = ProductVariant.builder()
                 .productId(productId)
-                .companyId(
-                        product.getCompany() == null
-                                ? null
-                                : product.getCompany().getId())
+                .companyId(companyId)
                 .measureUnitId(measureUnit == null ? null : measureUnit.getId())
                 .barCode(request.barCode())
                 .variantName(request.variantName())
@@ -230,8 +235,9 @@ public class ProductVariantService {
      *     movements and the unit would change (409)
      */
     @Transactional
-    public ProductVariantResponse updateVariant(UUID productId, UUID variantId, ProductVariantRequest request) {
-        var product = validateProductExists(productId);
+    public ProductVariantResponse updateVariant(
+            UUID companyId, UUID productId, UUID variantId, ProductVariantRequest request) {
+        var product = validateProductExists(companyId, productId);
 
         logger.info("Updating product variant: variantId={}, productId={}", variantId, productId);
 
@@ -275,8 +281,8 @@ public class ProductVariantService {
 
     /** Soft delete of the definition ({@code enabled = false}); the store rows are left intact. */
     @Transactional
-    public void deleteVariant(UUID productId, UUID variantId) {
-        validateProductExists(productId);
+    public void deleteVariant(UUID companyId, UUID productId, UUID variantId) {
+        validateProductExists(companyId, productId);
 
         logger.info("Soft-deleting product variant: variantId={}, productId={}", variantId, productId);
 
@@ -299,8 +305,8 @@ public class ProductVariantService {
      * @throws ProductVariantNotFoundException when the variant does not exist for that product
      */
     @Transactional
-    public ProductVariantResponse enableVariant(UUID productId, UUID variantId) {
-        var product = validateProductExists(productId);
+    public ProductVariantResponse enableVariant(UUID companyId, UUID productId, UUID variantId) {
+        var product = validateProductExists(companyId, productId);
 
         logger.info("Re-enabling product variant: variantId={}, productId={}", variantId, productId);
 
@@ -404,8 +410,20 @@ public class ProductVariantService {
 
     // ─── Private Helpers ──────────────────────────────────────────────────
 
-    private Product validateProductExists(UUID productId) {
-        return productRepository.findById(productId).orElseThrow(() -> new ProductNotFoundException(productId));
+    /**
+     * Loads a product that belongs to the company named by the path, or answers 404.
+     *
+     * <p>Every nested endpoint starts here, so the product is resolved against the company before any
+     * variant is read or written: a variant of another company's product is indistinguishable from one
+     * that does not exist, and nothing downstream has to remember the scope.</p>
+     *
+     * @throws ProductNotFoundException when no enabled-or-not product of that company carries the id
+     */
+    private Product validateProductExists(UUID companyId, UUID productId) {
+        currentUserContext.verifyCompanyAccess(companyId);
+        return productRepository
+                .findByIdAndCompanyId(productId, companyId)
+                .orElseThrow(() -> new ProductNotFoundException(productId));
     }
 
     /**

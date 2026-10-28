@@ -55,6 +55,7 @@ class ProductSupplierControllerTest {
     @InjectMocks
     private ProductController productController;
 
+    private UUID companyId;
     private UUID productId;
     private UUID relationId;
     private UUID supplierId;
@@ -69,6 +70,7 @@ class ProductSupplierControllerTest {
                 .build();
         objectMapper = JsonMapper.builder().build();
 
+        companyId = UUID.randomUUID();
         productId = UUID.randomUUID();
         relationId = UUID.randomUUID();
         supplierId = UUID.randomUUID();
@@ -81,18 +83,19 @@ class ProductSupplierControllerTest {
     }
 
     // ─────────────────────────────────────────────
-    // GET /api/products/{productId}/suppliers
+    // GET /api/companies/{companyId}/products/{productId}/suppliers
     // ─────────────────────────────────────────────
     @Nested
-    @DisplayName("GET /api/products/{productId}/suppliers")
+    @DisplayName("GET /api/companies/{companyId}/products/{productId}/suppliers")
     class GetProductSuppliersTests {
 
         @Test
         @DisplayName("should return 200 with supplier list when product has suppliers")
         void getProductSuppliers_Success() throws Exception {
-            when(productSupplierService.listSuppliersByProductId(productId)).thenReturn(List.of(testResponse));
+            when(productSupplierService.listSuppliersByProductId(companyId, productId))
+                    .thenReturn(List.of(testResponse));
 
-            mockMvc.perform(get("/api/products/{productId}/suppliers", productId))
+            mockMvc.perform(get("/api/companies/{companyId}/products/{productId}/suppliers", companyId, productId))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$").isArray())
                     .andExpect(jsonPath("$[0].id").value(relationId.toString()))
@@ -109,9 +112,10 @@ class ProductSupplierControllerTest {
         @Test
         @DisplayName("should return 200 with empty list when product has no suppliers")
         void getProductSuppliers_EmptyList() throws Exception {
-            when(productSupplierService.listSuppliersByProductId(productId)).thenReturn(List.of());
+            when(productSupplierService.listSuppliersByProductId(companyId, productId))
+                    .thenReturn(List.of());
 
-            mockMvc.perform(get("/api/products/{productId}/suppliers", productId))
+            mockMvc.perform(get("/api/companies/{companyId}/products/{productId}/suppliers", companyId, productId))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$").isArray())
                     .andExpect(jsonPath("$").isEmpty());
@@ -120,10 +124,10 @@ class ProductSupplierControllerTest {
         @Test
         @DisplayName("should return 404 when product not found")
         void getProductSuppliers_ProductNotFound() throws Exception {
-            when(productSupplierService.listSuppliersByProductId(productId))
+            when(productSupplierService.listSuppliersByProductId(companyId, productId))
                     .thenThrow(new ProductNotFoundException(productId));
 
-            mockMvc.perform(get("/api/products/{productId}/suppliers", productId))
+            mockMvc.perform(get("/api/companies/{companyId}/products/{productId}/suppliers", companyId, productId))
                     .andExpect(status().isNotFound())
                     .andExpect(jsonPath("$.status").value(404))
                     .andExpect(jsonPath("$.message").value("Product not found with id: " + productId))
@@ -132,19 +136,20 @@ class ProductSupplierControllerTest {
     }
 
     // ─────────────────────────────────────────────
-    // POST /api/products/{productId}/suppliers
+    // POST /api/companies/{companyId}/products/{productId}/suppliers
     // ─────────────────────────────────────────────
     @Nested
-    @DisplayName("POST /api/products/{productId}/suppliers")
+    @DisplayName("POST /api/companies/{companyId}/products/{productId}/suppliers")
     class AddProductSupplierTests {
 
         @Test
         @DisplayName("should return 201 with created relation when valid request")
         void addProductSupplier_Success() throws Exception {
-            when(productSupplierService.addSupplierToProduct(eq(productId), any(ProductSupplierRequest.class)))
+            when(productSupplierService.addSupplierToProduct(
+                            eq(companyId), eq(productId), any(ProductSupplierRequest.class)))
                     .thenReturn(testResponse);
 
-            mockMvc.perform(post("/api/products/{productId}/suppliers", productId)
+            mockMvc.perform(post("/api/companies/{companyId}/products/{productId}/suppliers", companyId, productId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(testRequest)))
                     .andExpect(status().isCreated())
@@ -160,10 +165,11 @@ class ProductSupplierControllerTest {
             var minimalRequest = new ProductSupplierRequest(supplierId, null, null, null);
             var minimalResponse = new ProductSupplierResponse(
                     relationId, productId, supplierId, "Test Supplier Co", null, false, true, now, now);
-            when(productSupplierService.addSupplierToProduct(eq(productId), any(ProductSupplierRequest.class)))
+            when(productSupplierService.addSupplierToProduct(
+                            eq(companyId), eq(productId), any(ProductSupplierRequest.class)))
                     .thenReturn(minimalResponse);
 
-            mockMvc.perform(post("/api/products/{productId}/suppliers", productId)
+            mockMvc.perform(post("/api/companies/{companyId}/products/{productId}/suppliers", companyId, productId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(minimalRequest)))
                     .andExpect(status().isCreated())
@@ -174,10 +180,11 @@ class ProductSupplierControllerTest {
         @Test
         @DisplayName("should return 404 when product not found")
         void addProductSupplier_ProductNotFound() throws Exception {
-            when(productSupplierService.addSupplierToProduct(eq(productId), any(ProductSupplierRequest.class)))
+            when(productSupplierService.addSupplierToProduct(
+                            eq(companyId), eq(productId), any(ProductSupplierRequest.class)))
                     .thenThrow(new ProductNotFoundException(productId));
 
-            mockMvc.perform(post("/api/products/{productId}/suppliers", productId)
+            mockMvc.perform(post("/api/companies/{companyId}/products/{productId}/suppliers", companyId, productId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(testRequest)))
                     .andExpect(status().isNotFound())
@@ -187,10 +194,11 @@ class ProductSupplierControllerTest {
         @Test
         @DisplayName("should return 404 when supplier not found")
         void addProductSupplier_SupplierNotFound() throws Exception {
-            when(productSupplierService.addSupplierToProduct(eq(productId), any(ProductSupplierRequest.class)))
+            when(productSupplierService.addSupplierToProduct(
+                            eq(companyId), eq(productId), any(ProductSupplierRequest.class)))
                     .thenThrow(new SupplierNotFoundException(supplierId));
 
-            mockMvc.perform(post("/api/products/{productId}/suppliers", productId)
+            mockMvc.perform(post("/api/companies/{companyId}/products/{productId}/suppliers", companyId, productId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(testRequest)))
                     .andExpect(status().isNotFound())
@@ -200,10 +208,11 @@ class ProductSupplierControllerTest {
         @Test
         @DisplayName("should return 409 when duplicate product-supplier pair")
         void addProductSupplier_Duplicate() throws Exception {
-            when(productSupplierService.addSupplierToProduct(eq(productId), any(ProductSupplierRequest.class)))
+            when(productSupplierService.addSupplierToProduct(
+                            eq(companyId), eq(productId), any(ProductSupplierRequest.class)))
                     .thenThrow(new DuplicateProductSupplierException("Test Supplier Co"));
 
-            mockMvc.perform(post("/api/products/{productId}/suppliers", productId)
+            mockMvc.perform(post("/api/companies/{companyId}/products/{productId}/suppliers", companyId, productId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(testRequest)))
                     .andExpect(status().isConflict())
@@ -218,7 +227,7 @@ class ProductSupplierControllerTest {
         void addProductSupplier_MissingSupplierId() throws Exception {
             var invalidRequest = new ProductSupplierRequest(null, new BigDecimal("50.00"), false, true);
 
-            mockMvc.perform(post("/api/products/{productId}/suppliers", productId)
+            mockMvc.perform(post("/api/companies/{companyId}/products/{productId}/suppliers", companyId, productId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(invalidRequest)))
                     .andExpect(status().isBadRequest())
@@ -232,7 +241,7 @@ class ProductSupplierControllerTest {
         void addProductSupplier_NegativeCost() throws Exception {
             var invalidRequest = new ProductSupplierRequest(supplierId, new BigDecimal("-10.00"), false, true);
 
-            mockMvc.perform(post("/api/products/{productId}/suppliers", productId)
+            mockMvc.perform(post("/api/companies/{companyId}/products/{productId}/suppliers", companyId, productId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(invalidRequest)))
                     .andExpect(status().isBadRequest())
@@ -243,10 +252,10 @@ class ProductSupplierControllerTest {
     }
 
     // ─────────────────────────────────────────────
-    // PUT /api/products/{productId}/suppliers/{id}
+    // PUT /api/companies/{companyId}/products/{productId}/suppliers/{id}
     // ─────────────────────────────────────────────
     @Nested
-    @DisplayName("PUT /api/products/{productId}/suppliers/{id}")
+    @DisplayName("PUT /api/companies/{companyId}/products/{productId}/suppliers/{id}")
     class UpdateProductSupplierTests {
 
         @Test
@@ -263,12 +272,16 @@ class ProductSupplierControllerTest {
                     now,
                     now);
             when(productSupplierService.updateSupplier(
-                            eq(productId), eq(relationId), any(ProductSupplierRequest.class)))
+                            eq(companyId), eq(productId), eq(relationId), any(ProductSupplierRequest.class)))
                     .thenReturn(updatedResponse);
 
             var updateRequest = new ProductSupplierRequest(supplierId, new BigDecimal("200.00"), true, true);
 
-            mockMvc.perform(put("/api/products/{productId}/suppliers/{id}", productId, relationId)
+            mockMvc.perform(put(
+                                    "/api/companies/{companyId}/products/{productId}/suppliers/{id}",
+                                    companyId,
+                                    productId,
+                                    relationId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(updateRequest)))
                     .andExpect(status().isOk())
@@ -281,10 +294,14 @@ class ProductSupplierControllerTest {
         @DisplayName("should return 404 when relation not found")
         void updateProductSupplier_NotFound() throws Exception {
             when(productSupplierService.updateSupplier(
-                            eq(productId), eq(relationId), any(ProductSupplierRequest.class)))
+                            eq(companyId), eq(productId), eq(relationId), any(ProductSupplierRequest.class)))
                     .thenThrow(new ProductSupplierNotFoundException(relationId));
 
-            mockMvc.perform(put("/api/products/{productId}/suppliers/{id}", productId, relationId)
+            mockMvc.perform(put(
+                                    "/api/companies/{companyId}/products/{productId}/suppliers/{id}",
+                                    companyId,
+                                    productId,
+                                    relationId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(testRequest)))
                     .andExpect(status().isNotFound())
@@ -296,19 +313,23 @@ class ProductSupplierControllerTest {
     }
 
     // ─────────────────────────────────────────────
-    // DELETE /api/products/{productId}/suppliers/{id}
+    // DELETE /api/companies/{companyId}/products/{productId}/suppliers/{id}
     // ─────────────────────────────────────────────
     @Nested
-    @DisplayName("DELETE /api/products/{productId}/suppliers/{id}")
+    @DisplayName("DELETE /api/companies/{companyId}/products/{productId}/suppliers/{id}")
     class RemoveProductSupplierTests {
 
         @Test
         @DisplayName("should return 204 when relation deleted successfully")
         void removeProductSupplier_Success() throws Exception {
-            mockMvc.perform(delete("/api/products/{productId}/suppliers/{id}", productId, relationId))
+            mockMvc.perform(delete(
+                            "/api/companies/{companyId}/products/{productId}/suppliers/{id}",
+                            companyId,
+                            productId,
+                            relationId))
                     .andExpect(status().isNoContent());
 
-            verify(productSupplierService).removeSupplierFromProduct(productId, relationId);
+            verify(productSupplierService).removeSupplierFromProduct(companyId, productId, relationId);
         }
 
         @Test
@@ -316,9 +337,13 @@ class ProductSupplierControllerTest {
         void removeProductSupplier_NotFound() throws Exception {
             doThrow(new ProductSupplierNotFoundException(relationId))
                     .when(productSupplierService)
-                    .removeSupplierFromProduct(productId, relationId);
+                    .removeSupplierFromProduct(companyId, productId, relationId);
 
-            mockMvc.perform(delete("/api/products/{productId}/suppliers/{id}", productId, relationId))
+            mockMvc.perform(delete(
+                            "/api/companies/{companyId}/products/{productId}/suppliers/{id}",
+                            companyId,
+                            productId,
+                            relationId))
                     .andExpect(status().isNotFound())
                     .andExpect(jsonPath("$.status").value(404))
                     .andExpect(
@@ -337,10 +362,10 @@ class ProductSupplierControllerTest {
         @Test
         @DisplayName("should include correlationId, path, timestamp in 404 responses")
         void error404_ContainsContractFields() throws Exception {
-            when(productSupplierService.listSuppliersByProductId(productId))
+            when(productSupplierService.listSuppliersByProductId(companyId, productId))
                     .thenThrow(new ProductSupplierNotFoundException(relationId));
 
-            mockMvc.perform(get("/api/products/{productId}/suppliers", productId))
+            mockMvc.perform(get("/api/companies/{companyId}/products/{productId}/suppliers", companyId, productId))
                     .andExpect(status().isNotFound())
                     .andExpect(jsonPath("$.status").value(404))
                     .andExpect(jsonPath("$.message").isNotEmpty())
@@ -351,10 +376,11 @@ class ProductSupplierControllerTest {
         @Test
         @DisplayName("should include correlationId, path, timestamp in 409 responses")
         void error409_ContainsContractFields() throws Exception {
-            when(productSupplierService.addSupplierToProduct(eq(productId), any(ProductSupplierRequest.class)))
+            when(productSupplierService.addSupplierToProduct(
+                            eq(companyId), eq(productId), any(ProductSupplierRequest.class)))
                     .thenThrow(new DuplicateProductSupplierException("Test Supplier Co"));
 
-            mockMvc.perform(post("/api/products/{productId}/suppliers", productId)
+            mockMvc.perform(post("/api/companies/{companyId}/products/{productId}/suppliers", companyId, productId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(testRequest)))
                     .andExpect(status().isConflict())

@@ -16,17 +16,27 @@ public interface ProductSupplierRepository extends JpaRepository<ProductSupplier
 
     List<ProductSupplier> findBySupplierId(UUID supplierId);
 
+    /**
+     * The relations of one supplier whose product belongs to the company, enabled, optionally filtered by
+     * product name or SKU.
+     *
+     * <p>The company predicate is what keeps the by-supplier read inside the tenant: suppliers are global,
+     * so the same supplier legitimately supplies several companies, and without this a caller of company A
+     * would receive the catalog of company B. It is a query predicate and not a post-filter so the result
+     * cannot become a page whose count contradicts what it returns.</p>
+     */
     @Query("""
         SELECT ps FROM ProductSupplier ps
         JOIN FETCH ps.product p
         WHERE ps.supplier.id = :supplierId
+        AND p.company.id = :companyId
         AND p.enabled = true
         AND (:search IS NULL OR :search = ''
              OR LOWER(p.name) LIKE LOWER(CONCAT('%', :search, '%'))
              OR LOWER(p.sku) LIKE LOWER(CONCAT('%', :search, '%')))
         """)
-    List<ProductSupplier> findBySupplierIdWithSearch(
-            @Param("supplierId") UUID supplierId, @Param("search") String search);
+    List<ProductSupplier> findByCompanyIdAndSupplierIdWithSearch(
+            @Param("companyId") UUID companyId, @Param("supplierId") UUID supplierId, @Param("search") String search);
 
     boolean existsByProductIdAndSupplierId(UUID productId, UUID supplierId);
 
