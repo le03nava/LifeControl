@@ -39,7 +39,7 @@ One line per task: ID, specs, route, commit. Route is `inline` unless a Delegati
 | ID | What | Specs | Route | Commit |
 | --- | --- | --- | --- | --- |
 | T1 | Expand: V39 adds nullable `company_id` to `products` and `product_variants`, the entity fields, and the writes that populate them (a product takes its category's company; a variant takes its product's) | S2, S4 | inline | `1bb45dac` |
-| T2 | Move: `/api/companies/{companyId}/products` with `verifyCompanyAccess`, the company required on write, the category required to belong to it, duplicate SKU per company | S4 | inline | `-` |
+| T2 | Move: `/api/companies/{companyId}/products` with `verifyCompanyAccess`, the company required on write, the category required to belong to it, duplicate SKU per company | S4 | delegated (`gentle-ai-worker`) | `e9f9ecba` |
 | T3 | Variants: barcode unique per company, variant search scoped by the store's company | S4 | inline | `-` |
 | T4 | Contract: V40 makes both columns `NOT NULL`, adds the composite FKs, drops the global unique keys and replaces them per company | S2, S4 | inline | `-` |
 | T5 | Consumers: `InventoryService`, `PurchaseOrderService`, `SalesOrderService` resolve a variant **with** the document's company | S4 | inline | `-` |
@@ -48,6 +48,15 @@ One line per task: ID, specs, route, commit. Route is `inline` unless a Delegati
 The slices are ordered so each one leaves the suite green: a `NOT NULL` column cannot arrive before the write
 surface knows where the company comes from, and the API cannot move before the column exists. That is why the
 plan is six slices and not the five the issue's scope statement supports — the constraint is CI, not scope.
+
+**Slice boundary and delivery strategy.** T2 is **oversized** and is recorded that way rather than dressed up:
+`e9f9ecba` is ~1.400 authored lines against a ~400-line review budget, because the contract move is atomic.
+Every handler of one controller moves, every service signature it calls changes, and every suite that names
+the old path follows; the only split that would fit the budget is a dual surface — the old `/api/products`
+alive beside the new path for one pull request — and that intermediate state is exactly the cross-tenant hole
+this unit closes, served under the contract the unit replaces. Delivery is therefore a chain of pull requests
+(`type:breaking-change` for T2, `type:feature` for the rest), and T2 is the slice the reviewer should read
+first and alone.
 
 ## Log
 
@@ -78,3 +87,17 @@ plan is six slices and not the five the issue's scope statement supports — the
   migrations from a populated V36 database, so V39 — which has nothing to do with attributes — made a test about
   the V37/V38 upgrade path fail. It now derives the applied range (`startsWith("37")` … `endsWith(latestMigrationVersion())`),
   which is the same duplication the Flyway head removed from seven suites.
+- **L6** — T2 evidence, 2026-10-27, commit `e9f9ecba` (delegated to `gentle-ai-worker`). The path is now
+  `/api/companies/{companyId}/products` and the company in it is the owner: a category of another company is a
+  404 with nothing stored, another company's product is a 404 on read/update/delete (scoped in the query, not
+  loaded and compared), the SKU key is per company, the by-supplier read is company-scoped and
+  `ProductResponse` reports the owner. Proof of the tenant rules: 17 new cross-tenant assertions observed RED
+  before the rules existed and GREEN after, plus a new real-SQL suite
+  (`ProductSupplierCompanyScopeIntegrationTest`) that proves the by-supplier predicate is a query filter and not
+  a post-filter. Gate: `./gradlew spotlessCheck spotbugsMain test --no-daemon` → BUILD SUCCESSFUL, 4070 tests.
+- **L7** — three follow-ups T2 surfaced and did not take, each with its owner slice: `api-gateway` still
+  declares a `/api/products/**` route that nothing serves (dead, harmless — removed with T6, which also moves the
+  client off the old path); the per-company SKU key is a service rule until V40 replaces the global unique index
+  and a same-SKU insert across two companies would still be refused by the database (T4); and
+  `ProductVariantService` scopes the variant endpoints through their product, while the barcode key and the
+  search predicate stay global (T3).
