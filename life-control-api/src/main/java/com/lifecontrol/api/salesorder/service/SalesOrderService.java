@@ -36,6 +36,7 @@ import com.lifecontrol.api.status.service.StatusValidator;
 import com.lifecontrol.api.store.exception.CompanyStoreNotFoundException;
 import com.lifecontrol.api.store.model.CompanyStore;
 import com.lifecontrol.api.store.repository.CompanyStoreRepository;
+import com.lifecontrol.api.store.service.CompanyStoreOwnerResolver;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -89,6 +90,7 @@ public class SalesOrderService {
     private final SalesOrderItemRepository itemRepository;
     private final CustomerRepository customerRepository;
     private final CompanyStoreRepository companyStoreRepository;
+    private final CompanyStoreOwnerResolver companyStoreOwnerResolver;
     private final ShiftRepository shiftRepository;
     private final ProductVariantRepository productVariantRepository;
     private final InventoryService inventoryService;
@@ -101,6 +103,7 @@ public class SalesOrderService {
             SalesOrderItemRepository itemRepository,
             CustomerRepository customerRepository,
             CompanyStoreRepository companyStoreRepository,
+            CompanyStoreOwnerResolver companyStoreOwnerResolver,
             ShiftRepository shiftRepository,
             ProductVariantRepository productVariantRepository,
             InventoryService inventoryService,
@@ -111,6 +114,7 @@ public class SalesOrderService {
         this.itemRepository = itemRepository;
         this.customerRepository = customerRepository;
         this.companyStoreRepository = companyStoreRepository;
+        this.companyStoreOwnerResolver = companyStoreOwnerResolver;
         this.shiftRepository = shiftRepository;
         this.productVariantRepository = productVariantRepository;
         this.inventoryService = inventoryService;
@@ -550,7 +554,7 @@ public class SalesOrderService {
         logger.info("Adding item to sales order: soId={}", salesOrderId);
 
         var so = loadAndValidateModifiableSO(salesOrderId);
-        validateProductVariantExists(request.productVariantId());
+        validateProductVariantExists(request.productVariantId(), so.getCompanyStoreId());
 
         // Check if this will be the first item (triggers Draft → Active transition)
         var existingItems = itemRepository.findBySalesOrderIdAndEnabledTrue(salesOrderId);
@@ -624,7 +628,7 @@ public class SalesOrderService {
 
         validateItemIsModifiable(item);
 
-        validateProductVariantExists(request.productVariantId());
+        validateProductVariantExists(request.productVariantId(), so.getCompanyStoreId());
 
         var oldVariantId = item.getProductVariantId();
         var oldQuantity = item.getQuantity();
@@ -839,7 +843,11 @@ public class SalesOrderService {
         var country = region.getCompanyCountry();
 
         currentUserContext.verifyCompanyStoreAccess(
-                country.getCompany().getId(), country.getId(), region.getId(), zone.getId(), store.getId());
+                companyStoreOwnerResolver.companyIdOf(store),
+                country.getId(),
+                region.getId(),
+                zone.getId(),
+                store.getId());
     }
 
     private void validateShiftExists(UUID id) {
@@ -855,10 +863,34 @@ public class SalesOrderService {
         }
     }
 
-    private void validateProductVariantExists(UUID id) {
-        // Requires a live definition, not merely a row: the split removed findByIdForUpdate, whose
-        // query filtered enabled = true, so a soft-deleted variant must not become sellable again.
-        if (!productVariantRepository.existsByIdAndEnabledTrue(id)) {
+    /**
+     * Refuses a variant the order's store cannot sell, and refuses it as if it did not exist.
+     *
+     * <p>The check has to be asked of a company. A bare {@code existsByIdAndEnabledTrue} answers
+     * whether <em>a row</em> exists: no product, no store, no tenant, and it accepts another company's
+     * variant as readily as this one's — which is the weakest question this feature can ask of a
+     * catalog that became per company. The company asked for is the one that owns the order's store,
+     * because the stock the line is about to deduct lives at that store.
+     *
+     * <p>The store row is read rather than the whole entity cached on the order: {@code SalesOrder}
+     * carries only {@code company_store_id}. A missing store is a 404 of its own, since there is no
+     * tenant to ask the question of.</p>
+     *
+     * <p>Contract kept whole: a soft-deleted variant is still refused, because the finder filters
+     * {@code enabled = true} — the split removed {@code findByIdForUpdate}, whose query carried that
+     * filter, and a variant must not become sellable again by being deleted.</p>
+     *
+     * @throws ProductVariantNotFoundException when the variant does not exist, is soft-deleted, or
+     *     belongs to another company
+     * @throws CompanyStoreNotFoundException when the order's store does not exist
+     */
+    private void validateProductVariantExists(UUID id, UUID companyStoreId) {
+        var store = companyStoreRepository
+                .findById(companyStoreId)
+                .orElseThrow(() -> new CompanyStoreNotFoundException(companyStoreId));
+
+        if (!productVariantRepository.existsByIdAndCompanyIdAndEnabledTrue(
+                id, companyStoreOwnerResolver.companyIdOf(store))) {
             throw new ProductVariantNotFoundException(id);
         }
     }

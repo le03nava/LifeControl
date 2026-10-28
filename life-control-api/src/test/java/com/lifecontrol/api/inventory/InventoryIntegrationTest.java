@@ -20,6 +20,7 @@ import com.lifecontrol.api.inventory.model.ProductVariantLocation;
 import com.lifecontrol.api.inventory.repository.InventoryMovementRepository;
 import com.lifecontrol.api.inventory.repository.ProductVariantLocationRepository;
 import com.lifecontrol.api.inventory.service.InventoryService;
+import com.lifecontrol.api.product.exception.ProductVariantNotFoundException;
 import com.lifecontrol.api.product.model.Product;
 import com.lifecontrol.api.product.model.ProductVariant;
 import com.lifecontrol.api.product.model.ProductVariantStoreStock;
@@ -87,6 +88,8 @@ class InventoryIntegrationTest extends AbstractPostgresIntegrationTest {
     private static final String AREA_CODE = "IA01";
     private static final String ZONE_CODE = "IZ01";
     private static final String LOCATION_CODE = "IL01";
+    /** A second tenant, only ever used to own a variant another company must not resolve. */
+    private static final String FOREIGN_COMPANY_KEY = "INVENTORY-FOREIGN-KEY";
 
     @Autowired
     private MockMvc mockMvc;
@@ -632,6 +635,93 @@ class InventoryIntegrationTest extends AbstractPostgresIntegrationTest {
                         storeId, variantId, DEDUCTION_PER_THREAD, UUID.randomUUID()));
             }
             return changes;
+        }
+    }
+
+    @Nested
+    @DisplayName("another company's variant")
+    class ForeignCompanyVariantTests {
+
+        @Test
+        @DisplayName("should refuse a receipt of another company's variant and write nothing")
+        void receiptOfForeignVariant_IsRefusedAndWritesNothing() {
+            var foreignVariant = createForeignVariant("0.00");
+
+            assertThatThrownBy(() -> inventoryService.applyReceipt(
+                            foreignVariant.getId(),
+                            storeId,
+                            locationId,
+                            new BigDecimal("5.00"),
+                            "GOODS_RECEIPT",
+                            UUID.randomUUID(),
+                            "receiver"))
+                    .isInstanceOf(ProductVariantNotFoundException.class);
+
+            // Nothing persisted: no ledger row, no location balance and no aggregate move.
+            assertThat(inventoryMovementRepository.count()).isZero();
+            assertThat(productVariantLocationRepository.count()).isZero();
+            assertThat(aggregateStockOf(foreignVariant.getId())).isEqualByComparingTo("0.00");
+        }
+
+        @Test
+        @DisplayName("should refuse a sale of another company's variant and write nothing")
+        void saleOfForeignVariant_IsRefusedAndWritesNothing() {
+            var foreignVariant = createForeignVariant("5.00");
+
+            assertThatThrownBy(() -> inventoryService.applySaleDeduction(
+                            foreignVariant.getId(),
+                            storeId,
+                            new BigDecimal("1.00"),
+                            "SALES_ORDER_ITEM",
+                            UUID.randomUUID(),
+                            "seller"))
+                    .isInstanceOf(ProductVariantNotFoundException.class);
+
+            assertThat(inventoryMovementRepository.count()).isZero();
+            assertThat(productVariantLocationRepository.count()).isZero();
+            assertThat(aggregateStockOf(foreignVariant.getId())).isEqualByComparingTo("5.00");
+        }
+
+        /**
+         * A product and a variant of a <b>different</b> company, stocked at this test's store: the
+         * pair nothing in the schema forbids, because {@code company_stores} carries no
+         * {@code company_id} and the composite foreign keys only tie a variant to its own product.
+         * The seeded store row is what makes the receipt and the sale reachable — without it they
+         * would be refused for the wrong reason.
+         */
+        private ProductVariant createForeignVariant(String stock) {
+            var foreignCompany = companyRepository
+                    .findByCompanyKey(FOREIGN_COMPANY_KEY)
+                    .orElseGet(() -> companyRepository.save(Company.builder()
+                            .companyKey(FOREIGN_COMPANY_KEY)
+                            .companyName("Inventory Foreign Company")
+                            .rfc("INVF010101ABC")
+                            .enabled(true)
+                            .build()));
+
+            var product = productRepository.save(Product.builder()
+                    .sku("INV-FSKU-" + UUID.randomUUID().toString().substring(0, 8))
+                    .name("Inventory Foreign Product")
+                    .company(foreignCompany)
+                    .enabled(true)
+                    .build());
+
+            var variant = productVariantRepository.save(ProductVariant.builder()
+                    .productId(product.getId())
+                    .companyId(foreignCompany.getId())
+                    .barCode("INV-FBAR-" + UUID.randomUUID().toString().substring(0, 8))
+                    .variantName("Foreign-" + UUID.randomUUID().toString().substring(0, 8))
+                    .enabled(true)
+                    .build());
+
+            productVariantStoreStockRepository.save(ProductVariantStoreStock.builder()
+                    .productVariantId(variant.getId())
+                    .companyStoreId(storeId)
+                    .costPrice(new BigDecimal("10.00"))
+                    .listPrice(new BigDecimal("20.00"))
+                    .stock(new BigDecimal(stock))
+                    .build());
+            return variant;
         }
     }
 }

@@ -11,6 +11,9 @@ import com.lifecontrol.api.product.exception.ProductVariantNotFoundException;
 import com.lifecontrol.api.product.repository.ProductVariantRepository;
 import com.lifecontrol.api.product.repository.ProductVariantStoreStockRepository;
 import com.lifecontrol.api.salesorder.exception.InsufficientStockException;
+import com.lifecontrol.api.store.exception.CompanyStoreNotFoundException;
+import com.lifecontrol.api.store.repository.CompanyStoreRepository;
+import com.lifecontrol.api.store.service.CompanyStoreOwnerResolver;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -43,7 +46,8 @@ import org.springframework.transaction.annotation.Transactional;
  * case additionally takes the purchase-order lock ahead of both, giving the global order
  * {@code purchaseOrder -> storeStock -> locationBalance}. Two receipts that share a store row
  * serialize there; nothing takes these locks in the opposite order, so the order is cycle-free. The
- * variant definition is read without a lock only to reject a missing or disabled variant.</p>
+ * variant definition is read without a lock only to reject a variant that is missing, disabled or
+ * owned by another company than the one that owns the store.</p>
  *
  * <h2>Stock contract: every writer moves both sides</h2>
  * <p>Sales is location-aware. {@code SalesOrderService} routes every deduction and every restoration
@@ -85,18 +89,24 @@ public class InventoryService {
     private final ProductVariantLocationRepository productVariantLocationRepository;
     private final InventoryMovementRepository inventoryMovementRepository;
     private final StoreInventorySettingsRepository storeInventorySettingsRepository;
+    private final CompanyStoreRepository companyStoreRepository;
+    private final CompanyStoreOwnerResolver companyStoreOwnerResolver;
 
     public InventoryService(
             ProductVariantRepository productVariantRepository,
             ProductVariantStoreStockRepository productVariantStoreStockRepository,
             ProductVariantLocationRepository productVariantLocationRepository,
             InventoryMovementRepository inventoryMovementRepository,
-            StoreInventorySettingsRepository storeInventorySettingsRepository) {
+            StoreInventorySettingsRepository storeInventorySettingsRepository,
+            CompanyStoreRepository companyStoreRepository,
+            CompanyStoreOwnerResolver companyStoreOwnerResolver) {
         this.productVariantRepository = productVariantRepository;
         this.productVariantStoreStockRepository = productVariantStoreStockRepository;
         this.productVariantLocationRepository = productVariantLocationRepository;
         this.inventoryMovementRepository = inventoryMovementRepository;
         this.storeInventorySettingsRepository = storeInventorySettingsRepository;
+        this.companyStoreRepository = companyStoreRepository;
+        this.companyStoreOwnerResolver = companyStoreOwnerResolver;
     }
 
     /**
@@ -109,7 +119,10 @@ public class InventoryService {
      * @param createdBy username of the receiver, when known
      * @throws IllegalArgumentException when {@code quantity} is not greater than zero, or when the
      *     variant has no stock row in {@code companyStoreId}
-     * @throws ProductVariantNotFoundException when the variant does not exist or is disabled
+     * @throws ProductVariantNotFoundException when the variant does not exist, is disabled, or
+     *     belongs to a company other than the one that owns {@code companyStoreId}
+     * @throws CompanyStoreNotFoundException when the store does not exist, so no company can be
+     *     derived from it
      */
     public void applyReceipt(
             UUID productVariantId,
@@ -126,12 +139,15 @@ public class InventoryService {
             throw new IllegalArgumentException("Receipt quantity must be greater than zero, but was " + quantity);
         }
 
-        // 2. The definition must exist and be enabled. Unlike before the split this read takes NO
-        //    lock: the definition carries no stock, so it is not the serialization point any more.
-        //    The enabled filter preserves the old ProductVariantNotFoundException contract.
+        // 2. The definition must exist, be enabled and belong to the company that owns the store. It
+        //    is read WITHOUT a lock: the definition carries no stock, so it is not the serialization
+        //    point any more. The company predicate is what keeps a receipt from moving another
+        //    tenant's stock: the store argument says which tenant may be touched, while the variant id
+        //    says nothing at all, and the schema cannot forbid the pair because company_stores has no
+        //    company_id. The enabled filter preserves the old ProductVariantNotFoundException
+        //    contract.
         if (productVariantRepository
-                .findById(productVariantId)
-                .filter(variant -> Boolean.TRUE.equals(variant.getEnabled()))
+                .findByIdAndCompanyIdAndEnabledTrue(productVariantId, companyIdOf(companyStoreId))
                 .isEmpty()) {
             throw new ProductVariantNotFoundException(productVariantId);
         }
@@ -221,7 +237,10 @@ public class InventoryService {
      * @throws InsufficientStockException when the store cannot cover {@code quantity} — including
      *     when the store does not stock the variant at all, which is zero sellable stock — first
      *     against the aggregate and then against the sum of the store's location balances
-     * @throws ProductVariantNotFoundException when the variant does not exist or is disabled
+     * @throws ProductVariantNotFoundException when the variant does not exist, is disabled, or
+     *     belongs to a company other than the one that owns {@code companyStoreId}
+     * @throws CompanyStoreNotFoundException when the store does not exist, so no company can be
+     *     derived from it
      */
     public void applySaleDeduction(
             UUID productVariantId,
@@ -237,10 +256,12 @@ public class InventoryService {
             throw new IllegalArgumentException("Sale quantity must be greater than zero, but was " + quantity);
         }
 
-        // 2. The definition must exist and be enabled, read WITHOUT a lock: it carries no stock.
+        // 2. The definition must exist, be enabled and belong to the store's company, read WITHOUT a
+        //    lock: it carries no stock. Asking by bare id would let a sale of one tenant's store drain
+        //    a balance row that names another tenant's variant — a pair the schema cannot forbid, since
+        //    company_stores carries no company_id and the store stock row is just (variant, store).
         if (productVariantRepository
-                .findById(productVariantId)
-                .filter(variant -> Boolean.TRUE.equals(variant.getEnabled()))
+                .findByIdAndCompanyIdAndEnabledTrue(productVariantId, companyIdOf(companyStoreId))
                 .isEmpty()) {
             throw new ProductVariantNotFoundException(productVariantId);
         }
@@ -781,6 +802,25 @@ public class InventoryService {
     /** NULL stock only means "never set" — a row read back before its default is materialized. */
     private static BigDecimal orZero(BigDecimal stock) {
         return stock != null ? stock : BigDecimal.ZERO;
+    }
+
+    /**
+     * The company that owns a store, read from the store itself.
+     *
+     * <p>This service deliberately holds no {@code CurrentUserContext}: a stock movement is the
+     * document's business, and the document already verified the caller's grant on its store. What the
+     * argument does carry is the tenant, and this is the one place it is derived from
+     * ({@link CompanyStoreOwnerResolver}) so that a movement and every store-scoped read agree on which
+     * company a store belongs to. The extra read is the price of asking the question before the first
+     * lock, which is where it has to be asked.</p>
+     *
+     * @throws CompanyStoreNotFoundException when the store does not exist
+     */
+    private UUID companyIdOf(UUID companyStoreId) {
+        var store = companyStoreRepository
+                .findById(companyStoreId)
+                .orElseThrow(() -> new CompanyStoreNotFoundException(companyStoreId));
+        return companyStoreOwnerResolver.companyIdOf(store);
     }
 
     private ProductVariantLocation lockBalance(UUID productVariantId, UUID storeLocationId) {
