@@ -4,7 +4,8 @@
 repositories and controller, and the lookups in `inventory/`, `purchaseorder/` and `salesorder/`) and
 `life-control-app-angular/` (the product feature's service and routes). No supplier change, no store-tree
 change, no image pin, no delivery script.
-**Status**: implemented — `T1` is on the branch and `T2`–`T6` are the rest of the plan; nothing is deferred.
+**Status**: implemented — `S1`–`S6` are the branch's content: the schema, the scoped API, the per-company keys, the
+four consumers, the operational lookups and the client all follow the same owner. Nothing is deferred.
 **Created**: 2026-10-27 · **Issue**: **#660** (`feat: scope the product catalog per company`, `status:approved`)
 · **Branch**: `feat/product-catalog-tenancy` · **Risk**: **item 1 (data)**, **item 2 (security)** and **item 3
 (contract)** — `products` is the aggregate four other modules resolve by bare UUID, the change moves a tenancy
@@ -43,7 +44,7 @@ One line per task: ID, specs, route, commit. Route is `inline` unless a Delegati
 | T3 | Variants: barcode unique per company, variant search scoped by the store's company | S4 | delegated (`gentle-ai-worker`) | `f25de7d2` |
 | T4 | Contract: V40 makes both columns `NOT NULL`, adds the composite FKs, drops the global unique keys and replaces them per company | S2, S4 | delegated (`gentle-ai-worker`) | `155d13ae` |
 | T5 | Consumers: `InventoryService`, `PurchaseOrderService`, `SalesOrderService` resolve a variant **with** the document's company | S4 | delegated (`gentle-ai-worker`) | `25cb646f` |
-| T6 | Frontend: the products area takes its company from the route (`/products/c/:companyId`), the `categoryCompanyId` workaround goes away, and the dead `/api/products/**` gateway route is removed | S4, S6 | delegated (`gentle-ai-worker`) | `-` |
+| T6 | Frontend: the products area takes its company from the route (`/products/c/:companyId`), the `categoryCompanyId` workaround goes away, and the dead `/api/products/**` gateway route is removed | S4, L12 | delegated (`gentle-ai-worker`) | `9470c903` |
 
 The slices are ordered so each one leaves the suite green: a `NOT NULL` column cannot arrive before the write
 surface knows where the company comes from, and the API cannot move before the column exists. That is why the
@@ -148,3 +149,28 @@ first and alone.
   the order saved; a receipt moved another tenant's stock; the store-stock pair answered 200), GREEN 4104 tests.
   The item L8 recorded as open — the store-stock pair — is closed on the write path, and the record keeps the
   distinction the schema still cannot make.
+- **L14** — T6 evidence, 2026-10-27, commit `9470c903` (delegated). The client now takes the company from the
+  route: `/products` is a picker, the workspace lives under `/products/c/:companyId`, and every legacy company-free
+  URL redirects instead of 404ing. `categoryCompanyId` is deleted — it existed only because `/api/products` carried
+  no company segment, which is the workaround this unit exists to remove. The gateway's `/api/products/**` route is
+  gone and a test pins its absence. Gates, run by the parent on the final tree: `npm run lint` → "All files pass
+  linting"; `npm test` → 192 files, 3974 tests, exit 0; `api-gateway ./gradlew test` → BUILD SUCCESSFUL.
+- **L15** — a gate that was cited but could never have run, corrected rather than inherited. The first T6 report
+  listed `npm test -- --run` as its test gate; `@angular/build:unit-test` rejects the flag ("Error: Unknown
+  argument: run") and the repo's script is plain `ng test`, a single run. The re-run recorded the real command and
+  its real output, and L14 carries only what was actually executed. Same class of defect as a duplicated Flyway
+  head: a gate named wrongly reads as green while measuring nothing.
+- **L16** — surface extension accepted, with the reason. Closing T6 needed eight paths outside the original list:
+  two purchase-order call sites (the reads that had been company-blind) plus the binding path that carries the
+  order's company into the line-item picker (`detail-table.ts/.html/.spec.ts`, `purchase-order-edit.html`). The
+  picker's `companyId` is a required input, so the host chain has to bind it or the app does not compile; the
+  alternative — a company-blind overload on the services — is the requirement this unit exists to remove. Both
+  reads fail closed (no request) while the order has no company.
+- **L17** — delivery plan, final numbers. The branch is `5968 insertions / 1367 deletions` over 97 files in eleven
+  commits. Three slices exceed the ~400-line review budget: **T2** (`e9f9ecba`, ~1.400), **T4** (`155d13ae`, ~600)
+  and **T6** (`9470c903`, ~1.700). Chain the pull requests in this order, each `type:feature` except where noted:
+  T1 · **T2 (`type:breaking-change`, read first and alone)** · T3 · T4 (`type:breaking-change`) · T5 · T6. If T6
+  must be cut further, the seam is already chosen and its halves are file-disjoint: (a) the route shape —
+  `products.routes.ts` + its spec, the picker page, `products-admin.component.*`, `products-company.ts`; (b) the
+  signature migration — the three services, their specs, and every component that now passes `companyId`. Only the
+  final tree was verified as a whole, so a split commit must be re-gated before it is pushed.
