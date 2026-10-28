@@ -192,10 +192,9 @@ export class ProductVariantStockSearch {
     if (!companyId) {
       return;
     }
-    this.router.navigate(
-      ['/products/c', companyId, 'edit', row.productId, 'variants', 'edit', row.id],
-      { queryParams: this.storeQueryParams() },
-    );
+    void this.router.navigate(['/products/edit', row.productId, 'variants', 'edit', row.id], {
+      queryParams: { companyId, ...this.storeQueryParams() },
+    });
   }
 
   /**
@@ -231,9 +230,12 @@ export class ProductVariantStockSearch {
   /**
    * Query params that carry the store to the editor, only when the link named it. A
    * store that came from the profile is re-resolved there.
+   *
+   * The company is added by the caller, because it is the page's own choice and not part of the store
+   * resolution: it is what makes the product-scoped editor addressable at all.
    */
-  private storeQueryParams(): { storeId: string } | undefined {
+  private storeQueryParams(): { storeId?: string } {
     const storeId = this.storeId();
-    return storeId && this.storeSource() === 'query' ? { storeId } : undefined;
+    return storeId && this.storeSource() === 'query' ? { storeId } : {};
   }
 }

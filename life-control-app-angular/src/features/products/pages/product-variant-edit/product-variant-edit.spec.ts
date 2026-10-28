@@ -142,17 +142,22 @@ describe('ProductVariantEdit', () => {
         {
           provide: ActivatedRoute,
           useValue: {
+            // The two ids are path params; the company travels as `?companyId=`, and the store as
+            // `?storeId=` — so each is answered from where the screen has to read it.
             snapshot: {
               paramMap: {
                 get: (key: string) => {
                   if (key === 'id') return productId;
                   if (key === 'variantId') return variantId;
-                  if (key === 'companyId') return mockCompanyId;
                   return null;
                 },
               },
               queryParamMap: {
-                get: (key: string) => (key === 'storeId' ? queryStoreId : null),
+                get: (key: string) => {
+                  if (key === 'companyId') return mockCompanyId;
+                  if (key === 'storeId') return queryStoreId;
+                  return null;
+                },
               },
             },
           },
@@ -206,7 +211,10 @@ describe('ProductVariantEdit', () => {
   it('should fail closed to the product list when the route carries no productId', async () => {
     await setup({ productId: null });
 
-    expect(routerMock.navigate).toHaveBeenCalledWith(['/products/c', mockCompanyId, 'list']);
+    // The list is a scoped screen, so it carries the company the link named.
+    expect(routerMock.navigate).toHaveBeenCalledWith(['/products/list'], {
+      queryParams: { companyId: mockCompanyId },
+    });
   });
 
   describe('definition dialog', () => {

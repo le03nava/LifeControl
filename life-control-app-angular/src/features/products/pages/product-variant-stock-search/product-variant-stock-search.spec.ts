@@ -364,8 +364,8 @@ describe('ProductVariantStockSearch', () => {
 
     // The editor is product-scoped, so the link carries the company the search itself does not need.
     expect(routerMock.navigate).toHaveBeenCalledWith(
-      ['/products/c', companyId, 'edit', 'prod-9', 'variants', 'edit', 'var-9'],
-      { queryParams: undefined },
+      ['/products/edit', 'prod-9', 'variants', 'edit', 'var-9'],
+      { queryParams: { companyId } },
     );
   });
 
@@ -376,8 +376,8 @@ describe('ProductVariantStockSearch', () => {
     component.editVariant(row());
 
     expect(routerMock.navigate).toHaveBeenCalledWith(
-      ['/products/c', companyId, 'edit', 'prod-1', 'variants', 'edit', 'var-1'],
-      { queryParams: { storeId: 'store-9' } },
+      ['/products/edit', 'prod-1', 'variants', 'edit', 'var-1'],
+      { queryParams: { companyId, storeId: 'store-9' } },
     );
   });
 

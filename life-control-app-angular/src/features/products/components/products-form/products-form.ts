@@ -78,13 +78,24 @@ export class ProductsForm {
   /**
    * The companies the `Empresa` select can name.
    *
-   * The host passes the selector read whole so the saved company renders by name, but the value itself
-   * is **not** chosen here any more: it is the route's (`/products/c/:companyId/...`), because the
-   * product belongs to that company and every write is scoped to it. The select is therefore disabled
-   * once the product exists, and a change before that is a navigation, not a filter (S2).
+   * The host passes the selector read whole so the saved company renders by name. The value itself is the
+   * screen's (`?companyId=`), because the product belongs to one company and every write is scoped to it:
+   * on **edit** the product already exists, so the select only reports that company and never moves it,
+   * and on **create** it is the operator's choice — see {@link companyEditable}.
    */
   companies = input<CompanySelectorOption[]>([]);
   selectedCompanyId = input<string | null>(null);
+
+  /**
+   * Whether the `Empresa` select may be used at all.
+   *
+   * Enabled only on **create**, where the product does not exist yet and choosing the company is part of
+   * filling the form (S3). It stays disabled on edit even when a host passes `true`: the product's owner
+   * is fixed — the API scopes every write to it and refuses a category of another company — so the field
+   * could only restate it or, worse, contradict it. `false` is the default because a host that says
+   * nothing about what it is editing must not hand out a choice it cannot honour.
+   */
+  companyEditable = input<boolean>(false);
 
   /** The whole tree of the selected company, disabled nodes included (S8). */
   categoryTree = input<ProductCategory[]>([]);

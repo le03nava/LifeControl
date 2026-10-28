@@ -21,13 +21,13 @@ export interface Product {
   /**
    * Company that **owns this product**, which is also the scope it is addressed through.
    *
-   * It is the product's own owner and not the screen's context: the products area reads its company
-   * from the route (`/products/c/:companyId/...`) and this field is what proves the row belongs there.
-   * The `categoryCompanyId` this replaces existed only because `/api/products` carried no company
-   * segment, so a product could not resolve its own category path while the context pointed at another
-   * company. The write path now refuses a category of another company, so the two companies can never
-   * disagree, and the screen's company arrives from the URL instead of from the response: a second
-   * company field on the row would be a second source of truth for the same fact.
+   * It is the product's own owner and not the screen's context: the products area keeps its company in
+   * `?companyId=` and this field is what proves the row belongs there. The `categoryCompanyId` this
+   * replaces existed only because `/api/products` carried no company segment, so a product could not
+   * resolve its own category path while the context pointed at another company. The write path now
+   * refuses a category of another company, so the two companies can never disagree, and the screen's
+   * company arrives from the URL instead of from the response: a second company field on the row would
+   * be a second source of truth for the same fact.
    */
   companyId: string;
 }
@@ -36,8 +36,8 @@ export interface Product {
  * The form value the edit page consumes: the domain model minus the server-owned keys.
  *
  * `companyId` is omitted along with the timestamps because it is not an editing surface: it is the
- * route's segment and the scope every write is sent under, so a form value that carried it could only
- * ever restate it — or, worse, contradict it.
+ * screen's `?companyId=` and the scope every write is sent under, so a form value that carried it could
+ * only ever restate it — or, worse, contradict it.
  */
 export type ProductFormValue = Omit<Product, 'createdAt' | 'updatedAt' | 'companyId'>;
 

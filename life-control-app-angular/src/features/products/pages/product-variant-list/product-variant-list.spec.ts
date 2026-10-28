@@ -854,8 +854,8 @@ describe('ProductVariantList', () => {
       component.editVariant(createVariant(1));
 
       expect(routerMock.navigate).toHaveBeenCalledWith(
-        ['/products/c', mockCompanyId, 'edit', mockProductId, 'variants', 'edit', 'var-1'],
-        { queryParams: { storeId: 'store-from-link' } },
+        ['/products/edit', mockProductId, 'variants', 'edit', 'var-1'],
+        { queryParams: { companyId: mockCompanyId, storeId: 'store-from-link' } },
       );
     });
 
@@ -865,10 +865,11 @@ describe('ProductVariantList', () => {
 
       component.editVariant(createVariant(1));
 
-      // The next screen re-resolves it from the profile; the link stays honest.
+      // The next screen re-resolves it from the profile; the link stays honest. The company is not part
+      // of that resolution: without it the product-scoped editor cannot address anything (S1).
       expect(routerMock.navigate).toHaveBeenCalledWith(
-        ['/products/c', mockCompanyId, 'edit', mockProductId, 'variants', 'edit', 'var-1'],
-        { queryParams: undefined },
+        ['/products/edit', mockProductId, 'variants', 'edit', 'var-1'],
+        { queryParams: { companyId: mockCompanyId } },
       );
     });
   });
@@ -937,8 +938,8 @@ describe('ProductVariantList', () => {
 
       expect(dialogMock.open).not.toHaveBeenCalled();
       expect(routerMock.navigate).toHaveBeenCalledWith(
-        ['/products/c', mockCompanyId, 'edit', mockProductId, 'variants', 'edit', 'var-1'],
-        { queryParams: undefined },
+        ['/products/edit', mockProductId, 'variants', 'edit', 'var-1'],
+        { queryParams: { companyId: mockCompanyId } },
       );
     });
   });

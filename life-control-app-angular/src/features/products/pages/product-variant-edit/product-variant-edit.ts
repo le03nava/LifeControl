@@ -57,7 +57,7 @@ export class ProductVariantEdit implements OnInit, UnsavedChangesAware {
   /** The variant being edited. Mandatory in practice: the create URL redirects away. */
   readonly variantId = signal<string | null>(this.route.snapshot.paramMap.get('variantId'));
 
-  /** The company that owns the product: read from the route and sent on every call. */
+  /** The company that owns the product: read from the link (`?companyId=`) and sent on every call. */
   readonly companyId = productsCompanyId(this.route);
 
   /** The variant loaded from the API, or `null` until the read settles. */
@@ -105,9 +105,12 @@ export class ProductVariantEdit implements OnInit, UnsavedChangesAware {
     // definition to, so fail closed instead of rendering a broken page.
     effect(() => {
       if (!this.productId()) {
-        this.router.navigate(
-          this.companyId ? ['/products/c', this.companyId, 'list'] : ['/products'],
-        );
+        const companyId = this.companyId;
+        // The list is a scoped screen, so it carries the company the link named; the hub is the one
+        // destination that needs none, and is where an operator without a company ends up.
+        void this.router.navigate(companyId ? ['/products/list'] : ['/products'], {
+          queryParams: companyId ? { companyId } : {},
+        });
       }
     });
   }
