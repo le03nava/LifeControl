@@ -20,8 +20,11 @@ public class CompanyStore extends Auditable {
     private CompanyZone companyZone;
 
     /**
-     * The company this store belongs to, derived from {@link #companyZone} at persist time and never
-     * supplied by a caller — there is no request field and no setter for it.
+     * The company this store belongs to. <b>The database derives and owns this column</b>: {@code V50}'s
+     * {@code trg_company_stores_derive_company} trigger fills it from the parent's stored owner when a row
+     * arrives without one, which is why the mapping is {@code insertable = false, updatable = false} and
+     * why the application never writes it — there is no request field, no setter and no builder method
+     * for it.
      *
      * <p>It exists because {@code V49} makes the column {@code NOT NULL} and pairs it with
      * {@code fk_company_stores_zone_same_company}: the owner is stored so the database can refuse a store
@@ -29,9 +32,15 @@ public class CompanyStore extends Auditable {
      * {@code (company_id, id)} target to key its own composite foreign key against. Reading it back is
      * not what answers "who owns this row" on the API paths — {@code CompanyStoreOwnerResolver} still
      * walks the tree — so the two can only agree.</p>
+     *
+     * <p>The derivation is <b>not</b> a JPA callback on purpose, and this is the class that measured why: a
+     * {@code @PrePersist} that read {@code companyZone.getCompany()} forced the caller to load the zone's
+     * own associations, and saving a store while holding a <em>detached</em> zone — legitimate JPA, since
+     * the child only needs the parent's identity — threw {@code LazyInitializationException}. That is how
+     * {@code PurchaseOrderDetailVariantIntegrationTest} failed.</p>
      */
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "company_id", nullable = false)
+    @JoinColumn(name = "company_id", nullable = false, insertable = false, updatable = false)
     private Company company;
 
     @Column(name = "store_name", nullable = false)
@@ -58,26 +67,6 @@ public class CompanyStore extends Auditable {
 
     // Default constructor for JPA
     public CompanyStore() {}
-
-    /**
-     * Derives {@link #company} from {@link #companyZone} at persist time, so the {@code NOT NULL} column
-     * {@code V49} lands is never written as an explicit {@code NULL}.
-     *
-     * <p>This method <strong>must not</strong> be named {@code onCreate}: {@link Auditable} already
-     * declares {@code @PrePersist protected void onCreate()}, so a method with that same signature here
-     * would <em>override</em> it and {@code Auditable}'s body would never run, leaving
-     * {@code created_at} / {@code updated_at} unset and failing their NOT NULL columns. A distinct name
-     * keeps both callbacks active.</p>
-     *
-     * <p>The set-if-null guard means the mapping never overwrites a value; nothing in this codebase
-     * supplies one, and the composite key is what refuses a caller that ever did.</p>
-     */
-    @PrePersist
-    protected void deriveCompanyFromZone() {
-        if (company == null && companyZone != null) {
-            company = companyZone.getCompany();
-        }
-    }
 
     // Getters
     public UUID getId() {
@@ -163,8 +152,8 @@ public class CompanyStore extends Auditable {
             return this;
         }
 
-        // No company(...) on purpose: the owner is derived by deriveCompanyFromZone(). A builder
-        // method would be one more way to write a company that disagrees with the zone.
+        // No company(...) on purpose: the column has a single author — V50's trigger, which derives it
+        // from the zone. A builder method would be one more way to write a company that disagrees.
 
         public Builder storeName(String storeName) {
             store.storeName = storeName;

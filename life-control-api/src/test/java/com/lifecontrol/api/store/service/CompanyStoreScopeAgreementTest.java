@@ -10,6 +10,7 @@ import com.lifecontrol.api.company.model.CompanyZone;
 import com.lifecontrol.api.country.model.Country;
 import com.lifecontrol.api.store.model.CompanyStore;
 import com.lifecontrol.api.store.repository.CompanyStoreRepository;
+import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
 import jakarta.persistence.EntityManager;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -43,7 +44,7 @@ import org.springframework.transaction.annotation.Transactional;
 @SpringBootTest
 @Transactional
 @DisplayName("Company hierarchy scope agreement: list vs detail")
-class CompanyStoreScopeAgreementTest {
+class CompanyStoreScopeAgreementTest extends AbstractPostgresIntegrationTest {
 
     @Autowired
     private EntityManager em;

@@ -22,10 +22,12 @@
 --
 -- WHY
 -- ---
--- V46 added `company_zones.company_id` as a NULLABLE column and stopped there on purpose. The mapping
--- carries the value now — `CompanyZone.deriveCompanyFromRegion()` reads it from the region at persist time
--- — and this migration turns that mapping detail into a rule the database enforces, so a later service or
--- mapping change cannot reopen the gap by forgetting it.
+-- V46 added `company_zones.company_id` as a NULLABLE column and stopped there on purpose. This migration
+-- writes it for the rows that already exist — the `UPDATE` below — and from V50 on a new row is given it
+-- by `trg_company_zones_derive_company`, a `BEFORE INSERT` trigger that reads the region's stored owner,
+-- so nothing in the application writes this column at all. That is what turns an unwritten column into a
+-- rule the database enforces, and it is why a later service or mapping change cannot reopen the gap by
+-- forgetting it.
 --
 -- WHY THE COMPOSITE KEY IS THE POINT
 -- ----------------------------------

@@ -18,7 +18,10 @@ import org.springframework.jdbc.datasource.DriverManagerDataSource;
 /**
  * Provenance-level verification of the derivation each CONTRACT migration of this unit performs — the
  * claim their headers make in their first lines: the owner is <b>derived from the parent</b> and
- * <b>nothing is discarded</b>, which is what separates this unit from {@code V40} and {@code V42}.
+ * <b>nothing is discarded</b>, which is what separates this unit from {@code V40} and {@code V42}. The
+ * purchase-order case is the one that proves the <b>absence</b> of a derivation: {@code V51} adds the
+ * store key and re-derives nothing, so its order is seeded already consistent and asserted to survive
+ * untouched.
  *
  * <p>It runs on a <b>separate scratch database</b> created on this suite's singleton container, for the
  * same reason {@code EmployeeStoreScopeBackfillMigrationIntegrationTest} does: the derivation has to be
@@ -31,6 +34,8 @@ import org.springframework.jdbc.datasource.DriverManagerDataSource;
  *
  * <p>Two facts are asserted per level, and the second is the one a truncating migration would fail: the
  * seeded row <b>survives</b> with the company its parent answers, and the row count is unchanged. The
+ * purchase-order case asserts survival alone — there is no parent-derived value to compare, because the
+ * migration under test does not derive one. The
  * scratch database is dropped in {@link AfterEach} unconditionally, so a failed assertion cannot leak a
  * database into the container every other suite in the JVM shares.</p>
  */
@@ -149,6 +154,41 @@ class StoreHierarchyCompanyBackfillMigrationIntegrationTest extends AbstractPost
                 .isEqualTo(List.of(seeded.regionId()));
     }
 
+    @Test
+    @DisplayName("V51 adds the store key and leaves a consistent purchase order's owner untouched")
+    void purchaseOrderStoreKeyLandsAndLeavesTheOwnerUntouched() {
+        migrateTo(PRE_UNIT_HEAD);
+
+        var seeded = seedCompanyTree();
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM purchase_orders", Integer.class))
+                .as("the fixture wrote a consistent order at V43, where nothing tied it to its store's company")
+                .isEqualTo(1);
+
+        migrateToHead();
+
+        assertThat(jdbcTemplate.queryForObject(
+                        "SELECT company_id FROM purchase_orders WHERE id = ?", UUID.class, seeded.purchaseOrderId()))
+                .as("V51 adds a key and re-derives nothing: the order keeps the owner it was written with")
+                .isEqualTo(seeded.companyId());
+
+        assertThat(jdbcTemplate.queryForList("SELECT id FROM purchase_orders", UUID.class))
+                .as("the guard refuses a database that contradicts itself, not a consistent row")
+                .isEqualTo(List.of(seeded.purchaseOrderId()));
+
+        assertThat(jdbcTemplate.queryForObject(
+                        "SELECT company_id FROM company_stores WHERE id = ?", UUID.class, seeded.storeId()))
+                .as("the store the new key points at still carries the company V49 derived for it")
+                .isEqualTo(seeded.companyId());
+
+        assertThat(jdbcTemplate.queryForList("SELECT id FROM company_zones", UUID.class))
+                .as("and the zone the store derives from survives")
+                .isEqualTo(List.of(seeded.zoneId()));
+
+        assertThat(jdbcTemplate.queryForList("SELECT id FROM company_regions", UUID.class))
+                .as("and the region the zone derives from survives as well")
+                .isEqualTo(List.of(seeded.regionId()));
+    }
+
     // --- migration control ---
 
     private void migrateTo(String target) {
@@ -196,13 +236,21 @@ class StoreHierarchyCompanyBackfillMigrationIntegrationTest extends AbstractPost
 
     // --- fixtures ---
 
-    private record Seeded(UUID companyId, UUID regionId, UUID zoneId, UUID storeId) {}
+    private record Seeded(UUID companyId, UUID regionId, UUID zoneId, UUID storeId, UUID purchaseOrderId) {}
 
     /**
-     * Seeds exactly what the pre-unit schema could hold: a company, its company country, one region that
-     * names only its country, one zone that names only its region and one store that names only its zone.
-     * No `company_id` is written anywhere below the country, because the column does not exist yet at
-     * this version at any of the three levels.
+     * Seeds exactly what the pre-unit schema could hold: a company tree whose three levels below the
+     * country carry no {@code company_id} (the column does not exist yet at V43), plus one purchase order
+     * that is <b>consistent</b> with the three keys already in force and with the one {@code V51} adds —
+     * its supplier, its store and its own {@code company_id} all name the same company.
+     *
+     * <p>The order cannot be seeded contradicting itself, and that is the point: {@code V43} pins
+     * {@code purchase_orders.company_id} to its supplier through
+     * {@code fk_purchase_orders_supplier_same_company}, so the only contradiction writable here is with
+     * the <b>store</b> — and {@code V51} <b>refuses</b> exactly that row instead of repairing it, because
+     * no value of {@code company_id} satisfies both keys. A migration that refuses cannot be observed
+     * through a fixture it rejects, so this fixture seeds the row that legitimately survives and the suite
+     * asserts the migration left it alone.</p>
      */
     private Seeded seedCompanyTree() {
         var countryId = jdbcTemplate.queryForObject("SELECT id FROM countries WHERE country_code = 'MX'", UUID.class);
@@ -238,6 +286,27 @@ class StoreHierarchyCompanyBackfillMigrationIntegrationTest extends AbstractPost
                 VALUES (?, ?, 'Backfill Store', true)
                 """, storeId, zoneId);
 
-        return new Seeded(companyId, regionId, zoneId, storeId);
+        var supplierId = UUID.randomUUID();
+        jdbcTemplate.update("""
+                INSERT INTO suppliers (id, supplier_name, rfc, company_id)
+                VALUES (?, 'Backfill Supplier', 'BFSU010101AB3', ?)
+                """, supplierId, companyId);
+
+        var paymentMethodId = jdbcTemplate.queryForObject(
+                "SELECT id FROM payment_methods ORDER BY payment_method_name LIMIT 1", UUID.class);
+        var draftStatusId = jdbcTemplate.queryForObject("""
+                SELECT s.id FROM statuses s
+                JOIN status_types st ON st.id = s.status_type_id
+                WHERE st.status_type_name = 'PURCHASE_ORDER' AND s.status_name = 'Draft'
+                """, UUID.class);
+
+        var purchaseOrderId = UUID.randomUUID();
+        jdbcTemplate.update("""
+                INSERT INTO purchase_orders (id, order_number, supplier_id, company_store_id,
+                                             payment_method_id, status_id, company_id, enabled)
+                VALUES (?, 'BACKFILL-PO-1', ?, ?, ?, ?, ?, true)
+                """, purchaseOrderId, supplierId, storeId, paymentMethodId, draftStatusId, companyId);
+
+        return new Seeded(companyId, regionId, zoneId, storeId, purchaseOrderId);
     }
 }

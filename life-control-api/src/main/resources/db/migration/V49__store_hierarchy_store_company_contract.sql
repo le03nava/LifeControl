@@ -25,11 +25,13 @@
 --
 -- WHY
 -- ---
--- V48 added `company_stores.company_id` as a NULLABLE column and stopped there on purpose. The mapping
--- carries the value now — `CompanyStore.deriveCompanyFromZone()` reads it from the zone at persist time —
--- and this migration turns that mapping detail into a rule the database enforces, so a later service or
--- mapping change cannot reopen the gap by forgetting it. With it, the three levels pin each other: a store
--- cannot name another company's zone, a zone another company's region, a region another company's country.
+-- V48 added `company_stores.company_id` as a NULLABLE column and stopped there on purpose. This migration
+-- writes it for the rows that already exist — the `UPDATE` below — and from V50 on a new row is given it
+-- by `trg_company_stores_derive_company`, a `BEFORE INSERT` trigger that reads the zone's stored owner, so
+-- nothing in the application writes this column at all. That is what turns an unwritten column into a rule
+-- the database enforces, and it is why a later service or mapping change cannot reopen the gap by
+-- forgetting it. With it, the three levels pin each other: a store cannot name another company's zone, a
+-- zone another company's region, a region another company's country.
 --
 -- WHY THIS IS THE LEVEL THAT CLOSES THE AXIS
 -- ------------------------------------------
