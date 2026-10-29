@@ -185,6 +185,7 @@ class PurchaseOrderListNullSearchIntegrationTest extends AbstractPostgresIntegra
         var supplier = supplierRepository.save(Supplier.builder()
                 .supplierName("Null Search Supplier")
                 .rfc("PNS" + UUID.randomUUID().toString().substring(0, 10))
+                .company(company)
                 .enabled(true)
                 .build());
         var paymentMethod = paymentMethodRepository

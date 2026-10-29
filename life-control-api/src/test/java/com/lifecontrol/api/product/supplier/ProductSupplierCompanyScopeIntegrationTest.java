@@ -21,10 +21,12 @@ import org.springframework.jdbc.core.JdbcTemplate;
  * <p>The fixture is the case that makes the rule necessary rather than decorative — one supplier row
  * carrying relations to two companies' products — so a query without the company predicate returns both
  * products and the assertion fails instead of quietly agreeing with itself. A supplier is no longer
- * global: it belongs to exactly one company ({@code V41} stores that owner on {@code suppliers.company_id}),
- * and the row the fixture inserts is deliberately the owner-less legacy shape — the shape the contract
- * migration will not be able to attribute to a company — which is why the read must be scoped by the
- * company in the path rather than by the supplier alone.</p>
+ * global: it belongs to exactly one company ({@code V42} makes {@code suppliers.company_id} mandatory and
+ * keeps the RFC unique per company), so the row the fixture inserts belongs to the company in the path.
+ * The relation to the <b>other</b> company's product is deliberately kept: it is the shape that
+ * {@code product_suppliers} still accepts today — the composite key that would refuse it needs a
+ * {@code company_id} column on the relation table and is the migration after {@code V42} — and it is
+ * exactly why the read must be scoped by the company in the path rather than by the supplier alone.</p>
  */
 @SpringBootTest
 @DisplayName("Product supplier by-company read — integration")
@@ -56,10 +58,11 @@ class ProductSupplierCompanyScopeIntegrationTest extends AbstractPostgresIntegra
 
         supplierId = UUID.randomUUID();
         jdbc.update(
-                "INSERT INTO suppliers (id, supplier_name, rfc, enabled) VALUES (?, ?, ?, true)",
+                "INSERT INTO suppliers (id, supplier_name, rfc, company_id, enabled) VALUES (?, ?, ?, ?, true)",
                 supplierId,
                 PREFIX + " supplier",
-                SUPPLIER_RFC);
+                SUPPLIER_RFC,
+                companyId);
 
         myProductId = insertProduct("Alicate", companyId);
         otherProductId = insertProduct("Martillo", otherCompanyId);

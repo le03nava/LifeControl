@@ -1,0 +1,73 @@
+-- ============================================
+-- V42 — Supplier catalog, step 2 of 2: the company contract
+-- ============================================
+--
+--  !!!  DESTRUCTIVE MIGRATION — DATA DISCARD BY DECISION S5  !!!
+--
+--  This migration TRUNCATES the supplier catalog and every document that names a supplier, and must
+--  NOT be run against any database whose suppliers, purchase orders, receipts or product→supplier
+--  links are worth keeping. It is safe only because the maintainer authorized discarding rows that
+--  cannot be attributed to a company instead of inventing an owner for them (issue #672, approved
+--  2026-10-29, spec S5: «a row that cannot be attributed to a company is discarded rather than given
+--  an invented owner, and there is no backfill pretending otherwise»). There is no undo, and there is
+--  no backfill to reconstruct.
+--
+-- ============================================
+--
+-- WHY
+-- ---
+-- V41 added `suppliers.company_id` as a NULLABLE column and stopped there on purpose: a `NOT NULL`
+-- column cannot arrive before the write surface knows where the company comes from (the reason V39
+-- states in its own header). It knows now — the API moved to `/api/companies/{companyId}/suppliers`,
+-- a supplier takes the company named by the path, a supplier of another company is refused, and the
+-- RFC key is checked per company. This migration is what turns those service rules into rules the
+-- database enforces, so a later service change cannot reopen a cross-tenant hole by forgetting one of
+-- them.
+--
+-- WHY THE TRUNCATE
+-- ----------------
+-- `company_id` cannot become `NOT NULL` while rows exist that hold `NULL`, and **every** existing
+-- supplier row holds `NULL`: V41 added the column and nothing populated it, not even the seed data.
+-- So there is no row this migration could attribute honestly — not "some rows are ambiguous", but
+-- "no row carries an owner at all" — and there is no backfill by decision (S5): a row nobody can
+-- attribute is discarded rather than guessed.
+--
+-- `CASCADE` is therefore the whole point rather than an accident of syntax: the documents that NAME a
+-- supplier hang off this table, and they are the discard S5 authorized, in V14's and V40's shape. The
+-- reach is exactly the chain the foreign keys declare — `purchase_orders.supplier_id` (V1:207) and
+-- `product_suppliers.supplier_id` (V1:320), and through the orders their lines and receipts:
+-- `purchase_order_details.purchase_order_id` (V1:343), `goods_receipts.purchase_order_id` (V12:22)
+-- and `goods_receipt_items` (V12:41-42). No orphan row survives the constraints and no document HEADER
+-- is left standing without its lines.
+--
+-- WHY THE RFC KEY MOVES TO `(company_id, rfc)`
+-- --------------------------------------------
+-- `suppliers.rfc` was GLOBALLY unique (V1:149), so two separate businesses could not both register the
+-- same RFC — the collision V41's header names, and the same one V39 names for `products.sku` and
+-- `product_variants.bar_code`. An RFC identifies a taxpayer, not a row: the same taxpayer is a
+-- legitimate supplier of two unrelated companies, and the key that says so is the pair. `idx_suppliers_rfc`
+-- (V1:167) stays: the new key leads with `company_id`, so a lookup by RFC alone still has its own index.
+--
+-- WHAT THIS SCHEMA STILL CANNOT EXPRESS
+-- ------------------------------------
+-- The DB-level composite keys that would make `purchase_orders` and `product_suppliers` unable to name
+-- another company's supplier are **not** here, and deliberately not in this migration: a composite
+-- foreign key needs a `company_id` column on each of those tables to key on, and neither carries one
+-- yet. `uq_suppliers_company_id` (V41) is the target those keys will reference; adding the columns and
+-- the keys is the next migration.
+--
+-- Forward-only. Undoing it by hand means dropping `uq_suppliers_company_rfc`, re-adding
+-- `suppliers_rfc_key`, and dropping the `NOT NULL` — but the rows this migration discarded do not come
+-- back, which is why the banner is at the top and not in a footnote.
+-- ============================================
+
+TRUNCATE TABLE suppliers CASCADE;
+
+-- The owner is a fact of the row, not an optional annotation: a supplier nobody can attribute has no
+-- owner, and that state stops being representable here.
+ALTER TABLE suppliers ALTER COLUMN company_id SET NOT NULL;
+
+-- The RFC identifies a supplier inside ONE catalog. V1's global key is what stopped two businesses from
+-- both registering the same RFC.
+ALTER TABLE suppliers DROP CONSTRAINT suppliers_rfc_key;
+ALTER TABLE suppliers ADD CONSTRAINT uq_suppliers_company_rfc UNIQUE (company_id, rfc);

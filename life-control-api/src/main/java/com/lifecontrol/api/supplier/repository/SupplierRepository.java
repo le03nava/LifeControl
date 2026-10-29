@@ -21,16 +21,11 @@ import org.springframework.stereotype.Repository;
  * of them being picked up later is exactly how a cross-tenant read would come back — the same rule
  * {@link com.lifecontrol.api.product.repository.ProductRepository} states.</p>
  *
- * <p>{@link #findByRfc(String)} is the single exception and it is not part of the API: a goods-receipt
- * fixture outside this module finds-or-creates its supplier by RFC and writes its purchase orders
- * straight through the repositories, so it never passes through the scope this class now enforces. Its
- * only caller is that fixture, and it goes when the fixture seeds the company instead.</p>
- *
  * <p>The RFC key is per company ({@code (company_id, rfc)}): two separate businesses may legitimately
  * register the same RFC, which is why both uniqueness finders take the company. The write path enforces
- * that shape in the service; the database enforces it from {@code V42}, which replaces V1's global key
- * — the per-company check cannot be narrower than the constraint behind it, so until that migration the
- * global key still refuses a second company's row.</p>
+ * that shape in the service and the database enforces it from {@code V42}, which replaced V1's global
+ * key — so the service check and the constraint behind it agree instead of one being narrower than the
+ * other.</p>
  *
  * <p>Every finder that feeds a response carries the graph {@code {"company"}}: the response reports
  * {@code companyId} and the relation is {@code LAZY}, so without the graph a page of twelve suppliers
@@ -38,9 +33,6 @@ import org.springframework.stereotype.Repository;
  */
 @Repository
 public interface SupplierRepository extends JpaRepository<Supplier, UUID> {
-
-    /** Fixture-only, unscoped, and never called by the API: see the type javadoc. */
-    Optional<Supplier> findByRfc(String rfc);
 
     /** Whether the company already holds this RFC. */
     boolean existsByCompanyIdAndRfc(UUID companyId, String rfc);
