@@ -93,6 +93,32 @@ class StoreHierarchyCompanyBackfillMigrationIntegrationTest extends AbstractPost
                 .isEqualTo(List.of(seeded.regionId()));
     }
 
+    @Test
+    @DisplayName("V47 derives every zone's company from its region and discards no zone")
+    void zoneContractDerivesFromRegionAndDiscardsNothing() {
+        migrateTo(PRE_UNIT_HEAD);
+
+        var seeded = seedCompanyTree();
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM company_zones", Integer.class))
+                .as("the fixture wrote the zone at V43, where the table still has no owner column")
+                .isEqualTo(1);
+
+        migrateToHead();
+
+        assertThat(jdbcTemplate.queryForObject(
+                        "SELECT company_id FROM company_zones WHERE id = ?", UUID.class, seeded.zoneId()))
+                .as("the owner is the fact of the row's own region — the second hop of the same walk")
+                .isEqualTo(seeded.companyId());
+
+        assertThat(jdbcTemplate.queryForList("SELECT id FROM company_zones", UUID.class))
+                .as("the contract derives rather than discards: the seeded zone is still there")
+                .isEqualTo(List.of(seeded.zoneId()));
+
+        assertThat(jdbcTemplate.queryForList("SELECT id FROM company_regions", UUID.class))
+                .as("and the region the zone derives from survives too")
+                .isEqualTo(List.of(seeded.regionId()));
+    }
+
     // --- migration control ---
 
     private void migrateTo(String target) {
@@ -140,12 +166,12 @@ class StoreHierarchyCompanyBackfillMigrationIntegrationTest extends AbstractPost
 
     // --- fixtures ---
 
-    private record Seeded(UUID companyId, UUID regionId) {}
+    private record Seeded(UUID companyId, UUID regionId, UUID zoneId) {}
 
     /**
-     * Seeds exactly what the pre-V45 schema could hold: a company, its company country and one region
-     * that names only its country. No `company_id` is written anywhere below the country, because the
-     * column does not exist yet at this version.
+     * Seeds exactly what the pre-unit schema could hold: a company, its company country, one region that
+     * names only its country and one zone that names only its region. No `company_id` is written anywhere
+     * below the country, because the column does not exist yet at this version at either level.
      */
     private Seeded seedCompanyTree() {
         var countryId = jdbcTemplate.queryForObject("SELECT id FROM countries WHERE country_code = 'MX'", UUID.class);
@@ -169,6 +195,12 @@ class StoreHierarchyCompanyBackfillMigrationIntegrationTest extends AbstractPost
                 VALUES (?, ?, 'BF1', 'Backfill Region', true)
                 """, regionId, companyCountryId);
 
-        return new Seeded(companyId, regionId);
+        var zoneId = UUID.randomUUID();
+        jdbcTemplate.update("""
+                INSERT INTO company_zones (id, company_region_id, zone_code, zone_name, enabled)
+                VALUES (?, ?, 'BFZ', 'Backfill Zone', true)
+                """, zoneId, regionId);
+
+        return new Seeded(companyId, regionId, zoneId);
     }
 }
