@@ -626,9 +626,9 @@ done
 # assignment, which is why this loop is the surface that has to stop first —
 # deleting the roles from a realm while they are still provisioned here only
 # lasts until the next run. `keycloak-setup.test.sh` case 15 fails if a legacy
-# `keycloak-setup.test.sh` case 15 fails if a legacy name returns. This is a single
-# role and not a one-element `for` loop: `shellcheck --severity=warning` rejects a
-# literal single-element loop with SC2043, and the CI gate runs at that severity.
+# name returns. This is a single role and not a one-element `for` loop:
+# `shellcheck --severity=warning` rejects a literal single-element loop with
+# SC2043, and the CI gate runs at that severity.
 role="admin"
 if realm_role_exists "$role"; then
 	print_success "Realm role $role exists"
