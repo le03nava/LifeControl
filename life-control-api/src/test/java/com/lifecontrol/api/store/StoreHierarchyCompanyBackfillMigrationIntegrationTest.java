@@ -119,6 +119,36 @@ class StoreHierarchyCompanyBackfillMigrationIntegrationTest extends AbstractPost
                 .isEqualTo(List.of(seeded.regionId()));
     }
 
+    @Test
+    @DisplayName("V49 derives every store's company from its zone and discards no store")
+    void storeContractDerivesFromZoneAndDiscardsNothing() {
+        migrateTo(PRE_UNIT_HEAD);
+
+        var seeded = seedCompanyTree();
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM company_stores", Integer.class))
+                .as("the fixture wrote the store at V43, where the table still has no owner column")
+                .isEqualTo(1);
+
+        migrateToHead();
+
+        assertThat(jdbcTemplate.queryForObject(
+                        "SELECT company_id FROM company_stores WHERE id = ?", UUID.class, seeded.storeId()))
+                .as("the owner is the fact of the row's own zone — the last hop of the same walk")
+                .isEqualTo(seeded.companyId());
+
+        assertThat(jdbcTemplate.queryForList("SELECT id FROM company_stores", UUID.class))
+                .as("the contract derives rather than discards: the seeded store is still there")
+                .isEqualTo(List.of(seeded.storeId()));
+
+        assertThat(jdbcTemplate.queryForList("SELECT id FROM company_zones", UUID.class))
+                .as("and the zone the store derives from survives too")
+                .isEqualTo(List.of(seeded.zoneId()));
+
+        assertThat(jdbcTemplate.queryForList("SELECT id FROM company_regions", UUID.class))
+                .as("and the region the zone derives from survives as well")
+                .isEqualTo(List.of(seeded.regionId()));
+    }
+
     // --- migration control ---
 
     private void migrateTo(String target) {
@@ -166,12 +196,13 @@ class StoreHierarchyCompanyBackfillMigrationIntegrationTest extends AbstractPost
 
     // --- fixtures ---
 
-    private record Seeded(UUID companyId, UUID regionId, UUID zoneId) {}
+    private record Seeded(UUID companyId, UUID regionId, UUID zoneId, UUID storeId) {}
 
     /**
      * Seeds exactly what the pre-unit schema could hold: a company, its company country, one region that
-     * names only its country and one zone that names only its region. No `company_id` is written anywhere
-     * below the country, because the column does not exist yet at this version at either level.
+     * names only its country, one zone that names only its region and one store that names only its zone.
+     * No `company_id` is written anywhere below the country, because the column does not exist yet at
+     * this version at any of the three levels.
      */
     private Seeded seedCompanyTree() {
         var countryId = jdbcTemplate.queryForObject("SELECT id FROM countries WHERE country_code = 'MX'", UUID.class);
@@ -201,6 +232,12 @@ class StoreHierarchyCompanyBackfillMigrationIntegrationTest extends AbstractPost
                 VALUES (?, ?, 'BFZ', 'Backfill Zone', true)
                 """, zoneId, regionId);
 
-        return new Seeded(companyId, regionId, zoneId);
+        var storeId = UUID.randomUUID();
+        jdbcTemplate.update("""
+                INSERT INTO company_stores (id, company_zone_id, store_name, enabled)
+                VALUES (?, ?, 'Backfill Store', true)
+                """, storeId, zoneId);
+
+        return new Seeded(companyId, regionId, zoneId, storeId);
     }
 }

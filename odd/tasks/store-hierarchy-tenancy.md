@@ -5,7 +5,7 @@ levels plus the purchase-order key they make expressible, the three entities tha
 the schema suite that pins them. No `life-control-app-angular` change (the API already answers the
 `companyId` each screen reads, and no URL shape moves) and no `api-gateway` change (it declares no route
 for these tables).
-**Status**: implemented — the plan, T1 and T2 are written and green, and T3 to T5 remain open in the task
+**Status**: implemented — the plan and T1 to T3 are written and green, and T4 to T5 remain open in the task
 table below. What it will claim when the last slice lands: no row is discarded, which is the difference between
 this unit and `V40`/`V42`.
 **Created**: 2026-10-29 · **Issue**: **#673** (`feat: give the store hierarchy an owner so a store's
@@ -158,3 +158,13 @@ mapping, both suites and the supplier fixture in place and `V46`/`V47` absent, t
 migrations: **30 tests, 0 failed, 0 skipped** — scope 10, backfill 2, supplier 15, V32 backfill 3 —
 `spotlessCheck` and `spotbugsMain` clean. The supplier suite's 15 and the region level's 5 pass unchanged
 in the same run, which is the preserve check for the one shared fixture the slice touched.
+
+**L14** — T3 observed, same delegation shape and the same two hazards restated in the brief. RED: with the
+mapping and every test edit in place and `V48`/`V49` absent, the command exits **1** with **31 of 36
+failed**, the report naming `missing column [company_id] in table [company_stores]`. GREEN with them:
+**36 tests, 0 failed, 0 skipped** — scope 15, backfill 3, supplier 15, V32 backfill 3 — `spotlessCheck` and
+`spotbugsMain` clean. This slice is the first one whose callback sits on a heavily written insert path, so
+it was also run against every suite that persists a store: `com.lifecontrol.api.store.*` plus the
+inventory, store-inventory-settings and goods-receipt integration suites, **131 suites, 605 tests, 0
+failed** — which is the evidence that `Auditable`'s timestamps and the `@Version` handling in
+`CompanyStoreService` still work with a second `@PrePersist` callback in the class.

@@ -1,0 +1,44 @@
+-- ============================================
+-- V48 — Store hierarchy, level 3 of 3, step 1 of 2: the store's company column
+-- ============================================
+-- This is the level two migrations have been asking for by name since V40. Its header records the limit
+-- from the other side of a composite key — "`company_stores` carries no `company_id` … so there is no
+-- column pair to key a composite FK on" (V40:84-86) — and V43:70-71 states what that costs: a purchase
+-- order's company is tied to its SUPPLIER by the database and to its STORE only by
+-- `PurchaseOrderService`. Levels 1 and 2 are in (V44/V45, V46/V47); this is the last one, and the
+-- purchase-order key V43 could not write is one migration away.
+--
+-- As in V46, the EXPAND step is two statements because the TARGET above already exists:
+-- `uq_company_zones_company_id` (V46) is what the store's composite foreign key will reference.
+--
+--   * `company_stores` gains a NULLABLE `company_id`.
+--   * `company_stores` gains `uq_company_stores_company_id` — `UNIQUE (company_id, id)`. This is the key
+--     issue #673 names, and it is the one that makes `fk_purchase_orders_store_same_company` (V50)
+--     expressible: a composite foreign key needs a unique pair to point at, and without this column there
+--     was no pair to make unique.
+--
+-- WHY NULLABLE, FOR EXACTLY ONE SLICE: the reason V39, V41, V44 and V46 state in their own headers — a
+-- `NOT NULL` column cannot arrive before the write surface carries it, and the write surface here is
+-- `CompanyStore`'s mapping, which derives the owner from the zone it already names. The mapping lands with
+-- this migration, but the suite has to be green after every slice.
+--
+-- WHY NO BACKFILL HERE: the derivation is `V49`'s own work, because it is what makes the `NOT NULL`
+-- possible. Filling here would leave a slice whose column is populated by a rule nothing enforces.
+--
+-- WHY THE UNIQUE KEY DOUBLES AS THE LOOKUP INDEX: its leading column is `company_id`, so it already serves
+-- a lookup by company; a second `idx_company_stores_company_id` would answer the same read twice (V34,
+-- V37, V40). V1's `idx_company_stores_company_zone_id` stays: a lookup by PARENT leads with a different
+-- column.
+--
+-- Forward-only and additive: one `ADD COLUMN` and one constraint. Dropping both restores V1's shape, and
+-- every existing row keeps `company_id = NULL`, which is what an unattributed store is for exactly one
+-- slice — the store's own company stays reachable through zone → region → country throughout it, which is
+-- what `CompanyStoreOwnerResolver` has always done.
+-- ============================================
+
+-- ─── company_stores: the owner, optional for one slice ───────────────────────
+ALTER TABLE company_stores ADD COLUMN company_id UUID;
+
+-- The key issue #673 names: the target `fk_purchase_orders_store_same_company` (V50) will reference, and
+-- the lookup by company in one structure.
+ALTER TABLE company_stores ADD CONSTRAINT uq_company_stores_company_id UNIQUE (company_id, id);
