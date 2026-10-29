@@ -191,6 +191,12 @@ write_shim() {
 #                   (one per line). Empty means an already-provisioned realm:
 #                   every role keycloak-setup.sh:487-492 enumerates is served
 #                   present, which is what keeps the default cases idempotent.
+#   missing_realm_roles
+#                   realm-role names the test seeds as ABSENT from the realm (one
+#                   per line), the same convention for the loop at
+#                   keycloak-setup.sh:620-628. Empty means a realm that already
+#                   holds `admin` and the retired legacy roles, which is the
+#                   ordinary world every other case sees.
 #   realm_frontend_url  the realm's attributes.frontendUrl (empty when unset),
 #                   seeded by the test and rewritten by `update realms/*`.
 #   realm_smtp      the realm's smtpServer map, one `field<TAB>value` per line,
@@ -543,9 +549,20 @@ $(emit_array "$STATE/client_web_origins" webOrigins)
 				output="ADMIN_EDIT"
 				;;
 			roles/*)
-				# keycloak-setup.sh:145
-				present=1
-				output="{\"name\":\"${res#roles/}\"}"
+				# keycloak-setup.sh:145 — `realm_role_exists` keys on the read's
+				# EXIT STATUS alone, exactly like its client-role sibling, so an
+				# absent realm role can only be modelled by the "Resource not found"
+				# diagnostic: an empty success would read as present. The ordinary
+				# world is a realm that already holds every role the loop
+				# enumerates; a case seeds a realm with none of them through
+				# missing_realm_roles.
+				role="${res#roles/}"
+				if [ -f "$STATE/missing_realm_roles" ] && grep -qxF -- "$role" "$STATE/missing_realm_roles"; then
+					present=0
+				else
+					present=1
+					output="{\"name\":\"$role\"}"
+				fi
 				;;
 			*)
 				printf 'shim: unsupported kcadm read: %s\n' "$argv" >&2
@@ -659,6 +676,9 @@ build_layout() {
 	# branch is exercised by the role the case names rather than by assuming the
 	# realm's contents (freshness-guard.test.sh's per-case knobs do the same).
 	: >"$state/missing_roles"
+	# Realm-role world state, same convention and same default: empty = a realm
+	# that already holds every role the realm-role loop enumerates.
+	: >"$state/missing_realm_roles"
 
 	# W6b world state: realm frontendUrl/smtpServer and the public client's
 	# registered lists. Defaults are the already-converged values, so the plain
@@ -1084,6 +1104,63 @@ if build_layout "$root" "$state" all ""; then
 		"clients/cid-$ENV_APP_CLIENT/roles/lc-employee-access" "$(cat "$state/calls.log")"
 	assert_contains "case 14 (T97): reports the role created" \
 		"Client role $ENV_APP_CLIENT/lc-employee-access created" "$SETUP_OUT"
+fi
+
+# ------------------------------------------
+# Case 15 (retire-legacy-realm-roles) — the realm provisions `admin` and nothing
+# else. The legacy realm roles `life-control-admin` and `life-control-country`
+# are retired (`odd/tasks/retire-legacy-realm-roles.md`, S3): the API no longer
+# accepts them, and a script that keeps creating them on every run keeps a
+# retired authority available to be assigned by hand. Creation is not
+# assignment, which is why this is the surface that has to stop first — deleting
+# the roles from a realm before this loop stops recreating them only lasts until
+# the next run.
+#
+# The world is a realm with NO realm role provisioned: every read of `roles/*`
+# answers the "Resource not found" diagnostic that `realm_role_exists` alone
+# reads as absence (keycloak-setup.sh:152-158). The match is `get roles/` and not
+# `roles/` on purpose — the latter is a substring of
+# `clients/<cid>/roles/<name>`, so it would make all 26 client roles look absent
+# and the case would be measuring the wrong thing.
+#
+# Exactly ONE realm-role create is observed and it is `admin`, so the case fails
+# when a legacy name comes back to the loop.
+#
+# The needles carry their boundaries for a reason measured here: `life-control-admin`
+# is a SUBSTRING of the admin client id `life-control-admin-client`, which this
+# script names on every `add-roles` call for the service account, so a bare
+# substring assertion fails on a run that is already correct. The creates are
+# therefore filtered to `^create roles ` first — that log holds no argv that names
+# the admin client — and the reads are matched with the trailing space that only
+# the `get roles/<name> -r <realm>` call has.
+# ------------------------------------------
+root="$(new_root)"
+state="$root/state"
+LAYOUT_ENV=dev
+LAYOUT_SMTP_AUTH=false
+LAYOUT_SMTP_HOST=""
+LAYOUT_KEYCLOAK_URL=""
+LAYOUT_CLIENT_REDIRECTS=""
+LAYOUT_CLIENT_WEB_ORIGINS=""
+if build_layout "$root" "$state" all ""; then
+	printf '%s\n' life-control-admin life-control-country admin >"$state/missing_realm_roles"
+	export KCS_SHIM_STATE_DIR="$state"
+	export KCS_SHIM_INJECT_MATCH="get roles/"
+	export KCS_SHIM_INJECT_KIND="absent"
+	unset KCS_SHIM_REALM_DROP_UPDATE
+	run_setup "$root"
+	assert_rc "case 15: a realm with no realm role at all converges and exits 0" 0 "$SETUP_RC" "$SETUP_OUT"
+	grep '^create roles ' "$state/creates.log" >"$state/realm_role_creates"
+	assert_line_count "case 15: exactly one realm role is created" 1 "$state/realm_role_creates"
+	assert_contains "case 15: the created realm role is admin" "name=admin" "$(cat "$state/realm_role_creates")"
+	assert_file_has_no_match "case 15: life-control-admin is never created" \
+		"name=life-control-admin" "$state/realm_role_creates"
+	assert_file_has_no_match "case 15: life-control-country is never created" \
+		"name=life-control-country" "$state/realm_role_creates"
+	assert_file_has_no_match "case 15: life-control-admin is not even read" \
+		"roles/life-control-admin " "$state/calls.log"
+	assert_file_has_no_match "case 15: life-control-country is not even read" \
+		"roles/life-control-country " "$state/calls.log"
 fi
 
 # ------------------------------------------
