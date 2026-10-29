@@ -467,9 +467,9 @@ class SupplierSchemaMigrationIntegrationTest extends AbstractPostgresIntegration
 
         var zoneId = UUID.randomUUID();
         jdbcTemplate.update("""
-                INSERT INTO company_zones (id, company_region_id, zone_code, zone_name, enabled)
-                VALUES (?, ?, ?, ?, true)
-                """, zoneId, regionId, suffix, "Schema zone " + suffix);
+                INSERT INTO company_zones (id, company_region_id, company_id, zone_code, zone_name, enabled)
+                VALUES (?, ?, ?, ?, ?, true)
+                """, zoneId, regionId, companyId, suffix, "Schema zone " + suffix);
         insertedZones.add(zoneId);
 
         var storeId = UUID.randomUUID();

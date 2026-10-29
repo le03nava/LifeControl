@@ -5,8 +5,8 @@ levels plus the purchase-order key they make expressible, the three entities tha
 the schema suite that pins them. No `life-control-app-angular` change (the API already answers the
 `companyId` each screen reads, and no URL shape moves) and no `api-gateway` change (it declares no route
 for these tables).
-**Status**: implemented — the plan and T1 are written and green, and T2 to T5 remain open in the task table
-below. What it will claim when the last slice lands: no row is discarded, which is the difference between
+**Status**: implemented — the plan, T1 and T2 are written and green, and T3 to T5 remain open in the task
+table below. What it will claim when the last slice lands: no row is discarded, which is the difference between
 this unit and `V40`/`V42`.
 **Created**: 2026-10-29 · **Issue**: **#673** (`feat: give the store hierarchy an owner so a store's
 company is expressible`, `enhancement` + `status:approved`) · **Branch**: `feat/store-hierarchy-tenancy`
@@ -58,6 +58,17 @@ variant store stock (`V13`) and the scheduling tables (`V16`, `V18`).
 | T3 | The store level lands the same way: `V48` (nullable column + `uq_company_stores_company_id`) and `V49` (derive from the zone, `NOT NULL`, `fk_company_stores_zone_same_company`), with its fixtures and its half of the schema suite. | S2, S4, S5 | inline | pending |
 | T4 | The purchase-order key the store level makes expressible: `V50` re-derives `purchase_orders.company_id` from its store, drops V1's plain store foreign key and adds `fk_purchase_orders_store_same_company` — the row `V43`'s header records as the one it could not write. | S2, S4, S5 | inline | pending |
 | T5 | The final gates, run in this worktree: `./gradlew test spotlessCheck spotbugsMain --no-daemon` green over the whole suite, and this record's tasks and evidence updated with the observed result. | S7 | inline | pending |
+
+## Delivery
+
+Four stacked pull requests, one per task, because each slice is a work unit the reviewer can hold at once
+and each names a high-risk item on its own: **PR 1** = T1 (the region level), **PR 2** = T2 (the zone
+level), **PR 3** = T3 (the store level), **PR 4** = T4 plus T5 (the purchase-order key and the closing
+gates). The measured slice sizes are in the Log; T1 came out at 703 authored lines, which is past the
+~400-line budget on its own, so chaining is the only honest reading of the repository's review rule here —
+one pull request carrying four levels would be four times the budget and would hide the two-step-per-level
+shape the issue asks for. Bases are retargeted on merge, never deleted while a dependent is open
+(`references/pr-chains.md`).
 
 ## Log
 
@@ -138,3 +149,12 @@ tidying it away: the runner was `./gradlew test … 2>&1 | tail -40`, so the obs
 and every failure still printed `exit=0`. The second runner captures Gradle's own status and prints it —
 `set -uo pipefail`, redirect to a file, then read the file. A pipeline that reports on a build is not
 evidence about the build.
+
+**L13** — T2 observed, delegated to a writer with the six surfaces named and the drafts as its input, and
+the two hazards L9 and L12 restated in the brief because both had already bitten this unit. RED: with the
+mapping, both suites and the supplier fixture in place and `V46`/`V47` absent, the command exits **1** with
+**26 of 30 failed** — the context dies on `SchemaManagementException` for the mapped
+`company_zones.company_id`, and the backfill suite's zone seed fails at its own `INSERT`. GREEN with the
+migrations: **30 tests, 0 failed, 0 skipped** — scope 10, backfill 2, supplier 15, V32 backfill 3 —
+`spotlessCheck` and `spotbugsMain` clean. The supplier suite's 15 and the region level's 5 pass unchanged
+in the same run, which is the preserve check for the one shared fixture the slice touched.

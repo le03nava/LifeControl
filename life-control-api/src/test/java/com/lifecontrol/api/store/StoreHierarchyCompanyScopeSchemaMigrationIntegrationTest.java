@@ -49,6 +49,7 @@ class StoreHierarchyCompanyScopeSchemaMigrationIntegrationTest extends AbstractP
     private UUID countryId;
     private UUID companyCountryId;
 
+    private final List<UUID> insertedZones = new ArrayList<>();
     private final List<UUID> insertedRegions = new ArrayList<>();
     private final List<UUID> insertedCompanyCountries = new ArrayList<>();
     private final List<UUID> insertedCompanies = new ArrayList<>();
@@ -66,6 +67,10 @@ class StoreHierarchyCompanyScopeSchemaMigrationIntegrationTest extends AbstractP
     @AfterEach
     void removeInsertedRows() {
         // Leaf first: every list below references the one after it.
+        for (var id : insertedZones) {
+            jdbcTemplate.update("DELETE FROM company_zones WHERE id = ?", id);
+        }
+        insertedZones.clear();
         for (var id : insertedRegions) {
             jdbcTemplate.update("DELETE FROM company_regions WHERE id = ?", id);
         }
@@ -160,6 +165,83 @@ class StoreHierarchyCompanyScopeSchemaMigrationIntegrationTest extends AbstractP
     }
 
     // ──────────────────────────────────────
+    // V46/V47 — the zone level
+    // ──────────────────────────────────────
+
+    @Test
+    @DisplayName("the zone level stores its owner: company_zones.company_id is mandatory after V47")
+    void zoneCompanyIdIsMandatory() {
+        var nullable = jdbcTemplate.queryForObject("""
+                SELECT is_nullable FROM information_schema.columns
+                WHERE table_schema = 'public' AND table_name = 'company_zones' AND column_name = 'company_id'
+                """, String.class);
+
+        assertThat(nullable)
+                .as("the owner is stored so the database can refuse a disagreeing one, not derived on read")
+                .isEqualTo("NO");
+    }
+
+    @Test
+    @DisplayName("V46 leaves the unique target the store level's composite key needs")
+    void zoneLevelUniqueTargetExists() {
+        assertThat(uniqueConstraintCount("company_zones", "uq_company_zones_company_id"))
+                .as("uq_company_zones_company_id is the store key's target")
+                .isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("a zone whose company is its region's company is accepted")
+    void zoneInsideItsRegionIsAccepted() {
+        var regionId = insertRegion(companyCountryId, companyAId);
+        var zoneId = insertZone(regionId, companyAId);
+
+        assertThat(jdbcTemplate.queryForObject("SELECT company_id FROM company_zones WHERE id = ?", UUID.class, zoneId))
+                .as("the accepted row stores the company it was written with")
+                .isEqualTo(companyAId);
+    }
+
+    @Test
+    @DisplayName("a zone whose company disagrees with its region's is refused by the key, storing nothing")
+    void zoneOfAnotherCompanyIsRefused() {
+        var regionId = insertRegion(companyCountryId, companyAId);
+        var refusedId = UUID.randomUUID();
+        var suffix = UUID.randomUUID().toString().substring(0, 6).toUpperCase();
+
+        assertThatThrownBy(() ->
+                        jdbcTemplate.update("""
+                INSERT INTO company_zones (id, company_region_id, company_id, zone_code, zone_name, enabled)
+                VALUES (?, ?, ?, ?, ?, true)
+                """, refusedId, regionId, companyBId, suffix, "Foreign zone " + suffix))
+                .isInstanceOf(DataIntegrityViolationException.class)
+                .hasMessageContaining("fk_company_zones_region_same_company");
+
+        assertThat(jdbcTemplate.queryForObject(
+                        "SELECT COUNT(*) FROM company_zones WHERE id = ?", Integer.class, refusedId))
+                .as("the refused insert stored nothing")
+                .isZero();
+    }
+
+    @Test
+    @DisplayName("a zone with no company at all is refused by the NOT NULL V47 lands, storing nothing")
+    void zoneWithoutCompanyIsRefused() {
+        var regionId = insertRegion(companyCountryId, companyAId);
+        var refusedId = UUID.randomUUID();
+        var suffix = UUID.randomUUID().toString().substring(0, 6).toUpperCase();
+
+        assertThatThrownBy(() -> jdbcTemplate.update("""
+                INSERT INTO company_zones (id, company_region_id, zone_code, zone_name, enabled)
+                VALUES (?, ?, ?, ?, true)
+                """, refusedId, regionId, suffix, "Ownerless zone " + suffix))
+                .isInstanceOf(DataIntegrityViolationException.class)
+                .hasMessageContaining("company_id");
+
+        assertThat(jdbcTemplate.queryForObject(
+                        "SELECT COUNT(*) FROM company_zones WHERE id = ?", Integer.class, refusedId))
+                .as("the refused insert stored nothing")
+                .isZero();
+    }
+
+    // ──────────────────────────────────────
     // fixtures
     // ──────────────────────────────────────
 
@@ -202,6 +284,17 @@ class StoreHierarchyCompanyScopeSchemaMigrationIntegrationTest extends AbstractP
                 VALUES (?, ?, ?, ?, ?, true)
                 """, id, companyCountry, companyId, suffix, "Schema region " + suffix);
         insertedRegions.add(id);
+        return id;
+    }
+
+    private UUID insertZone(UUID companyRegion, UUID companyId) {
+        var id = UUID.randomUUID();
+        var suffix = UUID.randomUUID().toString().substring(0, 6).toUpperCase();
+        jdbcTemplate.update("""
+                INSERT INTO company_zones (id, company_region_id, company_id, zone_code, zone_name, enabled)
+                VALUES (?, ?, ?, ?, ?, true)
+                """, id, companyRegion, companyId, suffix, "Schema zone " + suffix);
+        insertedZones.add(id);
         return id;
     }
 }
