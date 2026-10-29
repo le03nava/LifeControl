@@ -8,7 +8,8 @@ supplier screens, the supplier pickers and their routes). No `api-gateway` chang
 its RFC is unique per company, and both consumers refuse a supplier of another company. One piece is **deferred,
 with its reason**: the store half of the purchase-order key — `(company_id, company_store_id) ->
 company_stores (company_id, id)` — because `company_stores` has no `company_id` column (V1 never gave it one, and
-V40 recorded the same limit), so it needs a store tenancy migration of its own instead of a ghost column here.
+V40 recorded the same limit), so it needs a store tenancy unit of its own instead of a ghost column here. That
+unit is **#673**, opened from L12 with the full hierarchy measured.
 **Created**: 2026-10-29 · **Issue**: **#672** (`feat: scope the supplier catalog per company`,
 `enhancement` + `status:approved`) · **Branch**: `feat/supplier-catalog-tenancy`
 
@@ -50,10 +51,10 @@ One line per task: ID, linked specs, what, route, commit. Route is `inline` unle
 | T1 | S4 | EXPAND: `V41` adds a nullable `suppliers.company_id`, its FK and the `UNIQUE (company_id, id)` target the composite keys will need, and nothing else | inline (parent) | `e3ef6d7c` |
 | T2 | S2, S4 | The move: `/api/companies/{companyId}/suppliers` with `verifyCompanyAccess`, the company stored on every write, RFC unique per company | delegated (`gentle-ai-worker`) | `f1eef5e9` |
 | T3 | S2 | Consumers: a purchase order and a product→supplier link resolve their supplier **with** the document's company | inline (parent) | pending |
-| T4a | S2, S4, S5 | CONTRACT on the supplier table: `V42` makes the column `NOT NULL` and replaces the global RFC key with `(company_id, rfc)`, discarding the rows it cannot attribute | delegated (`gentle-ai-worker`) | `c18702e4` |
-| T4b | S2 | The database half of the two consumers: a `company_id` on `purchase_orders` and `product_suppliers`, and the composite keys that make naming another company's supplier impossible | delegated (`gentle-ai-worker`) | `d0079d2c` |
-| T5 | S2 | Frontend: the supplier screens take their company the way the products area does, and the two pickers offer only that company's suppliers | delegated (`gentle-ai-worker`) | `8668abd7` |
-| T6 | S1–S6 | This record, its evidence and what it does not cover | inline (parent) | `see this commit` |
+| T4a | S2, S4, S5 | CONTRACT on the supplier table: `V42` makes the column `NOT NULL` and replaces the global RFC key with `(company_id, rfc)`, discarding the rows it cannot attribute | delegated (`gentle-ai-worker`) | `a1fd4775` |
+| T4b | S2 | The database half of the two consumers: a `company_id` on `purchase_orders` and `product_suppliers`, and the composite keys that make naming another company's supplier impossible | delegated (`gentle-ai-worker`) | `7e5bc735` |
+| T5 | S2 | Frontend: the supplier screens take their company the way the products area does, and the two pickers offer only that company's suppliers | delegated (`gentle-ai-worker`) | `b96c72ff` |
+| T6 | S1–S6 | This record, its evidence and what it does not cover | inline (parent) | `45e859ac` |
 
 **Slice boundary and delivery strategy.** T2 is **oversized** and is recorded that way rather than dressed
 up: `f1eef5e9` is ~1150 changed lines against the advisory ~400-line budget, because the contract move is
@@ -163,3 +164,11 @@ at HTTP and schema level. (c) The client-side foreign-supplier refusal in both p
 reports `companyId` in the response it filters; the server remains the boundary either way. (d) `companies.rfc`
 is still globally unique (`V1:51`) — out of scope by S6, and it is not a cross-tenant hole, since a company has
 no owner company.
+
+**L16** — the commit order is not the order the tasks were worked in, and the record says so instead of
+implying a tidier history: T5 was delegated in parallel with T4b and landed between T4a and T4b, which made
+the approved slices non-contiguous. A pull request is a branch range, so the history was rebuilt into the three
+slices the delivery strategy names — T1–T3, then T4a+T4b, then T5 — by replaying the same commits on fresh
+branches. Only the order moved: the tree of the last slice is identical to the pre-reorder tree except in this
+file, where the task table had to be repointed at the replayed commits. `d0079d2c` was already stale in this
+table before that, from an amend that changed a commit message only, and is corrected here too.
