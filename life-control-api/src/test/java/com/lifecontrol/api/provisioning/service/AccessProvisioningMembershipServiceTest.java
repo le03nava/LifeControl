@@ -462,13 +462,17 @@ class AccessProvisioningMembershipServiceTest {
         }
 
         @Test
-        @DisplayName("a Terminated employee with no linked account refuses by name instead of deleting keys for a user that does not exist")
+        @DisplayName(
+                "a Terminated employee with no linked account refuses by name instead of deleting keys for a user that does not exist")
         void terminatedEmployeeWithoutLinkedAccountRefusesBeforeTheRevocation() {
             var terminatedUnlinked = Employee.builder()
                     .id(employeeId)
                     .company(company)
                     .email("jane.doe@acme.com")
-                    .status(Status.builder().statusName("Terminated").enabled(true).build())
+                    .status(Status.builder()
+                            .statusName("Terminated")
+                            .enabled(true)
+                            .build())
                     .build();
 
             assertThatThrownBy(() -> service.convergeMembership(terminatedUnlinked))
@@ -480,10 +484,11 @@ class AccessProvisioningMembershipServiceTest {
         }
 
         @Test
-        @DisplayName("a Terminated employee is revoked before the derivation runs, so a scope that would fail closed never blocks the revocation")
+        @DisplayName(
+                "a Terminated employee is revoked before the derivation runs, so a scope that would fail closed never blocks the revocation")
         void terminatedEmployeeIsRevokedBeforeTheDerivationThatWouldFailClosed() {
-            var twoCompanies =
-                    new EmployeeStoreScope(Set.of(companyId, UUID.randomUUID()), Set.of(), Set.of(), Set.of(), Set.of());
+            var twoCompanies = new EmployeeStoreScope(
+                    Set.of(companyId, UUID.randomUUID()), Set.of(), Set.of(), Set.of(), Set.of());
 
             try (var derivation = mockStatic(ScopeAssignmentDerivation.class)) {
                 derivation
@@ -504,7 +509,8 @@ class AccessProvisioningMembershipServiceTest {
         }
 
         @Test
-        @DisplayName("a Terminated employee keeps no foreign position either: the five keys are deleted and the assignment source is never read")
+        @DisplayName(
+                "a Terminated employee keeps no foreign position either: the five keys are deleted and the assignment source is never read")
         void terminatedEmployeeWithAForeignCompanyPositionDeletesTheFiveKeysWithoutReadingTheAssignments() {
             var foreignCompany = company(UUID.randomUUID());
             var foreignStore = store(zone(region(companyCountry(foreignCompany))));
