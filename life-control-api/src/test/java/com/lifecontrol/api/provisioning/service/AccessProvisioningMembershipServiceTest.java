@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -49,7 +50,10 @@ import org.mockito.junit.jupiter.MockitoExtension;
  * Focused unit tests for {@link AccessProvisioningMembershipService}: the convergence of the five
  * {@code company_*} attributes to "the key present ⇔ the level is held" (T39), the multivalued write
  * the derivation exists for (D1/T6), the fail-closed company invariant (T1/T39), the {@code Terminated}
- * deletion path (T6) and the "touch nothing else" boundary (T34/T39).
+ * deletion path (T6), the "touch nothing else" boundary (T34/T39) and <b>the order the three terminal
+ * rules are applied in</b> (R3-001): the linked-account refusal, the revoked short-circuit and the
+ * fail-closed derivation are each pinned <b>against the others</b>, so inverting two of them fails this
+ * suite instead of silently changing which one wins.
  *
  * <p>The mocked finder returns exactly the rows the fixture declares, <b>unfiltered</b>, in the order
  * the repository's own {@code ORDER BY validFrom DESC} would return them: the enabled and coverage
@@ -455,6 +459,73 @@ class AccessProvisioningMembershipServiceTest {
                     .hasMessageContaining(employeeId.toString());
 
             verifyNoInteractions(identityProvider, scopeAssignmentRepository);
+        }
+
+        @Test
+        @DisplayName("a Terminated employee with no linked account refuses by name instead of deleting keys for a user that does not exist")
+        void terminatedEmployeeWithoutLinkedAccountRefusesBeforeTheRevocation() {
+            var terminatedUnlinked = Employee.builder()
+                    .id(employeeId)
+                    .company(company)
+                    .email("jane.doe@acme.com")
+                    .status(Status.builder().statusName("Terminated").enabled(true).build())
+                    .build();
+
+            assertThatThrownBy(() -> service.convergeMembership(terminatedUnlinked))
+                    .isInstanceOf(AccountNotLinkedException.class)
+                    .hasMessageContaining(employeeId.toString())
+                    .hasMessageContaining("has no keycloakUserId");
+
+            verifyNoInteractions(identityProvider, scopeAssignmentRepository);
+        }
+
+        @Test
+        @DisplayName("a Terminated employee is revoked before the derivation runs, so a scope that would fail closed never blocks the revocation")
+        void terminatedEmployeeIsRevokedBeforeTheDerivationThatWouldFailClosed() {
+            var twoCompanies =
+                    new EmployeeStoreScope(Set.of(companyId, UUID.randomUUID()), Set.of(), Set.of(), Set.of(), Set.of());
+
+            try (var derivation = mockStatic(ScopeAssignmentDerivation.class)) {
+                derivation
+                        .when(() -> ScopeAssignmentDerivation.derive(any(), any(), any()))
+                        .thenReturn(twoCompanies);
+
+                var scope = service.convergeMembership(terminatedEmployee());
+
+                assertThat(scope.companyIds()).isEmpty();
+                assertThat(scope.companyStoreIds()).isEmpty();
+                derivation.verifyNoInteractions();
+            }
+
+            verify(identityProvider, times(5)).deleteUserAttribute(eq(KC_USER_ID), anyString());
+            verify(identityProvider, never()).updateUserAttribute(any(), any(), any());
+            verifyNoMoreInteractions(identityProvider);
+            verifyNoInteractions(scopeAssignmentRepository);
+        }
+
+        @Test
+        @DisplayName("a Terminated employee keeps no foreign position either: the five keys are deleted and the assignment source is never read")
+        void terminatedEmployeeWithAForeignCompanyPositionDeletesTheFiveKeysWithoutReadingTheAssignments() {
+            var foreignCompany = company(UUID.randomUUID());
+            var foreignStore = store(zone(region(companyCountry(foreignCompany))));
+
+            // Lenient on purpose: the row exists so this test would catch a reorder that reads the
+            // assignments before the revoked short-circuit, and it must stay unread on the correct
+            // order, so a strict stub would fail the very run this test is supposed to pass.
+            lenient()
+                    .when(scopeAssignmentRepository.findEnabledAssignmentsCoveringDate(
+                            eq(employeeId), any(LocalDate.class)))
+                    .thenReturn(List.of(storeScopeAssignment(foreignStore, today().minusDays(1), null, true)));
+
+            var scope = service.convergeMembership(terminatedEmployee());
+
+            assertThat(scope.companyIds()).isEmpty();
+            assertThat(scope.companyCountryIds()).isEmpty();
+            assertThat(scope.companyStoreIds()).isEmpty();
+            verify(identityProvider, times(5)).deleteUserAttribute(eq(KC_USER_ID), anyString());
+            verify(identityProvider, never()).updateUserAttribute(any(), any(), any());
+            verifyNoMoreInteractions(identityProvider);
+            verifyNoInteractions(scopeAssignmentRepository);
         }
 
         @Test
