@@ -1,12 +1,38 @@
 <div class="supplier-list-page">
-  <app-page-header title="Proveedores" subtitle="Gestión de proveedores del sistema">
-    <button mat-flat-button color="primary" routerLink="/products/suppliers/create">
+  <app-page-header title="Proveedores" subtitle="Gestión de proveedores de la empresa">
+    <!--
+      Disabled while no company is chosen, because the catalog is company-scoped: opening the form from
+      a bare `/products/suppliers` would only ask the same question one screen later, and the form has no
+      company field of its own.
+    -->
+    <button
+      mat-flat-button
+      color="primary"
+      type="button"
+      [disabled]="!selectedCompanyId()"
+      (click)="createSupplier()"
+    >
       <mat-icon fontIcon="add" /> Agregar Proveedor
     </button>
   </app-page-header>
 
   <!-- Search Filter -->
   <div class="filters-section">
+    <!--
+      The company is a filter of this screen and not a question in front of the area: it decides whose
+      suppliers the grid shows, and the URL keeps it so a copied link reproduces the list. Same control
+      as the products list (#669).
+    -->
+    <mat-form-field appearance="outline" class="company-selector" subscriptSizing="dynamic">
+      <mat-label>Empresa</mat-label>
+      <mat-select [value]="selectedCompanyId()" (selectionChange)="onCompanyChange($event.value)">
+        <mat-option value="">— Seleccionar empresa —</mat-option>
+        @for (company of companies(); track company.id) {
+          <mat-option [value]="company.id">{{ company.companyName }}</mat-option>
+        }
+      </mat-select>
+    </mat-form-field>
+
     <mat-form-field appearance="outline" class="search-field" subscriptSizing="dynamic">
       <mat-icon matPrefix>search</mat-icon>
       <input
@@ -32,7 +58,17 @@
 
   <!-- Suppliers Grid -->
   <div class="suppliers-grid">
-    @if (loading()) {
+    <!--
+      With no company there is nothing to list and no request to issue: the grid would read as "this
+      company has no suppliers" about a company nobody named. The choice lives in the filter above.
+    -->
+    @if (!selectedCompanyId()) {
+      <div class="empty-state">
+        <mat-icon fontIcon="business" class="empty-state-icon" />
+        <h3 class="empty-title">Elegí una empresa</h3>
+        <p class="empty-subtitle">Seleccioná una empresa para ver sus proveedores</p>
+      </div>
+    } @else if (loading()) {
       <div class="loading-skeleton">
         @for (_ of [1, 2, 3, 4]; track $index) {
           <div class="skeleton-card" [style.--i]="$index">

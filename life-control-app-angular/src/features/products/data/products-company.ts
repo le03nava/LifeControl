@@ -20,8 +20,11 @@ import type { ActivatedRoute } from '@angular/router';
  * whose selection is editable keeps its own signal, seeded from here and written back to the URL. This
  * function is that seed, not a live value.
  *
- * `null` means the URL names no company: `/products` (the hub), `categories`, `variants` (the
- * store-addressed search) or `suppliers`, and no screen builds a scoped request from it.
+ * `null` means the URL names no company: `/products` (the hub), `categories` or `variants` (the
+ * store-addressed search), and no screen builds a scoped request from it. The supplier catalog reads it
+ * the same way since a supplier belongs to one company (issue #672): `/products/suppliers` with no
+ * `?companyId=` is the "choose a company" state, not a cross-company list, because there is no
+ * cross-company read either.
  */
 export function productsCompanyId(route: ActivatedRoute): string | null {
   return route.snapshot.queryParamMap.get('companyId');

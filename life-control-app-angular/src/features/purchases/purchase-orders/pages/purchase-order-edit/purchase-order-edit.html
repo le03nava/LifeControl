@@ -47,9 +47,11 @@
       (storeResolved)="onStoreResolved($event)"
     />
 
-    <!-- Supplier Information (supplier + payment method + comments) -->
+    <!-- Supplier Information (supplier + payment method + comments). The supplier picker is scoped to
+         the order's company, the same one the product and variant reads below use. -->
     <app-supplier-info-section
       [headerForm]="headerForm()"
+      [companyId]="orderCompanyId()"
       [isEditMode]="isEditMode()"
       [loadedOrder]="loadedOrder()"
       [serverErrors]="serverErrors()"

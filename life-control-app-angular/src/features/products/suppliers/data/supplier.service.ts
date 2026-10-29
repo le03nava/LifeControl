@@ -5,6 +5,14 @@ import { catchError, finalize } from 'rxjs/operators';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { ConfigService } from '@app/services/config.service';
 
+/**
+ * The supplier catalog, read and written **per company**.
+ *
+ * A supplier belongs to exactly one company (`/api/companies/{companyId}/suppliers`, issue #672), so
+ * every method takes the company and there is no company-blind path to fall back to: the unscoped
+ * `/api/suppliers` answers 404. `ProductSupplierService` has the same shape for a product's supplier
+ * links, because the link hangs off the product and the product belongs to a company.
+ */
 @Injectable({
   providedIn: 'root',
 })
@@ -22,29 +30,35 @@ export class SupplierService {
   readonly loading = this._loading.asReadonly();
   readonly error = this._error.asReadonly();
 
-  get apiUrl(): string {
-    return `${this.configService.apiUrl}/suppliers`;
+  /** The supplier collection of one company: the only address the catalog answers on. */
+  suppliersUrl(companyId: string): string {
+    return `${this.configService.apiUrl}/companies/${companyId}/suppliers`;
   }
 
-  getSuppliers(page = 0, size = 12, search?: string): Observable<Page<Supplier>> {
+  getSuppliers(
+    companyId: string,
+    page = 0,
+    size = 12,
+    search?: string,
+  ): Observable<Page<Supplier>> {
     let params = new HttpParams().set('page', page.toString()).set('size', size.toString());
 
     if (search) {
       params = params.set('search', search);
     }
 
-    return this.http.get<Page<Supplier>>(this.apiUrl, { params });
+    return this.http.get<Page<Supplier>>(this.suppliersUrl(companyId), { params });
   }
 
-  getSupplierById(id: string): Observable<Supplier> {
-    return this.http.get<Supplier>(`${this.apiUrl}/${id}`);
+  getSupplierById(companyId: string, id: string): Observable<Supplier> {
+    return this.http.get<Supplier>(`${this.suppliersUrl(companyId)}/${id}`);
   }
 
-  createSupplier(data: SupplierRequest): Observable<Supplier> {
+  createSupplier(companyId: string, data: SupplierRequest): Observable<Supplier> {
     this._loading.set(true);
     this._error.set(null);
 
-    return this.http.post<Supplier>(this.apiUrl, data).pipe(
+    return this.http.post<Supplier>(this.suppliersUrl(companyId), data).pipe(
       finalize(() => this._loading.set(false)),
       catchError((err) => {
         this._error.set('Error al crear el proveedor');
@@ -53,11 +67,11 @@ export class SupplierService {
     );
   }
 
-  updateSupplier(id: string, data: SupplierRequest): Observable<Supplier> {
+  updateSupplier(companyId: string, id: string, data: SupplierRequest): Observable<Supplier> {
     this._loading.set(true);
     this._error.set(null);
 
-    return this.http.put<Supplier>(`${this.apiUrl}/${id}`, data).pipe(
+    return this.http.put<Supplier>(`${this.suppliersUrl(companyId)}/${id}`, data).pipe(
       finalize(() => this._loading.set(false)),
       catchError((err) => {
         this._error.set('Error al actualizar el proveedor');
@@ -66,11 +80,11 @@ export class SupplierService {
     );
   }
 
-  deleteSupplier(id: string): Observable<void> {
+  deleteSupplier(companyId: string, id: string): Observable<void> {
     this._loading.set(true);
     this._error.set(null);
 
-    return this.http.delete<void>(`${this.apiUrl}/${id}`).pipe(
+    return this.http.delete<void>(`${this.suppliersUrl(companyId)}/${id}`).pipe(
       finalize(() => this._loading.set(false)),
       catchError((err) => {
         this._error.set('Error al eliminar el proveedor');
@@ -79,8 +93,13 @@ export class SupplierService {
     );
   }
 
-  getAllSuppliers(page = 0, size = 1000, search?: string): Observable<Page<Supplier>> {
-    return this.getSuppliers(page, size, search);
+  getAllSuppliers(
+    companyId: string,
+    page = 0,
+    size = 1000,
+    search?: string,
+  ): Observable<Page<Supplier>> {
+    return this.getSuppliers(companyId, page, size, search);
   }
 
   clearError(): void {

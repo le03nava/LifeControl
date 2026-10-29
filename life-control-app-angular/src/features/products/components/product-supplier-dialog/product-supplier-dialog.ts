@@ -100,6 +100,15 @@ export class ProductSupplierDialog implements OnInit {
   readonly searching = signal(false);
   readonly assignedSuppliers = signal<ProductSupplier[]>([]);
 
+  /**
+   * The ids the API reported as belonging to **another** company.
+   *
+   * Kept beside {@link suppliers} instead of inside it: the picker's option shape is the form's
+   * (`SupplierOption`, id + name), and dropping a foreign row from the options is what makes it
+   * unofferable while this set is what makes a selection of it refusable.
+   */
+  private readonly foreignSupplierIds = signal<ReadonlySet<string>>(new Set());
+
   private readonly supplierSearch$ = new Subject<string>();
 
   constructor() {
@@ -177,6 +186,15 @@ export class ProductSupplierDialog implements OnInit {
     const productId = this.data.productId;
     const assignment = this.data.assignment;
 
+    // The picker already drops foreign rows, and this is the belt to that braces: a supplier the API
+    // reports as another company's must not be attached even if a selection reached saving some other
+    // way (a stale option, a reused form).
+    if (this.foreignSupplierIds().has(data.supplierId)) {
+      this.serverErrors.set({});
+      this.generalError.set('Ese proveedor pertenece a otra empresa.');
+      return;
+    }
+
     const request$ = assignment
       ? this.productSupplierService.updateSupplier(companyId, productId, assignment.id, data)
       : this.productSupplierService.addSupplier(companyId, productId, data);
@@ -216,19 +234,35 @@ export class ProductSupplierDialog implements OnInit {
   }
 
   private loadSuppliers(term: string): Observable<SupplierOption[]> {
-    return this.supplierService.getSuppliers(0, SUPPLIER_PAGE_SIZE, term.trim() || undefined).pipe(
-      map((page) =>
-        page.content.map((supplier) => ({
-          id: supplier.id,
-          supplierName: supplier.supplierName,
-        })),
-      ),
-      tap(() => this.loadError.set(null)),
-      catchError(() => {
-        this.loadError.set('No pudimos cargar los proveedores. Intentá de nuevo más tarde.');
-        return of<SupplierOption[]>([]);
-      }),
-    );
+    // The search is scoped to the product's company (issue #672): the picker may only offer suppliers of
+    // the company the assignment belongs to, and a row the API reports as another company's is dropped
+    // even if it arrives in the page.
+    const companyId = this.data.companyId;
+    return this.supplierService
+      .getSuppliers(companyId, 0, SUPPLIER_PAGE_SIZE, term.trim() || undefined)
+      .pipe(
+        map((page) => {
+          const own = page.content.filter(
+            (supplier) => !supplier.companyId || supplier.companyId === companyId,
+          );
+          this.foreignSupplierIds.set(
+            new Set(
+              page.content
+                .filter((supplier) => supplier.companyId && supplier.companyId !== companyId)
+                .map((supplier) => supplier.id),
+            ),
+          );
+          return own.map((supplier) => ({
+            id: supplier.id,
+            supplierName: supplier.supplierName,
+          }));
+        }),
+        tap(() => this.loadError.set(null)),
+        catchError(() => {
+          this.loadError.set('No pudimos cargar los proveedores. Intentá de nuevo más tarde.');
+          return of<SupplierOption[]>([]);
+        }),
+      );
   }
 
   private loadAssignedSuppliers(): void {
