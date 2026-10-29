@@ -520,7 +520,7 @@ Role-based access:
 
 | Role                   | Authority                          | Scope                          |
 |------------------------|------------------------------------|--------------------------------|
-| `lc-admin`             | `ROLE_lc-admin`                    | Full CRUD on all domains, activity log access, purchase order writes (superseded `life-control-admin`) |
+| `lc-admin`             | `ROLE_lc-admin`                    | Full CRUD on all domains, activity log access, purchase order writes |
 | `lc-company`           | `ROLE_lc-company`                  | Scoped by `company_id` JWT claim, full CRUD on assigned companies |
 | `lc-company-read`      | `ROLE_lc-company-read`             | Read-only GET access to companies, scoped by `company_id` JWT claim |
 | `lc-company-country`   | `ROLE_lc-company-country`          | Scoped by `company_id`, CRUD on company-country associations |
@@ -537,16 +537,19 @@ Role-based access:
 | `lc-status-type`       | `ROLE_lc-status-type`              | Write access to status types (read requires any authenticated user) |
 | `lc-payment-method`    | `ROLE_lc-payment-method`           | Write access to payment methods (read requires any authenticated user) |
 | `lc-measure-unit`      | `ROLE_lc-measure-unit`             | Write access to measure units (read requires any authenticated user) |
-| `lc-product-supplier`  | `ROLE_lc-product-supplier`         | Supplier CRUD (soft delete) and product-supplier assignment endpoints (supersedes `life-control-country`) |
+| `lc-product-supplier`  | `ROLE_lc-product-supplier`         | Supplier CRUD (soft delete) and product-supplier assignment endpoints |
 | `lc-sales`             | `ROLE_lc-sales`                    | Sales domain: customers, sales orders, purchase orders, shifts, promotions, product variants |
-| `life-control-admin`   | `ROLE_life-control-admin`          | **Legacy** — no new assignments, pending Keycloak migration; still accepted by `CurrentUserContext#isAdmin()` for backward compatibility |
-| `life-control-country` | `ROLE_life-control-country`        | **Legacy** — no new assignments, pending Keycloak migration; still accepted by `CurrentUserContext#isCountryRole()` for backward compatibility |
 | `admin`                | `ROLE_admin`                       | Users-admin endpoints (Keycloak admin) |
+
+> **The legacy realm roles are retired.** `life-control-admin` and `life-control-country` are gone:
+> `CurrentUserContext#isAdmin()` accepts `lc-admin` only, `isCountryRole()` no longer exists, and
+> `keycloak-setup.sh` provisions only the `admin` realm role. A token that still carried a legacy
+> realm role grants nothing. See `odd/tasks/retire-legacy-realm-roles.md`.
 
 ### Architecture
 
 1. **JWT Decoder** (`JwtDecoderConfig`): Validates signature via JWK Set URI and timestamp, and the `iss` claim against an issuer allowlist (`JwtIssuerAllowlistValidator`, mirroring the gateway). The allowlist comes from `keycloak.allowed-issuers` and by default includes the public browser issuer (`KEYCLOAK_ISSUER_URI`) plus the internal issuer (`keycloak.uri`, from `KEYCLOAK_URI`). This lets tokens minted for the browser issuer pass while the signature is still verified against the internal JWK set.
-2. **Role Mapping**: `realm_access.roles` → `ROLE_<name>` authorities via custom `JwtAuthenticationConverter`.
+2. **Role Mapping**: `realm_access.roles` and `resource_access.<azp>.roles` → `ROLE_<name>` authorities via custom `JwtAuthenticationConverter`.
 3. **Company ID Claim**: `company_id` claim (single UUID or comma-separated) parsed by `CurrentUserContext` for scoped access.
 4. **Controller Guards**: `@PreAuthorize` at class level on CompanyController. Method-level `@PreAuthorize` on CompanyCountryController: write endpoints (`POST`, `PUT`, `DELETE`) require `lc-admin`/`lc-company`/`lc-company-country`; read endpoint (`GET`) also allows `lc-company-country-read`.
 5. **Service-Level Checks**: `currentUserContext.verifyCompanyAccess(id)` in service logic.
@@ -566,9 +569,9 @@ Role-based access:
 | Property          | Value                    |
 |-------------------|--------------------------|
 | Realm             | `life-control-realm`     |
-| Role Name         | `life-control-admin`     |
-| Role Type         | Realm Role               |
-| Additional Roles  | `admin`, `lc-company` |
+| Role Name         | `lc-admin`               |
+| Role Type         | Client Role of `life-control-client` |
+| Additional Roles  | `admin` (realm role) |
 
 On company creation, a Keycloak group `company-<sanitized-name>` is auto-created via `@TransactionalEventListener`.
 
@@ -1031,7 +1034,7 @@ Client roles (`life-control-client`) are provisioned idempotently by
 
 **Client roles (provisioned by `keycloak-setup.sh`):**
 
-- **`lc-admin`** — Full CRUD on all domains, activity log access, purchase order writes (supersedes `life-control-admin`)
+- **`lc-admin`** — Full CRUD on all domains, activity log access, purchase order writes
 - **`lc-company`** — Scoped company CRUD (filtered by `company_id` JWT claim)
 - **`lc-company-read`** — Read-only GET access to companies, scoped by `company_id` JWT claim
 - **`lc-company-country`** / **`lc-company-country-read`** — Company-country CRUD / read-only GET, scoped by `company_id` JWT claim
@@ -1040,7 +1043,7 @@ Client roles (`life-control-client`) are provisioned idempotently by
 - **`lc-company-store`** / **`lc-company-store-read`** — Store CRUD / read-only GET, scoped by `company_id`
 - **`lc-receiving`** — Store-scoped reception (goods receipts): create + read. **Deployment dependencies: API-only until the frontend wires it, the role alone is not sufficient, and the gateway route is provisioned separately — see the warnings below.**
 - **`lc-country`**, **`lc-status`**, **`lc-status-type`**, **`lc-payment-method`**, **`lc-measure-unit`** — write access to catalog domains (reads require any authenticated user)
-- **`lc-product-supplier`** — Supplier CRUD and product-supplier assignment endpoints (supersedes `life-control-country`)
+- **`lc-product-supplier`** — Supplier CRUD and product-supplier assignment endpoints
 - **`lc-sales`** — Sales domain: customers, sales orders, purchase orders, shifts, promotions, product variants
 
 > **Deployment dependency — `lc-receiving` alone is not sufficient.** `lc-receiving` is a
@@ -1072,9 +1075,10 @@ Client roles (`life-control-client`) are provisioned idempotently by
 
 **Realm roles (manual):**
 
-- **`life-control-admin`** — **Legacy** — no new assignments; kept for backward compatibility via `CurrentUserContext#isAdmin()` until the Keycloak migration to `lc-*` client roles is complete
-- **`life-control-country`** — **Legacy** — no new assignments; kept for backward compatibility via `CurrentUserContext#isCountryRole()` until the Keycloak migration to `lc-*` client roles is complete
-- **`admin`** — Users-admin endpoints (role/user management)
+- **`admin`** — Users-admin endpoints (role/user management). It is the only realm role this
+  repository still relies on, and the only one `keycloak-setup.sh` provisions. The legacy realm
+  roles `life-control-admin` and `life-control-country` are retired: the API accepts no authority
+  derived from them, so a token carrying one grants nothing.
 
 ### Company Groups (Auto-Created)
 

@@ -1029,10 +1029,14 @@ Solo **Users Admin** sigue usando un realm role: sus rutas declaran `data: { rol
 |-----|--------|
 | `admin` | Users Admin (`users-admin.routes.ts`, `data: { role: 'admin' }`) |
 
-> **Importante:** `lc-admin` es un **rol de cliente** (no realm). `life-control-admin` es un **realm role**. Son distintos.
+> **Importante:** `lc-admin` es un **rol de cliente** (no realm), y es la única autoridad admin que
+> queda. Los realm roles `life-control-admin` y `life-control-country` están **retirados** — la API
+> no acepta autoridad derivada de ellos (`odd/tasks/retire-legacy-realm-roles.md`) —, así que el
+> único realm role que el guard sigue resolviendo es `admin`, para Users Admin.
 >
 > **Corrección verificada en el código:** `life-control-admin` y `life-control-country` **no
-> aparecen en ninguna ruta actual** (solo en fixtures de tests). Products declara
+> aparecen en ninguna ruta actual** (los roles ya no existen: solo sobreviven como fixture de los
+> tests que prueban que el guard los ignora). Products declara
 > `data: { roles: ['lc-admin'], clientId: 'life-control-client' }` — el rol de **cliente**
 > `lc-admin` —, Purchases relaja su padre a `['lc-admin', 'lc-receiving']` y deja los hijos de
 > órdenes admin-only, y Sales usa `['lc-admin', 'lc-sales']`, también de cliente.
@@ -1048,9 +1052,8 @@ Solo **Users Admin** sigue usando un realm role: sus rutas declaran `data: { rol
 // Con clientId → resuelve de resource_access[clientId].roles (client roles)
 data: { roles: ['lc-admin', 'lc-company'], clientId: 'life-control-client' }
 
-// Sin clientId → resuelve de realm_access.roles (realm roles, legacy)
+// Sin clientId → resuelve de realm_access.roles (realm roles)
 data: { role: 'admin' }
-data: { roles: ['life-control-admin'] }
 ```
 
 ### Header Menu Control

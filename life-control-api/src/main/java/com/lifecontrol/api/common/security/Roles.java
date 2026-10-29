@@ -7,9 +7,13 @@ package com.lifecontrol.api.common.security;
  * reference these constants instead of hardcoding role literals.</p>
  *
  * <p>Most {@code lc-*} roles are provisioned as <b>client roles</b> of {@code life-control-client}
- * by {@code docker/scripts/keycloak-setup.sh}, while the legacy {@code life-control-*}
- * roles are <b>realm roles</b>. Both converge to {@code ROLE_<name>} authorities via
- * {@code JwtDecoderConfig}, so they are interchangeable in {@code hasRole}/{@code hasAnyRole}.</p>
+ * by {@code docker/scripts/keycloak-setup.sh}, and converge to {@code ROLE_<name>} authorities via
+ * {@code JwtDecoderConfig}.</p>
+ *
+ * <p>The legacy realm roles {@code life-control-admin} and {@code life-control-country} are
+ * <b>retired</b>: the API accepts no authority derived from them and {@code keycloak-setup.sh}
+ * provisions neither ({@code odd/tasks/retire-legacy-realm-roles.md}). A token that still carried
+ * one would grant nothing.</p>
  *
  * <p>{@code lc-admin} is the admin role for feature controllers. The realm role {@code admin}
  * is <b>not</b> used in {@code @PreAuthorize}: it protects the {@code /api/users-admin/**}
@@ -23,14 +27,6 @@ public final class Roles {
 
     /** Admin role for feature controllers. Client role of {@code life-control-client}. */
     public static final String ADMIN = "lc-admin";
-
-    /** Legacy admin realm role, kept only for backward compatibility in {@code CurrentUserContext}.
-     *  Retired once Keycloak is fully migrated to {@code lc-*} client roles. */
-    public static final String LIFE_CONTROL_ADMIN = "life-control-admin";
-
-    /** Legacy country realm role (product catalog legacy), kept only for backward compatibility
-     *  in {@code CurrentUserContext}. Retired once Keycloak is fully migrated to {@code lc-*} client roles. */
-    public static final String LIFE_CONTROL_COUNTRY = "life-control-country";
 
     /** Keycloak admin role, enforced at URL level for {@code /api/users-admin/**}. */
     public static final String USER_ADMIN = "admin";

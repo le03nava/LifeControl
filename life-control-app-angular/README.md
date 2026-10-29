@@ -105,13 +105,15 @@ El dashboard **Companies Administration** oculta las cards a las que el usuario 
 
 ### Realm Roles
 
-| Rol | Acceso |
-|-----|--------|
-| `life-control-admin` | Products, Purchases |
-| `life-control-country` | Products |
+| Rol     | Acceso      |
+|---------|-------------|
 | `admin` | Users Admin |
 
-> **Nota:** `lc-admin` es un rol de cliente (no realm). Los roles de realm usan nomenclatura distinta.
+> **Nota:** `lc-admin` es un rol de cliente (no realm), y es el que abren Products y Purchases. Los
+> roles legacy de realm `life-control-admin` y `life-control-country` están **retirados**: el guard
+> los ignora y la API ya no acepta autoridad derivada de ellos
+> (`odd/tasks/retire-legacy-realm-roles.md`). El único realm role que sigue resolviéndose es `admin`,
+> para Users Admin.
 
 ## Entorno
 

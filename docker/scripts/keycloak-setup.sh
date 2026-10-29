@@ -617,15 +617,25 @@ for claim in "${TENANCY_CLAIMS[@]}"; do
 	fi
 done
 
-# ---- Realm roles (legacy features) ----
-for role in life-control-admin life-control-country admin; do
-	if realm_role_exists "$role"; then
-		print_success "Realm role $role exists"
-	else
-		kcadm create roles -r "$REALM" -s name="$role" -s description="LifeControl realm role $role" >/dev/null
-		print_success "Realm role $role created"
-	fi
-done
+# ---- Realm role: the Keycloak admin gate for /api/users-admin/** ----
+# `admin` is the ONLY realm role this script provisions. The legacy realm roles
+# `life-control-admin` and `life-control-country` are retired and must not come
+# back to this loop (odd/tasks/retire-legacy-realm-roles.md): the API accepts no
+# authority derived from them, and creating them on every run would keep a
+# retired authority available to be assigned by hand. Creation is not
+# assignment, which is why this loop is the surface that has to stop first —
+# deleting the roles from a realm while they are still provisioned here only
+# lasts until the next run. `keycloak-setup.test.sh` case 15 fails if a legacy
+# name returns. This is a single role and not a one-element `for` loop:
+# `shellcheck --severity=warning` rejects a literal single-element loop with
+# SC2043, and the CI gate runs at that severity.
+role="admin"
+if realm_role_exists "$role"; then
+	print_success "Realm role $role exists"
+else
+	kcadm create roles -r "$REALM" -s name="$role" -s description="LifeControl realm role $role" >/dev/null
+	print_success "Realm role $role created"
+fi
 
 # ---- Service-account roles for the backend admin client ----
 print_status "Assigning realm-management roles to $ADMIN_CLIENT service account..."

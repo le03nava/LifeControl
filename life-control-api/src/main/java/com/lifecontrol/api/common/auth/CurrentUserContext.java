@@ -108,25 +108,15 @@ public class CurrentUserContext {
     /**
      * Returns {@code true} if the current user has the {@code ROLE_lc-admin} authority.
      * <p>
-     * TODO(migration): the legacy {@code ROLE_life-control-admin} realm role is still accepted
-     * for backward compatibility while Keycloak is migrated; remove it once all users are
-     * provisioned with the {@code lc-admin} client role.
+     * This is the only admin authority the API accepts. The legacy realm role
+     * {@code life-control-admin} was retired ({@code odd/tasks/retire-legacy-realm-roles.md}):
+     * it grants nothing, so a token still carrying it is treated like any other non-admin token.
      */
     public boolean isAdmin() {
         if (admin == null) {
-            admin = hasRole(Roles.LIFE_CONTROL_ADMIN) || hasRole(Roles.ADMIN);
+            admin = hasRole(Roles.ADMIN);
         }
         return admin;
-    }
-
-    /**
-     * Returns {@code true} if the current user has the {@code ROLE_life-control-country} authority.
-     * <p>
-     * TODO(migration): legacy realm role, retired together with {@code life-control-admin}
-     * once Keycloak is fully migrated to {@code lc-*} client roles.
-     */
-    public boolean isCountryRole() {
-        return hasRole(Roles.LIFE_CONTROL_COUNTRY);
     }
 
     /**

@@ -200,7 +200,7 @@ class SupplierControllerSecurityTest {
         }
 
         @Test
-        @WithMockUser(roles = {"life-control-country"})
+        @WithMockUser(roles = {"lc-company-country"})
         @DisplayName("returns 403 Forbidden for country-role (admin-only write)")
         void countryRoleCannotCreateSupplier() throws Exception {
             mockMvc.perform(post(BASE_URL, companyId)
@@ -261,7 +261,7 @@ class SupplierControllerSecurityTest {
         }
 
         @Test
-        @WithMockUser(roles = {"life-control-country"})
+        @WithMockUser(roles = {"lc-company-country"})
         @DisplayName("returns 403 Forbidden for country-role (admin-only write)")
         void countryRoleCannotUpdateSupplier() throws Exception {
             mockMvc.perform(put(BASE_URL + "/{id}", companyId, UUID.randomUUID())
@@ -310,7 +310,7 @@ class SupplierControllerSecurityTest {
         }
 
         @Test
-        @WithMockUser(roles = {"life-control-country"})
+        @WithMockUser(roles = {"lc-company-country"})
         @DisplayName("returns 403 Forbidden for country-role (admin-only write)")
         void countryRoleCannotDeleteSupplier() throws Exception {
             mockMvc.perform(delete(BASE_URL + "/{id}", companyId, UUID.randomUUID()))
