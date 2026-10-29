@@ -55,11 +55,11 @@ variant store stock (`V13`) and the scheduling tables (`V16`, `V18`).
 
 | ID | Task | Specs | Route | Commit |
 | --- | --- | --- | --- | --- |
-| T1 | The region level: `V44` adds `uq_company_countries_company_id` plus the nullable `company_regions.company_id` and its `UNIQUE (company_id, id)`; `V45` derives it from the country, sets `NOT NULL` and adds `fk_company_regions_country_same_company`. The one head-level raw-`INSERT` fixture that writes a region gains the column. | S1, S2, S4, S5 | inline | `228943a0` |
-| T2 | The zone level: `V46` (nullable column + `uq_company_zones_company_id`) and `V47` (derive from the region, `NOT NULL`, `fk_company_zones_region_same_company`), with its fixtures and its half of the schema suite. | S2, S4, S5 | delegated (`gentle-ai-worker`) | `2ccf4d27` |
-| T3 | The store level: `V48` (nullable column + `uq_company_stores_company_id`) and `V49` (derive from the zone, `NOT NULL`, `fk_company_stores_zone_same_company`), with its fixtures and its half of the schema suite. | S2, S4, S5 | delegated (`gentle-ai-worker`) | `1fb045f8` |
-| T4 | The derivation moves into the database (`V50`: three `BEFORE INSERT` triggers, the three mappings become read-only) and the purchase-order key lands (`V51`: the pre-check guard plus `fk_purchase_orders_store_same_company`, no `UPDATE`) — the row `V43`'s header records as the one it could not write. | S2, S4, S5 | delegated (`gentle-ai-worker`) | pending |
-| T5 | The final gates, run in this worktree: the whole `life-control-api` suite plus `spotlessCheck` and `spotbugsMain`, and this record closed with the observed numbers. | S7 | inline | pending |
+| T1 | The region level: `V44` adds `uq_company_countries_company_id` plus the nullable `company_regions.company_id` and its `UNIQUE (company_id, id)`; `V45` derives it from the country, sets `NOT NULL` and adds `fk_company_regions_country_same_company`. The one head-level raw-`INSERT` fixture that writes a region gains the column. | S1, S2, S4, S5 | inline | `002ff7ba` |
+| T2 | The zone level: `V46` (nullable column + `uq_company_zones_company_id`) and `V47` (derive from the region, `NOT NULL`, `fk_company_zones_region_same_company`), with its fixtures and its half of the schema suite. | S2, S4, S5 | delegated (`gentle-ai-worker`) | `06ead8df` |
+| T3 | The store level: `V48` (nullable column + `uq_company_stores_company_id`) and `V49` (derive from the zone, `NOT NULL`, `fk_company_stores_zone_same_company`), with its fixtures and its half of the schema suite. | S2, S4, S5 | delegated (`gentle-ai-worker`) | `3573d5c0` |
+| T4 | The derivation moves into the database (`V50`: three `BEFORE INSERT` triggers, the three mappings become read-only) and the purchase-order key lands (`V51`: the pre-check guard plus `fk_purchase_orders_store_same_company`, no `UPDATE`) — the row `V43`'s header records as the one it could not write. | S2, S4, S5 | delegated (`gentle-ai-worker`) | `d1a43409` |
+| T5 | The final gates, run in this worktree: the whole `life-control-api` suite plus `spotlessCheck` and `spotbugsMain`, and this record closed with the observed numbers. | S7 | inline | this record's closing commit |
 
 ## Delivery
 
@@ -210,3 +210,16 @@ are not pure slices, so the fix follows the base class's own rule rather than wo
 untouched (the diff is two lines each). The unit's own scope suite also had to change with the design: its
 three "a row with no company is refused" cases became "the trigger derives it", one per level, which is now
 the only per-level test of the trigger — RED without `V50` (3 of 18 failed) and GREEN with it.
+
+**L19** — the closing gate, run in this worktree and not in a copy, because a delegated report is evidence
+about its own run and not about the tree a pull request would carry: `./gradlew test spotlessCheck
+spotbugsMain --no-daemon`-equivalent (daemon on locally) exits **0** — **1007 suites, 4158 tests, 0 failed,
+0 skipped**, `spotlessJavaCheck` and `spotbugsMain` both up to date and clean. Against `origin/main`'s
+**1005 suites / 4136 tests**, that is +2 suites and +22 tests, all of them this unit's own. The tree is
+`17 files changed, 1717 insertions(+), 13 deletions(-)` against `origin/main`, and the four commits are
+`002ff7ba`, `06ead8df`, `3573d5c0` and `d1a43409`.
+
+**L20** — what is left for the maintainer, so this record does not imply it: nothing in the code. Push, the
+three stacked pull requests and the merge are the owner's decisions (ODD step 6 stops at the branch), and
+the `#673` issue closes when the last slice merges — the keyword belongs only there, never in the earlier
+slices, which is why all four commit messages say `Part of #673`.
