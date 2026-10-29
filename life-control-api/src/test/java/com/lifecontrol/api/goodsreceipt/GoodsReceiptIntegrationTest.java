@@ -417,6 +417,8 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
                 .orderNumber("PO-GR-" + UUID.randomUUID().toString().substring(0, 8))
                 .supplier(supplier)
                 .companyStore(store)
+                // V43: the order's owner is the company of its store, which this fixture already owns.
+                .company(company)
                 .paymentMethod(paymentMethod)
                 .status(draftStatus)
                 .comments("Reception order")
@@ -497,6 +499,8 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
                 .orderNumber("PO-GR-" + UUID.randomUUID().toString().substring(0, 8))
                 .supplier(supplier)
                 .companyStore(store)
+                // V43: the owner is the company of the store the order hangs off.
+                .company(company)
                 .paymentMethod(paymentMethod)
                 .status(statusByName("PURCHASE_ORDER", statusName))
                 .comments("Reception order")
@@ -1251,6 +1255,9 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
                     .orderNumber(orderNumber)
                     .supplier(supplier)
                     .companyStore(companyStore)
+                    // V43: the store may be the other one of the same zone; its company is still this
+                    // fixture's, and that is the owner the order stores.
+                    .company(company)
                     .paymentMethod(paymentMethod)
                     .status(draftStatus)
                     .comments("List order")

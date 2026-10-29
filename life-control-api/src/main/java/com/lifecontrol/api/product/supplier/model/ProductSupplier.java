@@ -1,6 +1,7 @@
 package com.lifecontrol.api.product.supplier.model;
 
 import com.lifecontrol.api.common.model.Auditable;
+import com.lifecontrol.api.company.model.Company;
 import com.lifecontrol.api.product.model.Product;
 import com.lifecontrol.api.supplier.model.Supplier;
 import jakarta.persistence.*;
@@ -19,6 +20,25 @@ public class ProductSupplier extends Auditable {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "product_id", nullable = false)
     private Product product;
+
+    /**
+     * The company that owns this relation — the product's company, stored so the key can carry it.
+     *
+     * <p>Denormalized on purpose, in {@link Product}'s shape: the owner is a fact of the product, and
+     * {@link #product} already reaches it. It is stored here because a composite foreign key can only
+     * reference a column that exists on the row, and {@code (company_id, supplier_id)} is what makes
+     * "a supplier of another company" unreachable.</p>
+     *
+     * <p>Required, and enforced by the database since {@code V43}: {@code product_suppliers.company_id}
+     * is {@code NOT NULL}, {@code fk_product_suppliers_product_same_company} refuses a product of a
+     * different company and {@code fk_product_suppliers_supplier_same_company} refuses a supplier of a
+     * different one. Those two keys are what keep this copy from becoming a second source of truth: a
+     * disagreeing triple cannot be written, so {@code company} and {@code product.getCompany()} can
+     * never disagree in a stored row.</p>
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "company_id", nullable = false)
+    private Company company;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "supplier_id", nullable = false)
@@ -45,6 +65,10 @@ public class ProductSupplier extends Auditable {
         return product;
     }
 
+    public Company getCompany() {
+        return company;
+    }
+
     public Supplier getSupplier() {
         return supplier;
     }
@@ -68,6 +92,10 @@ public class ProductSupplier extends Auditable {
 
     public void setProduct(Product product) {
         this.product = product;
+    }
+
+    public void setCompany(Company company) {
+        this.company = company;
     }
 
     public void setSupplier(Supplier supplier) {
@@ -101,6 +129,11 @@ public class ProductSupplier extends Auditable {
 
         public Builder product(Product product) {
             productSupplier.product = product;
+            return this;
+        }
+
+        public Builder company(Company company) {
+            productSupplier.company = company;
             return this;
         }
 

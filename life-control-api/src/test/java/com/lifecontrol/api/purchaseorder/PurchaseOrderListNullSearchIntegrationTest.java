@@ -203,6 +203,8 @@ class PurchaseOrderListNullSearchIntegrationTest extends AbstractPostgresIntegra
                 .orderNumber("PO-NULLSEARCH-" + UUID.randomUUID().toString().substring(0, 12))
                 .supplier(supplier)
                 .companyStore(store)
+                // The order's owner (V43) is the company of its store — the one this fixture just built.
+                .company(company)
                 .paymentMethod(paymentMethod)
                 .status(status)
                 .comments("PO null search fixture")

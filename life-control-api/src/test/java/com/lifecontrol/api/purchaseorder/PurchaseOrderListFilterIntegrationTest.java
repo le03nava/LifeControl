@@ -210,12 +210,13 @@ class PurchaseOrderListFilterIntegrationTest extends AbstractPostgresIntegration
         var alphaSupplier = createSupplier("FilterSpec Alpha Supplier", companyA);
         var gammaSupplier = createSupplier("FilterSpec Gamma Supplier", companyB);
 
-        orderNumberByCase.put(ALPHA, createOrder(storeAlphaId, alphaSupplier, true));
-        orderNumberByCase.put(BETA_ONE, createOrder(storeBetaOneId, sharedSupplier, true));
-        orderNumberByCase.put(BETA_TWO, createOrder(storeBetaTwoId, sharedSupplier, true));
-        orderNumberByCase.put(GAMMA, createOrder(storeGammaId, gammaSupplier, true));
+        orderNumberByCase.put(ALPHA, createOrder(storeAlphaId, alphaSupplier, companyA, true));
+        orderNumberByCase.put(BETA_ONE, createOrder(storeBetaOneId, sharedSupplier, companyA, true));
+        orderNumberByCase.put(BETA_TWO, createOrder(storeBetaTwoId, sharedSupplier, companyA, true));
+        orderNumberByCase.put(GAMMA, createOrder(storeGammaId, gammaSupplier, companyB, true));
         orderNumberByCase.put(
-                DISABLED, createOrder(storeAlphaId, createSupplier("FilterSpec Disabled Supplier", companyA), false));
+                DISABLED,
+                createOrder(storeAlphaId, createSupplier("FilterSpec Disabled Supplier", companyA), companyA, false));
     }
 
     private Company findOrCreateCompany(String key, String name, String rfc) {
@@ -283,12 +284,15 @@ class PurchaseOrderListFilterIntegrationTest extends AbstractPostgresIntegration
                 .build());
     }
 
-    private String createOrder(UUID storeId, Supplier supplier, boolean enabled) {
+    private String createOrder(UUID storeId, Supplier supplier, Company company, boolean enabled) {
         var status = draftStatus();
         var order = purchaseOrderRepository.save(PurchaseOrder.builder()
                 .orderNumber("PO-FILTER-" + UUID.randomUUID().toString().substring(0, 12))
                 .supplier(supplier)
                 .companyStore(companyStoreRepository.findById(storeId).orElseThrow())
+                // V43: the order stores the company of its store. It is passed in because the caller is
+                // the fixture that built the store, so nothing is derived a second way here.
+                .company(company)
                 .paymentMethod(paymentMethodOf())
                 .status(status)
                 .comments("PO filter fixture")

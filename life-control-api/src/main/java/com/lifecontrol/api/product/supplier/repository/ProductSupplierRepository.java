@@ -20,10 +20,11 @@ public interface ProductSupplierRepository extends JpaRepository<ProductSupplier
      * The relations of one supplier whose product belongs to the company, enabled, optionally filtered by
      * product name or SKU.
      *
-     * <p>The company predicate is what keeps the by-supplier read inside the tenant: suppliers are global,
-     * so the same supplier legitimately supplies several companies, and without this a caller of company A
-     * would receive the catalog of company B. It is a query predicate and not a post-filter so the result
-     * cannot become a page whose count contradicts what it returns.</p>
+     * <p>The company predicate is what keeps the by-supplier read inside the tenant. Since {@code V43}
+     * a relation cannot even pair a supplier with a product of another company —
+     * {@code fk_product_suppliers_supplier_same_company} refuses it — so the predicate no longer
+     * rescues rows the schema admits; it is the scope of the company named by the path, kept as a query
+     * predicate so the result cannot become a page whose count contradicts what it returns.</p>
      */
     @Query("""
         SELECT ps FROM ProductSupplier ps

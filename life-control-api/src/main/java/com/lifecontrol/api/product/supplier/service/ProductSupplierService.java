@@ -99,6 +99,10 @@ public class ProductSupplierService {
 
         var entity = ProductSupplier.builder()
                 .product(product)
+                // The relation belongs to whoever owns the product, and the product was resolved inside
+                // this company, so the product IS the source of truth for its owner (V43's composite
+                // keys make the stored copy unable to disagree with it).
+                .company(product.getCompany())
                 .supplier(supplier)
                 .purchaseCost(request.purchaseCost())
                 .main(request.main())

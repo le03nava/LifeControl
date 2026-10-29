@@ -1,10 +1,12 @@
 package com.lifecontrol.api.purchaseorder.service;
 
 import com.lifecontrol.api.common.auth.CurrentUserContext;
+import com.lifecontrol.api.company.exception.CompanyNotFoundException;
 import com.lifecontrol.api.company.model.Company;
 import com.lifecontrol.api.company.model.CompanyCountry;
 import com.lifecontrol.api.company.model.CompanyRegion;
 import com.lifecontrol.api.company.model.CompanyZone;
+import com.lifecontrol.api.company.repository.CompanyRepository;
 import com.lifecontrol.api.paymentmethod.exception.PaymentMethodNotFoundException;
 import com.lifecontrol.api.paymentmethod.model.PaymentMethod;
 import com.lifecontrol.api.paymentmethod.repository.PaymentMethodRepository;
@@ -94,6 +96,7 @@ public class PurchaseOrderService {
     private final SupplierRepository supplierRepository;
     private final CompanyStoreRepository companyStoreRepository;
     private final CompanyStoreOwnerResolver companyStoreOwnerResolver;
+    private final CompanyRepository companyRepository;
     private final ProductRepository productRepository;
     private final ProductVariantRepository productVariantRepository;
     private final ProductVariantStoreStockRepository productVariantStoreStockRepository;
@@ -108,6 +111,7 @@ public class PurchaseOrderService {
             SupplierRepository supplierRepository,
             CompanyStoreRepository companyStoreRepository,
             CompanyStoreOwnerResolver companyStoreOwnerResolver,
+            CompanyRepository companyRepository,
             ProductRepository productRepository,
             ProductVariantRepository productVariantRepository,
             ProductVariantStoreStockRepository productVariantStoreStockRepository,
@@ -120,6 +124,7 @@ public class PurchaseOrderService {
         this.supplierRepository = supplierRepository;
         this.companyStoreRepository = companyStoreRepository;
         this.companyStoreOwnerResolver = companyStoreOwnerResolver;
+        this.companyRepository = companyRepository;
         this.productRepository = productRepository;
         this.productVariantRepository = productVariantRepository;
         this.productVariantStoreStockRepository = productVariantStoreStockRepository;
@@ -173,7 +178,9 @@ public class PurchaseOrderService {
         // asking for a supplier before the tenant is known, which is how a purchase order of company A
         // could name a supplier only company B created.
         var store = validateCompanyStoreExists(request.companyStoreId());
-        var supplier = validateSupplierExists(companyStoreOwnerResolver.companyIdOf(store), request.supplierId());
+        var companyId = companyStoreOwnerResolver.companyIdOf(store);
+        var company = resolveCompany(companyId);
+        var supplier = validateSupplierExists(companyId, request.supplierId());
         var paymentMethod = validatePaymentMethodExists(request.paymentMethodId());
         var status = request.statusId() != null
                 ? StatusValidator.requireStatusOfType(statusRepository, request.statusId(), "PURCHASE_ORDER")
@@ -188,6 +195,10 @@ public class PurchaseOrderService {
                 .orderNumber(orderNumber)
                 .supplier(supplier)
                 .companyStore(store)
+                // The owner comes from the store, never from the supplier: the supplier is the thing the
+                // composite key constrains, so deriving the company from it would make the key a
+                // tautology and would let an order of company A carry company B's owner.
+                .company(company)
                 .paymentMethod(paymentMethod)
                 .status(status)
                 .comments(request.comments())
@@ -259,7 +270,9 @@ public class PurchaseOrderService {
         // Same order as the create route and for the same reason: the store answers which company's
         // suppliers this order may name, so it is resolved before the supplier is.
         var store = validateCompanyStoreExists(request.companyStoreId());
-        var supplier = validateSupplierExists(companyStoreOwnerResolver.companyIdOf(store), request.supplierId());
+        var companyId = companyStoreOwnerResolver.companyIdOf(store);
+        var company = resolveCompany(companyId);
+        var supplier = validateSupplierExists(companyId, request.supplierId());
         var paymentMethod = validatePaymentMethodExists(request.paymentMethodId());
         var status = request.statusId() != null
                 ? StatusValidator.requireStatusOfType(statusRepository, request.statusId(), "PURCHASE_ORDER")
@@ -267,6 +280,9 @@ public class PurchaseOrderService {
 
         po.setSupplier(supplier);
         po.setCompanyStore(store);
+        // Moving an order to another company's store moves its owner with it, and the supplier was just
+        // checked against that company — so the stored copy cannot disagree with either.
+        po.setCompany(company);
         po.setPaymentMethod(paymentMethod);
         po.setStatus(status);
         po.setComments(request.comments());
@@ -616,6 +632,22 @@ public class PurchaseOrderService {
             throw new InvalidStatusTransitionException(po.getStatus().getStatusName(), "detail mutation");
         }
         return po;
+    }
+
+    /**
+     * Resolves the company that owns the order's store.
+     *
+     * <p>The id comes from {@link CompanyStoreOwnerResolver}, the one walk from a store to its tenant,
+     * and it is the same id the supplier lookup is scoped by — so the company stored on the order and
+     * the company the supplier was checked against are one value, not two derivations that could drift.
+     * There is no access check here: {@link #validateCompanyStoreExists} already authorized the caller
+     * for that store, and therefore for that company.</p>
+     *
+     * @throws CompanyNotFoundException when the company does not exist, which the store's own foreign
+     *     keys make unreachable
+     */
+    private Company resolveCompany(UUID companyId) {
+        return companyRepository.findById(companyId).orElseThrow(() -> new CompanyNotFoundException(companyId));
     }
 
     /**
