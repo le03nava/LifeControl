@@ -132,3 +132,8 @@ sentence was the finding's evidence.
 failed` (the two `SMTP_AUTH=true` cases and the two text assertions), after it `32 passed, 0 failed`;
 `shellcheck` exit 0 on both files through the pinned image; every suite in `docker/scripts/tests/` green
 again after the change.
+
+**L11** — delivery, 2026-10-29: issue **#684** (`status:approved`) and pull request **#685** from branch
+`fix/validate-env-secrets-directory`, rebased onto `origin/main` @ `1cd2899d` before delivery. The branch's
+commits are `ca61cb91` (the gate and its suite), `fdda5c7c` (the review's correction) and `c23afc80` (this
+header's issue reference).
