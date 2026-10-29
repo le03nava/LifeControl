@@ -88,7 +88,9 @@ describe('SupplierService', () => {
     it('should forward the search term only when one is given', async () => {
       const promise = firstValueFrom(service.getSuppliers(companyId, 1, 24, 'acme'));
 
-      const req = httpMock.expectOne((candidate) => candidate.url === service.suppliersUrl(companyId));
+      const req = httpMock.expectOne(
+        (candidate) => candidate.url === service.suppliersUrl(companyId),
+      );
       expect(req.request.params.get('page')).toBe('1');
       expect(req.request.params.get('size')).toBe('24');
       expect(req.request.params.get('search')).toBe('acme');
@@ -124,7 +126,9 @@ describe('SupplierService', () => {
 
     it('should expose and clear the write failure, rethrowing it', async () => {
       const promise = firstValueFrom(service.createSupplier(companyId, request));
-      httpMock.expectOne(service.suppliersUrl(companyId)).flush(null, { status: 500, statusText: 'Error' });
+      httpMock
+        .expectOne(service.suppliersUrl(companyId))
+        .flush(null, { status: 500, statusText: 'Error' });
 
       await expect(promise).rejects.toBeTruthy();
       expect(service.error()).toBe('Error al crear el proveedor');
@@ -163,7 +167,9 @@ describe('SupplierService', () => {
     it('should be the same company-scoped read with a wider page', async () => {
       const promise = firstValueFrom(service.getAllSuppliers(companyId));
 
-      const req = httpMock.expectOne((candidate) => candidate.url === service.suppliersUrl(companyId));
+      const req = httpMock.expectOne(
+        (candidate) => candidate.url === service.suppliersUrl(companyId),
+      );
       expect(req.request.params.get('size')).toBe('1000');
       req.flush(mockPage);
 

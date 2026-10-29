@@ -93,7 +93,12 @@ export class SupplierService {
     );
   }
 
-  getAllSuppliers(companyId: string, page = 0, size = 1000, search?: string): Observable<Page<Supplier>> {
+  getAllSuppliers(
+    companyId: string,
+    page = 0,
+    size = 1000,
+    search?: string,
+  ): Observable<Page<Supplier>> {
     return this.getSuppliers(companyId, page, size, search);
   }
 

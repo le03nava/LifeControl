@@ -172,3 +172,9 @@ slices the delivery strategy names — T1–T3, then T4a+T4b, then T5 — by rep
 branches. Only the order moved: the tree of the last slice is identical to the pre-reorder tree except in this
 file, where the task table had to be repointed at the replayed commits. `d0079d2c` was already stale in this
 table before that, from an amend that changed a commit message only, and is corrected here too.
+
+**L17** — the local gate was narrower than CI, and CI is what caught it: `npm run lint` (eslint) passed while
+`npx prettier --check "src/**/*.{ts,html,scss}"` — the formatting barrier `Lint & Build` runs *before* lint —
+failed on the two supplier-service files of T5, so the first pull-request run went red on that step alone. Fixed
+in a `style` commit; the lesson this record keeps is that this package's local gate is the **pair**, not
+`npm run lint` alone.
