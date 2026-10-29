@@ -240,11 +240,14 @@ openssl rand -base64 32
 
 ## Keycloak — Roles
 
-| Rol                      | Acceso                                             |
-|--------------------------|----------------------------------------------------|
-| `life-control-admin`     | CRUD completo de compañías, activity logs          |
-| `life-control-country`   | Acceso limitado a compañías asignadas (vía JWT)    |
-| `admin`                  | Endpoints de administración de usuarios y roles    |
+| Rol        | Acceso                                                             |
+|------------|--------------------------------------------------------------------|
+| `lc-admin` | Rol de cliente de `life-control-client` — CRUD de todos los dominios |
+| `admin`    | Realm role — endpoints de administración de usuarios y roles       |
+
+> Los roles legacy `life-control-admin` y `life-control-country` están **retirados**: la API no
+> acepta autoridad derivada de ellos y `keycloak-setup.sh` no los provisiona. Ver
+> [`odd/tasks/retire-legacy-realm-roles.md`](odd/tasks/retire-legacy-realm-roles.md).
 
 ---
 
