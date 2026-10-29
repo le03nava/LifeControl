@@ -480,12 +480,11 @@ class CurrentUserContextTest {
         }
 
         @Test
-        @DisplayName("isAdmin returns true when user has ROLE_life-control-admin")
-        void adminRole() {
+        @DisplayName("isAdmin returns false for the retired ROLE_life-control-admin")
+        void legacyAdminRoleIsRetired() {
             mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_life-control-admin"));
 
-            assertThat(currentUserContext.isAdmin()).isTrue();
-            assertThat(currentUserContext.isCountryRole()).isFalse();
+            assertThat(currentUserContext.isAdmin()).isFalse();
         }
 
         @Test
@@ -494,35 +493,14 @@ class CurrentUserContextTest {
             mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_lc-admin"));
 
             assertThat(currentUserContext.isAdmin()).isTrue();
-            assertThat(currentUserContext.isCountryRole()).isFalse();
         }
 
         @Test
-        @DisplayName("isCountryRole returns true when user has ROLE_life-control-country")
-        void countryRole() {
-            mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_life-control-country"));
-
-            assertThat(currentUserContext.isAdmin()).isFalse();
-            assertThat(currentUserContext.isCountryRole()).isTrue();
-        }
-
-        @Test
-        @DisplayName("both roles return true for both checks")
-        void bothRoles() {
-            mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_life-control-admin", (GrantedAuthority)
-                    () -> "ROLE_life-control-country"));
-
-            assertThat(currentUserContext.isAdmin()).isTrue();
-            assertThat(currentUserContext.isCountryRole()).isTrue();
-        }
-
-        @Test
-        @DisplayName("neither role returns false for both checks")
+        @DisplayName("isAdmin returns false for a role outside the admin set")
         void neitherRole() {
             mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_other"));
 
             assertThat(currentUserContext.isAdmin()).isFalse();
-            assertThat(currentUserContext.isCountryRole()).isFalse();
         }
 
         @Test
@@ -623,7 +601,7 @@ class CurrentUserContextTest {
         @Test
         @DisplayName("admin can access any company")
         void adminCanAccessAnyCompany() {
-            mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_life-control-admin"));
+            mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_lc-admin"));
 
             // Should not throw for any company ID
             currentUserContext.verifyCompanyAccess(UUID.randomUUID());
@@ -632,7 +610,7 @@ class CurrentUserContextTest {
         @Test
         @DisplayName("country-role can access assigned company")
         void countryRoleCanAccessAssignedCompany() {
-            mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_life-control-country"));
+            mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_lc-company-country"));
             UUID companyId = UUID.randomUUID();
             when(jwt.getClaim("company_id")).thenReturn(companyId.toString());
 
@@ -642,7 +620,7 @@ class CurrentUserContextTest {
         @Test
         @DisplayName("country-role cannot access non-assigned company")
         void countryRoleCannotAccessNonAssignedCompany() {
-            mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_life-control-country"));
+            mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_lc-company-country"));
             UUID assignedId = UUID.randomUUID();
             UUID otherId = UUID.randomUUID();
             when(jwt.getClaim("company_id")).thenReturn(assignedId.toString());
@@ -696,7 +674,7 @@ class CurrentUserContextTest {
         @Test
         @DisplayName("admin can access any company country")
         void adminCanAccessAnyCompanyCountry() {
-            mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_life-control-admin"));
+            mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_lc-admin"));
 
             assertDoesNotThrow(
                     () -> currentUserContext.verifyCompanyCountryAccess(UUID.randomUUID(), UUID.randomUUID()));
@@ -899,7 +877,7 @@ class CurrentUserContextTest {
         @Test
         @DisplayName("admin can access any region")
         void adminCanAccessAnyRegion() {
-            mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_life-control-admin"));
+            mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_lc-admin"));
 
             assertDoesNotThrow(() -> currentUserContext.verifyCompanyRegionAccess(
                     UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID()));
@@ -1065,7 +1043,7 @@ class CurrentUserContextTest {
         @Test
         @DisplayName("admin can access any zone")
         void adminCanAccessAnyZone() {
-            mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_life-control-admin"));
+            mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_lc-admin"));
 
             assertDoesNotThrow(() -> currentUserContext.verifyCompanyZoneAccess(
                     UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID()));
@@ -1337,7 +1315,7 @@ class CurrentUserContextTest {
         @Test
         @DisplayName("admin can access any store")
         void adminCanAccessAnyStore() {
-            mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_life-control-admin"));
+            mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_lc-admin"));
 
             assertDoesNotThrow(() -> currentUserContext.verifyCompanyStoreAccess(
                     UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID()));
