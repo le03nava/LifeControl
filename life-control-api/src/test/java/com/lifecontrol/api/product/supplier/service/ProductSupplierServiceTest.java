@@ -29,6 +29,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -252,6 +253,9 @@ class ProductSupplierServiceTest {
 
             var result = service.addSupplierToProduct(companyId, productId, request);
 
+            var savedCaptor = ArgumentCaptor.forClass(ProductSupplier.class);
+            verify(productSupplierRepository).save(savedCaptor.capture());
+
             assertThat(result).isNotNull();
             assertThat(result.id()).isEqualTo(relationId);
             assertThat(result.productId()).isEqualTo(productId);
@@ -260,7 +264,11 @@ class ProductSupplierServiceTest {
             assertThat(result.purchaseCost()).isEqualByComparingTo("200.00");
             assertThat(result.main()).isFalse();
             assertThat(result.enabled()).isTrue();
-            verify(productSupplierRepository).save(any(ProductSupplier.class));
+            // V43's composite key is (company_id, product_id) beside (company_id, supplier_id): the owner
+            // is the product's, so the stored row cannot disagree with the product it hangs off.
+            assertThat(savedCaptor.getValue().getCompany())
+                    .as("the relation's owner is the product's company")
+                    .isSameAs(testProduct.getCompany());
         }
 
         @Test

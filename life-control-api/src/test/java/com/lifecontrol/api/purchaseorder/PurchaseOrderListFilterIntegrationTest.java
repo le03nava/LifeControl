@@ -123,6 +123,9 @@ class PurchaseOrderListFilterIntegrationTest extends AbstractPostgresIntegration
     private UUID companyBId;
     private UUID storeGammaId;
 
+    private Company companyA;
+    private Company companyB;
+
     private PaymentMethod paymentMethod;
 
     private final Map<String, String> orderNumberByCase = new HashMap<>();
@@ -156,6 +159,7 @@ class PurchaseOrderListFilterIntegrationTest extends AbstractPostgresIntegration
         var zoneBetaOne = findOrCreateZone(regionBeta, "PFB1", "PO Filter Zone Beta One");
         var zoneBetaTwo = findOrCreateZone(regionBeta, "PFB2", "PO Filter Zone Beta Two");
 
+        companyA = company;
         companyAId = company.getId();
         companyACountryId = companyCountry.getId();
         regionAlphaId = regionAlpha.getId();
@@ -177,6 +181,7 @@ class PurchaseOrderListFilterIntegrationTest extends AbstractPostgresIntegration
         var region = findOrCreateRegion(companyCountry, "PFG", "PO Filter Region Gamma");
         var zone = findOrCreateZone(region, "PFG1", "PO Filter Zone Gamma");
 
+        companyB = company;
         companyBId = company.getId();
         storeGammaId = findOrCreateStore(zone, "FilterSpec Store Gamma").getId();
     }
@@ -186,6 +191,11 @@ class PurchaseOrderListFilterIntegrationTest extends AbstractPostgresIntegration
      * sharing one supplier so a search can be narrowed by a zone, and one in the other company. The
      * shared supplier is what makes "filter AND search" observable: the search alone returns two
      * rows and the zone alone returns two, and only their conjunction returns one.
+     *
+     * <p>Every supplier takes the company of the order that names it: a supplier belongs to exactly one
+     * company ({@code V42} makes {@code suppliers.company_id} mandatory), so a single supplier cannot
+     * honestly stand for both companies — the one that does is the shared supplier of company A's two
+     * beta orders, which is what the search case needs.</p>
      */
     private void seedOrders() {
         paymentMethod = paymentMethodRepository
@@ -196,16 +206,17 @@ class PurchaseOrderListFilterIntegrationTest extends AbstractPostgresIntegration
                         .enabled(true)
                         .build()));
 
-        var sharedSupplier = createSupplier("FilterSpec Shared Supplier");
-        var alphaSupplier = createSupplier("FilterSpec Alpha Supplier");
-        var gammaSupplier = createSupplier("FilterSpec Gamma Supplier");
+        var sharedSupplier = createSupplier("FilterSpec Shared Supplier", companyA);
+        var alphaSupplier = createSupplier("FilterSpec Alpha Supplier", companyA);
+        var gammaSupplier = createSupplier("FilterSpec Gamma Supplier", companyB);
 
-        orderNumberByCase.put(ALPHA, createOrder(storeAlphaId, alphaSupplier, true));
-        orderNumberByCase.put(BETA_ONE, createOrder(storeBetaOneId, sharedSupplier, true));
-        orderNumberByCase.put(BETA_TWO, createOrder(storeBetaTwoId, sharedSupplier, true));
-        orderNumberByCase.put(GAMMA, createOrder(storeGammaId, gammaSupplier, true));
+        orderNumberByCase.put(ALPHA, createOrder(storeAlphaId, alphaSupplier, companyA, true));
+        orderNumberByCase.put(BETA_ONE, createOrder(storeBetaOneId, sharedSupplier, companyA, true));
+        orderNumberByCase.put(BETA_TWO, createOrder(storeBetaTwoId, sharedSupplier, companyA, true));
+        orderNumberByCase.put(GAMMA, createOrder(storeGammaId, gammaSupplier, companyB, true));
         orderNumberByCase.put(
-                DISABLED, createOrder(storeAlphaId, createSupplier("FilterSpec Disabled Supplier"), false));
+                DISABLED,
+                createOrder(storeAlphaId, createSupplier("FilterSpec Disabled Supplier", companyA), companyA, false));
     }
 
     private Company findOrCreateCompany(String key, String name, String rfc) {
@@ -264,20 +275,24 @@ class PurchaseOrderListFilterIntegrationTest extends AbstractPostgresIntegration
                         .build()));
     }
 
-    private Supplier createSupplier(String name) {
+    private Supplier createSupplier(String name, Company company) {
         return supplierRepository.save(Supplier.builder()
                 .supplierName(name)
                 .rfc("POF" + UUID.randomUUID().toString().substring(0, 10))
+                .company(company)
                 .enabled(true)
                 .build());
     }
 
-    private String createOrder(UUID storeId, Supplier supplier, boolean enabled) {
+    private String createOrder(UUID storeId, Supplier supplier, Company company, boolean enabled) {
         var status = draftStatus();
         var order = purchaseOrderRepository.save(PurchaseOrder.builder()
                 .orderNumber("PO-FILTER-" + UUID.randomUUID().toString().substring(0, 12))
                 .supplier(supplier)
                 .companyStore(companyStoreRepository.findById(storeId).orElseThrow())
+                // V43: the order stores the company of its store. It is passed in because the caller is
+                // the fixture that built the store, so nothing is derived a second way here.
+                .company(company)
                 .paymentMethod(paymentMethodOf())
                 .status(status)
                 .comments("PO filter fixture")

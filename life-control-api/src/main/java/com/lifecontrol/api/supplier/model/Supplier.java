@@ -9,20 +9,25 @@ import java.time.LocalDateTime;
 import java.util.UUID;
 
 @Entity
-@Table(name = "suppliers")
+@Table(
+        name = "suppliers",
+        uniqueConstraints =
+                @UniqueConstraint(
+                        name = "uq_suppliers_company_rfc",
+                        columnNames = {"company_id", "rfc"}))
 public class Supplier extends Auditable {
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
-    @Column(name = "supplier_name", nullable = false, unique = true)
+    @Column(name = "supplier_name", nullable = false)
     private String supplierName;
 
     @Column(name = "razon_social")
     private String razonSocial;
 
-    @Column(nullable = false, unique = true)
+    @Column(nullable = false)
     private String rfc;
 
     private String email;

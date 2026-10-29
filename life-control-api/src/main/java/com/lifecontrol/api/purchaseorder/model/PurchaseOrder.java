@@ -1,6 +1,7 @@
 package com.lifecontrol.api.purchaseorder.model;
 
 import com.lifecontrol.api.common.model.Auditable;
+import com.lifecontrol.api.company.model.Company;
 import com.lifecontrol.api.paymentmethod.model.PaymentMethod;
 import com.lifecontrol.api.status.model.Status;
 import com.lifecontrol.api.store.model.CompanyStore;
@@ -53,6 +54,27 @@ public class PurchaseOrder extends Auditable {
     @JoinColumn(name = "company_store_id", nullable = false)
     private CompanyStore companyStore;
 
+    /**
+     * The company that owns this order — the company of {@link #companyStore}, stored so the key can
+     * carry it.
+     *
+     * <p>Denormalized on purpose, in {@link com.lifecontrol.api.product.model.Product}'s shape: the
+     * store already reaches its company through zone &rarr; region &rarr; country (V1:127-136), so this
+     * is a copy of a derivable fact. It is stored because a composite foreign key can only reference a
+     * column that exists on the row, and {@code (company_id, supplier_id)} is what makes "a supplier of
+     * another company" unreachable.</p>
+     *
+     * <p>Required, and enforced by the database since {@code V43}: {@code purchase_orders.company_id} is
+     * {@code NOT NULL} and {@code fk_purchase_orders_supplier_same_company} refuses a supplier of a
+     * different company. What the database still cannot state is the other half — that this company is
+     * the store's company — because {@code company_stores} carries no {@code company_id} to key on
+     * ({@code V43}'s header records that limit). {@code PurchaseOrderService} sets it from the store on
+     * every write, through {@code CompanyStoreOwnerResolver}, in the same breath as the supplier check.</p>
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "company_id", nullable = false)
+    private Company company;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "payment_method_id", nullable = false)
     private PaymentMethod paymentMethod;
@@ -90,6 +112,10 @@ public class PurchaseOrder extends Auditable {
         return companyStore;
     }
 
+    public Company getCompany() {
+        return company;
+    }
+
     public PaymentMethod getPaymentMethod() {
         return paymentMethod;
     }
@@ -125,6 +151,10 @@ public class PurchaseOrder extends Auditable {
 
     public void setCompanyStore(CompanyStore companyStore) {
         this.companyStore = companyStore;
+    }
+
+    public void setCompany(Company company) {
+        this.company = company;
     }
 
     public void setPaymentMethod(PaymentMethod paymentMethod) {
@@ -172,6 +202,11 @@ public class PurchaseOrder extends Auditable {
 
         public Builder companyStore(CompanyStore companyStore) {
             purchaseOrder.companyStore = companyStore;
+            return this;
+        }
+
+        public Builder company(Company company) {
+            purchaseOrder.company = company;
             return this;
         }
 

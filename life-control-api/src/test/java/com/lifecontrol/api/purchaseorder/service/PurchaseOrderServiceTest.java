@@ -7,6 +7,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -16,6 +17,7 @@ import com.lifecontrol.api.company.model.Company;
 import com.lifecontrol.api.company.model.CompanyCountry;
 import com.lifecontrol.api.company.model.CompanyRegion;
 import com.lifecontrol.api.company.model.CompanyZone;
+import com.lifecontrol.api.company.repository.CompanyRepository;
 import com.lifecontrol.api.paymentmethod.exception.PaymentMethodNotFoundException;
 import com.lifecontrol.api.paymentmethod.model.PaymentMethod;
 import com.lifecontrol.api.paymentmethod.repository.PaymentMethodRepository;
@@ -85,6 +87,9 @@ class PurchaseOrderServiceTest {
 
     @Mock
     private CompanyStoreRepository companyStoreRepository;
+
+    @Mock
+    private CompanyRepository companyRepository;
 
     @Mock
     private ProductRepository productRepository;
@@ -277,12 +282,19 @@ class PurchaseOrderServiceTest {
                 .build();
         purchaseOrder.setDetails(new ArrayList<>());
 
+        // The order's owner is resolved from its store on every write (V43), so the company the
+        // fixture's store chain already describes is the one that lookup returns. Lenient because most
+        // cases here stop before that lookup runs, and a case that never reaches it has not proved
+        // anything about the owner.
+        lenient().when(companyRepository.findById(companyId)).thenReturn(Optional.of(company));
+
         service = new PurchaseOrderService(
                 purchaseOrderRepository,
                 detailRepository,
                 supplierRepository,
                 companyStoreRepository,
                 companyStoreOwnerResolver,
+                companyRepository,
                 productRepository,
                 productVariantRepository,
                 productVariantStoreStockRepository,
@@ -436,6 +448,36 @@ class PurchaseOrderServiceTest {
             assertThat(result.companyStoreName()).isEqualTo("Test Store");
             assertThat(result.paymentMethodName()).isEqualTo("Transfer");
             verify(eventPublisher).publishEvent(any(PurchaseOrderCreatedEvent.class));
+        }
+
+        @Test
+        @DisplayName("should store the store's company on the order, alongside the supplier it names")
+        void storesTheStoresCompanyOnTheOrder() {
+            var request = new PurchaseOrderRequest(supplierId, storeId, pmId, draftStatusId, "Comments", List.of());
+
+            when(supplierRepository.findByIdAndCompanyId(supplierId, companyId)).thenReturn(Optional.of(supplier));
+            when(companyStoreRepository.findById(storeId)).thenReturn(Optional.of(store));
+            when(paymentMethodRepository.findById(pmId)).thenReturn(Optional.of(paymentMethod));
+            when(statusRepository.findById(draftStatusId)).thenReturn(Optional.of(draftStatus));
+            when(purchaseOrderRepository.findTopByOrderNumberStartingWithOrderByOrderNumberDesc(anyString()))
+                    .thenReturn(Optional.empty());
+
+            var captor = ArgumentCaptor.forClass(PurchaseOrder.class);
+            when(purchaseOrderRepository.save(captor.capture())).thenAnswer(inv -> {
+                var saved = captor.getValue();
+                saved.setId(poId);
+                return saved;
+            });
+
+            service.createPurchaseOrder(request);
+
+            // V43's composite key is (company_id, supplier_id): the owner has to come from the store,
+            // because the supplier is the half being constrained and deriving it there would make the
+            // key a tautology.
+            assertThat(captor.getValue().getCompany())
+                    .as("the order's owner is the company of its store")
+                    .isSameAs(company);
+            assertThat(captor.getValue().getCompanyStore().getId()).isEqualTo(storeId);
         }
 
         @Test

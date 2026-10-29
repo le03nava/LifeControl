@@ -74,6 +74,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockHttpServletRequest;
@@ -317,13 +318,22 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
         receivingLocation = findOrCreateLocation(zone, LOCATION_CODE, "Receiving shelf", 1);
     }
 
-    /** Find-or-create the supplier, payment method and the Flyway-seeded statuses the write needs. */
+    /**
+     * Find-or-create the supplier, payment method and the Flyway-seeded statuses the write needs.
+     *
+     * <p>The supplier is looked up <b>within</b> the company the seed creates, because a supplier
+     * belongs to exactly one company ({@code V42} makes {@code suppliers.company_id} mandatory and
+     * replaces the global RFC key with {@code (company_id, rfc)}): an unscoped lookup would hand back a
+     * row of another company, which is the shape the catalog no longer has.</p>
+     */
     private void seedOrderReferences() {
-        supplier = supplierRepository
-                .findByRfc("GRTS010101ABC")
+        supplier = supplierRepository.findByCompanyIdAndEnabledTrue(company.getId(), Pageable.unpaged()).stream()
+                .filter(candidate -> "GRTS010101ABC".equals(candidate.getRfc()))
+                .findFirst()
                 .orElseGet(() -> supplierRepository.save(Supplier.builder()
                         .supplierName("Goods Receipt Supplier")
                         .rfc("GRTS010101ABC")
+                        .company(company)
                         .enabled(true)
                         .build()));
 
@@ -407,6 +417,8 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
                 .orderNumber("PO-GR-" + UUID.randomUUID().toString().substring(0, 8))
                 .supplier(supplier)
                 .companyStore(store)
+                // V43: the order's owner is the company of its store, which this fixture already owns.
+                .company(company)
                 .paymentMethod(paymentMethod)
                 .status(draftStatus)
                 .comments("Reception order")
@@ -487,6 +499,8 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
                 .orderNumber("PO-GR-" + UUID.randomUUID().toString().substring(0, 8))
                 .supplier(supplier)
                 .companyStore(store)
+                // V43: the owner is the company of the store the order hangs off.
+                .company(company)
                 .paymentMethod(paymentMethod)
                 .status(statusByName("PURCHASE_ORDER", statusName))
                 .comments("Reception order")
@@ -1241,6 +1255,9 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
                     .orderNumber(orderNumber)
                     .supplier(supplier)
                     .companyStore(companyStore)
+                    // V43: the store may be the other one of the same zone; its company is still this
+                    // fixture's, and that is the owner the order stores.
+                    .company(company)
                     .paymentMethod(paymentMethod)
                     .status(draftStatus)
                     .comments("List order")
