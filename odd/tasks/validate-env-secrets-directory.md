@@ -6,7 +6,8 @@ migration, no CI workflow change.
 **Status**: implemented — `validate-env.sh` reports a directory inside `docker/secrets/` as what it is
 instead of as a secret with the wrong permissions, and the suite pins both shapes plus the gate's
 existing failures. Nothing is deferred.
-**Created**: 2026-10-29 · **Branch**: `fix/validate-env-secrets-directory` ·
+**Created**: 2026-10-29 · **Issue**: **#684** (`fix: Directory in docker/secrets/ fails validate-env.sh as
+if it were a secret`, `status:approved`) · **Branch**: `fix/validate-env-secrets-directory` ·
 **Risk**: medium — `docker/scripts/validate-env.sh` is the gate `deploy.sh prod start` runs before it
 brings production up, so a wrong relaxation here would let a missing production secret through, and a
 wrong strictness would stop a start. No stored data, no contract, no auth, no shared runtime code.
