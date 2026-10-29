@@ -224,21 +224,47 @@ describe('productRoutes', () => {
   });
 
   describe('the deliberate company-free screens', () => {
-    it('should keep categories, the store-scoped search and suppliers outside any company context', () => {
+    it('should keep categories and the store-scoped search outside any company context', () => {
       // Pinned by exact path: each of these was left out of the company context on purpose. Moving one
-      // inside would remove a picker the page owns (`categories`), break a store-addressed read
-      // (`variants`), or scope a resource that is global by decision (`suppliers`).
-      for (const path of [
-        'categories',
-        'variants',
-        'suppliers',
-        'suppliers/create',
-        'suppliers/edit/:id',
-      ]) {
+      // inside would remove a picker the page owns (`categories`) or break a store-addressed read
+      // (`variants`).
+      for (const path of ['categories', 'variants']) {
         const route = childAt(path);
 
         expect(route).toBeDefined();
         expect(route?.redirectTo).toBeUndefined();
+      }
+    });
+  });
+
+  describe('the supplier catalog screens (S2)', () => {
+    // The catalog moved under the company (`/api/companies/{companyId}/suppliers`, issue #672), so a
+    // supplier belongs to one company like a product does. The URLs do not change: the company is the
+    // `?companyId=` query parameter the rest of the area carries, chosen inside the screen's own
+    // `Empresa` filter, which is why no route below grows a `:companyId` segment.
+    const supplierScreens: readonly { path: string; component: string }[] = [
+      { path: 'suppliers', component: 'SupplierList' },
+      { path: 'suppliers/create', component: 'SupplierEdit' },
+      { path: 'suppliers/edit/:id', component: 'SupplierEdit' },
+    ];
+
+    it('should keep the catalog and its forms at the same company-free paths', async () => {
+      for (const { path, component } of supplierScreens) {
+        const route = childAt(path);
+
+        expect(route).toBeDefined();
+        expect(route?.redirectTo).toBeUndefined();
+        expect(route?.path).not.toContain('companyId');
+        expect(await loadName(route!)).toBe(component);
+      }
+    });
+
+    it('should gate them exactly as before, admin-only', () => {
+      for (const { path } of supplierScreens) {
+        const route = childAt(path);
+
+        expect(route?.canActivate).toEqual([keycloakRoleGuard]);
+        expect(route?.data).toEqual({ roles: ['lc-admin'], clientId: 'life-control-client' });
       }
     });
   });

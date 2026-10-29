@@ -11,6 +11,15 @@ export interface Supplier {
   internalNumber?: string;
   address?: AddressValue;
   enabled: boolean;
+  /**
+   * The company that owns the supplier. It is the scope the row is addressed through
+   * (`/api/companies/{companyId}/suppliers`), and the response reports it so a caller that is picking a
+   * supplier can prove the row belongs to the company it is attaching it to.
+   *
+   * Optional because the request body does not carry it (the path does): a `SupplierRequest` is not a
+   * `Supplier`, and a form built from a form value has no opinion about the owner.
+   */
+  companyId?: string;
   createdAt: string;
   updatedAt: string;
 }

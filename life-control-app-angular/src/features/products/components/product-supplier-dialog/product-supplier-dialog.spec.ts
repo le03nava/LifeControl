@@ -175,7 +175,9 @@ describe('ProductSupplierDialog', () => {
       setup();
       fixture.detectChanges();
 
-      expect(supplierServiceMock.getSuppliers).toHaveBeenCalledWith(0, 20, undefined);
+      // The search is scoped to the product's company: the picker may only offer suppliers that the
+      // assignment is allowed to name (issue #672).
+      expect(supplierServiceMock.getSuppliers).toHaveBeenCalledWith(companyId, 0, 20, undefined);
     });
 
     it('should surface a load failure in an error banner', () => {
@@ -226,6 +228,21 @@ describe('ProductSupplierDialog', () => {
       expect(component.availableSuppliers().map((s) => s.id)).toEqual(['sup-1']);
       expect(component.availableSuppliers()[0].supplierName).toBe('Proveedor Uno');
     });
+
+    it('should not offer a supplier of another company', () => {
+      // A supplier belongs to exactly one company, and the assignment hangs off a product of one
+      // company: offering a foreign row would create a link the API refuses, after the operator has
+      // filled the form.
+      setup({
+        searchResult: [
+          supplier('sup-1', 'Uno'),
+          { ...supplier('sup-9', 'Ajeno'), companyId: 'company-2' },
+        ],
+      });
+      fixture.detectChanges();
+
+      expect(component.availableSuppliers().map((s) => s.id)).toEqual(['sup-1']);
+    });
   });
 
   describe('debounced server-side search', () => {
@@ -240,7 +257,7 @@ describe('ProductSupplierDialog', () => {
       vi.advanceTimersByTime(300);
 
       expect(supplierServiceMock.getSuppliers).toHaveBeenCalledTimes(1);
-      expect(supplierServiceMock.getSuppliers).toHaveBeenCalledWith(0, 20, 'prov');
+      expect(supplierServiceMock.getSuppliers).toHaveBeenCalledWith(companyId, 0, 20, 'prov');
       vi.useRealTimers();
     });
 
@@ -268,7 +285,7 @@ describe('ProductSupplierDialog', () => {
       component.onSupplierSearch('   ');
       vi.advanceTimersByTime(300);
 
-      expect(supplierServiceMock.getSuppliers).toHaveBeenCalledWith(0, 20, undefined);
+      expect(supplierServiceMock.getSuppliers).toHaveBeenCalledWith(companyId, 0, 20, undefined);
       vi.useRealTimers();
     });
 
@@ -344,6 +361,23 @@ describe('ProductSupplierDialog', () => {
   });
 
   describe('saving', () => {
+    it('should refuse to attach a supplier of another company', () => {
+      setup({
+        searchResult: [{ ...supplier('sup-9', 'Ajeno'), companyId: 'company-2' }],
+      });
+      fixture.detectChanges();
+
+      component.onSaveAssignment({
+        supplierId: 'sup-9',
+        purchaseCost: 1,
+        main: false,
+        enabled: true,
+      });
+
+      expect(productSupplierServiceMock.addSupplier).not.toHaveBeenCalled();
+      expect(component.generalError()).toBe('Ese proveedor pertenece a otra empresa.');
+    });
+
     it('should add the assignment and close with the saved entity in create mode', () => {
       setup({ searchResult: [supplier('sup-1', 'Uno')] });
       fixture.detectChanges();

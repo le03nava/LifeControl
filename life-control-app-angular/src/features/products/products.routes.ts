@@ -166,9 +166,9 @@ export const productRoutes: Routes = [
       },
       {
         // D13: the product-scoped supplier **links** are company-scoped — the link hangs off the
-        // product, which belongs to a company — so this keeps redirecting into the workspace tab.
-        // The supplier **catalog** itself is global and stays at `/products/suppliers`; see the
-        // comment on that route.
+        // product, which belongs to a company — so this keeps redirecting into the workspace tab, and
+        // `?companyId=` survives the hop. The supplier **catalog** is company-scoped too since #672 and
+        // lives at `/products/suppliers`; see the comment on that route.
         path: 'edit/:id/suppliers',
         redirectTo: ({ params, queryParams }) => {
           const router = inject(Router);
@@ -210,9 +210,11 @@ export const productRoutes: Routes = [
           ),
       },
       {
-        // **Deliberately company-free.** Suppliers are global by decision
-        // (`/api/suppliers`, a later unit of its own): only a product's *links* to a supplier belong to
-        // a company, and those live under `edit/:id/suppliers` above.
+        // The supplier catalog, at the same URL as before. **The company travels as `?companyId=`**, the
+        // query parameter the rest of the area uses: a supplier belongs to exactly one company
+        // (`/api/companies/{companyId}/suppliers`, issue #672), so the screen's own `Empresa` filter
+        // chooses it and keeps it in the URL. With none, the screen asks for a company instead of
+        // rendering an empty list — there is no cross-company read to fall back to.
         path: 'suppliers',
         canActivate: [keycloakRoleGuard],
         data: { roles: PRODUCT_ADMIN_ROLES, clientId: CLIENT_ID },
@@ -220,7 +222,9 @@ export const productRoutes: Routes = [
           import('./suppliers/pages/supplier-list/supplier-list').then((m) => m.SupplierList),
       },
       {
-        // The global supplier catalog's own create/edit screens: global resource, no company context.
+        // The catalog's create screen. Also carrying `?companyId=`: the supplier form has no `Empresa`
+        // field of its own (S6), so the company it saves under is the one the list passed here, and a
+        // save with none is refused rather than guessed.
         path: 'suppliers/create',
         canActivate: [keycloakRoleGuard],
         data: { roles: PRODUCT_ADMIN_ROLES, clientId: CLIENT_ID },
@@ -228,6 +232,8 @@ export const productRoutes: Routes = [
           import('./suppliers/pages/supplier-edit/supplier-edit').then((m) => m.SupplierEdit),
       },
       {
+        // The catalog's edit screen: `?companyId=` is required, for the same reason `edit/:id` requires
+        // it — a supplier id alone cannot be addressed on `/api/companies/{companyId}/suppliers`.
         path: 'suppliers/edit/:id',
         canActivate: [keycloakRoleGuard],
         data: { roles: PRODUCT_ADMIN_ROLES, clientId: CLIENT_ID },

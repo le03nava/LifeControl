@@ -12,6 +12,7 @@ import { ActivatedRoute, Router } from '@angular/router';
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { catchError, of } from 'rxjs';
 import { SupplierService } from '../../data/supplier.service';
+import { productsCompanyId } from '../../../data/products-company';
 import { ApiError } from '@shared/models';
 import { SupplierControl, SupplierFormValue, SupplierRequest } from '../../models/supplier.models';
 import { CountryService } from '@features/countries/data/country.service';
@@ -44,6 +45,19 @@ export class SupplierEdit implements OnInit {
 
   supplierId = signal<string | null>(this.route.snapshot.paramMap.get('id'));
 
+  /**
+   * The company the supplier belongs to: `?companyId=`, read once from the URL.
+   *
+   * The same source the products area uses for its own screens ({@link productsCompanyId}), and the
+   * only one this form has: the supplier form has no `Empresa` field of its own (S6 — the company source
+   * changes, the form does not), so the link that opened it carries the company and this reads it.
+   *
+   * A plain value and not a signal: nothing on this screen changes it. On **create** it is what the list
+   * passed; on **edit** it is what the URL says, and a supplier id alone cannot be addressed on
+   * `/api/companies/{companyId}/suppliers`.
+   */
+  readonly companyId: string | null = productsCompanyId(this.route);
+
   supplierForm = signal<FormGroup<SupplierControl>>(this.createForm());
 
   isEditMode = signal(false);
@@ -66,8 +80,15 @@ export class SupplierEdit implements OnInit {
   }
 
   private loadSupplier(id: string): void {
+    const companyId = this.companyId;
+    if (!companyId) {
+      // No company, no endpoint: `GET /api/companies/{companyId}/suppliers/{id}` is the only read, so
+      // this states the missing company instead of guessing one.
+      this.generalError.set('Elegí una empresa para abrir el proveedor.');
+      return;
+    }
     this.supplierService
-      .getSupplierById(id)
+      .getSupplierById(companyId, id)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (supplier) => {
@@ -148,14 +169,24 @@ export class SupplierEdit implements OnInit {
   }
 
   onSaveSupplier(supplierData: SupplierFormValue): void {
+    // No company, no endpoint: every write is scoped to `/api/companies/{companyId}/suppliers`, so this
+    // refuses instead of guessing one.
+    const companyId = this.companyId;
+    if (!companyId) {
+      this.generalError.set('Elegí una empresa antes de guardar el proveedor.');
+      return;
+    }
+
     const request = this.buildSupplierRequest(supplierData);
     if (supplierData.id === '') {
       this.supplierService
-        .createSupplier(request)
+        .createSupplier(companyId, request)
         .pipe(takeUntilDestroyed(this.destroyRef))
         .subscribe({
           next: (createdSupplier) => {
-            this.router.navigate(['/products/suppliers/edit', createdSupplier.id]);
+            this.router.navigate(['/products/suppliers/edit', createdSupplier.id], {
+              queryParams: { companyId },
+            });
           },
           error: (err: HttpErrorResponse) => {
             this.handleServerError(err);
@@ -163,11 +194,11 @@ export class SupplierEdit implements OnInit {
         });
     } else {
       this.supplierService
-        .updateSupplier(supplierData.id, request)
+        .updateSupplier(companyId, supplierData.id, request)
         .pipe(takeUntilDestroyed(this.destroyRef))
         .subscribe({
           next: () => {
-            this.router.navigate(['/products/suppliers']);
+            this.router.navigate(['/products/suppliers'], { queryParams: { companyId } });
           },
           error: (err: HttpErrorResponse) => {
             this.handleServerError(err);
@@ -235,6 +266,12 @@ export class SupplierEdit implements OnInit {
   }
 
   cancelForm(): void {
-    this.router.navigate(['/products/suppliers']);
+    // The list is the catalog of one company, so the way back carries the company too.
+    const companyId = this.companyId;
+    if (!companyId) {
+      void this.router.navigate(['/products']);
+      return;
+    }
+    void this.router.navigate(['/products/suppliers'], { queryParams: { companyId } });
   }
 }

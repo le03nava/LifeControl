@@ -110,6 +110,14 @@ describe('SupplierInfoSection', () => {
     getPaymentMethods: ReturnType<typeof vi.fn>;
   };
 
+  /**
+   * The company that owns the order, and therefore the only suppliers the picker may offer.
+   *
+   * It is the header's cascade root — the same signal the screen already scopes its product reads to
+   * — and `null` is the honest answer while a new order still has none.
+   */
+  const companyId = 'comp-1';
+
   function createForm(): FormGroup<PurchaseOrderHeaderControl> {
     return new FormGroup<PurchaseOrderHeaderControl>({
       supplierId: new FormControl('', { nonNullable: true, validators: [Validators.required] }),
@@ -158,16 +166,50 @@ describe('SupplierInfoSection', () => {
       const fixture = TestBed.createComponent(SupplierInfoSection);
       const comp = fixture.componentInstance;
       fixture.componentRef.setInput('headerForm', headerForm);
+      fixture.componentRef.setInput('companyId', companyId);
       fixture.detectChanges();
 
-      expect(supplierServiceMock.getSuppliers).toHaveBeenCalledWith(0, 20, undefined);
+      // The read names the order's company: the picker may only offer suppliers of that company.
+      expect(supplierServiceMock.getSuppliers).toHaveBeenCalledWith(companyId, 0, 20, undefined);
       expect(comp.suppliers().length).toBe(2);
+    });
+
+    it('should read no suppliers while the order has no company', () => {
+      const fixture = TestBed.createComponent(SupplierInfoSection);
+      const comp = fixture.componentInstance;
+      fixture.componentRef.setInput('headerForm', headerForm);
+      fixture.componentRef.setInput('companyId', null);
+      fixture.detectChanges();
+
+      // There is no company-blind supplier catalog to fall back to, so nothing is asked for.
+      expect(supplierServiceMock.getSuppliers).not.toHaveBeenCalled();
+      expect(comp.suppliers()).toEqual([]);
+    });
+
+    it('should not offer a supplier of another company', () => {
+      supplierServiceMock.getSuppliers.mockReturnValue(
+        of({
+          ...mockSuppliersPage,
+          content: [
+            mockSuppliersPage.content[0],
+            { ...mockSuppliersPage.content[1], companyId: 'comp-2' },
+          ],
+        }),
+      );
+      const fixture = TestBed.createComponent(SupplierInfoSection);
+      const comp = fixture.componentInstance;
+      fixture.componentRef.setInput('headerForm', headerForm);
+      fixture.componentRef.setInput('companyId', companyId);
+      fixture.detectChanges();
+
+      expect(comp.suppliers().map((option) => option.id)).toEqual(['sup-1']);
     });
 
     it('should load payment methods on init via PaymentMethodService', () => {
       const fixture = TestBed.createComponent(SupplierInfoSection);
       const comp = fixture.componentInstance;
       fixture.componentRef.setInput('headerForm', headerForm);
+      fixture.componentRef.setInput('companyId', companyId);
       fixture.detectChanges();
 
       expect(paymentMethodServiceMock.getPaymentMethods).toHaveBeenCalled();
@@ -178,6 +220,7 @@ describe('SupplierInfoSection', () => {
   function createFixture(overrides?: { serverErrors?: Record<string, string> }) {
     const fixture = TestBed.createComponent(SupplierInfoSection);
     fixture.componentRef.setInput('headerForm', headerForm);
+    fixture.componentRef.setInput('companyId', companyId);
     if (overrides?.serverErrors) {
       fixture.componentRef.setInput('serverErrors', overrides.serverErrors);
     }
@@ -197,6 +240,7 @@ describe('SupplierInfoSection', () => {
         enabled: true,
         createdAt: '2026-01-01T00:00:00Z',
         updatedAt: '2026-01-01T00:00:00Z',
+        companyId,
         address: {
           street: 'Calle Comercio',
           streetNumber: '456',
@@ -214,7 +258,7 @@ describe('SupplierInfoSection', () => {
       comp.onSupplierChange('sup-1');
 
       expect(headerForm.controls.supplierId.value).toBe('sup-1');
-      expect(supplierServiceMock.getSupplierById).toHaveBeenCalledWith('sup-1');
+      expect(supplierServiceMock.getSupplierById).toHaveBeenCalledWith(companyId, 'sup-1');
       expect(comp.supplierDetail()).not.toBeNull();
       expect(comp.supplierDetail()!.rfc).toBe('RFC-PROV-001');
       expect(comp.supplierDetail()!.email).toBe('ventas@proveedoruno.com');
@@ -265,6 +309,7 @@ describe('SupplierInfoSection', () => {
     function createEditFixture(order: PurchaseOrder) {
       const fixture = TestBed.createComponent(SupplierInfoSection);
       fixture.componentRef.setInput('headerForm', headerForm);
+      fixture.componentRef.setInput('companyId', companyId);
       fixture.componentRef.setInput('isEditMode', true);
       fixture.componentRef.setInput('loadedOrder', order);
       fixture.detectChanges();
@@ -276,7 +321,7 @@ describe('SupplierInfoSection', () => {
 
       const { componentInstance: comp } = createEditFixture(mockOrder);
 
-      expect(supplierServiceMock.getSupplierById).toHaveBeenCalledWith('sup-1');
+      expect(supplierServiceMock.getSupplierById).toHaveBeenCalledWith(companyId, 'sup-1');
       expect(comp.supplierDetail()).not.toBeNull();
       expect(comp.supplierDetail()!.rfc).toBe('RFC-PROV-001');
       expect(comp.supplierDetail()!.email).toBe('ventas@proveedoruno.com');

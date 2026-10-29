@@ -1,3 +1,43 @@
 @use '../../../../../shared/styles/entity-list-page' as list;
 
 @include list.entity-list-page($page: '.supplier-list-page', $grid: '.suppliers-grid');
+
+/*
+  The `Empresa` filter and the search box share one row, exactly as the products list lays them out: the
+  company decides *whose* catalog is being searched, so it reads as the first filter and not as a
+  separate step in front of the page.
+*/
+.filters-section {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-md);
+
+  .company-selector {
+    flex: 1 1 280px;
+    max-width: 400px;
+  }
+
+  .search-field {
+    flex: 1 1 280px;
+  }
+}
+
+/* The "choose a company" state's icon; the block itself borrows the grid's `.empty-state` layout. */
+.empty-state-icon {
+  font-size: 48px;
+  width: 48px;
+  height: 48px;
+  margin-bottom: var(--space-md);
+  color: var(--mat-sys-on-surface-variant);
+}
+
+@media (max-width: 599px) {
+  .filters-section {
+    .company-selector,
+    .search-field {
+      max-width: 100%;
+      flex: 1 1 100%;
+    }
+  }
+}
