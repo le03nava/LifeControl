@@ -46,6 +46,8 @@ import tools.jackson.databind.json.JsonMapper;
 @DisplayName("SupplierController Tests")
 class SupplierControllerTest {
 
+    private static final String BASE_URL = "/api/companies/{companyId}/suppliers";
+
     private MockMvc mockMvc;
     private ObjectMapper objectMapper;
 
@@ -59,6 +61,7 @@ class SupplierControllerTest {
     private SupplierRequest testSupplierRequest;
     private UUID testSupplierId;
     private UUID testCountryId;
+    private UUID companyId;
 
     @BeforeEach
     void setUp() {
@@ -70,6 +73,7 @@ class SupplierControllerTest {
 
         testSupplierId = UUID.randomUUID();
         testCountryId = UUID.randomUUID();
+        companyId = UUID.randomUUID();
         var now = LocalDateTime.now();
 
         testSupplierResponse = new SupplierResponse(
@@ -92,7 +96,8 @@ class SupplierControllerTest {
                         testCountryId),
                 true,
                 now,
-                now);
+                now,
+                companyId);
 
         testSupplierRequest = new SupplierRequest(
                 "Test Supplier",
@@ -107,7 +112,7 @@ class SupplierControllerTest {
     }
 
     @Nested
-    @DisplayName("GET /api/suppliers")
+    @DisplayName("GET /api/companies/{companyId}/suppliers")
     class GetAllSuppliersTests {
 
         @Test
@@ -118,14 +123,15 @@ class SupplierControllerTest {
             var suppliers = List.of(testSupplierResponse);
             var page = new PageImpl<>(suppliers, pageable, 1);
 
-            when(supplierService.getAllSuppliers(any(Pageable.class), eq(null), eq(false)))
+            when(supplierService.getAllSuppliers(eq(companyId), any(Pageable.class), eq(null), eq(false)))
                     .thenReturn(page);
 
             // Act & Assert
-            mockMvc.perform(get("/api/suppliers").param("page", "0").param("size", "12"))
+            mockMvc.perform(get(BASE_URL, companyId).param("page", "0").param("size", "12"))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.content").isArray())
                     .andExpect(jsonPath("$.content[0].supplierName").value("Test Supplier"))
+                    .andExpect(jsonPath("$.content[0].companyId").value(companyId.toString()))
                     .andExpect(jsonPath("$.totalElements").value(1))
                     .andExpect(jsonPath("$.totalPages").value(1))
                     .andExpect(jsonPath("$.number").value(0))
@@ -140,11 +146,11 @@ class SupplierControllerTest {
             var suppliers = List.of(testSupplierResponse);
             var page = new PageImpl<>(suppliers, pageable, 1);
 
-            when(supplierService.getAllSuppliers(any(Pageable.class), eq("Test"), eq(false)))
+            when(supplierService.getAllSuppliers(eq(companyId), any(Pageable.class), eq("Test"), eq(false)))
                     .thenReturn(page);
 
             // Act & Assert
-            mockMvc.perform(get("/api/suppliers")
+            mockMvc.perform(get(BASE_URL, companyId)
                             .param("page", "0")
                             .param("size", "12")
                             .param("search", "Test"))
@@ -160,11 +166,11 @@ class SupplierControllerTest {
             var pageable = PageRequest.of(0, 12);
             var page = new PageImpl<SupplierResponse>(List.of(), pageable, 0);
 
-            when(supplierService.getAllSuppliers(any(Pageable.class), eq(null), eq(false)))
+            when(supplierService.getAllSuppliers(eq(companyId), any(Pageable.class), eq(null), eq(false)))
                     .thenReturn(page);
 
             // Act & Assert
-            mockMvc.perform(get("/api/suppliers").param("page", "0").param("size", "12"))
+            mockMvc.perform(get(BASE_URL, companyId).param("page", "0").param("size", "12"))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.content").isEmpty())
                     .andExpect(jsonPath("$.totalElements").value(0))
@@ -178,31 +184,47 @@ class SupplierControllerTest {
             var pageable = PageRequest.of(0, 12);
             var page = new PageImpl<>(List.of(testSupplierResponse), pageable, 1);
 
-            when(supplierService.getAllSuppliers(any(Pageable.class), eq(null), eq(false)))
+            when(supplierService.getAllSuppliers(eq(companyId), any(Pageable.class), eq(null), eq(false)))
                     .thenReturn(page);
 
             // Act & Assert
-            mockMvc.perform(get("/api/suppliers"))
+            mockMvc.perform(get(BASE_URL, companyId))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.size").value(12));
+        }
+
+        @Test
+        @DisplayName("getAllSuppliers - should pass the company from the path to the service")
+        void getAllSuppliers_PassesTheCompanyFromThePath() throws Exception {
+            // Arrange
+            var otherCompanyId = UUID.randomUUID();
+            when(supplierService.getAllSuppliers(eq(otherCompanyId), any(Pageable.class), eq(null), eq(false)))
+                    .thenReturn(new PageImpl<>(List.of(), PageRequest.of(0, 12), 0));
+
+            // Act
+            mockMvc.perform(get(BASE_URL, otherCompanyId)).andExpect(status().isOk());
+
+            // Assert
+            verify(supplierService).getAllSuppliers(eq(otherCompanyId), any(Pageable.class), eq(null), eq(false));
         }
     }
 
     @Nested
-    @DisplayName("GET /api/suppliers/{id}")
+    @DisplayName("GET /api/companies/{companyId}/suppliers/{id}")
     class GetSupplierByIdTests {
 
         @Test
         @DisplayName("getSupplierById - should return 200 with supplier")
         void getSupplierById_Success() throws Exception {
             // Arrange
-            when(supplierService.getSupplierById(testSupplierId)).thenReturn(testSupplierResponse);
+            when(supplierService.getSupplierById(companyId, testSupplierId)).thenReturn(testSupplierResponse);
 
             // Act & Assert
-            mockMvc.perform(get("/api/suppliers/{id}", testSupplierId))
+            mockMvc.perform(get(BASE_URL + "/{id}", companyId, testSupplierId))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.supplierName").value("Test Supplier"))
                     .andExpect(jsonPath("$.rfc").value("XAXX010101000"))
+                    .andExpect(jsonPath("$.companyId").value(companyId.toString()))
                     .andExpect(jsonPath("$.address.street").value("Calle Principal"))
                     .andExpect(jsonPath("$.address.city").value("Ciudad de Mexico"));
         }
@@ -211,33 +233,35 @@ class SupplierControllerTest {
         @DisplayName("getSupplierById - should return 404 when not found")
         void getSupplierById_NotFound() throws Exception {
             // Arrange
-            when(supplierService.getSupplierById(testSupplierId))
+            when(supplierService.getSupplierById(companyId, testSupplierId))
                     .thenThrow(new SupplierNotFoundException(testSupplierId));
 
             // Act & Assert
-            mockMvc.perform(get("/api/suppliers/{id}", testSupplierId))
+            mockMvc.perform(get(BASE_URL + "/{id}", companyId, testSupplierId))
                     .andExpect(status().isNotFound())
                     .andExpect(jsonPath("$.message").value("Supplier not found with id: " + testSupplierId));
         }
     }
 
     @Nested
-    @DisplayName("POST /api/suppliers")
+    @DisplayName("POST /api/companies/{companyId}/suppliers")
     class CreateSupplierTests {
 
         @Test
         @DisplayName("createSupplier - should return 201 with created supplier")
         void createSupplier_Success() throws Exception {
             // Arrange
-            when(supplierService.createSupplier(any(SupplierRequest.class))).thenReturn(testSupplierResponse);
+            when(supplierService.createSupplier(eq(companyId), any(SupplierRequest.class)))
+                    .thenReturn(testSupplierResponse);
 
             // Act & Assert
-            mockMvc.perform(post("/api/suppliers")
+            mockMvc.perform(post(BASE_URL, companyId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(testSupplierRequest)))
                     .andExpect(status().isCreated())
                     .andExpect(jsonPath("$.supplierName").value("Test Supplier"))
                     .andExpect(jsonPath("$.rfc").value("XAXX010101000"))
+                    .andExpect(jsonPath("$.companyId").value(companyId.toString()))
                     .andExpect(jsonPath("$.internalNumber").value("INT-001"))
                     .andExpect(jsonPath("$.address.street").value("Calle Principal"));
         }
@@ -257,7 +281,7 @@ class SupplierControllerTest {
                     true);
 
             // Act & Assert
-            mockMvc.perform(post("/api/suppliers")
+            mockMvc.perform(post(BASE_URL, companyId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(invalidRequest)))
                     .andExpect(status().isBadRequest());
@@ -267,11 +291,11 @@ class SupplierControllerTest {
         @DisplayName("createSupplier - should return 409 for duplicate RFC")
         void createSupplier_DuplicateRfc() throws Exception {
             // Arrange
-            when(supplierService.createSupplier(any(SupplierRequest.class)))
+            when(supplierService.createSupplier(eq(companyId), any(SupplierRequest.class)))
                     .thenThrow(new DuplicateSupplierException("Supplier with RFC 'XAXX010101000' already exists"));
 
             // Act & Assert
-            mockMvc.perform(post("/api/suppliers")
+            mockMvc.perform(post(BASE_URL, companyId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(testSupplierRequest)))
                     .andExpect(status().isConflict())
@@ -280,18 +304,18 @@ class SupplierControllerTest {
     }
 
     @Nested
-    @DisplayName("PUT /api/suppliers/{id}")
+    @DisplayName("PUT /api/companies/{companyId}/suppliers/{id}")
     class UpdateSupplierTests {
 
         @Test
         @DisplayName("updateSupplier - should return 200 with updated supplier")
         void updateSupplier_Success() throws Exception {
             // Arrange
-            when(supplierService.updateSupplier(eq(testSupplierId), any(SupplierRequest.class)))
+            when(supplierService.updateSupplier(eq(companyId), eq(testSupplierId), any(SupplierRequest.class)))
                     .thenReturn(testSupplierResponse);
 
             // Act & Assert
-            mockMvc.perform(put("/api/suppliers/{id}", testSupplierId)
+            mockMvc.perform(put(BASE_URL + "/{id}", companyId, testSupplierId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(testSupplierRequest)))
                     .andExpect(status().isOk())
@@ -305,11 +329,11 @@ class SupplierControllerTest {
         @DisplayName("updateSupplier - should return 404 when supplier not found")
         void updateSupplier_NotFound() throws Exception {
             // Arrange
-            when(supplierService.updateSupplier(eq(testSupplierId), any(SupplierRequest.class)))
+            when(supplierService.updateSupplier(eq(companyId), eq(testSupplierId), any(SupplierRequest.class)))
                     .thenThrow(new SupplierNotFoundException(testSupplierId));
 
             // Act & Assert
-            mockMvc.perform(put("/api/suppliers/{id}", testSupplierId)
+            mockMvc.perform(put(BASE_URL + "/{id}", companyId, testSupplierId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(testSupplierRequest)))
                     .andExpect(status().isNotFound())
@@ -320,11 +344,11 @@ class SupplierControllerTest {
         @DisplayName("updateSupplier - should return 409 for duplicate RFC")
         void updateSupplier_DuplicateRfc() throws Exception {
             // Arrange
-            when(supplierService.updateSupplier(eq(testSupplierId), any(SupplierRequest.class)))
+            when(supplierService.updateSupplier(eq(companyId), eq(testSupplierId), any(SupplierRequest.class)))
                     .thenThrow(new DuplicateSupplierException("Supplier with RFC 'XAXX010101000' already exists"));
 
             // Act & Assert
-            mockMvc.perform(put("/api/suppliers/{id}", testSupplierId)
+            mockMvc.perform(put(BASE_URL + "/{id}", companyId, testSupplierId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(testSupplierRequest)))
                     .andExpect(status().isConflict())
@@ -338,7 +362,7 @@ class SupplierControllerTest {
             var invalidRequest = new SupplierRequest(null, null, "ZAXX010101000", null, null, null, null, true);
 
             // Act & Assert
-            mockMvc.perform(put("/api/suppliers/{id}", testSupplierId)
+            mockMvc.perform(put(BASE_URL + "/{id}", companyId, testSupplierId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(invalidRequest)))
                     .andExpect(status().isBadRequest());
@@ -346,18 +370,19 @@ class SupplierControllerTest {
     }
 
     @Nested
-    @DisplayName("DELETE /api/suppliers/{id}")
+    @DisplayName("DELETE /api/companies/{companyId}/suppliers/{id}")
     class DeleteSupplierTests {
 
         @Test
         @DisplayName("deleteSupplier - should return 204 on successful delete")
         void deleteSupplier_Success() throws Exception {
             // Arrange
-            doNothing().when(supplierService).deleteSupplier(testSupplierId);
+            doNothing().when(supplierService).deleteSupplier(companyId, testSupplierId);
 
             // Act & Assert
-            mockMvc.perform(delete("/api/suppliers/{id}", testSupplierId)).andExpect(status().isNoContent());
-            verify(supplierService).deleteSupplier(testSupplierId);
+            mockMvc.perform(delete(BASE_URL + "/{id}", companyId, testSupplierId))
+                    .andExpect(status().isNoContent());
+            verify(supplierService).deleteSupplier(companyId, testSupplierId);
         }
 
         @Test
@@ -366,10 +391,10 @@ class SupplierControllerTest {
             // Arrange
             doThrow(new SupplierNotFoundException(testSupplierId))
                     .when(supplierService)
-                    .deleteSupplier(testSupplierId);
+                    .deleteSupplier(companyId, testSupplierId);
 
             // Act & Assert
-            mockMvc.perform(delete("/api/suppliers/{id}", testSupplierId))
+            mockMvc.perform(delete(BASE_URL + "/{id}", companyId, testSupplierId))
                     .andExpect(status().isNotFound())
                     .andExpect(jsonPath("$.message").value("Supplier not found with id: " + testSupplierId));
         }

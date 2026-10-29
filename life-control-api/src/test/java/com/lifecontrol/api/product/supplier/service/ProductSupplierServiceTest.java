@@ -233,7 +233,7 @@ class ProductSupplierServiceTest {
             var request = new ProductSupplierRequest(supplierId, new BigDecimal("200.00"), false, true);
 
             when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
-            when(supplierRepository.findById(supplierId)).thenReturn(Optional.of(testSupplier));
+            when(supplierRepository.findByIdAndCompanyId(supplierId, companyId)).thenReturn(Optional.of(testSupplier));
             when(productSupplierRepository.existsByProductIdAndSupplierId(productId, supplierId))
                     .thenReturn(false);
             when(productSupplierRepository.save(any(ProductSupplier.class))).thenAnswer(inv -> {
@@ -279,7 +279,7 @@ class ProductSupplierServiceTest {
                     .build();
 
             when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
-            when(supplierRepository.findById(supplierId)).thenReturn(Optional.of(testSupplier));
+            when(supplierRepository.findByIdAndCompanyId(supplierId, companyId)).thenReturn(Optional.of(testSupplier));
             when(productSupplierRepository.existsByProductIdAndSupplierId(productId, supplierId))
                     .thenReturn(false);
             when(productSupplierRepository.findMainByProductId(productId)).thenReturn(Optional.of(existingMain));
@@ -315,7 +315,7 @@ class ProductSupplierServiceTest {
             var request = new ProductSupplierRequest(supplierId, new BigDecimal("300.00"), true, true);
 
             when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
-            when(supplierRepository.findById(supplierId)).thenReturn(Optional.of(testSupplier));
+            when(supplierRepository.findByIdAndCompanyId(supplierId, companyId)).thenReturn(Optional.of(testSupplier));
             when(productSupplierRepository.existsByProductIdAndSupplierId(productId, supplierId))
                     .thenReturn(false);
             when(productSupplierRepository.findMainByProductId(productId)).thenReturn(Optional.empty());
@@ -356,7 +356,7 @@ class ProductSupplierServiceTest {
             var request = new ProductSupplierRequest(supplierId, BigDecimal.TEN, false, true);
 
             when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
-            when(supplierRepository.findById(supplierId)).thenReturn(Optional.empty());
+            when(supplierRepository.findByIdAndCompanyId(supplierId, companyId)).thenReturn(Optional.empty());
 
             assertThatThrownBy(() -> service.addSupplierToProduct(companyId, productId, request))
                     .isInstanceOf(SupplierNotFoundException.class);
@@ -368,7 +368,7 @@ class ProductSupplierServiceTest {
             var request = new ProductSupplierRequest(supplierId, BigDecimal.TEN, false, true);
 
             when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
-            when(supplierRepository.findById(supplierId)).thenReturn(Optional.of(testSupplier));
+            when(supplierRepository.findByIdAndCompanyId(supplierId, companyId)).thenReturn(Optional.of(testSupplier));
             when(productSupplierRepository.existsByProductIdAndSupplierId(productId, supplierId))
                     .thenReturn(true);
 

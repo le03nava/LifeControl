@@ -168,8 +168,12 @@ public class PurchaseOrderService {
     public PurchaseOrderResponse createPurchaseOrder(PurchaseOrderRequest request) {
         logger.info("Creating purchase order");
 
-        var supplier = validateSupplierExists(request.supplierId());
+        // The store comes first because it is the only thing that answers *which company* this order
+        // belongs to, and the supplier may only be one of that company's. Reversing the two would mean
+        // asking for a supplier before the tenant is known, which is how a purchase order of company A
+        // could name a supplier only company B created.
         var store = validateCompanyStoreExists(request.companyStoreId());
+        var supplier = validateSupplierExists(companyStoreOwnerResolver.companyIdOf(store), request.supplierId());
         var paymentMethod = validatePaymentMethodExists(request.paymentMethodId());
         var status = request.statusId() != null
                 ? StatusValidator.requireStatusOfType(statusRepository, request.statusId(), "PURCHASE_ORDER")
@@ -252,8 +256,10 @@ public class PurchaseOrderService {
 
         var po = purchaseOrderRepository.findById(id).orElseThrow(() -> new PurchaseOrderNotFoundException(id));
 
-        var supplier = validateSupplierExists(request.supplierId());
+        // Same order as the create route and for the same reason: the store answers which company's
+        // suppliers this order may name, so it is resolved before the supplier is.
         var store = validateCompanyStoreExists(request.companyStoreId());
+        var supplier = validateSupplierExists(companyStoreOwnerResolver.companyIdOf(store), request.supplierId());
         var paymentMethod = validatePaymentMethodExists(request.paymentMethodId());
         var status = request.statusId() != null
                 ? StatusValidator.requireStatusOfType(statusRepository, request.statusId(), "PURCHASE_ORDER")
@@ -612,9 +618,18 @@ public class PurchaseOrderService {
         return po;
     }
 
-    private Supplier validateSupplierExists(UUID id) {
+    /**
+     * Resolves the enabled supplier <b>of the company that owns the order's store</b>, or answers 404.
+     *
+     * <p>The company is a parameter instead of something derived here because each caller already holds
+     * the store it validated ({@link #validateCompanyStoreExists}), and the store is the only thing that
+     * says which tenant's suppliers this order may name. The lookup itself is company-scoped, so a
+     * supplier of another company is {@link SupplierNotFoundException} — the same 404 an unknown id gets,
+     * which is what keeps a cross-tenant reference unreachable rather than merely refused.</p>
+     */
+    private Supplier validateSupplierExists(UUID companyId, UUID id) {
         return supplierRepository
-                .findById(id)
+                .findByIdAndCompanyId(id, companyId)
                 .filter(Supplier::getEnabled)
                 .orElseThrow(() -> new SupplierNotFoundException(id));
     }

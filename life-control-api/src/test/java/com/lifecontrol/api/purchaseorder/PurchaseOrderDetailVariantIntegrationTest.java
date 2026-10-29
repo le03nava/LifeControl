@@ -53,6 +53,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.web.servlet.MockMvc;
@@ -157,6 +158,11 @@ class PurchaseOrderDetailVariantIntegrationTest extends AbstractPostgresIntegrat
      * Find-or-create the supplier, payment method and company chain the purchase
      * order write paths require; statuses come from Flyway {@code V3}. Idempotent
      * because the Testcontainers database is shared per JVM and survives methods.
+     *
+     * <p>The supplier is looked up <b>within</b> the company the seed creates, because the write path
+     * only accepts a supplier of the order's store's company: an unscoped lookup would hand back a row
+     * the API can no longer name, and the idempotency would break silently the first time another
+     * company seeded the same RFC.</p>
      */
     private void seedReferenceData() {
         var country = countryRepository.findByCountryCode("MX").orElseThrow();
@@ -207,11 +213,13 @@ class PurchaseOrderDetailVariantIntegrationTest extends AbstractPostgresIntegrat
         storeId = store.getId();
         companyId = company.getId();
 
-        var supplier = supplierRepository
-                .findByRfc("PORC010101ABC")
+        var supplier = supplierRepository.findByCompanyIdAndEnabledTrue(company.getId(), Pageable.unpaged()).stream()
+                .filter(candidate -> "PORC010101ABC".equals(candidate.getRfc()))
+                .findFirst()
                 .orElseGet(() -> supplierRepository.save(Supplier.builder()
                         .supplierName("PO Receipt Supplier")
                         .rfc("PORC010101ABC")
+                        .company(company)
                         .enabled(true)
                         .build()));
 

@@ -102,8 +102,7 @@ class SupplierSchemaMigrationIntegrationTest extends AbstractPostgresIntegration
     void supplierWithoutCompanyIsALegalRow() {
         var id = insertSupplier(null, "SCHEMA-EXP-1");
 
-        var stored = jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) FROM suppliers WHERE id = ?", Integer.class, id);
+        var stored = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM suppliers WHERE id = ?", Integer.class, id);
 
         assertThat(stored).isEqualTo(1);
     }
