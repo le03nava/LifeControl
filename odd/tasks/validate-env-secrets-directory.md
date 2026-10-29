@@ -45,6 +45,13 @@ materialized secret. A `docker/secrets/` holding only that directory still repor
 `No secrets materialized`, because the alternative is telling an operator their secrets are in place when
 none are.
 
+**S6** — *the requirement that is conditional, added by the review's one finding (L8)*: `smtp_password`
+is not unconditionally optional. `SMTP_AUTH=true` makes it required, and two programs refuse without it —
+`keycloak-setup.sh:262-278` refuses to write the relay when the file is missing, empty or still holds
+`CHANGEME`, and Grafana's entrypoint exports it only when `GF_SMTP_USER` is non-empty. So with
+`SMTP_AUTH=true`, a directory in its place **and** no file at all are both `ERROR`s, and the gate never
+prints a claim that nothing is missing while the relay is configured to authenticate.
+
 ## Tasks
 
 | ID | Specs | What | Route | Commit |
@@ -53,6 +60,7 @@ none are.
 | T2 | S2–S5 | RED: `docker/scripts/tests/secrets-directory.test.sh` drives the real gate inside a scratch tree and pins the two directory shapes, the four existing failures, the success control and the `No secrets materialized` case | inline (parent) | this commit |
 | T3 | S1–S5 | GREEN: `check_secret_files` branches on a directory before it reads content or mode, and picks warning or error by whether a `.template` declares the secret | inline (parent) | this commit |
 | T4 | S1–S5 | Evidence: every suite in `docker/scripts/tests/` plus `shellcheck` | inline (parent) | this commit |
+| T5 | S6 | Correction from the review's finding R3-001: `check_smtp_credential` requires the hand-created credential whenever `SMTP_AUTH=true`, for a directory and for an absent file alike, and the directory warning stops claiming that nothing is missing | inline (parent) | this commit |
 
 ## Log
 
@@ -101,3 +109,25 @@ command that materializes it, so the two cannot be confused for each other.
 
 **L7** — gap, recorded rather than assumed: `shellcheck` is not installed on this host, so the lint above
 ran through the pinned container image. `bash -n` was run on both files as a second, daemon-free check.
+
+**L8** — review finding, `R3-001` (`review-reliability`, `CRITICAL`, `causal_disposition: introduced`),
+verbatim: «The no-template directory branch treats every directory without a matching .template as
+optional: it prints a warning, does not increment ERRORS, and continues. The task record acknowledges
+smtp_password is required when the relay authenticates; in that configuration a Docker-created empty
+directory is a missing required secret, but this branch lets validate-env.sh exit successfully and even
+says "no secret is missing". The new test suite only exercises the default/no-auth shape, so this
+regression is not caught.» The finding is correct and the causality is right: before this unit a
+directory there failed the gate — for the wrong reason (mode `755`), but it failed — and the first version
+of the fix turned that accident into a pass.
+
+**L9** — decision, the correction (S6): the requirement lives in its own check rather than in the
+directory branch, because the same rule has to cover the absent file, which the loop's glob never sees.
+`check_smtp_credential` mirrors `keycloak-setup.sh:262-278` — non-empty regular file, no `CHANGEME` — and
+does nothing at all unless `SMTP_AUTH=true`, so no environment that does not relay authenticated mail
+changes behavior. The directory warning also stops asserting that nothing is missing, because that
+sentence was the finding's evidence.
+
+**L10** — evidence, 2026-10-29, the correction: `secrets-directory.test.sh` before it `28 passed, 4
+failed` (the two `SMTP_AUTH=true` cases and the two text assertions), after it `32 passed, 0 failed`;
+`shellcheck` exit 0 on both files through the pinned image; every suite in `docker/scripts/tests/` green
+again after the change.

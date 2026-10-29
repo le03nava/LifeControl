@@ -156,7 +156,7 @@ check_secret_files() {
 				# No template declares it, so nothing materializes it and nothing is missing: it is a
 				# file created by hand and read only when the feature that needs it is configured.
 				print_warning "$secret_file is a directory, not a secret file: Docker creates it in place of a bind-mount source that does not exist"
-				print_status "  No .template declares this name, so no secret is missing -- it is read only when the feature that needs it is configured. Remove it with: rmdir $secret_file"
+				print_status "  No .template declares this name, so setup-env.sh never materializes it: it is created by hand and read only when the feature that needs it is configured. Remove it with: rmdir $secret_file"
 			fi
 			# Never counted as materialized: a folder holding only this directory still says
 			# 'No secrets materialized' below, which is the truth.
@@ -194,6 +194,32 @@ check_secret_files() {
 	fi
 }
 
+# The one secret with no `.template`, and the one requirement that is conditional rather than structural.
+# `docker/secrets/smtp_password` is created by hand, so its absence is legal -- until the relay is told to
+# authenticate. `SMTP_AUTH=true` is what makes it required, and it is read by two other programs that
+# refuse without it: keycloak-setup.sh refuses to write the relay when the file is missing, empty or still
+# holds CHANGEME (keycloak-setup.sh:262-278), and Grafana's entrypoint exports it as GF_SMTP_PASSWORD only
+# when GF_SMTP_USER is non-empty. Without this check the gate reported "nothing is missing" over a
+# directory -- or no file at all -- in exactly the configuration that needs one, and let a production
+# start proceed to a setup step that would then abort.
+check_smtp_credential() {
+	if [ "$(get_env_var SMTP_AUTH)" != "true" ]; then
+		return 0
+	fi
+
+	print_status "Checking the SMTP credential (SMTP_AUTH=true)..."
+	local credential="$SECRETS_DIR/smtp_password"
+
+	if [ -f "$credential" ] && [ -s "$credential" ] && ! grep -q "CHANGEME" "$credential"; then
+		print_success "$credential set"
+		return 0
+	fi
+
+	print_error "$credential is required because SMTP_AUTH=true, and it must be a non-empty file without CHANGEME"
+	print_status "Create it by hand -- it has no .template on purpose -- or set SMTP_AUTH=false in $ENV_FILE"
+	ERRORS=$((ERRORS + 1))
+}
+
 check_volume_dirs() {
 	print_status "Checking volume directories for $ENV environment..."
 
@@ -228,6 +254,7 @@ main() {
 	check_docker
 	check_ports
 	check_secret_files
+	check_smtp_credential
 	check_volume_dirs
 
 	echo ""

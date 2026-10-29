@@ -138,7 +138,14 @@ seed_secrets() {
 OUT="$WORK/out.log"
 LAST_RC=0
 LAST_TEXT=""
+# run_gate [extra env lines...] -- rewrites .env.dev with the gate's preconditions plus the case's own
+# lines, then runs the gate. Rewriting per case keeps one case's keys out of the next one's run.
 run_gate() {
+	{
+		printf '%s\n' "$REQUIRED"
+		printf 'LOKI_IMAGE=grafana/loki:3.7.8\n'
+		for extra in "$@"; do printf '%s\n' "$extra"; done
+	} >"$WORK/.env.dev"
 	PATH="$WORK/bin:$PATH" "$WORK/scripts/validate-env.sh" dev >"$OUT" 2>&1
 	LAST_RC=$?
 	LAST_TEXT="$(sed 's/\x1b\[[0-9;]*m//g' "$OUT")"
@@ -215,6 +222,43 @@ chmod 0444 "$WORK/secrets/$DECLARED"
 run_gate
 assert_equal "a materialized secret alone passes the gate" "0" "$LAST_RC"
 assert_absent "a materialized secret produces no directory warning" "$LAST_TEXT" "is a directory"
+
+# ------------------------------------------
+# 6. The requirement that is conditional, which is what makes "optional" a claim the gate cannot make on
+#    its own: `SMTP_AUTH=true` is what requires the hand-created credential, because keycloak-setup.sh
+#    refuses to write the relay when the file is missing, empty or still holds CHANGEME
+#    (keycloak-setup.sh:262-278). A directory in its place, or no file at all, must fail there -- the
+#    finding that made this case necessary: the warning used to say "no secret is missing" while the
+#    relay was configured to authenticate.
+# ------------------------------------------
+seed_secrets file
+run_gate 'SMTP_AUTH=true'
+assert_equal "the credential's directory fails when the relay authenticates" "1" "$LAST_RC"
+assert_contains "the failure names the credential" "$LAST_TEXT" "$WORK/secrets/$OPTIONAL"
+assert_contains "the failure names the condition that requires it" "$LAST_TEXT" "SMTP_AUTH=true"
+assert_absent "the gate never claims nothing is missing" "$LAST_TEXT" "no secret is missing"
+
+seed_secrets file
+rm -rf "$WORK/secrets/$OPTIONAL"
+run_gate 'SMTP_AUTH=true'
+assert_equal "an absent credential fails when the relay authenticates" "1" "$LAST_RC"
+
+run_gate
+assert_equal "an absent credential is legal when the relay does not authenticate" "0" "$LAST_RC"
+
+seed_secrets file
+rm -rf "$WORK/secrets/$OPTIONAL"
+printf 'relay-password\n' >"$WORK/secrets/$OPTIONAL"
+chmod 0444 "$WORK/secrets/$OPTIONAL"
+run_gate 'SMTP_AUTH=true'
+assert_equal "a materialized credential satisfies SMTP_AUTH=true" "0" "$LAST_RC"
+
+seed_secrets file
+rm -rf "$WORK/secrets/$OPTIONAL"
+printf 'CHANGEME\n' >"$WORK/secrets/$OPTIONAL"
+chmod 0444 "$WORK/secrets/$OPTIONAL"
+run_gate 'SMTP_AUTH=true'
+assert_equal "a CHANGEME credential fails when the relay authenticates" "1" "$LAST_RC"
 
 echo ""
 echo "=========================================="
