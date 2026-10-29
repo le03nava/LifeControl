@@ -532,6 +532,31 @@ class PurchaseOrderServiceTest {
         }
 
         @Test
+        @DisplayName("should refuse a supplier of another company and persist nothing")
+        void refusesSupplierOfAnotherCompanyAndPersistsNothing() {
+            // The order's store belongs to companyId, and that is the tenant the order belongs to; the
+            // supplier id names a row that exists under a different company. The scoped lookup is asked
+            // for the store's company, so the foreign row is indistinguishable from none — and the order
+            // must not be written on the strength of a supplier that exists somewhere else.
+            var request = new PurchaseOrderRequest(supplierId, storeId, pmId, draftStatusId, "Comments", List.of());
+
+            when(companyStoreRepository.findById(storeId)).thenReturn(Optional.of(store));
+            when(supplierRepository.findByIdAndCompanyId(supplierId, companyId)).thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> service.createPurchaseOrder(request))
+                    .isInstanceOf(SupplierNotFoundException.class)
+                    .hasMessageContaining(supplierId.toString());
+
+            // The company asked for is the one that owns the order's store — not the supplier's own.
+            verify(supplierRepository).findByIdAndCompanyId(supplierId, companyId);
+            // Nothing is stored: no order, no line, no event, and the payment method is never asked for.
+            verify(purchaseOrderRepository, never()).save(any(PurchaseOrder.class));
+            verify(detailRepository, never()).saveAll(any());
+            verify(eventPublisher, never()).publishEvent(any());
+            verify(paymentMethodRepository, never()).findById(any());
+        }
+
+        @Test
         @DisplayName("should throw CompanyStoreNotFoundException when store missing")
         void throwsWhenStoreMissing() {
             var request = new PurchaseOrderRequest(supplierId, storeId, pmId, draftStatusId, null, List.of());
