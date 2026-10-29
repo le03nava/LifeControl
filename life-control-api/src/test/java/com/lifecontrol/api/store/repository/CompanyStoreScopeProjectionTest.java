@@ -8,6 +8,7 @@ import com.lifecontrol.api.company.model.CompanyRegion;
 import com.lifecontrol.api.company.model.CompanyZone;
 import com.lifecontrol.api.country.model.Country;
 import com.lifecontrol.api.store.model.CompanyStore;
+import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
 import jakarta.persistence.EntityManager;
 import java.util.List;
 import java.util.UUID;
@@ -25,7 +26,7 @@ import org.springframework.transaction.annotation.Transactional;
 @SpringBootTest
 @Transactional
 @DisplayName("CompanyStore hierarchy projections")
-class CompanyStoreScopeProjectionTest {
+class CompanyStoreScopeProjectionTest extends AbstractPostgresIntegrationTest {
 
     @Autowired
     private EntityManager em;

@@ -442,8 +442,8 @@ class SupplierSchemaMigrationIntegrationTest extends AbstractPostgresIntegration
 
     /**
      * A store of the given company, inserted through the whole zone chain {@code company_stores} hangs
-     * off (V1:127-136 — a store carries no {@code company_id}; its company is reached through zone
-     * &rarr; region &rarr; country).
+     * off. The store level stores its owner too (V48/V49): every level below the country carries a
+     * {@code company_id}, so a raw insert has to name one at each hop.
      */
     private UUID insertStore(UUID companyId, String storeName) {
         var countryId = jdbcTemplate.queryForObject("SELECT id FROM countries WHERE country_code = 'MX'", UUID.class);
@@ -474,9 +474,9 @@ class SupplierSchemaMigrationIntegrationTest extends AbstractPostgresIntegration
 
         var storeId = UUID.randomUUID();
         jdbcTemplate.update("""
-                INSERT INTO company_stores (id, company_zone_id, store_name, enabled)
-                VALUES (?, ?, ?, true)
-                """, storeId, zoneId, storeName + " " + suffix);
+                INSERT INTO company_stores (id, company_zone_id, company_id, store_name, enabled)
+                VALUES (?, ?, ?, ?, true)
+                """, storeId, zoneId, companyId, storeName + " " + suffix);
         insertedStores.add(storeId);
         return storeId;
     }

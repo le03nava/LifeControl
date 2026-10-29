@@ -26,10 +26,12 @@
 -- WHY
 -- ---
 -- V44 added `company_regions.company_id` as a NULLABLE column and stopped there on purpose: a `NOT NULL`
--- column cannot arrive before the write surface carries the value. The mapping carries it now —
--- `CompanyRegion.deriveCompanyFromCountry()` reads it from the country at persist time — and this
--- migration turns that from a mapping detail into a rule the database enforces, so a later service or
--- mapping change cannot reopen the gap by forgetting it.
+-- column cannot arrive before something writes the value. This migration writes it for the rows that
+-- already exist — the `UPDATE` below — and from V50 on a new row is given it by
+-- `trg_company_regions_derive_company`, a `BEFORE INSERT` trigger that reads the country's stored owner,
+-- so nothing in the application writes this column at all. That is what turns an unwritten column into a
+-- rule the database enforces, and it is why a later service or mapping change cannot reopen the gap by
+-- forgetting it.
 --
 -- WHY THE COMPOSITE KEY IS THE POINT
 -- ----------------------------------
