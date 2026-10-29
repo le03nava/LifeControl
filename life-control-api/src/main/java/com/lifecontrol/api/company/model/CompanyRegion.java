@@ -18,6 +18,21 @@ public class CompanyRegion extends Auditable {
     @JoinColumn(name = "company_country_id", nullable = false)
     private CompanyCountry companyCountry;
 
+    /**
+     * The company this region belongs to, derived from {@link #companyCountry} at persist time and
+     * never supplied by a caller — there is no request field and no setter for it.
+     *
+     * <p>It exists because {@code V45} makes the column {@code NOT NULL} and pairs it with
+     * {@code fk_company_regions_country_same_company}: the owner is stored so the database can refuse a
+     * region whose company disagrees with its country's, and so {@code company_zones} has a
+     * {@code (company_id, id)} target to key its own composite foreign key against. Reading it back is
+     * not what answers "who owns this row" on the API paths — {@code CompanyStoreOwnerResolver} still
+     * walks the tree — so the two can only agree.</p>
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "company_id", nullable = false)
+    private Company company;
+
     @Column(name = "region_code", length = 10, nullable = false)
     private String regionCode;
 
@@ -30,9 +45,33 @@ public class CompanyRegion extends Auditable {
     // Default constructor for JPA
     public CompanyRegion() {}
 
+    /**
+     * Derives {@link #company} from {@link #companyCountry} at persist time, so the {@code NOT NULL}
+     * column {@code V45} lands is never written as an explicit {@code NULL}.
+     *
+     * <p>This method <strong>must not</strong> be named {@code onCreate}: {@link Auditable} already
+     * declares {@code @PrePersist protected void onCreate()}, so a method with that same signature here
+     * would <em>override</em> it and {@code Auditable}'s body would never run, leaving
+     * {@code created_at} / {@code updated_at} unset and failing their NOT NULL columns. A distinct name
+     * keeps both callbacks active.</p>
+     *
+     * <p>The set-if-null guard means the mapping never overwrites a value; nothing in this codebase
+     * supplies one, and the composite key is what refuses a caller that ever did.</p>
+     */
+    @PrePersist
+    protected void deriveCompanyFromCountry() {
+        if (company == null && companyCountry != null) {
+            company = companyCountry.getCompany();
+        }
+    }
+
     // Getters
     public UUID getId() {
         return id;
+    }
+
+    public Company getCompany() {
+        return company;
     }
 
     public CompanyCountry getCompanyCountry() {
@@ -89,6 +128,9 @@ public class CompanyRegion extends Auditable {
             region.companyCountry = companyCountry;
             return this;
         }
+
+        // No company(...) on purpose: the owner is derived by deriveCompanyFromCountry(). A builder
+        // method would be one more way to write a company that disagrees with the country.
 
         public Builder regionCode(String regionCode) {
             region.regionCode = regionCode;
