@@ -131,10 +131,38 @@ check_secret_files() {
 
 	FOUND=0
 	for secret_file in "$SECRETS_DIR"/*; do
+		local secret_name
+		secret_name="$(basename "$secret_file")"
 		# Skip tracked templates and dotfiles; only materialized secrets are gated
-		case "$(basename "$secret_file")" in
+		case "$secret_name" in
 			*.template | .gitignore) continue ;;
 		esac
+
+		# A directory is not a secret and is never read as one. Compose bind-mounts a file per secret
+		# and Docker creates an empty directory in place of a bind source that does not exist
+		# (docker-compose.yml:354-357 documents exactly that). Reading it went wrong in three
+		# measured ways: `test -s` is true for a directory, `grep` answered "Is a directory" instead
+		# of "no CHANGEME" -- which made the entry earn a success line it never earned -- and the
+		# mode of a directory is never 0444, so the gate failed over a file nothing required.
+		if [ -d "$secret_file" ]; then
+			if [ -f "$secret_file.template" ]; then
+				# The template set is exactly what setup-env.sh materializes, so a directory where a
+				# templated secret belongs means that secret was never materialized. This is the case
+				# where a directory really is a misconfiguration, and it keeps failing the gate.
+				print_error "$secret_file is a directory, but $secret_name.template declares this secret"
+				print_status "Run: ./docker/scripts/setup-env.sh $ENV (it materializes every *.template)"
+				ERRORS=$((ERRORS + 1))
+			else
+				# No template declares it, so nothing materializes it and nothing is missing: it is a
+				# file created by hand and read only when the feature that needs it is configured.
+				print_warning "$secret_file is a directory, not a secret file: Docker creates it in place of a bind-mount source that does not exist"
+				print_status "  No .template declares this name, so setup-env.sh never materializes it: it is created by hand and read only when the feature that needs it is configured. Remove it with: rmdir $secret_file"
+			fi
+			# Never counted as materialized: a folder holding only this directory still says
+			# 'No secrets materialized' below, which is the truth.
+			continue
+		fi
+
 		FOUND=1
 
 		if [ ! -s "$secret_file" ]; then
@@ -164,6 +192,32 @@ check_secret_files() {
 		print_status "Run: ./docker/scripts/setup-env.sh $ENV"
 		ERRORS=$((ERRORS + 1))
 	fi
+}
+
+# The one secret with no `.template`, and the one requirement that is conditional rather than structural.
+# `docker/secrets/smtp_password` is created by hand, so its absence is legal -- until the relay is told to
+# authenticate. `SMTP_AUTH=true` is what makes it required, and it is read by two other programs that
+# refuse without it: keycloak-setup.sh refuses to write the relay when the file is missing, empty or still
+# holds CHANGEME (keycloak-setup.sh:262-278), and Grafana's entrypoint exports it as GF_SMTP_PASSWORD only
+# when GF_SMTP_USER is non-empty. Without this check the gate reported "nothing is missing" over a
+# directory -- or no file at all -- in exactly the configuration that needs one, and let a production
+# start proceed to a setup step that would then abort.
+check_smtp_credential() {
+	if [ "$(get_env_var SMTP_AUTH)" != "true" ]; then
+		return 0
+	fi
+
+	print_status "Checking the SMTP credential (SMTP_AUTH=true)..."
+	local credential="$SECRETS_DIR/smtp_password"
+
+	if [ -f "$credential" ] && [ -s "$credential" ] && ! grep -q "CHANGEME" "$credential"; then
+		print_success "$credential set"
+		return 0
+	fi
+
+	print_error "$credential is required because SMTP_AUTH=true, and it must be a non-empty file without CHANGEME"
+	print_status "Create it by hand -- it has no .template on purpose -- or set SMTP_AUTH=false in $ENV_FILE"
+	ERRORS=$((ERRORS + 1))
 }
 
 check_volume_dirs() {
@@ -200,6 +254,7 @@ main() {
 	check_docker
 	check_ports
 	check_secret_files
+	check_smtp_credential
 	check_volume_dirs
 
 	echo ""
