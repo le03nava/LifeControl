@@ -23,11 +23,12 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * Supplier assignments of a company's products.
  *
- * <p>Suppliers are global (they get their own unit), but a product belongs to one company, so every
- * method here takes the company named by the path and resolves the product within it: a product of
- * another company is a 404, and the by-supplier read never returns another company's product that
- * happens to share the supplier. {@link CurrentUserContext#verifyCompanyAccess} runs first, before any
- * row is read.</p>
+ * <p>A product belongs to one company and a supplier belongs to one company too, so every method here
+ * takes the company named by the path and resolves both ends within it: the product through
+ * {@link #requireProduct(UUID, UUID)} and the supplier through the same company, so neither a product
+ * nor a supplier of another company is reachable. {@link CurrentUserContext#verifyCompanyAccess} runs
+ * first, before any row is read. The by-supplier read never returns another company's product that
+ * happens to share the supplier.</p>
  */
 @Service
 public class ProductSupplierService {
@@ -80,8 +81,11 @@ public class ProductSupplierService {
 
         var product = requireProduct(companyId, productId);
 
+        // The product was resolved through this company, so this company IS the product's owner. Scoping
+        // the supplier lookup by it is what makes another company's supplier unattachable: the row is a
+        // 404 here rather than a relation pointing across tenants.
         var supplier = supplierRepository
-                .findById(request.supplierId())
+                .findByIdAndCompanyId(request.supplierId(), companyId)
                 .orElseThrow(() -> new SupplierNotFoundException(request.supplierId()));
 
         if (productSupplierRepository.existsByProductIdAndSupplierId(productId, request.supplierId())) {

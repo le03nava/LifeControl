@@ -233,7 +233,7 @@ class ProductSupplierServiceTest {
             var request = new ProductSupplierRequest(supplierId, new BigDecimal("200.00"), false, true);
 
             when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
-            when(supplierRepository.findById(supplierId)).thenReturn(Optional.of(testSupplier));
+            when(supplierRepository.findByIdAndCompanyId(supplierId, companyId)).thenReturn(Optional.of(testSupplier));
             when(productSupplierRepository.existsByProductIdAndSupplierId(productId, supplierId))
                     .thenReturn(false);
             when(productSupplierRepository.save(any(ProductSupplier.class))).thenAnswer(inv -> {
@@ -279,7 +279,7 @@ class ProductSupplierServiceTest {
                     .build();
 
             when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
-            when(supplierRepository.findById(supplierId)).thenReturn(Optional.of(testSupplier));
+            when(supplierRepository.findByIdAndCompanyId(supplierId, companyId)).thenReturn(Optional.of(testSupplier));
             when(productSupplierRepository.existsByProductIdAndSupplierId(productId, supplierId))
                     .thenReturn(false);
             when(productSupplierRepository.findMainByProductId(productId)).thenReturn(Optional.of(existingMain));
@@ -315,7 +315,7 @@ class ProductSupplierServiceTest {
             var request = new ProductSupplierRequest(supplierId, new BigDecimal("300.00"), true, true);
 
             when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
-            when(supplierRepository.findById(supplierId)).thenReturn(Optional.of(testSupplier));
+            when(supplierRepository.findByIdAndCompanyId(supplierId, companyId)).thenReturn(Optional.of(testSupplier));
             when(productSupplierRepository.existsByProductIdAndSupplierId(productId, supplierId))
                     .thenReturn(false);
             when(productSupplierRepository.findMainByProductId(productId)).thenReturn(Optional.empty());
@@ -356,10 +356,49 @@ class ProductSupplierServiceTest {
             var request = new ProductSupplierRequest(supplierId, BigDecimal.TEN, false, true);
 
             when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
-            when(supplierRepository.findById(supplierId)).thenReturn(Optional.empty());
+            when(supplierRepository.findByIdAndCompanyId(supplierId, companyId)).thenReturn(Optional.empty());
 
             assertThatThrownBy(() -> service.addSupplierToProduct(companyId, productId, request))
                     .isInstanceOf(SupplierNotFoundException.class);
+        }
+
+        @Test
+        @DisplayName("should refuse a supplier of another company and store no relation")
+        void addSupplierToProduct_SupplierOfAnotherCompany_IsRefusedAndStoresNothing() {
+            // The supplier exists and is enabled, but it belongs to another company. The lookup is asked
+            // for the product's company, so the foreign row is never materialized and the answer is the
+            // same empty one an unknown id gets — the relation must not be written on the strength of a
+            // supplier that exists somewhere else.
+            var foreignCompany = Company.builder()
+                    .id(UUID.randomUUID())
+                    .companyKey("other")
+                    .companyName("Other Company")
+                    .build();
+            var foreignSupplier = Supplier.builder()
+                    .id(UUID.randomUUID())
+                    .supplierName("Foreign Supplier")
+                    .rfc("XAXX010101002")
+                    .company(foreignCompany)
+                    .enabled(true)
+                    .build();
+
+            var request = new ProductSupplierRequest(foreignSupplier.getId(), BigDecimal.TEN, false, true);
+
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
+            when(supplierRepository.findByIdAndCompanyId(foreignSupplier.getId(), companyId))
+                    .thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> service.addSupplierToProduct(companyId, productId, request))
+                    .isInstanceOf(SupplierNotFoundException.class)
+                    .hasMessageContaining(foreignSupplier.getId().toString());
+
+            // The supplier was resolved with the product's company, not with the supplier's own.
+            verify(supplierRepository).findByIdAndCompanyId(foreignSupplier.getId(), companyId);
+            // Nothing was stored: no relation, and the duplicate check that precedes the write never ran.
+            verify(productSupplierRepository, never()).save(any(ProductSupplier.class));
+            verify(productSupplierRepository, never()).existsByProductIdAndSupplierId(any(), any());
+            // The scope was not worked around with an unscoped load-then-compare.
+            verify(supplierRepository, never()).findById(any());
         }
 
         @Test
@@ -368,7 +407,7 @@ class ProductSupplierServiceTest {
             var request = new ProductSupplierRequest(supplierId, BigDecimal.TEN, false, true);
 
             when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
-            when(supplierRepository.findById(supplierId)).thenReturn(Optional.of(testSupplier));
+            when(supplierRepository.findByIdAndCompanyId(supplierId, companyId)).thenReturn(Optional.of(testSupplier));
             when(productSupplierRepository.existsByProductIdAndSupplierId(productId, supplierId))
                     .thenReturn(true);
 
@@ -470,9 +509,9 @@ class ProductSupplierServiceTest {
     }
 
     /**
-     * The tenancy boundary: suppliers are global, but a product is one company's, so every method here
-     * resolves the product <b>within</b> the company named by the path. A product of another company is a
-     * 404 and no relation of it is ever read or written.
+     * The tenancy boundary: a product and a supplier each belong to one company, so every method here
+     * resolves both ends <b>within</b> the company named by the path. A product of another company is a
+     * 404, a supplier of another company is a 404, and no relation of either is ever read or written.
      */
     @Nested
     @DisplayName("company scope")

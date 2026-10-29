@@ -2,6 +2,7 @@ package com.lifecontrol.api.supplier.model;
 
 import com.lifecontrol.api.common.address.model.Address;
 import com.lifecontrol.api.common.model.Auditable;
+import com.lifecontrol.api.company.model.Company;
 import com.lifecontrol.api.country.model.Country;
 import jakarta.persistence.*;
 import java.time.LocalDateTime;
@@ -31,6 +32,18 @@ public class Supplier extends Auditable {
 
     @Column(name = "internal_number")
     private String internalNumber;
+
+    /**
+     * The company that owns this supplier — the scope every read and write of the catalog uses.
+     *
+     * <p>Nullable <b>only</b> while the expand step of the tenancy migration is the head: the column
+     * arrives nullable in {@code V41} and becomes mandatory in {@code V42}, because a
+     * {@code NOT NULL} column cannot arrive before the write surface knows where the company comes
+     * from. Every write through the API sets it from the company in the path.</p>
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "company_id")
+    private Company company;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "country_id")
@@ -89,6 +102,10 @@ public class Supplier extends Auditable {
 
     public String getInternalNumber() {
         return internalNumber;
+    }
+
+    public Company getCompany() {
+        return company;
     }
 
     public Country getCountry() {
@@ -154,6 +171,10 @@ public class Supplier extends Auditable {
 
     public void setInternalNumber(String internalNumber) {
         this.internalNumber = internalNumber;
+    }
+
+    public void setCompany(Company company) {
+        this.company = company;
     }
 
     public void setCountry(Country country) {
@@ -232,6 +253,11 @@ public class Supplier extends Auditable {
 
         public Builder internalNumber(String internalNumber) {
             supplier.internalNumber = internalNumber;
+            return this;
+        }
+
+        public Builder company(Company company) {
+            supplier.company = company;
             return this;
         }
 

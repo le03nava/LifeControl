@@ -45,6 +45,8 @@ import tools.jackson.databind.ObjectMapper;
 @DisplayName("SupplierController Security — @PreAuthorize method-level authorization")
 class SupplierControllerSecurityTest {
 
+    private static final String BASE_URL = "/api/companies/{companyId}/suppliers";
+
     /**
      * Minimal security configuration that enables method-level security
      * without requiring JWT/OAuth2 infrastructure. @WithMockUser sets up
@@ -76,6 +78,8 @@ class SupplierControllerSecurityTest {
     @MockitoBean
     private RateLimitProperties rateLimitProperties;
 
+    private final UUID companyId = UUID.randomUUID();
+
     private SupplierRequest buildSupplierRequest() {
         return new SupplierRequest(
                 "Test Supplier",
@@ -88,104 +92,76 @@ class SupplierControllerSecurityTest {
                 true);
     }
 
-    // ─── GET /api/suppliers ───────────────────────────────────
+    private SupplierResponse buildSupplierResponse() {
+        return new SupplierResponse(
+                UUID.randomUUID(),
+                "Test",
+                "RS",
+                "XAXX010101000",
+                "e@e.com",
+                "555",
+                "INT-001",
+                new AddressResponse(null, "Calle", "123", null, "Centro", "12345", "CdMx", "CDMX", null),
+                true,
+                LocalDateTime.now(),
+                LocalDateTime.now(),
+                companyId);
+    }
+
+    private PageImpl<SupplierResponse> pageOfOne() {
+        return new PageImpl<>(List.of(buildSupplierResponse()), PageRequest.of(0, 12), 1);
+    }
+
+    // ─── GET /api/companies/{companyId}/suppliers ─────────────
 
     @Nested
-    @DisplayName("GET /api/suppliers")
+    @DisplayName("GET /api/companies/{companyId}/suppliers")
     class GetSuppliers {
 
         @Test
         @WithMockUser(roles = {"lc-admin"})
         @DisplayName("returns 200 OK for admin user")
         void adminCanGetSuppliers() throws Exception {
-            var response = new SupplierResponse(
-                    UUID.randomUUID(),
-                    "Test",
-                    "RS",
-                    "XAXX010101000",
-                    "e@e.com",
-                    "555",
-                    "INT-001",
-                    new AddressResponse(null, "Calle", "123", null, "Centro", "12345", "CdMx", "CDMX", null),
-                    true,
-                    LocalDateTime.now(),
-                    LocalDateTime.now());
-            var page = new PageImpl<>(List.of(response), PageRequest.of(0, 12), 1);
-            when(supplierService.getAllSuppliers(any(), eq(null), eq(false))).thenReturn(page);
+            when(supplierService.getAllSuppliers(any(), any(), eq(null), eq(false)))
+                    .thenReturn(pageOfOne());
 
-            mockMvc.perform(get("/api/suppliers")).andExpect(status().isOk());
+            mockMvc.perform(get(BASE_URL, companyId)).andExpect(status().isOk());
         }
 
         @Test
         @WithMockUser
         @DisplayName("returns 200 OK for authenticated user with no admin role")
         void authenticatedUserCanGetSuppliers() throws Exception {
-            var response = new SupplierResponse(
-                    UUID.randomUUID(),
-                    "Test",
-                    "RS",
-                    "XAXX010101000",
-                    "e@e.com",
-                    "555",
-                    "INT-001",
-                    new AddressResponse(null, "Calle", "123", null, "Centro", "12345", "CdMx", "CDMX", null),
-                    true,
-                    LocalDateTime.now(),
-                    LocalDateTime.now());
-            var page = new PageImpl<>(List.of(response), PageRequest.of(0, 12), 1);
-            when(supplierService.getAllSuppliers(any(), eq(null), eq(false))).thenReturn(page);
+            when(supplierService.getAllSuppliers(any(), any(), eq(null), eq(false)))
+                    .thenReturn(pageOfOne());
 
-            mockMvc.perform(get("/api/suppliers")).andExpect(status().isOk());
+            mockMvc.perform(get(BASE_URL, companyId)).andExpect(status().isOk());
         }
 
         @Test
         @WithMockUser(roles = {"other-role"})
         @DisplayName("returns 200 OK for authenticated user with any role")
         void userWithAnyRoleCanGetSuppliers() throws Exception {
-            var response = new SupplierResponse(
-                    UUID.randomUUID(),
-                    "Test",
-                    "RS",
-                    "XAXX010101000",
-                    "e@e.com",
-                    "555",
-                    "INT-001",
-                    new AddressResponse(null, "Calle", "123", null, "Centro", "12345", "CdMx", "CDMX", null),
-                    true,
-                    LocalDateTime.now(),
-                    LocalDateTime.now());
-            var page = new PageImpl<>(List.of(response), PageRequest.of(0, 12), 1);
-            when(supplierService.getAllSuppliers(any(), eq(null), eq(false))).thenReturn(page);
+            when(supplierService.getAllSuppliers(any(), any(), eq(null), eq(false)))
+                    .thenReturn(pageOfOne());
 
-            mockMvc.perform(get("/api/suppliers")).andExpect(status().isOk());
+            mockMvc.perform(get(BASE_URL, companyId)).andExpect(status().isOk());
         }
     }
 
-    // ─── POST /api/suppliers ─────────────────────────────────
+    // ─── POST /api/companies/{companyId}/suppliers ────────────
 
     @Nested
-    @DisplayName("POST /api/suppliers")
+    @DisplayName("POST /api/companies/{companyId}/suppliers")
     class PostSuppliers {
 
         @Test
         @WithMockUser(roles = {"lc-admin"})
         @DisplayName("returns 201 Created for admin user")
         void adminCanCreateSupplier() throws Exception {
-            var response = new SupplierResponse(
-                    UUID.randomUUID(),
-                    "Test",
-                    "RS",
-                    "XAXX010101000",
-                    "e@e.com",
-                    "555",
-                    "INT-001",
-                    new AddressResponse(null, "Calle", "123", null, "Centro", "12345", "CdMx", "CDMX", null),
-                    true,
-                    LocalDateTime.now(),
-                    LocalDateTime.now());
-            when(supplierService.createSupplier(any())).thenReturn(response);
+            when(supplierService.createSupplier(any(), any())).thenReturn(buildSupplierResponse());
 
-            mockMvc.perform(post("/api/suppliers")
+            mockMvc.perform(post(BASE_URL, companyId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(buildSupplierRequest())))
                     .andExpect(status().isCreated());
@@ -195,21 +171,9 @@ class SupplierControllerSecurityTest {
         @WithMockUser(roles = {"lc-product-supplier"})
         @DisplayName("returns 201 Created for lc-product-supplier user")
         void productSupplierRoleCanCreateSupplier() throws Exception {
-            var response = new SupplierResponse(
-                    UUID.randomUUID(),
-                    "Test",
-                    "RS",
-                    "XAXX010101000",
-                    "e@e.com",
-                    "555",
-                    "INT-001",
-                    new AddressResponse(null, "Calle", "123", null, "Centro", "12345", "CdMx", "CDMX", null),
-                    true,
-                    LocalDateTime.now(),
-                    LocalDateTime.now());
-            when(supplierService.createSupplier(any())).thenReturn(response);
+            when(supplierService.createSupplier(any(), any())).thenReturn(buildSupplierResponse());
 
-            mockMvc.perform(post("/api/suppliers")
+            mockMvc.perform(post(BASE_URL, companyId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(buildSupplierRequest())))
                     .andExpect(status().isCreated());
@@ -219,7 +183,7 @@ class SupplierControllerSecurityTest {
         @WithMockUser
         @DisplayName("returns 403 Forbidden for authenticated user with no roles")
         void userWithNoRolesGetsForbidden() throws Exception {
-            mockMvc.perform(post("/api/suppliers")
+            mockMvc.perform(post(BASE_URL, companyId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(buildSupplierRequest())))
                     .andExpect(status().isForbidden());
@@ -229,7 +193,7 @@ class SupplierControllerSecurityTest {
         @WithMockUser(roles = {"other-role"})
         @DisplayName("returns 403 Forbidden for user without admin role")
         void userWithoutAdminRoleGetsForbidden() throws Exception {
-            mockMvc.perform(post("/api/suppliers")
+            mockMvc.perform(post(BASE_URL, companyId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(buildSupplierRequest())))
                     .andExpect(status().isForbidden());
@@ -239,38 +203,26 @@ class SupplierControllerSecurityTest {
         @WithMockUser(roles = {"life-control-country"})
         @DisplayName("returns 403 Forbidden for country-role (admin-only write)")
         void countryRoleCannotCreateSupplier() throws Exception {
-            mockMvc.perform(post("/api/suppliers")
+            mockMvc.perform(post(BASE_URL, companyId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(buildSupplierRequest())))
                     .andExpect(status().isForbidden());
         }
     }
 
-    // ─── PUT /api/suppliers/{id} ──────────────────────────────
+    // ─── PUT /api/companies/{companyId}/suppliers/{id} ────────
 
     @Nested
-    @DisplayName("PUT /api/suppliers/{id}")
+    @DisplayName("PUT /api/companies/{companyId}/suppliers/{id}")
     class PutSuppliers {
 
         @Test
         @WithMockUser(roles = {"lc-admin"})
         @DisplayName("returns 200 OK for admin user")
         void adminCanUpdateSupplier() throws Exception {
-            var response = new SupplierResponse(
-                    UUID.randomUUID(),
-                    "Test",
-                    "RS",
-                    "XAXX010101000",
-                    "e@e.com",
-                    "555",
-                    "INT-001",
-                    new AddressResponse(null, "Calle", "123", null, "Centro", "12345", "CdMx", "CDMX", null),
-                    true,
-                    LocalDateTime.now(),
-                    LocalDateTime.now());
-            when(supplierService.updateSupplier(any(), any())).thenReturn(response);
+            when(supplierService.updateSupplier(any(), any(), any())).thenReturn(buildSupplierResponse());
 
-            mockMvc.perform(put("/api/suppliers/{id}", UUID.randomUUID())
+            mockMvc.perform(put(BASE_URL + "/{id}", companyId, UUID.randomUUID())
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(buildSupplierRequest())))
                     .andExpect(status().isOk());
@@ -280,21 +232,9 @@ class SupplierControllerSecurityTest {
         @WithMockUser(roles = {"lc-product-supplier"})
         @DisplayName("returns 200 OK for lc-product-supplier user")
         void productSupplierRoleCanUpdateSupplier() throws Exception {
-            var response = new SupplierResponse(
-                    UUID.randomUUID(),
-                    "Test",
-                    "RS",
-                    "XAXX010101000",
-                    "e@e.com",
-                    "555",
-                    "INT-001",
-                    new AddressResponse(null, "Calle", "123", null, "Centro", "12345", "CdMx", "CDMX", null),
-                    true,
-                    LocalDateTime.now(),
-                    LocalDateTime.now());
-            when(supplierService.updateSupplier(any(), any())).thenReturn(response);
+            when(supplierService.updateSupplier(any(), any(), any())).thenReturn(buildSupplierResponse());
 
-            mockMvc.perform(put("/api/suppliers/{id}", UUID.randomUUID())
+            mockMvc.perform(put(BASE_URL + "/{id}", companyId, UUID.randomUUID())
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(buildSupplierRequest())))
                     .andExpect(status().isOk());
@@ -304,7 +244,7 @@ class SupplierControllerSecurityTest {
         @WithMockUser
         @DisplayName("returns 403 Forbidden for authenticated user with no roles")
         void userWithNoRolesGetsForbidden() throws Exception {
-            mockMvc.perform(put("/api/suppliers/{id}", UUID.randomUUID())
+            mockMvc.perform(put(BASE_URL + "/{id}", companyId, UUID.randomUUID())
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(buildSupplierRequest())))
                     .andExpect(status().isForbidden());
@@ -314,7 +254,7 @@ class SupplierControllerSecurityTest {
         @WithMockUser(roles = {"other-role"})
         @DisplayName("returns 403 Forbidden for user without admin role")
         void userWithoutAdminRoleGetsForbidden() throws Exception {
-            mockMvc.perform(put("/api/suppliers/{id}", UUID.randomUUID())
+            mockMvc.perform(put(BASE_URL + "/{id}", companyId, UUID.randomUUID())
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(buildSupplierRequest())))
                     .andExpect(status().isForbidden());
@@ -324,17 +264,17 @@ class SupplierControllerSecurityTest {
         @WithMockUser(roles = {"life-control-country"})
         @DisplayName("returns 403 Forbidden for country-role (admin-only write)")
         void countryRoleCannotUpdateSupplier() throws Exception {
-            mockMvc.perform(put("/api/suppliers/{id}", UUID.randomUUID())
+            mockMvc.perform(put(BASE_URL + "/{id}", companyId, UUID.randomUUID())
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(buildSupplierRequest())))
                     .andExpect(status().isForbidden());
         }
     }
 
-    // ─── DELETE /api/suppliers/{id} ───────────────────────────
+    // ─── DELETE /api/companies/{companyId}/suppliers/{id} ─────
 
     @Nested
-    @DisplayName("DELETE /api/suppliers/{id}")
+    @DisplayName("DELETE /api/companies/{companyId}/suppliers/{id}")
     class DeleteSuppliers {
 
         @Test
@@ -342,35 +282,39 @@ class SupplierControllerSecurityTest {
         @DisplayName("returns 204 No Content for admin user")
         void adminCanDeleteSupplier() throws Exception {
             var id = UUID.randomUUID();
-            mockMvc.perform(delete("/api/suppliers/{id}", id)).andExpect(status().isNoContent());
+            mockMvc.perform(delete(BASE_URL + "/{id}", companyId, id)).andExpect(status().isNoContent());
         }
 
         @Test
         @WithMockUser(roles = {"lc-product-supplier"})
         @DisplayName("returns 204 No Content for lc-product-supplier user")
         void productSupplierRoleCanDeleteSupplier() throws Exception {
-            mockMvc.perform(delete("/api/suppliers/{id}", UUID.randomUUID())).andExpect(status().isNoContent());
+            mockMvc.perform(delete(BASE_URL + "/{id}", companyId, UUID.randomUUID()))
+                    .andExpect(status().isNoContent());
         }
 
         @Test
         @WithMockUser
         @DisplayName("returns 403 Forbidden for authenticated user with no roles")
         void userWithNoRolesGetsForbidden() throws Exception {
-            mockMvc.perform(delete("/api/suppliers/{id}", UUID.randomUUID())).andExpect(status().isForbidden());
+            mockMvc.perform(delete(BASE_URL + "/{id}", companyId, UUID.randomUUID()))
+                    .andExpect(status().isForbidden());
         }
 
         @Test
         @WithMockUser(roles = {"other-role"})
         @DisplayName("returns 403 Forbidden for user without admin role")
         void userWithoutAdminRoleGetsForbidden() throws Exception {
-            mockMvc.perform(delete("/api/suppliers/{id}", UUID.randomUUID())).andExpect(status().isForbidden());
+            mockMvc.perform(delete(BASE_URL + "/{id}", companyId, UUID.randomUUID()))
+                    .andExpect(status().isForbidden());
         }
 
         @Test
         @WithMockUser(roles = {"life-control-country"})
         @DisplayName("returns 403 Forbidden for country-role (admin-only write)")
         void countryRoleCannotDeleteSupplier() throws Exception {
-            mockMvc.perform(delete("/api/suppliers/{id}", UUID.randomUUID())).andExpect(status().isForbidden());
+            mockMvc.perform(delete(BASE_URL + "/{id}", companyId, UUID.randomUUID()))
+                    .andExpect(status().isForbidden());
         }
     }
 }

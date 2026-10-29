@@ -3,12 +3,17 @@ package com.lifecontrol.api.supplier.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.lifecontrol.api.common.address.dto.AddressRequest;
 import com.lifecontrol.api.common.address.model.Address;
+import com.lifecontrol.api.common.auth.CurrentUserContext;
+import com.lifecontrol.api.company.exception.CompanyNotFoundException;
+import com.lifecontrol.api.company.model.Company;
+import com.lifecontrol.api.company.repository.CompanyRepository;
 import com.lifecontrol.api.country.model.Country;
 import com.lifecontrol.api.country.repository.CountryRepository;
 import com.lifecontrol.api.supplier.dto.SupplierRequest;
@@ -26,6 +31,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -43,6 +49,12 @@ class SupplierServiceTest {
     @Mock
     private CountryRepository countryRepository;
 
+    @Mock
+    private CompanyRepository companyRepository;
+
+    @Mock
+    private CurrentUserContext currentUserContext;
+
     @InjectMocks
     private SupplierService supplierService;
 
@@ -52,11 +64,34 @@ class SupplierServiceTest {
     private Address testAddress;
     private UUID testSupplierId;
     private UUID testCountryId;
+    private UUID companyId;
+    private UUID otherCompanyId;
+    private Company company;
+    private Company otherCompany;
 
     @BeforeEach
     void setUp() {
         testSupplierId = UUID.randomUUID();
         testCountryId = UUID.randomUUID();
+        companyId = UUID.randomUUID();
+        otherCompanyId = UUID.randomUUID();
+
+        company = Company.builder()
+                .id(companyId)
+                .companyKey("acme")
+                .companyName("Acme")
+                .build();
+
+        otherCompany = Company.builder()
+                .id(otherCompanyId)
+                .companyKey("other")
+                .companyName("Other")
+                .build();
+
+        // Every public method resolves the company first. Stubbed leniently because the cases that
+        // address another company's path resolve that one instead, so no single stub serves every case.
+        lenient().when(companyRepository.findById(companyId)).thenReturn(Optional.of(company));
+        lenient().when(companyRepository.findById(otherCompanyId)).thenReturn(Optional.of(otherCompany));
 
         testAddress = Address.builder()
                 .street("Main St")
@@ -77,6 +112,7 @@ class SupplierServiceTest {
                 .email("test@supplier.com")
                 .phoneNumber("+1234567890")
                 .internalNumber("INT-001")
+                .company(company)
                 .street("Calle Principal")
                 .streetNumber("123")
                 .neighborhood("Centro")
@@ -122,17 +158,20 @@ class SupplierServiceTest {
             var suppliers = List.of(testSupplier);
             var expectedPage = new PageImpl<>(suppliers, pageable, 1);
 
-            when(supplierRepository.findByEnabledTrue(pageable)).thenReturn(expectedPage);
+            when(supplierRepository.findByCompanyIdAndEnabledTrue(companyId, pageable))
+                    .thenReturn(expectedPage);
 
             // Act
-            Page<SupplierResponse> result = supplierService.getAllSuppliers(pageable, null, false);
+            Page<SupplierResponse> result = supplierService.getAllSuppliers(companyId, pageable, null, false);
 
             // Assert
             assertThat(result).isNotNull();
             assertThat(result.getContent()).hasSize(1);
             assertThat(result.getContent().get(0).supplierName()).isEqualTo("Test Supplier");
+            assertThat(result.getContent().get(0).companyId()).isEqualTo(companyId);
             assertThat(result.getTotalElements()).isEqualTo(1);
-            verify(supplierRepository).findByEnabledTrue(pageable);
+            verify(currentUserContext).verifyCompanyAccess(companyId);
+            verify(supplierRepository).findByCompanyIdAndEnabledTrue(companyId, pageable);
         }
 
         @Test
@@ -143,17 +182,17 @@ class SupplierServiceTest {
             var suppliers = List.of(testSupplier);
             var expectedPage = new PageImpl<>(suppliers, pageable, 1);
 
-            when(supplierRepository.findBySearchTermAndEnabledTrue("Test", pageable))
+            when(supplierRepository.findByCompanyIdAndSearchTermAndEnabledTrue(companyId, "Test", pageable))
                     .thenReturn(expectedPage);
 
             // Act
-            Page<SupplierResponse> result = supplierService.getAllSuppliers(pageable, "Test", false);
+            Page<SupplierResponse> result = supplierService.getAllSuppliers(companyId, pageable, "Test", false);
 
             // Assert
             assertThat(result).isNotNull();
             assertThat(result.getContent()).hasSize(1);
             assertThat(result.getContent().get(0).supplierName()).isEqualTo("Test Supplier");
-            verify(supplierRepository).findBySearchTermAndEnabledTrue("Test", pageable);
+            verify(supplierRepository).findByCompanyIdAndSearchTermAndEnabledTrue(companyId, "Test", pageable);
         }
 
         @Test
@@ -163,17 +202,17 @@ class SupplierServiceTest {
             var pageable = PageRequest.of(0, 12);
             var expectedPage = new PageImpl<Supplier>(List.of(), pageable, 0);
 
-            when(supplierRepository.findBySearchTermAndEnabledTrue("NonExistent", pageable))
+            when(supplierRepository.findByCompanyIdAndSearchTermAndEnabledTrue(companyId, "NonExistent", pageable))
                     .thenReturn(expectedPage);
 
             // Act
-            Page<SupplierResponse> result = supplierService.getAllSuppliers(pageable, "NonExistent", false);
+            Page<SupplierResponse> result = supplierService.getAllSuppliers(companyId, pageable, "NonExistent", false);
 
             // Assert
             assertThat(result).isNotNull();
             assertThat(result.getContent()).isEmpty();
             assertThat(result.getTotalElements()).isZero();
-            verify(supplierRepository).findBySearchTermAndEnabledTrue("NonExistent", pageable);
+            verify(supplierRepository).findByCompanyIdAndSearchTermAndEnabledTrue(companyId, "NonExistent", pageable);
         }
 
         @Test
@@ -184,15 +223,16 @@ class SupplierServiceTest {
             var suppliers = List.of(testSupplier);
             var expectedPage = new PageImpl<>(suppliers, pageable, 1);
 
-            when(supplierRepository.findByEnabledTrue(pageable)).thenReturn(expectedPage);
+            when(supplierRepository.findByCompanyIdAndEnabledTrue(companyId, pageable))
+                    .thenReturn(expectedPage);
 
             // Act
-            Page<SupplierResponse> result = supplierService.getAllSuppliers(pageable, "   ", false);
+            Page<SupplierResponse> result = supplierService.getAllSuppliers(companyId, pageable, "   ", false);
 
             // Assert
             assertThat(result).isNotNull();
             assertThat(result.getContent()).hasSize(1);
-            verify(supplierRepository).findByEnabledTrue(pageable);
+            verify(supplierRepository).findByCompanyIdAndEnabledTrue(companyId, pageable);
         }
 
         @Test
@@ -203,15 +243,15 @@ class SupplierServiceTest {
             var suppliers = List.of(testSupplier);
             var expectedPage = new PageImpl<>(suppliers, pageable, 1);
 
-            when(supplierRepository.findAll(pageable)).thenReturn(expectedPage);
+            when(supplierRepository.findByCompanyId(companyId, pageable)).thenReturn(expectedPage);
 
             // Act
-            Page<SupplierResponse> result = supplierService.getAllSuppliers(pageable, null, true);
+            Page<SupplierResponse> result = supplierService.getAllSuppliers(companyId, pageable, null, true);
 
             // Assert
             assertThat(result).isNotNull();
             assertThat(result.getContent()).hasSize(1);
-            verify(supplierRepository).findAll(pageable);
+            verify(supplierRepository).findByCompanyId(companyId, pageable);
         }
 
         @Test
@@ -222,15 +262,30 @@ class SupplierServiceTest {
             var suppliers = List.of(testSupplier);
             var expectedPage = new PageImpl<>(suppliers, pageable, 1);
 
-            when(supplierRepository.findBySearchTerm("Test", pageable)).thenReturn(expectedPage);
+            when(supplierRepository.findByCompanyIdAndSearchTerm(companyId, "Test", pageable))
+                    .thenReturn(expectedPage);
 
             // Act
-            Page<SupplierResponse> result = supplierService.getAllSuppliers(pageable, "Test", true);
+            Page<SupplierResponse> result = supplierService.getAllSuppliers(companyId, pageable, "Test", true);
 
             // Assert
             assertThat(result).isNotNull();
             assertThat(result.getContent()).hasSize(1);
-            verify(supplierRepository).findBySearchTerm("Test", pageable);
+            verify(supplierRepository).findByCompanyIdAndSearchTerm(companyId, "Test", pageable);
+        }
+
+        @Test
+        @DisplayName("getAllSuppliers - should answer CompanyNotFoundException when the company does not exist")
+        void getAllSuppliers_UnknownCompany() {
+            // Arrange: an id no stub answers for, so the repository answers empty.
+            var unknownCompanyId = UUID.randomUUID();
+
+            // Act & Assert
+            assertThatThrownBy(
+                            () -> supplierService.getAllSuppliers(unknownCompanyId, PageRequest.of(0, 12), null, false))
+                    .isInstanceOf(CompanyNotFoundException.class);
+            verify(currentUserContext).verifyCompanyAccess(unknownCompanyId);
+            verify(supplierRepository, never()).findByCompanyIdAndEnabledTrue(any(), any());
         }
     }
 
@@ -242,15 +297,17 @@ class SupplierServiceTest {
         @DisplayName("getSupplierById - should return supplier when found")
         void getSupplierById_Success() {
             // Arrange
-            when(supplierRepository.findById(testSupplierId)).thenReturn(Optional.of(testSupplier));
+            when(supplierRepository.findByIdAndCompanyId(testSupplierId, companyId))
+                    .thenReturn(Optional.of(testSupplier));
 
             // Act
-            SupplierResponse result = supplierService.getSupplierById(testSupplierId);
+            SupplierResponse result = supplierService.getSupplierById(companyId, testSupplierId);
 
             // Assert
             assertThat(result).isNotNull();
             assertThat(result.supplierName()).isEqualTo(testSupplier.getSupplierName());
             assertThat(result.rfc()).isEqualTo(testSupplier.getRfc());
+            assertThat(result.companyId()).isEqualTo(companyId);
             // Legacy inline fallback: no Address entity, reads from inline columns
             assertThat(result.address()).isNotNull();
             assertThat(result.address().street()).isEqualTo("Calle Principal");
@@ -262,12 +319,29 @@ class SupplierServiceTest {
         @DisplayName("getSupplierById - should throw SupplierNotFoundException when not found")
         void getSupplierById_NotFound() {
             // Arrange
-            when(supplierRepository.findById(testSupplierId)).thenReturn(Optional.empty());
+            when(supplierRepository.findByIdAndCompanyId(testSupplierId, companyId))
+                    .thenReturn(Optional.empty());
 
             // Act & Assert
-            assertThatThrownBy(() -> supplierService.getSupplierById(testSupplierId))
+            assertThatThrownBy(() -> supplierService.getSupplierById(companyId, testSupplierId))
                     .isInstanceOf(SupplierNotFoundException.class)
                     .hasMessageContaining("Supplier not found with id");
+        }
+
+        @Test
+        @DisplayName("getSupplierById - a supplier of another company is not found, never read")
+        void getSupplierById_ForeignCompany() {
+            // The row exists — it belongs to companyId — but this call asks for it as another company's.
+            // A load-then-compare would materialize it and then decide; the scoped lookup cannot.
+            when(supplierRepository.findByIdAndCompanyId(testSupplierId, otherCompanyId))
+                    .thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> supplierService.getSupplierById(otherCompanyId, testSupplierId))
+                    .isInstanceOf(SupplierNotFoundException.class)
+                    .hasMessageContaining("Supplier not found with id");
+
+            verify(supplierRepository).findByIdAndCompanyId(testSupplierId, otherCompanyId);
+            verify(supplierRepository, never()).findById(testSupplierId);
         }
     }
 
@@ -279,11 +353,12 @@ class SupplierServiceTest {
         @DisplayName("createSupplier - should create and return supplier")
         void createSupplier_Success() {
             // Arrange
-            when(supplierRepository.existsByRfc(testSupplierRequest.rfc())).thenReturn(false);
+            when(supplierRepository.existsByCompanyIdAndRfc(companyId, testSupplierRequest.rfc()))
+                    .thenReturn(false);
             when(supplierRepository.save(any(Supplier.class))).thenReturn(testSupplier);
 
             // Act
-            SupplierResponse result = supplierService.createSupplier(testSupplierRequest);
+            SupplierResponse result = supplierService.createSupplier(companyId, testSupplierRequest);
 
             // Assert
             assertThat(result).isNotNull();
@@ -291,22 +366,62 @@ class SupplierServiceTest {
             assertThat(result.rfc()).isEqualTo(testSupplier.getRfc());
             assertThat(result.email()).isEqualTo(testSupplier.getEmail());
             assertThat(result.internalNumber()).isEqualTo("INT-001");
-            verify(supplierRepository).existsByRfc(testSupplierRequest.rfc());
+            assertThat(result.companyId()).isEqualTo(companyId);
+            verify(currentUserContext).verifyCompanyAccess(companyId);
+            verify(supplierRepository).existsByCompanyIdAndRfc(companyId, testSupplierRequest.rfc());
             verify(supplierRepository).save(any(Supplier.class));
         }
 
         @Test
-        @DisplayName("createSupplier - should throw DuplicateSupplierException when RFC exists")
+        @DisplayName("createSupplier - should store the company the path names as the owner")
+        void createSupplier_StoresTheResolvedCompany() {
+            // Arrange
+            var captor = ArgumentCaptor.forClass(Supplier.class);
+            when(supplierRepository.existsByCompanyIdAndRfc(companyId, testSupplierRequest.rfc()))
+                    .thenReturn(false);
+            when(supplierRepository.save(captor.capture())).thenAnswer(inv -> inv.getArgument(0));
+
+            // Act
+            var result = supplierService.createSupplier(companyId, testSupplierRequest);
+
+            // Assert
+            assertThat(captor.getValue().getCompany()).isSameAs(company);
+            assertThat(result.companyId()).isEqualTo(companyId);
+        }
+
+        @Test
+        @DisplayName("createSupplier - should throw DuplicateSupplierException when RFC exists in the company")
         void createSupplier_DuplicateRfc() {
             // Arrange
-            when(supplierRepository.existsByRfc(testSupplierRequest.rfc())).thenReturn(true);
+            when(supplierRepository.existsByCompanyIdAndRfc(companyId, testSupplierRequest.rfc()))
+                    .thenReturn(true);
 
             // Act & Assert
-            assertThatThrownBy(() -> supplierService.createSupplier(testSupplierRequest))
+            assertThatThrownBy(() -> supplierService.createSupplier(companyId, testSupplierRequest))
                     .isInstanceOf(DuplicateSupplierException.class)
                     .hasMessageContaining("Supplier with RFC");
-            verify(supplierRepository).existsByRfc(testSupplierRequest.rfc());
+            verify(supplierRepository).existsByCompanyIdAndRfc(companyId, testSupplierRequest.rfc());
             verify(supplierRepository, never()).save(any(Supplier.class));
+        }
+
+        @Test
+        @DisplayName("createSupplier - the same RFC in another company is accepted")
+        void createSupplier_SameRfcInAnotherCompanyIsAccepted() {
+            // The RFC exists in `company` and not in `otherCompany`: the duplicate rule is per company,
+            // so this create must be accepted and the owner must be the other company.
+            when(supplierRepository.existsByCompanyIdAndRfc(otherCompanyId, testSupplierRequest.rfc()))
+                    .thenReturn(false);
+            var captor = ArgumentCaptor.forClass(Supplier.class);
+            when(supplierRepository.save(captor.capture())).thenAnswer(inv -> inv.getArgument(0));
+
+            // Act
+            var result = supplierService.createSupplier(otherCompanyId, testSupplierRequest);
+
+            // Assert
+            assertThat(result.companyId()).isEqualTo(otherCompanyId);
+            assertThat(captor.getValue().getCompany()).isSameAs(otherCompany);
+            verify(supplierRepository).existsByCompanyIdAndRfc(otherCompanyId, testSupplierRequest.rfc());
+            verify(supplierRepository, never()).existsByCompanyIdAndRfc(companyId, testSupplierRequest.rfc());
         }
 
         @Test
@@ -330,16 +445,18 @@ class SupplierServiceTest {
                     .razonSocial("Razon Social")
                     .rfc("ABCD123456XYZ")
                     .email("new@supplier.com")
+                    .company(company)
                     .enabled(true)
                     .createdAt(LocalDateTime.now())
                     .updatedAt(LocalDateTime.now())
                     .build();
 
-            when(supplierRepository.existsByRfc("ABCD123456XYZ")).thenReturn(false);
+            when(supplierRepository.existsByCompanyIdAndRfc(companyId, "ABCD123456XYZ"))
+                    .thenReturn(false);
             when(supplierRepository.save(any(Supplier.class))).thenReturn(savedSupplier);
 
             // Act
-            SupplierResponse result = supplierService.createSupplier(requestWithNullEnabled);
+            SupplierResponse result = supplierService.createSupplier(companyId, requestWithNullEnabled);
 
             // Assert
             assertThat(result).isNotNull();
@@ -357,13 +474,13 @@ class SupplierServiceTest {
                     .enabled(true)
                     .build();
 
-            when(supplierRepository.existsByRfc(testSupplierRequestWithAddress.rfc()))
+            when(supplierRepository.existsByCompanyIdAndRfc(companyId, testSupplierRequestWithAddress.rfc()))
                     .thenReturn(false);
             when(countryRepository.findById(testCountryId)).thenReturn(Optional.of(country));
             when(supplierRepository.save(any(Supplier.class))).thenAnswer(inv -> inv.getArgument(0));
 
             // Act
-            SupplierResponse result = supplierService.createSupplier(testSupplierRequestWithAddress);
+            SupplierResponse result = supplierService.createSupplier(companyId, testSupplierRequestWithAddress);
 
             // Assert
             assertThat(result).isNotNull();
@@ -390,20 +507,23 @@ class SupplierServiceTest {
                     .rfc("XAXX010101002")
                     .email("noaddr@supplier.com")
                     .phoneNumber("+1111111111")
+                    .company(company)
                     .enabled(true)
                     .createdAt(LocalDateTime.now())
                     .updatedAt(LocalDateTime.now())
                     .build();
 
-            when(supplierRepository.existsByRfc(testSupplierRequest.rfc())).thenReturn(false);
+            when(supplierRepository.existsByCompanyIdAndRfc(companyId, testSupplierRequest.rfc()))
+                    .thenReturn(false);
             when(supplierRepository.save(any(Supplier.class))).thenReturn(supplierWithoutAddress);
 
             // Act
-            SupplierResponse result = supplierService.createSupplier(testSupplierRequest);
+            SupplierResponse result = supplierService.createSupplier(companyId, testSupplierRequest);
 
             // Assert
             assertThat(result).isNotNull();
             // testSupplierRequest has address=null, so no address should be mapped
+            assertThat(result.address()).isNull();
         }
     }
 
@@ -425,11 +545,12 @@ class SupplierServiceTest {
                     null,
                     false);
 
-            when(supplierRepository.findById(testSupplierId)).thenReturn(Optional.of(testSupplier));
+            when(supplierRepository.findByIdAndCompanyId(testSupplierId, companyId))
+                    .thenReturn(Optional.of(testSupplier));
             when(supplierRepository.save(any(Supplier.class))).thenAnswer(inv -> inv.getArgument(0));
 
             // Act
-            SupplierResponse result = supplierService.updateSupplier(testSupplierId, updateRequest);
+            SupplierResponse result = supplierService.updateSupplier(companyId, testSupplierId, updateRequest);
 
             // Assert
             assertThat(result).isNotNull();
@@ -437,6 +558,7 @@ class SupplierServiceTest {
             assertThat(result.email()).isEqualTo("updated@supplier.com");
             assertThat(result.internalNumber()).isEqualTo("INT-003");
             assertThat(result.enabled()).isFalse();
+            assertThat(result.companyId()).isEqualTo(companyId);
             verify(supplierRepository).save(any(Supplier.class));
         }
 
@@ -462,12 +584,13 @@ class SupplierServiceTest {
                     .enabled(true)
                     .build();
 
-            when(supplierRepository.findById(testSupplierId)).thenReturn(Optional.of(testSupplier));
+            when(supplierRepository.findByIdAndCompanyId(testSupplierId, companyId))
+                    .thenReturn(Optional.of(testSupplier));
             when(countryRepository.findById(testCountryId)).thenReturn(Optional.of(country));
             when(supplierRepository.save(any(Supplier.class))).thenAnswer(inv -> inv.getArgument(0));
 
             // Act
-            SupplierResponse result = supplierService.updateSupplier(testSupplierId, addressUpdateRequest);
+            SupplierResponse result = supplierService.updateSupplier(companyId, testSupplierId, addressUpdateRequest);
 
             // Assert
             assertThat(result).isNotNull();
@@ -488,13 +611,34 @@ class SupplierServiceTest {
         @DisplayName("updateSupplier - should throw SupplierNotFoundException when not found")
         void updateSupplier_NotFound() {
             // Arrange
-            when(supplierRepository.findById(testSupplierId)).thenReturn(Optional.empty());
+            when(supplierRepository.findByIdAndCompanyId(testSupplierId, companyId))
+                    .thenReturn(Optional.empty());
 
             // Act & Assert
-            assertThatThrownBy(() -> supplierService.updateSupplier(testSupplierId, testSupplierRequest))
+            assertThatThrownBy(() -> supplierService.updateSupplier(companyId, testSupplierId, testSupplierRequest))
                     .isInstanceOf(SupplierNotFoundException.class)
                     .hasMessageContaining("Supplier not found with id");
             verify(supplierRepository, never()).save(any(Supplier.class));
+        }
+
+        @Test
+        @DisplayName("updateSupplier - a supplier of another company cannot be updated, and nothing is written")
+        void updateSupplier_ForeignCompany() {
+            when(supplierRepository.findByIdAndCompanyId(testSupplierId, otherCompanyId))
+                    .thenReturn(Optional.empty());
+
+            var originalName = testSupplier.getSupplierName();
+
+            assertThatThrownBy(
+                            () -> supplierService.updateSupplier(otherCompanyId, testSupplierId, testSupplierRequest))
+                    .isInstanceOf(SupplierNotFoundException.class)
+                    .hasMessageContaining("Supplier not found with id");
+
+            // The refused write leaves the row exactly as it was: the lookup is what refused, so no
+            // setter ever ran.
+            assertThat(testSupplier.getSupplierName()).isEqualTo(originalName);
+            verify(supplierRepository, never()).save(any(Supplier.class));
+            verify(supplierRepository, never()).findById(testSupplierId);
         }
 
         @Test
@@ -505,12 +649,13 @@ class SupplierServiceTest {
             var requestWithDifferentRfc = new SupplierRequest(
                     "Test Supplier", "Test Razon Social", "DIFFERENTRFC123", null, null, null, null, true);
 
-            when(supplierRepository.findById(testSupplierId)).thenReturn(Optional.of(testSupplier));
-            when(supplierRepository.existsByRfcAndIdNot("DIFFERENTRFC123", testSupplierId))
+            when(supplierRepository.findByIdAndCompanyId(testSupplierId, companyId))
+                    .thenReturn(Optional.of(testSupplier));
+            when(supplierRepository.existsByCompanyIdAndRfcAndIdNot(companyId, "DIFFERENTRFC123", testSupplierId))
                     .thenReturn(true);
 
             // Act & Assert
-            assertThatThrownBy(() -> supplierService.updateSupplier(testSupplierId, requestWithDifferentRfc))
+            assertThatThrownBy(() -> supplierService.updateSupplier(companyId, testSupplierId, requestWithDifferentRfc))
                     .isInstanceOf(DuplicateSupplierException.class)
                     .hasMessageContaining("Supplier with RFC");
             verify(supplierRepository, never()).save(any(Supplier.class));
@@ -530,15 +675,17 @@ class SupplierServiceTest {
                     null,
                     true);
 
-            when(supplierRepository.findById(testSupplierId)).thenReturn(Optional.of(testSupplier));
+            when(supplierRepository.findByIdAndCompanyId(testSupplierId, companyId))
+                    .thenReturn(Optional.of(testSupplier));
             when(supplierRepository.save(any(Supplier.class))).thenAnswer(inv -> inv.getArgument(0));
 
             // Act
-            SupplierResponse result = supplierService.updateSupplier(testSupplierId, requestWithSameRfc);
+            SupplierResponse result = supplierService.updateSupplier(companyId, testSupplierId, requestWithSameRfc);
 
             // Assert
             assertThat(result).isNotNull();
             assertThat(result.supplierName()).isEqualTo("Updated Name");
+            verify(supplierRepository, never()).existsByCompanyIdAndRfcAndIdNot(any(), any(), any());
             verify(supplierRepository).save(any(Supplier.class));
         }
     }
@@ -551,14 +698,15 @@ class SupplierServiceTest {
         @DisplayName("deleteSupplier - should soft-delete by setting enabled to false")
         void deleteSupplier_Success() {
             // Arrange
-            when(supplierRepository.findById(testSupplierId)).thenReturn(Optional.of(testSupplier));
+            when(supplierRepository.findByIdAndCompanyId(testSupplierId, companyId))
+                    .thenReturn(Optional.of(testSupplier));
             when(supplierRepository.save(any(Supplier.class))).thenAnswer(inv -> inv.getArgument(0));
 
             // Act
-            supplierService.deleteSupplier(testSupplierId);
+            supplierService.deleteSupplier(companyId, testSupplierId);
 
             // Assert
-            verify(supplierRepository).findById(testSupplierId);
+            verify(supplierRepository).findByIdAndCompanyId(testSupplierId, companyId);
             verify(supplierRepository).save(any(Supplier.class));
             assertThat(testSupplier.getEnabled()).isFalse();
         }
@@ -567,13 +715,29 @@ class SupplierServiceTest {
         @DisplayName("deleteSupplier - should throw SupplierNotFoundException when not found")
         void deleteSupplier_NotFound() {
             // Arrange
-            when(supplierRepository.findById(testSupplierId)).thenReturn(Optional.empty());
+            when(supplierRepository.findByIdAndCompanyId(testSupplierId, companyId))
+                    .thenReturn(Optional.empty());
 
             // Act & Assert
-            assertThatThrownBy(() -> supplierService.deleteSupplier(testSupplierId))
+            assertThatThrownBy(() -> supplierService.deleteSupplier(companyId, testSupplierId))
                     .isInstanceOf(SupplierNotFoundException.class)
                     .hasMessageContaining("Supplier not found with id");
             verify(supplierRepository, never()).save(any(Supplier.class));
+        }
+
+        @Test
+        @DisplayName("deleteSupplier - a supplier of another company cannot be deleted and stays enabled")
+        void deleteSupplier_ForeignCompany() {
+            when(supplierRepository.findByIdAndCompanyId(testSupplierId, otherCompanyId))
+                    .thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> supplierService.deleteSupplier(otherCompanyId, testSupplierId))
+                    .isInstanceOf(SupplierNotFoundException.class)
+                    .hasMessageContaining("Supplier not found with id");
+
+            assertThat(testSupplier.getEnabled()).isTrue();
+            verify(supplierRepository, never()).save(any(Supplier.class));
+            verify(supplierRepository, never()).findById(testSupplierId);
         }
     }
 }

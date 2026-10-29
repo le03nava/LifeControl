@@ -415,7 +415,7 @@ class PurchaseOrderServiceTest {
         void createsPOWithDraftAndOrderNumber() {
             var request = new PurchaseOrderRequest(supplierId, storeId, pmId, draftStatusId, "Comments", List.of());
 
-            when(supplierRepository.findById(supplierId)).thenReturn(Optional.of(supplier));
+            when(supplierRepository.findByIdAndCompanyId(supplierId, companyId)).thenReturn(Optional.of(supplier));
             when(companyStoreRepository.findById(storeId)).thenReturn(Optional.of(store));
             when(paymentMethodRepository.findById(pmId)).thenReturn(Optional.of(paymentMethod));
             when(statusRepository.findById(draftStatusId)).thenReturn(Optional.of(draftStatus));
@@ -451,7 +451,7 @@ class PurchaseOrderServiceTest {
             var request =
                     new PurchaseOrderRequest(supplierId, storeId, pmId, draftStatusId, "Comments", List.of(detailReq));
 
-            when(supplierRepository.findById(supplierId)).thenReturn(Optional.of(supplier));
+            when(supplierRepository.findByIdAndCompanyId(supplierId, companyId)).thenReturn(Optional.of(supplier));
             when(companyStoreRepository.findById(storeId)).thenReturn(Optional.of(store));
             when(paymentMethodRepository.findById(pmId)).thenReturn(Optional.of(paymentMethod));
             when(statusRepository.findById(draftStatusId)).thenReturn(Optional.of(draftStatus));
@@ -491,7 +491,7 @@ class PurchaseOrderServiceTest {
             var request =
                     new PurchaseOrderRequest(supplierId, storeId, pmId, draftStatusId, "Comments", List.of(detailReq));
 
-            when(supplierRepository.findById(supplierId)).thenReturn(Optional.of(supplier));
+            when(supplierRepository.findByIdAndCompanyId(supplierId, companyId)).thenReturn(Optional.of(supplier));
             when(companyStoreRepository.findById(storeId)).thenReturn(Optional.of(store));
             when(paymentMethodRepository.findById(pmId)).thenReturn(Optional.of(paymentMethod));
             when(statusRepository.findById(draftStatusId)).thenReturn(Optional.of(draftStatus));
@@ -523,17 +523,43 @@ class PurchaseOrderServiceTest {
         @DisplayName("should throw SupplierNotFoundException when supplier missing")
         void throwsWhenSupplierMissing() {
             var request = new PurchaseOrderRequest(supplierId, storeId, pmId, draftStatusId, null, List.of());
-            when(supplierRepository.findById(supplierId)).thenReturn(Optional.empty());
+            // The store is resolved first: its company is what the supplier lookup is scoped by.
+            when(companyStoreRepository.findById(storeId)).thenReturn(Optional.of(store));
+            when(supplierRepository.findByIdAndCompanyId(supplierId, companyId)).thenReturn(Optional.empty());
 
             assertThatThrownBy(() -> service.createPurchaseOrder(request))
                     .isInstanceOf(SupplierNotFoundException.class);
         }
 
         @Test
+        @DisplayName("should refuse a supplier of another company and persist nothing")
+        void refusesSupplierOfAnotherCompanyAndPersistsNothing() {
+            // The order's store belongs to companyId, and that is the tenant the order belongs to; the
+            // supplier id names a row that exists under a different company. The scoped lookup is asked
+            // for the store's company, so the foreign row is indistinguishable from none — and the order
+            // must not be written on the strength of a supplier that exists somewhere else.
+            var request = new PurchaseOrderRequest(supplierId, storeId, pmId, draftStatusId, "Comments", List.of());
+
+            when(companyStoreRepository.findById(storeId)).thenReturn(Optional.of(store));
+            when(supplierRepository.findByIdAndCompanyId(supplierId, companyId)).thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> service.createPurchaseOrder(request))
+                    .isInstanceOf(SupplierNotFoundException.class)
+                    .hasMessageContaining(supplierId.toString());
+
+            // The company asked for is the one that owns the order's store — not the supplier's own.
+            verify(supplierRepository).findByIdAndCompanyId(supplierId, companyId);
+            // Nothing is stored: no order, no line, no event, and the payment method is never asked for.
+            verify(purchaseOrderRepository, never()).save(any(PurchaseOrder.class));
+            verify(detailRepository, never()).saveAll(any());
+            verify(eventPublisher, never()).publishEvent(any());
+            verify(paymentMethodRepository, never()).findById(any());
+        }
+
+        @Test
         @DisplayName("should throw CompanyStoreNotFoundException when store missing")
         void throwsWhenStoreMissing() {
             var request = new PurchaseOrderRequest(supplierId, storeId, pmId, draftStatusId, null, List.of());
-            when(supplierRepository.findById(supplierId)).thenReturn(Optional.of(supplier));
             when(companyStoreRepository.findById(storeId)).thenReturn(Optional.empty());
 
             assertThatThrownBy(() -> service.createPurchaseOrder(request))
@@ -544,7 +570,7 @@ class PurchaseOrderServiceTest {
         @DisplayName("should throw PaymentMethodNotFoundException when payment method missing")
         void throwsWhenPaymentMethodMissing() {
             var request = new PurchaseOrderRequest(supplierId, storeId, pmId, draftStatusId, null, List.of());
-            when(supplierRepository.findById(supplierId)).thenReturn(Optional.of(supplier));
+            when(supplierRepository.findByIdAndCompanyId(supplierId, companyId)).thenReturn(Optional.of(supplier));
             when(companyStoreRepository.findById(storeId)).thenReturn(Optional.of(store));
             when(paymentMethodRepository.findById(pmId)).thenReturn(Optional.empty());
 
@@ -556,7 +582,7 @@ class PurchaseOrderServiceTest {
         @DisplayName("should throw StatusNotFoundException when status missing")
         void throwsWhenStatusMissing() {
             var request = new PurchaseOrderRequest(supplierId, storeId, pmId, draftStatusId, null, List.of());
-            when(supplierRepository.findById(supplierId)).thenReturn(Optional.of(supplier));
+            when(supplierRepository.findByIdAndCompanyId(supplierId, companyId)).thenReturn(Optional.of(supplier));
             when(companyStoreRepository.findById(storeId)).thenReturn(Optional.of(store));
             when(paymentMethodRepository.findById(pmId)).thenReturn(Optional.of(paymentMethod));
             when(statusRepository.findById(draftStatusId)).thenReturn(Optional.empty());
@@ -568,7 +594,7 @@ class PurchaseOrderServiceTest {
         @DisplayName("should throw when status has wrong type")
         void throwsWhenWrongStatusType() {
             var request = new PurchaseOrderRequest(supplierId, storeId, pmId, pendingStatus.getId(), null, List.of());
-            when(supplierRepository.findById(supplierId)).thenReturn(Optional.of(supplier));
+            when(supplierRepository.findByIdAndCompanyId(supplierId, companyId)).thenReturn(Optional.of(supplier));
             when(companyStoreRepository.findById(storeId)).thenReturn(Optional.of(store));
             when(paymentMethodRepository.findById(pmId)).thenReturn(Optional.of(paymentMethod));
             when(statusRepository.findById(pendingStatus.getId())).thenReturn(Optional.of(pendingStatus));
@@ -582,7 +608,6 @@ class PurchaseOrderServiceTest {
         @DisplayName("should throw AccessDeniedException when the caller holds no grant for the store")
         void throwsWhenStoreOutsideCallerScope() {
             var request = new PurchaseOrderRequest(supplierId, storeId, pmId, draftStatusId, null, List.of());
-            when(supplierRepository.findById(supplierId)).thenReturn(Optional.of(supplier));
             when(companyStoreRepository.findById(storeId)).thenReturn(Optional.of(store));
             doThrow(new AccessDeniedException("Access denied"))
                     .when(currentUserContext)
@@ -592,6 +617,8 @@ class PurchaseOrderServiceTest {
 
             // The guard must receive the chain derived from the store, not the raw store id.
             verify(currentUserContext).verifyCompanyStoreAccess(companyId, companyCountryId, regionId, zoneId, storeId);
+            // A store the caller may not touch is refused before the supplier is even asked for.
+            verify(supplierRepository, never()).findByIdAndCompanyId(any(), any());
             verify(purchaseOrderRepository, never()).save(any(PurchaseOrder.class));
         }
     }
@@ -608,7 +635,7 @@ class PurchaseOrderServiceTest {
             var request =
                     new PurchaseOrderRequest(supplierId, storeId, pmId, draftStatusId, "Updated comments", List.of());
             when(purchaseOrderRepository.findById(poId)).thenReturn(Optional.of(purchaseOrder));
-            when(supplierRepository.findById(supplierId)).thenReturn(Optional.of(supplier));
+            when(supplierRepository.findByIdAndCompanyId(supplierId, companyId)).thenReturn(Optional.of(supplier));
             when(companyStoreRepository.findById(storeId)).thenReturn(Optional.of(store));
             when(paymentMethodRepository.findById(pmId)).thenReturn(Optional.of(paymentMethod));
             when(statusRepository.findById(draftStatusId)).thenReturn(Optional.of(draftStatus));
@@ -645,7 +672,7 @@ class PurchaseOrderServiceTest {
                     new PurchaseOrderRequest(supplierId, storeId, pmId, draftStatusId, "Replaced", List.of(detailReq));
 
             when(purchaseOrderRepository.findById(poId)).thenReturn(Optional.of(purchaseOrder));
-            when(supplierRepository.findById(supplierId)).thenReturn(Optional.of(supplier));
+            when(supplierRepository.findByIdAndCompanyId(supplierId, companyId)).thenReturn(Optional.of(supplier));
             when(companyStoreRepository.findById(storeId)).thenReturn(Optional.of(store));
             when(paymentMethodRepository.findById(pmId)).thenReturn(Optional.of(paymentMethod));
             when(statusRepository.findById(draftStatusId)).thenReturn(Optional.of(draftStatus));
@@ -673,7 +700,6 @@ class PurchaseOrderServiceTest {
         void throwsWhenStoreOutsideCallerScope() {
             var request = new PurchaseOrderRequest(supplierId, storeId, pmId, draftStatusId, null, List.of());
             when(purchaseOrderRepository.findById(poId)).thenReturn(Optional.of(purchaseOrder));
-            when(supplierRepository.findById(supplierId)).thenReturn(Optional.of(supplier));
             when(companyStoreRepository.findById(storeId)).thenReturn(Optional.of(store));
             doThrow(new AccessDeniedException("Access denied"))
                     .when(currentUserContext)
@@ -682,6 +708,7 @@ class PurchaseOrderServiceTest {
             assertThatThrownBy(() -> service.updatePurchaseOrder(poId, request))
                     .isInstanceOf(AccessDeniedException.class);
 
+            verify(supplierRepository, never()).findByIdAndCompanyId(any(), any());
             verify(purchaseOrderRepository, never()).save(any(PurchaseOrder.class));
         }
     }
@@ -936,7 +963,7 @@ class PurchaseOrderServiceTest {
             var request =
                     new PurchaseOrderRequest(supplierId, storeId, pmId, draftStatusId, "Comments", List.of(detailReq));
 
-            when(supplierRepository.findById(supplierId)).thenReturn(Optional.of(supplier));
+            when(supplierRepository.findByIdAndCompanyId(supplierId, companyId)).thenReturn(Optional.of(supplier));
             when(companyStoreRepository.findById(storeId)).thenReturn(Optional.of(store));
             when(paymentMethodRepository.findById(pmId)).thenReturn(Optional.of(paymentMethod));
             when(statusRepository.findById(draftStatusId)).thenReturn(Optional.of(draftStatus));
@@ -966,7 +993,7 @@ class PurchaseOrderServiceTest {
             var request =
                     new PurchaseOrderRequest(supplierId, storeId, pmId, draftStatusId, "Comments", List.of(detailReq));
 
-            when(supplierRepository.findById(supplierId)).thenReturn(Optional.of(supplier));
+            when(supplierRepository.findByIdAndCompanyId(supplierId, companyId)).thenReturn(Optional.of(supplier));
             when(companyStoreRepository.findById(storeId)).thenReturn(Optional.of(store));
             when(paymentMethodRepository.findById(pmId)).thenReturn(Optional.of(paymentMethod));
             when(statusRepository.findById(draftStatusId)).thenReturn(Optional.of(draftStatus));
@@ -1006,7 +1033,7 @@ class PurchaseOrderServiceTest {
             var request =
                     new PurchaseOrderRequest(supplierId, storeId, pmId, draftStatusId, "Comments", List.of(detailReq));
 
-            when(supplierRepository.findById(supplierId)).thenReturn(Optional.of(supplier));
+            when(supplierRepository.findByIdAndCompanyId(supplierId, companyId)).thenReturn(Optional.of(supplier));
             when(companyStoreRepository.findById(storeId)).thenReturn(Optional.of(store));
             when(paymentMethodRepository.findById(pmId)).thenReturn(Optional.of(paymentMethod));
             when(statusRepository.findById(draftStatusId)).thenReturn(Optional.of(draftStatus));
