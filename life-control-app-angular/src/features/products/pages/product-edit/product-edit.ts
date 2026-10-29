@@ -9,9 +9,15 @@ import {
 } from '@angular/core';
 import { NgTemplateOutlet } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
-import { ActivatedRoute, Router, RouterLink, convertToParamMap } from '@angular/router';
+import {
+  ActivatedRoute,
+  NavigationEnd,
+  Router,
+  RouterLink,
+  convertToParamMap,
+} from '@angular/router';
 import { rxResource, takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
-import { map } from 'rxjs';
+import { Subscription, distinctUntilChanged, filter, map, startWith } from 'rxjs';
 import { ProductService } from '../../data/product.service';
 import { productsCompanyId } from '../../data/products-company';
 import { ProductCategoryService } from '../../data/product-category.service';
@@ -82,6 +88,14 @@ export class ProductEdit implements OnInit, UnsavedChangesAware {
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
 
+  /**
+   * The id the route addresses.
+   *
+   * A signal and not a constant, because `edit/:id` is **one route config for every product**: the router
+   * reuses this component, and an id read once from the snapshot left the previous product on screen for
+   * as long as the workspace stayed open (record `products-company-filter`, L5). It is written from the
+   * route on every completed navigation that changes which product the URL names.
+   */
   productId = signal<string | null>(this.route.snapshot.paramMap.get('id'));
 
   /**
@@ -95,6 +109,9 @@ export class ProductEdit implements OnInit, UnsavedChangesAware {
    * On **edit** it is simply what the URL said, and it is required: a product id alone cannot be
    * addressed on `/api/companies/{companyId}/products`, and the field is disabled because the product's
    * owner is fixed. `null` there is a stated error, not a company to invent (see the template).
+   *
+   * It is also kept in step with the route (`applyRouteProduct`): the pick on create is written back to
+   * `?companyId=`, so both agree, and on edit the URL is the only answer that can address the product.
    */
   readonly selectedCompanyId = signal<string | null>(productsCompanyId(this.route));
 
@@ -321,21 +338,71 @@ export class ProductEdit implements OnInit, UnsavedChangesAware {
   readonly variantTabLabel = computed(() => `Variantes (${this.variantCount()})`);
 
   ngOnInit(): void {
-    const id = this.productId();
-    if (id) {
-      this.isEditMode.set(true);
-      this.loadProduct(id);
-    }
+    // The two values that address the product are followed, not read once. `edit/:id` is a single route
+    // config, so navigating to another product — or to another company's copy of it — reuses this
+    // instance, and a snapshot read left the first product in place forever (L5).
+    //
+    // `NavigationEnd` and not the route's own `paramMap`: it is the one signal that says the navigation
+    // *completed*, so a navigation the unsaved-changes guard refuses reloads nothing, and both values are
+    // read from the same settled route instead of from two streams that emit one after the other (which
+    // would spend a request on the new id under the old company). `startWith` keeps the first load in
+    // this same tick, exactly where it was when this body read the snapshot directly.
+    this.router.events
+      .pipe(
+        filter((event): event is NavigationEnd => event instanceof NavigationEnd),
+        startWith(null),
+        map(() => this.readRouteProduct()),
+        distinctUntilChanged(
+          (previous, next) => previous.id === next.id && previous.companyId === next.companyId,
+        ),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe(({ id, companyId }) => this.applyRouteProduct(id, companyId));
   }
 
-  private loadProduct(id: string): void {
-    const companyId = this.companyId();
+  /** What the route currently addresses: the product's id, and the company that owns it. */
+  private readRouteProduct(): { id: string | null; companyId: string | null } {
+    return {
+      id: this.route.snapshot.paramMap.get('id'),
+      companyId: productsCompanyId(this.route),
+    };
+  }
+
+  /**
+   * Moves the screen to the product the route names.
+   *
+   * The company is written into `selectedCompanyId`, not read from it: on create that signal is the
+   * operator's pick — written back to `?companyId=`, so the two agree — and on edit the URL is the only
+   * answer that can address a product on `/api/companies/{companyId}/products`.
+   */
+  private applyRouteProduct(id: string | null, companyId: string | null): void {
+    this.productId.set(id);
+    this.isEditMode.set(id !== null);
+    if (!id) {
+      return;
+    }
+    if (companyId !== this.selectedCompanyId()) {
+      this.selectedCompanyId.set(companyId);
+    }
+    this.loadProduct(id, companyId);
+  }
+
+  /**
+   * The read of the product that is in flight, cancelled when the route names another one.
+   *
+   * Without it, an answer for the previous product that lands after the new one would overwrite the
+   * form with a product the URL no longer names.
+   */
+  private loadSubscription: Subscription | null = null;
+
+  private loadProduct(id: string, companyId: string | null): void {
+    this.loadSubscription?.unsubscribe();
     if (!companyId) {
       // Nothing to read: `GET /api/companies/{companyId}/products/{id}` has no company-free form, and
       // the template states the missing company instead of rendering a form over a product nobody loaded.
       return;
     }
-    this.productService
+    this.loadSubscription = this.productService
       .getProductById(companyId, id)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({

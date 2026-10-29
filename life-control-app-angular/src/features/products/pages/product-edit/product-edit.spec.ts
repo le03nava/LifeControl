@@ -1,7 +1,13 @@
 import { ANIMATION_MODULE_TYPE } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
-import { ActivatedRoute, ParamMap, Router, convertToParamMap } from '@angular/router';
+import {
+  ActivatedRoute,
+  NavigationEnd,
+  ParamMap,
+  Router,
+  convertToParamMap,
+} from '@angular/router';
 import { ReactiveFormsModule } from '@angular/forms';
 import { HttpErrorResponse } from '@angular/common/http';
 import { BehaviorSubject, Observable, of, Subject, throwError } from 'rxjs';
@@ -56,6 +62,14 @@ describe('ProductEdit', () => {
   };
   let dialogMock: { open: ReturnType<typeof vi.fn> };
   let queryParams$: BehaviorSubject<ParamMap>;
+  /**
+   * The path params the route's snapshot reports.
+   *
+   * A mutable map and not a constant, because the defect this suite pins is a **navigation that reuses
+   * the instance**: the router activates the same route config (`edit/:id`) with another id, and the
+   * snapshot the component reads has already moved on by the time `NavigationEnd` arrives.
+   */
+  let paramMapValues: Record<string, string>;
   /**
    * The deferred category tree, when a spec asks for one (`categoriesDeferred`).
    *
@@ -264,6 +278,7 @@ describe('ProductEdit', () => {
     }
 
     queryParams$ = new BehaviorSubject<ParamMap>(convertToParamMap(initialQueryParams));
+    paramMapValues = productId ? { id: productId } : {};
 
     routeMock = {
       snapshot: {
@@ -271,7 +286,7 @@ describe('ProductEdit', () => {
         // expected a `:companyId` segment could not produce one here — which is what makes these
         // assertions pin the source instead of the value.
         paramMap: {
-          get: (key: string) => (key === 'id' ? productId : null),
+          get: (key: string) => paramMapValues[key] ?? null,
         },
         queryParamMap: { get: (key: string) => queryParams$.value.get(key) },
       },
@@ -912,6 +927,57 @@ describe('ProductEdit', () => {
       variantList?.componentInstance.countChange.emit(9);
       fixture.detectChanges();
       expect(tabLabels(fixture)[2]).toBe('Variantes (9)');
+    });
+  });
+
+  describe('the route names another product (S1)', () => {
+    /**
+     * The reported defect, as a navigation: `edit/:id` is the same route config for every product, so
+     * the router **reuses this instance**. Reading the id and the company from a snapshot left the
+     * workspace pointing at the first product forever (record `products-company-filter`, L5).
+     */
+    function navigateTo(id: string, companyId: string): void {
+      paramMapValues = { id };
+      queryParams$.next(convertToParamMap({ companyId }));
+      routerMock.events.next(
+        new NavigationEnd(1, '/products/edit/next', `/products/edit/next?companyId=${companyId}`),
+      );
+    }
+
+    it('should load the product the new id and company address, and render it', () => {
+      setup({ edit: true });
+      productServiceMock.getProductById.mockClear();
+      productServiceMock.getProductById.mockReturnValue(
+        of(createProductData({ id: 'next-id', name: 'Segundo Producto', sku: 'SKU-002' })),
+      );
+
+      navigateTo('next-id', 'company-2');
+
+      // One request, under the company the route names — not the one the first activation saw.
+      expect(productServiceMock.getProductById).toHaveBeenCalledTimes(1);
+      expect(productServiceMock.getProductById).toHaveBeenCalledWith('company-2', 'next-id');
+      expect(component.productId()).toBe('next-id');
+      expect(component.selectedCompanyId()).toBe('company-2');
+      expect(component.product()?.sku).toBe('SKU-002');
+      expect(component.productForm().controls.sku.value).toBe('SKU-002');
+    });
+
+    it('should not reload the product when only the tab the route names changes', async () => {
+      setup({ edit: true, queryParams: { tab: 'datos' } });
+      await settle();
+      expect(productServiceMock.getProductById).toHaveBeenCalledTimes(1);
+
+      paramMapValues = { id: 'existing-id' };
+      queryParams$.next(convertToParamMap({ companyId, tab: 'variantes' }));
+      routerMock.events.next(
+        new NavigationEnd(1, '/products/edit/existing-id', '/products/edit/existing-id'),
+      );
+      await settle();
+
+      // The product is the screen's identity; the tab is not. The same id under the same company is
+      // the same product, so a `?tab=` write must not spend a second read.
+      expect(productServiceMock.getProductById).toHaveBeenCalledTimes(1);
+      expect(activeTabLabel(fixture)).toBe('Variantes (2)');
     });
   });
 
