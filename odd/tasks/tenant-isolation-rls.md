@@ -871,12 +871,3 @@ two residues T5c named: the `V53` list as the one place a tenant table is added,
 assume: the guard's own verdict is cached per bean, so a suite that creates a table and expects the
 **startup** path to refuse it will not see it — the refusal is observed by calling
 `assertNoUnprotectedTenantTable` on the connection that created it, which is what the case does and why.
-
-**The native review found one critical defect in the first version of this guard, and it was right.**
-`afterPropertiesSet` held a pooled connection while the probe asked the pool for a **second** one, so a
-deployment with `maximum-pool-size=1` blocked until the pool timeout and then failed a startup whose schema
-was clean — a guard that breaks a healthy deployment, which is worse than the warning it replaced. The
-probe now answers on the connection the check already holds, and
-`TenantIsolationStartupCheckH2Test#theCheckAsksThePoolForOneConnectionOnly` pins it by counting the
-requests: one, where the old shape made two. RED measured by reverting that one call: 3 tests, 1 failed,
-`expected: 1 but was: 2`.
