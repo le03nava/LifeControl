@@ -766,3 +766,107 @@ measured at almost two and a half times the ~400 review budget; the pull request
 reviewer should read first is not the largest one: `TenantPoliciesIntegrationTest`'s case 7, because it is
 the only place where `FORCE` — the invariant that keeps the owner honest — is observed at all, and it has
 to transfer ownership inside its rolled-back transaction to do it.
+
+L22 — **T3 is the wiring of an assertion that already existed, and there is no `V54`.** The task table gives
+this slice a migration, because when the table was written the assertion was still going to be SQL; by the
+time the slice ran, `unprotected_tenant_tables()` was a function T2 had shipped in `V52` and T5c had already
+satisfied, so what was left was the process refusing to start. T3 wrote three files and no migration:
+`TenantIsolationStartupCheck` (208 lines), `TenantIsolationStartupCheckIntegrationTest` (129) and
+`TenantIsolationStartupCheckH2Test` (71). `V54` does not exist and stays free for the next migration that
+needs a version; the record's row for T3 keeps its planning text for the same reason L20 keeps its own.
+
+**What the guard is.** A `@Component` implementing `InitializingBean`, next to `TenantScope`,
+`TenantScopeFilter` and `TenantScopeJpaTransactionManager`. `afterPropertiesSet` reads
+`unprotected_tenant_tables()` through the pooled `DataSource` and throws `IllegalStateException`, naming
+every table, when the result is not empty. The list of protected tables is **not** restated in Java: V52's
+query is the definition of "unlisted", so the fact has one definition and no second one to forget. The
+failure text carries the names, aggregated, one per line — a count sends the operator to `psql` for names
+the process already read — and says what to do: `apply_tenant_isolation('<table>')` once per name, which
+arms the table and records it in `tenant_table`, or, for a table that is deliberately not a tenant table,
+record that decision in `tenant_table` and in this record. It fails and does not warn, because a warning
+leaves the deployment serving every tenant's rows while looking healthy — the failure mode the ADR exists
+to remove — and the only moment the omission is cheap to fix is before the process accepts a request.
+
+**Why the hook orders after Flyway, and why that ordering is the requirement.** The bean takes the JPA
+`EntityManagerFactory` as a constructor argument and never stores it: the dependency *is* the ordering.
+Spring Boot makes `entityManagerFactory` depend on database initialization (`FlywayMigrationInitializer`),
+so Spring cannot create this bean before the migrations of the schema it asserts, and the refusal happens
+during context refresh — before the servlet container starts, so no request is ever served by a process
+that has not passed the check. The two wrong answers a differently placed check gives are both silent: run
+before Flyway, a fresh deployment either refuses over tables that do not exist yet or — worse, and this is
+the one that would have shipped — reads `to_regprocedure` as `null` and passes; run only on the first
+start, a restart passes a schema whose policies were never armed. A `SpringApplication` runner hook was
+rejected for the second half of that choice: it runs after the port is bound.
+
+**Why the probe asks the database, twice, and caches the answer.** `application-test.properties` makes H2
+the default stack with Flyway disabled and sixty-odd suites boot there; H2 has neither
+`unprotected_tenant_tables()` nor `to_regprocedure`, so the precise question alone throws a syntax error on
+**every** one of those contexts — a build that breaks rather than a policy that fails. The probe therefore
+asks two things of the pooled `DataSource`, once, and caches them in a `volatile Boolean` (the same shape
+as `TenantScopeJpaTransactionManager.installsScope`, so the two components cannot disagree about which
+stack they are on): the product name, which the sibling already asks, and then
+`to_regprocedure('public.unprotected_tenant_tables()')`, which is the precise question and is *read*
+rather than *called* — a probe that calls what it probes cannot tell "absent" from "failed", and a
+PostgreSQL database without `V52` is answered "no assertion query" instead of being reported as broken.
+
+**Evidence, as observed.** **RED**: `./gradlew compileTestJava` → `cannot find symbol: class
+TenantIsolationStartupCheck`, 4 errors, `BUILD FAILED in 13s`. A component that does not exist cannot fail
+behaviourally, so that is the honest shape of the RED for a new file, and the refusal itself is proved by
+the second case below rather than by the missing symbol. The first GREEN attempt then failed *usefully*:
+`./gradlew test --tests '*TenantIsolationStartupCheck*'` → 4 tests, 2 failed, the PostgreSQL context ending
+`Caused by: org.postgresql.util.PSQLException: ERROR: column t.table_name does not exist` — which is also
+the **ordering evidence**, because the check reached the assertion query at all: had it run before `V52`,
+the probe would have answered `null` and the context would have booted green. The cause is that a `SETOF
+regclass` function's output column is named after the function, so the read is
+`select unprotected_tenant_tables::text`. A second, smaller failure followed (the control expected the two
+probe tables in creation order; the query orders by `relname`) and the case now compares them as a set.
+**GREEN**: the same command → `BUILD SUCCESSFUL`, 4 tests (2 PostgreSQL, 2 H2). `spotlessApply
+spotlessCheck spotbugsMain` first **failed** on `VA_FORMAT_STRING_USES_NEWLINE` — the refusal was written
+with `\n` in a format string — and the message now builds its breaks with `%n`; that was a real catch, not
+noise, because the separators of an operator-facing message should not depend on the host. Then `BUILD
+SUCCESSFUL`.
+
+**The suites that boot the PostgreSQL context, run because the hook is in their startup path.**
+`./gradlew test --tests '*TenantIsolation*' --tests '*TenantScope*' --tests '*TenantPolicies*'` → **11
+classes, 53 tests, 0 failed**. Then the whole backend suite, since this changes the startup path of every
+context: `./gradlew test` → **exit 0, 4 236 tests in 1 021 classes, 0 failed, 0 skipped, `BUILD SUCCESSFUL
+in 4m 19s`** (4 232 in 1 019 before this slice; the four new ones are the two suites). The repository's
+eleven shell suites → **385 assertions, 0 failed**, the record's own header guard among them.
+
+**What each case asserts, and why only it can.** (1) *PostgreSQL passes*: the suite asserts
+`check.appliesToThisDatabase()` is `true` — the answer the startup path itself computed and cached — and
+re-runs `afterPropertiesSet` without an exception. The absence of a failure is also what a check that never
+ran produces, so the passing half is stated instead of inferred, and a `true` is only possible if the check
+ran after `V52`; every sibling PostgreSQL suite is an implicit copy of this case, which is why it is
+written down once. (2) *the refusing half*, and this is the case that would have caught the six readers a
+slice too late: two `company_id` tables created inside a transaction that is rolled back — because
+sixty-odd suites share the container — the control read of the assertion query on that same connection
+first, then `assertNoUnprotectedTenantTable(connection)`, asserted to throw, to name **both** tables and to
+name `apply_tenant_isolation`; and after the rollback the same check on the same connection passes, so the
+refusal was the table and the container is left as it was found. It takes the connection because
+uncommitted DDL is invisible to any other one, which is exactly why the production path opens its own. (3)
+*H2 is a no-op*: `appliesToThisDatabase()` is `false` and `afterPropertiesSet` returns — plus a second case
+pinning that H2 cannot answer the precise question at all, which is the measured reason the probe has two
+halves and not one.
+
+**What this does not cover, said plainly.** The check is per process, not per statement: a table created
+after startup is not caught until the next start, and that is T2's `DO $$` block's territory — it refuses
+the forgotten table at the migration that arms the others, which is the half a restart cannot reach. And
+the test container's pool still connects as the superuser `lifecontrol`, so nothing in this slice observes
+a policy; `TenantPoliciesIntegrationTest` remains the only class that switches roles.
+
+**Commit boundaries**, for the same reason as L8/L15/L19/L21: `TenantIsolationStartupCheck.java` is the
+delivery half and the two suites with this entry are the test half — 408 authored lines plus this entry,
+which the harness measured at the review budget rather than past it. No commit is prepared here; the
+transaction controller owns them. The file a reviewer should read first is the component's javadoc, because
+the three decisions this slice makes (the hook, the probe, the refusal) are each a rejected alternative
+that is not visible in the code: a runner hook, a dialect read, and a warning.
+
+**Handoff to T6**, which is what is left of the unit: the T1–T8 suite on Testcontainers with the pool
+connected as `lifecontrol_app` — until then no suite observes a policy, and this guard is the only thing in
+the tree that would notice a table nobody armed — the PR chain with its evidence, `Closes #696`, and the
+two residues T5c named: the `V53` list as the one place a tenant table is added, and
+`TenantScopeBoundaryIntegrationTest`'s stale comment naming the renamed display name. What T6 must not
+assume: the guard's own verdict is cached per bean, so a suite that creates a table and expects the
+**startup** path to refuse it will not see it — the refusal is observed by calling
+`assertNoUnprotectedTenantTable` on the connection that created it, which is what the case does and why.
