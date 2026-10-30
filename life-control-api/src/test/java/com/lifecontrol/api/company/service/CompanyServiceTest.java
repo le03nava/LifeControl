@@ -41,7 +41,6 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.transaction.support.TransactionCallback;
@@ -83,13 +82,16 @@ class CompanyServiceTest {
 
     @BeforeEach
     void setUp() {
-        lenient().when(currentUserContext.isAdmin()).thenReturn(true);
+        // The claim path is the <b>only</b> path now (ADR-0005, record L16 mandated the per-claim reads, and
+        // the unscoped `findAll` branch was removed in T5b), so every case below runs as a caller whose
+        // token names one company by default. A case about another claim set re-stubs this.
         lenient().when(transactionTemplate.execute(any())).thenAnswer(invocation -> {
             TransactionCallback<?> callback = invocation.getArgument(0);
             return callback.doInTransaction(null);
         });
         testCompanyId = UUID.randomUUID();
         testCountryId = UUID.randomUUID();
+        lenient().when(currentUserContext.getCompanyIds()).thenReturn(new LinkedHashSet<>(List.of(testCompanyId)));
 
         testAddress = Address.builder()
                 .street("Main St")
@@ -159,10 +161,7 @@ class CompanyServiceTest {
         void getAllCompanies_Paginated() {
             // Arrange
             var pageable = PageRequest.of(0, 12);
-            var companies = List.of(testCompany);
-            var expectedPage = new PageImpl<>(companies, pageable, 1);
-
-            when(companyRepository.findAll(pageable)).thenReturn(expectedPage);
+            when(companyRepository.findById(testCompanyId)).thenReturn(Optional.of(testCompany));
 
             // Act
             Page<CompanyResponse> result = companyService.getAllCompanies(pageable, null);
@@ -173,7 +172,7 @@ class CompanyServiceTest {
             assertThat(result.getContent().get(0).companyName()).isEqualTo("Test Company");
             assertThat(result.getTotalElements()).isEqualTo(1);
             assertThat(result.getTotalPages()).isEqualTo(1);
-            verify(companyRepository).findAll(pageable);
+            verify(companyRepository).findById(testCompanyId);
         }
 
         @Test
@@ -181,10 +180,7 @@ class CompanyServiceTest {
         void getAllCompanies_WithSearch() {
             // Arrange
             var pageable = PageRequest.of(0, 12);
-            var companies = List.of(testCompany);
-            var expectedPage = new PageImpl<>(companies, pageable, 1);
-
-            when(companyRepository.findBySearchTerm(eq("Test"), eq(pageable))).thenReturn(expectedPage);
+            when(companyRepository.findById(testCompanyId)).thenReturn(Optional.of(testCompany));
 
             // Act
             Page<CompanyResponse> result = companyService.getAllCompanies(pageable, "Test");
@@ -193,7 +189,8 @@ class CompanyServiceTest {
             assertThat(result).isNotNull();
             assertThat(result.getContent()).hasSize(1);
             assertThat(result.getContent().get(0).companyName()).isEqualTo("Test Company");
-            verify(companyRepository).findBySearchTerm("Test", pageable);
+            verify(companyRepository).findById(testCompanyId);
+            verify(companyRepository, never()).findBySearchTerm(any(), any(Pageable.class));
         }
 
         @Test
@@ -201,10 +198,7 @@ class CompanyServiceTest {
         void getAllCompanies_NoMatches() {
             // Arrange
             var pageable = PageRequest.of(0, 12);
-            var expectedPage = new PageImpl<Company>(List.of(), pageable, 0);
-
-            when(companyRepository.findBySearchTerm(eq("NonExistent"), eq(pageable)))
-                    .thenReturn(expectedPage);
+            when(companyRepository.findById(testCompanyId)).thenReturn(Optional.of(testCompany));
 
             // Act
             Page<CompanyResponse> result = companyService.getAllCompanies(pageable, "NonExistent");
@@ -213,7 +207,7 @@ class CompanyServiceTest {
             assertThat(result).isNotNull();
             assertThat(result.getContent()).isEmpty();
             assertThat(result.getTotalElements()).isZero();
-            verify(companyRepository).findBySearchTerm("NonExistent", pageable);
+            verify(companyRepository).findById(testCompanyId);
         }
 
         @Test
@@ -221,10 +215,7 @@ class CompanyServiceTest {
         void getAllCompanies_BlankSearch() {
             // Arrange
             var pageable = PageRequest.of(0, 12);
-            var companies = List.of(testCompany);
-            var expectedPage = new PageImpl<>(companies, pageable, 1);
-
-            when(companyRepository.findAll(pageable)).thenReturn(expectedPage);
+            when(companyRepository.findById(testCompanyId)).thenReturn(Optional.of(testCompany));
 
             // Act
             Page<CompanyResponse> result = companyService.getAllCompanies(pageable, "   ");
@@ -232,7 +223,42 @@ class CompanyServiceTest {
             // Assert
             assertThat(result).isNotNull();
             assertThat(result.getContent()).hasSize(1);
-            verify(companyRepository).findAll(pageable);
+            verify(companyRepository).findById(testCompanyId);
+        }
+
+        /**
+         * The case that used to pin «an administrator sees every company» through the unscoped
+         * {@code findAll}. The unscoped branch is gone, and the administrator's own list is the claims:
+         * {@link CurrentUserContext#isAdmin()} is not consulted at all, which is what this case pins by
+         * asserting it is never called.
+         */
+        @Test
+        @DisplayName("getAllCompanies - an administrator reads exactly the claimed companies, one scoped read each")
+        void getAllCompanies_AnAdministratorReadsOnlyTheClaimedCompanies() {
+            reset(currentUserContext);
+            var firstId = UUID.randomUUID();
+            var secondId = UUID.randomUUID();
+            var claimOrder = new LinkedHashSet<UUID>();
+            claimOrder.add(firstId);
+            claimOrder.add(secondId);
+
+            lenient().when(currentUserContext.isAdmin()).thenReturn(true);
+            lenient().when(currentUserContext.getCompanyIds()).thenReturn(claimOrder);
+            when(companyRepository.findById(firstId)).thenReturn(Optional.of(companyOf(firstId, "10", "First Admin")));
+            when(companyRepository.findById(secondId))
+                    .thenReturn(Optional.of(companyOf(secondId, "11", "Second Admin")));
+
+            Page<CompanyResponse> result = companyService.getAllCompanies(PageRequest.of(0, 12), null);
+
+            assertThat(result.getContent())
+                    .as("the role does not widen the read: the token's claims are the administrator's own "
+                            + "tenant list, and one transaction cannot state two tenants")
+                    .extracting(CompanyResponse::id)
+                    .containsExactlyElementsOf(claimOrder);
+            verify(companyRepository).findById(firstId);
+            verify(companyRepository).findById(secondId);
+            verify(companyRepository, never()).findAll(any(Pageable.class));
+            verify(currentUserContext, never()).isAdmin();
         }
 
         // ── Country-role filtering, one scoped read per claim (ADR-0005, record L16) ────
@@ -243,7 +269,6 @@ class CompanyServiceTest {
             reset(currentUserContext);
             var companyId = UUID.randomUUID();
 
-            lenient().when(currentUserContext.isAdmin()).thenReturn(false);
             lenient().when(currentUserContext.getCompanyIds()).thenReturn(new LinkedHashSet<>(List.of(companyId)));
 
             var pageable = PageRequest.of(0, 12);
@@ -277,7 +302,6 @@ class CompanyServiceTest {
             claimOrder.add(firstId);
             claimOrder.add(secondId);
 
-            lenient().when(currentUserContext.isAdmin()).thenReturn(false);
             lenient().when(currentUserContext.getCompanyIds()).thenReturn(claimOrder);
 
             when(companyRepository.findById(firstId)).thenReturn(Optional.of(companyOf(firstId, "8", "First Claimed")));
@@ -298,9 +322,8 @@ class CompanyServiceTest {
         @Test
         @DisplayName("getAllCompanies - should return empty page when country-role has no companyIds")
         void getAllCompanies_CountryRole_NoCompanyIds_ReturnsEmpty() {
-            // Override admin default — simulate country-role with empty companyIds
+            // Override the default claim set — simulate a caller that belongs to no company
             reset(currentUserContext);
-            lenient().when(currentUserContext.isAdmin()).thenReturn(false);
             lenient().when(currentUserContext.getCompanyIds()).thenReturn(Collections.emptySet());
 
             var pageable = PageRequest.of(0, 12);
@@ -319,10 +342,8 @@ class CompanyServiceTest {
         @Test
         @DisplayName("getAllCompanies - the search is applied to the claim's own row")
         void getAllCompanies_CountryRole_WithSearch() {
-            // Override admin default
             reset(currentUserContext);
             var ids = new LinkedHashSet<>(List.of(testCompanyId));
-            lenient().when(currentUserContext.isAdmin()).thenReturn(false);
             lenient().when(currentUserContext.getCompanyIds()).thenReturn(ids);
 
             var pageable = PageRequest.of(0, 12);
@@ -343,7 +364,6 @@ class CompanyServiceTest {
         void getAllCompanies_CountryRole_WithSearchThatDoesNotMatch() {
             reset(currentUserContext);
             var ids = new LinkedHashSet<>(List.of(testCompanyId));
-            lenient().when(currentUserContext.isAdmin()).thenReturn(false);
             lenient().when(currentUserContext.getCompanyIds()).thenReturn(ids);
             when(companyRepository.findById(testCompanyId)).thenReturn(Optional.of(testCompany));
 
@@ -371,21 +391,44 @@ class CompanyServiceTest {
     class GetCompanySelectorTests {
 
         @Test
-        @DisplayName("getCompanySelector - admin sees every company, projected to the selector read model")
-        void getCompanySelector_AdminProjectsTheNarrowModel() {
+        @DisplayName("getCompanySelector - an administrator reads exactly the claimed companies, one scoped read each")
+        void getCompanySelector_AnAdministratorReadsOnlyTheClaimedCompanies() {
             // Arrange
             Pageable pageable = PageRequest.of(0, 12);
-            when(companyRepository.findAll(pageable)).thenReturn(new PageImpl<>(List.of(testCompany), pageable, 1));
+            var secondId = UUID.randomUUID();
+            var claimOrder = new LinkedHashSet<UUID>();
+            claimOrder.add(testCompanyId);
+            claimOrder.add(secondId);
+            var second = Company.builder()
+                    .id(secondId)
+                    .companyKey("2")
+                    .companyName("Second Claimed")
+                    .rfc("XAXX010101002")
+                    .enabled(true)
+                    .build();
+
+            lenient().when(currentUserContext.isAdmin()).thenReturn(true);
+            lenient().when(currentUserContext.getCompanyIds()).thenReturn(claimOrder);
+            when(companyRepository.findById(testCompanyId)).thenReturn(Optional.of(testCompany));
+            when(companyRepository.findById(secondId)).thenReturn(Optional.of(second));
 
             // Act
             Page<CompanySelectorResponse> result = companyService.getCompanySelector(pageable, null);
 
             // Assert
-            assertThat(result.getContent()).singleElement().satisfies(selector -> {
+            assertThat(result.getContent())
+                    .as("the selector shares the claim path with getAllCompanies, so an administrator's "
+                            + "selector is their claims — never the whole table")
+                    .extracting(CompanySelectorResponse::id)
+                    .containsExactlyElementsOf(claimOrder);
+            assertThat(result.getContent().getFirst()).satisfies(selector -> {
                 assertThat(selector.id()).isEqualTo(testCompanyId);
                 assertThat(selector.companyKey()).isEqualTo("1");
                 assertThat(selector.companyName()).isEqualTo("Test Company");
             });
+            verify(companyRepository).findById(testCompanyId);
+            verify(companyRepository).findById(secondId);
+            verify(companyRepository, never()).findAll(any(Pageable.class));
         }
 
         @Test
@@ -394,7 +437,6 @@ class CompanyServiceTest {
             // Arrange
             Pageable pageable = PageRequest.of(0, 12);
             Set<UUID> ids = new LinkedHashSet<>(List.of(testCompanyId));
-            when(currentUserContext.isAdmin()).thenReturn(false);
             when(currentUserContext.getCompanyIds()).thenReturn(ids);
             when(companyRepository.findById(testCompanyId)).thenReturn(Optional.of(testCompany));
 
@@ -414,7 +456,6 @@ class CompanyServiceTest {
         void getCompanySelector_EmptyClaimReturnsAnEmptyPage() {
             // Arrange
             Pageable pageable = PageRequest.of(0, 12);
-            when(currentUserContext.isAdmin()).thenReturn(false);
             when(currentUserContext.getCompanyIds()).thenReturn(Set.of());
 
             // Act

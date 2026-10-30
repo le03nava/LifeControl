@@ -64,9 +64,11 @@ of isolation (S1, decision item 5).
 | --- | --- | --- | --- | --- |
 | T1 | S1, S4, S5, S6 | Roles and grants in delivery: postgres init script creating `lifecontrol_owner` (NOSUPERUSER, owner) and `lifecontrol_app` (NOBYPASSRLS), new secret `lifecontrol_app_password` with its template, `.env.template` keys, base and prod compose wiring, `setup-env.sh` materialization, `validate-env.sh` checks, and the docker suites that pin them | inline | — |
 | T2 | S1, S5 | Migration `V52`: `set_tenant_scope`, `set_user_scope`, the `tenant_table` list (`tenant` / `shared` / `subject`), `apply_tenant_isolation(...)` with `key_column` and `shared_rows`, the `ALTER DEFAULT PRIVILEGES` pair, and `unprotected_tenant_tables()` as the assertion query | inline | — |
-| T3 | S1, S2, S5 | Migration `V53`: the assertion wired as a startup refusal in Java, so a `company_id` table missing from the list stops the deployment instead of hiding rows | inline | — |
+| T3 | S1, S2, S5 | Migration `V54`: the assertion wired as a startup refusal in Java, so a `company_id` table missing from the list stops the deployment instead of hiding rows | inline | — |
 | T4 | S1, S5 | The transaction scope: `app.company_id` and `app.user_id` installed at the transaction boundary from the principal, failing closed and logging the request id when it refuses; plus the explicit scope the provisioning worker sets per task, since it reads `employees` outside any request | inline | — |
-| T5 | S1, S2, S3, S5 | Policies: the catalog and hierarchy group (`companies` by `id`, `company_countries`, `company_regions`, `company_zones`, `company_stores`, `product_categories`, `products`, `product_variants`, `suppliers`, `product_suppliers`, the two override catalogs as `shared`, `user_preferences` as `subject`), then `departments`, `employees`, `purchase_orders` | inline | — |
+| T5a | S1, S2, S3, S5 | The two claim-less paths and the worker's tenant: `task_employee_company(uuid)` in the roles script, the worker through it, the company create stating its own id, and the per-claim list (records L16–L19) | inline | — |
+| T5b | S1, S2, S3, S5 | The mechanism for the paths that name no company: one claim is the tenant, several refuse, a closed tenant-agnostic list, the worker's whole task under its tenant, the administrator's list over its claims, and the subject of a user created mid-call (record L20) | inline | — |
+| T5c | S1, S2, S3, S5 | Migration `V53`: the sixteen tables armed with `apply_tenant_isolation` — the catalog and hierarchy group (`companies` by `id`, `company_countries`, `company_regions`, `company_zones`, `company_stores`, `product_categories`, `products`, `product_variants`, `suppliers`, `product_suppliers`, the two override catalogs as `shared`, `user_preferences` as `subject`), then `departments`, `employees`, `purchase_orders` — plus the two assertions that flip with it (record L20's handoff) | inline | — |
 | T6 | S5, S6 | The T1–T8 suite on Testcontainers as the gate, the PR chain with evidence, and the cleanup | inline | — |
 
 ## Log
@@ -527,3 +529,108 @@ past the review budget; the boundaries are recorded here for the same reason as 
 size is stated in the pull request rather than hidden. The part a reviewer should read first is not the
 largest: `AccessProvisioningTaskTenantResolutionImpl`'s three-way decision is the only place where a
 missing deployment step can be read as a policy result.
+
+L20 — **T5b is the mechanism, and a measurement turned it from a migration into a slice.** The plan was
+one migration of sixteen `apply_tenant_isolation` calls. Read before writing, the tree says that arming
+them is not a migration but the moment **every** path has to state its tenant, and the paths that name
+none were six, not one. The maintainer decided the split and the two questions the measurement opened,
+verbatim:
+
+1. «Dos slices: mecanismo, después migración» — T5b states the tenant; the migration is **T5c**, and it
+   takes `V53`, which pushes T3's assertion to `V54`.
+2. «Un claim ⇒ es el tenant; varios ⇒ 403» — the tenant of a company-less path is the caller's single
+   `company_id` claim; two claims and no company in the path is a refusal, not a wider scope.
+3. «Sólo los claims, como el resto» — an administrator's company list is its claims, exactly like every
+   other caller's.
+
+**What arming the sixteen tables would have done to a tree that was not ready, measured one reader at a
+time.** These are the six that decided the split:
+
+1. **The provisioning worker, past the resolver.** Only the employee read was scoped
+   (`AccessProvisioningWorker.java:297`). `AccessProvisioningGateService.java:190`,
+   `AccessProvisioningRoleService.java:187,204`,
+   `AccessProvisioningMembershipService.java:166-175` and `AccessProvisioningAccountService.java:98` run
+   with no scope and read or write `employees`, `departments` and `companies`, so every claimed task would
+   end `FAILED` in the retry loop — the ADR's named failure mode, one layer below where T5a fixed it.
+2. **`UsersAdminService.createUser`** (`:71`) inserts `user_preferences` for the **new** user's id and the
+   `subject` policy compares it to `app.user_id`, which is the administrator's: the insert is refused
+   (42501), so creating a user breaks where nobody would look for it.
+3. **The id-addressed endpoints**, whose first read is an armed table and whose path names no company:
+   `/api/stores/{id}` (`CompanyStoreService.getStoreById:147-149`), `/api/store-zones/{id}`,
+   `/api/store-areas`, `/api/store-locations`, `/api/variants`, `/api/product-variants/search`
+   (`ProductVariantService.searchVariants:451-457`), `/api/purchase-orders/**` and
+   `/api/goods-receipts/**`. With no scope they answer 404 or an empty page for **everyone**.
+4. **The administrator's company list and the header's company selector.** `CompanyService:112`'s
+   unscoped `findAll` answers zero rows under the armed `companies` policy, and `CompanyServiceTest:374`
+   pinned «admin sees every company» as intended behaviour.
+5. **`StarterProductCategoryApplier.java:73-77`**, the `AFTER_COMMIT` listener that reads `companies` and
+   writes `product_categories`: correct only on the `createCompany` path, whose `TenantScope.with` is
+   still active, and empty on its `fallbackExecution` path.
+6. **Two assertions that pin the unarmed state**: `TenantScopeFunctionsIntegrationTest:181` (the
+   assertion returns exactly the fifteen names) and `:606/611` (`tenant_table` is empty right after the
+   migration). They flip with the migration, not before it.
+
+**What T5b changed, and why each piece is where it is.** `TenantScope` gained
+`withSubject(String, Supplier)` — the one write whose subject is created inside the call — and the
+save/restore both scoped helpers use is now one private `runWith`, because two copies of the reused-thread
+rule are two places to get it wrong. `TenantScopeFilter` states, for a company-less path and an
+authenticated caller: the single claim, no company when there is no claim, and a logged
+`AccessDeniedException` **before** any scope when there are several. `CompanyService` lost its
+administrator branch entirely — `isAdmin()` is no longer consulted for the list, which the new case pins
+with `verify(never())`. `AccessProvisioningWorker.process` resolves the task's company **once, after the
+claim**, and runs the whole body inside `TenantScope.with`: the employee read, the re-gate, the apply, the
+`markApplied` and the failure branch. `UsersAdminService.createUser` lost its `@Transactional`, because the
+subject does not exist when a boundary would be entered; the Keycloak user is created first and the single
+insert states the id it received.
+
+**The tenant-agnostic list is the one new closed list, and its failure direction is loud.**
+`/api/profile`, `/api/countries`, `/api/measure-units`, `/api/payment-methods`, `/api/statuses`,
+`/api/status-types`, `/api/seniority-levels`, `/api/activity-logs`, `/api/users-admin` and
+`/api/companies`, matched segment-safely, are the paths whose reads touch no tenant table. A path missing
+from it does not read nothing in silence: a multi-company caller gets a 403 an operator can see. That
+direction is deliberate — the alternative (a list of *tenant* paths) would fail silently for exactly the
+endpoint somebody forgot. The consequence to state in the pull request: a caller whose token carries two
+companies can no longer use a company-less path that does read tenant tables, which is what the maintainer
+chose over a silent empty page.
+
+Evidence, as observed. **RED**, in five failures the writer produced before the change: `CompanyServiceTest`
+2 cases (`NullPointerException` on the removed branch's unstubbed `findAll`), `UsersAdminServiceTest` 1
+(`expected Scope[companyId=null, subject=kc-user-id-123] but was: null`),
+`TenantScopeFilterIntegrationTest` 2 (`expected Scope[companyId=<uuid>…] but was Scope[companyId=null…]`
+and `Status expected:<403> but was:<200>`), and `ProvisioningWorkerTenantScopeIntegrationTest` 1
+(`expected Scope[companyId=<uuid>, subject=null] but was: null`). **GREEN**: `spotlessApply spotlessCheck
+compileJava compileTestJava`, the three unit suites, the three tenant suites (27 tests) and the four
+PRESERVE suites (120 tests, `*PurchaseOrder*`, `*TenantTaskResolver*`, `*CompanyTenantScope*`) all
+`BUILD SUCCESSFUL`.
+
+**The whole backend suite ran once, because this slice changes a filter that every request crosses:**
+`./gradlew test` — **4 225 tests, 0 failed** — with `spotbugsMain` and `spotlessCheck` green and the
+repository's eleven shell suites green (385 assertions). The focused suites above are the ones that pin
+the rules; this is the one that answers "and nothing else moved".
+
+**A pre-existing defect the new observation exposed, repaired in place.** The worker suite's employee spy
+used `invocation.callRealMethod()` on a Spring Data proxy whose methods are final; Mockito left
+`Cannot call abstract real method on java object!` as the run's `last_error`, so **the pass never reached
+its later stages** and the suite was green because it only asserted the scope at the first read. The spy
+now delegates to a real repository built from the same `EntityManager`, the employee fixture links no
+Keycloak account so the in-memory provider creates one, and the new case asserts the scope is still the
+task's company at `AccessProvisioningWorkerHandler.apply` **and** that the task reaches `APPLIED` — a pass
+that never arrives proves nothing about the far end of it. The task service could not be the observation
+point: it is `@Transactional`, so Spring hands out a CGLIB proxy with final methods and a `@MockitoSpyBean`
+answer on it never runs.
+
+**Handoff to T5c, in order.** The migration `V53` arming the sixteen tables; the two assertions in
+`TenantScopeFunctionsIntegrationTest` flipped to the armed state (the list holds the sixteen rows, the
+assertion returns nothing); and `CompanyRepository.findBySearchTerm` is now dead for the company page and
+belongs to a cleanup, not to this slice. What T5c must not assume: the test container's pool is still a
+superuser, so **no suite observes a policy** until T6 connects as `lifecontrol_app` — arming in T5c without
+that is production enforcement nobody's tests can see.
+
+The slice boundaries of T5b: three commits. `1242df82` is the delivery half — the five main files, and
+within them the filter's claim-derived tenant with its closed list, the worker's whole-task scope, the
+user-creation subject and the claim-only company list — `2b61e0ec` is the test half (five suites, 279
+authored lines), and this commit carries the record. 783 authored lines with this entry, which the
+harness measured past the ~400 review budget; the boundaries are recorded here for the same reason as L8,
+L15 and L19, and the size is stated in the pull request rather than hidden. The file a reviewer should
+read first is `TenantScopeFilter`: `companyOfTheClaims` and `TENANT_AGNOSTIC_PATHS` are the only place
+where an answer is turned into a 403, a tenant, or no scope at all.
