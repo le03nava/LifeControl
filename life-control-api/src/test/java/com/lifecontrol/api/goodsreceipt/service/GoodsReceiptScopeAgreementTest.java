@@ -12,6 +12,7 @@ import com.lifecontrol.api.company.model.Company;
 import com.lifecontrol.api.company.model.CompanyCountry;
 import com.lifecontrol.api.company.model.CompanyRegion;
 import com.lifecontrol.api.company.model.CompanyZone;
+import com.lifecontrol.api.goodsreceipt.dto.GoodsReceiptFilter;
 import com.lifecontrol.api.goodsreceipt.model.GoodsReceipt;
 import com.lifecontrol.api.goodsreceipt.repository.GoodsReceiptRepository;
 import com.lifecontrol.api.inventory.repository.StoreInventorySettingsRepository;
@@ -27,6 +28,7 @@ import com.lifecontrol.api.store.model.CompanyStore;
 import com.lifecontrol.api.store.model.StoreLocation;
 import com.lifecontrol.api.store.repository.CompanyStoreRepository;
 import com.lifecontrol.api.store.repository.StoreLocationRepository;
+import com.lifecontrol.api.store.service.CompanyStoreFilterResolver;
 import com.lifecontrol.api.store.service.CompanyStoreScopeResolver;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -116,6 +118,9 @@ class GoodsReceiptScopeAgreementTest {
     @Mock
     private CompanyStoreRepository companyStoreRepository;
 
+    @Mock
+    private CompanyStoreFilterResolver storeFilterResolver;
+
     private final CurrentUserContext currentUserContext = new CurrentUserContext();
 
     private GoodsReceiptService service;
@@ -134,7 +139,8 @@ class GoodsReceiptScopeAgreementTest {
                 productVariantStoreStockRepository,
                 statusRepository,
                 currentUserContext,
-                new CompanyStoreScopeResolver(currentUserContext, companyStoreRepository));
+                new CompanyStoreScopeResolver(currentUserContext, companyStoreRepository),
+                storeFilterResolver);
 
         var company = Company.builder().id(COMPANY).companyKey("SCOPE-KEY").build();
         var country = CompanyCountry.builder().id(COUNTRY).company(company).build();
@@ -231,7 +237,8 @@ class GoodsReceiptScopeAgreementTest {
     void companyHolderAgrees() {
         token(List.of("lc-company"), "company_id", COMPANY.toString());
 
-        assertThat(service.getAllReceipts(pageable, null).getContent())
+        assertThat(service.getAllReceipts(pageable, null, GoodsReceiptFilter.NONE)
+                        .getContent())
                 .extracting(response -> response.id())
                 .containsExactly(RECEIPT);
         assertThat(service.getReceipt(RECEIPT).id()).isEqualTo(RECEIPT);
@@ -247,7 +254,9 @@ class GoodsReceiptScopeAgreementTest {
                 "company_country_id",
                 COUNTRY.toString());
 
-        assertThat(service.getAllReceipts(pageable, null).getContent()).isEmpty();
+        assertThat(service.getAllReceipts(pageable, null, GoodsReceiptFilter.NONE)
+                        .getContent())
+                .isEmpty();
         assertThatThrownBy(() -> service.getReceipt(RECEIPT)).isInstanceOf(AccessDeniedException.class);
         // The query runs, but constrained by the ancestor claim the detail would deny on.
         verify(companyStoreRepository).findIdsByCompanyCountryIdIn(Set.of(COUNTRY), Set.of(FOREIGN_COMPANY));
@@ -258,7 +267,9 @@ class GoodsReceiptScopeAgreementTest {
     void regionReaderWithoutAncestorClaims() {
         token(List.of("lc-company-region-read"), "company_region_id", REGION.toString());
 
-        assertThat(service.getAllReceipts(pageable, null).getContent()).isEmpty();
+        assertThat(service.getAllReceipts(pageable, null, GoodsReceiptFilter.NONE)
+                        .getContent())
+                .isEmpty();
         assertThatThrownBy(() -> service.getReceipt(RECEIPT)).isInstanceOf(AccessDeniedException.class);
         verifyNoInteractions(companyStoreRepository);
     }
@@ -273,7 +284,9 @@ class GoodsReceiptScopeAgreementTest {
                 "company_country_id",
                 COUNTRY.toString());
 
-        assertThat(service.getAllReceipts(pageable, null).getContent()).hasSize(1);
+        assertThat(service.getAllReceipts(pageable, null, GoodsReceiptFilter.NONE)
+                        .getContent())
+                .hasSize(1);
         assertThat(service.getReceipt(RECEIPT).id()).isEqualTo(RECEIPT);
     }
 
@@ -293,7 +306,9 @@ class GoodsReceiptScopeAgreementTest {
                 "company_store_id",
                 STORE.toString());
 
-        assertThat(service.getAllReceipts(pageable, null).getContent()).hasSize(1);
+        assertThat(service.getAllReceipts(pageable, null, GoodsReceiptFilter.NONE)
+                        .getContent())
+                .hasSize(1);
         assertThat(service.getReceipt(RECEIPT).id()).isEqualTo(RECEIPT);
     }
 
@@ -302,7 +317,7 @@ class GoodsReceiptScopeAgreementTest {
     void emptyScopeNeverFallsThrough() {
         token(List.of("lc-company-region-read"), "company_region_id", "");
 
-        var page = service.getAllReceipts(pageable, null);
+        var page = service.getAllReceipts(pageable, null, GoodsReceiptFilter.NONE);
 
         assertThat(page.getContent()).isEmpty();
         verifyNoInteractions(goodsReceiptRepository);
@@ -314,7 +329,9 @@ class GoodsReceiptScopeAgreementTest {
     void adminStaysUnscoped() {
         token(List.of("lc-admin"));
 
-        assertThat(service.getAllReceipts(pageable, null).getContent()).hasSize(1);
+        assertThat(service.getAllReceipts(pageable, null, GoodsReceiptFilter.NONE)
+                        .getContent())
+                .hasSize(1);
         verify(goodsReceiptRepository).findByEnabledTrueOrderByReceivedAtDesc(pageable);
         verifyNoInteractions(companyStoreRepository);
     }

@@ -52,6 +52,7 @@ import com.lifecontrol.api.store.exception.StoreLocationNotFoundException;
 import com.lifecontrol.api.store.model.CompanyStore;
 import com.lifecontrol.api.store.model.StoreLocation;
 import com.lifecontrol.api.store.repository.StoreLocationRepository;
+import com.lifecontrol.api.store.service.CompanyStoreFilterResolver;
 import com.lifecontrol.api.store.service.CompanyStoreScopeResolver;
 import java.math.BigDecimal;
 import java.util.List;
@@ -129,6 +130,9 @@ class GoodsReceiptServiceTest {
     @Mock
     private CompanyStoreScopeResolver storeScopeResolver;
 
+    @Mock
+    private CompanyStoreFilterResolver storeFilterResolver;
+
     private GoodsReceiptService service;
 
     private CompanyStore store;
@@ -151,7 +155,8 @@ class GoodsReceiptServiceTest {
                 productVariantStoreStockRepository,
                 statusRepository,
                 currentUserContext,
-                storeScopeResolver);
+                storeScopeResolver,
+                storeFilterResolver);
 
         var company = Company.builder().id(COMPANY_ID).companyKey("GR-KEY").build();
         var companyCountry =

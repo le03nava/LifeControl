@@ -113,7 +113,7 @@ class GoodsReceiptControllerSecurityTest {
                 List.of(new GoodsReceiptLineResponse(detailId, detailId, variantId, new BigDecimal("1.00"), null)));
 
         when(goodsReceiptService.createReceipt(any(GoodsReceiptRequest.class))).thenReturn(response);
-        when(goodsReceiptService.getAllReceipts(any(), any()))
+        when(goodsReceiptService.getAllReceipts(any(), any(), any()))
                 .thenReturn(new PageImpl<>(List.of(response), PageRequest.of(0, 12), 1));
         when(goodsReceiptService.getReceipt(any())).thenReturn(response);
     }
