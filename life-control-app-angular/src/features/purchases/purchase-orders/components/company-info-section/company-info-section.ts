@@ -75,6 +75,14 @@ export class CompanyInfoSection implements OnInit {
    */
   readonly storeResolved = output<string>();
 
+  /**
+   * Emits the company the cascade applied to the header form, on the same silent-patch contract as
+   * {@link storeResolved} and for the same reason: the company control is never written through an
+   * emitting patch, so this output is the only channel that can carry the resolved company to the
+   * parent — which scopes the supplier search, the supplier's products and the variant picker to it.
+   */
+  readonly companyResolved = output<string | null>();
+
   // ─── Cascade state (owned by the service) ──────────────
   readonly companies = this.cascade.companies;
   readonly countries = this.cascade.countries;
@@ -94,6 +102,9 @@ export class CompanyInfoSection implements OnInit {
     // `companyStoreId` silently (`emitEvent: false`), so `valueChanges` alone
     // can never see the profile prefill or the resets; this channel can.
     effect(() => this.storeResolved.emit(this.cascade.storeId()));
+
+    // Same channel for the company: its control is patched silently too.
+    effect(() => this.companyResolved.emit(this.cascade.companyId()));
 
     // Reconstruct the cascade from the loaded order (edit mode).
     effect(() => {
