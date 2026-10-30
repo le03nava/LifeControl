@@ -34,7 +34,7 @@ that settled the open questions.
 | ADR | Decision | Status | Depends on | Blocks |
 | --- | --- | --- | --- | --- |
 | [0001](0001-inventory-ledger-single-source.md) | Inventory is a single append-only ledger; balances are disposable projections. Costing and valuation are part of it. | proposed | 0005, 0006 | 0002 |
-| [0002](0002-money-first-class.md) | Money is a first-class value: currency, breakdown, payment rows, tax. | proposed | 0001, 0003 | — |
+| [0002](0002-money-first-class.md) | Money is a first-class value: currency, breakdown, payment rows, tax. | proposed | 0001, 0003, 0005 | — |
 | [0003](0003-document-identity-per-tenant.md) | Document numbers come from a per-tenant sequence, not from `max + 1` over a global `UNIQUE`. | proposed | — | 0002 |
 | [0004](0004-typed-state-machine.md) | Document state is a typed machine with a history, not a string in a lookup table. | proposed | — | — |
 | [0005](0005-tenant-isolation-rls.md) | Tenant isolation is enforced by Row-Level Security, not by 150 call-site checks. | accepted | — | 0001, 0002 |
