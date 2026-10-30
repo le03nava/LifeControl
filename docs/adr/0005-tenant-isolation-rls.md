@@ -1,7 +1,8 @@
 # ADR 0005 — Tenant isolation is enforced by Row-Level Security
 
-- **Status**: proposed
+- **Status**: accepted
 - **Date**: 2026-10-29
+- **Accepted**: 2026-10-29, after the three corrections recorded at the end of this document
 - **Decision id**: D5 of `odd/tasks/architecture-redesign-adrs.md`
 - **Depends on**: —
 - **Blocks**: ADR-0001 (every ledger table carries a policy), ADR-0002 (payments are tenant rows)
@@ -54,7 +55,10 @@ ignored that would empty a shared catalog.
    NULL` is `NULL`, which filters the row.
 3. **Two roles, two jobs.** `lifecontrol_owner` owns the objects and runs Flyway; `lifecontrol_app` owns
    nothing, has no `BYPASSRLS`, and is the only role the pool connects as. Every tenant table gets
-   `ENABLE` **and** `FORCE ROW LEVEL SECURITY`, so the owner is not implicitly exempt either.
+   `ENABLE` **and** `FORCE ROW LEVEL SECURITY`, so the owner is not implicitly exempt either. The
+   application role also needs `USAGE` on the **sequences** its identity columns own: a grant that
+   covers tables and stops there fails every `INSERT` with `permission denied for sequence`, a runtime
+   failure and not a policy one.
 4. **The shared catalogs are an explicit, closed exception.** `countries` (`V1:11`), `measure_units`
    (`V1:284`), `statuses` (`V1:268`), `status_types` (`V1:255`), `payment_methods` (`V1:302`) and
    `currency` (ADR-0002) carry no `company_id` and no policy. The startup assertion below fails the
@@ -63,6 +67,15 @@ ignored that would empty a shared catalog.
    `product_attribute_profile_roots` get `company_id IS NULL OR company_id = ...`: readable by every
    tenant when global, by its owner when an override. **The 150 call-site checks stay** as defence in
    depth: they express *authorization* (which store, which role) on top of *isolation* (which tenant).
+6. **A migration that writes tenant rows states its scope too, and one that spans tenants is the one
+   named exception.** `FORCE` applies to the owner as well, so a migration running as
+   `lifecontrol_owner` that `UPDATE`s or `DELETE`s rows on the list affects **0 rows** — silently,
+   which is the failure mode this ADR exists to remove. `TRUNCATE` is *not* filtered, because RLS is not
+   applied at table level, so the `V14`/`V40` shape hides the trap instead of revealing it. Rule: a
+   migration that knows its tenant calls `set_tenant_scope('<uuid>')` first; a migration that must
+   rewrite rows across tenants runs in Flyway's own elevated connection — a superuser, which bypasses
+   RLS by PostgreSQL rule — and says why in the file. That is not the rejected third `BYPASSRLS` role:
+   it is a credential the pool never holds, and invariant T5 keeps the owner honest.
 
 ## Schema
 
@@ -72,10 +85,13 @@ CREATE ROLE lifecontrol_owner LOGIN;              -- Flyway: owns every object
 CREATE ROLE lifecontrol_app   LOGIN NOBYPASSRLS;  -- the pool: owns nothing
 GRANT USAGE ON SCHEMA public TO lifecontrol_app;
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO lifecontrol_app;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO lifecontrol_app;
 -- a table created by a later migration inherits the grant, so "a new table is a list entry" holds for
 -- the privileges the application needs as well as for the policy
 ALTER DEFAULT PRIVILEGES FOR ROLE lifecontrol_owner IN SCHEMA public
     GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO lifecontrol_app;
+ALTER DEFAULT PRIVILEGES FOR ROLE lifecontrol_owner IN SCHEMA public
+    GRANT USAGE, SELECT ON SEQUENCES TO lifecontrol_app;
 
 -- ─── the tenant scope of one transaction: `true` is SET LOCAL, so the value dies
 -- with the transaction and a pooled connection cannot carry a tenant into the next request
@@ -89,11 +105,12 @@ CREATE TABLE tenant_table (
     shared_rows BOOLEAN NOT NULL DEFAULT false   -- true: a NULL owner means "every tenant"
 );
 
-CREATE FUNCTION apply_tenant_isolation(target regclass, shared_rows boolean DEFAULT false)
+CREATE FUNCTION apply_tenant_isolation(target regclass, shared_rows boolean DEFAULT false,
+                                      key_column text DEFAULT 'company_id')
 RETURNS void LANGUAGE plpgsql AS $$
 DECLARE
     relname   text := (SELECT relname FROM pg_class WHERE oid = target);
-    predicate text := 'company_id = current_setting(''app.company_id'', true)::uuid';
+    predicate text := format('%I = current_setting(''app.company_id'', true)::uuid', key_column);
 BEGIN
     IF shared_rows THEN predicate := 'company_id IS NULL OR ' || predicate; END IF;
     EXECUTE format('ALTER TABLE %s ENABLE ROW LEVEL SECURITY', target);
@@ -111,6 +128,11 @@ SELECT c.oid::regclass AS unprotected_table
    AND EXISTS (SELECT 1 FROM pg_attribute a WHERE a.attrelid = c.oid
                 AND a.attname = 'company_id' AND a.attnum > 0 AND NOT a.attisdropped)
    AND NOT EXISTS (SELECT 1 FROM tenant_table t WHERE t.table_name = c.oid);
+
+-- ─── the root is isolated by its own key, not by a company_id column ──────────
+SELECT apply_tenant_isolation('companies', false, 'id');
+SELECT apply_tenant_isolation('product_attribute_profiles', true);
+SELECT apply_tenant_isolation('product_attribute_profile_roots', true);
 ```
 
 That last query is not documentation: the application runs it at startup and refuses to boot when it
@@ -128,6 +150,7 @@ stops — the shape of ADR-0001's rebuild check.
 | T5 | The owner role is not implicitly exempt | as `lifecontrol_owner`, the same `SELECT` returns 0 rows |
 | T6 | The tenant setting is transaction-local | after commit, `current_setting('app.company_id', true)` is `NULL` on that pooled connection |
 | T7 | A shared row is readable by all, an override only by its owner | the `NULL`-owner profile is visible to A and to B; the override only to its tenant |
+| T8 | The sequence grant is not an afterthought | as `lifecontrol_app` scoped to A, insert a row whose `id` comes from an identity column: succeeds |
 
 The parent decision's suite, T2–T5, runs as `lifecontrol_app` on Testcontainers (`build.gradle:85-86`).
 
@@ -141,7 +164,8 @@ hides the rows it cannot attribute:
 2. **Columns first.** A table on the list needs `company_id NOT NULL` before it gets a policy. The
    contract migrations did this for products, variants, suppliers and the store hierarchy
    (`V40:101-102`, `V49:71`); a group still nullable is closed in its own migration, never by guess.
-3. **Identity, store hierarchy and catalog**: `companies` (its policy is on `id`, the root),
+3. **Identity, store hierarchy and catalog**: `companies` (isolated by `id`, the root —
+   `apply_tenant_isolation('companies', false, 'id')`, the one call that does not use `company_id`),
    `company_countries`, `company_regions`, `company_zones`, `company_stores`, `products`,
    `product_variants`, `product_categories`, `suppliers`, `product_suppliers`, and the two override
    catalogs with `shared_rows = true`.
@@ -182,3 +206,24 @@ however many this one takes. The other order writes every policy twice.
 - **Cost**: the predicate runs per row unless the planner uses an index, so the `(company_id, …)`
   leading columns become load-bearing — they exist where it matters (`V40`, `V48`); the rest get one in
   their group's migration. Cross-tenant fixtures need a real PostgreSQL: Testcontainers, not H2.
+
+## Corrections applied before acceptance
+
+Read in full for the acceptance decision, and three defects were found. The decision is unchanged; the
+document now says what it meant.
+
+1. **`companies` did not fit the helper.** `apply_tenant_isolation` hardcoded `company_id`, while the
+   migration section singles `companies` out as "its policy is on `id`, the root" — so the one table the
+   ADR names could not use the helper that makes "a new tenant table is a new row" true. The function
+   now takes `key_column` (`DEFAULT 'company_id'`), and `companies` is applied with `'id'`.
+2. **The grants stopped at tables.** `lifecontrol_app` is the only role that writes, and identity columns
+   are backed by sequences it could not touch: every `INSERT` would have failed with
+   `permission denied for sequence`, which reads as a broken application rather than a tenant problem.
+   Both the explicit grant and its `ALTER DEFAULT PRIVILEGES` counterpart now cover sequences, and T8
+   pins it.
+3. **`FORCE` filters the owner, and the owner runs Flyway.** A migration that `UPDATE`s or `DELETE`s
+   tenant rows would have affected 0 rows in silence. `TRUNCATE` is unaffected because RLS is not
+   applied at table level, which is why the `V14`/`V40` shape never surfaced the trap. Decision item 6
+   states the rule and names the single elevated exception.
+
+The SQL was not executed: no runner was authorized, so it is read-verified, not observed.

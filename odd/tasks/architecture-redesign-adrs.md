@@ -1,11 +1,12 @@
 # ODD feature: architecture-redesign-adrs
 
 **Repository**: LifeControl — `docs/adr/` (new), `odd/tasks/`
-**Branch**: `docs/architecture-redesign-adrs`
-**Worktree**: `~/workspace/LifeControl-worktrees/docs-architecture-redesign-adrs`
-**Status**: implemented — the six ADRs, their index and this record are the branch's content. The
-redesign they describe is not implemented, and no ADR is `accepted` until the maintainer accepts it;
-this record makes no delivery claim. Nothing is deferred.
+**Branch**: `docs/architecture-redesign-adrs`, then `docs/adr-0005-accepted` for the acceptance
+**Worktree**: `~/workspace/LifeControl-worktrees/docs-architecture-redesign-adrs`, then
+`~/workspace/LifeControl-worktrees/docs-adr-0005-accepted` for the acceptance
+**Status**: implemented — the six ADRs, their index and this record are the set's content. The
+redesign they describe is not implemented. ADR-0005 is `accepted` (2026-10-29); the other five are
+`proposed` and each needs its own decision. This record makes no delivery claim. Nothing is deferred.
 **Created**: 2026-10-29
 **Risk**: none — documentation only. No code, no schema, no runtime surface.
 
@@ -131,3 +132,13 @@ in `docs/adr/README.md` — RLS, then catalog, then the ledger, then documents, 
 so it is now the agreed plan for what gets implemented first rather than a recommendation. That
 acceptance deliberately does not travel to the six ADRs: each stays `proposed` and needs its own
 decision, taken per ADR.
+
+**2026-10-29 — ADR-0005 is accepted, after the three corrections it needed to be admissible.** The
+maintainer chose to close them before the status flipped rather than list them as implementation notes:
+`companies` is isolated by `id` and did not fit a helper that hardcoded `company_id`; the grants covered
+tables and left the application role without `USAGE` on sequences, so every identity `INSERT` would have
+failed at runtime; and `FORCE` filters the owner, which is the role that runs Flyway, so a migration
+`UPDATE`ing tenant rows would have touched 0 rows in silence — the trap `TRUNCATE` hides, because RLS is
+not applied at table level. The decision is unchanged; the document now says what it meant, and the
+corrections are recorded in the ADR itself, not only here. `docs/adr/README.md` carries the status and
+the other five ADRs stay `proposed`. The SQL was not executed: no runner was authorized.
