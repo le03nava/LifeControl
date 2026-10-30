@@ -278,3 +278,119 @@ because it is one contract's pin and not a diff to read line by line; and this e
 in the document rather than in a session. 1031 authored lines in total, of which 654 are the suite. The
 same reasoning as L6 applies: splitting the suite across pull requests would leave each partial PR red,
 because both halves assert facts the other half introduces.
+
+L13 — **T4's mechanism is decided, and the measurement is why.** The ADR (item 1, as amended) leaves the component open and states the requirement; three measurements from this tree pick the component:
+
+1. **The company of an operation comes from the URL, not from the token.** `@RequestHeader` appears **nowhere** in `life-control-api/src/main/java`; `PathVariable` naming a company appears **109** times and `UUID companyId` is a parameter of **166** service methods. The token may legitimately carry several companies — the Keycloak mapper is multivalued and two stores is its documented case — and `verifyCompanyAccess` (`common/auth/CurrentUserContext.java:193`) checks membership per call. So deriving the scope from the claim would refuse a multi-company user, which is the case the mapper exists to support. **The scope comes from the operation's company**, and the ADR's "multi-valued claim is a refusal" is read as what it is: refuse when the operation's company cannot be determined, never widen.
+2. **Almost nothing reads outside a transaction, and the exceptions are enumerable.** 57 classes inject a repository; 52 declare `@Transactional`; **0 of 50 controllers** reference one; `spring.jpa.open-in-view=false` (`application.properties:8`), so the tree already cannot depend on a session outside a transaction. The five without any annotation are `AccessProvisioningWorker` (`:108`), `AccessProvisioningQueueMetrics` (`:120`), `CompanyStoreFilterResolver` (`:26`), `CompanyStoreScopeResolver` (`:38`) and `AccessProvisioningProducer` (`:79`). Two of those are the non-request threads; the producer joins its caller's transaction by contract.
+3. **Suspension would erase a request-wide scope.** `ProfileLocationResolver.resolve` (`:58`) is `@Transactional(propagation = NOT_SUPPORTED)` and calls `CompanyStoreService.getStoreById` (`:146`, `readOnly`), so a scope installed only by a per-request transaction disappears exactly there — while a scope installed at **each** transaction boundary is re-applied on the inner one.
+
+**The design that follows, and it is one mechanism with one source of truth:** a `TenantScope` holder carries the operation's company for the duration of the request; a filter that runs **after** authentication reads `/api/companies/{id}` from the path, verifies the id belongs to the token's claims, and refuses otherwise (so the scope can never be set for a tenant the caller cannot claim — the fail-closed rule moves to the place that has the information); and **every transaction boundary installs the scope from that holder**, which is what survives `NOT_SUPPORTED` and what the asynchronous paths use explicitly, one tenant at a time. No whole-request transaction, so transaction semantics stay as they are today.
+
+The one read T4 must fix by hand is `employeeRepository.findByIdWithCompanyAndStatus` (`AccessProvisioningWorker:234`): it reads `employees`, which will carry a policy, from a thread with no request. The worker sets the scope from the task's own company, and the other unlocked reads in that pass — `findDueTaskIds`, `findStaleRunningTaskIds`, `findById` — read `access_provisioning_tasks`, which has no `company_id` and is outside S2's list.
+
+L14 — **T4 is written, and writing it found the one thing the ADR's own shape cannot express.** The slice is
+Java only — no migration, no policy — and it installs the scope at four places that together are one
+mechanism:
+
+- `common/tenant/TenantScope`: the holder, a thread-confined static (the `SecurityContextHolder` pattern)
+  carrying `(companyId, subject)` with `set`/`clear`/`current`/`with`. Static and not a bean because two of
+  its three callers cannot inject anything: the transaction manager is a bean factory method `spring-boot-jpa`
+  also defines, and the filter is built by the security chain.
+- `common/tenant/TenantScopeFilter`: reads `/api/companies/{uuid}` from the URI, verifies it with
+  `CurrentUserContext.verifyCompanyAccess` (the same call the 150 checks make, so an administrator is admitted
+  by the same rule instead of a second one), and **refuses** a company the token cannot claim. A path with no
+  company segment — including the literal `/api/companies/selector` — states the subject only; a path whose
+  segment is not a UUID states no company at all rather than turning a 400 into a 403.
+- `common/tenant/TenantScopeJpaTransactionManager` + `config/TenantScopeTransactionConfig`: a
+  `JpaTransactionManager` subclass replacing the auto-configured one (`@ConditionalOnMissingBean(TransactionManager)`
+  is what makes the replacement possible), whose `doBegin` issues `select set_tenant_scope(?)` and
+  `select set_user_scope(?)` through the **transaction's own** EntityManager, after `super.doBegin` bound it.
+- `AccessProvisioningWorker`: the employee read of each task runs inside `TenantScope.with(taskCompany, …)`.
+
+**Three measurements T4 did not have when L13 was written.** *(a) The filter's anchor is not the one the
+brief named.* `addFilterAfter(…, BearerTokenAuthenticationFilter.class)` puts the filter **outside**
+`ExceptionTranslationFilter` in this stack, and so does `addFilterBefore(…, ExceptionTranslationFilter.class)`:
+in both cases the `AccessDeniedException` propagates outward and never reaches the translator, so the refusal
+surfaced as a servlet exception instead of the HTTP 403 the rest of the tree answers with. The anchor that
+works — measured by the acceptance suite, which asserts the 403 — is `addFilterAfter(…,
+ExceptionTranslationFilter.class)`, i.e. inside the translator and still long after the JWT was validated.
+*(b) The dialect gate cannot be read from Hibernate in this stack.* `EntityManagerFactory.unwrap(SessionFactory.class)`
+returns a JDK proxy that does not implement `SessionFactoryImplementor`, so the `getJdbcServices()` cast threw
+inside `doBegin` and — worse — left the EntityManager holder bound, which fails the next transaction on the
+thread with "already value … bound for key". The gate now asks the **database** through the pooled
+`DataSource` once and caches the answer, and it is decided **before** `super.doBegin` so that a failure there
+cannot leave a bound resource behind. *(c) The H2 no-op is load-bearing and measured in both directions:
+removing the gate fails `TenantScopeH2NoOpTest` with `Function "SET_TENANT_SCOPE" not found`* — the exact
+build-breaking failure the brief predicts — **and** the case has to state a scope to prove anything, because
+an absent scope short-circuits the installer before the dialect is ever consulted.
+
+**Trap 3 is answered, not "improved":** the installer skips a half it has no value for instead of writing
+`NULL`, so a request with no company segment costs one round trip fewer and the pooled connection keeps the
+empty string `nullif(…, '')` already filters every row with. `with(null, …)` keeps that shape — a tenant that
+could not be determined installs nothing and the read finds zero rows.
+
+**The finding T5 has to resolve, recorded before it bites.** `access_provisioning_tasks` carries no
+`company_id` (S2), and the worker's tenant is *not* derivable from a tenant table: `employees` and `companies`
+are both on the armed list, so the moment T5 creates their policies the worker's resolution
+(`AccessProvisioningTaskRepository.findEmployeeCompanyIdByTaskId`, the single place the pass learns its tenant)
+reads **zero rows with no scope**, and every claimed task fails with "Employee not found" — provisioning stops
+loudly per task, in a retry loop, which is the ADR's named failure mode wearing a different mask. The fix is one
+of two, and both are outside this slice: put `company_id` on `access_provisioning_tasks` (the data-model change
+S2 defers to its own unit, and the shape a platform queue needs anyway), or resolve the tenant through a
+`SECURITY DEFINER` function. **T5 does not start until one of them is chosen**, because arming `employees`
+without it breaks the worker on deploy. The same reading applies to two adjacent facts T5 must decide rather
+than discover: `POST /api/companies` names no company in its path, so with `companies` armed by `id` its
+`WITH CHECK` refuses the insert (creating the first company needs an exception or a bootstrap path), and an
+administrator whose token carries no `company_id` reads nothing on the endpoints whose company comes only from
+the claim. Neither is T4's to solve — this slice adds isolation *under* authorization and changes no call site.
+
+Authored lines, for the review budget: **7 main files** (four new — the holder, the filter, the boundary hook
+and its `@Configuration` — plus `SecurityConfig`, the task repository and the worker) and **5 test classes**,
+about 1 560 authored lines of which **993 are the five suites and this entry** (`wc -l`: 924 test + 69 record;
+main is 471 new + 98 changed). T2's 658-line functions suite is excluded because it is not this slice's diff.
+
+L15 — the slice boundaries of T4, as they actually are. Two commits: `989bb094` is the whole Java half —
+the holder, the transaction-boundary manager, the bean config, the filter with its security anchor, and the
+worker's per-task scope — 565 authored lines, and `9e680ba8` is the five test classes, 923 lines. The Java
+half intended to split into "mechanism" and "the two places that state a value", and it did not: the branch
+was already pushed, and re-splitting it needs a force-push, which this repository's policy blocks and which
+is not worth asking for cosmetics. What matters for the reviewer is recorded instead: the mechanism is the
+only code that runs on **every** transaction, so it is the file to read first
+(`TenantScopeJpaTransactionManager`), and the other four files only decide *which* value it installs.
+1563 authored lines in total; the size is stated in the pull request rather than hidden.
+
+L16 — **the two T5 blockers are decided.** The maintainer chose the *narrow* escape and the *strict* rule.
+
+1. **The worker's tenant comes from one `SECURITY DEFINER` function**, «Función SECURITY DEFINER acotada»:
+   `task_employee_company(task uuid) RETURNS uuid` with a fixed body (`SELECT company_id FROM employees
+   WHERE id = (SELECT employee_id FROM access_provisioning_tasks WHERE id = $1)`) and `EXECUTE` for
+   `lifecontrol_app` only. No column, no backfill, no second policy kind, and the bypass is one query that
+   returns one uuid instead of a connection that sees every row.
+   **It cannot live in a migration**, and that is the part worth remembering: Flyway runs as
+   `lifecontrol_owner`, which is `NOSUPERUSER`, so it cannot create an object owned by
+   `lifecontrol_bootstrap` — and the owner is exactly the entity whose bypass this function must not
+   have. It belongs in `docker/postgres-init/lifecontrol-roles.sql`, the one script that runs as the
+   maintenance superuser, which `db-roles.sh` re-applies on every deploy; a plpgsql body is parsed lazily,
+   so creating it there — before `employees` exists on a fresh volume — is legal and stays idempotent.
+   Consequence to state in that slice: the roles script now owns one schema object, and the reason is
+   that ownership is the only thing that grants the bypass, deliberately.
+
+2. **A token with no `company_id` reads no tenant data**, «Falla cerrado, sin excepción». Two paths need an
+   explicit answer rather than a policy that can never match:
+   - **Creating a company**: the id is generated by the application, so the service states it —
+     `TenantScope.with(newId, () -> save(...))` — and the `companies` policy's `WITH CHECK` passes on a row
+     whose tenant *is* its own id. A path that names no company can never satisfy a policy; an operation
+     that knows the value can.
+   - **Listing companies**: the list is the caller's claims, so it is resolved per claim —
+     one scoped read per claimed company — and never by widening the policy. A user with two companies
+     gets two reads; a token with none gets an empty list, which is the honest answer and not an
+     exception.
+   The measurement that makes this safe: `0 of 50` controllers read a repository directly, so there is no
+   other claim-less path hiding behind the list.
+
+What this leaves for T5, in order: the resolver function in the roles script; the company create/list
+paths; and then the policies, group by group, with `employees` now armable because its reader has a
+resolver. `access_provisioning_tasks` stays off the list on purpose — its due-task scan is cross-tenant
+and arming it would stop the worker from finding work at all — so it is a `company_id`-free table and the
+assertion's rule ("a `company_id` table must be listed") does not apply to it.
