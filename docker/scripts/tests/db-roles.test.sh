@@ -16,6 +16,9 @@
 #   2. the SQL grants CONNECT and USAGE and nothing else: table, sequence and ALTER DEFAULT PRIVILEGES
 #      grants belong to the migration that creates the policies, and asserting their absence is how
 #      this slice's boundary stays closed;
+#   3. the tenant resolver -- the one SECURITY DEFINER query the asynchronous path needs, created here
+#      and not in a migration because ownership is the bypass -- is created after the two roles exist,
+#      owned by the maintenance superuser, revoked from PUBLIC and granted to the application role;
 #   3. the credential is a secret file, read inside the container — never an argv, never an env value,
 #      never a `.env` line, never a literal in the SQL;
 #   4. the init wrapper refuses an absent, empty or CHANGEME credential, and resolves which role can act
@@ -52,6 +55,11 @@ COMPOSE_BASE="$DOCKER_DIR/docker-compose.yml"
 COMPOSE_PROD="$DOCKER_DIR/docker-compose.prod.yml"
 ENTRYPOINT="$DOCKER_DIR/entrypoints/lifecontrol-app-entrypoint.sh"
 SECRET_TEMPLATE="$DOCKER_DIR/secrets/lifecontrol_app_password.template"
+# The Testcontainers init script, resolved from the docker directory so this suite stays runnable from
+# anywhere: the container never runs the roles script, so it has to create the resolver on its own or
+# every PostgreSQL suite in the tree depends on a function the fixture does not provide.
+TEST_ROLES_SQL="$(cd "$DOCKER_DIR/.." && pwd)/life-control-api/src/test/resources/test-container-roles.sql"
+TEST_PROFILE_PROPERTIES="$(cd "$DOCKER_DIR/.." && pwd)/life-control-api/src/test/resources/application-test.properties"
 
 PASS_COUNT=0
 FAIL_COUNT=0
@@ -214,6 +222,103 @@ else
 	# The exit code is not the evidence: the file reads the end state back and raises.
 	assert_contains "the SQL verifies the end state instead of trusting the exit code" "$code" \
 		"role attributes did not converge"
+fi
+
+# ------------------------------------------
+# 1b. The tenant resolver: one fixed query, owned by the maintenance superuser, executed by the app.
+# ------------------------------------------
+# `access_provisioning_tasks` carries no company_id and its due-task scan is cross-tenant on purpose, so
+# the worker cannot derive a task's tenant from a tenant table: it lives in `employees`, under a policy.
+# The escape is one SECURITY DEFINER function whose body cannot be edited by its caller, whose EXECUTE
+# belongs to the application role and to nobody else, and whose ownership is the bypass itself -- which is
+# why it is created here, in the file that runs as the maintenance superuser, and not in a migration.
+echo "== 1b. tenant resolver: after the roles, SECURITY DEFINER, owned by bootstrap, EXECUTE for the app only"
+
+if [ ! -f "$SQL_FILE" ]; then
+	fail "missing docker/postgres-init/lifecontrol-roles.sql"
+else
+	code="$(sql_code "$SQL_FILE")"
+
+	assert_contains "the tenant resolver is created with the signature the worker calls" "$code" \
+		"CREATE OR REPLACE FUNCTION task_employee_company(task uuid) RETURNS uuid"
+	assert_contains "its body joins the task to the employee, and nothing else" "$code" \
+		"FROM access_provisioning_tasks t"
+	assert_contains "the company comes from employees, the only organisational link the task has" "$code" \
+		"JOIN employees e ON e.id = t.employee_id"
+
+	# plpgsql and not sql: on a fresh volume this file runs BEFORE Flyway, so the tables the body names do
+	# not exist yet and a `LANGUAGE sql` body would be parse-analysed at creation time and fail.
+	assert_contains "the resolver is plpgsql, because it is created before the tables exist" "$code" \
+		"LANGUAGE plpgsql STABLE SECURITY DEFINER"
+	assert_file_contains "the SQL says why plpgsql and not sql" "$SQL_FILE" \
+		"plpgsql resolves names on first execution"
+
+	# Ownership is what grants the bypass, so both halves are asserted: the ALTER that makes it true and
+	# the read-back that refuses the run when it is not.
+	assert_contains "the function is owned by the maintenance superuser" "$code" \
+		"ALTER FUNCTION task_employee_company(uuid) OWNER TO lifecontrol_bootstrap"
+	assert_contains "the SQL re-reads the ownership instead of trusting the ALTER" "$code" \
+		"must be owned by lifecontrol_bootstrap"
+	assert_contains "the SQL re-reads SECURITY DEFINER instead of trusting the CREATE" "$code" \
+		"must be SECURITY DEFINER"
+
+	assert_contains "EXECUTE is revoked from every role" "$code" \
+		"REVOKE ALL ON FUNCTION task_employee_company(uuid) FROM PUBLIC"
+	assert_contains "EXECUTE is granted to the application role" "$code" \
+		"GRANT EXECUTE ON FUNCTION task_employee_company(uuid) TO lifecontrol_app"
+	assert_absent "EXECUTE is never granted to PUBLIC" "$code" \
+		"GRANT EXECUTE ON FUNCTION task_employee_company(uuid) TO PUBLIC"
+	assert_contains "the SQL refuses a resolver that PUBLIC could still execute" "$code" \
+		"must not be executable by PUBLIC"
+
+	# Parity with the Testcontainers init script, in both directions of what can drift: the container
+	# creates the same function with the same privileges, because the repository calls it as its only
+	# PostgreSQL path and the container never runs this file. If one side gains a REVOKE or a GRANT the
+	# other does not, this is where it shows. The test script states no owner on purpose -- its owner is
+	# the container's own user, a superuser, which is the same attribute `lifecontrol_bootstrap` carries
+	# in delivery. The baseline line is the other half of the pair: a non-empty `public` before Flyway
+	# skips V1 unless the test profile baselines at 0.
+	assert_file_contains "the test container also creates the resolver" "$TEST_ROLES_SQL" \
+		"CREATE OR REPLACE FUNCTION task_employee_company(task uuid) RETURNS uuid"
+	assert_file_contains "the test container's resolver is the same joined body" "$TEST_ROLES_SQL" \
+		"JOIN employees e ON e.id = t.employee_id"
+	assert_file_contains "the test container's resolver is SECURITY DEFINER on plpgsql" "$TEST_ROLES_SQL" \
+		"LANGUAGE plpgsql STABLE SECURITY DEFINER"
+	assert_file_contains "the test container revokes EXECUTE from every role too" "$TEST_ROLES_SQL" \
+		"REVOKE ALL ON FUNCTION task_employee_company(uuid) FROM PUBLIC"
+	assert_file_contains "the test container grants EXECUTE to the application role too" "$TEST_ROLES_SQL" \
+		"GRANT EXECUTE ON FUNCTION task_employee_company(uuid) TO lifecontrol_app"
+	assert_file_absent "the test container never grants the resolver to PUBLIC" "$TEST_ROLES_SQL" \
+		"GRANT EXECUTE ON FUNCTION task_employee_company(uuid) TO PUBLIC"
+	assert_file_contains "the test container says it mirrors the roles script" "$TEST_ROLES_SQL" "mirrors"
+
+	# The other half of that pair, pinned so it is not "fixed" back: the container creates an object in
+	# `public` before Flyway runs, and a non-empty schema makes `baseline-on-migrate` at version 1 record
+	# `V1__baseline_schema.sql` as applied without running it. The test profile therefore baselines at 0.
+	assert_file_contains "the test profile baselines at 0, so V1 still runs over a pre-created object" \
+		"$TEST_PROFILE_PROPERTIES" "spring.flyway.baseline-version=0"
+	assert_file_contains "the test profile records the symptom, not just the setting" \
+		"$TEST_PROFILE_PROPERTIES" "baselined schema with"
+
+	# Ordering, measured rather than assumed: the function's owner and its grantee must exist when the
+	# CREATE runs, or the file fails on a fresh volume.
+	resolver_line="$(printf '%s\n' "$code" | grep -n 'CREATE OR REPLACE FUNCTION task_employee_company' | head -1 | cut -d: -f1)"
+	app_role_line="$(printf '%s\n' "$code" | grep -n 'CREATE ROLE lifecontrol_app' | head -1 | cut -d: -f1)"
+	bootstrap_create_line="$(printf '%s\n' "$code" | grep -n 'CREATE ROLE lifecontrol_bootstrap' | head -1 | cut -d: -f1)"
+	if [ -n "$resolver_line" ] && [ -n "$app_role_line" ] && [ "$resolver_line" -gt "$app_role_line" ]; then
+		pass "the resolver is created after the application role exists (line $resolver_line > $app_role_line)"
+	else
+		fail "the resolver must be created AFTER 'CREATE ROLE lifecontrol_app' (found '$resolver_line' / '$app_role_line')"
+	fi
+	if [ -n "$resolver_line" ] && [ -n "$bootstrap_create_line" ] && [ "$resolver_line" -gt "$bootstrap_create_line" ]; then
+		pass "the resolver is created after its owner exists (line $resolver_line > $bootstrap_create_line)"
+	else
+		fail "the resolver must be created AFTER 'CREATE ROLE lifecontrol_bootstrap' (found '$resolver_line' / '$bootstrap_create_line')"
+	fi
+
+	# The resolver is not a table grant and not a policy: the policy set is T5's, and this slice adds none.
+	assert_absent "the resolver section creates no policy either" "$code" "CREATE POLICY"
+	assert_absent "the resolver is not a second application credential" "$code" "lifecontrol_bootstrap PASSWORD"
 fi
 
 # ------------------------------------------

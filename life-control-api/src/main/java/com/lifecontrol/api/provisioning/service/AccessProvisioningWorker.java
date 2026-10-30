@@ -42,10 +42,11 @@ import org.springframework.stereotype.Service;
  * <p><b>The employee read states its own tenant (ADR-0005, record L14).</b> The pass runs on a
  * scheduled thread no servlet filter ever sees, and it reads {@code employees} — one of the fifteen
  * tables T5 arms with a tenant policy — so the tenant has to be stated here and not inherited. Each
- * task's own company is resolved first ({@code findEmployeeCompanyIdByTaskId}) and the employee read
- * runs inside {@link TenantScope#with}, whose scope the transaction boundary installs on the
- * repository's own read-only transaction; a row of another company is a read that returns nothing, and
- * the pass fails the task rather than applying it to the wrong tenant. The other reads in this pass —
+ * task's own company is resolved first ({@code findEmployeeCompanyIdByTaskId}, which asks the
+ * {@code SECURITY DEFINER} function record L16 decided on) and the employee read runs inside
+ * {@link TenantScope#with}, whose scope the transaction boundary installs on the repository's own
+ * read-only transaction; a row of another company is a read that returns nothing, and the pass fails
+ * the task rather than applying it to the wrong tenant. The other reads in this pass —
  * {@code findDueTaskIds}, {@code findStaleRunningTaskIds}, {@code findById} — touch
  * {@code access_provisioning_tasks}, which carries no {@code company_id} and is outside S2's list, and
  * they are deliberately left alone: a scope on them would be a scope nothing reads.</p>
@@ -277,6 +278,14 @@ public class AccessProvisioningWorker {
      * {@code SimpleJpaRepository} declares, and the transaction boundary installs the scope on it before
      * its first query. A {@code null} tenant installs nothing: the read then finds no row under a policy
      * and the caller's own not-found branch fails the task, which is the fail-closed outcome.</p>
+     *
+     * <p><b>The resolution is the one read that may not go through the policy.</b>
+     * {@code access_provisioning_tasks} carries no {@code company_id} (V22), so the tenant enters through
+     * {@code employee_id} — and reading it out of {@code employees} is exactly the read this method is
+     * about to scope, which is circular once that table is armed. The repository therefore answers it
+     * through {@code task_employee_company(uuid)}, the bounded {@code SECURITY DEFINER} function whose
+     * owner is the maintenance superuser (record L16): one fixed query, one uuid back, and no role that
+     * can see every row.</p>
      *
      * <p>The company lookup is deliberately a separate read and not {@code resolved.getEmployee()
      * .getCompany()}: the lazy proxy would issue the same query without saying why, and its

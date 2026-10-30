@@ -3,7 +3,6 @@ package com.lifecontrol.api.company.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anySet;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
@@ -26,6 +25,7 @@ import com.lifecontrol.api.country.model.Country;
 import com.lifecontrol.api.country.repository.CountryRepository;
 import java.time.LocalDateTime;
 import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -44,6 +44,8 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.transaction.support.TransactionCallback;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @ExtendWith(MockitoExtension.class)
 @DisplayName("CompanyService Tests")
@@ -61,6 +63,14 @@ class CompanyServiceTest {
     @Mock
     private CountryRepository countryRepository;
 
+    /**
+     * The transaction the service drives itself, because the tenant scope has to be stated before the
+     * boundary hook reads it (ADR-0005, record L16). Running the callback instead of returning null keeps
+     * every case below about the service's behaviour rather than about the manager's.
+     */
+    @Mock
+    private TransactionTemplate transactionTemplate;
+
     @InjectMocks
     private CompanyService companyService;
 
@@ -74,6 +84,10 @@ class CompanyServiceTest {
     @BeforeEach
     void setUp() {
         lenient().when(currentUserContext.isAdmin()).thenReturn(true);
+        lenient().when(transactionTemplate.execute(any())).thenAnswer(invocation -> {
+            TransactionCallback<?> callback = invocation.getArgument(0);
+            return callback.doInTransaction(null);
+        });
         testCompanyId = UUID.randomUUID();
         testCountryId = UUID.randomUUID();
 
@@ -221,33 +235,64 @@ class CompanyServiceTest {
             verify(companyRepository).findAll(pageable);
         }
 
-        // ── Country-role filtering ────────────────────────────
+        // ── Country-role filtering, one scoped read per claim (ADR-0005, record L16) ────
 
         @Test
-        @DisplayName("getAllCompanies - should filter by companyIds when country role")
-        void getAllCompanies_CountryRole_FiltersByCompanyIds() {
-            // Override admin default — simulate country-role user
+        @DisplayName("getAllCompanies - one claim is one scoped read and one row")
+        void getAllCompanies_CountryRole_OneClaimIsOneScopedRead() {
             reset(currentUserContext);
-            var companyId1 = UUID.randomUUID();
-            var companyId2 = UUID.randomUUID();
-            var ids = Set.of(companyId1, companyId2);
+            var companyId = UUID.randomUUID();
 
             lenient().when(currentUserContext.isAdmin()).thenReturn(false);
-            lenient().when(currentUserContext.getCompanyIds()).thenReturn(ids);
+            lenient().when(currentUserContext.getCompanyIds()).thenReturn(new LinkedHashSet<>(List.of(companyId)));
 
             var pageable = PageRequest.of(0, 12);
-            var companies = List.of(testCompany);
-            var expectedPage = new PageImpl<>(companies, pageable, 1);
+            var claimed = Company.builder()
+                    .id(companyId)
+                    .companyKey("7")
+                    .companyName("Claimed Company")
+                    .rfc("XAXX010101007")
+                    .enabled(true)
+                    .build();
+            when(companyRepository.findById(companyId)).thenReturn(Optional.of(claimed));
 
-            when(companyRepository.findAllByIdIn(ids, pageable)).thenReturn(expectedPage);
-
-            // Act
             Page<CompanyResponse> result = companyService.getAllCompanies(pageable, null);
 
-            // Assert
-            assertThat(result).isNotNull();
-            assertThat(result.getContent()).hasSize(1);
-            verify(companyRepository).findAllByIdIn(ids, pageable);
+            assertThat(result.getContent())
+                    .as("the claim is the only company this caller may see, and the read is scoped to it")
+                    .singleElement()
+                    .extracting(CompanyResponse::id)
+                    .isEqualTo(companyId);
+            verify(companyRepository).findById(companyId);
+            verify(companyRepository, never()).findAll(any(Pageable.class));
+        }
+
+        @Test
+        @DisplayName("getAllCompanies - two claims are two rows, in the order the claim yields them")
+        void getAllCompanies_CountryRole_TwoClaimsAreTwoRowsInClaimOrder() {
+            reset(currentUserContext);
+            var firstId = UUID.randomUUID();
+            var secondId = UUID.randomUUID();
+            var claimOrder = new LinkedHashSet<UUID>();
+            claimOrder.add(firstId);
+            claimOrder.add(secondId);
+
+            lenient().when(currentUserContext.isAdmin()).thenReturn(false);
+            lenient().when(currentUserContext.getCompanyIds()).thenReturn(claimOrder);
+
+            when(companyRepository.findById(firstId)).thenReturn(Optional.of(companyOf(firstId, "8", "First Claimed")));
+            when(companyRepository.findById(secondId))
+                    .thenReturn(Optional.of(companyOf(secondId, "9", "Second Claimed")));
+
+            Page<CompanyResponse> result = companyService.getAllCompanies(PageRequest.of(0, 12), null);
+
+            assertThat(result.getContent())
+                    .as("one transaction cannot state two tenants, so a caller with two claims gets one "
+                            + "scoped read each — and never a widened policy")
+                    .extracting(CompanyResponse::id)
+                    .containsExactlyElementsOf(claimOrder);
+            verify(companyRepository).findById(firstId);
+            verify(companyRepository).findById(secondId);
         }
 
         @Test
@@ -267,25 +312,21 @@ class CompanyServiceTest {
             assertThat(result).isNotNull();
             assertThat(result.getContent()).isEmpty();
             assertThat(result.getTotalElements()).isZero();
-            verify(companyRepository, never()).findAllByIdIn(anySet(), any());
+            verify(companyRepository, never()).findById(any(UUID.class));
             verify(companyRepository, never()).findAll(any(Pageable.class));
         }
 
         @Test
-        @DisplayName("getAllCompanies - should filter by companyIds with search when country role")
+        @DisplayName("getAllCompanies - the search is applied to the claim's own row")
         void getAllCompanies_CountryRole_WithSearch() {
             // Override admin default
             reset(currentUserContext);
-            var ids = Set.of(testCompanyId);
+            var ids = new LinkedHashSet<>(List.of(testCompanyId));
             lenient().when(currentUserContext.isAdmin()).thenReturn(false);
             lenient().when(currentUserContext.getCompanyIds()).thenReturn(ids);
 
             var pageable = PageRequest.of(0, 12);
-            var companies = List.of(testCompany);
-            var expectedPage = new PageImpl<>(companies, pageable, 1);
-
-            when(companyRepository.findBySearchTermAndIdIn(eq("Test"), eq(ids), eq(pageable)))
-                    .thenReturn(expectedPage);
+            when(companyRepository.findById(testCompanyId)).thenReturn(Optional.of(testCompany));
 
             // Act
             Page<CompanyResponse> result = companyService.getAllCompanies(pageable, "Test");
@@ -293,7 +334,35 @@ class CompanyServiceTest {
             // Assert
             assertThat(result).isNotNull();
             assertThat(result.getContent()).hasSize(1);
-            verify(companyRepository).findBySearchTermAndIdIn("Test", ids, pageable);
+            verify(companyRepository).findById(testCompanyId);
+            verify(companyRepository, never()).findBySearchTerm(any(), any(Pageable.class));
+        }
+
+        @Test
+        @DisplayName("getAllCompanies - a search the claim's row does not match yields no row")
+        void getAllCompanies_CountryRole_WithSearchThatDoesNotMatch() {
+            reset(currentUserContext);
+            var ids = new LinkedHashSet<>(List.of(testCompanyId));
+            lenient().when(currentUserContext.isAdmin()).thenReturn(false);
+            lenient().when(currentUserContext.getCompanyIds()).thenReturn(ids);
+            when(companyRepository.findById(testCompanyId)).thenReturn(Optional.of(testCompany));
+
+            Page<CompanyResponse> result = companyService.getAllCompanies(PageRequest.of(0, 12), "NonExistent");
+
+            assertThat(result.getContent())
+                    .as("the search is the same four fields the admin path asks the database for")
+                    .isEmpty();
+            assertThat(result.getTotalElements()).isZero();
+        }
+
+        private Company companyOf(UUID id, String companyKey, String companyName) {
+            return Company.builder()
+                    .id(id)
+                    .companyKey(companyKey)
+                    .companyName(companyName)
+                    .rfc("XAXX01010" + companyKey + "00")
+                    .enabled(true)
+                    .build();
         }
     }
 
@@ -324,11 +393,10 @@ class CompanyServiceTest {
         void getCompanySelector_NonAdminIsFilteredByTheClaim() {
             // Arrange
             Pageable pageable = PageRequest.of(0, 12);
-            Set<UUID> ids = Set.of(testCompanyId);
+            Set<UUID> ids = new LinkedHashSet<>(List.of(testCompanyId));
             when(currentUserContext.isAdmin()).thenReturn(false);
             when(currentUserContext.getCompanyIds()).thenReturn(ids);
-            when(companyRepository.findAllByIdIn(ids, pageable))
-                    .thenReturn(new PageImpl<>(List.of(testCompany), pageable, 1));
+            when(companyRepository.findById(testCompanyId)).thenReturn(Optional.of(testCompany));
 
             // Act
             Page<CompanySelectorResponse> result = companyService.getCompanySelector(pageable, null);
@@ -355,7 +423,7 @@ class CompanyServiceTest {
             // Assert
             assertThat(result.getContent()).isEmpty();
             verify(companyRepository, never()).findAll(any(Pageable.class));
-            verify(companyRepository, never()).findAllByIdIn(anySet(), any(Pageable.class));
+            verify(companyRepository, never()).findById(any(UUID.class));
         }
     }
 
