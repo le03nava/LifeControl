@@ -194,6 +194,30 @@ check_secret_files() {
 	fi
 }
 
+# A secret that a `.template` declares and nobody materialized had no reporter at all: the loop in
+# check_secret_files only inspects entries that exist, so an absent credential passed the gate and failed
+# later inside a container. setup-env.sh materializes every *.template, so a missing counterpart means it
+# never ran for this environment -- which is exactly the case of a secret added to the repository after the
+# operator's last setup. A directory is already an error in check_secret_files and is left to it.
+check_declared_secrets_materialized() {
+	print_status "Checking that every declared secret was materialized..."
+
+	SECRETS_DIR="$DOCKER_DIR/secrets"
+	[ -d "$SECRETS_DIR" ] || return 0
+
+	local template secret_name
+	for template in "$SECRETS_DIR"/*.template; do
+		[ -e "$template" ] || continue
+		secret_name="$(basename "$template" .template)"
+		if [ -f "$SECRETS_DIR/$secret_name" ] || [ -d "$SECRETS_DIR/$secret_name" ]; then
+			continue
+		fi
+		print_error "$secret_name.template declares $secret_name, but $SECRETS_DIR/$secret_name does not exist"
+		print_status "Run: ./docker/scripts/setup-env.sh $ENV (it materializes every *.template)"
+		ERRORS=$((ERRORS + 1))
+	done
+}
+
 # The one secret with no `.template`, and the one requirement that is conditional rather than structural.
 # `docker/secrets/smtp_password` is created by hand, so its absence is legal -- until the relay is told to
 # authenticate. `SMTP_AUTH=true` is what makes it required, and it is read by two other programs that
@@ -254,6 +278,7 @@ main() {
 	check_docker
 	check_ports
 	check_secret_files
+	check_declared_secrets_materialized
 	check_smtp_credential
 	check_volume_dirs
 
