@@ -1,5 +1,6 @@
 package com.lifecontrol.api.usersadmin.service;
 
+import com.lifecontrol.api.common.tenant.TenantScope;
 import com.lifecontrol.api.usersadmin.dto.CreateUserRequest;
 import com.lifecontrol.api.usersadmin.dto.CreateUserResponse;
 import com.lifecontrol.api.usersadmin.dto.PageResponse;
@@ -44,7 +45,24 @@ public class UsersAdminService {
     // User Creation
     // ---------------------------------------------------------------
 
-    @Transactional
+    /**
+     * Creates the Keycloak user and the {@code user_preferences} row that marks it as a known subject.
+     *
+     * <p><b>Why this method is not {@code @Transactional}.</b> The subject is created <b>inside</b> the
+     * call, so it does not exist when the transaction boundary is entered: a {@code @Transactional} method
+     * would open its transaction first, and the boundary hook would read a scope holder that cannot yet
+     * name the user being created. The row's policy compares {@code keycloak_user_id} with
+     * {@code app.user_id} (ADR-0005's {@code subject} kind), so that insert would be refused or, worse,
+     * silently read back as somebody else's. There is exactly <b>one</b> piece of database work here — a
+     * single {@code save} — and the repository opens its own transaction for it, so the annotation bought
+     * nothing but the ordering problem it caused. The method therefore creates the Keycloak user first and
+     * states the id it received around that one insert; everything before it is an identity-provider call,
+     * and the compensation below is unchanged.</p>
+     *
+     * <p>{@link TenantScope#withSubject(String, java.util.function.Supplier)} is what states it, and it
+     * restores whatever the thread carried before: a request's own scope survives, so the caller's
+     * remaining transactions are not affected by this one write.</p>
+     */
     public CreateUserResponse createUser(CreateUserRequest request) {
         var userRep = new UserRepresentation();
         userRep.setUsername(request.username());
@@ -65,10 +83,12 @@ public class UsersAdminService {
 
         String keycloakUserId = null;
         try {
-            keycloakUserId = identityProvider.createUser(userRep);
+            var createdUserId = identityProvider.createUser(userRep);
+            keycloakUserId = createdUserId;
 
-            var prefs = UserPreferences.builder().keycloakUserId(keycloakUserId).build();
-            userPreferencesRepository.save(prefs);
+            var prefs = UserPreferences.builder().keycloakUserId(createdUserId).build();
+            // The one write, under the subject it writes: the row is the person's own, not a tenant's.
+            TenantScope.withSubject(createdUserId, () -> userPreferencesRepository.save(prefs));
 
             return new CreateUserResponse(keycloakUserId);
         } catch (IdentityProviderException e) {

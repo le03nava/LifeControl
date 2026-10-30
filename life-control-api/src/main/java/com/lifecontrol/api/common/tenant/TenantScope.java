@@ -23,6 +23,10 @@ import java.util.function.Supplier;
  *   <li>The non-request threads — today the access-provisioning worker — <b>state their own</b> scope
  *       through {@link #with(UUID, Supplier)}, one tenant at a time, because no filter ever runs for
  *       them.</li>
+ *   <li>{@code UsersAdminService#createUser} states the <b>subject alone</b> through
+ *       {@link #withSubject(String, Supplier)}: the Keycloak user is created inside that call, so the
+ *       subject its {@code user_preferences} row carries did not exist when the transaction boundary
+ *       was entered. It is the one caller of the subject half that is not the request filter.</li>
  * </ul>
  *
  * <p><b>Why a holder instead of a bean.</b> A bean would force every one of those callers to inject it,
@@ -34,18 +38,19 @@ import java.util.function.Supplier;
  * risk it carries (a value surviving on a reused thread) is bounded by the one rule below.</p>
  *
  * <p><b>The rule that makes it safe: whoever sets it clears it, in a {@code finally}.</b> The filter
- * clears in its {@code finally}; {@link #with(UUID, Supplier)} restores whatever was there before in its
- * own. A thread that serves a second request therefore starts with no scope rather than with the previous
- * tenant's, which is a fail-closed direction: a transaction with no scope reads <b>no</b> tenant row, not
- * another tenant's.</p>
+ * clears in its {@code finally}; {@link #with(UUID, Supplier)} and {@link #withSubject(String, Supplier)}
+ * restore whatever was there before in their own, through the same private helper. A thread that serves a
+ * second request therefore starts with no scope rather than with the previous tenant's, which is a
+ * fail-closed direction: a transaction with no scope reads <b>no</b> tenant row, not another tenant's.</p>
  *
- * <p><b>An absent scope is a refusal, never a wider scope.</b> Both components are nullable on purpose.
- * A request whose path names no company (health, discovery, the Keycloak callbacks, or a catalog endpoint
- * that resolves its company from a claim) carries the subject alone; the transaction manager then leaves
- * {@code app.company_id} as it is, which — on a pooled connection that once set it — is the empty string
- * {@code nullif(..., '')} already filters every row with. Setting it to {@code NULL} explicitly would cost
- * a round trip per transaction and change nothing, which is why it is not done (trap 3 of the T4
- * brief).</p>
+ * <p><b>An absent scope is a refusal, never a wider scope.</b> Both halves of {@link Scope} are nullable
+ * on purpose, and each one has a caller that states it alone. A request whose path names no company
+ * (health, discovery, the Keycloak callbacks, a catalog endpoint, or a tenant-agnostic path that resolves
+ * its own claims) carries the subject alone; a platform thread that works on one task carries the company
+ * alone. The transaction manager then leaves the setting it has no value for as it is, which — on a pooled
+ * connection that once set it — is the empty string {@code nullif(..., '')} already filters every row
+ * with. Setting it to {@code NULL} explicitly would cost a round trip per transaction and change nothing,
+ * which is why it is not done (trap 3 of the T4 brief).</p>
  */
 public final class TenantScope {
 
@@ -91,6 +96,12 @@ public final class TenantScope {
      * it. Restoring instead of unconditionally clearing is what makes a nested call harmless: the outer
      * scope (a request's, say) survives the inner one.</p>
      *
+     * <p>The access-provisioning worker states this scope once per task and runs the <b>whole</b> task
+     * inside it — not only the employee read — because the gate, the role convergence, the membership
+     * derivation and the account update read {@code employees}, {@code departments} and {@code companies}
+     * as well, and a wrap around one read would leave those reading zero rows once ADR-0005 arms
+     * them.</p>
+     *
      * <p>{@code companyId} may be {@code null}, and then the work runs with no company scope — the
      * fail-closed case, and deliberately not an exception: the caller's own "not found" branch is the
      * honest outcome, and throwing here would turn a missing tenant into a different failure.</p>
@@ -100,8 +111,42 @@ public final class TenantScope {
      * @return whatever {@code work} returns
      */
     public static <T> T with(UUID companyId, Supplier<T> work) {
+        return runWith(new Scope(companyId, null), work);
+    }
+
+    /**
+     * Runs {@code work} with {@code subject} as the scope's subject and no company, restoring whatever
+     * scope the thread carried before it — which is a plain clear when it carried none.
+     *
+     * <p>For the one write whose subject does not exist yet when the transaction begins: creating a
+     * Keycloak user creates the {@code sub} it is about, so nothing upstream could have stated it, and the
+     * {@code user_preferences} row that insert writes is isolated by {@code keycloak_user_id =
+     * app.user_id} (ADR-0005's {@code subject} kind). The caller states the id it just received, and the
+     * repository's own transaction is what installs it before the insert.</p>
+     *
+     * <p>The save/restore is the same one {@link #with(UUID, Supplier)} uses, deliberately: two copies of
+     * "restore what was there, or remove the entry" would be two places to get the reused-thread rule
+     * wrong. {@code subject} may be {@code null}, exactly as the company half may, and for the same
+     * reason — an absent fact installs nothing and the policy filters every row.</p>
+     *
+     * @param subject the {@code sub} the work writes for, or {@code null} when it could not be determined
+     * @param work the work to run inside that scope
+     * @return whatever {@code work} returns
+     */
+    public static <T> T withSubject(String subject, Supplier<T> work) {
+        return runWith(new Scope(null, subject), work);
+    }
+
+    /**
+     * The one save/restore every scoped call shares: state {@code scope} for the duration of {@code work}
+     * and put back exactly what the thread carried before, in a {@code finally}. Restoring instead of
+     * unconditionally clearing is what makes a nested call harmless — the outer scope survives the inner
+     * one — and removing the entry when there was none is what keeps a reused thread from inheriting a
+     * value it never stated.
+     */
+    private static <T> T runWith(Scope scope, Supplier<T> work) {
         var previous = CURRENT.get();
-        CURRENT.set(new Scope(companyId, null));
+        CURRENT.set(scope);
         try {
             return work.get();
         } finally {

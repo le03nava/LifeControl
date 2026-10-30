@@ -7,6 +7,7 @@ import com.lifecontrol.api.config.provisioning.ProvisioningWorkerProperties;
 import com.lifecontrol.api.hr.exception.EmployeeNotFoundException;
 import com.lifecontrol.api.hr.model.Employee;
 import com.lifecontrol.api.hr.repository.EmployeeRepository;
+import com.lifecontrol.api.provisioning.model.AccessProvisioningTask;
 import com.lifecontrol.api.provisioning.repository.AccessProvisioningTaskRepository;
 import java.time.LocalDateTime;
 import java.util.UUID;
@@ -210,21 +211,28 @@ public class AccessProvisioningWorker {
      * defect gap G45 measured. The fetch belongs to the read because a {@code @Transactional}
      * capability cannot reattach a detached entity.</p>
      *
-     * <p><b>That read is scoped to the task's own company, and this is the only read in the pass that
-     * touches a table with a policy</b> (ADR-0005; record L14). It goes through
-     * {@link #employeeInItsTenant}, which resolves the tenant first and runs the read inside it: the
-     * repository's own {@code @Transactional(readOnly = true)} boundary is what installs the scope, so the
-     * read either sees the employee of the task's company or nothing at all. Nothing widens when the
-     * tenant cannot be resolved — a {@code null} scope installs nothing, and the empty result ends in
+     * <p><b>The whole body after the claim runs inside the task's tenant</b> (ADR-0005; record L14, extended
+     * by T5b). The employee read was the first read of the pass that touches a table with a policy, and it is
+     * not the only one: {@link AccessProvisioningGateService#reenterGateIfReviewedSetChanged}, the role
+     * convergence, the membership derivation and the account update also read {@code employees},
+     * {@code departments} and {@code companies}. A wrap around one read therefore leaves every later stage
+     * reading zero rows — which is why the tenant is resolved <b>once</b>, right after the claim, and the
+     * rest of the task runs under {@link TenantScope#with}. Nothing widens when the tenant cannot be
+     * resolved — a {@code null} scope installs nothing, and the empty employee result ends in
      * {@code markFailed}, which is the ADR's fail-closed direction rather than a cross-tenant apply.</p>
      *
-     * <p><b>The claim is the authority and sits outside the recovery.</b>
+     * <p><b>The failure branch is inside the same scope on purpose.</b> {@code markFailed} writes the same
+     * task of the same tenant, so it needs the same scope; taking it out would leave the recovery of a
+     * failed task reading the rows its own failure is about.</p>
+     *
+     * <p><b>The claim is the authority and sits outside both the scope and the recovery.</b>
      * {@link AccessProvisioningTaskService#claim} re-loads the row under its pessimistic write lock and
      * returns the saved task, so its {@code kind} is what the dispatch uses and its incremented
      * {@code attempts} is what the deadline is composed from — the unlocked snapshot above carries no
-     * authority (record T51). A claim the guard refuses (the row moved on, or another worker won it)
-     * throws out of here and is contained by {@link WorkerTick}: the row was never ours, so this method
-     * must not fail it.</p>
+     * authority (record T51). It is also the statement that the task is ours: a claim the guard refuses
+     * (the row moved on, or another worker won it) throws out of here and is contained by
+     * {@link WorkerTick}, so a row this pass never claimed is never failed by it, and no scope is opened
+     * for work that is not ours. The tenant resolution sits after it for the same reason.</p>
      *
      * <p><b>The re-gate check runs before the apply.</b> Once the employee is loaded and still
      * <b>before</b> {@link AccessProvisioningWorkerHandler#apply} runs, the task's frozen reviewed
@@ -251,8 +259,26 @@ public class AccessProvisioningWorker {
         }
         var employeeId = resolved.getEmployee().getId();
         var claimed = taskService.claim(employeeId, taskId);
+        var companyId = taskRepository.findEmployeeCompanyIdByTaskId(taskId).orElse(null);
+        TenantScope.with(companyId, () -> {
+            applyToTheClaimedTask(employeeId, taskId, claimed, now);
+            return null;
+        });
+    }
+
+    /**
+     * Applies one claimed task and ends every failure it can see in {@code markFailed} instead of leaving
+     * the row {@code RUNNING}.
+     *
+     * <p>The caller states the task's tenant around this call, so every repository boundary inside it —
+     * the employee read, the gate, the role convergence, the membership derivation, the account update and
+     * the two task transitions — installs that same scope. This method states nothing itself: one tenant,
+     * one statement, and no second place that could disagree with the first.</p>
+     */
+    private void applyToTheClaimedTask(
+            UUID employeeId, UUID taskId, AccessProvisioningTask claimed, LocalDateTime now) {
         try {
-            var employee = employeeInItsTenant(taskId, employeeId);
+            var employee = employeeOfTheTask(employeeId);
             if (employee == null) {
                 throw new EmployeeNotFoundException(employeeId);
             }
@@ -269,20 +295,18 @@ public class AccessProvisioningWorker {
     }
 
     /**
-     * Reads the employee inside the tenant of its own task, so the one tenant read of this pass carries a
-     * scope (ADR-0005; record L14).
+     * Reads the employee of the task, inside the tenant the caller already stated.
      *
-     * <p>The tenant is resolved first — {@code employees} and {@code companies} are the tables T5 will
-     * arm, and {@code access_provisioning_tasks} is not — and the employee read then runs inside
-     * {@link TenantScope#with}. That read is a repository call, so it opens the read-only transaction
-     * {@code SimpleJpaRepository} declares, and the transaction boundary installs the scope on it before
-     * its first query. A {@code null} tenant installs nothing: the read then finds no row under a policy
-     * and the caller's own not-found branch fails the task, which is the fail-closed outcome.</p>
+     * <p>{@code employees} and {@code companies} are tables ADR-0005 arms and {@code access_provisioning_tasks}
+     * is not, so this read — a repository call, whose own read-only {@code @Transactional} boundary installs
+     * the scope — sees the employee of the task's company or nothing at all. With no tenant stated it sees
+     * nothing, and the caller's own not-found branch fails the task: the fail-closed outcome, not a
+     * cross-tenant read.</p>
      *
-     * <p><b>The resolution is the one read that may not go through the policy.</b>
+     * <p><b>The tenant resolution is the one read that may not go through the policy.</b>
      * {@code access_provisioning_tasks} carries no {@code company_id} (V22), so the tenant enters through
      * {@code employee_id} — and reading it out of {@code employees} is exactly the read this method is
-     * about to scope, which is circular once that table is armed. The repository therefore answers it
+     * about to make, which is circular once that table is armed. The repository therefore answers it
      * through {@code task_employee_company(uuid)}, the bounded {@code SECURITY DEFINER} function whose
      * owner is the maintenance superuser (record L16): one fixed query, one uuid back, and no role that
      * can see every row.</p>
@@ -292,13 +316,8 @@ public class AccessProvisioningWorker {
      * {@code EntityNotFoundException} on a row the policy hides would be a different failure than the
      * honest empty result this returns.</p>
      */
-    private Employee employeeInItsTenant(UUID taskId, UUID employeeId) {
-        var companyId = taskRepository.findEmployeeCompanyIdByTaskId(taskId).orElse(null);
-        return TenantScope.with(
-                companyId,
-                () -> employeeRepository
-                        .findByIdWithCompanyAndStatus(employeeId)
-                        .orElse(null));
+    private Employee employeeOfTheTask(UUID employeeId) {
+        return employeeRepository.findByIdWithCompanyAndStatus(employeeId).orElse(null);
     }
 
     /**

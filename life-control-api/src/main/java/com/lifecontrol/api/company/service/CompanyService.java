@@ -59,7 +59,7 @@ public class CompanyService {
     }
 
     public Page<CompanyResponse> getAllCompanies(Pageable pageable, String search) {
-        return companyPage(pageable, search, this::toResponse);
+        return claimedCompaniesPage(pageable, search, this::toResponse);
     }
 
     /**
@@ -68,52 +68,44 @@ public class CompanyService {
      *
      * <p>The filter is shared rather than re-implemented on purpose: the selector's whole
      * authorization is the {@code company_id} claim, so a second copy of the branch below would be a
-     * second place where "what a non-admin may see" is decided. What changes between the two methods
+     * second place where "what a caller may see" is decided. What changes between the two methods
      * is only the projection — {@link CompanySelectorResponse} carries no fiscal data, no corporate
      * email domain and no address, so the twelve screens that read this do not receive the
      * administration contract to paint a {@code <mat-select>}. The claim filter is the same mechanism
-     * too: one scoped read per claimed company, for the reason {@link #companyPage} states.</p>
+     * too: one scoped read per claimed company, for the reason {@link #claimedCompaniesPage} states.</p>
      *
      * @param pageable page request, resolved by the controller's {@code @PageableDefault}
      * @param search   optional search term; whitespace-only is treated as absent, exactly as in
      *                 {@link #getAllCompanies}
-     * @return the companies the caller belongs to (or every company for an admin), projected to the
-     *     selector read model
+     * @return the companies the caller's token claims, projected to the selector read model
      */
     public Page<CompanySelectorResponse> getCompanySelector(Pageable pageable, String search) {
-        return companyPage(pageable, search, this::toSelectorResponse);
+        return claimedCompaniesPage(pageable, search, this::toSelectorResponse);
     }
 
     /**
-     * Resolves the company page a caller may see: every company for an admin, and only the caller's
-     * claims otherwise — <b>one claim at a time</b>.
+     * Resolves the company page a caller may see: <b>only the caller's claims</b> — one claim at a time. It
+     * is the only path there is: {@link #getAllCompanies} and {@link #getCompanySelector} differ in the
+     * projection and in nothing else.
+     *
+     * <p><b>Why there is no administrator branch.</b> {@code companies} is isolated by {@code id} (ADR-0005
+     * decision item 5's key column), so the armed policy answers an unscoped read with zero rows instead of
+     * the whole table — the administrator's {@code findAll} would stop being "every company" and start
+     * being "no company", silently. The list a caller may see is therefore the claims in every case, and
+     * {@code CurrentUserContext#isAdmin()} is not consulted here at all: the role guards the endpoint, it
+     * does not widen the tenant.</p>
      *
      * <p><b>Why this method is not {@code @Transactional}, and why the claims are read separately.</b>
-     * ADR-0005 isolates {@code companies} by {@code id}, so a read of a company needs that company as the
-     * transaction's scope, and the scope is installed at the transaction boundary from a holder the caller
-     * states <b>before</b> it (records L13/L14). One transaction cannot state several tenants, and widening
-     * the policy is the one thing the decision forbids — so a caller with two claims gets two scoped reads
-     * and the rows are collected in the order the claim yields them, which is the claim set's iteration
-     * order ({@code CurrentUserContext.getCompanyIds()} returns a {@code HashSet}; a {@code LinkedHashSet}
-     * there would make it the token's own order, and that file is outside this slice). A token with no
+     * A read of a company needs that company as the transaction's scope, and the scope is installed at the
+     * transaction boundary from a holder the caller states <b>before</b> it (records L13/L14). One
+     * transaction cannot state several tenants, and widening the policy is the one thing the decision
+     * forbids — so a caller with two claims gets two scoped reads and the rows are collected in the order
+     * the claim yields them, which is the claim set's iteration order
+     * ({@code CurrentUserContext.getCompanyIds()} returns a {@code HashSet}; a {@code LinkedHashSet} there
+     * would make it the token's own order, and that file is outside this slice). A token with no
      * {@code company_id} gets an empty page: that is the honest answer for a caller who belongs to no
      * company, not an error.</p>
-     *
-     * <p>The admin path stays a single transaction with its database-side search and pagination, exactly
-     * as it was: it is not claim-filtered, and under the armed policy it reads the scope the request's own
-     * transaction carries, which is T5b's question rather than this slice's.</p>
      */
-    private <R> Page<R> companyPage(Pageable pageable, String search, Function<Company, R> projection) {
-        if (!currentUserContext.isAdmin()) {
-            return claimedCompaniesPage(pageable, search, projection);
-        }
-        var page = inTransaction(() -> StringUtils.hasText(search)
-                ? companyRepository.findBySearchTerm(search.trim(), pageable)
-                : companyRepository.findAll(pageable));
-        // Mapped inside the transaction: `Company.address` is lazy and the response reads it.
-        return page.map(projection);
-    }
-
     private <R> Page<R> claimedCompaniesPage(Pageable pageable, String search, Function<Company, R> projection) {
         Set<UUID> companyIds = currentUserContext.getCompanyIds();
         if (companyIds.isEmpty()) {
@@ -158,7 +150,7 @@ public class CompanyService {
     }
 
     /**
-     * The search the claim path applies in memory, field for field the one the admin path asks the
+     * The search the claim path applies in memory, field for field the one the old admin branch asked the
      * database for: name, RFC, legal name and email, case-insensitive.
      */
     private static boolean matchesSearch(Company company, String lowerCaseSearch) {
