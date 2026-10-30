@@ -76,6 +76,18 @@ export class CompanyCascadeService {
    */
   readonly storeId = signal('');
 
+  /**
+   * Company the cascade last applied to the header's `companyId` control.
+   *
+   * Same contract as {@link storeId}, for the same reason: every programmatic patch uses
+   * `emitEvent: false`, so `company.controls.companyId.valueChanges` never sees the profile prefill,
+   * the order reconstruction or the operator's own selection. Consumers that must follow the
+   * resolved company — the supplier search, the supplier's products and the variant picker — read
+   * this signal instead. All patches go through {@link patchCompany} so it cannot drift from the
+   * control.
+   */
+  readonly companyId = signal<string | null>(null);
+
   private form: FormGroup<PurchaseOrderHeaderControl> | null = null;
   private targets: CascadeTargets | null = null;
   private detailCompanyId: string | null = null;
@@ -201,7 +213,7 @@ export class CompanyCascadeService {
         this.loadCompanyDetails(targets.companyId);
         return;
       }
-      controls.companyId.setValue(targets.companyId, { emitEvent: false });
+      this.patchCompany(targets.companyId);
       if (this.detailCompanyId !== targets.companyId) {
         this.loadCompanyDetails(targets.companyId);
       }
@@ -259,6 +271,18 @@ export class CompanyCascadeService {
     ) {
       this.patchStore(targets.companyStoreId);
     }
+  }
+
+  /**
+   * Single owner of every write to the header's `companyId` control.
+   * Patches silently and mirrors the value into {@link companyId}.
+   */
+  private patchCompany(companyId: string | null): void {
+    if (!this.form) {
+      return;
+    }
+    this.form.controls.company.controls.companyId.setValue(companyId, { emitEvent: false });
+    this.companyId.set(companyId);
   }
 
   /**
@@ -394,7 +418,7 @@ export class CompanyCascadeService {
       return;
     }
     const controls = this.form.controls.company.controls;
-    controls.companyId.setValue(companyId || null, { emitEvent: false });
+    this.patchCompany(companyId || null);
     controls.companyCountryId.setValue(null, { emitEvent: false });
     controls.regionId.setValue(null, { emitEvent: false });
     controls.zoneId.setValue(null, { emitEvent: false });

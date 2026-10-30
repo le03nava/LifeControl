@@ -13,6 +13,7 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { PurchaseOrderEdit } from './purchase-order-edit';
 import { DetailTable } from '../../components/detail-table/detail-table';
 import { CompanyInfoSection } from '../../components/company-info-section/company-info-section';
+import { CompanyCascadeService } from '../../data/company-cascade.service';
 import { PurchaseOrderService } from '../../data/purchase-order.service';
 import { ProductService } from '@features/products/data/product.service';
 import { SupplierService } from '@features/products/suppliers/data/supplier.service';
@@ -294,9 +295,12 @@ describe('PurchaseOrderEdit', () => {
       const mockProducts = [{ productId: 'prod-1', productName: 'Widget A', sku: 'SKU-001' }];
       productService.getProductsBySupplier = vi.fn().mockReturnValue(of(mockProducts));
 
-      const form = component.headerForm();
-      form.controls.company.controls.companyId.setValue('company-1');
-      form.controls.supplierId.setValue('sup-1');
+      const cascade = fixture.debugElement
+        .query(By.directive(CompanyInfoSection))
+        .injector.get(CompanyCascadeService);
+      cascade.onCompanyChange('company-1');
+      fixture.detectChanges();
+      component.headerForm().controls.supplierId.setValue('sup-1');
 
       // The assertion that fails if the company were dropped: the read is company-scoped on the wire, so
       // a call without it either does not compile or hits a `/api/products` path nothing serves.
@@ -322,12 +326,35 @@ describe('PurchaseOrderEdit', () => {
     it('should expose the order company the variant picker is scoped to', () => {
       // The same company reaches the picker through `<app-detail-table [companyId]>`; this is the value
       // that binding reads, and it tracks the cascade group rather than a second copy.
-      const form = component.headerForm();
+      //
+      // The company is selected through the cascade, which is what the screen does: every cascade write
+      // is `setValue(..., { emitEvent: false })`, so a spec that sets the control with an emitting
+      // `setValue` measures a channel the application never uses.
+      const cascade = fixture.debugElement
+        .query(By.directive(CompanyInfoSection))
+        .injector.get(CompanyCascadeService);
+
       expect(component.orderCompanyId()).toBeNull();
 
-      form.controls.company.controls.companyId.setValue('company-1');
+      cascade.onCompanyChange('company-1');
+      fixture.detectChanges();
 
       expect(component.orderCompanyId()).toBe('company-1');
+    });
+
+    it('should load supplier products for a company chosen through the cascade', () => {
+      // Choosing a company and then a supplier is the operator's path, and the product read is scoped to
+      // the company the cascade resolved. With the company unobserved it would never be requested.
+      productService.getProductsBySupplier = vi.fn().mockReturnValue(of([]));
+      const cascade = fixture.debugElement
+        .query(By.directive(CompanyInfoSection))
+        .injector.get(CompanyCascadeService);
+
+      cascade.onCompanyChange('company-1');
+      fixture.detectChanges();
+      component.headerForm().controls.supplierId.setValue('sup-1');
+
+      expect(productService.getProductsBySupplier).toHaveBeenCalledWith('company-1', 'sup-1');
     });
 
     it('should call service.create with form data on valid save', () => {
@@ -482,6 +509,34 @@ describe('PurchaseOrderEdit', () => {
 
     it('should have orderId set from route param', () => {
       expect(component.orderId()).toBe('po-1');
+    });
+
+    it('should follow the company an order reconstruction resolves', () => {
+      // Edit mode rebuilds the cascade from the loaded order, and that rebuild patches the control with
+      // `emitEvent: false` as well. `reconstructFromOrder` is the exact entry point the screen uses;
+      // the page must end up scoped to the order's company, or the supplier read has no tenant.
+      const companyService = TestBed.inject(CompanyService) as unknown as {
+        getCompanySelector: ReturnType<typeof vi.fn>;
+      };
+      companyService.getCompanySelector = vi
+        .fn()
+        .mockReturnValue(of({ ...emptyPage, content: [{ id: 'company-1', companyName: 'Acme' }] }));
+      const cascade = fixture.debugElement
+        .query(By.directive(CompanyInfoSection))
+        .injector.get(CompanyCascadeService);
+      cascade.searchCompanies('');
+
+      cascade.reconstructFromOrder({
+        ...mockOrder,
+        companyId: 'company-1',
+        companyCountryId: null,
+        regionId: null,
+        zoneId: null,
+        companyStoreId: '',
+      });
+      fixture.detectChanges();
+
+      expect(component.orderCompanyId()).toBe('company-1');
     });
 
     it('should load order and populate form', () => {

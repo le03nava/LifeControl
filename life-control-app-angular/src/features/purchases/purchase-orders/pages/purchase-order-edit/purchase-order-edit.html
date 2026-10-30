@@ -45,6 +45,7 @@
       [loadedOrder]="loadedOrder()"
       [serverErrors]="serverErrors()"
       (storeResolved)="onStoreResolved($event)"
+      (companyResolved)="onCompanyResolved($event)"
     />
 
     <!-- Supplier Information (supplier + payment method + comments). The supplier picker is scoped to

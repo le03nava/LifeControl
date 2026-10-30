@@ -10,8 +10,8 @@ import {
 import { HttpErrorResponse } from '@angular/common/http';
 import { CurrencyPipe } from '@angular/common';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
-import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
-import { catchError, EMPTY, startWith, Subject, switchMap } from 'rxjs';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { catchError, EMPTY, Subject, switchMap } from 'rxjs';
 import { NonNullableFormBuilder, FormGroup, Validators, ReactiveFormsModule } from '@angular/forms';
 import { PurchaseOrderService } from '../../data/purchase-order.service';
 import { ProductService } from '@features/products/data/product.service';
@@ -81,19 +81,20 @@ export class PurchaseOrderEdit implements OnInit {
   readonly saving = signal(false);
 
   /**
-   * The company the order belongs to: the header's cascade root, read reactively.
+   * The company the order belongs to: the header's cascade root, as the cascade resolves it.
    *
-   * It is the company every product read of this screen is scoped to — the supplier's product list and,
-   * through {@link DetailTable}, the variant picker — because a product belongs to one company and both
-   * endpoints now take it in the path. There is no second place this is chosen: the cascade group is the
-   * order's own company, and `null` is the honest answer while an order being created has none yet.
+   * It is the company every product read of this screen is scoped to — the supplier search, the
+   * supplier's product list and, through {@link DetailTable}, the variant picker — because a product and
+   * a supplier belong to one company and those endpoints take it in the path. There is no second place
+   * this is chosen: the cascade group is the order's own company, and `null` is the honest answer while
+   * an order being created has none yet.
+   *
+   * Fed by `(companyResolved)`, never by `valueChanges`: the cascade patches its controls with
+   * `emitEvent: false`, so the stream would stay silent on the profile prefill, the order
+   * reconstruction and the operator's own selection alike. Same two-channel contract as the store
+   * below (see {@link onStoreResolved}).
    */
-  readonly orderCompanyId = toSignal(
-    this.headerForm().controls.company.controls.companyId.valueChanges.pipe(
-      startWith(this.headerForm().controls.company.controls.companyId.value),
-    ),
-    { initialValue: this.headerForm().controls.company.controls.companyId.value },
-  );
+  readonly orderCompanyId = signal<string | null>(null);
 
   // ─── Loaded order data (edit mode) ─────────────────────
   readonly loadedOrder = signal<PurchaseOrder | null>(null);
@@ -267,6 +268,17 @@ export class PurchaseOrderEdit implements OnInit {
       return;
     }
     this.variantStoreId.set(storeId);
+  }
+
+  /**
+   * Called by `<app-company-info-section>` whenever the cascade resolves a company.
+   *
+   * The company control is patched silently for the same reason the store is (programmatic patches
+   * must not mark the form dirty), so this is the only channel that carries it. Without it the
+   * supplier search, the supplier's products and the variant picker would all stay company-less.
+   */
+  onCompanyResolved(companyId: string | null): void {
+    this.orderCompanyId.set(companyId);
   }
 
   private loadOrder(id: string): void {
