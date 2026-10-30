@@ -37,7 +37,7 @@ that settled the open questions.
 | [0002](0002-money-first-class.md) | Money is a first-class value: currency, breakdown, payment rows, tax. | proposed | 0001, 0003 | — |
 | [0003](0003-document-identity-per-tenant.md) | Document numbers come from a per-tenant sequence, not from `max + 1` over a global `UNIQUE`. | proposed | — | 0002 |
 | [0004](0004-typed-state-machine.md) | Document state is a typed machine with a history, not a string in a lookup table. | proposed | — | — |
-| [0005](0005-tenant-isolation-rls.md) | Tenant isolation is enforced by Row-Level Security, not by 150 call-site checks. | proposed | — | 0001, 0002 |
+| [0005](0005-tenant-isolation-rls.md) | Tenant isolation is enforced by Row-Level Security, not by 150 call-site checks. | accepted | — | 0001, 0002 |
 | [0006](0006-catalog-identity.md) | Catalog identity: `variant_mode` on the product, a required measure unit, a barcode per mode, and `variant_listing` split from stock. | proposed | 0005 | 0001 |
 
 Read the dependency column literally: an ADR whose dependency is not accepted cannot be implemented,
@@ -51,8 +51,9 @@ never a big-bang rewrite.
 **Accepted as written by the maintainer on 2026-10-29**, in the session that delivered this set. It is
 therefore the agreed plan for what gets implemented first, not a suggestion: a slice that proposes a
 different order has to say why, because the reason the order exists is that doing it in the other
-direction writes the same work twice. Accepting the order accepts no ADR — each one is still
-`proposed` and still needs its own acceptance.
+direction writes the same work twice. Accepting the order accepts no ADR: the status column above is the
+only authority on which ones have been accepted, and each ADR still needs its own decision. ADR-0005 was
+accepted on 2026-10-29; the other five are still `proposed`.
 
 1. **ADR-0005** (tenant isolation) first, because it touches every table and every policy, and doing
    it after the new tables exist means writing the policies twice.
