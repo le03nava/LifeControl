@@ -270,3 +270,11 @@ as the empty string on one pooled connection for the rest of the JVM — inert t
 carries a policy until T5, but T5's and T6's cases must `SET ROLE lifecontrol_app` explicitly: the
 container's own user is a superuser and bypasses every policy, which is the same trap T1 removed from
 production.
+
+L12 — the slice boundaries of T2, recorded for the same reason as L8. T2 is **two commits and one tiny
+third**: `af37e7a0` (V52, the test container's roles, the base-class hook and this record) is the unit that
+changes what the database and the test JVM can do; `776a2dbd` is the 16-case suite, its own artifact
+because it is one contract's pin and not a diff to read line by line; and this entry, so the boundary lives
+in the document rather than in a session. 1031 authored lines in total, of which 654 are the suite. The
+same reasoning as L6 applies: splitting the suite across pull requests would leave each partial PR red,
+because both halves assert facts the other half introduces.
