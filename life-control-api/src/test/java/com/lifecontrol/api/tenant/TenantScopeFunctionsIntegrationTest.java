@@ -131,8 +131,8 @@ class TenantScopeFunctionsIntegrationTest extends AbstractPostgresIntegrationTes
         // to NULL — measured, and pinned by the T6 case above. The pool therefore cannot answer this
         // question, which is the whole reason ADR decision 2 passes `true` as current_setting's second
         // argument: a parameter nobody defined is NULL, and a NULL predicate filters the row.
-        try (var session = DriverManager.getConnection(
-                POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())) {
+        try (var session =
+                DriverManager.getConnection(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())) {
             assertThat(setting(session, "app.company_id"))
                     .as("a missing setting is NULL rather than an error, so a transaction without a scope "
                             + "reads no rows instead of failing to parse the predicate")
@@ -178,8 +178,7 @@ class TenantScopeFunctionsIntegrationTest extends AbstractPostgresIntegrationTes
     @Test
     @DisplayName("unprotected_tenant_tables() returns exactly the fifteen tables S2 names")
     void unprotectedTenantTablesAreExactlyTheFifteenTheRecordNames() {
-        var unprotected = jdbcTemplate.queryForList(
-                "SELECT t::text FROM unprotected_tenant_tables() t", String.class);
+        var unprotected = jdbcTemplate.queryForList("SELECT t::text FROM unprotected_tenant_tables() t", String.class);
 
         assertThat(unprotected)
                 .as("S2 fixed the policy set at the fifteen tables that already carry company_id; a "
@@ -247,15 +246,17 @@ class TenantScopeFunctionsIntegrationTest extends AbstractPostgresIntegrationTes
         var probe = createProbeTable(connection, "later", "id uuid PRIMARY KEY, company_id uuid NOT NULL");
         exec(connection, "CREATE SEQUENCE " + probe + "_seq");
 
-        assertThat(booleanQuery(connection,
-                "SELECT has_table_privilege('lifecontrol_app', ?::regclass, 'SELECT,INSERT,UPDATE,DELETE')",
-                probe))
+        assertThat(booleanQuery(
+                        connection,
+                        "SELECT has_table_privilege('lifecontrol_app', ?::regclass, 'SELECT,INSERT,UPDATE,DELETE')",
+                        probe))
                 .as("ALTER DEFAULT PRIVILEGES ... FOR ROLE CURRENT_USER: a hardcoded lifecontrol_owner "
                         + "would grant for a role that is not the owner here, and the grant would be inert")
                 .isTrue();
-        assertThat(booleanQuery(connection,
-                "SELECT has_sequence_privilege('lifecontrol_app', ?::regclass, 'USAGE,SELECT')",
-                probe + "_seq"))
+        assertThat(booleanQuery(
+                        connection,
+                        "SELECT has_sequence_privilege('lifecontrol_app', ?::regclass, 'USAGE,SELECT')",
+                        probe + "_seq"))
                 .as("the sequence grant has an ALTER DEFAULT PRIVILEGES counterpart, so an INSERT whose "
                         + "id comes from an identity column does not fail with `permission denied for sequence`")
                 .isTrue();
@@ -319,7 +320,8 @@ class TenantScopeFunctionsIntegrationTest extends AbstractPostgresIntegrationTes
     @DisplayName("the subject kind compares the key to app.user_id and casts nothing")
     void theSubjectKindComparesTheSubjectWithoutACast() throws SQLException {
         var connection = beginTransaction();
-        var probe = createProbeTable(connection, "subject", "id uuid PRIMARY KEY, keycloak_user_id varchar(36) NOT NULL");
+        var probe =
+                createProbeTable(connection, "subject", "id uuid PRIMARY KEY, keycloak_user_id varchar(36) NOT NULL");
 
         exec(connection, """
                 SELECT apply_tenant_isolation('%s'::regclass, 'subject', 'keycloak_user_id')
@@ -346,13 +348,14 @@ class TenantScopeFunctionsIntegrationTest extends AbstractPostgresIntegrationTes
         exec(connection, "SELECT apply_tenant_isolation('%s'::regclass)".formatted(probe));
         exec(connection, "SELECT apply_tenant_isolation('%s'::regclass)".formatted(probe));
 
-        assertThat(countQuery(connection,
-                "SELECT count(*) FROM pg_policies WHERE schemaname = 'public' AND tablename = ?", probe))
+        assertThat(countQuery(
+                        connection,
+                        "SELECT count(*) FROM pg_policies WHERE schemaname = 'public' AND tablename = ?",
+                        probe))
                 .as("CREATE POLICY would refuse a second policy of the same name, and a stack of two "
                         + "would be an AND nobody wrote")
                 .isEqualTo(1);
-        assertThat(countQuery(connection,
-                "SELECT count(*) FROM tenant_table WHERE table_name = ?::regclass", probe))
+        assertThat(countQuery(connection, "SELECT count(*) FROM tenant_table WHERE table_name = ?::regclass", probe))
                 .as("the upsert updates the row rather than adding a second one")
                 .isEqualTo(1);
         assertThat(listRow(connection, probe)).containsExactly("tenant", "company_id");
@@ -438,8 +441,7 @@ class TenantScopeFunctionsIntegrationTest extends AbstractPostgresIntegrationTes
         var connection = beginTransaction();
         var probe = createProbeTable(connection, "nokey", "id uuid PRIMARY KEY");
 
-        var refusal = refusalInSavepoint(connection,
-                "SELECT apply_tenant_isolation('%s'::regclass)".formatted(probe));
+        var refusal = refusalInSavepoint(connection, "SELECT apply_tenant_isolation('%s'::regclass)".formatted(probe));
 
         assertThat(refusal.getMessage())
                 .as("the message names the table and the column, because `0 rows` is the failure this "
@@ -449,8 +451,10 @@ class TenantScopeFunctionsIntegrationTest extends AbstractPostgresIntegrationTes
         assertThat(rlsFlags(connection, probe))
                 .as("the check runs before the ALTER, so a refused call leaves the table untouched")
                 .containsExactly(false, false);
-        assertThat(countQuery(connection,
-                "SELECT count(*) FROM pg_policies WHERE schemaname = 'public' AND tablename = ?", probe))
+        assertThat(countQuery(
+                        connection,
+                        "SELECT count(*) FROM pg_policies WHERE schemaname = 'public' AND tablename = ?",
+                        probe))
                 .isZero();
         assertThat(countOfTenantTableRows(connection))
                 .as("and writes no list row")
@@ -535,7 +539,7 @@ class TenantScopeFunctionsIntegrationTest extends AbstractPostgresIntegrationTes
 
     private static int rowCount(Connection connection, String sql) throws SQLException {
         try (var statement = connection.createStatement();
-             var result = statement.executeQuery(sql)) {
+                var result = statement.executeQuery(sql)) {
             result.next();
             return result.getInt(1);
         }
@@ -543,7 +547,7 @@ class TenantScopeFunctionsIntegrationTest extends AbstractPostgresIntegrationTes
 
     private static List<String> ids(Connection connection, String sql) throws SQLException {
         try (var statement = connection.createStatement();
-             var result = statement.executeQuery(sql)) {
+                var result = statement.executeQuery(sql)) {
             var values = new ArrayList<String>();
             while (result.next()) {
                 values.add(result.getString(1));
@@ -579,9 +583,7 @@ class TenantScopeFunctionsIntegrationTest extends AbstractPostgresIntegrationTes
                     rows.add(new PolicyRow(
                             result.getString(1), result.getString(2), result.getString(3), result.getString(4)));
                 }
-                assertThat(rows)
-                        .as("one policy for the table, named after it")
-                        .hasSize(1);
+                assertThat(rows).as("one policy for the table, named after it").hasSize(1);
                 return rows.get(0);
             }
         }
@@ -592,7 +594,9 @@ class TenantScopeFunctionsIntegrationTest extends AbstractPostgresIntegrationTes
                 "SELECT policy_kind, key_column FROM tenant_table WHERE table_name = ?::regclass")) {
             statement.setString(1, table);
             try (var result = statement.executeQuery()) {
-                assertThat(result.next()).as("the call wrote a list row for %s", table).isTrue();
+                assertThat(result.next())
+                        .as("the call wrote a list row for %s", table)
+                        .isTrue();
                 return List.of(result.getString(1), result.getString(2));
             }
         }
@@ -604,7 +608,7 @@ class TenantScopeFunctionsIntegrationTest extends AbstractPostgresIntegrationTes
 
     private static int countOfTenantTableRows(Connection connection) throws SQLException {
         try (var statement = connection.createStatement();
-             var result = statement.executeQuery("SELECT count(*) FROM tenant_table")) {
+                var result = statement.executeQuery("SELECT count(*) FROM tenant_table")) {
             result.next();
             return result.getInt(1);
         }
@@ -615,7 +619,8 @@ class TenantScopeFunctionsIntegrationTest extends AbstractPostgresIntegrationTes
      * needs no quoting, and the transaction the caller rolled back takes the table with it.
      */
     private static String createProbeTable(Connection connection, String tag, String columns) throws SQLException {
-        var name = "probe_" + tag + "_" + UUID.randomUUID().toString().replace("-", "").substring(0, 8);
+        var name = "probe_" + tag + "_"
+                + UUID.randomUUID().toString().replace("-", "").substring(0, 8);
         exec(connection, "CREATE TABLE " + name + " (" + columns + ")");
         return name;
     }
@@ -623,8 +628,7 @@ class TenantScopeFunctionsIntegrationTest extends AbstractPostgresIntegrationTes
     /** Inserts one row whose owner may be NULL, which is what the `shared` kind is about. */
     private static void insertProbeRow(Connection connection, String table, UUID id, UUID companyId)
             throws SQLException {
-        try (var statement = connection.prepareStatement(
-                "INSERT INTO " + table + " (id, company_id) VALUES (?, ?)")) {
+        try (var statement = connection.prepareStatement("INSERT INTO " + table + " (id, company_id) VALUES (?, ?)")) {
             statement.setObject(1, id);
             statement.setObject(2, companyId);
             statement.execute();
