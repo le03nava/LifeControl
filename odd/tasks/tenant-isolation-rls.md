@@ -349,3 +349,13 @@ Authored lines, for the review budget: **7 main files** (four new — the holder
 and its `@Configuration` — plus `SecurityConfig`, the task repository and the worker) and **5 test classes**,
 about 1 560 authored lines of which **993 are the five suites and this entry** (`wc -l`: 924 test + 69 record;
 main is 471 new + 98 changed). T2's 658-line functions suite is excluded because it is not this slice's diff.
+
+L15 — the slice boundaries of T4, as they actually are. Two commits: `989bb094` is the whole Java half —
+the holder, the transaction-boundary manager, the bean config, the filter with its security anchor, and the
+worker's per-task scope — 565 authored lines, and `9e680ba8` is the five test classes, 923 lines. The Java
+half intended to split into "mechanism" and "the two places that state a value", and it did not: the branch
+was already pushed, and re-splitting it needs a force-push, which this repository's policy blocks and which
+is not worth asking for cosmetics. What matters for the reviewer is recorded instead: the mechanism is the
+only code that runs on **every** transaction, so it is the file to read first
+(`TenantScopeJpaTransactionManager`), and the other four files only decide *which* value it installs.
+1563 authored lines in total; the size is stated in the pull request rather than hidden.
