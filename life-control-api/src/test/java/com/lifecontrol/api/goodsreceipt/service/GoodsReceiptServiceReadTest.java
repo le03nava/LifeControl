@@ -13,6 +13,7 @@ import com.lifecontrol.api.company.model.Company;
 import com.lifecontrol.api.company.model.CompanyCountry;
 import com.lifecontrol.api.company.model.CompanyRegion;
 import com.lifecontrol.api.company.model.CompanyZone;
+import com.lifecontrol.api.goodsreceipt.dto.GoodsReceiptFilter;
 import com.lifecontrol.api.goodsreceipt.dto.GoodsReceiptResponse;
 import com.lifecontrol.api.goodsreceipt.exception.GoodsReceiptNotFoundException;
 import com.lifecontrol.api.goodsreceipt.model.GoodsReceipt;
@@ -29,6 +30,7 @@ import com.lifecontrol.api.status.repository.StatusRepository;
 import com.lifecontrol.api.store.model.CompanyStore;
 import com.lifecontrol.api.store.model.StoreLocation;
 import com.lifecontrol.api.store.repository.StoreLocationRepository;
+import com.lifecontrol.api.store.service.CompanyStoreFilterResolver;
 import com.lifecontrol.api.store.service.CompanyStoreScopeResolver;
 import com.lifecontrol.api.store.service.CompanyStoreScopeResolver.StoreScope;
 import java.time.LocalDateTime;
@@ -71,6 +73,7 @@ class GoodsReceiptServiceReadTest {
     private static final UUID ZONE_ID = UUID.fromString("00000000-0000-0000-0000-0000000000a4");
     private static final UUID STORE_ID = UUID.fromString("00000000-0000-0000-0000-0000000000a5");
     private static final UUID OTHER_STORE_ID = UUID.fromString("00000000-0000-0000-0000-0000000000a6");
+    private static final UUID THIRD_STORE_ID = UUID.fromString("00000000-0000-0000-0000-0000000000a7");
     private static final UUID RECEIPT_ID = UUID.fromString("00000000-0000-0000-0000-0000000000b1");
     private static final UUID PO_ID = UUID.fromString("00000000-0000-0000-0000-0000000000b2");
     private static final UUID LOCATION_ID = UUID.fromString("00000000-0000-0000-0000-0000000000b3");
@@ -109,6 +112,9 @@ class GoodsReceiptServiceReadTest {
     @Mock
     private CompanyStoreScopeResolver storeScopeResolver;
 
+    @Mock
+    private CompanyStoreFilterResolver storeFilterResolver;
+
     private GoodsReceiptService service;
 
     private GoodsReceipt receipt;
@@ -127,7 +133,8 @@ class GoodsReceiptServiceReadTest {
                 productVariantStoreStockRepository,
                 statusRepository,
                 currentUserContext,
-                storeScopeResolver);
+                storeScopeResolver,
+                storeFilterResolver);
 
         var company = Company.builder().id(COMPANY_ID).companyKey("GR-READ-KEY").build();
         var companyCountry =
@@ -191,7 +198,7 @@ class GoodsReceiptServiceReadTest {
             when(goodsReceiptRepository.findByEnabledTrueOrderByReceivedAtDesc(pageable))
                     .thenReturn(pageOf(receipt));
 
-            var response = service.getAllReceipts(pageable, null);
+            var response = service.getAllReceipts(pageable, null, GoodsReceiptFilter.NONE);
 
             assertThat(response.getContent()).hasSize(1);
             assertThat(response.getContent().getFirst().id()).isEqualTo(RECEIPT_ID);
@@ -208,7 +215,7 @@ class GoodsReceiptServiceReadTest {
             when(storeScopeResolver.scopeForCurrentUser()).thenReturn(new StoreScope(true, Set.of()));
             when(goodsReceiptRepository.findBySearchTerm("PO-2026", pageable)).thenReturn(pageOf(receipt));
 
-            service.getAllReceipts(pageable, "PO-2026");
+            service.getAllReceipts(pageable, "PO-2026", GoodsReceiptFilter.NONE);
 
             verify(goodsReceiptRepository).findBySearchTerm("PO-2026", pageable);
             verify(goodsReceiptRepository, never()).findByCompanyStoreIdInAndSearchTerm(any(), any(), any());
@@ -225,7 +232,7 @@ class GoodsReceiptServiceReadTest {
                             Set.of(STORE_ID, OTHER_STORE_ID), pageable))
                     .thenReturn(pageOf(receipt));
 
-            var response = service.getAllReceipts(pageable, null);
+            var response = service.getAllReceipts(pageable, null, GoodsReceiptFilter.NONE);
 
             assertThat(response.getContent()).hasSize(1);
             verify(goodsReceiptRepository)
@@ -245,7 +252,7 @@ class GoodsReceiptServiceReadTest {
             when(goodsReceiptRepository.findByCompanyStoreIdInAndSearchTerm(Set.of(STORE_ID), "PO-2026", pageable))
                     .thenReturn(pageOf(receipt));
 
-            service.getAllReceipts(pageable, "PO-2026");
+            service.getAllReceipts(pageable, "PO-2026", GoodsReceiptFilter.NONE);
 
             verify(goodsReceiptRepository).findByCompanyStoreIdInAndSearchTerm(Set.of(STORE_ID), "PO-2026", pageable);
             verify(goodsReceiptRepository, never())
@@ -258,7 +265,7 @@ class GoodsReceiptServiceReadTest {
         void emptyStoreSetYieldsEmptyPageWithoutUnscopedQuery() {
             when(storeScopeResolver.scopeForCurrentUser()).thenReturn(new StoreScope(false, Set.of()));
 
-            var response = service.getAllReceipts(pageable, null);
+            var response = service.getAllReceipts(pageable, null, GoodsReceiptFilter.NONE);
 
             assertThat(response.getContent()).isEmpty();
             assertThat(response.getTotalElements()).isZero();
@@ -275,7 +282,7 @@ class GoodsReceiptServiceReadTest {
         void emptyStoreSetWithSearchNeverCallsUnscopedSearch() {
             when(storeScopeResolver.scopeForCurrentUser()).thenReturn(new StoreScope(false, Set.of()));
 
-            var response = service.getAllReceipts(pageable, "PO-2026");
+            var response = service.getAllReceipts(pageable, "PO-2026", GoodsReceiptFilter.NONE);
 
             assertThat(response.getContent()).isEmpty();
             verifyNoInteractions(goodsReceiptRepository);
@@ -283,6 +290,110 @@ class GoodsReceiptServiceReadTest {
             verify(goodsReceiptRepository, never()).findByCompanyStoreIdInAndSearchTerm(any(), any(), any());
             verify(goodsReceiptRepository, never())
                     .findByEnabledTrueAndCompanyStoreIdInOrderByReceivedAtDesc(any(), any());
+        }
+    }
+
+    // ── GET list: the explicit hierarchy filter ──────────────────────────
+
+    @Nested
+    @DisplayName("getAllReceipts hierarchy filter")
+    class HierarchyFilterTests {
+
+        @Test
+        @DisplayName("should intersect the explicit filter with the caller scope instead of replacing it")
+        void filterIntersectsTheScope() {
+            var filter = new GoodsReceiptFilter(COMPANY_ID, COMPANY_COUNTRY_ID, REGION_ID, null, null);
+            when(storeScopeResolver.scopeForCurrentUser())
+                    .thenReturn(new StoreScope(false, Set.of(STORE_ID, OTHER_STORE_ID)));
+            // The filter names one store the caller may read and one it may not: only the first survives.
+            when(storeFilterResolver.storeIdsFor(COMPANY_ID, COMPANY_COUNTRY_ID, REGION_ID, null, null))
+                    .thenReturn(Set.of(OTHER_STORE_ID, THIRD_STORE_ID));
+            when(goodsReceiptRepository.findByEnabledTrueAndCompanyStoreIdInOrderByReceivedAtDesc(
+                            Set.of(OTHER_STORE_ID), pageable))
+                    .thenReturn(pageOf(receipt));
+
+            service.getAllReceipts(pageable, null, filter);
+
+            verify(goodsReceiptRepository)
+                    .findByEnabledTrueAndCompanyStoreIdInOrderByReceivedAtDesc(Set.of(OTHER_STORE_ID), pageable);
+            verify(goodsReceiptRepository, never()).findByEnabledTrueOrderByReceivedAtDesc(any());
+            verify(goodsReceiptRepository, never()).findBySearchTerm(any(), any());
+        }
+
+        @Test
+        @DisplayName("should return an empty page when the filter names only stores outside the caller scope")
+        void filterOutsideTheScopeYieldsEmptyPage() {
+            var filter = new GoodsReceiptFilter(null, null, null, null, OTHER_STORE_ID);
+            when(storeScopeResolver.scopeForCurrentUser()).thenReturn(new StoreScope(false, Set.of(STORE_ID)));
+            when(storeFilterResolver.storeIdsFor(null, null, null, null, OTHER_STORE_ID))
+                    .thenReturn(Set.of(OTHER_STORE_ID));
+
+            var response = service.getAllReceipts(pageable, null, filter);
+
+            assertThat(response.getContent()).isEmpty();
+            verifyNoInteractions(goodsReceiptRepository);
+        }
+
+        @Test
+        @DisplayName("should narrow an admin by the explicit filter, never fall back to the unscoped query")
+        void adminIsNarrowedByTheExplicitFilter() {
+            var filter = new GoodsReceiptFilter(null, null, REGION_ID, null, null);
+            when(storeScopeResolver.scopeForCurrentUser()).thenReturn(new StoreScope(true, Set.of()));
+            when(storeFilterResolver.storeIdsFor(null, null, REGION_ID, null, null))
+                    .thenReturn(Set.of(STORE_ID));
+            when(goodsReceiptRepository.findByEnabledTrueAndCompanyStoreIdInOrderByReceivedAtDesc(
+                            Set.of(STORE_ID), pageable))
+                    .thenReturn(pageOf(receipt));
+
+            var response = service.getAllReceipts(pageable, null, filter);
+
+            assertThat(response.getContent()).hasSize(1);
+            verify(goodsReceiptRepository)
+                    .findByEnabledTrueAndCompanyStoreIdInOrderByReceivedAtDesc(Set.of(STORE_ID), pageable);
+            verify(goodsReceiptRepository, never()).findByEnabledTrueOrderByReceivedAtDesc(any());
+        }
+
+        @Test
+        @DisplayName("should combine the explicit filter with the search term")
+        void filterCombinesWithTheSearchTerm() {
+            var filter = new GoodsReceiptFilter(COMPANY_ID, null, null, null, null);
+            when(storeScopeResolver.scopeForCurrentUser()).thenReturn(new StoreScope(false, Set.of(STORE_ID)));
+            when(storeFilterResolver.storeIdsFor(COMPANY_ID, null, null, null, null))
+                    .thenReturn(Set.of(STORE_ID));
+            when(goodsReceiptRepository.findByCompanyStoreIdInAndSearchTerm(Set.of(STORE_ID), "PO-2026", pageable))
+                    .thenReturn(pageOf(receipt));
+
+            service.getAllReceipts(pageable, "PO-2026", filter);
+
+            verify(goodsReceiptRepository).findByCompanyStoreIdInAndSearchTerm(Set.of(STORE_ID), "PO-2026", pageable);
+        }
+
+        @Test
+        @DisplayName("should not resolve a filter that names no level: the page is the unfiltered one")
+        void absentFilterConstrainsNothing() {
+            when(storeScopeResolver.scopeForCurrentUser()).thenReturn(new StoreScope(true, Set.of()));
+            when(goodsReceiptRepository.findByEnabledTrueOrderByReceivedAtDesc(pageable))
+                    .thenReturn(pageOf(receipt));
+
+            var response = service.getAllReceipts(pageable, null, GoodsReceiptFilter.NONE);
+
+            assertThat(response.getContent()).hasSize(1);
+            verifyNoInteractions(storeFilterResolver);
+            verify(goodsReceiptRepository).findByEnabledTrueOrderByReceivedAtDesc(pageable);
+        }
+
+        @Test
+        @DisplayName("should return an empty page when the filter resolves to no store at all")
+        void filterThatMatchesNoStoreYieldsEmptyPage() {
+            var filter = new GoodsReceiptFilter(null, null, null, null, OTHER_STORE_ID);
+            when(storeScopeResolver.scopeForCurrentUser()).thenReturn(new StoreScope(true, Set.of()));
+            when(storeFilterResolver.storeIdsFor(null, null, null, null, OTHER_STORE_ID))
+                    .thenReturn(Set.of());
+
+            var response = service.getAllReceipts(pageable, null, filter);
+
+            assertThat(response.getContent()).isEmpty();
+            verifyNoInteractions(goodsReceiptRepository);
         }
     }
 

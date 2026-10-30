@@ -137,4 +137,34 @@ public interface CompanyStoreRepository extends JpaRepository<CompanyStore, UUID
             @Param("companyRegionIds") Collection<UUID> companyRegionIds,
             @Param("companyCountryIds") Collection<UUID> companyCountryIds,
             @Param("companyIds") Collection<UUID> companyIds);
+
+    /**
+     * The store ids an <strong>explicit</strong> hierarchy filter names, one optional level per
+     * predicate, combining with {@code AND} along the single path {@code store -> zone -> region ->
+     * country -> company}.
+     *
+     * <p>It is the mirror image of the five claim finders above and deliberately not one of them: a
+     * claim finder takes a <em>collection</em> per level and denies when an ancestor claim is missing,
+     * because a claim describes a subtree. A filter describes the ids the caller picked, one value per
+     * level, and any subset of the levels may be absent — {@code regionId} alone is a legitimate
+     * filter. An absent level constrains nothing; every present level must match the same row.</p>
+     *
+     * <p>This is <strong>not</strong> authorization and must not be used as one. Whoever calls it has
+     * to intersect the result with {@link #findIdsByCompanyIdIn(Collection)} and friends — the stores
+     * the caller may read. The UUID parameters need no {@code cast} to be typed when null: each one is
+     * also compared against a typed path ({@code s.companyZone.id = :zoneId}, &hellip;), which is the
+     * same reason {@code PurchaseOrderRepository#findByFilters} casts only its {@code search}.</p>
+     */
+    @Query("select s.id from CompanyStore s "
+            + "where (:companyId is null or s.companyZone.companyRegion.companyCountry.company.id = :companyId) "
+            + "and (:companyCountryId is null or s.companyZone.companyRegion.companyCountry.id = :companyCountryId) "
+            + "and (:regionId is null or s.companyZone.companyRegion.id = :regionId) "
+            + "and (:zoneId is null or s.companyZone.id = :zoneId) "
+            + "and (:companyStoreId is null or s.id = :companyStoreId)")
+    List<UUID> findIdsByHierarchyFilter(
+            @Param("companyId") UUID companyId,
+            @Param("companyCountryId") UUID companyCountryId,
+            @Param("regionId") UUID regionId,
+            @Param("zoneId") UUID zoneId,
+            @Param("companyStoreId") UUID companyStoreId);
 }

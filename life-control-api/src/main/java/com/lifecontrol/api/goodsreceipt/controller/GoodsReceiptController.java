@@ -13,6 +13,7 @@ import static com.lifecontrol.api.common.security.Roles.COMPANY_ZONE;
 import static com.lifecontrol.api.common.security.Roles.COMPANY_ZONE_READ;
 import static com.lifecontrol.api.common.security.Roles.RECEIVING;
 
+import com.lifecontrol.api.goodsreceipt.dto.GoodsReceiptFilter;
 import com.lifecontrol.api.goodsreceipt.dto.GoodsReceiptRequest;
 import com.lifecontrol.api.goodsreceipt.dto.GoodsReceiptResponse;
 import com.lifecontrol.api.goodsreceipt.service.GoodsReceiptService;
@@ -88,11 +89,23 @@ public class GoodsReceiptController {
     @Operation(
             summary = "Get all goods receipts",
             description =
-                    "Returns a paginated list, optionally filtered by search term on the receipt number or the order number. A non-admin caller only sees receipts of the stores its own scope reaches — the stores of the company, country, region or zone claim it holds, or its store claim — with the same rule the by-id read applies to a single receipt; an empty effective scope yields an empty page.")
+                    "Returns a paginated list, optionally filtered by search term on the receipt number or the order number "
+                            + "and by the store hierarchy (company, company country, region, zone, store). Every filter is optional "
+                            + "and an absent one constrains nothing. A non-admin caller only sees receipts of the stores its own "
+                            + "scope reaches — the stores of the company, country, region or zone claim it holds, or its store claim — "
+                            + "with the same rule the by-id read applies to a single receipt, and the hierarchy filter can only "
+                            + "narrow that scope, never widen it; an empty effective scope yields an empty page.")
     @ApiResponses({@ApiResponse(responseCode = "200", description = "Paginated list of goods receipts")})
     public ResponseEntity<Page<GoodsReceiptResponse>> getAllReceipts(
-            @PageableDefault(size = 12) Pageable pageable, @RequestParam(required = false) String search) {
-        return ResponseEntity.ok(goodsReceiptService.getAllReceipts(pageable, search));
+            @PageableDefault(size = 12) Pageable pageable,
+            @RequestParam(required = false) String search,
+            @RequestParam(required = false) UUID companyId,
+            @RequestParam(required = false) UUID companyCountryId,
+            @RequestParam(required = false) UUID regionId,
+            @RequestParam(required = false) UUID zoneId,
+            @RequestParam(required = false) UUID companyStoreId) {
+        var filter = new GoodsReceiptFilter(companyId, companyCountryId, regionId, zoneId, companyStoreId);
+        return ResponseEntity.ok(goodsReceiptService.getAllReceipts(pageable, search, filter));
     }
 
     @GetMapping("/{id}")

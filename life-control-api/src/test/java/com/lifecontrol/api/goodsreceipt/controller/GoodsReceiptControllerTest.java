@@ -9,6 +9,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.lifecontrol.api.exception.GlobalExceptionHandler;
+import com.lifecontrol.api.goodsreceipt.dto.GoodsReceiptFilter;
 import com.lifecontrol.api.goodsreceipt.dto.GoodsReceiptLineRequest;
 import com.lifecontrol.api.goodsreceipt.dto.GoodsReceiptLineResponse;
 import com.lifecontrol.api.goodsreceipt.dto.GoodsReceiptRequest;
@@ -172,7 +173,8 @@ class GoodsReceiptControllerTest {
         @DisplayName("should return 200 with the paged response shape")
         void returns200WithPage() throws Exception {
             var page = new PageImpl<>(List.of(receiptResponse), PageRequest.of(0, 12), 1);
-            when(goodsReceiptService.getAllReceipts(any(), eq(null))).thenReturn(page);
+            when(goodsReceiptService.getAllReceipts(any(), eq(null), eq(GoodsReceiptFilter.NONE)))
+                    .thenReturn(page);
 
             mockMvc.perform(get(BASE_URL))
                     .andExpect(status().isOk())
@@ -187,11 +189,47 @@ class GoodsReceiptControllerTest {
         @DisplayName("should forward the search parameter")
         void forwardsSearch() throws Exception {
             var page = new PageImpl<>(List.of(receiptResponse), PageRequest.of(0, 12), 1);
-            when(goodsReceiptService.getAllReceipts(any(), eq("PO-2026"))).thenReturn(page);
+            when(goodsReceiptService.getAllReceipts(any(), eq("PO-2026"), eq(GoodsReceiptFilter.NONE)))
+                    .thenReturn(page);
 
             mockMvc.perform(get(BASE_URL).param("search", "PO-2026"))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.content[0].receiptNumber").value("GR-PO-20260603-00001-01"));
+        }
+
+        @Test
+        @DisplayName("should forward the five hierarchy filters to the service")
+        void forwardsHierarchyFilters() throws Exception {
+            var companyId = UUID.randomUUID();
+            var companyCountryId = UUID.randomUUID();
+            var regionId = UUID.randomUUID();
+            var zoneId = UUID.randomUUID();
+            var filter = new GoodsReceiptFilter(companyId, companyCountryId, regionId, zoneId, storeId);
+            var page = new PageImpl<>(List.of(receiptResponse), PageRequest.of(0, 12), 1);
+            when(goodsReceiptService.getAllReceipts(any(), eq(null), eq(filter)))
+                    .thenReturn(page);
+
+            mockMvc.perform(get(BASE_URL)
+                            .param("companyId", companyId.toString())
+                            .param("companyCountryId", companyCountryId.toString())
+                            .param("regionId", regionId.toString())
+                            .param("zoneId", zoneId.toString())
+                            .param("companyStoreId", storeId.toString()))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.totalElements").value(1));
+        }
+
+        @Test
+        @DisplayName("should forward a partial hierarchy filter, leaving the absent levels null")
+        void forwardsPartialHierarchyFilter() throws Exception {
+            var regionId = UUID.randomUUID();
+            var filter = new GoodsReceiptFilter(null, null, regionId, null, null);
+            var page = new PageImpl<>(List.of(receiptResponse), PageRequest.of(0, 12), 1);
+            when(goodsReceiptService.getAllReceipts(any(), eq(null), eq(filter)))
+                    .thenReturn(page);
+
+            mockMvc.perform(get(BASE_URL).param("regionId", regionId.toString()))
+                    .andExpect(status().isOk());
         }
     }
 

@@ -1,6 +1,7 @@
 package com.lifecontrol.api.goodsreceipt.service;
 
 import com.lifecontrol.api.common.auth.CurrentUserContext;
+import com.lifecontrol.api.goodsreceipt.dto.GoodsReceiptFilter;
 import com.lifecontrol.api.goodsreceipt.dto.GoodsReceiptLineRequest;
 import com.lifecontrol.api.goodsreceipt.dto.GoodsReceiptLineResponse;
 import com.lifecontrol.api.goodsreceipt.dto.GoodsReceiptRequest;
@@ -38,11 +39,14 @@ import com.lifecontrol.api.status.repository.StatusRepository;
 import com.lifecontrol.api.store.exception.StoreLocationNotFoundException;
 import com.lifecontrol.api.store.model.CompanyStore;
 import com.lifecontrol.api.store.repository.StoreLocationRepository;
+import com.lifecontrol.api.store.service.CompanyStoreFilterResolver;
 import com.lifecontrol.api.store.service.CompanyStoreScopeResolver;
+import com.lifecontrol.api.store.service.CompanyStoreScopeResolver.StoreScope;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -96,6 +100,7 @@ public class GoodsReceiptService {
     private final StatusRepository statusRepository;
     private final CurrentUserContext currentUserContext;
     private final CompanyStoreScopeResolver storeScopeResolver;
+    private final CompanyStoreFilterResolver storeFilterResolver;
 
     public GoodsReceiptService(
             PurchaseOrderRepository purchaseOrderRepository,
@@ -108,7 +113,8 @@ public class GoodsReceiptService {
             ProductVariantStoreStockRepository productVariantStoreStockRepository,
             StatusRepository statusRepository,
             CurrentUserContext currentUserContext,
-            CompanyStoreScopeResolver storeScopeResolver) {
+            CompanyStoreScopeResolver storeScopeResolver,
+            CompanyStoreFilterResolver storeFilterResolver) {
         this.purchaseOrderRepository = purchaseOrderRepository;
         this.purchaseOrderDetailRepository = purchaseOrderDetailRepository;
         this.purchaseOrderService = purchaseOrderService;
@@ -120,6 +126,7 @@ public class GoodsReceiptService {
         this.statusRepository = statusRepository;
         this.currentUserContext = currentUserContext;
         this.storeScopeResolver = storeScopeResolver;
+        this.storeFilterResolver = storeFilterResolver;
     }
 
     /**
@@ -341,25 +348,33 @@ public class GoodsReceiptService {
      * <p>Admins are exempt and see the unscoped page. A non-admin with an <strong>empty</strong>
      * scope yields an empty page and never the unscoped query, because an empty scope means the
      * caller may read no store at all.</p>
+     *
+     * <p>The optional {@code filter} narrows <strong>within</strong> that scope and never replaces it:
+     * the five ids are resolved to store ids by {@link CompanyStoreFilterResolver} and intersected
+     * with the scope's own set, so a filter naming a store the caller may not read contributes
+     * nothing instead of adding a row. An empty filter constrains nothing, which is what keeps the
+     * parameterless page byte-identical to the one this method returned before it existed.</p>
      */
     @Transactional(readOnly = true)
-    public Page<GoodsReceiptResponse> getAllReceipts(Pageable pageable, String search) {
+    public Page<GoodsReceiptResponse> getAllReceipts(Pageable pageable, String search, GoodsReceiptFilter filter) {
         var normalizedSearch = StringUtils.hasText(search) ? search.trim() : null;
 
         // W2-D10 tenant scoping, resolved from the caller's broadest granted scope (see the method
         // javadoc): the list filter and verifyCompanyStoreAccess share one rule, so a page never
         // contains a row its own detail would deny, and never omits one it admits.
-        var scope = storeScopeResolver.scopeForCurrentUser();
-        if (scope.unscoped()) {
+        var stores = effectiveStores(storeScopeResolver.scopeForCurrentUser(), filter);
+
+        if (stores.unscoped()) {
             var page = normalizedSearch == null
                     ? goodsReceiptRepository.findByEnabledTrueOrderByReceivedAtDesc(pageable)
                     : goodsReceiptRepository.findBySearchTerm(normalizedSearch, pageable);
             return page.map(this::toResponse);
         }
 
-        var storeIds = scope.storeIds();
+        var storeIds = stores.storeIds();
         // An empty scope means the caller may read no store: return an empty page. Never fall
-        // through to the unscoped query, which would leak every store's receipts.
+        // through to the unscoped query, which would leak every store's receipts. An explicit filter
+        // that matches no store, or matches only stores outside the scope, lands on the same branch.
         if (storeIds.isEmpty()) {
             return Page.empty(pageable);
         }
@@ -367,10 +382,44 @@ public class GoodsReceiptService {
         // choice shape as PurchaseOrderService#getAllPurchaseOrders. PostgreSQL cannot type a
         // null-bound `:search IS NULL` predicate, so the searched finder is only ever called with a
         // non-blank term and the unsearched one carries no search predicate at all.
-        var page = StringUtils.hasText(normalizedSearch)
+        var page = normalizedSearch != null
                 ? goodsReceiptRepository.findByCompanyStoreIdInAndSearchTerm(storeIds, normalizedSearch, pageable)
                 : goodsReceiptRepository.findByEnabledTrueAndCompanyStoreIdInOrderByReceivedAtDesc(storeIds, pageable);
         return page.map(this::toResponse);
+    }
+
+    /** The store ids a page may contain: unscoped, or an explicit set that is never {@code null}. */
+    private record EffectiveStores(boolean unscoped, Set<UUID> storeIds) {}
+
+    /**
+     * The store constraint of one page: the caller's scope, narrowed by the explicit filter.
+     *
+     * <p>Both directions are the point. An <strong>empty</strong> filter returns the scope untouched,
+     * so the parameterless request runs exactly the query it ran before the filter existed. A
+     * non-empty filter is resolved to store ids and <strong>intersected</strong> with the scope's own
+     * set — never substituted for it — because that intersection is the whole authorization
+     * argument: a caller that passes another tenant's region contributes no store and sees an empty
+     * page, and an admin (whose scope is unscoped) is narrowed by the filter instead of ignoring
+     * it.</p>
+     */
+    private EffectiveStores effectiveStores(StoreScope scope, GoodsReceiptFilter filter) {
+        if (filter.isEmpty()) {
+            return new EffectiveStores(scope.unscoped(), scope.storeIds());
+        }
+
+        var filtered = storeFilterResolver.storeIdsFor(
+                filter.companyId(),
+                filter.companyCountryId(),
+                filter.regionId(),
+                filter.zoneId(),
+                filter.companyStoreId());
+        if (scope.unscoped()) {
+            return new EffectiveStores(false, filtered);
+        }
+
+        var intersection = new HashSet<>(scope.storeIds());
+        intersection.retainAll(filtered);
+        return new EffectiveStores(false, intersection);
     }
 
     /** Operator override first, the store's configured receiving location second. */
