@@ -166,3 +166,115 @@ role SQL, the init wrapper, `db-roles.sh` and the `deploy.sh` ordering) and `sui
 `db-roles.test.sh` that pins both). The suite is its own commit on purpose: it is one readable artifact
 and it asserts a contract that spans the other two, which is exactly why splitting it across pull requests
 was rejected in L6.
+
+L9 — **the task order in this record was wrong, and it is corrected here before T2 writes a line.** The
+table lists T2 then T3 (the assertion as a startup refusal) then T4 (the scope) then T5 (the policies).
+That order cannot work, for two independent reasons:
+
+1. **A policy without a scope is zero rows everywhere.** The moment a `company_id` table carries a policy,
+   every query on it needs `app.company_id` set, so T4 — the transaction scope — has to land **before or
+   with** the first policy, never after it. Landing T5 first would take the running application to "reads
+   nothing" on every tenant table.
+2. **An assertion that refuses to boot must land when the tree satisfies it.** The assertion's own query
+   returns every `company_id` table that is not on the list; until the policies exist that is all fifteen,
+   so wiring it as a startup refusal in T3 would make the application refuse to start after every deploy
+   between T2 and T5. It lands **last**, as a gate over a tree that already passes it.
+
+Execution order, which supersedes the table's row order while keeping its IDs as identifiers:
+**T2** (the machinery: scope functions, the list with its three kinds, `apply_tenant_isolation`, the
+default privileges, and the assertion *query* — no enforcement) → **T4** (the transaction scope, from the
+principal and from the worker) → **T5** (the policies, group by group) → **T3** (the assertion wired as a
+startup refusal, now that the tree satisfies it) → **T6** (the T1–T8 suite as the gate, the PR chain and
+the evidence).
+
+One dependency T2 discovers by running, not by reading: the migration grants to `lifecontrol_app`, and the
+test container starts with a single superuser (`AbstractPostgresIntegrationTest:33-37`, user `lifecontrol`
+on `postgres:16-alpine`). Either the migration or the test base has to create the app role, and creating it
+in a migration would put a role in version control without its credential. So the test base creates both
+roles once, idempotently, and that is what lets T5's and T6's tests connect as the role that RLS actually
+applies to — the `lifecontrol` superuser bypasses every policy, which is the same trap T1 removed from
+production.
+
+L10 — **T2 is written, and running it found a defect in ADR-0005's decision-2 predicate: on a pooled
+connection the tenant predicate raises instead of filtering.** Measured in `postgres:16-alpine`, not
+reasoned:
+
+```sql
+SELECT current_setting('app.company_id', true);                                  -- NULL, good
+BEGIN; SELECT set_config('app.company_id', '<uuid>', true); COMMIT;
+SELECT current_setting('app.company_id', true) = '';                             -- t
+SELECT current_setting('app.company_id', true)::uuid;                            -- ERROR 22P02: invalid input syntax for type uuid: ""
+SELECT nullif(current_setting('app.company_id', true), '')::uuid;                -- NULL, filters
+```
+
+Once a session has set the parameter — even transaction-locally — PostgreSQL keeps it **defined** and
+resets it to the **empty string**, not to NULL. `RESET ALL` and `DISCARD ALL` do not undo that (measured),
+so it is the steady state of every pooled connection after its first scoped transaction, and a transaction
+that reaches a tenant table with no scope gets SQLSTATE **22P02** instead of the zero rows decision 2 and
+invariant T6 promise. Consequences, in the order they matter:
+
+1. **V52 as delivered builds the predicate exactly as the ADR states it** (`<key> =
+   current_setting('app.company_id', true)::uuid`), because T2's brief fixes that text. The published
+   `false`-safe form is a one-token change in the `tenant` and `shared` branches:
+   `nullif(current_setting('app.company_id', true), '')::uuid`. `subject` needs nothing — it compares a
+   `VARCHAR` with no cast, so `''` already matches no row and fails closed.
+2. **It has to be decided before T5, not after.** V52 cannot be edited once applied, so the fix then costs
+   a new migration that `CREATE OR REPLACE`s the function before fifteen policies are pinned on it.
+3. **Decision 2 and invariant T6 need a wording amendment.** "The value is `NULL` after commit" is not
+   what PostgreSQL does; what holds is "the setting no longer carries the tenant" — `NULL` only on a
+   session that never set it, which is why the suite pins both cases on purpose
+   (`theScopeSettingsDieWithTheTransaction` reads `null or empty`; `aSessionThatNeverSetTheScopeReadsNull`
+   opens a fresh `DriverManager` session to show the `NULL` half).
+
+Three smaller things T2 measured and the record did not say:
+
+- **`shared_rows BOOLEAN` cannot express S3.** The ADR's `## Schema` block and this record's T2 row both
+  describe the list as `(table_name, shared_rows BOOLEAN)`; the delivered list is
+  `(table_name regclass, policy_kind text CHECK (...), key_column text)`, because a boolean has no value for
+  the third kind and `subject` is the one S3 decided. The helper's signature follows:
+  `apply_tenant_isolation(target regclass, kind text DEFAULT 'tenant', key_column text DEFAULT
+  'company_id')`, and `tenant_table_policy_kind_closed` is the constraint a fourth kind fails on.
+- **The test container's owner is `lifecontrol`, so `ALTER DEFAULT PRIVILEGES FOR ROLE CURRENT_USER` is
+  load-bearing, not stylistic.** A literal `lifecontrol_owner` there would have granted for a role that
+  creates nothing: the statement succeeds and the grant is inert, which no test could see. In the container
+  the two roles come from `src/test/resources/test-container-roles.sql` via `withInitScript` (before
+  Flyway, once per JVM, no password, `SET ROLE` for any suite that needs the app role); in delivery the
+  file that owns the role shape stays `docker/postgres-init/lifecontrol-roles.sql`.
+- **`GRANT ... ON ALL SEQUENCES` is unobservable today.** Every key in this tree is a UUID, so `public`
+  holds no sequence at all; the observable half of that contract is the `ALTER DEFAULT PRIVILEGES`
+  counterpart, which the suite proves by creating a table and a sequence inside its own transaction. The
+  same suite also had to learn that `pg_class` carries the **TOAST** sequences of `pg_toast` and that WHERE
+  evaluation order is not guaranteed: `has_sequence_privilege` needs a `CASE` guard or the query fails with
+  `"pg_toast_16387" is not a sequence`.
+
+L11 — **the predicate defect is real, independently reproduced, and fixed inside V52 rather than in a
+follow-up migration.** Reproduced by the parent on `postgres:16-alpine` in one session: a fresh session
+answers `NULL` for `current_setting('app.company_id', true)`; after one `set_config(..., true)` and its
+`COMMIT` the parameter exists and equals the **empty string**; the ADR's bare `::uuid` then raises
+`invalid input syntax for type uuid: ""` (SQLSTATE 22P02); `nullif(..., '')::uuid` answers `NULL`. The
+failing case is therefore the ordinary pooled connection after its first request — the ADR's decision 2
+and invariant T6 promise zero rows, and the ADR's own spelling delivered an exception. V52 now writes
+`nullif(current_setting('app.company_id', true), '')::uuid` in the `tenant` and `shared` branches, and the
+section-1 header states the measurement instead of the promise. Two cases in
+`TenantScopeFunctionsIntegrationTest` model the pool literally — one connection, a committed scope
+transaction, then a second transaction on the same session reading a live policy as `lifecontrol_app` —
+and they were **run against the old spelling first**: two failures inside the read itself (`22P02`), with
+the superuser control count proving the rows existed, then green after the `nullif` was restored (V52
+`sha256 0de5764c…` identical before the temporary revert and after). `set_user_scope` needs no equivalent,
+because its consumer compares a `VARCHAR` and `''` already matches no row.
+
+Two residues recorded for the slices that follow. **(a)** The corrected predicate is what T5 inherits: the
+only place a policy is ever created is `apply_tenant_isolation`, so the fail-closed behaviour of all
+fifteen tables is decided by those two `format()` strings. **(b)** The suite leaves `app.company_id` defined
+as the empty string on one pooled connection for the rest of the JVM — inert today, because no real table
+carries a policy until T5, but T5's and T6's cases must `SET ROLE lifecontrol_app` explicitly: the
+container's own user is a superuser and bypasses every policy, which is the same trap T1 removed from
+production.
+
+L12 — the slice boundaries of T2, recorded for the same reason as L8. T2 is **two commits and one tiny
+third**: `af37e7a0` (V52, the test container's roles, the base-class hook and this record) is the unit that
+changes what the database and the test JVM can do; `776a2dbd` is the 16-case suite, its own artifact
+because it is one contract's pin and not a diff to read line by line; and this entry, so the boundary lives
+in the document rather than in a session. 1031 authored lines in total, of which 654 are the suite. The
+same reasoning as L6 applies: splitting the suite across pull requests would leave each partial PR red,
+because both halves assert facts the other half introduces.
