@@ -33,11 +33,19 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
  * superuser — which always bypasses Row-Level Security — so the role the policies actually apply to has
  * to exist for those suites to prove anything. The script is idempotent, runs once per container before
  * Flyway, and is inert for every suite that never switches to either role with {@code SET ROLE}.
+ *
+ * <p><b>The server takes 300 connections because the suite caches one pool per Spring context.</b> Each
+ * distinct {@code @SpringBootTest} configuration keeps its own Hikari pool alive for the whole JVM and the
+ * default pool size is 10, so sixty-odd classes already sit at PostgreSQL's default of 100 — which is why
+ * the first test that needed a connection <i>outside</i> a pool failed with “sorry, too many clients
+ * already” while 4239 others passed. Raising the ceiling is not hiding a leak: a leak would exhaust 300
+ * just as well; it gives the suite room for the contexts it legitimately caches.</p>
  */
 @ActiveProfiles("test")
 public abstract class AbstractPostgresIntegrationTest {
 
     protected static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:16-alpine")
+            .withCommand("postgres", "-c", "max_connections=300")
             .withDatabaseName("lifecontrol_test")
             .withUsername("lifecontrol")
             .withPassword("lifecontrol")
