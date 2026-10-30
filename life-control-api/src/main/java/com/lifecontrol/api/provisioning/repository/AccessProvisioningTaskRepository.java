@@ -159,6 +159,33 @@ public interface AccessProvisioningTaskRepository extends JpaRepository<AccessPr
     List<UUID> findStaleRunningTaskIds(@Param("staleBefore") LocalDateTime staleBefore, Pageable pageable);
 
     /**
+     * The company that owns a task, resolved through its employee.
+     *
+     * <p><b>Its consumer is the worker, and it exists because the worker has no request.</b>
+     * {@code AccessProvisioningWorker.process} reads the employee row — a table ADR-0005 arms with a
+     * tenant policy — from a thread no filter ever sees, so the pass has to state the tenant itself.
+     * {@code access_provisioning_tasks} carries no {@code company_id} (V22, and S2 of
+     * {@code odd/tasks/tenant-isolation-rls.md} leaves the table outside the policy set), so the
+     * tenant enters through {@code employee_id}, which is the row's only organisational link; the
+     * projection answers the id alone because that is all the scope needs and a fetched entity here
+     * would be a second snapshot nobody acts on.</p>
+     *
+     * <p><b>It is a read of a tenant table, and that is the open dependency this slice records</b>
+     * (record L14): once T5 arms {@code employees}, this resolution runs without a scope, so it can only
+     * see the row while the process that owns it is the superuser — which the pool must not be (ADR
+     * decision 3). The fix is not a second mechanism here: the tenant has to live on the row the
+     * platform process reads ({@code access_provisioning_tasks.company_id}, a data-model change S2 defers
+     * to its own unit) or the resolution has to be a {@code SECURITY DEFINER} function. Until then this
+     * finder is the single place the pass learns its tenant, so that fix is one line in one caller.</p>
+     */
+    @Query("""
+            SELECT e.company.id FROM AccessProvisioningTask t
+            JOIN t.employee e
+            WHERE t.id = :taskId
+            """)
+    Optional<UUID> findEmployeeCompanyIdByTaskId(@Param("taskId") UUID taskId);
+
+    /**
      * The company's <b>decision queue</b>: the tasks of that company's employees waiting for a human,
      * as entities because the row a person reads carries the employee it belongs to (unit W5d, slice B,
      * record T94).

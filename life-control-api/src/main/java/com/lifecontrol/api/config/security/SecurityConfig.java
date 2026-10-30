@@ -1,7 +1,9 @@
 package com.lifecontrol.api.config.security;
 
+import com.lifecontrol.api.common.auth.CurrentUserContext;
 import com.lifecontrol.api.common.net.CidrMatcher;
 import com.lifecontrol.api.common.net.ClientIpResolver;
+import com.lifecontrol.api.common.tenant.TenantScopeFilter;
 import java.util.function.Supplier;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -14,6 +16,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.access.ExceptionTranslationFilter;
 import org.springframework.security.web.access.intercept.RequestAuthorizationContext;
 
 /**
@@ -44,10 +47,25 @@ public class SecurityConfig {
 
     @Bean
     public SecurityFilterChain securityFilterChain(
-            HttpSecurity http, JwtDecoder keycloakJwtDecoder, JwtAuthenticationConverter jwtAuthenticationConverter)
+            HttpSecurity http,
+            JwtDecoder keycloakJwtDecoder,
+            JwtAuthenticationConverter jwtAuthenticationConverter,
+            CurrentUserContext currentUserContext)
             throws Exception {
 
-        return http.authorizeHttpRequests(auth -> auth.requestMatchers(PUBLIC_URLS)
+        // The tenant scope is stated after authentication and before the controller. Its anchor is
+        // ExceptionTranslationFilter, placed AFTER it and not before, and that is a measurement: an
+        // exception thrown by a filter that sits before ExceptionTranslationFilter propagates outward and
+        // never reaches it, so the refusal escaped as a servlet exception instead of the HTTP 403 the rest
+        // of the tree answers with. Inside it, the same AccessDeniedException becomes the bodiless 403
+        // Spring Security already produces for a filter-level refusal, and the filter still runs long after
+        // the resource server validated the JWT. It is built here and not declared as a @Component because
+        // Boot registers every Filter bean in the servlet container as well, where it would run a second
+        // time with no principal (record L13).
+        var tenantScopeFilter = new TenantScopeFilter(currentUserContext);
+
+        return http.addFilterAfter(tenantScopeFilter, ExceptionTranslationFilter.class)
+                .authorizeHttpRequests(auth -> auth.requestMatchers(PUBLIC_URLS)
                         .permitAll()
                         .requestMatchers("/actuator/health", "/actuator/health/**")
                         .permitAll()

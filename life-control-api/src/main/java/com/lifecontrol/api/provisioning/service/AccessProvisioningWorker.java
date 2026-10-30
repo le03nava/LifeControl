@@ -1,9 +1,11 @@
 package com.lifecontrol.api.provisioning.service;
 
+import com.lifecontrol.api.common.tenant.TenantScope;
 import com.lifecontrol.api.common.worker.WorkerRetryPolicy;
 import com.lifecontrol.api.common.worker.WorkerTick;
 import com.lifecontrol.api.config.provisioning.ProvisioningWorkerProperties;
 import com.lifecontrol.api.hr.exception.EmployeeNotFoundException;
+import com.lifecontrol.api.hr.model.Employee;
 import com.lifecontrol.api.hr.repository.EmployeeRepository;
 import com.lifecontrol.api.provisioning.repository.AccessProvisioningTaskRepository;
 import java.time.LocalDateTime;
@@ -36,6 +38,17 @@ import org.springframework.stereotype.Service;
  * and, when a deadline is given, the guarded {@code FAILED → PENDING} in the same transaction. The
  * pass reads the query, resolves each id to its employee, and delegates — it owns no lock and no
  * guard of its own.</p>
+ *
+ * <p><b>The employee read states its own tenant (ADR-0005, record L14).</b> The pass runs on a
+ * scheduled thread no servlet filter ever sees, and it reads {@code employees} — one of the fifteen
+ * tables T5 arms with a tenant policy — so the tenant has to be stated here and not inherited. Each
+ * task's own company is resolved first ({@code findEmployeeCompanyIdByTaskId}) and the employee read
+ * runs inside {@link TenantScope#with}, whose scope the transaction boundary installs on the
+ * repository's own read-only transaction; a row of another company is a read that returns nothing, and
+ * the pass fails the task rather than applying it to the wrong tenant. The other reads in this pass —
+ * {@code findDueTaskIds}, {@code findStaleRunningTaskIds}, {@code findById} — touch
+ * {@code access_provisioning_tasks}, which carries no {@code company_id} and is outside S2's list, and
+ * they are deliberately left alone: a scope on them would be a scope nothing reads.</p>
  *
  * <p><b>The ids-to-employee bridge carries no authority (record T51).</b> The repository returns
  * <b>ids</b>; the only locked finder is the employee-scoped
@@ -196,6 +209,14 @@ public class AccessProvisioningWorker {
      * defect gap G45 measured. The fetch belongs to the read because a {@code @Transactional}
      * capability cannot reattach a detached entity.</p>
      *
+     * <p><b>That read is scoped to the task's own company, and this is the only read in the pass that
+     * touches a table with a policy</b> (ADR-0005; record L14). It goes through
+     * {@link #employeeInItsTenant}, which resolves the tenant first and runs the read inside it: the
+     * repository's own {@code @Transactional(readOnly = true)} boundary is what installs the scope, so the
+     * read either sees the employee of the task's company or nothing at all. Nothing widens when the
+     * tenant cannot be resolved — a {@code null} scope installs nothing, and the empty result ends in
+     * {@code markFailed}, which is the ADR's fail-closed direction rather than a cross-tenant apply.</p>
+     *
      * <p><b>The claim is the authority and sits outside the recovery.</b>
      * {@link AccessProvisioningTaskService#claim} re-loads the row under its pessimistic write lock and
      * returns the saved task, so its {@code kind} is what the dispatch uses and its incremented
@@ -230,8 +251,7 @@ public class AccessProvisioningWorker {
         var employeeId = resolved.getEmployee().getId();
         var claimed = taskService.claim(employeeId, taskId);
         try {
-            var employee =
-                    employeeRepository.findByIdWithCompanyAndStatus(employeeId).orElse(null);
+            var employee = employeeInItsTenant(taskId, employeeId);
             if (employee == null) {
                 throw new EmployeeNotFoundException(employeeId);
             }
@@ -245,6 +265,31 @@ public class AccessProvisioningWorker {
             var attempts = claimed.getAttempts() == null ? 0 : claimed.getAttempts();
             taskService.markFailed(employeeId, taskId, failureReason(failure), deadlineFor(attempts, now));
         }
+    }
+
+    /**
+     * Reads the employee inside the tenant of its own task, so the one tenant read of this pass carries a
+     * scope (ADR-0005; record L14).
+     *
+     * <p>The tenant is resolved first — {@code employees} and {@code companies} are the tables T5 will
+     * arm, and {@code access_provisioning_tasks} is not — and the employee read then runs inside
+     * {@link TenantScope#with}. That read is a repository call, so it opens the read-only transaction
+     * {@code SimpleJpaRepository} declares, and the transaction boundary installs the scope on it before
+     * its first query. A {@code null} tenant installs nothing: the read then finds no row under a policy
+     * and the caller's own not-found branch fails the task, which is the fail-closed outcome.</p>
+     *
+     * <p>The company lookup is deliberately a separate read and not {@code resolved.getEmployee()
+     * .getCompany()}: the lazy proxy would issue the same query without saying why, and its
+     * {@code EntityNotFoundException} on a row the policy hides would be a different failure than the
+     * honest empty result this returns.</p>
+     */
+    private Employee employeeInItsTenant(UUID taskId, UUID employeeId) {
+        var companyId = taskRepository.findEmployeeCompanyIdByTaskId(taskId).orElse(null);
+        return TenantScope.with(
+                companyId,
+                () -> employeeRepository
+                        .findByIdWithCompanyAndStatus(employeeId)
+                        .orElse(null));
     }
 
     /**
