@@ -517,3 +517,13 @@ reads it. **(b)** `Company.id` had to stop being `@GeneratedValue`: Hibernate ge
 have been the new company — measured in `hibernate-core` 7.4.13 (`UuidGenerator` ignores an assigned id).
 The entity is now `@Id` with a `@PrePersist` fallback and the service generates the id before the
 transaction it states.
+
+L19 — the slice boundaries of T5a: three commits plus this note. `8f261666` is the delivery half (the
+resolver in the roles script and the nine offline assertions that pin it — the part that must exist before
+any policy), `bab5bd31` is the Java half (the worker's resolution and its loud failure, the company create
+path with its measured entity change, and the per-claim listing), and `12647096` carries the test fixtures,
+the two integration classes and the record. 1448 authored lines with this note, which the harness measured
+past the review budget; the boundaries are recorded here for the same reason as L8, L12 and L15, and the
+size is stated in the pull request rather than hidden. The part a reviewer should read first is not the
+largest: `AccessProvisioningTaskTenantResolutionImpl`'s three-way decision is the only place where a
+missing deployment step can be read as a policy result.
