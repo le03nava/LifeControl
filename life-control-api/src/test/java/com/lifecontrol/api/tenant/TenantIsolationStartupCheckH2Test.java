@@ -5,6 +5,10 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.lifecontrol.api.common.tenant.TenantIsolationStartupCheck;
+import jakarta.persistence.EntityManagerFactory;
+import java.sql.Connection;
+import java.sql.SQLException;
+import java.util.concurrent.atomic.AtomicInteger;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -12,6 +16,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.datasource.AbstractDataSource;
 
 /**
  * The path that must not change: the default test stack boots even though it has no assertion query.
@@ -42,6 +47,48 @@ class TenantIsolationStartupCheckH2Test {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private EntityManagerFactory entityManagerFactory;
+
+    /**
+     * The critical finding the native review admitted against the first version of the check, pinned.
+     *
+     * <p>{@code afterPropertiesSet} holds one pooled connection while it asks whether the assertion query
+     * exists. The first version asked through a helper that opened its <b>own</b> connection, so on a
+     * deployment whose pool is one connection ({@code maximum-pool-size=1}) the second
+     * {@code getConnection()} waited for a permit the first one held: the application blocked until the pool
+     * timeout and then failed on a schema that had no unprotected table at all. Counting the requests is
+     * the honest observable: one request is what a pool of one can serve, and two is the deadlock.
+     */
+    @Test
+    @DisplayName("the check asks the pool for one connection only, so a pool of one cannot deadlock")
+    void theCheckAsksThePoolForOneConnectionOnly() {
+        var requested = new AtomicInteger();
+        var counting = new AbstractDataSource() {
+            @Override
+            public Connection getConnection() throws SQLException {
+                requested.incrementAndGet();
+                return dataSource.getConnection();
+            }
+
+            @Override
+            public Connection getConnection(String username, String password) throws SQLException {
+                return getConnection();
+            }
+        };
+        var checkUnderTest = new TenantIsolationStartupCheck(entityManagerFactory, counting);
+
+        assertThatCode(checkUnderTest::afterPropertiesSet)
+                .as("the probe must answer on the connection the check already holds: asking the pool for a "
+                        + "second one blocks a maximum-pool-size=1 deployment until its timeout and then fails "
+                        + "a startup that had nothing wrong")
+                .doesNotThrowAnyException();
+        assertThat(requested.get())
+                .as("exactly one connection: the old shape requested two, and the second is the one that "
+                        + "cannot be served while the first is open")
+                .isEqualTo(1);
+    }
 
     @Test
     @DisplayName("the probe answers \"not applicable\" on H2 and the check returns without querying")

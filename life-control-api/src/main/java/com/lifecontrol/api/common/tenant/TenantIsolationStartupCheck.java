@@ -130,7 +130,7 @@ public class TenantIsolationStartupCheck implements InitializingBean {
      *     returns at least one row
      */
     public void assertNoUnprotectedTenantTable(Connection connection) throws SQLException {
-        if (!appliesToThisDatabase()) {
+        if (!appliesToThisDatabase(connection)) {
             log.debug("ADR-0005: this database has no unprotected_tenant_tables(), so the startup assertion does "
                     + "not apply");
             return;
@@ -151,16 +151,44 @@ public class TenantIsolationStartupCheck implements InitializingBean {
      * asserts it {@code false}.</p>
      */
     public boolean appliesToThisDatabase() {
+        try (Connection connection = dataSource.getConnection()) {
+            return appliesToThisDatabase(connection);
+        } catch (SQLException cannotAsk) {
+            throw new IllegalStateException(
+                    "ADR-0005 cannot decide whether this database has unprotected_tenant_tables(): the "
+                            + "database product could not be read, so there is no way to know whether the "
+                            + "assertion applies and the startup check cannot be skipped safely.",
+                    cannotAsk);
+        }
+    }
+
+    /**
+     * The decision, asked on a connection the caller already holds — and that is a correctness requirement,
+     * not an optimisation.
+     *
+     * <p><b>Measured defect this signature exists to prevent.</b> The first version asked through
+     * {@link #appliesToThisDatabase()}, which opens its own connection, while {@link #afterPropertiesSet}
+     * was already holding one: on the first startup of a deployment whose pool is one connection
+     * ({@code maximum-pool-size=1}), the second {@code getConnection()} waits for a permit the first one
+     * holds, and the application blocks until the pool timeout and then fails <b>on a schema that has no
+     * unprotected table at all</b> — a guard that turns a healthy deployment into a broken one. The review
+     * admitted it as a critical, candidate-caused finding, and
+     * {@code TenantIsolationStartupCheckH2Test#theCheckAsksThePoolForOneConnectionOnly} pins it.
+     *
+     * <p>The answer is still cached per bean, so the extra statement costs one round trip on the first
+     * question only; what changes is <b>which</b> connection answers it.
+     */
+    private boolean appliesToThisDatabase(Connection connection) {
         Boolean decided = assertionApplies;
         if (decided == null) {
-            decided = hasAssertionQuery();
+            decided = hasAssertionQuery(connection);
             assertionApplies = decided;
         }
         return decided;
     }
 
-    private boolean hasAssertionQuery() {
-        try (Connection connection = dataSource.getConnection()) {
+    private boolean hasAssertionQuery(Connection connection) {
+        try {
             if (!"PostgreSQL".equalsIgnoreCase(connection.getMetaData().getDatabaseProductName())) {
                 // The precise question cannot even be parsed here (H2 has no to_regprocedure), and this is
                 // not a policy question anyway: without PostgreSQL there are no policies to be missing.
