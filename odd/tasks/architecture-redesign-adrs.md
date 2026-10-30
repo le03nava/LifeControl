@@ -125,3 +125,9 @@ the `variant_mode` backfill, because the default would otherwise refuse the upda
 
 **2026-10-29 — verification.** `odd-status-headers.test.sh` runs green over 129 records (78 assertions,
 0 failed), and no ADR claims a status other than `proposed`.
+
+**2026-10-29 — the adoption order is accepted, the ADRs are not.** The maintainer confirmed the order
+in `docs/adr/README.md` — RLS, then catalog, then the ledger, then documents, then money, then states —
+so it is now the agreed plan for what gets implemented first rather than a recommendation. That
+acceptance deliberately does not travel to the six ADRs: each stays `proposed` and needs its own
+decision, taken per ADR.

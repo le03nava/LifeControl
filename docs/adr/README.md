@@ -48,6 +48,12 @@ and an ADR that blocks another one changes that other ADR's schema.
 The order is not the ADR number; it is what minimizes rework. Each row is one slice or a small chain,
 never a big-bang rewrite.
 
+**Accepted as written by the maintainer on 2026-10-29**, in the session that delivered this set. It is
+therefore the agreed plan for what gets implemented first, not a suggestion: a slice that proposes a
+different order has to say why, because the reason the order exists is that doing it in the other
+direction writes the same work twice. Accepting the order accepts no ADR — each one is still
+`proposed` and still needs its own acceptance.
+
 1. **ADR-0005** (tenant isolation) first, because it touches every table and every policy, and doing
    it after the new tables exist means writing the policies twice.
 2. **ADR-0006** (catalog) second, because it defines the identity every other table references —
