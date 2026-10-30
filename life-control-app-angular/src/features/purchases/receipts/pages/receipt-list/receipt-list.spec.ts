@@ -1,15 +1,33 @@
+import { Component, output } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter, Router } from '@angular/router';
 import { By } from '@angular/platform-browser';
-import { of, throwError } from 'rxjs';
+import { of, Subject, throwError } from 'rxjs';
 import { HttpErrorResponse } from '@angular/common/http';
 import { ReceiptList } from './receipt-list';
 import { GoodsReceiptService } from '../../data/goods-receipt.service';
+import { PurchaseLocationFilter } from '../../../components/location-filter/location-filter';
+import type { PurchaseLocationSelection } from '../../../models/purchase-location-filter.models';
 import type { Page } from '../../../purchase-orders/models/purchase-order.models';
 import type { GoodsReceipt } from '../../models/receipt.models';
 
 interface ServiceMock {
   getReceipts: ReturnType<typeof vi.fn>;
+}
+
+/**
+ * Stand-in for the cascade component: the page's own unit is the gate and the query it builds, while
+ * the cascade's behaviour (labels, resets, preference preselect) is covered by its own spec. Swapping
+ * the real component also keeps this suite from resolving the `LocationPreference` read the cascade
+ * injects, which would otherwise leave an HTTP dependency open in a page test.
+ */
+@Component({
+  selector: 'app-purchase-location-filter',
+  standalone: true,
+  template: '<div class="location-filter-stub"></div>',
+})
+class LocationFilterStub {
+  readonly selection = output<PurchaseLocationSelection>();
 }
 
 const mockReceipts: GoodsReceipt[] = [
@@ -56,6 +74,29 @@ const createMockPage = (receipts: GoodsReceipt[], page = 0, size = 12): Page<Goo
   empty: receipts.length === 0,
 });
 
+/** The five required/optional levels, with the three required ones filled by default. */
+const location = (
+  overrides: Partial<PurchaseLocationSelection> = {},
+): PurchaseLocationSelection => ({
+  companyId: 'company-1',
+  companyCountryId: 'country-1',
+  regionId: 'region-1',
+  zoneId: null,
+  companyStoreId: null,
+  ...overrides,
+});
+
+/** The exact query object `GoodsReceiptService.getReceipts` receives from the page. */
+const expectedQuery = (overrides: Record<string, string | undefined> = {}): unknown => ({
+  search: undefined,
+  companyId: 'company-1',
+  companyCountryId: 'country-1',
+  regionId: 'region-1',
+  zoneId: undefined,
+  companyStoreId: undefined,
+  ...overrides,
+});
+
 describe('ReceiptList', () => {
   let component: ReceiptList;
   let fixture: ComponentFixture<ReceiptList>;
@@ -76,7 +117,12 @@ describe('ReceiptList', () => {
           useValue: goodsReceiptService,
         },
       ],
-    }).compileComponents();
+    })
+      .overrideComponent(ReceiptList, {
+        remove: { imports: [PurchaseLocationFilter] },
+        add: { imports: [LocationFilterStub] },
+      })
+      .compileComponents();
 
     fixture = TestBed.createComponent(ReceiptList);
     component = fixture.componentInstance;
@@ -84,69 +130,154 @@ describe('ReceiptList', () => {
     vi.spyOn(router, 'navigate');
   });
 
+  /** Mounts the page with the three required levels already chosen and the first response settled. */
+  const mountWithLocation = async (): Promise<ComponentFixture<ReceiptList>> => {
+    const f = TestBed.createComponent(ReceiptList);
+    f.componentInstance.onLocationChange(location());
+    f.detectChanges();
+    await f.whenStable();
+    f.detectChanges();
+    return f;
+  };
+
   it('should create', () => {
     expect(component).toBeTruthy();
   });
 
-  describe('data loading', () => {
-    it('should call getReceipts with default params on init', () => {
+  describe('required location levels (S2)', () => {
+    it('should not request receipts while the required levels are missing', () => {
       fixture.detectChanges();
-      expect(goodsReceiptService.getReceipts).toHaveBeenCalledWith(0, 12, undefined);
+
+      expect(goodsReceiptService.getReceipts).not.toHaveBeenCalled();
+      expect(component.hasRequiredLocation()).toBe(false);
+    });
+
+    it('should explain what is missing instead of listing receipts', () => {
+      fixture.detectChanges();
+
+      const el: HTMLElement = fixture.nativeElement;
+      expect(el.querySelector('.location-required-state')).toBeTruthy();
+      expect(el.textContent).toContain('Elegí empresa, país y región para ver los recibos.');
+      expect(el.querySelector('table')).toBeNull();
+      expect(el.querySelector('.loading-skeleton')).toBeNull();
+    });
+
+    it('should keep the search field disabled until the required levels are chosen', () => {
+      fixture.detectChanges();
+
+      const searchInput: HTMLInputElement | null =
+        fixture.nativeElement.querySelector('.search-field input');
+      expect(searchInput?.disabled).toBe(true);
+    });
+
+    it.each([
+      ['company', { companyId: null }],
+      ['company country', { companyCountryId: null }],
+      ['region', { regionId: null }],
+    ])('should stay gated when only the %s level is missing', (_label, override) => {
+      component.onLocationChange(location(override));
+      fixture.detectChanges();
+
+      expect(component.hasRequiredLocation()).toBe(false);
+      expect(goodsReceiptService.getReceipts).not.toHaveBeenCalled();
+    });
+
+    it('should accept a selection that leaves zone and store empty', () => {
+      component.onLocationChange(location());
+      fixture.detectChanges();
+
+      expect(component.hasRequiredLocation()).toBe(true);
+    });
+
+    it('should hide the required-levels notice once the location is chosen', async () => {
+      const f = await mountWithLocation();
+
+      expect(f.nativeElement.querySelector('.location-required-state')).toBeNull();
+      expect(
+        (f.nativeElement.querySelector('.search-field input') as HTMLInputElement).disabled,
+      ).toBe(false);
+    });
+  });
+
+  describe('data loading (S1, S2)', () => {
+    it('should request the region with the five filters when the required levels are chosen', async () => {
+      await mountWithLocation();
+
+      expect(goodsReceiptService.getReceipts).toHaveBeenCalledWith(0, 12, expectedQuery());
+    });
+
+    it('should narrow the request with zone and store when both are chosen', async () => {
+      const f = TestBed.createComponent(ReceiptList);
+      f.componentInstance.onLocationChange(
+        location({ zoneId: 'zone-1', companyStoreId: 'store-1' }),
+      );
+      f.detectChanges();
+      await f.whenStable();
+
+      expect(goodsReceiptService.getReceipts).toHaveBeenCalledWith(
+        0,
+        12,
+        expectedQuery({ zoneId: 'zone-1', companyStoreId: 'store-1' }),
+      );
     });
 
     it('should render table rows when data loads', async () => {
-      fixture.detectChanges();
-      await fixture.whenStable();
-      fixture.detectChanges();
+      const f = await mountWithLocation();
 
-      const rows = fixture.debugElement.queryAll(By.css('tr.mat-mdc-row'));
+      const rows = f.debugElement.queryAll(By.css('tr.mat-mdc-row'));
       expect(rows.length).toBe(2);
     });
 
     it('should display receipt and order numbers in the table', async () => {
-      fixture.detectChanges();
-      await fixture.whenStable();
-      fixture.detectChanges();
+      const f = await mountWithLocation();
 
-      const tableEl: HTMLElement = fixture.nativeElement;
+      const tableEl: HTMLElement = f.nativeElement;
       expect(tableEl.textContent).toContain('GR-00001');
       expect(tableEl.textContent).toContain('PO-00001');
     });
 
     it('should render the received date through the date pipe', async () => {
-      fixture.detectChanges();
-      await fixture.whenStable();
-      fixture.detectChanges();
+      const f = await mountWithLocation();
 
-      const cells = fixture.debugElement.queryAll(By.css('td.mat-mdc-cell'));
+      const cells = f.debugElement.queryAll(By.css('td.mat-mdc-cell'));
       const dateCell = cells.find((c) => c.nativeElement.textContent.includes('01/03/2026'));
       expect(dateCell).toBeTruthy();
     });
 
     it('should render the user name when present and an em dash when null', async () => {
-      fixture.detectChanges();
-      await fixture.whenStable();
-      fixture.detectChanges();
+      const f = await mountWithLocation();
 
-      const tableEl: HTMLElement = fixture.nativeElement;
+      const tableEl: HTMLElement = f.nativeElement;
       expect(tableEl.textContent).toContain('jdoe');
       expect(tableEl.textContent).toContain('—');
     });
 
     it('should render the receipt status label through the status chip', async () => {
-      fixture.detectChanges();
-      await fixture.whenStable();
-      fixture.detectChanges();
+      const f = await mountWithLocation();
 
-      const chips = fixture.debugElement.queryAll(By.css('app-status-chip'));
+      const chips = f.debugElement.queryAll(By.css('app-status-chip'));
       expect(chips.length).toBe(2);
-      expect((fixture.nativeElement as HTMLElement).textContent).toContain('Registrado');
+      expect((f.nativeElement as HTMLElement).textContent).toContain('Registrado');
     });
   });
 
   describe('loading state', () => {
-    it('should show loading skeleton initially (before first detectChanges)', () => {
-      expect(component.loading()).toBe(true);
+    it('should not be loading while the resource is idle for want of a location', () => {
+      expect(component.loading()).toBe(false);
+    });
+
+    it('should show the loading skeleton while the first read is in flight', () => {
+      const pending = new Subject<Page<GoodsReceipt>>();
+      goodsReceiptService.getReceipts = vi.fn().mockReturnValue(pending);
+
+      const f = TestBed.createComponent(ReceiptList);
+      f.componentInstance.onLocationChange(location());
+      f.detectChanges();
+
+      expect(f.nativeElement.querySelector('.loading-skeleton')).toBeTruthy();
+      expect(f.componentInstance.loading()).toBe(true);
+
+      pending.complete();
     });
   });
 
@@ -154,10 +285,7 @@ describe('ReceiptList', () => {
     it('should show empty state when no receipts', async () => {
       goodsReceiptService.getReceipts = vi.fn().mockReturnValue(of(createMockPage([])));
 
-      const f = TestBed.createComponent(ReceiptList);
-      f.detectChanges();
-      await f.whenStable();
-      f.detectChanges();
+      const f = await mountWithLocation();
 
       const el: HTMLElement = f.nativeElement;
       expect(el.querySelector('.empty-state')).toBeTruthy();
@@ -173,6 +301,7 @@ describe('ReceiptList', () => {
 
       const f = TestBed.createComponent(ReceiptList);
       const comp = f.componentInstance;
+      comp.onLocationChange(location());
       f.detectChanges();
       await f.whenStable();
       f.detectChanges();
@@ -188,11 +317,8 @@ describe('ReceiptList', () => {
     });
 
     it('should call the service again after onRetry reload', async () => {
-      const f = TestBed.createComponent(ReceiptList);
+      const f = await mountWithLocation();
       const comp = f.componentInstance;
-      f.detectChanges();
-      await f.whenStable();
-      f.detectChanges();
 
       goodsReceiptService.getReceipts.mockClear();
       goodsReceiptService.getReceipts.mockReturnValue(of(createMockPage(mockReceipts)));
@@ -206,7 +332,7 @@ describe('ReceiptList', () => {
     });
   });
 
-  describe('search', () => {
+  describe('search (S5)', () => {
     it('should update searchQuery signal', () => {
       component.searchQuery.set('GR-00001');
       expect(component.searchQuery()).toBe('GR-00001');
@@ -218,71 +344,113 @@ describe('ReceiptList', () => {
       expect(component.searchQuery()).toBe('');
     });
 
-    it('should debounce search and call the service once with the search term', () => {
+    it('should debounce the search and combine it with the location filters', async () => {
       vi.useFakeTimers();
-      fixture.detectChanges();
+      const f = TestBed.createComponent(ReceiptList);
+      const comp = f.componentInstance;
+      comp.onLocationChange(location());
+      f.detectChanges();
 
       goodsReceiptService.getReceipts.mockClear();
-
-      component.searchQuery.set('PO-00001');
-      fixture.detectChanges();
+      comp.searchQuery.set('PO-00001');
+      f.detectChanges();
 
       // Nothing yet: the debounce window has not elapsed.
       expect(goodsReceiptService.getReceipts).not.toHaveBeenCalled();
 
       vi.advanceTimersByTime(300);
-      fixture.detectChanges();
+      f.detectChanges();
 
       expect(goodsReceiptService.getReceipts).toHaveBeenCalledTimes(1);
-      expect(goodsReceiptService.getReceipts).toHaveBeenCalledWith(0, 12, 'PO-00001');
+      expect(goodsReceiptService.getReceipts).toHaveBeenCalledWith(
+        0,
+        12,
+        expectedQuery({ search: 'PO-00001' }),
+      );
 
       vi.useRealTimers();
     });
 
-    it('should reset page to 0 when the debounced search changes', () => {
+    it('should not search while the required levels are missing', () => {
       vi.useFakeTimers();
       fixture.detectChanges();
 
-      component.pageIndex.set(2);
-      component.searchQuery.set('GR-00002');
+      component.searchQuery.set('GR-00001');
       fixture.detectChanges();
-
       vi.advanceTimersByTime(300);
       fixture.detectChanges();
 
-      expect(component.pageIndex()).toBe(0);
+      expect(goodsReceiptService.getReceipts).not.toHaveBeenCalled();
 
       vi.useRealTimers();
     });
   });
 
-  describe('pagination', () => {
+  describe('pagination (S5)', () => {
     it('should update pageIndex and pageSize on page change', () => {
       component.onPageChange({ pageIndex: 2, pageSize: 24 });
       expect(component.pageIndex()).toBe(2);
       expect(component.pageSize()).toBe(24);
     });
 
-    it('should call the service with new page params', () => {
+    it('should keep the chosen page after change detection', async () => {
+      // Regression: the reset effect must not track `pageIndex` itself, or every page change would
+      // snap back to the first page.
+      const f = await mountWithLocation();
+      const comp = f.componentInstance;
+
+      comp.onPageChange({ pageIndex: 1, pageSize: 12 });
+      f.detectChanges();
+      await f.whenStable();
+      f.detectChanges();
+
+      expect(comp.pageIndex()).toBe(1);
+      expect(goodsReceiptService.getReceipts).toHaveBeenCalledWith(1, 12, expectedQuery());
+    });
+
+    it('should go back to the first page when the location filters change', async () => {
+      const f = await mountWithLocation();
+      const comp = f.componentInstance;
+
+      comp.onPageChange({ pageIndex: 2, pageSize: 12 });
+      f.detectChanges();
+      await f.whenStable();
+
+      comp.onLocationChange(location({ regionId: 'region-2' }));
+      f.detectChanges();
+      await f.whenStable();
+
+      expect(comp.pageIndex()).toBe(0);
+      expect(goodsReceiptService.getReceipts).toHaveBeenCalledWith(
+        0,
+        12,
+        expectedQuery({ regionId: 'region-2' }),
+      );
+    });
+
+    it('should reset page to 0 when the debounced search changes', () => {
       vi.useFakeTimers();
-      fixture.detectChanges();
-      vi.advanceTimersByTime(0);
+      const f = TestBed.createComponent(ReceiptList);
+      const comp = f.componentInstance;
+      comp.onLocationChange(location());
+      f.detectChanges();
 
-      component.onPageChange({ pageIndex: 1, pageSize: 12 });
-      fixture.detectChanges();
-      vi.advanceTimersByTime(0);
+      comp.pageIndex.set(2);
+      comp.searchQuery.set('GR-00002');
+      f.detectChanges();
 
-      expect(goodsReceiptService.getReceipts).toHaveBeenCalledWith(1, 12, undefined);
+      vi.advanceTimersByTime(300);
+      f.detectChanges();
+
+      expect(comp.pageIndex()).toBe(0);
 
       vi.useRealTimers();
     });
 
     it('should not render the paginator when there is a single page', async () => {
-      fixture.detectChanges();
-      await fixture.whenStable();
-      fixture.detectChanges();
+      const f = await mountWithLocation();
 
-      expect((fixture.nativeElement as HTMLElement).querySelector('mat-paginator')).toBeNull();
+      expect((f.nativeElement as HTMLElement).querySelector('mat-paginator')).toBeNull();
     });
 
     it('should render the paginator when there is more than one page', async () => {
@@ -290,10 +458,7 @@ describe('ReceiptList', () => {
         .fn()
         .mockReturnValue(of(createMockPage(mockReceipts, 0, 1)));
 
-      const f = TestBed.createComponent(ReceiptList);
-      f.detectChanges();
-      await f.whenStable();
-      f.detectChanges();
+      const f = await mountWithLocation();
 
       expect((f.nativeElement as HTMLElement).querySelector('mat-paginator')).toBeTruthy();
     });

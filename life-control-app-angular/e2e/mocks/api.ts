@@ -191,6 +191,16 @@ export interface StoreInventorySettingsMock {
 }
 
 /** `GET /api/profile`: the identity plus the location preferences the store resolver reads. */
+/** The chain the profile's location preference resolves to; `null` when the caller has none. */
+export interface ProfileLocationMock {
+  companyId: string;
+  companyCountryId: string;
+  companyRegionId: string;
+  companyZoneId: string;
+  companyStoreId: string;
+  companyStoreName: string;
+}
+
 export interface ProfileMock {
   keycloakUserId: string;
   username: string;
@@ -202,6 +212,14 @@ export interface ProfileMock {
   companyRegionId: string | null;
   companyZoneId: string | null;
   companyStoreId: string | null;
+  /**
+   * The location preference `LocationPreference` reads, in the shape the real profile returns it.
+   *
+   * The flat ids above are not it: the service resolves `profile.location` and nothing else, so a
+   * mock without this field reports "no location", every cascade on the app stays unpreselected and
+   * every list gated on company, country and region renders its "choose a location" notice.
+   */
+  location: ProfileLocationMock | null;
 }
 
 /** One scheduling activity as `GET /api/scheduling/activities` returns it. */
@@ -454,6 +472,73 @@ const STORE_CHAIN = {
   storeId: 'store-1',
 };
 
+/**
+ * The four reads the location cascade makes, hanging from the same chain the profile names.
+ *
+ * Both purchase lists gate their table on company, country and region, and they pre-select those
+ * levels from the profile only when each id shows up in its own level's options. Without these
+ * fixtures the cascade resolved to empty options, no level was pre-selected and the lists rendered
+ * their "choose a location" notice instead of their rows — which is what an E2E opening a gated list
+ * needs to be true. A single chain is enough: no spec asks for a second company's hierarchy.
+ */
+const COMPANY_CHAIN_CREATED_AT = '2026-01-01T00:00:00Z';
+
+const SAMPLE_COMPANY_COUNTRIES = [
+  {
+    id: STORE_CHAIN.companyCountryId,
+    companyId: STORE_CHAIN.companyId,
+    countryId: 'country-1',
+    countryCode: 'MX',
+    countryName: 'México',
+    localAlias: null,
+    createdAt: COMPANY_CHAIN_CREATED_AT,
+    updatedAt: COMPANY_CHAIN_CREATED_AT,
+  },
+];
+
+const SAMPLE_COMPANY_REGIONS = [
+  {
+    id: STORE_CHAIN.regionId,
+    companyCountryId: STORE_CHAIN.companyCountryId,
+    companyId: STORE_CHAIN.companyId,
+    countryId: 'country-1',
+    regionCode: 'CENTRO',
+    regionName: 'Centro',
+    enabled: true,
+    createdAt: COMPANY_CHAIN_CREATED_AT,
+    updatedAt: COMPANY_CHAIN_CREATED_AT,
+  },
+];
+
+const SAMPLE_COMPANY_ZONES = [
+  {
+    id: STORE_CHAIN.zoneId,
+    companyRegionId: STORE_CHAIN.regionId,
+    companyCountryId: STORE_CHAIN.companyCountryId,
+    companyId: STORE_CHAIN.companyId,
+    countryId: 'country-1',
+    zoneCode: 'CENTRO-1',
+    zoneName: 'Zona Centro',
+    enabled: true,
+    createdAt: COMPANY_CHAIN_CREATED_AT,
+    updatedAt: COMPANY_CHAIN_CREATED_AT,
+  },
+];
+
+const SAMPLE_COMPANY_STORES = [
+  {
+    id: STORE_CHAIN.storeId,
+    companyId: STORE_CHAIN.companyId,
+    companyCountryId: STORE_CHAIN.companyCountryId,
+    regionId: STORE_CHAIN.regionId,
+    zoneId: STORE_CHAIN.zoneId,
+    storeName: 'Sucursal Centro',
+    enabled: true,
+    createdAt: COMPANY_CHAIN_CREATED_AT,
+    updatedAt: COMPANY_CHAIN_CREATED_AT,
+  },
+];
+
 /** Username the Keycloak mock signs tokens with; used when no bearer token is present. */
 const DEFAULT_MOCK_USERNAME = 'e2e-admin';
 
@@ -588,6 +673,14 @@ const SAMPLE_PROFILE: ProfileMock = {
   companyRegionId: STORE_CHAIN.regionId,
   companyZoneId: STORE_CHAIN.zoneId,
   companyStoreId: STORE_CHAIN.storeId,
+  location: {
+    companyId: STORE_CHAIN.companyId,
+    companyCountryId: STORE_CHAIN.companyCountryId,
+    companyRegionId: STORE_CHAIN.regionId,
+    companyZoneId: STORE_CHAIN.zoneId,
+    companyStoreId: STORE_CHAIN.storeId,
+    companyStoreName: 'Sucursal Centro',
+  },
 };
 
 /** The store's enabled activity catalogue, the source of the week's slot names. */
@@ -794,6 +887,38 @@ export async function installApiMock(page: Page, options: ApiMockOptions = {}): 
       };
       companies.unshift(created);
       await fulfillJson(route, created, cors, 201);
+      return;
+    }
+
+    // The location cascade's four reads. They come before the by-id pattern below, and `/selector`
+    // before it too, because `^/api/companies/([^/]+)$` would otherwise swallow both.
+    if (path === '/api/companies/selector' && method === 'GET') {
+      const url = new URL(request.url());
+      const options = companies.map(({ id, companyKey, companyName }) => ({ id, companyKey, companyName }));
+      await fulfillJson(route, pageResponse(options, url), cors);
+      return;
+    }
+
+    if (/^\/api\/companies\/[^/]+\/countries$/.test(path) && method === 'GET') {
+      await fulfillJson(route, SAMPLE_COMPANY_COUNTRIES, cors);
+      return;
+    }
+
+    if (/^\/api\/companies\/[^/]+\/countries\/[^/]+\/regions$/.test(path) && method === 'GET') {
+      await fulfillJson(route, SAMPLE_COMPANY_REGIONS, cors);
+      return;
+    }
+
+    if (/^\/api\/companies\/[^/]+\/countries\/[^/]+\/regions\/[^/]+\/zones$/.test(path) && method === 'GET') {
+      await fulfillJson(route, SAMPLE_COMPANY_ZONES, cors);
+      return;
+    }
+
+    if (
+      /^\/api\/companies\/[^/]+\/countries\/[^/]+\/regions\/[^/]+\/zones\/[^/]+\/stores$/.test(path) &&
+      method === 'GET'
+    ) {
+      await fulfillJson(route, SAMPLE_COMPANY_STORES, cors);
       return;
     }
 
