@@ -26,6 +26,13 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
  * Test classes extending this base must still declare {@code @SpringBootTest}
  * (and {@code @AutoConfigureMockMvc} when needed). Pure slices ({@code @WebMvcTest}),
  * unit tests, and AOP/cache tests backed by mocked repositories stay on H2.
+ * <p>
+ * The container also creates the two roles ADR-0005 separates, from
+ * {@code src/test/resources/test-container-roles.sql}: the migration that grants the application its
+ * privileges names {@code lifecontrol_app}, and the container's own user ({@code lifecontrol}) is a
+ * superuser — which always bypasses Row-Level Security — so the role the policies actually apply to has
+ * to exist for those suites to prove anything. The script is idempotent, runs once per container before
+ * Flyway, and is inert for every suite that never switches to either role with {@code SET ROLE}.
  */
 @ActiveProfiles("test")
 public abstract class AbstractPostgresIntegrationTest {
@@ -33,7 +40,8 @@ public abstract class AbstractPostgresIntegrationTest {
     protected static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:16-alpine")
             .withDatabaseName("lifecontrol_test")
             .withUsername("lifecontrol")
-            .withPassword("lifecontrol");
+            .withPassword("lifecontrol")
+            .withInitScript("test-container-roles.sql");
 
     static {
         POSTGRES.start();
