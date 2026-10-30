@@ -52,9 +52,14 @@ ignored that would empty a shared catalog.
    because `SET LOCAL` outside a transaction is not local at all. A servlet filter can satisfy that only
    by owning the request's transaction; a hook at the transaction boundary satisfies it without one.
    What the decision forbids is the third shape — a filter that issues `SET LOCAL` on some other
-   connection, which is a no-op dressed as enforcement. It fails closed: an absent or multi-valued tenant
-   claim is a refusal, never a wider scope, and a transaction that reaches a query without the setting
-   reads **no rows**, never all rows.
+   connection, which is a no-op dressed as enforcement. It fails closed, and the rule is about the
+   **operation**, not about the claim: the value is the tenant the operation names — in this tree the
+   `{companyId}` path variable of the endpoint — verified against the token's claims, so a request naming a
+   company outside its claims is a refusal and never a wider scope, and a transaction that reaches a query
+   with no setting reads **no rows**, never all rows. **A multi-valued claim is not itself a refusal**: the
+   mapper is multivalued because one person may work for several companies, and it is the operation that
+   says which one is in scope. Refusing on arity would break exactly the case the mapper exists for; what
+   fails closed is an operation whose tenant cannot be determined at all.
    One table is not tenant-scoped at all: `user_preferences` is a **subject** row, so its transactions
    also state `app.user_id`, and the same rule applies — a subject transaction that reaches that table
    without the setting reads no rows.
@@ -405,3 +410,21 @@ are consequences of the three above that the document would otherwise keep asser
    `SUPERUSER`, or the first migration of every fresh database fails; step 1 says it.
 4. **The version arithmetic expired.** `V52` is spent on this ADR's machinery, so the sentence that
    reserved `V52…V55` for ADR-0001 was describing a range that no longer exists.
+
+**2026-10-30 — the scope source, and the two consequences of the fail-closed rule.** Implementing item 1
+made one sentence false: "an absent or multi-valued tenant claim is a refusal". The claim is not the source
+of the scope. Measured in this tree: `@RequestHeader` appears nowhere, 109 endpoints carry a `{companyId}`
+path variable and 166 service methods take one, and the Keycloak mapper is multivalued **because** one
+person may belong to several companies. Deriving the scope from the claim would refuse the case the mapper
+exists for. The item now says what the implementation does: the value is the tenant the operation names,
+verified against the claims, and what fails closed is an operation whose tenant cannot be determined at
+all. Two consequences the ADR had left implicit follow, and both are narrow on purpose:
+
+- **One asynchronous reader cannot derive its tenant**, because the table that would carry it is scanned
+  across tenants by design. It gets a single `SECURITY DEFINER` function — one fixed query, one uuid back,
+  owned by the maintenance superuser because ownership is what grants the bypass — rather than a column, a
+  second policy kind, or a role that sees every row.
+- **A token with no `company_id` reads no tenant data**, which breaks two paths that are not reads of a
+  tenant: creating a company states the id the application generates, so the row's tenant is its own
+  identity, and listing companies resolves the caller's claims one at a time instead of widening a policy.
+  A user who belongs to no company gets an empty list, which is the honest answer.
