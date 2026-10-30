@@ -105,6 +105,33 @@ jerarquía habría multiplicado esa matriz por dos. Resolver el filtro a `Set<UU
 consulta de recibos **intacta** y la intersección ocurre antes de consultar, donde se puede probar sin
 base de datos.
 
+**L6 — medido en el E2E: el mock no servía ni el perfil ni la jerarquía, y la primera corrida dio un falso verde.**
+`e2e/specs/purchases-receipts.spec.ts` afirma `No hay recibos registrados` apenas abre `/purchases/receipts`,
+así que la compuerta de `S2` la rompe en cuanto la cascada no resuelve. Dos defectos medidos, en este orden:
+
+1. La primera corrida del spec salió **3 passed** sin haber ejercitado este árbol: `playwright.config.ts`
+   declara `reuseExistingServer: !CI` y algo escuchaba en `:4200`, así que Playwright reusó un dev server
+   ajeno al worktree. Es el modo de falla que el número verde esconde: un `passed` que no ejecutó el cambio.
+   Repetida con `E2E_PORT=4311` (sin listener, server propio), falló donde tenía que fallar.
+2. El mock de E2E no conocía lo que la compuerta necesita. `LocationPreference` resuelve
+   `profile.location` y el `SAMPLE_PROFILE` del mock sólo traía los ids planos, sin ese objeto; y los cuatro
+   reads de la cascada (`/companies/selector`, `/countries`, `/regions`, `/zones`, `/stores`) no estaban
+   mockeados en absoluto (`company-scope` de `purchase-order-region-filter.md`, `L7`, lo había dejado como
+   trabajo aparte porque ninguna spec E2E abría una lista con la compuerta). Ahora los dos están en
+   `e2e/mocks/api.ts`: `location` en el perfil y la cadena `company-1 → company-country-1 → region-1 →
+   zone-1 → store-1` en los cinco endpoints. Con eso el spec pasa **3 passed** sobre un server propio.
+   Efecto lateral deliberado: la cascada de `/purchases/orders` también queda preseleccionable en E2E.
+
+**L7 — decisiones que el registro no fijaba, tomadas y declaradas.**
+(a) La compuerta reemplaza al esqueleto de carga, igual que en órdenes: una página sin ubicación no tiene
+nada que esté cargando. (b) La compuerta lleva una segunda línea, `La zona y la tienda son opcionales:
+acotan el listado dentro de la región elegida.`, tomada de la página de órdenes; el registro sólo fijaba
+el título. (c) `getReceipts` toma el tercer parámetro como objeto con default `{}` (no obligatorio), así
+un caller que no pasa nada sigue compilando y `{}` manda sólo `page`/`size`. (d) El caso de spec
+`should show loading skeleton initially (before first detectChanges)` se reemplazó por dos: no hay carga
+mientras falta ubicación, y hay esqueleto con la lectura en vuelo — la aserción anterior dejó de ser
+cierta por diseño de `S2`.
+
 **L5 — issue**
 Issue **#686** (`feat(web): add the store hierarchy filter to /purchases/receipts`), abierto con los
 criterios de aceptación. Queda pendiente de `status:approved` de un maintainer antes del PR: la

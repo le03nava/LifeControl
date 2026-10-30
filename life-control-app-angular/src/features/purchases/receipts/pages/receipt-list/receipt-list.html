@@ -8,14 +8,17 @@
     </button>
   </app-page-header>
 
-  <!-- Search Filter -->
+  <!-- Filters: the required location cascade plus the free-text search -->
   <div class="filters-section">
+    <app-purchase-location-filter (selection)="onLocationChange($event)" />
+
     <mat-form-field appearance="outline" class="search-field" subscriptSizing="dynamic">
       <mat-icon matPrefix>search</mat-icon>
       <input
         matInput
         type="text"
         [value]="searchQuery()"
+        [disabled]="!hasRequiredLocation()"
         (input)="searchQuery.set($any($event.target).value)"
         placeholder="Buscar por número de recibo u orden..."
       />
@@ -35,8 +38,16 @@
 
   <!-- Table Section -->
   <div class="table-section">
-    <!-- Loading Skeleton -->
-    @if (loading()) {
+    @if (!hasRequiredLocation()) {
+      <!-- Required filter levels are missing: no receipts are fetched at all -->
+      <div class="location-required-state">
+        <mat-icon fontIcon="filter_alt" />
+        <p class="location-required-title">Elegí empresa, país y región para ver los recibos.</p>
+        <p class="location-required-subtitle">
+          La zona y la tienda son opcionales: acotan el listado dentro de la región elegida.
+        </p>
+      </div>
+    } @else if (loading()) {
       <div class="loading-skeleton">
         @for (_ of [1, 2, 3, 4, 5]; track $index) {
           <div class="skeleton-row" [style.--i]="$index">

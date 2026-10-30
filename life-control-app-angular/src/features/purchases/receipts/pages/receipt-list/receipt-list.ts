@@ -5,6 +5,7 @@ import {
   effect,
   inject,
   signal,
+  untracked,
 } from '@angular/core';
 import { rxResource } from '@angular/core/rxjs-interop';
 import { Router } from '@angular/router';
@@ -13,6 +14,8 @@ import { PageHeader } from '@shared/ui';
 import { httpErrorMessage } from '@shared/data';
 import { GoodsReceiptService } from '../../data/goods-receipt.service';
 import { StatusChip } from '../../../purchase-orders/components/status-chip/status-chip';
+import { PurchaseLocationFilter } from '../../../components/location-filter/location-filter';
+import type { PurchaseLocationSelection } from '../../../models/purchase-location-filter.models';
 import { MatTableModule } from '@angular/material/table';
 import { MatIconModule } from '@angular/material/icon';
 import { MatPaginatorModule } from '@angular/material/paginator';
@@ -29,6 +32,7 @@ import { MatCardModule } from '@angular/material/card';
     PageHeader,
     DatePipe,
     StatusChip,
+    PurchaseLocationFilter,
     MatTableModule,
     MatIconModule,
     MatPaginatorModule,
@@ -52,15 +56,48 @@ export class ReceiptList {
   readonly searchQuery = signal('');
   private readonly _debouncedSearch = signal('');
 
-  // rxResource: auto-fetches when params change
+  /**
+   * The cascade's current selection. `null` until the filter component emits for the first time, so
+   * the list cannot be fetched with a stale or half-resolved location.
+   */
+  readonly location = signal<PurchaseLocationSelection | null>(null);
+
+  /**
+   * Empresa, País y Región are the only required levels (`S2`): they are what turns the list into one
+   * region's receipts. Zona and Tienda stay optional, so they never gate the read.
+   */
+  readonly hasRequiredLocation = computed(() => {
+    const location = this.location();
+    return !!location?.companyId && !!location?.companyCountryId && !!location?.regionId;
+  });
+
+  // rxResource: auto-fetches when params change, and stays idle until the required levels are chosen
   readonly receiptsResource = rxResource({
-    params: () => ({
-      page: this.pageIndex(),
-      size: this.pageSize(),
-      search: this._debouncedSearch(),
-    }),
+    params: () => {
+      const location = this.location();
+      if (!this.hasRequiredLocation() || !location) return undefined;
+      return {
+        page: this.pageIndex(),
+        size: this.pageSize(),
+        query: {
+          search: this._debouncedSearch(),
+          companyId: location.companyId,
+          companyCountryId: location.companyCountryId,
+          regionId: location.regionId,
+          zoneId: location.zoneId,
+          companyStoreId: location.companyStoreId,
+        },
+      };
+    },
     stream: ({ params }) =>
-      this.goodsReceiptService.getReceipts(params.page, params.size, params.search || undefined),
+      this.goodsReceiptService.getReceipts(params.page, params.size, {
+        search: params.query.search || undefined,
+        companyId: params.query.companyId || undefined,
+        companyCountryId: params.query.companyCountryId || undefined,
+        regionId: params.query.regionId || undefined,
+        zoneId: params.query.zoneId || undefined,
+        companyStoreId: params.query.companyStoreId || undefined,
+      }),
   });
 
   // Computed helpers
@@ -94,13 +131,22 @@ export class ReceiptList {
       onCleanup(() => clearTimeout(timer));
     });
 
-    // Reset page to 0 when debounced search changes
+    // Back to the first page whenever the applied filters change (`S5`). `pageIndex` is read
+    // untracked: a tracked read would make this effect its own trigger and every page change would
+    // snap back to 0.
     effect(() => {
       this._debouncedSearch();
-      if (this.pageIndex() !== 0) {
-        this.pageIndex.set(0);
-      }
+      this.location();
+      untracked(() => {
+        if (this.pageIndex() !== 0) {
+          this.pageIndex.set(0);
+        }
+      });
     });
+  }
+
+  onLocationChange(selection: PurchaseLocationSelection): void {
+    this.location.set(selection);
   }
 
   viewReceipt(id: string): void {

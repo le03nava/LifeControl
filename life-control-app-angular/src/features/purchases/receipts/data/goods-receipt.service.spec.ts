@@ -39,6 +39,18 @@ const mockRequest: GoodsReceiptRequest = {
   lines: [{ purchaseOrderDetailId: 'det-1', quantityReceived: 5.25, comments: null }],
 };
 
+/** The empty first page the filter tests answer with. */
+const emptyPage: Page<GoodsReceipt> = {
+  content: [],
+  totalElements: 0,
+  totalPages: 0,
+  size: 12,
+  number: 0,
+  first: true,
+  last: true,
+  empty: true,
+};
+
 describe('GoodsReceiptService', () => {
   let service: GoodsReceiptService;
   let httpMock: HttpTestingController;
@@ -102,7 +114,7 @@ describe('GoodsReceiptService', () => {
         empty: true,
       };
 
-      const promise = firstValueFrom(service.getReceipts(0, 12, 'GR-20260101'));
+      const promise = firstValueFrom(service.getReceipts(0, 12, { search: 'GR-20260101' }));
 
       const req = httpMock.expectOne(
         (r) => r.url === `${TEST_API}/goods-receipts` && r.method === 'GET',
@@ -126,7 +138,7 @@ describe('GoodsReceiptService', () => {
         empty: true,
       };
 
-      const promise = firstValueFrom(service.getReceipts(0, 12, ''));
+      const promise = firstValueFrom(service.getReceipts(0, 12, { search: '' }));
 
       const req = httpMock.expectOne(
         (r) => r.url === `${TEST_API}/goods-receipts` && r.method === 'GET',
@@ -161,6 +173,71 @@ describe('GoodsReceiptService', () => {
       const result = await promise;
       expect(result.number).toBe(2);
       expect(result.size).toBe(24);
+    });
+
+    it('should send the five location filters alongside the search', async () => {
+      const promise = firstValueFrom(
+        service.getReceipts(0, 12, {
+          search: 'GR-20260101',
+          companyId: 'company-1',
+          companyCountryId: 'country-1',
+          regionId: 'region-1',
+          zoneId: 'zone-1',
+          companyStoreId: 'store-1',
+        }),
+      );
+
+      const req = httpMock.expectOne(
+        (r) => r.url === `${TEST_API}/goods-receipts` && r.method === 'GET',
+      );
+      expect(req.request.params.get('search')).toBe('GR-20260101');
+      expect(req.request.params.get('companyId')).toBe('company-1');
+      expect(req.request.params.get('companyCountryId')).toBe('country-1');
+      expect(req.request.params.get('regionId')).toBe('region-1');
+      expect(req.request.params.get('zoneId')).toBe('zone-1');
+      expect(req.request.params.get('companyStoreId')).toBe('store-1');
+      req.flush(emptyPage);
+
+      await promise;
+    });
+
+    it('should omit a level that arrives null or as an empty string', async () => {
+      // The cascade reports a cleared level as `null`, so the service must not turn it into the
+      // literal `null`/`''` a filter would narrow the list with.
+      const promise = firstValueFrom(
+        service.getReceipts(0, 12, {
+          companyId: 'company-1',
+          companyCountryId: null,
+          regionId: null,
+          zoneId: '',
+          companyStoreId: null,
+        }),
+      );
+
+      const req = httpMock.expectOne(
+        (r) => r.url === `${TEST_API}/goods-receipts` && r.method === 'GET',
+      );
+      expect(req.request.params.get('companyId')).toBe('company-1');
+      expect(req.request.params.has('companyCountryId')).toBe(false);
+      expect(req.request.params.has('regionId')).toBe(false);
+      expect(req.request.params.has('zoneId')).toBe(false);
+      expect(req.request.params.has('companyStoreId')).toBe(false);
+      expect(req.request.params.has('search')).toBe(false);
+      req.flush(emptyPage);
+
+      await promise;
+    });
+
+    it('should send only pagination when the query object is empty', async () => {
+      const promise = firstValueFrom(service.getReceipts(1, 24, {}));
+
+      const req = httpMock.expectOne(
+        (r) => r.url === `${TEST_API}/goods-receipts` && r.method === 'GET',
+      );
+      expect(req.request.params.keys().sort()).toEqual(['page', 'size']);
+      req.flush(emptyPage);
+
+      await promise;
     });
 
     it('should propagate HTTP failure', async () => {

@@ -13,13 +13,49 @@
 
 .filters-section {
   display: flex;
-  align-items: center;
+  flex-wrap: wrap;
+  align-items: flex-start;
   gap: var(--space-md);
   margin-bottom: var(--space-md);
+
+  // The cascade owns its own row: its five selects wrap on their own, independently of the search
+  // field below, and the page never has to know how many columns the component lays out.
+  app-purchase-location-filter {
+    display: block;
+    flex: 1 1 100%;
+  }
 
   .search-field {
     width: 100%;
     max-width: 480px;
+  }
+}
+
+.location-required-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-2xl);
+  gap: var(--space-sm);
+  color: var(--mat-sys-on-surface-variant);
+  text-align: center;
+
+  mat-icon {
+    font-size: 48px;
+    width: 48px;
+    height: 48px;
+  }
+
+  .location-required-title {
+    font: var(--mat-sys-title-medium);
+    color: var(--mat-sys-on-surface);
+    margin: 0;
+  }
+
+  .location-required-subtitle {
+    font: var(--mat-sys-body-medium);
+    margin: 0;
   }
 }
 
