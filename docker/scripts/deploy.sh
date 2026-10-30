@@ -185,6 +185,17 @@ start_services() {
 		print_success "Production validation passed"
 	fi
 
+	# Postgres first, alone: the two roles (ADR-0005) have to exist before any application connects,
+	# and a volume that already holds data never runs the image's init scripts again. db-roles.sh
+	# applies the same body of SQL through the container, so one run covers both kinds of volume.
+	print_status "Starting PostgreSQL for $ENV environment..."
+	compose_run up -d lifecontrol-postgres
+	if ! "$SCRIPT_DIR/db-roles.sh" "$ENV"; then
+		print_error "Database role setup failed — aborting start. An application that connects without these roles cannot isolate a tenant."
+		exit 1
+	fi
+	print_success "Database roles in place"
+
 	print_status "Starting services for $ENV environment..."
 	compose_run up -d
 	print_success "Services started!"
