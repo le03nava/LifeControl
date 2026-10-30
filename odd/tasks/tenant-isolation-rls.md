@@ -856,9 +856,10 @@ the test container's pool still connects as the superuser `lifecontrol`, so noth
 a policy; `TenantPoliciesIntegrationTest` remains the only class that switches roles.
 
 **Commit boundaries**, for the same reason as L8/L15/L19/L21: `TenantIsolationStartupCheck.java` is the
-delivery half and the two suites with this entry are the test half — 408 authored lines plus this entry,
-which the harness measured at the review budget rather than past it. No commit is prepared here; the
-transaction controller owns them. The file a reviewer should read first is the component's javadoc, because
+delivery half (208 authored lines) and the two suites with this entry are the test half (200 before this
+entry). No commit is prepared here: the transaction controller owns them, and the pull request states the
+total the harness measured, which is past the ~400 review budget. The file a reviewer should read first is
+the component's javadoc, because
 the three decisions this slice makes (the hook, the probe, the refusal) are each a rejected alternative
 that is not visible in the code: a runner hook, a dialect read, and a warning.
 
