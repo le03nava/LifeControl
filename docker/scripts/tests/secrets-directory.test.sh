@@ -21,7 +21,11 @@
 #   4. the four failures that existed before this change still fail: empty, CHANGEME, mode, and
 #      "nothing materialized at all";
 #   5. a directory does not count as a materialized secret, so a folder holding only that directory
-#      still says `No secrets materialized`.
+#      still says `No secrets materialized`;
+#   6. a secret a `.template` declares but nobody materialized is an ERROR of its own: the iteration
+#      only inspects entries that exist, so an absent credential used to pass the gate and fail later
+#      inside a container -- the shape of a secret added to the repository after the operator's last
+#      `setup-env.sh`.
 #
 # The script runs inside a scratch tree that mirrors the only layout it depends on:
 #
@@ -210,6 +214,27 @@ seed_secrets only-dir
 run_gate
 assert_equal "a folder with only the optional directory fails the gate" "1" "$LAST_RC"
 assert_contains "the gate says nothing was materialized" "$LAST_TEXT" "No secrets materialized"
+
+# ------------------------------------------
+# 4b. A secret a `.template` declares and nobody materialized: no entry exists for the loop above to
+#     inspect, so the gate used to report nothing missing and pass. It has to fail, name the template and
+#     name the command that materializes it.
+# ------------------------------------------
+rm -rf "$WORK/secrets"
+mkdir -p "$WORK/secrets"
+printf 'secret\n' >"$WORK/secrets/$DECLARED.template"
+run_gate
+assert_equal "a declared secret that was never materialized fails the gate" "1" "$LAST_RC"
+assert_contains "the failure names the template that declares it" "$LAST_TEXT" "$DECLARED.template"
+assert_contains "the failure says the materialized file does not exist" "$LAST_TEXT" "does not exist"
+assert_contains "the failure names the command that materializes it" "$LAST_TEXT" "setup-env.sh"
+
+# The control: materialize the same secret and the same run passes, so the failure above is the missing
+# file and not the shape of the folder.
+printf 'secret\n' >"$WORK/secrets/$DECLARED"
+chmod 0444 "$WORK/secrets/$DECLARED"
+run_gate
+assert_equal "materializing the declared secret clears the failure" "0" "$LAST_RC"
 
 # ------------------------------------------
 # 5. The control: a materialized secret at 0444 and nothing else passes, so case 1's warning is provably

@@ -321,6 +321,17 @@ while IFS='|' read -r svc image_var container_port host_var; do
 				if ! printf '%s\n' "$block" | grep -qE '^[[:space:]]*DATA_SOURCE_URI:'; then
 					fail "$file: '$svc' sets no DATA_SOURCE_URI, so the exporter has no database to measure"
 				fi
+				# This exporter is the second consumer of the same role and the same secret. It has to
+				# follow ${LIFECONTROL_POSTGRES_USER:-...} like the database and the API do, or a rename
+				# of that role leaves a green stack with `pg_up 0` on the LifeControl target.
+				data_source_user="$(printf '%s\n' "$block" | sed -n 's/^[[:space:]]*DATA_SOURCE_USER:[[:space:]]*\([^[:space:]]*\)[[:space:]]*$/\1/p' | head -1)"
+				if [ -z "$data_source_user" ]; then
+					fail "$file: '$svc' sets no DATA_SOURCE_USER, so it cannot follow a role rename"
+				elif printf '%s' "$data_source_user" | grep -qE '^\$\{[A-Za-z_][A-Za-z0-9_]*:-'; then
+					pass "$file: '$svc' connects as $data_source_user, so a role rename reaches it"
+				else
+					fail "$file: '$svc' hardcodes its user as '$data_source_user' instead of following the template's \${KEY:-...} declaration"
+				fi
 				;;
 			redis-exporter)
 				# This stack's Redis runs without --requirepass, so the exporter authenticates

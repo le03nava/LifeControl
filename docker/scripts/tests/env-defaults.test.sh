@@ -492,6 +492,35 @@ assert_contains "the worker block says nothing else reports it" \
 	"nothing else reports" "$worker_comment"
 
 # ------------------------------------------
+# 7. The two database roles declare themselves. `lifecontrol_owner` is the name a fresh volume creates
+#    (`POSTGRES_USER`), and every consumer that names the owner reads that same key, so the template and
+#    the compose defaults have to agree: changing one and forgetting the other would point the API or
+#    the exporter at a role that does not exist. The app credential is deliberately absent here -- it is
+#    a secret file, and env-defaults.test.sh exists to keep credentials out of this file.
+# ------------------------------------------
+echo "== 7. the owner role name: template and compose defaults agree, and the pre-ADR name is gone"
+owner_in_template="$(sed -n 's/^LIFECONTROL_POSTGRES_USER=//p' "$ENV_TEMPLATE" | tail -1)"
+check_equal "the template creates lifecontrol_owner on a fresh volume" "lifecontrol_owner" "$owner_in_template"
+
+owner_defaults="$(compose_defaults_for LIFECONTROL_POSTGRES_USER)"
+if [ -z "$owner_defaults" ]; then
+	fail "no compose default found for LIFECONTROL_POSTGRES_USER"
+else
+	index=0
+	while IFS= read -r value; do
+		[ -n "$value" ] || continue
+		index=$((index + 1))
+		check_equal "compose default #$index for LIFECONTROL_POSTGRES_USER is lifecontrol_owner" \
+			"lifecontrol_owner" "$value"
+	done <<< "$owner_defaults"
+fi
+
+legacy_defaults="$(printf '%s\n' "$owner_defaults" | grep -c '^lifecontrol_user$' || true)"
+check_equal "no compose default still names the pre-ADR owner" "0" "$legacy_defaults"
+check_equal "the template no longer declares the pre-ADR owner" "0" \
+	"$(grep -c '^LIFECONTROL_POSTGRES_USER=lifecontrol_user$' "$ENV_TEMPLATE" || true)"
+
+# ------------------------------------------
 # Summary
 # ------------------------------------------
 echo "------------------------------------------"

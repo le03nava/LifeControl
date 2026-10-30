@@ -217,6 +217,12 @@ Script principal de despliegue. Build y start de servicios.
 > traces todavía no tiene nada que leer. Ver
 > [Observabilidad](#observabilidad-config-versionada-puertos-y-exporters).
 >
+> **`start` arranca postgres solo, aplica los roles y recién después levanta el resto.**
+> `compose_run up -d lifecontrol-postgres`, después `docker/scripts/db-roles.sh <env>` y al final
+> `compose_run up -d`. Un fallo de los roles aborta el start: una aplicación que conecta sin ellos no
+> puede aislar un tenant. `up` y `restart` pasan por el mismo `start_services`, así que hay un solo
+> lugar que arranca contenedores y un solo lugar que aplica los roles.
+>
 > **Qué código corre se reporta, no se adivina.** Cada imagen de app lleva bakeado
 > `org.opencontainers.image.revision`, que `build_images` estampa con `HEAD` —o con `HEAD-dirty` si
 > el árbol tiene cambios sin commitear, porque un build sucio **no** es ese commit—, y
@@ -232,6 +238,26 @@ Script principal de despliegue. Build y start de servicios.
 > entorno, así que un `image:` explícito necesitaría el entorno en el tag o las tres instancias
 > compartirían un tag local.
 
+
+### db-roles.sh
+Aplica los dos roles de base de datos de ADR-0005 a una base que **ya existe**.
+```bash
+./docker/scripts/db-roles.sh [dev|staging|prod]
+```
+> El directorio `/docker-entrypoint-initdb.d` de la imagen de postgres corre **una sola vez por datadir**,
+así que un volumen que ya tiene datos (dev, hoy) no recibe los roles por esa vía. Este script ejecuta
+dentro del contenedor el mismo wrapper del init, `docker/postgres-init/10-lifecontrol-roles.sh`, que
+aplica `docker/postgres-init/lifecontrol-roles.sql`: **un solo cuerpo de SQL** para las dos rutas. Es
+idempotente (el rename está guardado por `pg_roles`, los atributos se reafirman en cada corrida y el
+final se lee de vuelta con un `RAISE`), y `deploy.sh <env> start` lo llama entre postgres y la
+aplicación. El wrapper elige con qué rol aplicarlo **verificando `rolsuper`**, no sólo que conecte:
+`lifecontrol_owner` es `NOSUPERUSER` a propósito, así que el SQL crea `lifecontrol_bootstrap`
+(`SUPERUSER LOGIN`, sin password porque el socket local es `trust`) — el único rol que puede aplicar el
+archivo en la segunda corrida y en cualquier migración futura que cree una extensión, y uno que ninguna
+compose, ni el wrapper de la API, ni el exporter pueden nombrar. Además **reporta** —sin fallar y sin
+escribir el archivo— cada key del `.env.<env>` que todavía diga `lifecontrol_user`: el rename no puede
+editar un archivo materializado, y esa key apunta a un rol que ya no existe (`LIFECONTROL_POSTGRES_USER` deja el exporter con `pg_up 0`, y
+`LIFECONTROL_DATABASE_USERNAME` deja la API sin autenticar). `db-roles.test.sh` fija las dos mitades.
 
 ### cleanup.sh
 Limpia recursos de Docker y archivos locales.
@@ -267,9 +293,11 @@ Limpia recursos de Docker y archivos locales.
 | Bloque de auth de Grafana | Salió de `docker/.env.template` (y de los `.env.<env>`): dos de esas keys **sí** las reenviaba el override de prod (`GF_AUTH_ANONYMOUS_ENABLED`, `GF_AUTH_DISABLE_LOGIN_FORM`), así que un `.env.prod` materializado desde el template podía correr Grafana con admin anónimo. Quedan como keys internas del compose, con el default del compose como único valor, y `image-pins.test.sh` falla si vuelven al template |
 
 ### Secretos
-Todas las contraseñas viajan por archivos `docker/secrets/*` (NO por los `.env.*`) con el **mismo patrón en dev, staging y prod**: `setup-env.sh` materializa cada `*.template` (strip de comentarios, `chmod 0444`), compose los monta read-only en `/run/secrets/<nombre>`, y los wrappers en `docker/entrypoints/*.sh` leen el archivo y exportan la env var que la imagen espera (`KC_DB_PASSWORD`, `POSTGRES_PASSWORD`, `DATABASE_PASSWORD`, `GF_SECURITY_ADMIN_PASSWORD`, `KEYCLOAK_ADMIN_CLIENT_SECRET`).
-- Secretos: `keycloak_postgres_password`, `keycloak_admin_password`, `keycloak_admin_client_secret`, `lifecontrol_postgres_password`, `grafana_admin_password`.
-- `validate-env.sh` valida los secretos en todos los entornos; `deploy.sh start` en prod lo usa como gate.
+Todas las contraseñas viajan por archivos `docker/secrets/*` (NO por los `.env.*`) con el **mismo patrón en dev, staging y prod**: `setup-env.sh` materializa cada `*.template` (strip de comentarios, `chmod 0444`), compose los monta read-only en `/run/secrets/<nombre>`, y los wrappers en `docker/entrypoints/*.sh` leen el archivo y exportan la env var que la imagen espera (`KC_DB_PASSWORD`, `POSTGRES_PASSWORD`, `DATABASE_PASSWORD`, `DATABASE_APP_PASSWORD`, `GF_SECURITY_ADMIN_PASSWORD`, `KEYCLOAK_ADMIN_CLIENT_SECRET`).
+- Secretos: `keycloak_postgres_password`, `keycloak_admin_password`, `keycloak_admin_client_secret`, `lifecontrol_postgres_password`, `lifecontrol_app_password`, `grafana_admin_password`.
+- **Dos credenciales de base, dos trabajos (ADR-0005, decisión 3).** `lifecontrol_postgres_password` es la de `lifecontrol_owner`: es dueño de todos los objetos y corre Flyway. `lifecontrol_app_password` es la de `lifecontrol_app`: no es dueño de nada, no puede saltear RLS y es el rol con el que conecta el pool (ese cambio de Java es el slice siguiente). El rol de la app lo crea el SQL de los roles con este secreto; el wrapper de la API exporta las dos (`DATABASE_PASSWORD` sigue siendo la del dueño hasta ese slice, `DATABASE_APP_PASSWORD` es la de la app). Ninguna de las dos es una key de `.env`: el template sólo lleva **nombres de rol**.
+- El nombre del rol dueño es `lifecontrol_owner` y no `lifecontrol_user`: el SQL renombra el rol viejo (`ALTER ROLE … RENAME`) para que la propiedad de cada objeto sobreviva a un volumen existente.
+- `validate-env.sh` valida los secretos en todos los entornos, y falla si un `*.template` no fue materializado (la iteración anterior sólo miraba entradas existentes, así que un secreto ausente pasaba el gate y fallaba dentro del contenedor); `deploy.sh start` en prod lo usa como gate.
 
 ### keycloak-setup.sh
 Provisión idempotente del realm `life-control-realm`, los clients (`life-control-client` public + `life-control-admin-client` confidential con service account) y los roles (`lc-*` client roles, roles legacy de realm) vía `kcadm.sh` dentro del contenedor. Requiere Keycloak arriba y los secrets de keycloak materializados.
@@ -332,6 +360,7 @@ curl -s -X POST "http://localhost:8181/realms/life-control-realm/protocol/openid
 | Exporters de datastores | `postgres-exporter` y `redis-exporter` se pinnean como el resto (`POSTGRES_EXPORTER_IMAGE` y `REDIS_EXPORTER_IMAGE`, en el template **y** en el default del compose) y **no** llevan `healthcheck`: la imagen del exporter de Redis es distroless, así que un probe in-container no puede pasar. La señal de vida es `up` en el scrape, y `exporters.test.sh` lo fija |
 | Pins divergentes en un `.env.<env>` | Un `*_IMAGE` que el env file declara con un valor que el template ya no nombra **se reporta**: `validate-env.sh <env>` lo lista nombrando la key y ambos valores, y `deploy.sh <env> start` imprime el mismo reporte antes de buildear, así que un pin viejo no sobrevive un deploy en silencio. `env-image-pin-drift.test.sh` fija que el reporte nombre la key y los dos valores, que un env file alineado no produzca ningún warning y que el reporte sea read-only y devuelva 0 siempre |
 | Qué código corre cada imagen de app | El label `org.opencontainers.image.revision` es la única afirmación que una imagen hace sobre su propio código, y hasta `docker-image-revision` nada lo leía de vuelta. Lo estampa `image_revision_stamp` (`<sha>`, `<sha>-dirty`, o `unknown` cuando git no puede responder) y lo verifica `deploy.sh <env> version`, que sale distinto de cero salvo que toda imagen de app sea `match` contra `HEAD`. `health` corre el mismo reporte y sólo avisa; `STRICT_REVISION` lo vuelve un fallo. `image-revision.test.sh` fija los cinco veredictos, los dos stamps y que los tres Dockerfiles sigan bakeando ese label exacto |
+| Roles de la base de datos (`postgres`) | La imagen de postgres corre `/docker-entrypoint-initdb.d` **una sola vez por datadir**, así que un volumen con datos nunca vuelve a pasar por ahí: los dos roles los define `docker/postgres-init/lifecontrol-roles.sql`, que se monta en `/opt/lifecontrol/` y **fuera** del directorio de init (el glob del entrypoint lo correría una segunda vez), y lo aplican los dos caminos — `postgres-init/10-lifecontrol-roles.sh` en un volumen vacío y `docker/scripts/db-roles.sh <env>` en uno existente. El `CREATE EXTENSION IF NOT EXISTS btree_gist` va **antes** del `ALTER ROLE lifecontrol_owner NOSUPERUSER` porque `V21__employee_contracts.sql:27` lo necesita: al revés, la primera migración de toda base nueva falla. Ni el dueño queda superusuario (un superusuario siempre saltea RLS) ni la app puede (`NOBYPASSRLS`), y el credential de la app es `docker/secrets/lifecontrol_app_password` |
 
 > **Subir una imagen**: editá `.env.template`, los defaults de `docker-compose*.yml` y la tabla de
 > `image-pins.test.sh`; corré los tests de `docker/scripts/tests/`; en dev, `./docker/scripts/deploy.sh dev up`

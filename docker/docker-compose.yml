@@ -52,11 +52,18 @@ services:
       - "${LIFECONTROL_POSTGRES_PORT:-5435}:5432"
     environment:
       POSTGRES_DB: ${LIFECONTROL_POSTGRES_DB:-lifecontrol}
-      POSTGRES_USER: ${LIFECONTROL_POSTGRES_USER:-lifecontrol_user}
+      POSTGRES_USER: ${LIFECONTROL_POSTGRES_USER:-lifecontrol_owner}
       LC_SECRET_NAME: lifecontrol_postgres_password
     volumes:
       - ./entrypoints/postgres-entrypoint.sh:/usr/local/bin/lc-postgres-entrypoint.sh:ro
       - ./secrets/lifecontrol_postgres_password:/run/secrets/lifecontrol_postgres_password:ro
+      # The two roles of ADR-0005. The image runs /docker-entrypoint-initdb.d only while initializing
+      # an EMPTY data directory, so the same wrapper is re-applied by docker/scripts/db-roles.sh on a
+      # volume that already holds data. The SQL is mounted OUTSIDE the init directory on purpose: the
+      # entrypoint glob would otherwise run it a second time, after the wrapper already did.
+      - ./postgres-init/10-lifecontrol-roles.sh:/docker-entrypoint-initdb.d/10-lifecontrol-roles.sh:ro
+      - ./postgres-init/lifecontrol-roles.sql:/opt/lifecontrol/lifecontrol-roles.sql:ro
+      - ./secrets/lifecontrol_app_password:/run/secrets/lifecontrol_app_password:ro
       - ${VOLUMES_ROOT:?VOLUMES_ROOT must be set}/postgres/lifecontrol/data:/var/lib/postgresql
     networks:
       - default
@@ -68,7 +75,7 @@ services:
       test:
         [
           "CMD-SHELL",
-          "pg_isready -U ${LIFECONTROL_POSTGRES_USER:-lifecontrol_user}",
+          "pg_isready -U ${LIFECONTROL_POSTGRES_USER:-lifecontrol_owner}",
         ]
       interval: 30s
       timeout: 10s
@@ -216,7 +223,7 @@ services:
       # `localhost:5432` would address its own container. sslmode=disable matches what the API
       # speaks on the in-network socket, which has no TLS.
       DATA_SOURCE_URI: "lifecontrol-postgres:5432/${LIFECONTROL_POSTGRES_DB:-lifecontrol}?sslmode=disable"
-      DATA_SOURCE_USER: ${LIFECONTROL_POSTGRES_USER:-lifecontrol_user}
+      DATA_SOURCE_USER: ${LIFECONTROL_POSTGRES_USER:-lifecontrol_owner}
       # *_FILE, never DATA_SOURCE_PASS: the password is the same secret the database and the API
       # read, mounted read-only. As an environment value it would surface in `docker inspect` and
       # in `docker compose config`, which is the one place a secret must never be readable.
@@ -500,7 +507,7 @@ services:
       - SPRING_PROFILES_ACTIVE=${SPRING_PROFILES_ACTIVE:?SPRING_PROFILES_ACTIVE must be set to dev, staging or prod}
       - SERVER_PORT=${LIFECONTROL_API_PORT:-8082}
       - DATABASE_URL=${LIFECONTROL_DATABASE_URL:-jdbc:postgresql://lifecontrol-postgres:5432/lifecontrol}
-      - DATABASE_USERNAME=${LIFECONTROL_DATABASE_USERNAME:-lifecontrol_user}
+      - DATABASE_USERNAME=${LIFECONTROL_DATABASE_USERNAME:-lifecontrol_owner}
       - LOKI_URL=${LOKI_URL:-http://loki:3100/loki/api/v1/push}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - PROMETHEUS_ENABLED=${PROMETHEUS_ENABLED:-true}
@@ -532,6 +539,7 @@ services:
     volumes:
       - ./entrypoints/lifecontrol-app-entrypoint.sh:/usr/local/bin/lc-app-entrypoint.sh:ro
       - ./secrets/lifecontrol_postgres_password:/run/secrets/lifecontrol_postgres_password:ro
+      - ./secrets/lifecontrol_app_password:/run/secrets/lifecontrol_app_password:ro
       - ./secrets/keycloak_admin_client_secret:/run/secrets/keycloak_admin_client_secret:ro
     networks:
       - default
