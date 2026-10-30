@@ -20,7 +20,7 @@
 
   // The cascade owns its own row: its five selects wrap on their own, independently of the search
   // field below, and the page never has to know how many columns the component lays out.
-  app-purchase-order-location-filter {
+  app-purchase-location-filter {
     display: block;
     flex: 1 1 100%;
   }

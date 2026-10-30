@@ -14,8 +14,8 @@ import { PageHeader } from '@shared/ui';
 import { httpErrorMessage } from '@shared/data';
 import { PurchaseOrderService } from '../../data/purchase-order.service';
 import { StatusChip } from '../../components/status-chip/status-chip';
-import { PurchaseOrderLocationFilter } from '../../components/location-filter/location-filter';
-import type { PurchaseOrderLocationSelection } from '../../models/purchase-order-location-filter.models';
+import { PurchaseLocationFilter } from '../../../components/location-filter/location-filter';
+import type { PurchaseLocationSelection } from '../../../models/purchase-location-filter.models';
 import { MatTableModule } from '@angular/material/table';
 import { MatIconModule } from '@angular/material/icon';
 import { MatPaginatorModule } from '@angular/material/paginator';
@@ -32,7 +32,7 @@ import { MatCardModule } from '@angular/material/card';
     PageHeader,
     DatePipe,
     StatusChip,
-    PurchaseOrderLocationFilter,
+    PurchaseLocationFilter,
     MatTableModule,
     MatIconModule,
     MatPaginatorModule,
@@ -60,7 +60,7 @@ export class PurchaseOrderList {
    * The cascade's current selection. `null` until the filter component emits for the first time, so
    * the list cannot be fetched with a stale or half-resolved location.
    */
-  readonly location = signal<PurchaseOrderLocationSelection | null>(null);
+  readonly location = signal<PurchaseLocationSelection | null>(null);
 
   /**
    * Empresa, País y Región are the only required levels: they are what turns the list into one
@@ -142,7 +142,7 @@ export class PurchaseOrderList {
     });
   }
 
-  onLocationChange(selection: PurchaseOrderLocationSelection): void {
+  onLocationChange(selection: PurchaseLocationSelection): void {
     this.location.set(selection);
   }
 

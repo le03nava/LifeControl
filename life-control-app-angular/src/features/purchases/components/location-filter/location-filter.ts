@@ -23,14 +23,19 @@ import type { CompanyCountry } from '@features/companies/countries/models/countr
 import type { CompanyRegion } from '@features/companies/regions/models/region.models';
 import type { CompanyZone } from '@features/companies/zones/models/zone.models';
 import type { CompanyStore } from '@features/companies/stores/models/store.models';
-import type { PurchaseOrderLocationSelection } from '../../models/purchase-order-location-filter.models';
+import type { PurchaseLocationSelection } from '../../models/purchase-location-filter.models';
 
 /**
- * The location filter of the purchase order list: `Empresa → País → Región → Zona → Tienda`
- * (`S1`, `S3` of `odd/tasks/purchase-order-region-filter.md`).
+ * The location filter of the two purchase lists: `Empresa → País → Región → Zona → Tienda`
+ * (`S1`, `S3` of `odd/tasks/purchase-order-region-filter.md`; `S1` of
+ * `odd/tasks/receipt-location-filter.md`).
  *
- * It owns the cascade and nothing else: the page decides what to do with the selection (`S2`
- * gates the list on company, country and region). The five levels are filter levels, not a leaf
+ * It lives under `purchases/components` because both `/purchases/orders` and `/purchases/receipts`
+ * render it: a second copy would let the two cascades drift, and the receipt list's filter is the same
+ * five levels by request.
+ *
+ * It owns the cascade and nothing else: the page decides what to do with the selection (both pages
+ * gate the list on company, country and region). The five levels are filter levels, not a leaf
  * list, so every dependent read asks for disabled rows too — otherwise a disabled region the
  * profile names would vanish from its own options.
  *
@@ -39,18 +44,18 @@ import type { PurchaseOrderLocationSelection } from '../../models/purchase-order
  * id a level does not list is left empty and nothing is guessed from another level, which is what
  * keeps a preference chain stitched from two sources out of the selectors.
  *
- * There is no query-param preselection here, on purpose: `/purchases/orders` has no inbound link
- * that carries location ids, so the URL is not a source of truth for this filter.
+ * There is no query-param preselection here, on purpose: neither list has an inbound link that
+ * carries location ids, so the URL is not a source of truth for this filter.
  */
 @Component({
-  selector: 'app-purchase-order-location-filter',
+  selector: 'app-purchase-location-filter',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [MatFormFieldModule, MatSelectModule],
   templateUrl: './location-filter.html',
   styleUrl: './location-filter.scss',
 })
-export class PurchaseOrderLocationFilter {
+export class PurchaseLocationFilter {
   private readonly companyService = inject(CompanyService);
   private readonly companyCountryService = inject(CompanyCountryService);
   private readonly companyRegionService = inject(CompanyRegionService);
@@ -59,7 +64,7 @@ export class PurchaseOrderLocationFilter {
   private readonly locationPreference = inject(LocationPreference);
 
   /** The resolved selection, emitted on every level change and on every preselected level. */
-  readonly selection = output<PurchaseOrderLocationSelection>();
+  readonly selection = output<PurchaseLocationSelection>();
 
   // ─── Options ─────────────────────────────────────────────────
 
