@@ -9,9 +9,11 @@ import com.lifecontrol.api.company.model.Company;
 import com.lifecontrol.api.company.repository.CompanyRepository;
 import com.lifecontrol.api.hr.repository.EmployeeRepository;
 import com.lifecontrol.api.provisioning.service.AccessProvisioningWorker;
+import com.lifecontrol.api.provisioning.service.AccessProvisioningWorkerHandler;
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
 import com.lifecontrol.api.usersadmin.identity.IdentityProvider;
 import com.lifecontrol.api.usersadmin.identity.InMemoryIdentityProvider;
+import jakarta.persistence.EntityManager;
 import java.time.LocalDateTime;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -25,6 +27,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
+import org.springframework.data.jpa.repository.support.JpaRepositoryFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
@@ -38,11 +41,13 @@ import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
  * consequences. The pass therefore states its own scope, from the task's own company, once per task.</p>
  *
  * <p><b>What this suite can and cannot observe.</b> It observes the fact that is the worker's
- * responsibility: <b>which company is installed at the moment of the read</b>, captured through a spy on
- * the repository so the assertion is about the call the pass really makes. It does not observe the policy
- * filtering the row, and that is deliberate: the container's user is a superuser, which bypasses every
- * policy (record L9), and arming {@code employees} globally would make the other 63 suites in this shared
- * container depend on this one. The filtering half is proved by
+ * responsibility, at both ends of the task: <b>which company is installed at the moment of the employee
+ * read</b>, and <b>which company is still installed at the pass's last capability</b> — with the task
+ * reaching {@code APPLIED}, which is what proves the last stage really ran under it. Both are captured
+ * through spies on the collaborators the pass calls, so the assertions are about the calls it really
+ * makes. It does not observe the policy filtering the row, and that is deliberate: the container's user is
+ * a superuser, which bypasses every policy (record L9), and arming {@code employees} globally would make
+ * the other 63 suites in this shared container depend on this one. The filtering half is proved by
  * {@code TenantScopeBoundaryIntegrationTest}, on a probe table armed with the same
  * {@code apply_tenant_isolation} call T5 will use; the two cases compose into the claim — the worker
  * installs the task's tenant, and a transaction with that tenant installed can only see that company's
@@ -75,6 +80,9 @@ class ProvisioningWorkerTenantScopeIntegrationTest extends AbstractPostgresInteg
     private JdbcTemplate jdbcTemplate;
 
     @Autowired
+    private EntityManager entityManager;
+
+    @Autowired
     private CompanyRepository companyRepository;
 
     @Autowired
@@ -83,8 +91,32 @@ class ProvisioningWorkerTenantScopeIntegrationTest extends AbstractPostgresInteg
     @MockitoSpyBean
     private EmployeeRepository employeeRepository;
 
+    /**
+     * The pass's <b>last capability</b>, spied on so the scope can be read at the moment it runs — the
+     * observation this change exists for. The whole task, not only the employee read, runs under the
+     * task's tenant: {@code apply} itself reads {@code employees}, {@code departments} and
+     * {@code companies}, and {@code markApplied} runs immediately after it under the same scope.
+     *
+     * <p><b>Why this handler and not {@code AccessProvisioningTaskService}.</b> The task service is
+     * {@code @Transactional}, so Spring hands out a CGLIB proxy whose methods are {@code final}, and
+     * Mockito cannot intercept them: measured in this suite, a spy/answer on it never ran and the pass
+     * died inside {@code markApplied} with {@code Cannot call abstract real method on java object!}. The
+     * handler is a plain {@code @Service} — deliberately not transactional — so spying it observes the
+     * real stage with the real behaviour behind it.</p>
+     */
+    @MockitoSpyBean
+    private AccessProvisioningWorkerHandler handler;
+
     /** The scope the pass had installed when it read <b>this suite's</b> employee row. */
     private final AtomicReference<TenantScope.Scope> scopeAtTheEmployeeRead = new AtomicReference<>();
+
+    /**
+     * The scope the pass had installed at its <b>last capability</b>, and how many times that capability
+     * ran — a pass that never got there proves nothing about the far end of it.
+     */
+    private final AtomicReference<TenantScope.Scope> scopeAtTheApply = new AtomicReference<>();
+
+    private final AtomicInteger applies = new AtomicInteger();
 
     /** How many times the pass read this suite's employee — a pass that never got there proves nothing. */
     private final AtomicInteger employeeReads = new AtomicInteger();
@@ -123,17 +155,32 @@ class ProvisioningWorkerTenantScopeIntegrationTest extends AbstractPostgresInteg
         taskId = insertPendingTask(employeeId);
 
         scopeAtTheEmployeeRead.set(null);
+        scopeAtTheApply.set(null);
         employeeReads.set(0);
+        applies.set(0);
         var watchedEmployeeId = employeeId;
+        // The bean is a Spring Data proxy whose methods are final, so `callRealMethod()` on the spy leaves a
+        // Mockito error in the middle of the pass — measured here, it was the `last_error` of every run and
+        // the pass never reached its later stages. The answer therefore delegates to a real repository
+        // built from the same `EntityManager`: the suite's own finder, unspied, so the read the pass makes
+        // is the production one.
+        var realEmployeeRepository = new JpaRepositoryFactory(entityManager).getRepository(EmployeeRepository.class);
         doAnswer(invocation -> {
                     if (watchedEmployeeId.equals(invocation.getArgument(0))) {
                         scopeAtTheEmployeeRead.set(TenantScope.current().orElse(null));
                         employeeReads.incrementAndGet();
                     }
-                    return invocation.callRealMethod();
+                    return realEmployeeRepository.findByIdWithCompanyAndStatus(invocation.getArgument(0));
                 })
                 .when(employeeRepository)
                 .findByIdWithCompanyAndStatus(any(UUID.class));
+        doAnswer(invocation -> {
+                    scopeAtTheApply.set(TenantScope.current().orElse(null));
+                    applies.incrementAndGet();
+                    return invocation.callRealMethod();
+                })
+                .when(handler)
+                .apply(any(), any());
     }
 
     @AfterEach
@@ -181,9 +228,38 @@ class ProvisioningWorkerTenantScopeIntegrationTest extends AbstractPostgresInteg
                 .isEqualTo(new TenantScope.Scope(companyId, null));
     }
 
+    @Test
+    @DisplayName("the pass still states the task's company at its last stage, and the task is applied")
+    void thePassKeepsTheTasksCompanyUntilTheLastStage() {
+        worker.runPass();
+
+        assertThat(applies.get())
+                .as("a pass that never reached its last capability would prove nothing about its scope")
+                .isEqualTo(1);
+        assertThat(scopeAtTheApply.get())
+                .as("the tenant covers the whole task and not only the employee read: the gate, the role "
+                        + "convergence, the membership derivation and the account update also read "
+                        + "`employees`, `departments` and `companies`, so a narrow wrap around one read "
+                        + "leaves them reading zero rows once ADR-0005 arms those tables")
+                .isEqualTo(new TenantScope.Scope(companyId, null));
+        assertThat(status())
+                .as("and the last stage really ran under that same scope: `markApplied` is the only step "
+                        + "after the capability this case observed, and it is reached with the tenant still "
+                        + "stated — last_error was `" + lastError() + "` when it was not")
+                .isEqualTo("APPLIED");
+        assertThat(TenantScope.current())
+                .as("the scope dies with the pass, so the scheduler's reused thread starts clean")
+                .isEmpty();
+    }
+
     // ──────────────────────────────────────
     // fixtures
     // ──────────────────────────────────────
+
+    private String status() {
+        return jdbcTemplate.queryForObject(
+                "SELECT status FROM access_provisioning_tasks WHERE id = ?", String.class, taskId);
+    }
 
     private String lastError() {
         var error = jdbcTemplate.queryForObject(
@@ -214,7 +290,12 @@ class ProvisioningWorkerTenantScopeIntegrationTest extends AbstractPostgresInteg
                 """, UUID.class);
     }
 
-    /** Inserts one employee owned by the given company; the pass only needs the row and its company. */
+    /**
+     * Inserts one employee owned by the given company, with <b>no</b> linked Keycloak account: the account
+     * lifecycle of the pass then creates and links it in the in-memory provider, which is what lets the run
+     * reach its last stage ({@code markApplied}) instead of stopping at the account half — the stage this
+     * suite measures.
+     */
     private UUID insertEmployee(UUID ownerCompanyId) {
         var statusId = activeEmployeeStatusId();
         var n = sequence.incrementAndGet();

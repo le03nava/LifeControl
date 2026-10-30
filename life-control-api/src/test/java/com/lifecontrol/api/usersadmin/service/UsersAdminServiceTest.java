@@ -8,6 +8,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.lifecontrol.api.common.tenant.TenantScope;
 import com.lifecontrol.api.usersadmin.dto.CreateUserRequest;
 import com.lifecontrol.api.usersadmin.dto.PageResponse;
 import com.lifecontrol.api.usersadmin.dto.RoleRequest;
@@ -19,6 +20,7 @@ import com.lifecontrol.api.usersadmin.identity.UserSearchDto;
 import com.lifecontrol.api.usersadmin.repository.UserPreferencesRepository;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -319,6 +321,35 @@ class UsersAdminServiceTest {
             assertThat(result.keycloakUserId()).isEqualTo(KEYCLOAK_USER_ID);
             verify(identityProvider).createUser(any());
             verify(userPreferencesRepository).save(any());
+        }
+
+        /**
+         * The row this method writes is a <b>subject</b> row (ADR-0005 decision item 1), and its policy
+         * compares {@code keycloak_user_id} with {@code app.user_id}. The subject is created inside this
+         * call, so nothing could have installed it at the boundary before the insert: the service states
+         * it around the one write, and this case pins both halves — the scope the insert ran under, and
+         * the holder left empty afterwards, because the repository's transaction is the only thing that
+         * needed it.
+         */
+        @Test
+        @DisplayName("the preferences insert runs with the new subject stated, and leaves the holder empty")
+        void createUser_statesTheNewSubjectAroundThePreferencesInsert() {
+            when(identityProvider.createUser(any())).thenReturn(KEYCLOAK_USER_ID);
+            var scopeAtTheInsert = new AtomicReference<TenantScope.Scope>();
+            when(userPreferencesRepository.save(any())).thenAnswer(invocation -> {
+                scopeAtTheInsert.set(TenantScope.current().orElse(null));
+                return invocation.getArgument(0);
+            });
+
+            service.createUser(createRequest());
+
+            assertThat(scopeAtTheInsert.get())
+                    .as("the insert states the subject it writes, and no company: this row is the "
+                            + "person's own, not a tenant's")
+                    .isEqualTo(new TenantScope.Scope(null, KEYCLOAK_USER_ID));
+            assertThat(TenantScope.current())
+                    .as("and the scope dies with the write, so the caller's thread is left clean")
+                    .isEmpty();
         }
 
         @Test

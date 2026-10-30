@@ -102,6 +102,22 @@ class TenantScopeHolderTest {
     }
 
     @Test
+    @DisplayName("withSubject states the subject for the work and clears it afterwards")
+    void withSubjectStatesTheSubjectForTheWorkOnly() {
+        var observed = TenantScope.withSubject(
+                "kc-subject-new", () -> TenantScope.current().orElseThrow());
+
+        assertThat(observed.subject())
+                .as("the insert that runs inside states the subject it writes, which is the whole point of "
+                        + "the helper: the subject did not exist when the boundary was entered")
+                .isEqualTo("kc-subject-new");
+        assertThat(observed.companyId())
+                .as("a subject row belongs to a person, not to a tenant, so no company is stated")
+                .isNull();
+        assertThat(TenantScope.current()).as("and the scope dies with the work").isEmpty();
+    }
+
+    @Test
     @DisplayName("with(null, ...) runs the work without a company, and fails closed that way")
     void withANullCompanyInstallsNoCompanyScope() {
         var observed = new AtomicReference<TenantScope.Scope>();

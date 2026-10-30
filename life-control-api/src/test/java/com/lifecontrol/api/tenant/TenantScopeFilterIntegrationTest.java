@@ -11,6 +11,7 @@ import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
 import jakarta.persistence.EntityManager;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import java.util.Arrays;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.BeforeEach;
@@ -131,17 +132,68 @@ class TenantScopeFilterIntegrationTest extends AbstractPostgresIntegrationTest {
     }
 
     @Test
-    @DisplayName("a path with no company segment states the subject alone")
+    @DisplayName("a tenant-agnostic path states the subject alone")
     void aPathWithoutACompanySegmentStatesOnlyTheSubject() throws Exception {
-        // `selector` is a literal segment of `/api/companies/...`, not a company id: the filter must not
-        // read it as a tenant, and a tenant read with a garbage scope is exactly what would break this
-        // endpoint once policies are armed.
+        // `selector` is a literal segment of `/api/companies/...`, not a company id, so this request
+        // names no company — and `/api/companies` is on the tenant-agnostic list, which is the statement
+        // "no read on this path touches a tenant table". The filter therefore states the subject alone:
+        // a company invented from a multi-valued claim is exactly the widening this filter refuses, and
+        // a garbage scope is what would break this endpoint once policies are armed.
         mockMvc.perform(get("/api/companies/selector").with(token(claimedCompany)))
                 .andExpect(status().isOk());
 
         assertThat(ScopeRecorderConfiguration.SEEN.get())
-                .as("the subject alone: user_preferences is read before a company is known, and inventing "
-                        + "one from a multi-valued claim is the widening this slice refuses")
+                .as("the subject alone, because the path is exempt: user_preferences is read before a "
+                        + "company is known")
+                .isEqualTo(new TenantScope.Scope(null, SUBJECT));
+    }
+
+    @Test
+    @DisplayName("a company-less path that reads tenant tables states the token's one claim")
+    void aPathWithoutACompanySegmentStatesTheSingleClaim() throws Exception {
+        // `/api/purchase-orders` names no company and is guarded by `isAuthenticated()` only, and its
+        // reads walk `purchase_orders`, which ADR-0005 arms. A token carrying exactly one company states
+        // that company as the tenant: leaving the scope company-less would make every list of the sales
+        // domain read zero rows the moment the policy lands.
+        mockMvc.perform(get("/api/purchase-orders").with(token(claimedCompany))).andExpect(status().isOk());
+
+        assertThat(ScopeRecorderConfiguration.SEEN.get())
+                .as("one claim is a determinate tenant, so the path that names none inherits it")
+                .isEqualTo(new TenantScope.Scope(claimedCompany, SUBJECT));
+        assertThat(TenantScope.current())
+                .as("and the filter still cleared the holder in its finally")
+                .isEmpty();
+    }
+
+    @Test
+    @DisplayName("a company-less path and a token with two claims is refused")
+    void aPathWithoutACompanySegmentIsRefusedWhenTheTokenCarriesTwoClaims() throws Exception {
+        // Two claims and no company in the path is not a wider scope, it is an undeterminable one: the
+        // request is refused before any scope is stated or any controller runs, which is a loud 403 the
+        // operator can see instead of a silent zero-row read once `purchase_orders` carries a policy.
+        mockMvc.perform(get("/api/purchase-orders").with(tokenOf(claimedCompany, foreignCompany)))
+                .andExpect(status().isForbidden());
+
+        assertThat(ScopeRecorderConfiguration.SEEN.get())
+                .as("the refusal happens before any controller runs, so no scope was ever handed to one")
+                .isNull();
+        assertThat(TenantScope.current())
+                .as("and no half-stated scope was left behind on the thread that served the request")
+                .isEmpty();
+    }
+
+    @Test
+    @DisplayName("a tenant-agnostic path admits a two-claim token with no company scope")
+    void aTenantAgnosticPathAdmitsTwoClaims() throws Exception {
+        // The exemption is what makes a multi-company caller usable: `/api/companies/selector` resolves
+        // the claims itself — one scoped read per claim — so the path needs no tenant of its own and the
+        // arity that refuses a tenant read must not refuse this one.
+        mockMvc.perform(get("/api/companies/selector").with(tokenOf(claimedCompany, foreignCompany)))
+                .andExpect(status().isOk());
+
+        assertThat(ScopeRecorderConfiguration.SEEN.get())
+                .as("exempt, and still company-less: the list states the subject and lets the service "
+                        + "resolve each claim")
                 .isEqualTo(new TenantScope.Scope(null, SUBJECT));
     }
 
@@ -185,6 +237,16 @@ class TenantScopeFilterIntegrationTest extends AbstractPostgresIntegrationTest {
     private static RequestPostProcessor token(UUID claimedCompany) {
         return jwt().authorities(new SimpleGrantedAuthority("ROLE_lc-company"))
                 .jwt(builder -> builder.subject(SUBJECT).claim("company_id", claimedCompany.toString()));
+    }
+
+    /**
+     * The multi-company caller the Keycloak mapper exists for: the claim is multivalued, and here it
+     * carries exactly the two companies this suite seeded.
+     */
+    private static RequestPostProcessor tokenOf(UUID... claimedCompanies) {
+        var claims = Arrays.stream(claimedCompanies).map(UUID::toString).toList();
+        return jwt().authorities(new SimpleGrantedAuthority("ROLE_lc-company"))
+                .jwt(builder -> builder.subject(SUBJECT).claim("company_id", claims));
     }
 
     private static RequestPostProcessor administratorToken() {
