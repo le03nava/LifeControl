@@ -2,7 +2,7 @@
 
 - **Status**: accepted
 - **Date**: 2026-10-29
-- **Accepted**: 2026-10-29, after the three corrections recorded at the end of this document
+- **Accepted**: 2026-10-29, after the three corrections recorded under *Corrections applied before acceptance*
 - **Decision id**: D5 of `odd/tasks/architecture-redesign-adrs.md`
 - **Depends on**: —
 - **Blocks**: ADR-0001 (every ledger table carries a policy), ADR-0002 (payments are tenant rows)
@@ -45,20 +45,45 @@ ignored that would empty a shared catalog.
 
 **The tenant is a fact of the transaction, and PostgreSQL enforces it.**
 
-1. **Every request transaction states its tenant before its first read.** A filter sets `app.company_id`
-   with `SET LOCAL` (`set_config(..., true)`) from the principal. It fails closed: an absent or
-   multi-valued claim is a refusal, never a wider scope, and a transaction that reaches a query without
-   the setting reads **no rows**, never all rows.
-2. **Every tenant table carries one policy**, `USING (company_id = current_setting('app.company_id',
-   true)::uuid)` for `SELECT`/`UPDATE`/`DELETE` and the same predicate as `WITH CHECK` for
-   `INSERT`/`UPDATE`. The `true` makes a missing setting a `NULL` predicate, not an error: `company_id =
-   NULL` is `NULL`, which filters the row.
-3. **Two roles, two jobs.** `lifecontrol_owner` owns the objects and runs Flyway; `lifecontrol_app` owns
-   nothing, has no `BYPASSRLS`, and is the only role the pool connects as. Every tenant table gets
-   `ENABLE` **and** `FORCE ROW LEVEL SECURITY`, so the owner is not implicitly exempt either. The
-   application role also needs `USAGE` on the **sequences** its identity columns own: a grant that
-   covers tables and stops there fails every `INSERT` with `permission denied for sequence`, a runtime
-   failure and not a policy one.
+1. **Every transaction that serves a request states its tenant before its first read.** The value is set
+   with `set_config('app.company_id', ..., true)`, so it dies with the transaction (item 2 states the
+   predicate it feeds). **Which component installs it is an implementation choice, not part of this
+   decision**: the requirement is that it happens inside the transaction and before its first query,
+   because `SET LOCAL` outside a transaction is not local at all. A servlet filter can satisfy that only
+   by owning the request's transaction; a hook at the transaction boundary satisfies it without one.
+   What the decision forbids is the third shape — a filter that issues `SET LOCAL` on some other
+   connection, which is a no-op dressed as enforcement. It fails closed: an absent or multi-valued tenant
+   claim is a refusal, never a wider scope, and a transaction that reaches a query without the setting
+   reads **no rows**, never all rows.
+   One table is not tenant-scoped at all: `user_preferences` is a **subject** row, so its transactions
+   also state `app.user_id`, and the same rule applies — a subject transaction that reaches that table
+   without the setting reads no rows.
+2. **Every tenant table carries one policy**, `USING (company_id =
+   nullif(current_setting('app.company_id', true), '')::uuid)` for `SELECT`/`UPDATE`/`DELETE` and the
+   same predicate as `WITH CHECK` for `INSERT`/`UPDATE`, and both arguments are load-bearing. The `true`
+   makes a setting that no session ever created a `NULL` predicate instead of an error; `nullif` covers
+   the other half, measured on `postgres:16-alpine`: after one transaction-local `set_config` and its
+   `COMMIT` the parameter exists and equals the **empty string**, so a bare `::uuid` raises `invalid
+   input syntax for type uuid: ""` (SQLSTATE 22P02) on the ordinary pooled connection, after its first
+   request. `company_id = NULL` is `NULL`, which filters the row, and `nullif` maps `''` to that same
+   `NULL`. Fail-closed is the promise; fail-loud was the delivered text.
+3. **Three roles, three jobs.** `lifecontrol_owner` owns the objects and runs Flyway; `lifecontrol_app`
+   owns nothing, has no `BYPASSRLS`, and is the only role the pool connects as; and
+   `lifecontrol_bootstrap` is a `SUPERUSER LOGIN` maintenance credential with **no password** and no
+   grant on any table. The third is not a spare: `initdb` creates exactly one superuser and it is
+   `POSTGRES_USER`, the owner, so the moment this item drops that flag nothing in the database can
+   `ALTER ROLE ... PASSWORD` or `ALTER ROLE ... NOSUPERUSER` again — the role script fails from its
+   **second** run onward — and no later migration can `CREATE EXTENSION`, which
+   `V21__employee_contracts.sql:27` already needs for `btree_gist`. It authenticates on the container's
+   local socket, which is `trust`; a role with no password cannot connect over TCP at all, where the
+   image requires `scram-sha-256`, so no compose file, no API wrapper and no exporter ever names it.
+   The rule that follows, and it is the point: the bootstrap role is for the DDL PostgreSQL reserves to
+   superuser — creating a role, moving a role's attributes, creating an extension — and **never** for a
+   migration that touches tenant rows, because that connection bypasses every policy, which is exactly
+   what invariant T5 exists to catch. Every tenant table gets `ENABLE` **and** `FORCE ROW LEVEL
+   SECURITY`, so the owner is not implicitly exempt either. The application role also needs `USAGE` on
+   the **sequences** its identity columns own: a grant that covers tables and stops there fails every
+   `INSERT` with `permission denied for sequence`, a runtime failure and not a policy one.
 4. **The shared catalogs are an explicit, closed exception.** `countries` (`V1:11`), `measure_units`
    (`V1:284`), `statuses` (`V1:268`), `status_types` (`V1:255`), `payment_methods` (`V1:302`) and
    `currency` (ADR-0002) carry no `company_id` and no policy. The startup assertion below fails the
@@ -73,16 +98,24 @@ ignored that would empty a shared catalog.
    which is the failure mode this ADR exists to remove. `TRUNCATE` is *not* filtered, because RLS is not
    applied at table level, so the `V14`/`V40` shape hides the trap instead of revealing it. Rule: a
    migration that knows its tenant calls `set_tenant_scope('<uuid>')` first; a migration that must
-   rewrite rows across tenants runs in Flyway's own elevated connection — a superuser, which bypasses
-   RLS by PostgreSQL rule — and says why in the file. That is not the rejected third `BYPASSRLS` role:
-   it is a credential the pool never holds, and invariant T5 keeps the owner honest.
+   rewrite rows across tenants runs in Flyway's own elevated connection — `lifecontrol_bootstrap`
+   (item 3), a superuser, which bypasses RLS by PostgreSQL rule — and says why in the file. That is not
+   the rejected `BYPASSRLS` role: it is a credential the pool never holds, and invariant T5 keeps the
+   owner honest.
 
 ## Schema
 
 ```sql
--- ─── two roles: one owns and migrates, one runs the application ───────────────
-CREATE ROLE lifecontrol_owner LOGIN;              -- Flyway: owns every object
-CREATE ROLE lifecontrol_app   LOGIN NOBYPASSRLS;  -- the pool: owns nothing
+-- ─── three roles: one owns and migrates, one runs the application, one maintains ────────────
+CREATE ROLE lifecontrol_owner LOGIN;               -- Flyway: owns every object
+CREATE ROLE lifecontrol_app   LOGIN NOBYPASSRLS;   -- the pool: owns nothing
+CREATE ROLE lifecontrol_bootstrap SUPERUSER LOGIN; -- roles and extensions only: no password, no grant
+-- The bootstrap role is not a second application credential. `initdb` creates exactly one superuser,
+-- `POSTGRES_USER`, and item 3 drops that flag from the owner, so without this role the second run of
+-- the role script cannot alter a role and no later migration can `CREATE EXTENSION`. No password means
+-- the `trust` local socket is its only way in (the image requires scram-sha-256 over TCP), and no table
+-- is granted to it. A migration that connects with it says why in its own file; one that touches tenant
+-- rows never does (item 6, invariant T5).
 GRANT USAGE ON SCHEMA public TO lifecontrol_app;
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO lifecontrol_app;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO lifecontrol_app;
@@ -99,26 +132,72 @@ CREATE FUNCTION set_tenant_scope(company uuid) RETURNS void LANGUAGE sql AS $$
     SELECT set_config('app.company_id', company::text, true);
 $$;
 
+-- ─── the subject scope: a table read before any company is known cannot use the tenant one
+CREATE FUNCTION set_user_scope(subject text) RETURNS void LANGUAGE sql AS $$
+    SELECT set_config('app.user_id', subject, true);
+$$;
+
 -- ─── the list: a new tenant table is a new row, never a new policy script ────
+-- The kind is a column and not a boolean because there are three shapes, and a boolean has no value
+-- for the third: `tenant` is the ordinary predicate, `shared` means a NULL owner is every tenant
+-- (the two override catalogs), and `subject` is a row that belongs to a person, not to a company
+-- (`user_preferences`, read during authentication before any company is known).
 CREATE TABLE tenant_table (
     table_name  regclass PRIMARY KEY,
-    shared_rows BOOLEAN NOT NULL DEFAULT false   -- true: a NULL owner means "every tenant"
+    policy_kind text NOT NULL CHECK (policy_kind IN ('tenant', 'shared', 'subject')),
+    key_column  text NOT NULL DEFAULT 'company_id'
 );
 
-CREATE FUNCTION apply_tenant_isolation(target regclass, shared_rows boolean DEFAULT false,
+CREATE FUNCTION apply_tenant_isolation(target regclass, kind text DEFAULT 'tenant',
                                       key_column text DEFAULT 'company_id')
 RETURNS void LANGUAGE plpgsql AS $$
 DECLARE
-    relname   text := (SELECT relname FROM pg_class WHERE oid = target);
-    predicate text := format('%I = current_setting(''app.company_id'', true)::uuid', key_column);
+    v_target    regclass := $1;   -- the parameters are read through aliases: PL/pgSQL resolves an
+    v_kind      text     := $2;   -- identifier that matches both a parameter and a column to the
+    v_key       text     := $3;   -- COLUMN, and `key_column` is a column of `tenant_table`
+    v_relname   text;
+    v_policy    text;
+    v_predicate text;
 BEGIN
-    IF shared_rows THEN predicate := 'company_id IS NULL OR ' || predicate; END IF;
-    EXECUTE format('ALTER TABLE %s ENABLE ROW LEVEL SECURITY', target);
-    EXECUTE format('ALTER TABLE %s FORCE ROW LEVEL SECURITY', target);
+    IF v_kind IS NULL OR v_kind NOT IN ('tenant', 'shared', 'subject') THEN
+        RAISE EXCEPTION 'apply_tenant_isolation: unknown policy kind %', v_kind;
+    END IF;
+    -- Refused before anything is altered or listed. A policy on a column the table does not have
+    -- matches nothing, in silence, so the table reads as empty forever: the failure mode this ADR
+    -- exists to remove. This is the case that catches `companies`, isolated by its `id`.
+    IF NOT EXISTS (SELECT 1 FROM pg_attribute
+                    WHERE attrelid = v_target AND attname = v_key
+                      AND attnum > 0 AND NOT attisdropped) THEN
+        RAISE EXCEPTION 'apply_tenant_isolation: % has no column % (kind %)', v_target, v_key, v_kind;
+    END IF;
+
+    SELECT c.relname INTO v_relname FROM pg_class c WHERE c.oid = v_target;
+    v_policy := 'p_tenant_' || v_relname;
+
+    IF v_kind = 'tenant' THEN
+        v_predicate := format('%I = nullif(current_setting(''app.company_id'', true), '''')::uuid',
+                              v_key);
+    ELSIF v_kind = 'shared' THEN
+        v_predicate := format('%I IS NULL OR %I = nullif(current_setting(''app.company_id'', true), '''')::uuid',
+                              v_key, v_key);
+    ELSE
+        -- No cast: `user_preferences.keycloak_user_id` is a VARCHAR, and `::uuid` would make the read
+        -- during authentication fail instead of filter. `''` already matches no row, so this kind
+        -- fails closed without a `nullif` of its own.
+        v_predicate := format('%I = current_setting(''app.user_id'', true)', v_key);
+    END IF;
+
+    EXECUTE format('ALTER TABLE %s ENABLE ROW LEVEL SECURITY', v_target);
+    EXECUTE format('ALTER TABLE %s FORCE ROW LEVEL SECURITY', v_target);
+    -- DROP before CREATE, so a re-applied table converges instead of stacking a second policy.
+    EXECUTE format('DROP POLICY IF EXISTS %I ON %s', v_policy, v_target);
     EXECUTE format('CREATE POLICY %I ON %s FOR ALL USING (%s) WITH CHECK (%s)',
-                   'p_tenant_' || relname, target, predicate, predicate);
-    INSERT INTO tenant_table (table_name, shared_rows) VALUES (target, shared_rows)
-    ON CONFLICT (table_name) DO UPDATE SET shared_rows = EXCLUDED.shared_rows;
+                   v_policy, v_target, v_predicate, v_predicate);
+    INSERT INTO tenant_table AS t (table_name, policy_kind, key_column)
+    SELECT v_target, v_kind, v_key
+    ON CONFLICT (table_name) DO UPDATE
+       SET policy_kind = EXCLUDED.policy_kind,
+           key_column   = EXCLUDED.key_column;
 END $$;
 
 -- ─── the assertion: a company_id column without a policy is a startup failure ─
@@ -129,10 +208,11 @@ SELECT c.oid::regclass AS unprotected_table
                 AND a.attname = 'company_id' AND a.attnum > 0 AND NOT a.attisdropped)
    AND NOT EXISTS (SELECT 1 FROM tenant_table t WHERE t.table_name = c.oid);
 
--- ─── the root is isolated by its own key, not by a company_id column ──────────
-SELECT apply_tenant_isolation('companies', false, 'id');
-SELECT apply_tenant_isolation('product_attribute_profiles', true);
-SELECT apply_tenant_isolation('product_attribute_profile_roots', true);
+-- ─── the root is isolated by its own key, and the person-scoped table by its own kind ────────
+SELECT apply_tenant_isolation('companies', 'tenant', 'id');
+SELECT apply_tenant_isolation('product_attribute_profiles', 'shared');
+SELECT apply_tenant_isolation('product_attribute_profile_roots', 'shared');
+SELECT apply_tenant_isolation('user_preferences', 'subject', 'keycloak_user_id');
 ```
 
 That last query is not documentation: the application runs it at startup and refuses to boot when it
@@ -148,7 +228,7 @@ stops — the shape of ADR-0001's rebuild check.
 | T3 | A cross-tenant `SELECT` returns zero rows with no `WHERE` on company | as `lifecontrol_app` scoped to A, select B's id by primary key: 0 rows |
 | T4 | A cross-tenant `INSERT` is refused | same connection, insert a row naming B's `company_id`: SQLSTATE 42501 |
 | T5 | The owner role is not implicitly exempt | as `lifecontrol_owner`, the same `SELECT` returns 0 rows |
-| T6 | The tenant setting is transaction-local | after commit, `current_setting('app.company_id', true)` is `NULL` on that pooled connection |
+| T6 | The tenant setting is transaction-local | after commit the connection **no longer carries the tenant**: `current_setting('app.company_id', true)` answers `''` on a pooled session that set it once and `NULL` on one that never did, and `nullif(..., '')::uuid` filters every row in both cases |
 | T7 | A shared row is readable by all, an override only by its owner | the `NULL`-owner profile is visible to A and to B; the override only to its tenant |
 | T8 | The sequence grant is not an afterthought | as `lifecontrol_app` scoped to A, insert a row whose `id` comes from an identity column: succeeds |
 
@@ -159,25 +239,40 @@ The parent decision's suite, T2–T5, runs as `lifecontrol_app` on Testcontainer
 One migration per group, in this order, because a policy on a table whose `company_id` is still nullable
 hides the rows it cannot attribute:
 
-1. **Roles and grants.** Create both roles, move ownership to `lifecontrol_owner`, point
-   `DATABASE_USERNAME` at `lifecontrol_app`. Flyway runs as the owner.
+1. **Roles and grants.** Create `lifecontrol_owner` and `lifecontrol_app`, plus the
+   `lifecontrol_bootstrap` maintenance credential (item 3), move ownership to `lifecontrol_owner`, point
+   `DATABASE_USERNAME` at `lifecontrol_app`. Flyway runs as the owner. `CREATE EXTENSION IF NOT EXISTS
+   btree_gist` runs **before** the owner loses `SUPERUSER`, because the reverse order fails the first
+   migration of every fresh database: `V21:27` needs an extension, and afterwards only the bootstrap role
+   can create one.
 2. **Columns first.** A table on the list needs `company_id NOT NULL` before it gets a policy. The
    contract migrations did this for products, variants, suppliers and the store hierarchy
    (`V40:101-102`, `V49:71`); a group still nullable is closed in its own migration, never by guess.
 3. **Identity, store hierarchy and catalog**: `companies` (isolated by `id`, the root —
-   `apply_tenant_isolation('companies', false, 'id')`, the one call that does not use `company_id`),
+   `apply_tenant_isolation('companies', 'tenant', 'id')`, the one call whose key is not `company_id`),
    `company_countries`, `company_regions`, `company_zones`, `company_stores`, `products`,
-   `product_variants`, `product_categories`, `suppliers`, `product_suppliers`, and the two override
-   catalogs with `shared_rows = true`.
+   `product_variants`, `product_categories`, `suppliers`, `product_suppliers`, the two override catalogs
+   with `kind => 'shared'`, and `user_preferences` with `kind => 'subject', key_column =>
+   'keycloak_user_id'` — the one table compared to `app.user_id` and not to a company.
 4. **Documents and operations**: the purchase and sales documents with their lines, the goods receipts,
    `inventory_movements`, `product_variant_locations`, `product_variant_store_stock`, the employee and
    org tables, and `tax_rate` once ADR-0002 exists.
+   **This group is blocked on a column, not on a policy.** Measured in this tree:
+   `purchase_order_details` (`V1:341`), `goods_receipts`/`goods_receipt_items` (`V12:19,39`),
+   `inventory_movements` (`V10:30`), `product_variant_locations` (`V10:18`),
+   `product_variant_store_stock` (`V13:23`), `sales_orders`/`sales_order_items` (`V1:468,496`),
+   `employee_contracts` (`V21:29`), `positions` (`V19:42`), `access_provisioning_tasks` (`V22:36`),
+   `employee_scope_assignments` (`V26:37`) and `customers`/`promotions`/`shifts` (`V1:381,424,448`) carry
+   **no `company_id`**, so none of them can be armed by group 2's rule as written. Giving them the column
+   is a data-model change with its own backfill and its own unit; until it lands, this group is the
+   deferred half of this ADR and the assertion must not claim those tables.
 5. **Assert, then narrow.** The assertion runs inside the migration and T2–T5 are the gate; nothing else
    lands on top until they are green.
 
 Each group is one `PERFORM apply_tenant_isolation(...)` per table: no hand-written `CREATE POLICY`
 anywhere, which is what makes "a new table is a list entry" true rather than aspirational. These land
-**before** every other ADR's, so they take the lowest free versions and ADR-0001's `V52…V55` shift by
+**before** every other ADR's, so they take the lowest free versions — `V52` is already spent on the
+machinery — and ADR-0001's range shifts by
 however many this one takes. The other order writes every policy twice.
 
 ## Rejected alternatives
@@ -187,7 +282,7 @@ however many this one takes. The other order writes every policy twice.
 | A schema per tenant | One schema is one migration set, so every migration becomes N migrations plus a loop that skips a failure on tenant 3 of 40. A cross-tenant report becomes a `UNION` over an unbounded number of schemas, and the pool still pins a schema per request — the same `SET LOCAL` this ADR needs, with more moving parts |
 | Keep the 150 checks and add more discipline | That is the status quo, measured: 150 correct checks and nothing that makes the 151st correct. A review process is not an enforcement mechanism, and the failure it produces is silent |
 | A Hibernate filter or a Spring Data interceptor | It covers only what goes through the ORM. A native query, a JPQL constructor projection (`ProductVariantRepository.java:152-170` is one) or a `JdbcTemplate` call bypasses it without a warning. A defence an already-present pattern silently skips is not a barrier |
-| Policies plus a third `BYPASSRLS` role for admin and batch work | One role that can see everything is one credential that can see everything. The audited service context below is the deliberate alternative |
+| Policies plus an extra `BYPASSRLS` role for admin and batch work | One role that can see everything is one credential that can see everything. The audited service context below is the deliberate alternative. It is not `lifecontrol_bootstrap`, which has no password, no table grant and no way in over TCP |
 
 ## Consequences
 
@@ -227,3 +322,86 @@ document now says what it meant.
    states the rule and names the single elevated exception.
 
 The SQL was not executed: no runner was authorized, so it is read-verified, not observed.
+
+## Corrections applied after acceptance
+
+The decision was implemented on 2026-10-29, and implementation executed its statements against
+PostgreSQL instead of reading them. Three of those statements are wrong — factually, not
+stylistically — and they are corrected here, in the shape of the section above. **The status stays
+`accepted`**: an amendment for factual accuracy does not un-accept a decision. What changes is what the
+document says, not whether it binds; every later slice cites the items as they read now.
+
+1. **Decision item 3 was short one role, and the missing one is a maintenance credential.** `initdb`
+   creates exactly one superuser and it is `POSTGRES_USER` — the owner. Item 3 drops that flag, because
+   a superuser bypasses RLS and the owner runs Flyway; from the **second** run onward the role script
+   then has no role that can do what it does on the first. `ALTER ROLE lifecontrol_app ... PASSWORD`
+   needs `CREATEROLE` or superuser, `ALTER ROLE lifecontrol_owner NOSUPERUSER` needs superuser, and
+   `CREATE EXTENSION` needs superuser — which `V21__employee_contracts.sql:27` already requires for
+   `btree_gist`. The failure mode is `deploy.sh <env> start` aborting on its second run against a
+   database that has no superuser left in it at all. Item 3 is now three roles, three jobs, and the
+   third is `lifecontrol_bootstrap`: `SUPERUSER LOGIN`, **no password** (the container's local socket is
+   `trust`, and a role without a password cannot authenticate over TCP, where the image requires
+   `scram-sha-256`), no grant on any table, and never named by the API wrapper, the exporter or a
+   compose file. The rule that follows is the point of the correction: the bootstrap role is for the DDL
+   PostgreSQL reserves to superuser — creating a role, moving a role's attributes, creating an
+   extension — and **never** for a migration that touches tenant rows, because that connection bypasses
+   every policy, which is exactly what invariant T5 exists to catch.
+
+2. **`shared_rows BOOLEAN` could not express one of the list's own cases.** A boolean says "the row may
+   have no owner", which is the two override catalogs and nothing else: `product_attribute_profiles`
+   (`V37:71`) and `product_attribute_profile_roots` (`V37:140`). `user_preferences` (`V1:368`) is a
+   third shape. Its `company_id` is nullable and holds the user's *chosen* context, and the row is read
+   during authentication before any company is known, so a tenant predicate empties the table exactly
+   when it is needed — and a boolean has no value for that. The list is now
+   `tenant_table(table_name regclass, policy_kind text NOT NULL CHECK (policy_kind IN ('tenant',
+   'shared', 'subject')), key_column text NOT NULL DEFAULT 'company_id')`, and
+   `apply_tenant_isolation(target regclass, kind text DEFAULT 'tenant', key_column text DEFAULT
+   'company_id')` builds the predicate from the kind: `tenant` is the ordinary one, `shared` prefixes
+   `IS NULL OR`, and `subject` compares the key against `app.user_id` with **no** `::uuid` cast, because
+   `user_preferences.keycloak_user_id` is a `VARCHAR` and `''` already matches no row. That kind needs
+   its own setting, so `set_user_scope` joins `set_tenant_scope`: the two facts are independent and a
+   request may legitimately carry one alone. `user_preferences` is the `subject` table; `companies` is
+   isolated by `id` and not by `company_id`. That pair is what `key_column` is for, and the helper no
+   longer guesses — a policy naming a column the table does not have matches no row in silence, so the
+   call raises before it alters anything.
+
+3. **The predicate text raised instead of filtering, on the connection that matters.** The spelling
+   `current_setting('app.company_id', true)::uuid` is correct only in a session that never set the
+   parameter. Measured on `postgres:16-alpine`, in one session: a fresh session answers `NULL`; after
+   **one** transaction-local `set_config` and its `COMMIT` the parameter exists and equals the **empty
+   string**, so the bare cast raises `invalid input syntax for type uuid: ""` (SQLSTATE 22P02), while
+   the read itself is `NULL` and filters. `RESET ALL` and `DISCARD ALL` do not undo it, so that is the
+   steady state of every pooled connection after its first request: an exception where decision 2 and
+   invariant T6 promise zero rows. Every predicate that reads `app.company_id` now reads
+   `nullif(current_setting('app.company_id', true), '')::uuid`, and T6 says what PostgreSQL does instead
+   of what the ADR hoped — after commit the connection **no longer carries the tenant**, and the value
+   that remains is an empty string that filters every row. The `subject` predicate is unchanged and
+   needs no `nullif`: it compares a `VARCHAR`, and `''` already matches no row.
+
+The three were found against the database and the runbook, not against the prose: item 1 by walking the
+role script's second run on a fresh volume, which is where its probe stops finding a superuser; item 2
+by writing the policy list for the fifteen tables that carry `company_id`; item 3 by a session that set
+its scope once and then read a live policy. The SQL in this document now matches
+`V52__tenant_isolation_machinery.sql` token for token — the helper's signature, the closed
+`policy_kind` vocabulary, the three predicate strings and the bootstrap role are the same text —
+because an ADR that disagrees with the migration is a decision nobody can implement. The per-slice
+evidence is recorded in `odd/tasks/tenant-isolation-rls.md` (L4, L6, L10, L11); that record is not
+edited here.
+
+**Four statements the same evidence made false, corrected with them.** They are not new decisions; they
+are consequences of the three above that the document would otherwise keep asserting:
+
+1. **Decision 1 named a mechanism instead of a requirement.** It said "a filter sets `app.company_id`",
+   and this tree has no transaction hook a filter could use: no `TransactionManager`, no
+   `TransactionTemplate`, no `StatementInspector`, and both existing servlet filters run before the
+   security chain, so they cannot read the principal either. The claim that survives is the behavioural
+   one — inside the transaction, before its first query — and it is now what the item states, with the
+   forbidden shape named: a `SET LOCAL` issued on a connection other than the request's is a no-op
+   dressed as enforcement.
+2. **Migration group 4 described work its tables cannot accept.** Thirteen of them carry no `company_id`
+   in this tree, so "arm them" is only true after a data-model change that this ADR never names; the
+   group now says so, and says the assertion must not claim them.
+3. **The extension ordering is load-bearing.** `btree_gist` has to be created before the owner loses
+   `SUPERUSER`, or the first migration of every fresh database fails; step 1 says it.
+4. **The version arithmetic expired.** `V52` is spent on this ADR's machinery, so the sentence that
+   reserved `V52…V55` for ADR-0001 was describing a range that no longer exists.
