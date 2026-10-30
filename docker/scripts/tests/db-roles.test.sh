@@ -496,7 +496,13 @@ assert_file_absent "the API wrapper never names the bootstrap role" "$ENTRYPOINT
 assert_file_absent "the env template declares no bootstrap role or credential" \
 	"$DOCKER_DIR/.env.template" "lifecontrol_bootstrap"
 assert_file_absent "db-roles.sh needs no knowledge of the bootstrap role" "$DB_ROLES_SH" "lifecontrol_bootstrap"
-bootstrap_secrets="$(ls "$DOCKER_DIR/secrets" 2>/dev/null | grep -c bootstrap || true)"
+bootstrap_secrets=0
+for secret in "$DOCKER_DIR/secrets"/*; do
+	[ -e "$secret" ] || continue
+	case "$(basename "$secret")" in
+		*bootstrap*) bootstrap_secrets=$((bootstrap_secrets + 1)) ;;
+	esac
+done
 check_equal "no secret file exists for the bootstrap role" "0" "$bootstrap_secrets"
 
 # ------------------------------------------
