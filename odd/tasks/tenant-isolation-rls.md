@@ -634,3 +634,135 @@ harness measured past the ~400 review budget; the boundaries are recorded here f
 L15 and L19, and the size is stated in the pull request rather than hidden. The file a reviewer should
 read first is `TenantScopeFilter`: `companyOfTheClaims` and `TENANT_AGNOSTIC_PATHS` are the only place
 where an answer is turned into a 403, a tenant, or no scope at all.
+
+L21 — **T5c is the arming, and it was three files: the migration, one flipped suite and one new one.** No
+Java main code changed, and that is the slice's own check: T5b had already made every path state its
+tenant, so arming the tables was a migration and not a hunt for readers.
+
+**What `V53` does.** Sixteen `SELECT apply_tenant_isolation(...)` calls and **not one hand-written
+`CREATE POLICY`** — the property the ADR asks for, and what keeps "a new tenant table is a new list entry"
+true instead of aspirational. The sixteen are S2's fifteen plus `companies`, which leads the file because
+it is the one call that passes a key column: `apply_tenant_isolation('companies', 'tenant', 'id')`. The
+header states the three things the calls cannot: why the root takes a key column (it has no `company_id`;
+the ADR's original helper hardcoded one, which is why the helper gained `key_column` before acceptance) and
+`user_preferences` takes a kind (`subject`, its key is a VARCHAR and it is read before a company is known);
+and decision item 6 as a **rule for every migration after this one** — `FORCE` applies the policies to the
+owner, `lifecontrol_owner` is the role Flyway runs as, so a later migration that `UPDATE`s or `DELETE`s
+rows on an armed table affects **0 rows and reports success**; it calls `set_tenant_scope('<uuid>')` first,
+or it runs in `lifecontrol_bootstrap`'s elevated connection and says why in its own file. `TRUNCATE` is
+untouched, which is exactly why the `V14`/`V40` shape hides the trap.
+
+**The index measurement, because the ADR's `## Consequences` makes `(company_id, …)` load-bearing and says
+"the rest get one in their group's migration".** Measured against the migrations, not assumed: thirteen of
+the sixteen already have the key column leading an index or a unique constraint, and three had nothing
+usable. The three are not accidents — `product_suppliers` and `purchase_orders` got `company_id` in V43 as
+a column carried by a composite FOREIGN KEY, and a referencing-side foreign key creates **no index at all**
+(the index a foreign key needs is on the REFERENCED side); `product_attribute_profile_roots` has a unique
+index on `COALESCE(company_id, '000…')`, which is an EXPRESSION index and cannot answer `company_id =
+<uuid>`. `V53` adds exactly those three, `IF NOT EXISTS`, and nothing else.
+
+| table | key column | covered by | added |
+| --- | --- | --- | --- |
+| `companies` | `id` | `companies_pkey` (V1:46) | no |
+| `company_countries` | `company_id` | `idx_cc_company` (V1:86), `uq_company_countries_company_id` (V44:50) | no |
+| `company_regions` | `company_id` | `uq_company_regions_company_id` (V44:56) | no |
+| `company_zones` | `company_id` | `uq_company_zones_company_id` (V46:37) | no |
+| `company_stores` | `company_id` | `uq_company_stores_company_id` (V48:44) | no |
+| `product_categories` | `company_id` | `uq_product_categories_company_id` (V31:50), `idx_product_categories_company_id` (V31:66) | no |
+| `products` | `company_id` | `uq_products_company_id` (V40:105), `uq_products_company_sku` (V40:120) | no |
+| `product_variants` | `company_id` | `uq_product_variants_company_id` (V40:106) | no |
+| `suppliers` | `company_id` | `uq_suppliers_company_id` (V41:49), `uq_suppliers_company_rfc` (V42:73) | no |
+| `product_suppliers` | `company_id` | nothing: V1:216-217 index `product_id` and `supplier_id`, V43 adds composite FKs | **yes** |
+| `purchase_orders` | `company_id` | nothing: V1:330-336 index six other columns, V43/V51 add composite FKs | **yes** |
+| `departments` | `company_id` | `idx_departments_company_id` (V19:28), `uq_departments_company_*` (V19:25-26) | no |
+| `employees` | `company_id` | `idx_employees_company_id` (V20:51), `uq_employees_company_*` (V20:45-46) | no |
+| `product_attribute_profiles` | `company_id` | `idx_product_attribute_profiles_company_id` (V37:89) | no |
+| `product_attribute_profile_roots` | `company_id` | only the `COALESCE(...)` expression index (V37:149) | **yes** |
+| `user_preferences` | `keycloak_user_id` | `user_preferences_keycloak_user_id_key` (V1:368), `idx_up_keycloak_user` (V1:376) | no |
+
+**The migration ends with the assertion the ADR's group 5 asks for**: a `DO $$ … $$` block that raises when
+`SELECT count(*) FROM unprotected_tenant_tables()` is not zero, with the offending tables aggregated by
+`string_agg` — "one or more tables are unprotected" is not a message an operator can act on. A table
+forgotten here fails the migration that arms the others, which is the half a startup refusal (T3, `V54`)
+cannot cover: by the time the application boots, the omission is applied and the backup is the only way
+back.
+
+**The two assertions T5b's handoff named, flipped rather than deleted**, in
+`TenantScopeFunctionsIntegrationTest`. `unprotectedTenantTablesAreExactlyTheFifteenTheRecordNames` became
+`unprotectedTenantTablesReturnsNothingOnceThePoliciesAreArmed`: the query returns **nothing**, and the same
+case states the flip positively — `tenant_table`'s names contain all fifteen S2 names and are
+`S2_TENANT_TABLES.size() + 1`, because `companies` is the sixteenth and is deliberately outside that
+query's scope (it has no `company_id`). `theListIsEmptyRightAfterTheMigration` became
+`theListHoldsExactlyTheSixteenArmedTables`, and it pins a **set of `table:kind:key` strings**, not a count:
+a policy filtering the wrong column passes any count, and `apply_tenant_isolation` refuses exactly that. The
+third family is the one the handoff called "every case that asserts the count is zero" — there were three
+(`aFourthPolicyKindIsRefusedByTheCheckConstraint`, `aTableWithoutTheKeyColumnIsRefused`,
+`anUnknownKindIsRefused`), and each now captures the count **before** the refused call and asserts it is
+unchanged: "the refused row stored nothing" was true when the list was empty and is false now, while
+"unchanged" says the same fact in both worlds. The probe-table cases are untouched — they roll back and are
+still where the helper's three kinds are proved.
+
+**The armed-state suite, and why it can only exist here.** `TenantPoliciesIntegrationTest` (PostgreSQL,
+`@SpringBootTest`, extends `AbstractPostgresIntegrationTest`) **arms nothing**: the policies are the
+migration's, so a forgotten table fails a suite instead of a request. Every behavioural case inserts its
+fixtures as the container's superuser — which bypasses every policy by attribute, the same trap T1 removed
+from delivery — then `SET LOCAL ROLE lifecontrol_app`, and rolls the whole transaction back in `@AfterEach`
+because sixty-odd suites share this container. Seven cases, one per rule: (1) all sixteen carry
+`relrowsecurity` and `relforcerowsecurity`, exactly one `p_tenant_<table>` policy, `cmd = ALL`, `qual =
+with_check`, and the `tenant_table` row carries the expected kind and key — one loop, so a failure names the
+table; (2) `company_countries` hides another tenant's row and its PK read is empty under A's scope, with the
+superuser count as the control; (3) a cross-tenant insert answers **42501** through a savepoint, and the row
+is read back as the superuser to prove nothing was stored; (4) `companies` by its own `id` — only A's row
+visible, an insert naming B refused, and the case states T5b's consequence (the unscoped administrator read
+is gone, so the list is one read per claim); (5) a global profile and A's override both visible to A, only
+the global one to B; (6) `user_preferences` by subject, with a tenant scope alone answering **nothing**;
+(7) invariant **T5**.
+
+**T5 needed one measurement to be observable at all.** `FORCE` is a fact about the table's **owner**, and
+in this container the tables are owned by `lifecontrol`, a superuser that bypasses RLS by attribute — so
+"the same SELECT as `lifecontrol_owner` returns zero rows" was not true as written: `lifecontrol_owner` owns
+nothing there and holds no grant, and its SELECT fails with `permission denied` rather than filtering. The
+case therefore moves the ownership to `lifecontrol_owner` **inside its own rolled-back transaction**
+(`GRANT CREATE ON SCHEMA public`, `ALTER TABLE company_countries OWNER TO lifecontrol_owner`, both
+transactional), which is the only way a non-superuser can be the owner here, and then asserts the pair: the
+owner reads A's row under A's scope (so the zero is the policy and not a privilege error) and reads **zero**
+rows under B's scope. Without `FORCE` it would read A's row, and the role that runs every migration would
+see every tenant.
+
+Evidence, as observed. **RED first**, against the tree without `V53`: `./gradlew test --tests
+'*TenantScopeFunctionsIntegrationTest' --tests '*TenantPoliciesIntegrationTest'` → **23 tests, 9 failed**,
+and the failures are the ones the slice predicts — `all sixteen tables …` stops at `companies: Expecting
+actual: [false, false] to contain exactly [true, true]` (the table has no policy at all), `the list holds
+exactly the sixteen … : Expecting actual: [] to contain exactly in any order: ["companies:tenant:id", …]`,
+`unprotected_tenant_tables() returns nothing …` with the fifteen names in `expected: []`, and the six
+behavioural cases reading two tenants' rows where one is expected. **GREEN** with `V53` in place: the same
+command → **23 tests, 0 failed** (16 + 7). Then `spotlessApply spotlessCheck spotbugsMain` **BUILD
+SUCCESSFUL**, `./gradlew test --tests '*TenantScope*' --tests '*CompanyTenantScope*'
+--tests '*TenantTaskResolver*' --tests '*ProvisioningWorkerTenantScope*'` → **44 tests, 0 failed**, and
+`./gradlew test` over the whole backend → **4 232 tests in 1 019 classes, 0 failed, 0 skipped** (4 225
+before this slice; the seven new ones are the armed-state suite), which is the number that matters because
+the migration runs for every PostgreSQL suite in the shared container. The repository's eleven shell suites
+→ **385 assertions, 0 failed**, which includes the record's own header guard.
+
+The slice boundaries, for the same reason as L8/L12/L15/L19: `V53` and the two test files are the whole
+change — 3 files, and the record. It splits into two commits: the migration (the delivery half, ~230
+authored lines with its header) and the two suites with this entry. No commit is prepared here; the
+transaction controller owns them.
+
+**Handoff.** To **T3** (`V54`): `unprotected_tenant_tables()` is now the empty set on this tree, so the
+startup refusal it wires can only pass — the reason the record's L9 ordered it last, and the reason its
+suite must still prove the refusal by creating a `company_id` table it does not list. To **T6**: the test
+container's pool still connects as the superuser `lifecontrol`, so **no suite observes a policy** —
+`TenantPoliciesIntegrationTest` is the only class that switches roles, and until T6 points the pool at
+`lifecontrol_app` the T1–T8 suite proves the schema and not the deployment. Two residues, both small: the
+`V53` file is the only place a future tenant table is added to, so the list and the assertion cannot drift;
+and `TenantScopeBoundaryIntegrationTest`'s cleanup comment still names the display name this slice renamed
+("the list is empty right after the migration"), which is cosmetic and outside T5c's edit surface.
+
+The two commits those boundaries name exist: `2fb94620` is `V53` with its header, and this commit carries
+the two suites and this entry. Measured on the branch: 167 the migration, 573 the armed-state suite, 118
+the flipped one (84 insertions, 34 deletions) and 132 this entry — 990 in the two commits, which the harness
+measured at almost two and a half times the ~400 review budget; the pull request states the size. The file a
+reviewer should read first is not the largest one: `TenantPoliciesIntegrationTest`'s case 7, because it is
+the only place where `FORCE` — the invariant that keeps the owner honest — is observed at all, and it has
+to transfer ownership inside its rolled-back transaction to do it.

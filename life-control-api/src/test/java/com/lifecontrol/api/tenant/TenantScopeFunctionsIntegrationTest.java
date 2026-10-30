@@ -22,29 +22,33 @@ import org.springframework.jdbc.core.JdbcTemplate;
  * kinds, {@code apply_tenant_isolation} and the query the startup assertion will run — against real
  * PostgreSQL with Flyway enabled, which is the only stack where Row-Level Security exists at all.
  *
- * <p>What this suite deliberately does <b>not</b> assert is a policy on a real table: the record
- * {@code odd/tasks/tenant-isolation-rls.md} puts the policies in <b>T5</b> and the transaction scope in
- * <b>T4</b>, because a policy without a scope reads zero rows everywhere. The machinery lands first, and
- * this is the slice that proves it is correct without it being armed.</p>
+ * <p>The machinery landed in T2, before anything was armed, because a policy without a scope reads zero
+ * rows everywhere. {@code V53} (T5c) is the migration that applies it, so this class now asserts the
+ * <b>armed</b> state on the two points that flipped: the list is the sixteen rows the migration wrote,
+ * and the assertion query that listed the unprotected tables returns nothing. The rest of the class is
+ * unchanged, and still proves the helper on probe tables inside transactions it rolls back — the only
+ * place its three kinds can be exercised without touching a table the whole suite shares.</p>
  *
  * <p>The two cases that carry the record's weight:</p>
  *
  * <ul>
- *   <li>{@code unprotectedTenantTablesAreExactlyTheFifteenTheRecordNames} is the <b>regression pin</b>.
- *       S2 decided the policy set is «solo las 15 tablas que ya tienen company_id», so the list is frozen
- *       literally here: a sixteenth table that gains the column shows up in this assertion instead of
- *       being either silently protected or silently unprotected. When T5 applies the policies the same
- *       assertion flips to empty — the pin is the same fact from the other side.</li>
- *   <li>{@code theScopeSettingsDieWithTheTransaction} is invariant <b>T6</b> in the shape T2 can observe
- *       it: the value is readable inside the transaction that set it and {@code NULL} after the commit,
- *       so a pooled connection cannot carry one tenant into the next request.</li>
+ *   <li>{@code unprotectedTenantTablesReturnsNothingOnceThePoliciesAreArmed} and
+ *       {@code theListHoldsExactlyTheSixteenArmedTables} are the same pin T2 wrote, from the other side.
+ *       S2 decided the policy set is «solo las 15 tablas que ya tienen company_id», and {@code companies}
+ *       — which carries no {@code company_id} and is isolated by its own {@code id} — is the sixteenth.
+ *       A seventeenth table that gains the column shows up in the assertion instead of being silently
+ *       unprotected, and a wrong kind or key on an armed table shows up in the list instead of filtering
+ *       the wrong column.</li>
+ *   <li>{@code theScopeSettingsDieWithTheTransaction} is invariant <b>T6</b>: the value is readable
+ *       inside the transaction that set it and gone after the commit, so a pooled connection cannot
+ *       carry one tenant into the next request.</li>
  * </ul>
  *
  * <p>Every test that creates anything does so inside one transaction it rolls back, in the container all
  * 64 sibling suites share: a leftover table, policy or list row would leak into them, and a leftover row
- * in {@code tenant_table} would make "the list is empty right after the migration" false for the next
- * reader of this suite. The probe tables are generated from a lower-case alphabet, so no identifier here
- * needs quoting.</p>
+ * in {@code tenant_table} would make "the list is exactly the migration's sixteen rows" false for the
+ * next reader of this suite. The probe tables are generated from a lower-case alphabet, so no identifier
+ * here needs quoting.</p>
  */
 @SpringBootTest
 @DisplayName("Tenant scope functions and the isolation list")
@@ -67,6 +71,31 @@ class TenantScopeFunctionsIntegrationTest extends AbstractPostgresIntegrationTes
             "purchase_orders",
             "suppliers",
             "user_preferences");
+
+    /**
+     * The sixteen armed rows of {@code V53}, as {@code table:kind:key}, frozen literally for the same
+     * reason as {@link #S2_TENANT_TABLES}: the kind and the key column <b>are</b> the predicate, so an
+     * armed table with the wrong one is a policy that filters the wrong thing — and it passes any
+     * assertion that only counts rows. Sixteen and not fifteen because {@code companies} is the root,
+     * isolated by its own {@code id}.
+     */
+    private static final List<String> ARMED_TENANT_TABLES = List.of(
+            "companies:tenant:id",
+            "company_countries:tenant:company_id",
+            "company_regions:tenant:company_id",
+            "company_stores:tenant:company_id",
+            "company_zones:tenant:company_id",
+            "departments:tenant:company_id",
+            "employees:tenant:company_id",
+            "product_attribute_profile_roots:shared:company_id",
+            "product_attribute_profiles:shared:company_id",
+            "product_categories:tenant:company_id",
+            "product_suppliers:tenant:company_id",
+            "product_variants:tenant:company_id",
+            "products:tenant:company_id",
+            "purchase_orders:tenant:company_id",
+            "suppliers:tenant:company_id",
+            "user_preferences:subject:keycloak_user_id");
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
@@ -141,16 +170,22 @@ class TenantScopeFunctionsIntegrationTest extends AbstractPostgresIntegrationTes
     }
 
     // ──────────────────────────────────────
-    // The list: empty, and closed to a fourth kind
+    // The list: the sixteen armed rows, and closed to a fourth kind
     // ──────────────────────────────────────
 
     @Test
-    @DisplayName("the list is empty right after the migration: it is written by the policy, not by hand")
-    void theListIsEmptyRightAfterTheMigration() {
-        assertThat(countOfTenantTableRows())
-                .as("a pre-populated row would be a table claimed as protected without a policy, so "
-                        + "`listed` and `protected` could drift apart")
-                .isZero();
+    @DisplayName("the list holds exactly the sixteen armed tables, with their kind and their key")
+    void theListHoldsExactlyTheSixteenArmedTables() {
+        var rows = jdbcTemplate.queryForList("""
+                SELECT table_name::text || ':' || policy_kind || ':' || key_column
+                  FROM tenant_table
+                 ORDER BY table_name::text
+                """, String.class);
+
+        assertThat(rows)
+                .as("V53's sixteen rows, and not a count of them: a table armed with the wrong kind or "
+                        + "the wrong key column filters the wrong thing in silence, which no count can see")
+                .containsExactlyInAnyOrderElementsOf(ARMED_TENANT_TABLES);
     }
 
     @Test
@@ -158,6 +193,7 @@ class TenantScopeFunctionsIntegrationTest extends AbstractPostgresIntegrationTes
     void aFourthPolicyKindIsRefusedByTheCheckConstraint() throws SQLException {
         var connection = beginTransaction();
         var probe = createProbeTable(connection, "kind", "id uuid PRIMARY KEY");
+        var before = countOfTenantTableRows(connection);
 
         var refusal = refusalInSavepoint(connection, """
                 INSERT INTO tenant_table (table_name, policy_kind) VALUES ('%s'::regclass, 'global')
@@ -167,8 +203,8 @@ class TenantScopeFunctionsIntegrationTest extends AbstractPostgresIntegrationTes
                 .as("the three kinds are the closed vocabulary the record decided, not a convention")
                 .contains("tenant_table_policy_kind_closed");
         assertThat(countOfTenantTableRows(connection))
-                .as("the refused row stored nothing")
-                .isZero();
+                .as("the refused row stored nothing: the list is still exactly the migration's")
+                .isEqualTo(before);
     }
 
     // ──────────────────────────────────────
@@ -176,14 +212,22 @@ class TenantScopeFunctionsIntegrationTest extends AbstractPostgresIntegrationTes
     // ──────────────────────────────────────
 
     @Test
-    @DisplayName("unprotected_tenant_tables() returns exactly the fifteen tables S2 names")
-    void unprotectedTenantTablesAreExactlyTheFifteenTheRecordNames() {
+    @DisplayName("unprotected_tenant_tables() returns nothing: the frozen fifteen are the armed sixteen")
+    void unprotectedTenantTablesReturnsNothingOnceThePoliciesAreArmed() {
         var unprotected = jdbcTemplate.queryForList("SELECT t::text FROM unprotected_tenant_tables() t", String.class);
 
         assertThat(unprotected)
-                .as("S2 fixed the policy set at the fifteen tables that already carry company_id; a "
-                        + "sixteenth is a decision, and this assertion is where it gets made")
-                .containsExactlyInAnyOrderElementsOf(S2_TENANT_TABLES);
+                .as("the same pin from the other side: S2 froze the fifteen tables that carry company_id "
+                        + "while the policies were still to come, V53 armed all of them, and the query that "
+                        + "listed them returns no row. The next table that gains the column appears here "
+                        + "instead of being silently unprotected — `companies` is not in this query's scope "
+                        + "at all, because it carries no company_id and is isolated by its own id")
+                .isEmpty();
+        assertThat(armedTables())
+                .as("the flip stated as the fact that changed: the frozen fifteen are armed, and the "
+                        + "sixteenth is the root")
+                .containsAll(S2_TENANT_TABLES)
+                .hasSize(S2_TENANT_TABLES.size() + 1);
     }
 
     // ──────────────────────────────────────
@@ -440,6 +484,7 @@ class TenantScopeFunctionsIntegrationTest extends AbstractPostgresIntegrationTes
     void aTableWithoutTheKeyColumnIsRefused() throws SQLException {
         var connection = beginTransaction();
         var probe = createProbeTable(connection, "nokey", "id uuid PRIMARY KEY");
+        var before = countOfTenantTableRows(connection);
 
         var refusal = refusalInSavepoint(connection, "SELECT apply_tenant_isolation('%s'::regclass)".formatted(probe));
 
@@ -457,8 +502,9 @@ class TenantScopeFunctionsIntegrationTest extends AbstractPostgresIntegrationTes
                         probe))
                 .isZero();
         assertThat(countOfTenantTableRows(connection))
-                .as("and writes no list row")
-                .isZero();
+                .as("and writes no list row: the list is unchanged, not empty — V53's sixteen rows are "
+                        + "the migration's and this call added none")
+                .isEqualTo(before);
     }
 
     @Test
@@ -466,6 +512,7 @@ class TenantScopeFunctionsIntegrationTest extends AbstractPostgresIntegrationTes
     void anUnknownKindIsRefused() throws SQLException {
         var connection = beginTransaction();
         var probe = createProbeTable(connection, "badkind", "id uuid PRIMARY KEY, company_id uuid NOT NULL");
+        var before = countOfTenantTableRows(connection);
 
         var refusal = refusalInSavepoint(connection, """
                 SELECT apply_tenant_isolation('%s'::regclass, 'tenantt')
@@ -476,7 +523,9 @@ class TenantScopeFunctionsIntegrationTest extends AbstractPostgresIntegrationTes
                 .contains("unknown policy kind tenantt")
                 .contains("tenant, shared, subject");
         assertThat(rlsFlags(connection, probe)).containsExactly(false, false);
-        assertThat(countOfTenantTableRows(connection)).isZero();
+        assertThat(countOfTenantTableRows(connection))
+                .as("the list is what the migration left, unchanged")
+                .isEqualTo(before);
     }
 
     // ──────────────────────────────────────
@@ -602,8 +651,9 @@ class TenantScopeFunctionsIntegrationTest extends AbstractPostgresIntegrationTes
         }
     }
 
-    private int countOfTenantTableRows() {
-        return jdbcTemplate.queryForObject("SELECT count(*) FROM tenant_table", Integer.class);
+    /** The armed tables' names, read as the superuser: {@code tenant_table} carries no policy. */
+    private List<String> armedTables() {
+        return jdbcTemplate.queryForList("SELECT table_name::text FROM tenant_table", String.class);
     }
 
     private static int countOfTenantTableRows(Connection connection) throws SQLException {
