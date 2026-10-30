@@ -394,3 +394,126 @@ paths; and then the policies, group by group, with `employees` now armable becau
 resolver. `access_provisioning_tasks` stays off the list on purpose — its due-task scan is cross-tenant
 and arming it would stop the worker from finding work at all — so it is a `company_id`-free table and the
 assertion's rule ("a `company_id` table must be listed") does not apply to it.
+
+L17 — **T5a is written: the two helpers, and no policy.** The resolver, the worker's one read through it,
+and the two claim-less admin paths. Five measurements decided the shape, and two of them contradict what
+this record assumed.
+
+**The columns are the ones L16 guessed, and the join is FK-backed.** `access_provisioning_tasks`
+(`V22__employee_access_provisioning.sql:36-46`) is `(id, employee_id → employees(id), kind, status, …)`
+with `employee_id UUID NOT NULL REFERENCES employees(id)`, and `employees` (`V20:33-38`) is
+`(id, company_id UUID NOT NULL REFERENCES companies(id), …)`. So the body is the fixed join L16 wrote, and
+the task→employee→company path cannot dangle. `access_provisioning_tasks` still carries **no**
+`company_id`, and nothing in the tree suggests it should: the due-task scan (`findDueTaskIds`) and the
+stale scan are cross-tenant **by design** (the worker must find work from every tenant), so a policy on
+that table would need a scope the pass cannot have before it reads a task. The column is the shape a
+platform queue would want, but it would have to arrive *with* a way to scan across tenants, which is the
+problem it looks like it solves.
+
+**`LANGUAGE sql` cannot be created where the function has to live.** On a fresh volume
+`/docker-entrypoint-initdb.d` runs **before** Flyway, so `employees` does not exist yet; a SQL-language
+body is parse-analysed at creation time and fails with `relation "access_provisioning_tasks" does not
+exist`. The delivered body is `LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = pg_catalog,
+public, pg_temp`, which resolves names on first execution — legal before the tables, idempotent after
+them — and the file says so in a comment. The rest is as L16 decided: `CREATE OR REPLACE`, then
+`ALTER FUNCTION … OWNER TO lifecontrol_bootstrap`, `REVOKE ALL … FROM PUBLIC`, `GRANT EXECUTE … TO
+lifecontrol_app`, and a read-back that raises when the owner is not the maintenance role, when the
+function is not `SECURITY DEFINER`, when `PUBLIC` still reaches it (`aclexplode … grantee = 0`, or a NULL
+acl, which is the default grant) or when the app role cannot. The file now owns exactly one schema object,
+and the header says why: ownership is the bypass.
+
+**The company id was *not* generated in Java, and the entity had to change.** `Company.id` was
+`@GeneratedValue(strategy = GenerationType.UUID)` and `companies.id` (`V1:46`) has **no database
+default**, so the value came from Hibernate at persist time — inside the transaction, after `doBegin`
+read the scope. Hibernate 7 cannot be talked out of it: `AbstractSaveEventListener.generateId` passes the
+assigned value only when `generator.allowAssignedIdentifiers()` is true, and `UuidGenerator.generate`
+ignores it (`hibernate-core-7.4.13.Final-sources.jar`, measured). So `Company` now has a plain `@Id` plus
+a `@PrePersist` that assigns a UUID **only when the caller stated none**, which keeps every other
+`save` path (fixtures, the employee and provisioning suites) working and lets the service pass the id the
+scope names. The service generates it, wraps the whole insert in `TenantScope.with(id, …)` and drives the
+transaction **itself** (`TransactionTemplate`), because a `@Transactional` method's body runs after the
+boundary it has to feed: the id and the scope are therefore stated in `createCompany(CompanyRequest)`, so
+the controller and the one test that calls the service directly both get it. The `CompanyCreatedEvent`
+still fires inside that transaction, which is what its `AFTER_COMMIT` listener needs.
+
+**The list is one read per claim, and that costs the database-side page.** `companies` is armed by `id`,
+so a non-admin read needs that claim as the scope; one transaction cannot state two tenants and widening
+the policy is forbidden. `findAllByIdIn` and `findBySearchTermAndIdIn` are gone, and the claim path reads
+`findById(claim)` inside `TenantScope.with(claim, …)`, projects inside the transaction (`address` is lazy)
+and pages the collected list. One nuance worth stating instead of discovering: `CurrentUserContext
+.getCompanyIds()` returns a **`HashSet`** (`common/auth/CurrentUserContext.java:463-466`), so "claim order"
+is the claim *set's* iteration order — deterministic, but not the JWT's own order. A `LinkedHashSet` there
+would make it the claim's order, and that file is outside this slice's surface. The admin branch is
+untouched on purpose: under the armed policy its unscoped `findAll` is answered by the policy, which is
+T5b's question and not this one.
+
+**The test container has no resolver function, and that is the residual this slice hands to T5b.** The
+function is created by `docker/postgres-init/lifecontrol-roles.sql`; the Testcontainers instance runs
+`src/test/resources/test-container-roles.sql`, which creates the two roles and nothing else, and that file
+is outside T5a's edit surface. Three worker suites run the real pass on that container, so the repository
+cannot simply call the function: it asks the **database** (dialect first, then
+`to_regprocedure('public.task_employee_company(uuid)')`, through the transaction's own connection) and
+falls back to the employee join only where no ADR-0005 machinery exists. That fallback is fail-closed in
+the direction that matters — under an armed policy it reads zero rows rather than another tenant's — but
+**T5b must give the container the function before it arms `employees`**, or its own worker suites go red.
+The two are one deployment story: the container is the only PostgreSQL this tree has that never runs the
+roles script.
+
+Evidence, as observed. **Resolver**: `docker/scripts/tests/db-roles.test.sh` grew a section 1b (17
+assertions: signature, body, `plpgsql`, ownership `ALTER` and read-back, `SECURITY DEFINER` read-back,
+`REVOKE`/`GRANT`, no `TO PUBLIC`, and the two orderings — the function after `CREATE ROLE
+lifecontrol_app` at line 42 > 28 and after `lifecontrol_bootstrap` at 42 > 17). **RED**, measured against
+the base file (`git show HEAD:…` piped through the suite's own `sql_code` filter): all five needles
+absent. **GREEN**: `db-roles: 111 passed, 0 failed` (94 before this slice). **The pair**, as one test:
+`TenantTaskResolverIntegrationTest.theResolverAnswersWhereThePolicyHidesTheRow` arms the real
+`apply_tenant_isolation('employees', 'tenant')` in a transaction it rolls back, shows the superuser
+control (1 row), then as `lifecontrol_app` the **plain read returns 0** while
+`task_employee_company(task)` returns the company. **The worker's path**: the same class' second case
+creates the fixture, the policy, the function and its grant on its own transaction's connection,
+`SET LOCAL ROLE lifecontrol_app`, and asserts the **repository** (`findEmployeeCompanyIdByTaskId`) returns
+the company and nothing for an unknown task. **RED** for both Java pieces was run with three temporary
+reverts — `usesResolver()` forced to the join, `createCompany` without `TenantScope.with`, and
+`apply_tenant_isolation('companies', 'tenant')` without its key column — and produced exactly the three
+expected failures: `Optional.empty()` where the company was expected (the join returns nothing under the
+policy), a `null` scope at the transaction, and `apply_tenant_isolation: companies has no column
+company_id`, which is the helper refusing the wrong key. **GREEN** after restoring: 4/4 in the two new
+classes, then `./gradlew test --tests '*TenantScope*' --tests '*Company*'` green, and the four worker
+suites plus `StarterProductCategoryCompanyCreationIntegrationTest` green as the PRESERVE half (the
+fallback branch, the assigned-id create and its `AFTER_COMMIT` seed, and `CompanyServiceTest`'s claim
+cases). `spotlessApply`/`spotlessCheck` and `spotbugsMain` green; all 22 `docker/scripts/tests/*.test.sh`
+suites green.
+
+The company-write case is two cases on purpose, because the claim has two halves that cannot be observed
+per stack: the policy half runs on one connection under `apply_tenant_isolation('companies', 'tenant',
+'id')` as `lifecontrol_app` — the row the creating tenant writes is readable by it, invisible to another
+tenant's scope, and a write naming another tenant is refused with SQLSTATE 42501 — and the Java half runs
+through the real service and observes the scope the transaction was opened with plus the row it
+committed, because arming a policy outside a transaction would leak into the 60-odd suites that share the
+container. Authored lines: 8 modified files (this entry aside) and 4 new (2 main, 2 test) — measured,
+`git diff --numstat` on the code alone is 412 insertions / 98 deletions, plus 680 new file lines of which
+520 are the two suites. This entry is 97 of the 509 insertions `git diff --stat` reports for the branch.
+
+L18 — **the test container cannot create an object before Flyway without changing one property, and the
+symptom names neither.** The first attempt put `task_employee_company` in
+`src/test/resources/test-container-roles.sql`, which runs before the context: Flyway then reads a `public`
+schema that already holds an object, treats it as an existing database, **baselines at version 1** and
+records `V1__baseline_schema.sql` as applied without running it. The first migration to fail is
+`V2__seed_countries.sql` with `relation "countries" does not exist` — a message that names neither Flyway
+nor the fixture, which is why the resolution is a comment and not only a line. The test profile now sets
+`spring.flyway.baseline-version=0`: for a database the suite owns and just created, "nothing is applied
+yet, apply everything" is the only true statement, and it changes nothing for an empty container because
+the baseline does not trigger there. Measured both ways (`baselined schema with version: 1` → V2 dies;
+`version: 0` → V1 … V52 apply), and two offline assertions in `db-roles.test.sh` now pin the property and
+the symptom so the line cannot be reverted quietly.
+
+Two smaller facts from the same round worth keeping. **(a)** The resolver's fallback for non-PostgreSQL is
+the employee join, and PostgreSQL **without** the function is now an `IllegalStateException` naming
+`./docker/scripts/db-roles.sh <env>`: the reachable silent case was never a test container but a restored
+cluster, whose Flyway history already contains V52 while the roles — cluster globals — do not travel in a
+schema dump. Spring re-wraps that exception as `InvalidDataAccessApiUsageException` at the repository
+proxy; the message survives, and the worker stores it as `last_error` per task, which is where an operator
+reads it. **(b)** `Company.id` had to stop being `@GeneratedValue`: Hibernate generated it at persist time,
+*inside* the transaction, after the boundary hook had already read the holder, so the scope could never
+have been the new company — measured in `hibernate-core` 7.4.13 (`UuidGenerator` ignores an assigned id).
+The entity is now `@Id` with a `@PrePersist` fallback and the service generates the id before the
+transaction it states.
