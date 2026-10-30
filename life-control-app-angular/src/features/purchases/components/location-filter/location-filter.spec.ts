@@ -2,11 +2,11 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 import { MatSelect } from '@angular/material/select';
 import { of } from 'rxjs';
-import { PurchaseOrderLocationFilter } from './location-filter';
+import { PurchaseLocationFilter } from './location-filter';
 import { LocationPreference } from '@features/user/profile/data/location-preference.service';
 import { ProfileService } from '@features/user/profile/data/profile.service';
 import type { LocationChain, ProfileResponse } from '@features/user/profile/data/profile.models';
-import type { PurchaseOrderLocationSelection } from '../../models/purchase-order-location-filter.models';
+import type { PurchaseLocationSelection } from '../../models/purchase-location-filter.models';
 import { CompanyService } from '@features/companies/companies/data/company.service';
 import { CompanyCountryService } from '@features/companies/countries/data/company-country.service';
 import { CompanyRegionService } from '@features/companies/regions/data/company-region.service';
@@ -118,7 +118,7 @@ const mockStores: CompanyStore[] = [
   },
 ];
 
-const emptySelection: PurchaseOrderLocationSelection = {
+const emptySelection: PurchaseLocationSelection = {
   companyId: null,
   companyCountryId: null,
   regionId: null,
@@ -185,9 +185,9 @@ class MockCompanyStoreService {
     );
 }
 
-describe('PurchaseOrderLocationFilter', () => {
-  let fixture: ComponentFixture<PurchaseOrderLocationFilter>;
-  let component: PurchaseOrderLocationFilter;
+describe('PurchaseLocationFilter', () => {
+  let fixture: ComponentFixture<PurchaseLocationFilter>;
+  let component: PurchaseLocationFilter;
   /** The chain the profile reports for the next mount; `null` means no preference. */
   let location: LocationChain | null;
   let companyService: MockCompanyService;
@@ -195,7 +195,7 @@ describe('PurchaseOrderLocationFilter', () => {
   let regionService: MockCompanyRegionService;
   let zoneService: MockCompanyZoneService;
   let storeService: MockCompanyStoreService;
-  let emitted: PurchaseOrderLocationSelection[];
+  let emitted: PurchaseLocationSelection[];
 
   beforeEach(async () => {
     location = null;
@@ -207,7 +207,7 @@ describe('PurchaseOrderLocationFilter', () => {
     emitted = [];
 
     await TestBed.configureTestingModule({
-      imports: [PurchaseOrderLocationFilter],
+      imports: [PurchaseLocationFilter],
       providers: [
         { provide: CompanyService, useValue: companyService },
         { provide: CompanyCountryService, useValue: countryService },
@@ -231,7 +231,7 @@ describe('PurchaseOrderLocationFilter', () => {
   }
 
   function mount(): void {
-    fixture = TestBed.createComponent(PurchaseOrderLocationFilter);
+    fixture = TestBed.createComponent(PurchaseLocationFilter);
     component = fixture.componentInstance;
     component.selection.subscribe((selection) => emitted.push(selection));
   }
@@ -242,7 +242,7 @@ describe('PurchaseOrderLocationFilter', () => {
       .map((debug) => debug.componentInstance as unknown as MatSelect);
   }
 
-  function lastSelection(): PurchaseOrderLocationSelection | undefined {
+  function lastSelection(): PurchaseLocationSelection | undefined {
     return emitted.at(-1);
   }
 

@@ -6,8 +6,8 @@ import { of, throwError } from 'rxjs';
 import { HttpErrorResponse } from '@angular/common/http';
 import { PurchaseOrderList } from './purchase-order-list';
 import { PurchaseOrderService } from '../../data/purchase-order.service';
-import { PurchaseOrderLocationFilter } from '../../components/location-filter/location-filter';
-import type { PurchaseOrderLocationSelection } from '../../models/purchase-order-location-filter.models';
+import { PurchaseLocationFilter } from '../../../components/location-filter/location-filter';
+import type { PurchaseLocationSelection } from '../../../models/purchase-location-filter.models';
 import type { PurchaseOrder, Page } from '../../models/purchase-order.models';
 
 interface ServiceMock {
@@ -20,12 +20,12 @@ interface ServiceMock {
  * the real component keeps this suite from having to mock six data services it does not test.
  */
 @Component({
-  selector: 'app-purchase-order-location-filter',
+  selector: 'app-purchase-location-filter',
   standalone: true,
   template: '<div class="location-filter-stub"></div>',
 })
 class LocationFilterStub {
-  readonly selection = output<PurchaseOrderLocationSelection>();
+  readonly selection = output<PurchaseLocationSelection>();
 }
 
 const mockOrders: PurchaseOrder[] = [
@@ -86,8 +86,8 @@ const createMockPage = (orders: PurchaseOrder[], page = 0, size = 12): Page<Purc
 
 /** The five required/optional levels, with the three required ones filled by default. */
 const location = (
-  overrides: Partial<PurchaseOrderLocationSelection> = {},
-): PurchaseOrderLocationSelection => ({
+  overrides: Partial<PurchaseLocationSelection> = {},
+): PurchaseLocationSelection => ({
   companyId: 'company-1',
   companyCountryId: 'country-1',
   regionId: 'region-1',
@@ -128,7 +128,7 @@ describe('PurchaseOrderList', () => {
       ],
     })
       .overrideComponent(PurchaseOrderList, {
-        remove: { imports: [PurchaseOrderLocationFilter] },
+        remove: { imports: [PurchaseLocationFilter] },
         add: { imports: [LocationFilterStub] },
       })
       .compileComponents();
