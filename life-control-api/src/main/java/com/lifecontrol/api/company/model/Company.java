@@ -10,8 +10,17 @@ import java.util.UUID;
 @Table(name = "companies")
 public class Company extends Auditable {
 
+    /**
+     * The company's identity, assigned in memory and never by a generator.
+     *
+     * <p>ADR-0005 isolates {@code companies} by its own {@code id}, so this value <b>is</b> the row's
+     * tenant, and the transaction that inserts the row has to state it before its first statement. A
+     * generated id is created by Hibernate at persist time — inside the transaction, after the boundary
+     * hook already read the scope — so the creating service generates the id first, states it, and
+     * passes it here; the entity accepts the value it is given instead of replacing it with a second
+     * random one (record L17: {@code GenerationType.UUID}'s generator ignores an assigned value).</p>
+     */
     @Id
-    @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
     @Column(name = "company_key", nullable = false, unique = true)
@@ -71,6 +80,21 @@ public class Company extends Auditable {
 
     // Default constructor for JPA
     public Company() {}
+
+    /**
+     * Assigns an identity to an entity whose caller stated none, so every existing {@code save} path keeps
+     * inserting a row with an id.
+     *
+     * <p>The creating service states the id it needs the scope to carry; this is the fallback for the
+     * entity's other callers (fixtures, the employee and provisioning suites), and it runs before the
+     * insert either way.</p>
+     */
+    @PrePersist
+    void assignIdWhenAbsent() {
+        if (id == null) {
+            id = UUID.randomUUID();
+        }
+    }
 
     // Getters
     public UUID getId() {
