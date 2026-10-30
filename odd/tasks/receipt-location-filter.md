@@ -136,3 +136,22 @@ cierta por diseño de `S2`.
 Issue **#686** (`feat(web): add the store hierarchy filter to /purchases/receipts`), abierto con los
 criterios de aceptación. Queda pendiente de `status:approved` de un maintainer antes del PR: la
 aprobación no la aplica quien escribe.
+
+**L8 — evidencia de gates y cortes (2026-10-30)**
+Rama `feat/receipt-location-filter`, tres cortes más el registro, sin push ni PR (decisión del usuario):
+
+| Commit | Alcance |
+| --- | --- |
+| `3761e264` | `docs(odd): record the receipt location filter` |
+| `5123a997` | `feat(api): filter goods receipts by the store hierarchy` (T1 + T2) |
+| `800bf336` | `refactor(web): share the location filter between both purchase lists` (T3) |
+| `3c8b3534` | `feat(web): add the store hierarchy filter to the receipt list` (T4) |
+
+API, desde `life-control-api`: `./gradlew spotlessApply spotlessCheck spotbugsMain test` →
+*BUILD SUCCESSFUL*; la suite nueva del finder corrió **7 tests, 0 skipped, 0 failures** contra PostgreSQL 16
+(Testcontainers). Angular, desde `life-control-app-angular`: `npm run lint` → *All files pass linting*;
+`npm run build` → *Application bundle generation complete*; `npm run test:coverage:check` →
+**193 archivos, 4041 tests en verde**, statements 86.44 %, branches 86.11 %, functions 80.76 %,
+lines 89.39 %, los cuatro sobre el umbral. E2E: `E2E_PORT=4311 npx playwright test` → **19 passed** en un
+server propio del worktree (`L6` explica por qué el puerto cambia y por qué una corrida en `:4200` no
+prueba nada).
