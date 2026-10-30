@@ -157,3 +157,12 @@ and every template in the repo ships `CHANGEME`, which the role wrapper refuses:
 the API wrapper now refuses to start without that file. The postgres exporter also moves from a superuser
 to a `NOSUPERUSER` owner, so its collectors need one look on a live stack — `deploy.sh health` would only
 notice a completely down target.
+
+L8 — the slice boundaries of T1, recorded because the harness measured the branch past the ~400-line
+budget and the boundary has to live in the document and not in a session. T1 is **three commits in one
+pull request**, each a reviewable unit: `declaration` (the record, the secret, the compose mounts, the env
+keys, the wrapper, `validate-env.sh` and the three extended suites, 363 authored lines), `creation` (the
+role SQL, the init wrapper, `db-roles.sh` and the `deploy.sh` ordering) and `suite` (the offline
+`db-roles.test.sh` that pins both). The suite is its own commit on purpose: it is one readable artifact
+and it asserts a contract that spans the other two, which is exactly why splitting it across pull requests
+was rejected in L6.
