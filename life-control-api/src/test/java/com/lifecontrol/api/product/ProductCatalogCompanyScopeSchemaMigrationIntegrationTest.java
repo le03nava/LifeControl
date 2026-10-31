@@ -73,11 +73,22 @@ class ProductCatalogCompanyScopeSchemaMigrationIntegrationTest extends AbstractP
         // variants go first because `fk_product_variants_product_same_company` holds the product in
         // place. Every row count below is therefore scoped to the prefix as well: `SELECT COUNT(*)
         // FROM products` is an assertion about whatever ran before this class.
-        jdbcTemplate.update("""
-                DELETE FROM product_variants WHERE product_id IN (SELECT id FROM products WHERE sku LIKE 'PCS-%')
-                """);
-        jdbcTemplate.update("DELETE FROM products WHERE sku LIKE 'PCS-%'");
-        jdbcTemplate.update("DELETE FROM product_categories WHERE category_name LIKE 'PCS %'");
+        //
+        // Run once per tenant this suite writes: an unscoped DELETE on an armed table matches no row, so
+        // a single table-wide sweep would leave every fixture behind for the next class to count.
+        deleteOwnRows(catalogCompanyId());
+        deleteOwnRows(otherCompanyId());
+    }
+
+    /** The three sweeps of the cleanup, run inside one tenant. */
+    private void deleteOwnRows(UUID companyId) {
+        TenantFixtures.inTenant(companyId, () -> {
+            jdbcTemplate.update("""
+                    DELETE FROM product_variants WHERE product_id IN (SELECT id FROM products WHERE sku LIKE 'PCS-%')
+                    """);
+            jdbcTemplate.update("DELETE FROM products WHERE sku LIKE 'PCS-%'");
+            jdbcTemplate.update("DELETE FROM product_categories WHERE category_name LIKE 'PCS %'");
+        });
     }
 
     @Test
@@ -94,7 +105,7 @@ class ProductCatalogCompanyScopeSchemaMigrationIntegrationTest extends AbstractP
                         .contains("company_id")
                         .contains("not-null"));
 
-        assertThat(countProducts()).isZero();
+        assertThat(countProducts(catalogCompanyId())).isZero();
     }
 
     @Test
@@ -115,7 +126,7 @@ class ProductCatalogCompanyScopeSchemaMigrationIntegrationTest extends AbstractP
                         .contains("company_id")
                         .contains("not-null"));
 
-        assertThat(countVariants()).isZero();
+        assertThat(countVariants(companyId)).isZero();
     }
 
     @Test
@@ -125,19 +136,20 @@ class ProductCatalogCompanyScopeSchemaMigrationIntegrationTest extends AbstractP
         var otherCompanyId = otherCompanyId();
 
         insertProduct(companyId, "PCS-SHARED-SKU", null);
-        var inOtherCompany = jdbcTemplate.update("""
+        var inOtherCompany = TenantFixtures.inTenant(
+                otherCompanyId, () -> jdbcTemplate.update("""
                 INSERT INTO products (id, sku, name, company_id) VALUES (?, 'PCS-SHARED-SKU', 'Same SKU elsewhere', ?)
-                """, UUID.randomUUID(), otherCompanyId);
+                """, UUID.randomUUID(), otherCompanyId));
 
         assertThat(inOtherCompany)
                 .as("two businesses legitimately sell the same SKU")
                 .isEqualTo(1);
 
-        assertViolatesConstraint("uq_products_company_sku", """
+        assertViolatesConstraint(companyId, "uq_products_company_sku", """
                 INSERT INTO products (id, sku, name, company_id) VALUES (?, 'PCS-SHARED-SKU', 'Twice', ?)
                 """, UUID.randomUUID(), companyId);
 
-        assertThat(countProducts()).isEqualTo(2);
+        assertThat(countProducts(companyId, otherCompanyId)).isEqualTo(2);
     }
 
     @Test
@@ -149,21 +161,23 @@ class ProductCatalogCompanyScopeSchemaMigrationIntegrationTest extends AbstractP
         var otherProductId = insertProduct(otherCompanyId, "PCS-BC-OTHER", null);
 
         insertVariant(companyId, productId, "PCS-BC-SHARED", "26");
-        var inOtherCompany = jdbcTemplate.update("""
+        var inOtherCompany = TenantFixtures.inTenant(
+                otherCompanyId, () -> jdbcTemplate.update("""
                 INSERT INTO product_variants (id, company_id, product_id, bar_code, variant_name)
                 VALUES (?, ?, ?, 'PCS-BC-SHARED', '26')
-                """, UUID.randomUUID(), otherCompanyId, otherProductId);
+                """, UUID.randomUUID(), otherCompanyId, otherProductId));
 
         assertThat(inOtherCompany)
                 .as("the same physical product in two businesses is two catalogs")
                 .isEqualTo(1);
 
-        assertViolatesConstraint("uq_product_variants_company_bar_code", """
+        assertViolatesConstraint(
+                companyId, "uq_product_variants_company_bar_code", """
                 INSERT INTO product_variants (id, company_id, product_id, bar_code, variant_name)
                 VALUES (?, ?, ?, 'PCS-BC-SHARED', '27')
                 """, UUID.randomUUID(), companyId, productId);
 
-        assertThat(countVariants()).isEqualTo(2);
+        assertThat(countVariants(companyId, otherCompanyId)).isEqualTo(2);
     }
 
     @Test
@@ -174,11 +188,11 @@ class ProductCatalogCompanyScopeSchemaMigrationIntegrationTest extends AbstractP
         var foreignCategoryId = insertCategory(otherCompanyId, "PCS Bebidas");
 
         assertViolatesConstraint(
-                "fk_products_category_same_company", """
+                companyId, "fk_products_category_same_company", """
                 INSERT INTO products (id, sku, name, company_id, category_id) VALUES (?, 'PCS-CROSS-CAT', 'Cross', ?, ?)
                 """, UUID.randomUUID(), companyId, foreignCategoryId);
 
-        assertThat(countProducts()).isZero();
+        assertThat(countProducts(companyId)).isZero();
     }
 
     @Test
@@ -192,7 +206,7 @@ class ProductCatalogCompanyScopeSchemaMigrationIntegrationTest extends AbstractP
 
         assertThat(unclassified).as("classification is optional").isNotNull();
         assertThat(classified).as("a same-company category is accepted").isNotNull();
-        assertThat(countProducts()).isEqualTo(2);
+        assertThat(countProducts(companyId)).isEqualTo(2);
     }
 
     @Test
@@ -203,12 +217,17 @@ class ProductCatalogCompanyScopeSchemaMigrationIntegrationTest extends AbstractP
         var productId = insertProduct(companyId, "PCS-VARIANT-OWNER", null);
 
         assertViolatesConstraint(
-                "fk_product_variants_product_same_company", """
+                otherCompanyId,
+                "fk_product_variants_product_same_company",
+                """
                 INSERT INTO product_variants (id, company_id, product_id, bar_code, variant_name)
                 VALUES (?, ?, ?, 'PCS-BC-CROSS', '26')
-                """, UUID.randomUUID(), otherCompanyId, productId);
+                """,
+                UUID.randomUUID(),
+                otherCompanyId,
+                productId);
 
-        assertThat(countVariants()).isZero();
+        assertThat(countVariants(companyId)).isZero();
     }
 
     @Test
@@ -257,41 +276,65 @@ class ProductCatalogCompanyScopeSchemaMigrationIntegrationTest extends AbstractP
 
     private UUID insertProduct(UUID companyId, String sku, UUID categoryId) {
         var id = UUID.randomUUID();
-        jdbcTemplate.update("""
+        TenantFixtures.inTenant(
+                companyId, () -> jdbcTemplate.update("""
                 INSERT INTO products (id, sku, name, company_id, category_id) VALUES (?, ?, ?, ?, ?)
-                """, id, sku, "Seed product " + sku, companyId, categoryId);
+                """, id, sku, "Seed product " + sku, companyId, categoryId));
         return id;
     }
 
     private UUID insertVariant(UUID companyId, UUID productId, String barCode, String variantName) {
         var id = UUID.randomUUID();
-        jdbcTemplate.update("""
+        TenantFixtures.inTenant(
+                companyId, () -> jdbcTemplate.update("""
                 INSERT INTO product_variants (id, company_id, product_id, bar_code, variant_name)
                 VALUES (?, ?, ?, ?, ?)
-                """, id, companyId, productId, barCode, variantName);
+                """, id, companyId, productId, barCode, variantName));
         return id;
     }
 
     private UUID insertCategory(UUID companyId, String name) {
         var id = UUID.randomUUID();
-        jdbcTemplate.update("""
+        TenantFixtures.inTenant(companyId, () -> jdbcTemplate.update("""
                 INSERT INTO product_categories (id, company_id, category_name) VALUES (?, ?, ?)
-                """, id, companyId, name);
+                """, id, companyId, name));
         return id;
     }
 
-    /** Rows this suite owns: an unscoped count would measure whatever ran before this class. */
-    private int countProducts() {
-        return jdbcTemplate.queryForObject("SELECT COUNT(*) FROM products WHERE sku LIKE 'PCS-%'", Integer.class);
+    /**
+     * The rows this suite owns, counted per tenant and summed.
+     *
+     * <p>A single unscoped count measures whatever ran before this class — and, once the pool connects as
+     * the application role, nothing at all: the policy filters {@code products} to the scope the
+     * connection stated. The statement names the tenant in its own predicate for the same reason: it
+     * answers the same question on the superuser pool the default run uses (where the scope is inert and a
+     * filtered count still counts each tenant's rows once) and on the application pool the gate will use.
+     * </p>
+     */
+    private int countProducts(UUID... companyIds) {
+        var total = 0;
+        for (var companyId : companyIds) {
+            total += TenantFixtures.inTenant(
+                    companyId,
+                    () -> jdbcTemplate.queryForObject(
+                            "SELECT COUNT(*) FROM products WHERE company_id = ? AND sku LIKE 'PCS-%'",
+                            Integer.class, companyId));
+        }
+        return total;
     }
 
-    /** Rows this suite owns, reached through the product that carries its prefix. */
-    private int countVariants() {
-        return jdbcTemplate.queryForObject("""
-                SELECT COUNT(*) FROM product_variants v
-                JOIN products p ON p.id = v.product_id
-                WHERE p.sku LIKE 'PCS-%'
-                """, Integer.class);
+    /** Rows this suite owns, reached through the product that carries its prefix, one tenant at a time. */
+    private int countVariants(UUID... companyIds) {
+        var total = 0;
+        for (var companyId : companyIds) {
+            total += TenantFixtures.inTenant(
+                    companyId, () -> jdbcTemplate.queryForObject("""
+                    SELECT COUNT(*) FROM product_variants v
+                    JOIN products p ON p.id = v.product_id
+                    WHERE v.company_id = ? AND p.sku LIKE 'PCS-%'
+                    """, Integer.class, companyId));
+        }
+        return total;
     }
 
     /**
@@ -318,9 +361,12 @@ class ProductCatalogCompanyScopeSchemaMigrationIntegrationTest extends AbstractP
     /**
      * Asserts the raw write is rejected by a real PostgreSQL constraint and that the reported error
      * names the exact constraint, so a violation still tells the operator which tenancy rule broke.
+     *
+     * <p>The write runs inside {@code companyId}'s tenant: the scope is what the row names, so the policy
+     * admits the write and the constraint under test is the rule that refuses it.</p>
      */
-    private void assertViolatesConstraint(String constraintName, String sql, Object... args) {
-        assertThatThrownBy(() -> jdbcTemplate.update(sql, args))
+    private void assertViolatesConstraint(UUID companyId, String constraintName, String sql, Object... args) {
+        assertThatThrownBy(() -> TenantFixtures.inTenant(companyId, () -> jdbcTemplate.update(sql, args)))
                 .as("write rejected by %s", constraintName)
                 .isInstanceOf(DataIntegrityViolationException.class)
                 .satisfies(thrown -> assertThat(((DataIntegrityViolationException) thrown)

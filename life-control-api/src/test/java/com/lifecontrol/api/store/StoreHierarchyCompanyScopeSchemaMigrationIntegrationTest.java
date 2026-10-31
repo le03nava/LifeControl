@@ -57,13 +57,13 @@ class StoreHierarchyCompanyScopeSchemaMigrationIntegrationTest extends AbstractP
     private UUID paymentMethodId;
     private UUID draftPurchaseOrderStatusId;
 
-    private final List<UUID> insertedPurchaseOrders = new ArrayList<>();
-    private final List<UUID> insertedStores = new ArrayList<>();
-    private final List<UUID> insertedZones = new ArrayList<>();
-    private final List<UUID> insertedRegions = new ArrayList<>();
-    private final List<UUID> insertedCompanyCountries = new ArrayList<>();
-    private final List<UUID> insertedSuppliers = new ArrayList<>();
-    private final List<UUID> insertedCompanies = new ArrayList<>();
+    private final List<InsertedRow> insertedPurchaseOrders = new ArrayList<>();
+    private final List<InsertedRow> insertedStores = new ArrayList<>();
+    private final List<InsertedRow> insertedZones = new ArrayList<>();
+    private final List<InsertedRow> insertedRegions = new ArrayList<>();
+    private final List<InsertedRow> insertedCompanyCountries = new ArrayList<>();
+    private final List<InsertedRow> insertedSuppliers = new ArrayList<>();
+    private final List<InsertedRow> insertedCompanies = new ArrayList<>();
 
     @BeforeEach
     void insertCompaniesAndTheirCountry() {
@@ -88,33 +88,33 @@ class StoreHierarchyCompanyScopeSchemaMigrationIntegrationTest extends AbstractP
     @AfterEach
     void removeInsertedRows() {
         // Leaf first: every list below references the one after it.
-        for (var id : insertedPurchaseOrders) {
-            jdbcTemplate.update("DELETE FROM purchase_orders WHERE id = ?", id);
+        for (var row : insertedPurchaseOrders) {
+            deleteRow(row, "DELETE FROM purchase_orders WHERE id = ?");
         }
         insertedPurchaseOrders.clear();
-        for (var id : insertedStores) {
-            jdbcTemplate.update("DELETE FROM company_stores WHERE id = ?", id);
+        for (var row : insertedStores) {
+            deleteRow(row, "DELETE FROM company_stores WHERE id = ?");
         }
         insertedStores.clear();
-        for (var id : insertedZones) {
-            jdbcTemplate.update("DELETE FROM company_zones WHERE id = ?", id);
+        for (var row : insertedZones) {
+            deleteRow(row, "DELETE FROM company_zones WHERE id = ?");
         }
         insertedZones.clear();
-        for (var id : insertedRegions) {
-            jdbcTemplate.update("DELETE FROM company_regions WHERE id = ?", id);
+        for (var row : insertedRegions) {
+            deleteRow(row, "DELETE FROM company_regions WHERE id = ?");
         }
         insertedRegions.clear();
-        for (var id : insertedCompanyCountries) {
-            jdbcTemplate.update("DELETE FROM company_countries WHERE id = ?", id);
+        for (var row : insertedCompanyCountries) {
+            deleteRow(row, "DELETE FROM company_countries WHERE id = ?");
         }
         insertedCompanyCountries.clear();
         // Suppliers reference companies, so the child goes first.
-        for (var id : insertedSuppliers) {
-            jdbcTemplate.update("DELETE FROM suppliers WHERE id = ?", id);
+        for (var row : insertedSuppliers) {
+            deleteRow(row, "DELETE FROM suppliers WHERE id = ?");
         }
         insertedSuppliers.clear();
-        for (var id : insertedCompanies) {
-            jdbcTemplate.update("DELETE FROM companies WHERE id = ?", id);
+        for (var row : insertedCompanies) {
+            deleteRow(row, "DELETE FROM companies WHERE id = ?");
         }
         insertedCompanies.clear();
     }
@@ -152,8 +152,7 @@ class StoreHierarchyCompanyScopeSchemaMigrationIntegrationTest extends AbstractP
     void regionInsideItsCountryIsAccepted() {
         var regionId = insertRegion(companyCountryId, companyAId);
 
-        assertThat(jdbcTemplate.queryForObject(
-                        "SELECT company_id FROM company_regions WHERE id = ?", UUID.class, regionId))
+        assertThat(regionOwner(companyAId, regionId))
                 .as("the accepted row stores the company it was written with")
                 .isEqualTo(companyAId);
     }
@@ -164,16 +163,17 @@ class StoreHierarchyCompanyScopeSchemaMigrationIntegrationTest extends AbstractP
         var refusedId = UUID.randomUUID();
         var suffix = UUID.randomUUID().toString().substring(0, 6).toUpperCase();
 
-        assertThatThrownBy(() -> jdbcTemplate.update(
-                        """
+        assertThatThrownBy(() -> TenantFixtures.inTenant(
+                        companyBId,
+                        () -> jdbcTemplate.update(
+                                """
                 INSERT INTO company_regions (id, company_country_id, company_id, region_code, region_name, enabled)
                 VALUES (?, ?, ?, ?, ?, true)
-                """, refusedId, companyCountryId, companyBId, suffix, "Foreign region " + suffix))
+                """, refusedId, companyCountryId, companyBId, suffix, "Foreign region " + suffix)))
                 .isInstanceOf(DataIntegrityViolationException.class)
                 .hasMessageContaining("fk_company_regions_country_same_company");
 
-        assertThat(jdbcTemplate.queryForObject(
-                        "SELECT COUNT(*) FROM company_regions WHERE id = ?", Integer.class, refusedId))
+        assertThat(countRegion(companyBId, refusedId))
                 .as("the refused insert stored nothing")
                 .isZero();
     }
@@ -184,14 +184,17 @@ class StoreHierarchyCompanyScopeSchemaMigrationIntegrationTest extends AbstractP
         var regionId = UUID.randomUUID();
         var suffix = UUID.randomUUID().toString().substring(0, 6).toUpperCase();
 
-        jdbcTemplate.update("""
+        // The scope is the company the trigger derives, because the policy checks the row the trigger
+        // produced: an insert that names no owner is still this tenant's row.
+        TenantFixtures.inTenant(
+                companyAId,
+                () -> jdbcTemplate.update("""
                 INSERT INTO company_regions (id, company_country_id, region_code, region_name, enabled)
                 VALUES (?, ?, ?, ?, true)
-                """, regionId, companyCountryId, suffix, "Derived region " + suffix);
-        insertedRegions.add(regionId);
+                """, regionId, companyCountryId, suffix, "Derived region " + suffix));
+        insertedRegions.add(new InsertedRow(companyAId, regionId));
 
-        assertThat(jdbcTemplate.queryForObject(
-                        "SELECT company_id FROM company_regions WHERE id = ?", UUID.class, regionId))
+        assertThat(regionOwner(companyAId, regionId))
                 .as("the database is the author of this column: an absent owner is the country's, not a refusal")
                 .isEqualTo(companyAId);
     }
@@ -227,7 +230,7 @@ class StoreHierarchyCompanyScopeSchemaMigrationIntegrationTest extends AbstractP
         var regionId = insertRegion(companyCountryId, companyAId);
         var zoneId = insertZone(regionId, companyAId);
 
-        assertThat(jdbcTemplate.queryForObject("SELECT company_id FROM company_zones WHERE id = ?", UUID.class, zoneId))
+        assertThat(zoneOwner(companyAId, zoneId))
                 .as("the accepted row stores the company it was written with")
                 .isEqualTo(companyAId);
     }
@@ -239,16 +242,17 @@ class StoreHierarchyCompanyScopeSchemaMigrationIntegrationTest extends AbstractP
         var refusedId = UUID.randomUUID();
         var suffix = UUID.randomUUID().toString().substring(0, 6).toUpperCase();
 
-        assertThatThrownBy(() ->
-                        jdbcTemplate.update("""
+        assertThatThrownBy(() -> TenantFixtures.inTenant(
+                        companyBId,
+                        () -> jdbcTemplate.update(
+                                """
                 INSERT INTO company_zones (id, company_region_id, company_id, zone_code, zone_name, enabled)
                 VALUES (?, ?, ?, ?, ?, true)
-                """, refusedId, regionId, companyBId, suffix, "Foreign zone " + suffix))
+                """, refusedId, regionId, companyBId, suffix, "Foreign zone " + suffix)))
                 .isInstanceOf(DataIntegrityViolationException.class)
                 .hasMessageContaining("fk_company_zones_region_same_company");
 
-        assertThat(jdbcTemplate.queryForObject(
-                        "SELECT COUNT(*) FROM company_zones WHERE id = ?", Integer.class, refusedId))
+        assertThat(countZone(companyBId, refusedId))
                 .as("the refused insert stored nothing")
                 .isZero();
     }
@@ -260,13 +264,16 @@ class StoreHierarchyCompanyScopeSchemaMigrationIntegrationTest extends AbstractP
         var zoneId = UUID.randomUUID();
         var suffix = UUID.randomUUID().toString().substring(0, 6).toUpperCase();
 
-        jdbcTemplate.update("""
+        // The scope is the company the trigger derives, because the policy checks the row the trigger
+        // produced: an insert that names no owner is still this tenant's row.
+        TenantFixtures.inTenant(
+                companyAId, () -> jdbcTemplate.update("""
                 INSERT INTO company_zones (id, company_region_id, zone_code, zone_name, enabled)
                 VALUES (?, ?, ?, ?, true)
-                """, zoneId, regionId, suffix, "Derived zone " + suffix);
-        insertedZones.add(zoneId);
+                """, zoneId, regionId, suffix, "Derived zone " + suffix));
+        insertedZones.add(new InsertedRow(companyAId, zoneId));
 
-        assertThat(jdbcTemplate.queryForObject("SELECT company_id FROM company_zones WHERE id = ?", UUID.class, zoneId))
+        assertThat(zoneOwner(companyAId, zoneId))
                 .as("the database is the author of this column: an absent owner is the region's, not a refusal")
                 .isEqualTo(companyAId);
     }
@@ -303,8 +310,7 @@ class StoreHierarchyCompanyScopeSchemaMigrationIntegrationTest extends AbstractP
         var zoneId = insertZone(regionId, companyAId);
         var storeId = insertStore(zoneId, companyAId);
 
-        assertThat(jdbcTemplate.queryForObject(
-                        "SELECT company_id FROM company_stores WHERE id = ?", UUID.class, storeId))
+        assertThat(storeOwner(companyAId, storeId))
                 .as("the accepted row stores the company it was written with")
                 .isEqualTo(companyAId);
     }
@@ -317,15 +323,16 @@ class StoreHierarchyCompanyScopeSchemaMigrationIntegrationTest extends AbstractP
         var refusedId = UUID.randomUUID();
         var suffix = UUID.randomUUID().toString().substring(0, 6).toUpperCase();
 
-        assertThatThrownBy(() -> jdbcTemplate.update("""
+        assertThatThrownBy(() -> TenantFixtures.inTenant(
+                        companyBId,
+                        () -> jdbcTemplate.update("""
                 INSERT INTO company_stores (id, company_zone_id, company_id, store_name, enabled)
                 VALUES (?, ?, ?, ?, true)
-                """, refusedId, zoneId, companyBId, "Foreign store " + suffix))
+                """, refusedId, zoneId, companyBId, "Foreign store " + suffix)))
                 .isInstanceOf(DataIntegrityViolationException.class)
                 .hasMessageContaining("fk_company_stores_zone_same_company");
 
-        assertThat(jdbcTemplate.queryForObject(
-                        "SELECT COUNT(*) FROM company_stores WHERE id = ?", Integer.class, refusedId))
+        assertThat(countStore(companyBId, refusedId))
                 .as("the refused insert stored nothing")
                 .isZero();
     }
@@ -338,14 +345,15 @@ class StoreHierarchyCompanyScopeSchemaMigrationIntegrationTest extends AbstractP
         var storeId = UUID.randomUUID();
         var suffix = UUID.randomUUID().toString().substring(0, 6).toUpperCase();
 
-        jdbcTemplate.update("""
+        // The scope is the company the trigger derives, because the policy checks the row the trigger
+        // produced: an insert that names no owner is still this tenant's row.
+        TenantFixtures.inTenant(companyAId, () -> jdbcTemplate.update("""
                 INSERT INTO company_stores (id, company_zone_id, store_name, enabled)
                 VALUES (?, ?, ?, true)
-                """, storeId, zoneId, "Derived store " + suffix);
-        insertedStores.add(storeId);
+                """, storeId, zoneId, "Derived store " + suffix));
+        insertedStores.add(new InsertedRow(companyAId, storeId));
 
-        assertThat(jdbcTemplate.queryForObject(
-                        "SELECT company_id FROM company_stores WHERE id = ?", UUID.class, storeId))
+        assertThat(storeOwner(companyAId, storeId))
                 .as("the database is the author of this column: an absent owner is the zone's, not a refusal")
                 .isEqualTo(companyAId);
     }
@@ -362,7 +370,7 @@ class StoreHierarchyCompanyScopeSchemaMigrationIntegrationTest extends AbstractP
 
         var id = insertPurchaseOrder(companyAId, storeOfA, supplierOfA);
 
-        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM purchase_orders WHERE id = ?", Integer.class, id))
+        assertThat(countPurchaseOrder(companyAId, id))
                 .as("the order whose store and supplier both belong to its company is written")
                 .isEqualTo(1);
     }
@@ -380,8 +388,7 @@ class StoreHierarchyCompanyScopeSchemaMigrationIntegrationTest extends AbstractP
                 .isInstanceOf(DataIntegrityViolationException.class)
                 .hasMessageContaining("fk_purchase_orders_store_same_company");
 
-        assertThat(jdbcTemplate.queryForObject(
-                        "SELECT COUNT(*) FROM purchase_orders WHERE id = ?", Integer.class, refusedId))
+        assertThat(countPurchaseOrder(companyBId, refusedId))
                 .as("the refused order stored nothing")
                 .isZero();
     }
@@ -423,7 +430,7 @@ class StoreHierarchyCompanyScopeSchemaMigrationIntegrationTest extends AbstractP
 
     private UUID insertCompany(String key, String name, String rfc) {
         var id = TenantFixtures.insertCompany(jdbcTemplate, key, name, rfc);
-        insertedCompanies.add(id);
+        insertedCompanies.add(new InsertedRow(id, id));
         return id;
     }
 
@@ -432,11 +439,11 @@ class StoreHierarchyCompanyScopeSchemaMigrationIntegrationTest extends AbstractP
         // `suppliers.rfc` is VARCHAR(13): an 8-character suffix keeps the prefix and the total legal.
         var rfc = rfcPrefix
                 + UUID.randomUUID().toString().replace("-", "").substring(0, 8).toUpperCase();
-        jdbcTemplate.update("""
+        TenantFixtures.inTenant(companyId, () -> jdbcTemplate.update("""
                 INSERT INTO suppliers (id, supplier_name, rfc, company_id)
                 VALUES (?, 'Proveedor', ?, ?)
-                """, id, rfc, companyId);
-        insertedSuppliers.add(id);
+                """, id, rfc, companyId));
+        insertedSuppliers.add(new InsertedRow(companyId, id));
         return id;
     }
 
@@ -447,64 +454,144 @@ class StoreHierarchyCompanyScopeSchemaMigrationIntegrationTest extends AbstractP
     }
 
     private void insertPurchaseOrderWithId(UUID id, UUID companyId, UUID storeId, UUID supplierId) {
-        jdbcTemplate.update(
-                """
+        var orderNumber = "SCHEMA-PO-" + UUID.randomUUID().toString().substring(0, 8);
+        TenantFixtures.inTenant(
+                companyId,
+                () -> jdbcTemplate.update(
+                        """
                 INSERT INTO purchase_orders (id, order_number, supplier_id, company_store_id,
                                              payment_method_id, status_id, company_id, enabled)
                 VALUES (?, ?, ?, ?, ?, ?, ?, true)
                 """,
-                id,
-                "SCHEMA-PO-" + UUID.randomUUID().toString().substring(0, 8),
-                supplierId,
-                storeId,
-                paymentMethodId,
-                draftPurchaseOrderStatusId,
-                companyId);
-        insertedPurchaseOrders.add(id);
+                        id,
+                        orderNumber,
+                        supplierId,
+                        storeId,
+                        paymentMethodId,
+                        draftPurchaseOrderStatusId,
+                        companyId));
+        insertedPurchaseOrders.add(new InsertedRow(companyId, id));
     }
 
     private UUID insertCompanyCountry(UUID companyId) {
         var id = UUID.randomUUID();
-        jdbcTemplate.update(
-                "INSERT INTO company_countries (id, company_id, country_id) VALUES (?, ?, ?)",
-                id,
+        TenantFixtures.inTenant(
                 companyId,
-                countryId);
-        insertedCompanyCountries.add(id);
+                () -> jdbcTemplate.update(
+                        "INSERT INTO company_countries (id, company_id, country_id) VALUES (?, ?, ?)",
+                        id,
+                        companyId,
+                        countryId));
+        insertedCompanyCountries.add(new InsertedRow(companyId, id));
         return id;
     }
 
     private UUID insertRegion(UUID companyCountry, UUID companyId) {
         var id = UUID.randomUUID();
         var suffix = UUID.randomUUID().toString().substring(0, 6).toUpperCase();
-        jdbcTemplate.update("""
+        TenantFixtures.inTenant(
+                companyId,
+                () -> jdbcTemplate.update("""
                 INSERT INTO company_regions (id, company_country_id, company_id, region_code, region_name, enabled)
                 VALUES (?, ?, ?, ?, ?, true)
-                """, id, companyCountry, companyId, suffix, "Schema region " + suffix);
-        insertedRegions.add(id);
+                """, id, companyCountry, companyId, suffix, "Schema region " + suffix));
+        insertedRegions.add(new InsertedRow(companyId, id));
         return id;
     }
 
     private UUID insertZone(UUID companyRegion, UUID companyId) {
         var id = UUID.randomUUID();
         var suffix = UUID.randomUUID().toString().substring(0, 6).toUpperCase();
-        jdbcTemplate.update("""
+        TenantFixtures.inTenant(
+                companyId,
+                () -> jdbcTemplate.update("""
                 INSERT INTO company_zones (id, company_region_id, company_id, zone_code, zone_name, enabled)
                 VALUES (?, ?, ?, ?, ?, true)
-                """, id, companyRegion, companyId, suffix, "Schema zone " + suffix);
-        insertedZones.add(id);
+                """, id, companyRegion, companyId, suffix, "Schema zone " + suffix));
+        insertedZones.add(new InsertedRow(companyId, id));
         return id;
     }
 
     private UUID insertStore(UUID companyZone, UUID companyId) {
         var id = UUID.randomUUID();
         var suffix = UUID.randomUUID().toString().substring(0, 6).toUpperCase();
-        jdbcTemplate.update("""
+        TenantFixtures.inTenant(
+                companyId, () -> jdbcTemplate.update("""
                 INSERT INTO company_stores (id, company_zone_id, company_id, store_name, enabled)
                 VALUES (?, ?, ?, ?, true)
-                """, id, companyZone, companyId, "Schema store " + suffix);
-        insertedStores.add(id);
+                """, id, companyZone, companyId, "Schema store " + suffix));
+        insertedStores.add(new InsertedRow(companyId, id));
         return id;
+    }
+
+    /**
+     * A row this class inserted, with the tenant whose policy guards it.
+     *
+     * <p>The tenant travels with the id because the cleanup below has to state it: an unscoped
+     * {@code DELETE} on an armed table matches no row, so a fixture that forgot it would leave every row
+     * behind for the next class of the shared container to count.</p>
+     */
+    private record InsertedRow(UUID companyId, UUID id) {}
+
+    /** Deletes one row inside the tenant that guards it. */
+    private void deleteRow(InsertedRow row, String sql) {
+        TenantFixtures.inTenant(row.companyId(), () -> jdbcTemplate.update(sql, row.id()));
+    }
+
+    /** The stored region's owner, read inside the tenant it belongs to. */
+    private UUID regionOwner(UUID companyId, UUID regionId) {
+        return TenantFixtures.inTenant(
+                companyId,
+                () -> jdbcTemplate.queryForObject(
+                        "SELECT company_id FROM company_regions WHERE id = ?", UUID.class, regionId));
+    }
+
+    /** The stored zone's owner, read inside the tenant it belongs to. */
+    private UUID zoneOwner(UUID companyId, UUID zoneId) {
+        return TenantFixtures.inTenant(
+                companyId,
+                () -> jdbcTemplate.queryForObject(
+                        "SELECT company_id FROM company_zones WHERE id = ?", UUID.class, zoneId));
+    }
+
+    /** The stored store's owner, read inside the tenant it belongs to. */
+    private UUID storeOwner(UUID companyId, UUID storeId) {
+        return TenantFixtures.inTenant(
+                companyId,
+                () -> jdbcTemplate.queryForObject(
+                        "SELECT company_id FROM company_stores WHERE id = ?", UUID.class, storeId));
+    }
+
+    /** The stored region, counted inside its own tenant. */
+    private int countRegion(UUID companyId, UUID regionId) {
+        return TenantFixtures.inTenant(
+                companyId,
+                () -> jdbcTemplate.queryForObject(
+                        "SELECT COUNT(*) FROM company_regions WHERE id = ?", Integer.class, regionId));
+    }
+
+    /** The stored zone, counted inside its own tenant. */
+    private int countZone(UUID companyId, UUID zoneId) {
+        return TenantFixtures.inTenant(
+                companyId,
+                () -> jdbcTemplate.queryForObject(
+                        "SELECT COUNT(*) FROM company_zones WHERE id = ?", Integer.class, zoneId));
+    }
+
+    /** The stored store, counted inside its own tenant. */
+    private int countStore(UUID companyId, UUID storeId) {
+        return TenantFixtures.inTenant(
+                companyId,
+                () -> jdbcTemplate.queryForObject(
+                        "SELECT COUNT(*) FROM company_stores WHERE id = ?", Integer.class, storeId));
+    }
+
+    /** The stored order, counted inside its own tenant. */
+    private int countPurchaseOrder(UUID companyId, UUID id) {
+        return TenantFixtures.inTenant(
+                companyId,
+                () -> jdbcTemplate.queryForObject(
+                        "SELECT COUNT(*) FROM purchase_orders WHERE id = ?", Integer.class, id));
     }
 
     /** A store of company A, through the whole zone chain, reusing the level helpers above. */
