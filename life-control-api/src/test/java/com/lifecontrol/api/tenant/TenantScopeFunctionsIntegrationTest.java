@@ -9,7 +9,6 @@ import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
-import javax.sql.DataSource;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -100,9 +99,6 @@ class TenantScopeFunctionsIntegrationTest extends AbstractPostgresIntegrationTes
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
-    @Autowired
-    private DataSource dataSource;
-
     /** One connection per test at most, opened with {@link #beginTransaction()} and closed below. */
     private Connection transaction;
 
@@ -118,6 +114,24 @@ class TenantScopeFunctionsIntegrationTest extends AbstractPostgresIntegrationTes
             transaction.close();
             transaction = null;
         }
+    }
+
+    /**
+     * One connection per test at most, opened here and closed above — as the container's <b>own</b> login.
+     *
+     * <p>The role is a parameter of this suite, not an ambient fact: since T6b-4 the pool logs in as
+     * {@code lifecontrol_app}, and these cases need the opposite premise. They create the probe tables they
+     * arm ({@code ALTER TABLE … ENABLE/FORCE ROW LEVEL SECURITY} requires the table's owner) and their
+     * controls are deliberately unfiltered reads — “the row exists, so the zero below is the predicate” —
+     * which only a role no policy applies to can make. Each case that wants the policy's answer switches down
+     * with {@code SET [LOCAL] ROLE lifecontrol_app} on this connection, which is the role delivery's pool
+     * runs as.</p>
+     */
+    private Connection beginTransaction() throws SQLException {
+        transaction =
+                DriverManager.getConnection(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
+        transaction.setAutoCommit(false);
+        return transaction;
     }
 
     // ──────────────────────────────────────
@@ -540,12 +554,6 @@ class TenantScopeFunctionsIntegrationTest extends AbstractPostgresIntegrationTes
      * A second company, so a case can be "this tenant's row is filtered and mine is not".
      */
     private static final UUID COMPANY_B = UUID.fromString("0b000000-0000-4000-8000-00000000000b");
-
-    private Connection beginTransaction() throws SQLException {
-        transaction = dataSource.getConnection();
-        transaction.setAutoCommit(false);
-        return transaction;
-    }
 
     private static void exec(Connection connection, String sql, String... parameters) throws SQLException {
         try (var statement = connection.prepareStatement(sql)) {

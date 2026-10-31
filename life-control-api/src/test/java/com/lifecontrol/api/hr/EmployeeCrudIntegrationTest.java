@@ -426,20 +426,31 @@ class EmployeeCrudIntegrationTest extends AbstractPostgresIntegrationTest {
          * The child tables are the whole reason the parent delete can fail; a new table that
          * references {@code employees} would reintroduce #562 without touching this suite. The
          * assertion is derived from the catalogue, so it fails for the table nobody remembered.
+         *
+         * <p><b>Why {@code pg_catalog.pg_constraint} and not {@code information_schema}.</b> The SQL-standard
+         * views are role-filtered by design, and the pool logs in as {@code lifecontrol_app}, which owns
+         * nothing (S5's default since T6b-4). Measured on this container, with the role holding
+         * {@code SELECT/INSERT/UPDATE/DELETE} on every table: {@code information_schema.table_constraints}
+         * answers 99 foreign-key rows, while {@code information_schema.constraint_column_usage} answers
+         * <b>zero</b> — its definition filters on {@code pg_has_role(c.relowner, 'USAGE')}, so it lists columns
+         * only of tables the caller owns, and {@code has_table_privilege(…)} is {@code true} for this role while
+         * {@code pg_has_role(owner)} is {@code false}. The join over the two views was therefore empty for the
+         * role and not for the superuser the pool used to be, and that asymmetry — not a missing grant — is
+         * what made this case fail. {@code pg_catalog} answers for any role that may connect, so the rule is
+         * read from the catalogue that answers for the role the suite runs as. What it proves is unchanged:
+         * every table carrying a foreign key to {@code employees} has to be emptied by the shared helper, and a
+         * new one fails here.
          */
         @Test
         @DisplayName("every table that references employees is cleaned by the shared helper")
         void everyReferencingTableIsCleaned() {
             var referencing = jdbcTemplate.queryForList("""
-                    SELECT tc.table_name
-                      FROM information_schema.table_constraints tc
-                      JOIN information_schema.constraint_column_usage ccu
-                        ON ccu.constraint_name = tc.constraint_name
-                       AND ccu.constraint_schema = tc.constraint_schema
-                     WHERE tc.constraint_type = 'FOREIGN KEY'
-                       AND ccu.table_name = 'employees'
-                       AND tc.table_name <> 'employees'
-                     ORDER BY tc.table_name
+                    SELECT c.conrelid::regclass::text
+                      FROM pg_constraint c
+                     WHERE c.contype = 'f'
+                       AND c.confrelid = 'employees'::regclass
+                       AND c.conrelid <> 'employees'::regclass
+                     ORDER BY 1
                     """, String.class);
 
             assertThat(referencing)

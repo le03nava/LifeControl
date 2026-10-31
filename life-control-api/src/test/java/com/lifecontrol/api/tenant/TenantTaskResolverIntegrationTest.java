@@ -19,6 +19,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.Bean;
 import org.springframework.orm.jpa.EntityManagerFactoryUtils;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -47,6 +49,14 @@ import org.springframework.transaction.annotation.Transactional;
  * {@code REVOKE FROM PUBLIC} and the {@code GRANT EXECUTE} to the application role in the script itself.
  * </p>
  *
+ * <p><b>What each case runs as.</b> This suite's pool logs in as the container's <b>own</b> user — a
+ * SUPERUSER — declared by {@link SuperuserPoolConfiguration} rather than inherited, because the facts these
+ * cases observe are the machinery's: {@code apply_tenant_isolation} arms the real {@code employees} table with
+ * {@code ALTER TABLE … FORCE ROW LEVEL SECURITY}, which only the table's owner or a superuser may run, and the
+ * controls that prove the row exists before the policy hides it must be unfiltered. Since T6b-4 the shared pool
+ * is {@code lifecontrol_app}, so a suite needing the superuser states it; each case that wants the policy's
+ * answer switches down with {@code SET LOCAL ROLE lifecontrol_app} on the same connection.</p>
+ *
  * <p><b>Why the second case creates the resolver inside its own transaction.</b> It has to observe the
  * statement the worker's repository really runs, and the container has no function until the roles script
  * runs. Creating it on the same connection — through Hibernate's {@code doWork}, which hands the
@@ -74,6 +84,23 @@ class TenantTaskResolverIntegrationTest extends AbstractPostgresIntegrationTest 
 
     @Autowired
     private AccessProvisioningTaskRepository taskRepository;
+
+    /**
+     * This suite's pool: the container's own login, so the DDL that arms {@code employees} and the unfiltered
+     * control reads are available to the connection the transaction manager hands the repository.
+     *
+     * <p>A bean and not a per-statement switch, because the repository's own transaction is the connection the
+     * policy and the resolver are observed on — the cases cannot re-open it. The role is therefore stated once,
+     * for the whole suite, and every javadoc above says which one it is.</p>
+     */
+    @TestConfiguration
+    static class SuperuserPoolConfiguration {
+
+        @Bean
+        DataSource dataSource() {
+            return containerSuperuserPool();
+        }
+    }
 
     /** One connection per case at most, opened with {@link #beginTransaction()} and closed below. */
     private Connection transaction;

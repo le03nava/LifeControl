@@ -461,28 +461,20 @@ class PurchaseOrderListFilterIntegrationTest extends AbstractPostgresIntegration
      * outside its own scope gets <b>nothing</b> — not that company's rows, and not an error that would
      * describe whether the company exists.
      *
-     * <p>Which of the two answers arrives is what the pool decides, and the difference is the policy rather
-     * than the query: with the application role the request's tenant is the caller's claim, so the rows of the
-     * company it names are not visible and the page is empty; the container's superuser bypasses every policy,
-     * so the same request reads the named company's rows and the query predicate is the only thing left
-     * deciding. Both halves are asserted as their own fact instead of being widened to "either".</p>
+     * <p>The answer is empty <b>because of the policy</b>: the request's tenant is the caller's claim, so the
+     * rows of the company it names are not visible and the page is empty — the query predicate never gets to
+     * be the thing that decides, which is why the assertion can say the isolation answered.</p>
      */
     @Test
     @DisplayName("a caller naming a company outside its own scope is never given that company's orders")
     void companyFilter_neverLeaksAnotherCompanysOrders() throws Exception {
         var foreignPage = listOrders(request -> request.param("companyId", companyBId.toString()));
 
-        if (poolIsTheApplicationRole()) {
-            assertThat(orderNumbers(foreignPage))
-                    .as("the tenant the caller may read is the one its scope states, so naming another "
-                            + "company buys nothing: the request cannot name its way across tenants")
-                    .isEmpty();
-            assertThat(foreignPage.get("totalElements").asLong()).isZero();
-        } else {
-            assertThat(orderNumbers(foreignPage))
-                    .as("the superuser pool bypasses the policy, so here the query predicate alone decides")
-                    .containsExactly(order(GAMMA));
-        }
+        assertThat(orderNumbers(foreignPage))
+                .as("the tenant the caller may read is the one its scope states, so naming another "
+                        + "company buys nothing: the request cannot name its way across tenants")
+                .isEmpty();
+        assertThat(foreignPage.get("totalElements").asLong()).isZero();
     }
 
     @Test
@@ -554,10 +546,8 @@ class PurchaseOrderListFilterIntegrationTest extends AbstractPostgresIntegration
         // cross-company administrator view. Under the policy that is also what makes the order of another
         // company unreachable here, which is asserted where it can be enforced.
         assertThat(orderNumbers(page)).contains(order(ALPHA), order(BETA_ONE), order(BETA_TWO));
-        if (poolIsTheApplicationRole()) {
-            assertThat(orderNumbers(page))
-                    .as("an unfiltered page is the caller's company's page, never every company's")
-                    .doesNotContain(order(GAMMA));
-        }
+        assertThat(orderNumbers(page))
+                .as("an unfiltered page is the caller's company's page, never every company's")
+                .doesNotContain(order(GAMMA));
     }
 }

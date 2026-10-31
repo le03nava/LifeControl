@@ -1,10 +1,12 @@
 package com.lifecontrol.api.support;
 
+import com.zaxxer.hikari.HikariDataSource;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import javax.sql.DataSource;
 import org.flywaydb.core.api.MigrationVersion;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -35,8 +37,9 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
  * privileges names {@code lifecontrol_app}, and the container's own user ({@code lifecontrol}) is a
  * superuser — which always bypasses Row-Level Security — so the role the policies actually apply to has
  * to exist for those suites to prove anything. The script is idempotent and runs once per container
- * before Flyway. Since record T6b the <b>pool</b> logs in as {@code lifecontrol_app} while <b>Flyway</b>
- * keeps the container's superuser; {@link #postgresProperties} states why the split exists.
+ * before Flyway. The <b>pool</b> logs in as {@code lifecontrol_app} — always, since record T6b-4 flipped
+ * the default and deleted the switch — while <b>Flyway</b> keeps the container's superuser;
+ * {@link #postgresProperties} states why the split exists.
  *
  * <p><b>The server takes 300 connections because the suite caches one pool per Spring context.</b> Each
  * distinct {@code @SpringBootTest} configuration keeps its own Hikari pool alive for the whole JVM and the
@@ -84,51 +87,24 @@ public abstract class AbstractPostgresIntegrationTest {
      * is redundant today (it equals the pool's) and deliberate: it states the separation in one place
      * instead of leaving it implied by a shared default, which is the shape delivery will need when the two
      * URLs diverge.</p>
+     *
+     * <p><b>The pool logs in as the application role unconditionally since record T6b-4.</b> T6b landed it
+     * behind {@code TEST_POOL_APP_ROLE} because 545 of 4 240 tests failed when the role changed, and each of
+     * the four slices needed the same suite run both ways to prove it moved the number (record L24). The last
+     * slice made it the default and deleted the switch — environment variable included — so this class has
+     * one credential to state and nothing to branch on: S5's acceptance is {@code ./gradlew cleanTest test}
+     * with <b>no</b> environment variable set.</p>
      */
     private static final String APPLICATION_USERNAME = "lifecontrol_app";
 
     /** Not a secret: a literal for a container that lives for one JVM on a random loopback port. */
     private static final String APPLICATION_PASSWORD = "lifecontrol_app";
 
-    /**
-     * Whether the pool logs in as the application role, off unless {@code TEST_POOL_APP_ROLE=true}.
-     *
-     * <p><b>Why a switch and not the new default yet</b> (record L24). Flipping it unconditionally leaves
-     * <b>545 of 4 240</b> tests failing across 133 classes, and none of those failures is a production
-     * defect: they are fixtures that resolve a company by its natural key before any tenant is stated, raw
-     * fixtures whose statement never passes a transaction boundary, {@code @Transactional} suites whose
-     * transaction opens before their fixture states a scope, and the fallout of the three. Adopting them is
-     * four slices, and each one has to be able to prove it moved the number — which needs the same suite run
-     * both ways until the last slice makes the application role the default.</p>
-     *
-     * <p>An environment variable rather than a system property on purpose: Gradle does not forward the
-     * daemon's {@code -D} flags to the forked test JVM, but it does inherit the environment, so
-     * {@code TEST_POOL_APP_ROLE=true ./gradlew test} is the whole invocation and no build file has to change
-     * for a switch that is scheduled to disappear.</p>
-     */
-    private static final boolean POOL_IS_THE_APPLICATION_ROLE =
-            "true".equalsIgnoreCase(System.getenv("TEST_POOL_APP_ROLE"));
-
-    /**
-     * Whether the pool logs in as the application role, so a suite whose message legitimately differs between
-     * the two modes can assert <b>both</b> halves instead of widening one to "any exception" (record L27).
-     *
-     * <p>Exposed for exactly one reason, measured: an {@code INSERT} that omits {@code company_id} on an armed
-     * table is refused by the <b>policy</b> (SQLSTATE {@code 42501}) when the pool is the application role,
-     * because the tenant is checked before the constraint, and by {@code NOT NULL} when the pool is the
-     * container's superuser, which bypasses every policy. Both messages are correct answers to the same
-     * missing column, and an assertion that accepted either would stop proving that the column's absence is
-     * refused at all.</p>
-     */
-    protected static boolean poolIsTheApplicationRole() {
-        return POOL_IS_THE_APPLICATION_ROLE;
-    }
-
     @DynamicPropertySource
     static void postgresProperties(DynamicPropertyRegistry registry) {
         registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
-        registry.add("spring.datasource.username", AbstractPostgresIntegrationTest::poolUsername);
-        registry.add("spring.datasource.password", AbstractPostgresIntegrationTest::poolPassword);
+        registry.add("spring.datasource.username", () -> APPLICATION_USERNAME);
+        registry.add("spring.datasource.password", () -> APPLICATION_PASSWORD);
         registry.add("spring.datasource.driver-class-name", () -> "org.postgresql.Driver");
         registry.add("spring.flyway.enabled", () -> true);
         registry.add("spring.flyway.url", POSTGRES::getJdbcUrl);
@@ -137,14 +113,30 @@ public abstract class AbstractPostgresIntegrationTest {
         registry.add("spring.jpa.hibernate.ddl-auto", () -> "validate");
     }
 
-    /** The pool's login: the application role when the switch is on, the container's own user otherwise. */
-    private static String poolUsername() {
-        return POOL_IS_THE_APPLICATION_ROLE ? APPLICATION_USERNAME : POSTGRES.getUsername();
-    }
-
-    /** The pool's password, paired with {@link #poolUsername()}. */
-    private static String poolPassword() {
-        return POOL_IS_THE_APPLICATION_ROLE ? APPLICATION_PASSWORD : POSTGRES.getPassword();
+    /**
+     * A pool bound to the shared container that logs in as {@code lifecontrol}, the container's <b>own</b>
+     * user — a SUPERUSER, so no policy applies to it.
+     *
+     * <p><b>Who may take it, and why it is not a second switch.</b> Only a suite whose cases observe
+     * ADR-0005's <b>machinery</b>: the boundary hook on a transaction whose policy the suite arms itself
+     * ({@code ALTER TABLE … ENABLE/FORCE ROW LEVEL SECURITY} requires the table's owner), a control read that
+     * has to be unfiltered before the policy can be shown answering below it, and the resolver whose
+     * {@code SECURITY DEFINER} owner is a superuser. Those facts are invisible to the application role by
+     * construction, so such a suite declares the credential its premise needs instead of inheriting it — and
+     * says in its own javadoc which role it runs as and why that role is the one that can observe the fact.
+     * Every suite whose cases prove the <b>policy</b> keeps the default pool, which is the application role:
+     * that is what S5 measures, and a suite taking this method as a shortcut would stop measuring it.</p>
+     *
+     * <p>The password is the container's, not a second literal: it is the throwaway credential
+     * {@code withPassword} sets, on a container that listens on a random loopback port for one JVM.</p>
+     */
+    protected static DataSource containerSuperuserPool() {
+        var dataSource = new HikariDataSource();
+        dataSource.setPoolName("test-container-superuser-pool");
+        dataSource.setJdbcUrl(POSTGRES.getJdbcUrl());
+        dataSource.setUsername(POSTGRES.getUsername());
+        dataSource.setPassword(POSTGRES.getPassword());
+        return dataSource;
     }
 
     /**

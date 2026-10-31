@@ -101,15 +101,14 @@ class CompanyStoreHierarchyFilterIntegrationTest extends AbstractPostgresIntegra
     @Test
     @DisplayName("should constrain nothing when every level is null")
     void noLevelConstrainsNothing() {
-        // No level predicate drops anything: this company's stores come back whichever tenant the state
-        // names, and `contains` rather than `containsExactly` is what makes the assertion read the same on
-        // both pools — the application role sees only the stated tenant's rows while the superuser pool
-        // bypasses the policy, and neither of those is what this case is about.
+        // No level predicate drops anything: this company's stores come back, and `contains` says exactly
+        // that. `containsExactly` belongs to the case below, where the predicate names one company and the
+        // WHERE clause is the thing being measured.
         assertThat(findIds(companyAId, null, null, null, null, null)).contains(storeAlphaId, storeBetaOneId);
         assertThat(findIds(companyBId, null, null, null, null, null)).contains(storeGammaId);
 
         // Naming one company in the predicate is a different story: the WHERE clause narrows it to that
-        // company's stores on either pool.
+        // company's stores.
         assertThat(findIds(companyBId, companyBId, null, null, null, null)).containsExactly(storeGammaId);
     }
 

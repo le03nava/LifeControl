@@ -15,6 +15,7 @@ import com.lifecontrol.api.usersadmin.identity.IdentityProvider;
 import com.lifecontrol.api.usersadmin.identity.InMemoryIdentityProvider;
 import jakarta.persistence.EntityManager;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -45,13 +46,19 @@ import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
  * read</b>, and <b>which company is still installed at the pass's last capability</b> — with the task
  * reaching {@code APPLIED}, which is what proves the last stage really ran under it. Both are captured
  * through spies on the collaborators the pass calls, so the assertions are about the calls it really
- * makes. It does not observe the policy filtering the row, and that is deliberate: the container's user is
- * a superuser, which bypasses every policy (record L9), and arming {@code employees} globally would make
- * the other 63 suites in this shared container depend on this one. The filtering half is proved by
- * {@code TenantScopeBoundaryIntegrationTest}, on a probe table armed with the same
- * {@code apply_tenant_isolation} call T5 will use; the two cases compose into the claim — the worker
+ * makes. It does not observe the policy filtering the row, and that is deliberate: arming {@code employees}
+ * globally would make the other 63 suites in this shared container depend on this one, and this suite runs
+ * on the <b>application role</b> — the pool's login since T6b-4 — so arming it is not available to the suite
+ * anyway. The filtering half is proved by {@code TenantScopeBoundaryIntegrationTest}, on a probe table armed
+ * with the same {@code apply_tenant_isolation} call T5 used; the two cases compose into the claim — the worker
  * installs the task's tenant, and a transaction with that tenant installed can only see that company's
  * rows.</p>
+ *
+ * <p><b>What the application role changed here.</b> The fixtures and the cleanup are raw statements on
+ * {@code employees}, one of the sixteen armed tables, so they state the tenant whose rows they touch —
+ * {@link TenantFixtures#inTenant}, or this suite's own row would be refused on the way in and, worse, an
+ * unscoped {@code DELETE} would remove zero rows and report success (record L27). The cleanup is scoped to
+ * each of this suite's two companies for the same reason.</p>
  *
  * <p>The identity provider is substituted so the pass runs to its own edge instead of a Keycloak timeout;
  * everything else — the worker, the state machine, the capabilities, Flyway's schema, PostgreSQL — is the
@@ -126,31 +133,32 @@ class ProvisioningWorkerTenantScopeIntegrationTest extends AbstractPostgresInteg
     private final AtomicInteger sequence = new AtomicInteger();
 
     private UUID companyId;
+    private UUID otherCompanyId;
     private UUID employeeId;
     private UUID taskId;
 
     @BeforeEach
     void resetThisSuitesRows() {
-        // Leaf-first and scoped to this suite's two company keys, so another suite's fixtures survive.
-        jdbcTemplate.update("""
-                DELETE FROM access_provisioning_applied_roles WHERE task_id IN
-                    (SELECT t.id FROM access_provisioning_tasks t
-                     JOIN employees e ON e.id = t.employee_id
-                     JOIN companies c ON c.id = e.company_id
-                     WHERE c.company_key IN (?, ?))
-                """, COMPANY_KEY, OTHER_COMPANY_KEY);
-        jdbcTemplate.update("""
-                DELETE FROM access_provisioning_tasks WHERE employee_id IN
-                    (SELECT e.id FROM employees e
-                     JOIN companies c ON c.id = e.company_id
-                     WHERE c.company_key IN (?, ?))
-                """, COMPANY_KEY, OTHER_COMPANY_KEY);
-        jdbcTemplate.update("""
-                DELETE FROM employees WHERE company_id IN
-                    (SELECT id FROM companies WHERE company_key IN (?, ?))
-                """, COMPANY_KEY, OTHER_COMPANY_KEY);
-
+        // The two companies first: `employees` is armed, so every statement that touches its rows runs under
+        // the tenant that owns them. Leaf-first and scoped to this suite's two company keys, so another
+        // suite's fixtures survive.
         companyId = companyId(COMPANY_KEY, COMPANY_RFC);
+        otherCompanyId = companyId(OTHER_COMPANY_KEY, OTHER_COMPANY_RFC);
+        for (var owner : List.of(companyId, otherCompanyId)) {
+            TenantFixtures.inTenant(owner, () -> {
+                jdbcTemplate.update(
+                        "DELETE FROM access_provisioning_applied_roles WHERE task_id IN "
+                                + "(SELECT t.id FROM access_provisioning_tasks t "
+                                + "JOIN employees e ON e.id = t.employee_id WHERE e.company_id = ?)",
+                        owner);
+                jdbcTemplate.update(
+                        "DELETE FROM access_provisioning_tasks WHERE employee_id IN "
+                                + "(SELECT e.id FROM employees e WHERE e.company_id = ?)",
+                        owner);
+                jdbcTemplate.update("DELETE FROM employees WHERE company_id = ?", owner);
+            });
+        }
+
         employeeId = insertEmployee(companyId);
         taskId = insertPendingTask(employeeId);
 
@@ -214,7 +222,6 @@ class ProvisioningWorkerTenantScopeIntegrationTest extends AbstractPostgresInteg
     void thePassOverridesAScopeTheThreadAlreadyCarried() {
         // The shape of a leaked scope: a thread that served something else and still carries a tenant.
         // The pass must not inherit it — a task cannot be applied under a company that is not its own.
-        var otherCompanyId = companyId(OTHER_COMPANY_KEY, OTHER_COMPANY_RFC);
         TenantScope.set(otherCompanyId, "kc-subject-somewhere-else");
         try {
             worker.runPass();
@@ -288,18 +295,21 @@ class ProvisioningWorkerTenantScopeIntegrationTest extends AbstractPostgresInteg
      * Inserts one employee owned by the given company, with <b>no</b> linked Keycloak account: the account
      * lifecycle of the pass then creates and links it in the in-memory provider, which is what lets the run
      * reach its last stage ({@code markApplied}) instead of stopping at the account half — the stage this
-     * suite measures.
+     * suite measures. {@code employees} is armed, so the row is written inside its own company's tenant.
      */
     private UUID insertEmployee(UUID ownerCompanyId) {
         var statusId = activeEmployeeStatusId();
         var n = sequence.incrementAndGet();
         var id = UUID.randomUUID();
-        jdbcTemplate.update("""
+        TenantFixtures.inTenant(
+                ownerCompanyId,
+                () -> jdbcTemplate.update(
+                        """
                 INSERT INTO employees
                     (id, company_id, employee_number, first_name, paternal_last_name, email,
                      birth_date, hire_date, employment_status_id)
                 VALUES (?, ?, ?, 'Ada', 'Lovelace', ?, DATE '1990-01-01', DATE '2020-01-01', ?)
-                """, id, ownerCompanyId, "EMP-PROVS-" + n, "provs.employee" + n + "@example.com", statusId);
+                """, id, ownerCompanyId, "EMP-PROVS-" + n, "provs.employee" + n + "@example.com", statusId));
         return id;
     }
 

@@ -4,13 +4,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
 import java.sql.Connection;
+import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import javax.sql.DataSource;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -28,13 +28,17 @@ import org.springframework.jdbc.core.JdbcTemplate;
  * deployment's own state — so a migration that forgets a table, arms one with the wrong kind or forgets
  * {@code FORCE} fails this suite rather than a request in production.</p>
  *
- * <p><b>Why it can only be observed here.</b> Row-Level Security exists on PostgreSQL and nowhere else,
- * and the container's own user is a <b>superuser</b>, which bypasses every policy whatever it says — the
- * same trap that made ADR-0005 drop {@code SUPERUSER} from the owner in delivery. So every behavioural
- * case inserts its fixtures as that superuser (which is what lets them exist at all), then switches to
- * {@code lifecontrol_app} with {@code SET LOCAL ROLE} — the role the pool connects as in delivery — and
- * rolls the whole transaction back in {@link #rollBackEverythingThisTestWrote()}, because sixty-odd
- * sibling suites share this container and none of them asked for these rows.</p>
+ * <p><b>Why it can only be observed here.</b> Row-Level Security exists on PostgreSQL and nowhere else, and a
+ * superuser bypasses every policy whatever it says — the same trap that made ADR-0005 drop {@code SUPERUSER}
+ * from the owner in delivery. So each behavioural case opens its <b>own</b> connection as the container's own
+ * user (a superuser), inserts the fixtures the case needs — which is what lets them exist at all, and what
+ * makes the “both rows are there” control unfiltered — and then switches to {@code lifecontrol_app} with
+ * {@code SET LOCAL ROLE}, the role the pool logs in as, to observe what the policy answers. The connection is
+ * opened explicitly in {@link #beginTransaction()} rather than taken from the pool, because since T6b-4 the
+ * pool <b>is</b> the application role: this suite's premise needs the privilege the pool no longer has, so it
+ * states it instead of assuming it. Everything is rolled back in
+ * {@link #rollBackEverythingThisTestWrote()}, because sixty-odd sibling suites share this container and none of
+ * them asked for these rows.</p>
  *
  * <p>Fixtures are the minimum each row's {@code NOT NULL} columns ask for; nothing here builds a
  * department tree or a store hierarchy, because no rule of the ADR differs for those tables. The tables
@@ -50,7 +54,20 @@ class TenantPoliciesIntegrationTest extends AbstractPostgresIntegrationTest {
     /** The role the pool connects as in delivery, and the only one a policy applies to (ADR decision 3). */
     private static final String APPLICATION_ROLE = "lifecontrol_app";
 
-    /** The role that owns the objects in delivery: {@code FORCE} is what keeps it from being exempt. */
+    /**
+     * The role that owns the objects in delivery: {@code FORCE} is what keeps it from being exempt.
+     *
+     * <p><b>Which role each case runs as, and why.</b> {@code everyTenantTableIsArmedWithItsPolicy} reads
+     * {@code pg_class}, {@code pg_policies} and {@code tenant_table}, so it answers for the pool's role as
+     * well as any other. The behavioural cases need a connection the policies do <b>not</b> filter, and only
+     * to establish the state they then observe: the fixtures must exist before the policy can hide them, the
+     * “both rows are there” control has to be unfiltered to mean anything, and moving a table's ownership (the
+     * {@code FORCE} case) is DDL that only an owner or a superuser may run. That connection is the container's
+     * own login — {@code lifecontrol}, a SUPERUSER — and it is opened explicitly below instead of being
+     * inherited, which is the point: since T6b-4 the pool is {@code lifecontrol_app}, so a suite that needs
+     * the superuser says so. From there each case switches down with {@code SET LOCAL ROLE lifecontrol_app},
+     * the way delivery's pool already runs.
+     */
     private static final String OWNER_ROLE = "lifecontrol_owner";
 
     /**
@@ -78,9 +95,6 @@ class TenantPoliciesIntegrationTest extends AbstractPostgresIntegrationTest {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
-
-    @Autowired
-    private DataSource dataSource;
 
     /** One connection per case at most, opened with {@link #beginTransaction()} and closed below. */
     private Connection transaction;
@@ -399,8 +413,17 @@ class TenantPoliciesIntegrationTest extends AbstractPostgresIntegrationTest {
 
     private record Policy(String name, String command, String predicate, String withCheck) {}
 
+    /**
+     * One connection per case at most, opened here and closed below.
+     *
+     * <p>The container's <b>own</b> login on purpose: this suite's premise is a connection that bypasses the
+     * policies, and since T6b-4 the pool's does not. The role is therefore a parameter of this suite and not
+     * an ambient fact — the same reason the cases switch down to {@code lifecontrol_app} with an explicit
+     * {@code SET LOCAL ROLE} when the policy is what they want to observe.</p>
+     */
     private Connection beginTransaction() throws SQLException {
-        transaction = dataSource.getConnection();
+        transaction =
+                DriverManager.getConnection(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
         transaction.setAutoCommit(false);
         return transaction;
     }
