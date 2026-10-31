@@ -118,12 +118,15 @@ class ProductVariantStoreFilterIntegrationTest extends AbstractPostgresIntegrati
     void setUp() {
         seedStoreHierarchy();
 
-        var product = productRepository.save(Product.builder()
-                .sku("VARSTORE-" + UUID.randomUUID().toString().substring(0, 8))
-                .name("Variant Store Filter Product")
-                .company(companyRepository.findById(companyId).orElseThrow())
-                .enabled(true)
-                .build());
+        // The company read and the armed INSERT share one stated tenant.
+        var product = TenantFixtures.inTenant(
+                companyId,
+                () -> productRepository.save(Product.builder()
+                        .sku("VARSTORE-" + UUID.randomUUID().toString().substring(0, 8))
+                        .name("Variant Store Filter Product")
+                        .company(companyRepository.findById(companyId).orElseThrow())
+                        .enabled(true)
+                        .build()));
         productId = product.getId();
         createdProductId = productId;
 
@@ -136,13 +139,16 @@ class ProductVariantStoreFilterIntegrationTest extends AbstractPostgresIntegrati
         // Delete only this test's rows so other suites sharing the per-JVM container are untouched.
         productVariantStoreStockRepository.deleteAllById(createdStoreStockIds);
         createdStoreStockIds.clear();
-        productVariantRepository.deleteAllById(createdVariantIds);
+        // `product_variants` and `products` are armed: an unscoped delete removes nothing, so the ids are
+        // removed under this suite's tenant.
+        TenantFixtures.inTenant(companyId, () -> {
+            productVariantRepository.deleteAllById(createdVariantIds);
+            if (createdProductId != null) {
+                productRepository.deleteById(createdProductId);
+            }
+        });
         createdVariantIds.clear();
-
-        if (createdProductId != null) {
-            productRepository.deleteById(createdProductId);
-            createdProductId = null;
-        }
+        createdProductId = null;
 
         // The catalog rows go last: a variant may reference them until its own row is gone.
         measureUnitRepository.deleteAllById(createdMeasureUnitIds);
@@ -160,38 +166,45 @@ class ProductVariantStoreFilterIntegrationTest extends AbstractPostgresIntegrati
                 companyRepository, "VARIANT-FILTER-KEY", "Variant Filter Test Company", "VFTC010101ABC");
         companyId = company.getId();
 
-        var companyCountry = companyCountryRepository
-                .findByCompanyIdAndCountryId(company.getId(), country.getId())
-                .orElseGet(() -> companyCountryRepository.save(CompanyCountry.builder()
-                        .company(company)
-                        .country(country)
-                        .build()));
+        // One boundary per tenant: every node and store is a row on a policy-armed table and references
+        // the detached Company, so the find-or-create reads and the INSERTs both need that tenant.
+        TenantFixtures.inTenant(companyId, () -> {
+            var companyCountry = companyCountryRepository
+                    .findByCompanyIdAndCountryId(company.getId(), country.getId())
+                    .orElseGet(() -> companyCountryRepository.save(CompanyCountry.builder()
+                            .company(company)
+                            .country(country)
+                            .build()));
 
-        var region = companyRegionRepository.findByCompanyCountryIdOrderByRegionNameAsc(companyCountry.getId()).stream()
-                .findFirst()
-                .orElseGet(() -> companyRegionRepository.save(CompanyRegion.builder()
-                        .companyCountry(companyCountry)
-                        .regionCode("VF")
-                        .regionName("Variant Filter Region")
-                        .enabled(true)
-                        .build()));
+            var region =
+                    companyRegionRepository.findByCompanyCountryIdOrderByRegionNameAsc(companyCountry.getId()).stream()
+                            .findFirst()
+                            .orElseGet(() -> companyRegionRepository.save(CompanyRegion.builder()
+                                    .companyCountry(companyCountry)
+                                    .regionCode("VF")
+                                    .regionName("Variant Filter Region")
+                                    .enabled(true)
+                                    .build()));
 
-        var zone = companyZoneRepository.findByCompanyRegionIdOrderByZoneNameAsc(region.getId()).stream()
-                .findFirst()
-                .orElseGet(() -> companyZoneRepository.save(CompanyZone.builder()
-                        .companyRegion(region)
-                        .zoneCode("VF")
-                        .zoneName("Variant Filter Zone")
-                        .enabled(true)
-                        .build()));
+            var zone = companyZoneRepository.findByCompanyRegionIdOrderByZoneNameAsc(region.getId()).stream()
+                    .findFirst()
+                    .orElseGet(() -> companyZoneRepository.save(CompanyZone.builder()
+                            .companyRegion(region)
+                            .zoneCode("VF")
+                            .zoneName("Variant Filter Zone")
+                            .enabled(true)
+                            .build()));
 
-        storeAId = findOrCreateStore(zone, "Variant Filter Store A");
-        storeBId = findOrCreateStore(zone, "Variant Filter Store B");
+            storeAId = findOrCreateStore(zone, "Variant Filter Store A");
+            storeBId = findOrCreateStore(zone, "Variant Filter Store B");
+        });
 
         // A second tenant with its own tree and one store: the counterpart of the company predicate
         // of the store-scoped branch, which is the tenant the store belongs to and not this suite's.
-        var foreignZone = seedForeignZone();
-        foreignStoreId = findOrCreateStore(foreignZone, "Variant Filter Foreign Store");
+        var foreignCompanyId = TenantFixtures.derivedId("VARIANT-FILTER-FOREIGN-KEY");
+        var foreignZone = TenantFixtures.inTenant(foreignCompanyId, this::seedForeignZone);
+        foreignStoreId = TenantFixtures.inTenant(
+                foreignCompanyId, () -> findOrCreateStore(foreignZone, "Variant Filter Foreign Store"));
     }
 
     /** Find-or-create the company &rarr; country &rarr; region &rarr; zone chain of a second tenant. */
@@ -248,7 +261,7 @@ class ProductVariantStoreFilterIntegrationTest extends AbstractPostgresIntegrati
                 .enabled(true)
                 .build();
 
-        var saved = productVariantRepository.save(variant);
+        var saved = TenantFixtures.inTenant(companyId, () -> productVariantRepository.save(variant));
         createdVariantIds.add(saved.getId());
 
         stockVariantAt(saved.getId(), companyStoreId);
@@ -364,10 +377,13 @@ class ProductVariantStoreFilterIntegrationTest extends AbstractPostgresIntegrati
     }
 
     /** Flips the definition's {@code enabled} flag without deleting the per-store row. */
+    /** `product_variants` is armed: the read and the merge both state this suite's tenant. */
     private void softDeleteVariant(UUID targetVariantId) {
-        var variant = productVariantRepository.findById(targetVariantId).orElseThrow();
-        variant.setEnabled(false);
-        productVariantRepository.save(variant);
+        TenantFixtures.inTenant(companyId, () -> {
+            var variant = productVariantRepository.findById(targetVariantId).orElseThrow();
+            variant.setEnabled(false);
+            productVariantRepository.save(variant);
+        });
     }
 
     @Test
@@ -420,21 +436,30 @@ class ProductVariantStoreFilterIntegrationTest extends AbstractPostgresIntegrati
         assignMeasureUnit(variantAId, pieceUnit.getId());
 
         // Variant B still declares no unit, so the join drops it: the product uses exactly one type.
-        assertThat(productVariantRepository.findUsedMeasureUnitTypesByProductId(productId))
+        // `product_variants` is armed, so each read states this suite's tenant.
+        assertThat(TenantFixtures.inTenant(
+                        companyId, () -> productVariantRepository.findUsedMeasureUnitTypesByProductId(productId)))
                 .containsExactly(MeasureUnitType.PRODUCT);
         // Excluding the only variant that declares a unit leaves no constraint at all.
-        assertThat(productVariantRepository.findUsedMeasureUnitTypesByProductIdExcludingVariantId(
-                        productId, variantAId))
+        assertThat(TenantFixtures.inTenant(
+                        companyId,
+                        () -> productVariantRepository.findUsedMeasureUnitTypesByProductIdExcludingVariantId(
+                                productId, variantAId)))
                 .isEmpty();
         // Excluding the unitless variant keeps the one in use, which is what D4 compares against.
-        assertThat(productVariantRepository.findUsedMeasureUnitTypesByProductIdExcludingVariantId(
-                        productId, variantBId))
+        assertThat(TenantFixtures.inTenant(
+                        companyId,
+                        () -> productVariantRepository.findUsedMeasureUnitTypesByProductIdExcludingVariantId(
+                                productId, variantBId)))
                 .containsExactly(MeasureUnitType.PRODUCT);
     }
 
+    /** `product_variants` is armed: the read and the merge both state this suite's tenant. */
     private void assignMeasureUnit(UUID targetVariantId, UUID measureUnitId) {
-        var variant = productVariantRepository.findById(targetVariantId).orElseThrow();
-        variant.setMeasureUnitId(measureUnitId);
-        productVariantRepository.save(variant);
+        TenantFixtures.inTenant(companyId, () -> {
+            var variant = productVariantRepository.findById(targetVariantId).orElseThrow();
+            variant.setMeasureUnitId(measureUnitId);
+            productVariantRepository.save(variant);
+        });
     }
 }

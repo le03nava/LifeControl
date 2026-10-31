@@ -133,12 +133,17 @@ class PurchaseOrderListFilterIntegrationTest extends AbstractPostgresIntegration
 
     @BeforeEach
     void setUp() {
-        // Details reference purchase orders, so they go first.
-        purchaseOrderDetailRepository.deleteAll();
-        purchaseOrderRepository.deleteAll();
-
+        // The chains first: they name the two tenants this class's orders belong to, and every cleanup
+        // below states one. An unscoped DELETE on a policy-armed table removes zero rows without an
+        // error, so without it a previous method's orders survive into the next one's page.
         seedCompanyA();
         seedCompanyB();
+
+        // Details reference purchase orders, so they go first.
+        purchaseOrderDetailRepository.deleteAll();
+        TenantFixtures.inTenant(companyAId, () -> purchaseOrderRepository.deleteAll());
+        TenantFixtures.inTenant(companyBId, () -> purchaseOrderRepository.deleteAll());
+
         seedOrders();
     }
 
@@ -147,44 +152,60 @@ class PurchaseOrderListFilterIntegrationTest extends AbstractPostgresIntegration
         // Do not leave purchase order rows behind: they reference suppliers and stores, and other
         // integration classes that run later in the same JVM delete those wholesale.
         purchaseOrderDetailRepository.deleteAll();
-        purchaseOrderRepository.deleteAll();
+        TenantFixtures.inTenant(companyAId, () -> purchaseOrderRepository.deleteAll());
+        TenantFixtures.inTenant(companyBId, () -> purchaseOrderRepository.deleteAll());
     }
 
     // ─── fixture ────────────────────────────────────────────────────────
 
+    /**
+     * Company A's chain.
+     *
+     * <p>One {@link TenantFixtures#inTenant} for the whole tree: every child is a row on a policy-armed
+     * table and references the detached {@code Company}, so both its {@code INSERT} and the flush's
+     * unsaved-value probe need that company's tenant installed. The boundary states company A's own id for
+     * A's rows — company B's chain states B's, because a tenant is not transferable.</p>
+     */
     private void seedCompanyA() {
         var company = findOrCreateCompany("PO-FILTER-A", "PO Filter Company A", "POFA010101ABC");
-        var companyCountry = findOrCreateCompanyCountry(company);
-        var regionAlpha = findOrCreateRegion(companyCountry, "PFA", "PO Filter Region Alpha");
-        var regionBeta = findOrCreateRegion(companyCountry, "PFB", "PO Filter Region Beta");
-        var zoneBetaOne = findOrCreateZone(regionBeta, "PFB1", "PO Filter Zone Beta One");
-        var zoneBetaTwo = findOrCreateZone(regionBeta, "PFB2", "PO Filter Zone Beta Two");
 
         companyA = company;
         companyAId = company.getId();
-        companyACountryId = companyCountry.getId();
-        regionAlphaId = regionAlpha.getId();
-        regionBetaId = regionBeta.getId();
-        zoneBetaOneId = zoneBetaOne.getId();
-        zoneBetaTwoId = zoneBetaTwo.getId();
-        storeAlphaId = findOrCreateStore(
-                        findOrCreateZone(regionAlpha, "PFA1", "PO Filter Zone Alpha"), "FilterSpec Store Alpha")
-                .getId();
-        storeBetaOneId =
-                findOrCreateStore(zoneBetaOne, "FilterSpec Store Beta One").getId();
-        storeBetaTwoId =
-                findOrCreateStore(zoneBetaTwo, "FilterSpec Store Beta Two").getId();
+        TenantFixtures.inTenant(companyAId, () -> {
+            var companyCountry = findOrCreateCompanyCountry(company);
+            var regionAlpha = findOrCreateRegion(companyCountry, "PFA", "PO Filter Region Alpha");
+            var regionBeta = findOrCreateRegion(companyCountry, "PFB", "PO Filter Region Beta");
+            var zoneBetaOne = findOrCreateZone(regionBeta, "PFB1", "PO Filter Zone Beta One");
+            var zoneBetaTwo = findOrCreateZone(regionBeta, "PFB2", "PO Filter Zone Beta Two");
+
+            companyACountryId = companyCountry.getId();
+            regionAlphaId = regionAlpha.getId();
+            regionBetaId = regionBeta.getId();
+            zoneBetaOneId = zoneBetaOne.getId();
+            zoneBetaTwoId = zoneBetaTwo.getId();
+            storeAlphaId = findOrCreateStore(
+                            findOrCreateZone(regionAlpha, "PFA1", "PO Filter Zone Alpha"), "FilterSpec Store Alpha")
+                    .getId();
+            storeBetaOneId =
+                    findOrCreateStore(zoneBetaOne, "FilterSpec Store Beta One").getId();
+            storeBetaTwoId =
+                    findOrCreateStore(zoneBetaTwo, "FilterSpec Store Beta Two").getId();
+        });
     }
 
+    /** Company B's chain: same shape, and the boundary states B's own tenant. */
     private void seedCompanyB() {
         var company = findOrCreateCompany("PO-FILTER-B", "PO Filter Company B", "POFB010101ABC");
-        var companyCountry = findOrCreateCompanyCountry(company);
-        var region = findOrCreateRegion(companyCountry, "PFG", "PO Filter Region Gamma");
-        var zone = findOrCreateZone(region, "PFG1", "PO Filter Zone Gamma");
 
         companyB = company;
         companyBId = company.getId();
-        storeGammaId = findOrCreateStore(zone, "FilterSpec Store Gamma").getId();
+        TenantFixtures.inTenant(companyBId, () -> {
+            var companyCountry = findOrCreateCompanyCountry(company);
+            var region = findOrCreateRegion(companyCountry, "PFG", "PO Filter Region Gamma");
+            var zone = findOrCreateZone(region, "PFG1", "PO Filter Zone Gamma");
+
+            storeGammaId = findOrCreateStore(zone, "FilterSpec Store Gamma").getId();
+        });
     }
 
     /**
@@ -218,6 +239,21 @@ class PurchaseOrderListFilterIntegrationTest extends AbstractPostgresIntegration
         orderNumberByCase.put(
                 DISABLED,
                 createOrder(storeAlphaId, createSupplier("FilterSpec Disabled Supplier", companyA), companyA, false));
+    }
+
+    /**
+     * An admin principal that states company A, whose orders every case here asserts about.
+     *
+     * <p>{@code /api/purchase-orders} names no company in its path, so the tenant comes from the token's
+     * claims (T5b), and a token carrying none states none — the list then reads zero rows. Company B's
+     * rows exist to prove the list never returns them, so the claim of A is enough for both halves of
+     * that assertion, and a token cannot carry two companies on a company-less path anyway: two claims are
+     * refused, which is the policy statement this class now exercises rather than a fixture limit.</p>
+     */
+    private org.springframework.test.web.servlet.request.RequestPostProcessor adminPrincipal() {
+        return jwt().authorities(ROLE_LC_ADMIN)
+                .jwt(builder ->
+                        builder.claim("preferred_username", "admin").claim("company_id", companyAId.toString()));
     }
 
     private Company findOrCreateCompany(String key, String name, String rfc) {
@@ -269,29 +305,38 @@ class PurchaseOrderListFilterIntegrationTest extends AbstractPostgresIntegration
                         .build()));
     }
 
+    /** A supplier of {@code company}: the row states that company's tenant, which is its own id. */
     private Supplier createSupplier(String name, Company company) {
-        return supplierRepository.save(Supplier.builder()
-                .supplierName(name)
-                .rfc("POF" + UUID.randomUUID().toString().substring(0, 10))
-                .company(company)
-                .enabled(true)
-                .build());
+        return TenantFixtures.inTenant(
+                company.getId(),
+                () -> supplierRepository.save(Supplier.builder()
+                        .supplierName(name)
+                        .rfc("POF" + UUID.randomUUID().toString().substring(0, 10))
+                        .company(company)
+                        .enabled(true)
+                        .build()));
     }
 
+    /**
+     * An order of {@code company}, stated under its tenant: {@code purchase_orders} is armed for the
+     * {@code INSERT} and for the store read that precedes it.
+     */
     private String createOrder(UUID storeId, Supplier supplier, Company company, boolean enabled) {
         var status = draftStatus();
-        var order = purchaseOrderRepository.save(PurchaseOrder.builder()
-                .orderNumber("PO-FILTER-" + UUID.randomUUID().toString().substring(0, 12))
-                .supplier(supplier)
-                .companyStore(companyStoreRepository.findById(storeId).orElseThrow())
-                // V43: the order stores the company of its store. It is passed in because the caller is
-                // the fixture that built the store, so nothing is derived a second way here.
-                .company(company)
-                .paymentMethod(paymentMethodOf())
-                .status(status)
-                .comments("PO filter fixture")
-                .enabled(enabled)
-                .build());
+        var order = TenantFixtures.inTenant(
+                company.getId(),
+                () -> purchaseOrderRepository.save(PurchaseOrder.builder()
+                        .orderNumber("PO-FILTER-" + UUID.randomUUID().toString().substring(0, 12))
+                        .supplier(supplier)
+                        .companyStore(companyStoreRepository.findById(storeId).orElseThrow())
+                        // V43: the order stores the company of its store. It is passed in because the caller is
+                        // the fixture that built the store, so nothing is derived a second way here.
+                        .company(company)
+                        .paymentMethod(paymentMethodOf())
+                        .status(status)
+                        .comments("PO filter fixture")
+                        .enabled(enabled)
+                        .build()));
         return order.getOrderNumber();
     }
 
@@ -317,7 +362,7 @@ class PurchaseOrderListFilterIntegrationTest extends AbstractPostgresIntegration
     // ─── helpers ────────────────────────────────────────────────────────
 
     private JsonNode listOrders(Consumer<MockHttpServletRequestBuilder> params) throws Exception {
-        var request = get("/api/purchase-orders").param("size", "200").with(jwt().authorities(ROLE_LC_ADMIN));
+        var request = get("/api/purchase-orders").param("size", "200").with(adminPrincipal());
         params.accept(request);
         var result = mockMvc.perform(request).andExpect(status().isOk()).andReturn();
         return objectMapper.readTree(result.getResponse().getContentAsString());
@@ -440,7 +485,9 @@ class PurchaseOrderListFilterIntegrationTest extends AbstractPostgresIntegration
     @Test
     @DisplayName("should return the same page as before when no filter is given")
     void noFilters_returnTheSamePageAsBefore() throws Exception {
-        var previous = purchaseOrderRepository.findByEnabledTrueOrderByCreatedAtDesc(PageRequest.of(0, 200));
+        var previous = TenantFixtures.inTenant(
+                companyAId,
+                () -> purchaseOrderRepository.findByEnabledTrueOrderByCreatedAtDesc(PageRequest.of(0, 200)));
         var previousOrderNumbers = previous.getContent().stream()
                 .map(PurchaseOrder::getOrderNumber)
                 .collect(Collectors.toSet());

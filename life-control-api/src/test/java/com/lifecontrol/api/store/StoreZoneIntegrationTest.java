@@ -35,6 +35,7 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import tools.jackson.databind.ObjectMapper;
 
 /**
@@ -119,51 +120,58 @@ class StoreZoneIntegrationTest extends AbstractPostgresIntegrationTest {
         var company = TenantFixtures.findOrCreate(
                 companyRepository, "STORE-ZONE-KEY", "Store Zone Test Company", "SZRK010101ABC");
 
-        var companyCountry = companyCountryRepository
-                .findByCompanyIdAndCountryId(company.getId(), country.getId())
-                .orElseGet(() -> companyCountryRepository.save(CompanyCountry.builder()
-                        .company(company)
-                        .country(country)
-                        .build()));
-
-        var region = companyRegionRepository.findByCompanyCountryIdOrderByRegionNameAsc(companyCountry.getId()).stream()
-                .findFirst()
-                .orElseGet(() -> companyRegionRepository.save(CompanyRegion.builder()
-                        .companyCountry(companyCountry)
-                        .regionCode("SZ")
-                        .regionName("Store Zone Region")
-                        .enabled(true)
-                        .build()));
-
-        var zone = companyZoneRepository.findByCompanyRegionIdOrderByZoneNameAsc(region.getId()).stream()
-                .findFirst()
-                .orElseGet(() -> companyZoneRepository.save(CompanyZone.builder()
-                        .companyRegion(region)
-                        .zoneCode("SZ")
-                        .zoneName("Store Zone Zone")
-                        .enabled(true)
-                        .build()));
-
-        var store = companyStoreRepository.findByCompanyZoneId(zone.getId()).stream()
-                .findFirst()
-                .orElseGet(() -> companyStoreRepository.save(CompanyStore.builder()
-                        .companyZone(zone)
-                        .storeName("Store Zone Test Store")
-                        .enabled(true)
-                        .build()));
-
-        // The store-cascade test disables the shared store; re-enable it so the fixture stays
-        // identical for every method (the container is shared per JVM and data survives).
-        if (!Boolean.TRUE.equals(store.getEnabled())) {
-            store.setEnabled(true);
-            store = companyStoreRepository.save(store);
-        }
-
         companyId = company.getId();
-        companyCountryId = companyCountry.getId();
-        regionId = region.getId();
-        zoneId = zone.getId();
-        storeId = store.getId();
+        // One boundary states the company for the children below: each is a row on a
+        // policy-armed table and references the detached Company, so both the find-or-create reads
+        // and the flush's unsaved-value probe need that tenant installed.
+        TenantFixtures.inTenant(companyId, () -> {
+            var companyCountry = companyCountryRepository
+                    .findByCompanyIdAndCountryId(company.getId(), country.getId())
+                    .orElseGet(() -> companyCountryRepository.save(CompanyCountry.builder()
+                            .company(company)
+                            .country(country)
+                            .build()));
+
+            var region =
+                    companyRegionRepository.findByCompanyCountryIdOrderByRegionNameAsc(companyCountry.getId()).stream()
+                            .findFirst()
+                            .orElseGet(() -> companyRegionRepository.save(CompanyRegion.builder()
+                                    .companyCountry(companyCountry)
+                                    .regionCode("SZ")
+                                    .regionName("Store Zone Region")
+                                    .enabled(true)
+                                    .build()));
+
+            var zone = companyZoneRepository.findByCompanyRegionIdOrderByZoneNameAsc(region.getId()).stream()
+                    .findFirst()
+                    .orElseGet(() -> companyZoneRepository.save(CompanyZone.builder()
+                            .companyRegion(region)
+                            .zoneCode("SZ")
+                            .zoneName("Store Zone Zone")
+                            .enabled(true)
+                            .build()));
+
+            var store = companyStoreRepository.findByCompanyZoneId(zone.getId()).stream()
+                    .findFirst()
+                    .orElseGet(() -> companyStoreRepository.save(CompanyStore.builder()
+                            .companyZone(zone)
+                            .storeName("Store Zone Test Store")
+                            .enabled(true)
+                            .build()));
+
+            // The store-cascade test disables the shared store; re-enable it so the fixture stays
+            // identical for every method (the container is shared per JVM and data survives).
+            if (!Boolean.TRUE.equals(store.getEnabled())) {
+                store.setEnabled(true);
+                store = companyStoreRepository.save(store);
+            }
+
+            companyId = company.getId();
+            companyCountryId = companyCountry.getId();
+            regionId = region.getId();
+            zoneId = zone.getId();
+            storeId = store.getId();
+        });
     }
 
     private UUID createArea(String areaCode, String areaName) throws Exception {
@@ -565,7 +573,7 @@ class StoreZoneIntegrationTest extends AbstractPostgresIntegrationTest {
             createZone(areaId, "Z01", "Pasillo", 1);
             var storeZoneId = zoneIdOf(areaId, "Z01");
 
-            mockMvc.perform(get(FLAT_URL + "/{storeZoneId}", storeZoneId).with(jwt().authorities(ROLE_LC_ADMIN)))
+            mockMvc.perform(get(FLAT_URL + "/{storeZoneId}", storeZoneId).with(flatAdmin()))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.id").value(storeZoneId.toString()))
                     .andExpect(jsonPath("$.storeAreaId").value(areaId.toString()))
@@ -645,7 +653,12 @@ class StoreZoneIntegrationTest extends AbstractPostgresIntegrationTest {
                             .with(jwt().authorities(ROLE_LC_ADMIN)))
                     .andExpect(status().isNoContent());
 
-            assertThat(companyStoreRepository.findById(storeId).orElseThrow().getEnabled())
+            assertThat(TenantFixtures.inTenant(
+                                    companyId,
+                                    () -> companyStoreRepository
+                                            .findById(storeId)
+                                            .orElseThrow())
+                            .getEnabled())
                     .isFalse();
             assertThat(storeAreaRepository.findByCompanyStoreIdOrderByDisplayOrderAscAreaCodeAsc(storeId))
                     .hasSize(1)
@@ -681,7 +694,12 @@ class StoreZoneIntegrationTest extends AbstractPostgresIntegrationTest {
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.enabled").value(true));
 
-            assertThat(companyStoreRepository.findById(storeId).orElseThrow().getEnabled())
+            assertThat(TenantFixtures.inTenant(
+                                    companyId,
+                                    () -> companyStoreRepository
+                                            .findById(storeId)
+                                            .orElseThrow())
+                            .getEnabled())
                     .isTrue();
 
             // D8: reactivation is explicit and ordered (store -> area -> zone); nothing cascades down.
@@ -706,5 +724,18 @@ class StoreZoneIntegrationTest extends AbstractPostgresIntegrationTest {
             assertThat(storeZoneRepository.findByStoreAreaIdAndEnabledTrue(areaId))
                     .isEmpty();
         }
+    }
+
+    /**
+     * An admin principal that states this company.
+     *
+     * <p>{@code /api/store-...} names no company in its path, so the tenant of a request comes from the
+     * token's claims and a token carrying none states none: the store the flat lookup walks is then
+     * invisible and the response is a 500 instead of the chain. The claim belongs to the fixture — the
+     * assertion is about the chain the lookup derives, not about how many claims the caller carries.</p>
+     */
+    private RequestPostProcessor flatAdmin() {
+        return jwt().authorities(ROLE_LC_ADMIN)
+                .jwt(builder -> builder.claim("preferred_username", "admin").claim("company_id", companyId.toString()));
     }
 }

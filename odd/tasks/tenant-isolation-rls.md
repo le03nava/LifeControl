@@ -1235,3 +1235,62 @@ feature's chain has done since T1, with the size named here instead of discovere
 budget is per slice, not per commit, and the adoption half is one mechanical rule applied eleven times —
 read one class of each shape (`SupplierSchemaMigrationIntegrationTest` for the `InsertedRow` cleanup,
 `ProductCategorySchemaMigrationIntegrationTest` for the per-tenant counts) and the other nine follow.
+
+L27 — **T6b-2b is the child's tenant, and it is the parent's: 478 → 100.** The two groups this slice owned
+were one mechanism seen from two ends. A fixture that saves a child row (`CompanyCountry`, `Department`,
+`Employee`, `ProductCategory`, a store level, a purchase-order line) writes a row whose tenant **is its
+parent's**, and it fails twice for the same missing fact: Hibernate runs its unsaved-value probe
+(`select … from companies where id = ?`) because the referenced `Company` is detached, and the child's own
+`INSERT` meets the armed table's `WITH CHECK`. `TenantFixtures.inTenant(parentCompanyId, …)` answers both,
+because the probe and the insert then run inside the transaction whose `doBegin` installed that tenant. The
+34 `NoSuchElementException`/`CompanyNotFoundException` were the same omission on the read side: a lookup or
+an assertion that ran with no tenant stated and therefore read zero rows.
+
+**The second-largest cause was the cleanup, and it is the one that hides.** An unscoped `DELETE` on an armed
+table removes **zero rows and reports success**, so a previous method's rows survived into the next and
+surfaced as a duplicate key or a transient reference somewhere else entirely. `PurchaseOrderDetailVariantIntegrationTest`
+now seeds its reference data before cleaning, for exactly that reason.
+
+**Two deviations, both deliberate and both reported rather than smoothed.** (1) Fixture principals in nine
+classes now carry a `company_id` **claim**. A company-less endpoint takes its tenant from the claims (T5b), so
+a claim-less admin token legitimately sees nothing — the fixture was asserting against a caller that cannot
+exist in production. `inTenant` cannot help there: the request owns its own transaction. The store-claim case
+that must stay 403 keeps carrying no store claim. (2) `StoreOptimisticLockingIntegrationTest` uses
+`TenantScope.with` per worker thread instead of `inTenant`, because the scope is thread-confined and the
+test's own two `TransactionTemplate`s have to remain the boundaries — the lost-update probe it exists for
+would otherwise be defeated by the wrapper.
+
+**One assertion was rephrased, and it is the only one.** `CompanyStoreHierarchyFilterIntegrationTest#noLevelConstrainsNothing`
+compared one flat `contains` across two tenants; on the superuser pool that reads every tenant's rows and
+cannot mean what it says. It is now `contains` per tenant plus a `containsExactly` on a narrowed predicate —
+the same defect L26 recorded for the cross-tenant count helpers, and the same fix: name the tenant.
+
+**Evidence, as observed.** Default mode before and after: **4251 tests, 0 failed, exit 0** — the differential
+gate, and the run that caught the rephrasing above. App role: **478 → 100**, exit 1. Per package before →
+after: salesorder 40 → 0, scheduling 31 → 0, purchaseorder 31 → 2, goodsreceipt 23 → 0, inventory 18 → 0,
+hr 95 → 1, store 85 → 0, product 57 → 3, provisioning 8 → 0. `spotlessApply spotlessCheck spotbugsMain`
+clean. `src/main` and `support/` untouched: the slice is call sites.
+
+**What the 100 are, and four of them are findings that need a human, not a fixture.**
+- **83 are `@Transactional` suites** — their transaction begins before the fixture can state a scope; the
+  fixture write has to move to its own transaction, with the declared cost that it survives the rollback.
+  **T6b-3.**
+- **10 are machinery** that owns its roles and connections, including one I could not explain and did not
+  patch: `EmployeeCrudIntegrationTest$IsolationTests#everyReferencingTableIsCleaned` reads
+  `information_schema.table_constraints` and gets **zero rows under the application role** although the role
+  holds `SELECT` on every table and `information_schema.columns` answers. **T6b-4**, with the catalog
+  behaviour named rather than guessed.
+- **3 assertions read a message the policy now preempts**: an `INSERT` that omits `company_id` is refused with
+  `42501` before `NOT NULL` fires (the order ADR-0005 chose), so the assertion has to name the policy's
+  refusal when the pool is the application role. Not patched, because widening it to "any exception" is how
+  the signal gets lost.
+- **1 is a semantic shift the maintainer should decide**: a store of another company now answers **404**
+  instead of an empty page, because the store is invisible before the company predicate can exclude it.
+- **2 are a product question**: `PurchaseOrderListFilterIntegrationTest` asserts both an admin token claiming
+  company A asking for company B, and an unfiltered admin page expected to contain company B's order. A
+  company-less path **refuses** a two-company token (T5b), so a cross-company administrator view is not
+  expressible at all — that is a decision about the product, not a fixture to bend.
+
+What this slice does not claim: **S5 is not met**, the application role is still not the default, and 100
+tests still fail without it. The gate moved 545 → 478 → 100, and every remaining failure now has a named
+owner or a question the maintainer owns.

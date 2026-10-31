@@ -55,7 +55,8 @@ class HrSchemaMigrationIntegrationTest extends AbstractPostgresIntegrationTest {
         jdbcTemplate.update("DELETE FROM position_salary_bands");
         jdbcTemplate.update("DELETE FROM position_roles");
         jdbcTemplate.update("DELETE FROM positions");
-        jdbcTemplate.update("DELETE FROM departments");
+        // `departments` is policy-armed, so an unscoped DELETE removes zero rows without an error.
+        TenantFixtures.inTenant(hrCompanyId(), () -> jdbcTemplate.update("DELETE FROM departments"));
         jdbcTemplate.update("DELETE FROM seniority_levels");
     }
 
@@ -221,12 +222,13 @@ class HrSchemaMigrationIntegrationTest extends AbstractPostgresIntegrationTest {
         return insertDepartment(hrCompanyId(), code, name);
     }
 
+    /** One department of {@code companyId}, written under that company's tenant: the table is armed. */
     private UUID insertDepartment(UUID companyId, String code, String name) {
         var id = UUID.randomUUID();
-        jdbcTemplate.update("""
+        TenantFixtures.inTenant(companyId, () -> jdbcTemplate.update("""
                 INSERT INTO departments (id, company_id, department_code, department_name)
                 VALUES (?, ?, ?, ?)
-                """, id, companyId, code, name);
+                """, id, companyId, code, name));
         return id;
     }
 
@@ -248,8 +250,13 @@ class HrSchemaMigrationIntegrationTest extends AbstractPostgresIntegrationTest {
         return id;
     }
 
+    /**
+     * The rows of {@code table} this suite owns, read under the suite's tenant: on an armed table an
+     * unscoped {@code COUNT(*)} answers zero, and it would also count another company's leftovers.
+     */
     private int count(String table) {
-        return jdbcTemplate.queryForObject("SELECT COUNT(*) FROM " + table, Integer.class);
+        return TenantFixtures.inTenant(
+                hrCompanyId(), () -> jdbcTemplate.queryForObject("SELECT COUNT(*) FROM " + table, Integer.class));
     }
 
     /**
@@ -257,7 +264,7 @@ class HrSchemaMigrationIntegrationTest extends AbstractPostgresIntegrationTest {
      * names the exact constraint. The most specific cause carries the {@code PSQLException} message.
      */
     private void assertViolatesConstraint(String constraintName, String sql, Object... args) {
-        assertThatThrownBy(() -> jdbcTemplate.update(sql, args))
+        assertThatThrownBy(() -> TenantFixtures.inTenant(hrCompanyId(), () -> jdbcTemplate.update(sql, args)))
                 .as("write rejected by %s", constraintName)
                 .isInstanceOf(DataIntegrityViolationException.class)
                 .satisfies(thrown -> assertThat(((DataIntegrityViolationException) thrown)

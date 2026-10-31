@@ -21,8 +21,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.transaction.PlatformTransactionManager;
-import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * Persistence-level verification of {@code V20__employee_registry.sql} against real PostgreSQL with
@@ -71,9 +69,6 @@ class EmployeeSchemaMigrationIntegrationTest extends AbstractPostgresIntegration
     @Autowired
     private EmployeeRepository employeeRepository;
 
-    @Autowired
-    private PlatformTransactionManager transactionManager;
-
     @BeforeEach
     void resetEmployeeTable() {
         // Unconditional: removes every row of employees, not a scoped subset. Both suites that
@@ -82,7 +77,9 @@ class EmployeeSchemaMigrationIntegrationTest extends AbstractPostgresIntegration
         // The access-provisioning rows that reference an employee are deleted first, because W5c's
         // producer writes them for the facts these suites assert (record T90).
         deleteAllAccessProvisioningRows(jdbcTemplate);
-        deleteAllEmployees(jdbcTemplate);
+        // The shared helper issues unscoped DELETEs, and `employees` is policy-armed: stated under this
+        // suite's own tenant they remove this suite's rows, which is the whole table the suite owns.
+        TenantFixtures.inTenant(employeeCompanyId(), () -> deleteAllEmployees(jdbcTemplate));
     }
 
     @Test
@@ -256,19 +253,21 @@ class EmployeeSchemaMigrationIntegrationTest extends AbstractPostgresIntegration
         var companyId = employeeCompanyId();
         var statusId = employeeStatusId();
 
-        var saved = employeeRepository.saveAndFlush(Employee.builder()
-                .company(companyRepository.findById(companyId).orElseThrow())
-                .status(statusRepository.findById(statusId).orElseThrow())
-                .employeeNumber("EMP-RT-1")
-                .firstName("Ada")
-                .paternalLastName("Lovelace")
-                .maternalLastName("Byron")
-                .email("ada.lovelace@example.com")
-                .phoneNumber("+52 55 0000 0000")
-                .birthDate(LocalDate.of(1815, 12, 10))
-                .hireDate(LocalDate.of(2020, 1, 15))
-                .enabled(true)
-                .build());
+        var saved = TenantFixtures.inTenant(
+                companyId,
+                () -> employeeRepository.saveAndFlush(Employee.builder()
+                        .company(companyRepository.findById(companyId).orElseThrow())
+                        .status(statusRepository.findById(statusId).orElseThrow())
+                        .employeeNumber("EMP-RT-1")
+                        .firstName("Ada")
+                        .paternalLastName("Lovelace")
+                        .maternalLastName("Byron")
+                        .email("ada.lovelace@example.com")
+                        .phoneNumber("+52 55 0000 0000")
+                        .birthDate(LocalDate.of(1815, 12, 10))
+                        .hireDate(LocalDate.of(2020, 1, 15))
+                        .enabled(true)
+                        .build()));
 
         // Read the lazy associations back inside a transaction: the repository commits its own
         // transaction, so touching company/status on the detached entity would throw.
@@ -312,33 +311,37 @@ class EmployeeSchemaMigrationIntegrationTest extends AbstractPostgresIntegration
                 """, UUID.class);
     }
 
+    /** One employee of {@code companyId}, written under that company's tenant: the table is armed. */
     private UUID insertEmployee(UUID companyId, UUID statusId, String number, String email) {
         var id = UUID.randomUUID();
-        jdbcTemplate.update("""
+        TenantFixtures.inTenant(companyId, () -> jdbcTemplate.update("""
                 INSERT INTO employees
                     (id, company_id, employee_number, first_name, paternal_last_name, email,
                      birth_date, hire_date, employment_status_id)
                 VALUES (?, ?, ?, 'Ada', 'Lovelace', ?, DATE '1990-01-01', DATE '2020-01-01', ?)
-                """, id, companyId, number, email, statusId);
+                """, id, companyId, number, email, statusId));
         return id;
     }
 
     private UUID insertEmployeeWithKeycloakId(
             UUID companyId, UUID statusId, String number, String email, String keycloakUserId) {
         var id = UUID.randomUUID();
-        jdbcTemplate.update("""
+        TenantFixtures.inTenant(
+                companyId, () -> jdbcTemplate.update("""
                 INSERT INTO employees
                     (id, company_id, employee_number, first_name, paternal_last_name, email,
                      birth_date, hire_date, employment_status_id, keycloak_user_id)
                 VALUES (?, ?, ?, 'Ada', 'Lovelace', ?, DATE '1990-01-01', DATE '2020-01-01', ?, ?)
-                """, id, companyId, number, email, statusId, keycloakUserId);
+                """, id, companyId, number, email, statusId, keycloakUserId));
         return id;
     }
 
     /** Scoped count: {@code employees} rows of the test company, never the whole table. */
     private int countEmployees(UUID companyId) {
-        return jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) FROM employees WHERE company_id = ?", Integer.class, companyId);
+        return TenantFixtures.inTenant(
+                companyId,
+                () -> jdbcTemplate.queryForObject(
+                        "SELECT COUNT(*) FROM employees WHERE company_id = ?", Integer.class, companyId));
     }
 
     /**
@@ -346,7 +349,7 @@ class EmployeeSchemaMigrationIntegrationTest extends AbstractPostgresIntegration
      * reading {@code company} or {@code status} afterwards on the detached entity would throw.
      */
     private <T> T inTransaction(Supplier<T> reader) {
-        return new TransactionTemplate(transactionManager).execute(status -> reader.get());
+        return TenantFixtures.inTenant(employeeCompanyId(), reader);
     }
 
     /**
@@ -354,7 +357,7 @@ class EmployeeSchemaMigrationIntegrationTest extends AbstractPostgresIntegration
      * names the exact constraint. The most specific cause carries the {@code PSQLException} message.
      */
     private void assertViolatesConstraint(String constraintName, String sql, Object... args) {
-        assertThatThrownBy(() -> jdbcTemplate.update(sql, args))
+        assertThatThrownBy(() -> TenantFixtures.inTenant(employeeCompanyId(), () -> jdbcTemplate.update(sql, args)))
                 .as("write rejected by %s", constraintName)
                 .isInstanceOf(DataIntegrityViolationException.class)
                 .satisfies(thrown -> assertThat(((DataIntegrityViolationException) thrown)

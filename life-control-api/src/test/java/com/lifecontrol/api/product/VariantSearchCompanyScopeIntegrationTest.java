@@ -37,6 +37,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import tools.jackson.databind.ObjectMapper;
 
 /**
@@ -166,7 +167,7 @@ class VariantSearchCompanyScopeIntegrationTest extends AbstractPostgresIntegrati
         var result = mockMvc.perform(get(SEARCH_URL)
                         .param("q", PREFIX)
                         .param("storeId", storeAId.toString())
-                        .with(jwt().authorities(ROLE_LC_ADMIN)))
+                        .with(ownerPrincipal(companyAId)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content.length()").value(1))
                 .andExpect(jsonPath("$.content[0].id").value(variantAId.toString()))
@@ -185,7 +186,7 @@ class VariantSearchCompanyScopeIntegrationTest extends AbstractPostgresIntegrati
         var result = mockMvc.perform(get(SEARCH_URL)
                         .param("q", PREFIX)
                         .param("storeId", storeBId.toString())
-                        .with(jwt().authorities(ROLE_LC_ADMIN)))
+                        .with(ownerPrincipal(companyBId)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content.length()").value(1))
                 .andExpect(jsonPath("$.content[0].id").value(variantBId.toString()))
@@ -201,13 +202,16 @@ class VariantSearchCompanyScopeIntegrationTest extends AbstractPostgresIntegrati
     @Test
     @DisplayName("should keep matching an exact barcode inside the store's company")
     void searchByExactBarcode_StillMatches() throws Exception {
-        var barCode =
-                productVariantRepository.findById(variantAId).orElseThrow().getBarCode();
+        // `product_variants` is armed: the read states the company the variant belongs to.
+        var barCode = TenantFixtures.inTenant(
+                        companyAId,
+                        () -> productVariantRepository.findById(variantAId).orElseThrow())
+                .getBarCode();
 
         var result = mockMvc.perform(get(SEARCH_URL)
                         .param("q", barCode)
                         .param("storeId", storeAId.toString())
-                        .with(jwt().authorities(ROLE_LC_ADMIN)))
+                        .with(ownerPrincipal(companyAId)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content.length()").value(1))
                 .andExpect(jsonPath("$.content[0].id").value(variantAId.toString()))
@@ -222,7 +226,7 @@ class VariantSearchCompanyScopeIntegrationTest extends AbstractPostgresIntegrati
         var result = mockMvc.perform(get(SEARCH_URL)
                         .param("q", PREFIX + "-no-such-text")
                         .param("storeId", storeAId.toString())
-                        .with(jwt().authorities(ROLE_LC_ADMIN)))
+                        .with(ownerPrincipal(companyAId)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content.length()").value(0))
                 .andExpect(jsonPath("$.totalElements").value(0))
@@ -241,25 +245,32 @@ class VariantSearchCompanyScopeIntegrationTest extends AbstractPostgresIntegrati
         return ids;
     }
 
+    /** A product of {@code ownerId}: the company read and the armed INSERT state that tenant. */
     private Product createProduct(UUID ownerId, String name) {
-        var product = productRepository.save(Product.builder()
-                .sku("VSCS-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase())
-                .name(PREFIX + " " + name)
-                .company(companyRepository.findById(ownerId).orElseThrow())
-                .enabled(true)
-                .build());
+        var product = TenantFixtures.inTenant(
+                ownerId,
+                () -> productRepository.save(Product.builder()
+                        .sku("VSCS-"
+                                + UUID.randomUUID().toString().substring(0, 8).toUpperCase())
+                        .name(PREFIX + " " + name)
+                        .company(companyRepository.findById(ownerId).orElseThrow())
+                        .enabled(true)
+                        .build()));
         createdProductIds.add(product.getId());
         return product;
     }
 
+    /** A variant of {@code ownerId}: {@code product_variants} is armed for the insert. */
     private UUID createVariant(UUID targetProductId, UUID ownerId, UUID companyStoreId, String variantName) {
-        var variant = productVariantRepository.save(ProductVariant.builder()
-                .productId(targetProductId)
-                .companyId(ownerId)
-                .barCode("VSCS-BAR-" + UUID.randomUUID().toString().substring(0, 12))
-                .variantName(PREFIX + " " + variantName)
-                .enabled(true)
-                .build());
+        var variant = TenantFixtures.inTenant(
+                ownerId,
+                () -> productVariantRepository.save(ProductVariant.builder()
+                        .productId(targetProductId)
+                        .companyId(ownerId)
+                        .barCode("VSCS-BAR-" + UUID.randomUUID().toString().substring(0, 12))
+                        .variantName(PREFIX + " " + variantName)
+                        .enabled(true)
+                        .build()));
         createdVariantIds.add(variant.getId());
 
         stockVariantAt(variant.getId(), companyStoreId);
@@ -289,50 +300,77 @@ class VariantSearchCompanyScopeIntegrationTest extends AbstractPostgresIntegrati
 
         var company = TenantFixtures.findOrCreate(companyRepository, companyKey, companyName, rfc);
 
-        var companyCountry = companyCountryRepository
-                .findByCompanyIdAndCountryId(company.getId(), country.getId())
-                .orElseGet(() -> companyCountryRepository.save(CompanyCountry.builder()
-                        .company(company)
-                        .country(country)
-                        .build()));
+        // One boundary per tenant: every node and store is a row on a policy-armed table and references
+        // the detached Company, so the find-or-create reads and the INSERTs both need that tenant.
+        var storeId = TenantFixtures.inTenant(company.getId(), () -> {
+            var companyCountry = companyCountryRepository
+                    .findByCompanyIdAndCountryId(company.getId(), country.getId())
+                    .orElseGet(() -> companyCountryRepository.save(CompanyCountry.builder()
+                            .company(company)
+                            .country(country)
+                            .build()));
 
-        var region = companyRegionRepository.findByCompanyCountryIdOrderByRegionNameAsc(companyCountry.getId()).stream()
-                .findFirst()
-                .orElseGet(() -> companyRegionRepository.save(CompanyRegion.builder()
-                        .companyCountry(companyCountry)
-                        .regionCode("VS")
-                        .regionName("VSCS Region")
-                        .enabled(true)
-                        .build()));
+            var region =
+                    companyRegionRepository.findByCompanyCountryIdOrderByRegionNameAsc(companyCountry.getId()).stream()
+                            .findFirst()
+                            .orElseGet(() -> companyRegionRepository.save(CompanyRegion.builder()
+                                    .companyCountry(companyCountry)
+                                    .regionCode("VS")
+                                    .regionName("VSCS Region")
+                                    .enabled(true)
+                                    .build()));
 
-        var zone = companyZoneRepository.findByCompanyRegionIdOrderByZoneNameAsc(region.getId()).stream()
-                .findFirst()
-                .orElseGet(() -> companyZoneRepository.save(CompanyZone.builder()
-                        .companyRegion(region)
-                        .zoneCode("VS")
-                        .zoneName("VSCS Zone")
-                        .enabled(true)
-                        .build()));
+            var zone = companyZoneRepository.findByCompanyRegionIdOrderByZoneNameAsc(region.getId()).stream()
+                    .findFirst()
+                    .orElseGet(() -> companyZoneRepository.save(CompanyZone.builder()
+                            .companyRegion(region)
+                            .zoneCode("VS")
+                            .zoneName("VSCS Zone")
+                            .enabled(true)
+                            .build()));
 
-        var store = companyStoreRepository.findByCompanyZoneId(zone.getId()).stream()
-                .filter(candidate -> storeName.equals(candidate.getStoreName()))
-                .findFirst()
-                .orElseGet(() -> companyStoreRepository.save(CompanyStore.builder()
-                        .companyZone(zone)
-                        .storeName(storeName)
-                        .enabled(true)
-                        .build()));
+            return companyStoreRepository.findByCompanyZoneId(zone.getId()).stream()
+                    .filter(candidate -> storeName.equals(candidate.getStoreName()))
+                    .findFirst()
+                    .orElseGet(() -> companyStoreRepository.save(CompanyStore.builder()
+                            .companyZone(zone)
+                            .storeName(storeName)
+                            .enabled(true)
+                            .build()))
+                    .getId();
+        });
 
-        return new StoreFront(company.getId(), store.getId());
+        return new StoreFront(company.getId(), storeId);
     }
 
     private void cleanUp() {
         // Leaf first: the per-store rows reference the variant, the variant references the product.
         productVariantStoreStockRepository.deleteAllById(createdStoreStockIds);
         createdStoreStockIds.clear();
-        productVariantRepository.deleteAllById(createdVariantIds);
+        // `product_variants` and `products` are armed, so the ids are deleted once per tenant: a delete
+        // under a tenant that does not own the id removes nothing, which is what makes two passes enough.
+        for (var tenant : java.util.stream.Stream.of(companyAId, companyBId)
+                .filter(java.util.Objects::nonNull)
+                .toList()) {
+            TenantFixtures.inTenant(tenant, () -> {
+                productVariantRepository.deleteAllById(createdVariantIds);
+                productRepository.deleteAllById(createdProductIds);
+            });
+        }
         createdVariantIds.clear();
-        productRepository.deleteAllById(createdProductIds);
         createdProductIds.clear();
+    }
+
+    /**
+     * An admin principal that states {@code companyId}.
+     *
+     * <p>The variant search names no company in its path, so the request's tenant comes from the token's
+     * claims (T5b) and a token carrying none states none: the store named by {@code storeId} is then
+     * invisible and the answer is 404 for every case. The claim belongs to the fixture — each case states
+     * the company whose store it searches through.</p>
+     */
+    private RequestPostProcessor ownerPrincipal(UUID companyId) {
+        return jwt().authorities(ROLE_LC_ADMIN)
+                .jwt(builder -> builder.claim("preferred_username", "admin").claim("company_id", companyId.toString()));
     }
 }

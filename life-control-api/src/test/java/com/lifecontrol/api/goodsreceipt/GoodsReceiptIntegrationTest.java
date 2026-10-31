@@ -21,6 +21,7 @@ import com.lifecontrol.api.company.repository.CompanyZoneRepository;
 import com.lifecontrol.api.country.repository.CountryRepository;
 import com.lifecontrol.api.goodsreceipt.dto.GoodsReceiptLineRequest;
 import com.lifecontrol.api.goodsreceipt.dto.GoodsReceiptRequest;
+import com.lifecontrol.api.goodsreceipt.dto.GoodsReceiptResponse;
 import com.lifecontrol.api.goodsreceipt.exception.DisabledProductVariantException;
 import com.lifecontrol.api.goodsreceipt.exception.OverReceiptException;
 import com.lifecontrol.api.goodsreceipt.exception.UnreceivableDetailStatusException;
@@ -84,8 +85,6 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.transaction.PlatformTransactionManager;
-import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 import tools.jackson.databind.ObjectMapper;
@@ -186,9 +185,6 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
     private StoreInventorySettingsRepository storeInventorySettingsRepository;
 
     @Autowired
-    private PlatformTransactionManager transactionManager;
-
-    @Autowired
     private MockMvc mockMvc;
 
     @Autowired
@@ -264,53 +260,70 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
         purchaseOrderRepository.deleteAll();
     }
 
-    /** Find-or-create the company &rarr; country &rarr; region &rarr; zone chain. */
+    /**
+     * Find-or-create the company &rarr; country &rarr; region &rarr; zone chain.
+     *
+     * <p>One {@link TenantFixtures#inTenant} around the children, not one per statement: every child of
+     * the chain is a row on a policy-armed table and references the detached {@code Company} above, so
+     * both its {@code INSERT} and the flush's unsaved-value probe need the parent's tenant installed.</p>
+     */
     private void seedCompanyHierarchy() {
         var country = countryRepository.findByCountryCode("MX").orElseThrow();
 
         company = TenantFixtures.findOrCreate(
                 companyRepository, "GOODS-RECEIPT-KEY", "Goods Receipt Test Company", "GRTS010101ABC");
 
-        var companyCountry = companyCountryRepository
-                .findByCompanyIdAndCountryId(company.getId(), country.getId())
-                .orElseGet(() -> companyCountryRepository.save(CompanyCountry.builder()
-                        .company(company)
-                        .country(country)
-                        .build()));
+        store = TenantFixtures.inTenant(company.getId(), () -> {
+            var companyCountry = companyCountryRepository
+                    .findByCompanyIdAndCountryId(company.getId(), country.getId())
+                    .orElseGet(() -> companyCountryRepository.save(CompanyCountry.builder()
+                            .company(company)
+                            .country(country)
+                            .build()));
 
-        var region = companyRegionRepository.findByCompanyCountryIdOrderByRegionNameAsc(companyCountry.getId()).stream()
-                .findFirst()
-                .orElseGet(() -> companyRegionRepository.save(CompanyRegion.builder()
-                        .companyCountry(companyCountry)
-                        .regionCode("GRT")
-                        .regionName("Goods Receipt Region")
-                        .enabled(true)
-                        .build()));
+            var region =
+                    companyRegionRepository.findByCompanyCountryIdOrderByRegionNameAsc(companyCountry.getId()).stream()
+                            .findFirst()
+                            .orElseGet(() -> companyRegionRepository.save(CompanyRegion.builder()
+                                    .companyCountry(companyCountry)
+                                    .regionCode("GRT")
+                                    .regionName("Goods Receipt Region")
+                                    .enabled(true)
+                                    .build()));
 
-        var companyZone = companyZoneRepository.findByCompanyRegionIdOrderByZoneNameAsc(region.getId()).stream()
-                .findFirst()
-                .orElseGet(() -> companyZoneRepository.save(CompanyZone.builder()
-                        .companyRegion(region)
-                        .zoneCode("GRT")
-                        .zoneName("Goods Receipt Zone")
-                        .enabled(true)
-                        .build()));
+            var companyZone = companyZoneRepository.findByCompanyRegionIdOrderByZoneNameAsc(region.getId()).stream()
+                    .findFirst()
+                    .orElseGet(() -> companyZoneRepository.save(CompanyZone.builder()
+                            .companyRegion(region)
+                            .zoneCode("GRT")
+                            .zoneName("Goods Receipt Zone")
+                            .enabled(true)
+                            .build()));
 
-        store = companyStoreRepository.findByCompanyZoneId(companyZone.getId()).stream()
-                .filter(candidate -> STORE_NAME.equals(candidate.getStoreName()))
-                .findFirst()
-                .orElseGet(() -> companyStoreRepository.save(CompanyStore.builder()
-                        .companyZone(companyZone)
-                        .storeName(STORE_NAME)
-                        .enabled(true)
-                        .build()));
+            return companyStoreRepository.findByCompanyZoneId(companyZone.getId()).stream()
+                    .filter(candidate -> STORE_NAME.equals(candidate.getStoreName()))
+                    .findFirst()
+                    .orElseGet(() -> companyStoreRepository.save(CompanyStore.builder()
+                            .companyZone(companyZone)
+                            .storeName(STORE_NAME)
+                            .enabled(true)
+                            .build()));
+        });
     }
 
-    /** Find-or-create the store &rarr; area &rarr; zone &rarr; location tree and keep the leaf. */
+    /**
+     * Find-or-create the store &rarr; area &rarr; zone &rarr; location tree and keep the leaf.
+     *
+     * <p>The area's and zone's {@code INSERT} probe the detached {@code CompanyStore} they reference, and
+     * {@code company_stores} is armed: without the store's tenant the probe answers no rows and the child
+     * looks unsaved.</p>
+     */
     private void seedStoreAndLocation() {
-        var area = findOrCreateArea(store, AREA_CODE, "Warehouse", 1);
-        var zone = findOrCreateZone(area, ZONE_CODE, "Aisle", 1);
-        receivingLocation = findOrCreateLocation(zone, LOCATION_CODE, "Receiving shelf", 1);
+        TenantFixtures.inTenant(company.getId(), () -> {
+            var area = findOrCreateArea(store, AREA_CODE, "Warehouse", 1);
+            var zone = findOrCreateZone(area, ZONE_CODE, "Aisle", 1);
+            receivingLocation = findOrCreateLocation(zone, LOCATION_CODE, "Receiving shelf", 1);
+        });
     }
 
     /**
@@ -322,15 +335,17 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
      * row of another company, which is the shape the catalog no longer has.</p>
      */
     private void seedOrderReferences() {
-        supplier = supplierRepository.findByCompanyIdAndEnabledTrue(company.getId(), Pageable.unpaged()).stream()
-                .filter(candidate -> "GRTS010101ABC".equals(candidate.getRfc()))
-                .findFirst()
-                .orElseGet(() -> supplierRepository.save(Supplier.builder()
-                        .supplierName("Goods Receipt Supplier")
-                        .rfc("GRTS010101ABC")
-                        .company(company)
-                        .enabled(true)
-                        .build()));
+        TenantFixtures.inTenant(company.getId(), () -> {
+            supplier = supplierRepository.findByCompanyIdAndEnabledTrue(company.getId(), Pageable.unpaged()).stream()
+                    .filter(candidate -> "GRTS010101ABC".equals(candidate.getRfc()))
+                    .findFirst()
+                    .orElseGet(() -> supplierRepository.save(Supplier.builder()
+                            .supplierName("Goods Receipt Supplier")
+                            .rfc("GRTS010101ABC")
+                            .company(company)
+                            .enabled(true)
+                            .build()));
+        });
 
         paymentMethod = paymentMethodRepository
                 .findByPaymentMethodNameIgnoreCase("Goods Receipt Transfer")
@@ -392,48 +407,50 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
 
     /** A purchase order with one variant-backed line, wired to the seeded store and statuses. */
     private ReceptionFixtures createReceptionFixtures() {
-        var product = productRepository.save(Product.builder()
-                .sku("GR-SKU-" + UUID.randomUUID().toString().substring(0, 12))
-                .name("Goods Receipt Product")
-                .company(company)
-                .enabled(true)
-                .build());
+        return TenantFixtures.inTenant(company.getId(), () -> {
+            var product = productRepository.save(Product.builder()
+                    .sku("GR-SKU-" + UUID.randomUUID().toString().substring(0, 12))
+                    .name("Goods Receipt Product")
+                    .company(company)
+                    .enabled(true)
+                    .build());
 
-        var variant = productVariantRepository.save(ProductVariant.builder()
-                .productId(product.getId())
-                .companyId(company.getId())
-                .barCode("GR-BAR-" + UUID.randomUUID().toString().substring(0, 12))
-                .variantName("Variant-" + UUID.randomUUID().toString().substring(0, 8))
-                .enabled(true)
-                .build());
-        saveStoreStock(variant.getId());
+            var variant = productVariantRepository.save(ProductVariant.builder()
+                    .productId(product.getId())
+                    .companyId(company.getId())
+                    .barCode("GR-BAR-" + UUID.randomUUID().toString().substring(0, 12))
+                    .variantName("Variant-" + UUID.randomUUID().toString().substring(0, 8))
+                    .enabled(true)
+                    .build());
+            saveStoreStock(variant.getId());
 
-        var order = purchaseOrderRepository.save(PurchaseOrder.builder()
-                .orderNumber("PO-GR-" + UUID.randomUUID().toString().substring(0, 8))
-                .supplier(supplier)
-                .companyStore(store)
-                // V43: the order's owner is the company of its store, which this fixture already owns.
-                .company(company)
-                .paymentMethod(paymentMethod)
-                .status(draftStatus)
-                .comments("Reception order")
-                .enabled(true)
-                .build());
+            var order = purchaseOrderRepository.save(PurchaseOrder.builder()
+                    .orderNumber("PO-GR-" + UUID.randomUUID().toString().substring(0, 8))
+                    .supplier(supplier)
+                    .companyStore(store)
+                    // V43: the order's owner is the company of its store, which this fixture already owns.
+                    .company(company)
+                    .paymentMethod(paymentMethod)
+                    .status(draftStatus)
+                    .comments("Reception order")
+                    .enabled(true)
+                    .build());
 
-        var detail = purchaseOrderDetailRepository.save(PurchaseOrderDetail.builder()
-                .purchaseOrder(order)
-                .product(product)
-                .productVariant(variant)
-                .quantity(BigDecimal.valueOf(5))
-                .unitPrice(new BigDecimal("10.00"))
-                .total(new BigDecimal("50.00"))
-                .receivedQuantity(BigDecimal.ZERO)
-                .comments("Reception line")
-                .status(pendingDetailStatus)
-                .enabled(true)
-                .build());
+            var detail = purchaseOrderDetailRepository.save(PurchaseOrderDetail.builder()
+                    .purchaseOrder(order)
+                    .product(product)
+                    .productVariant(variant)
+                    .quantity(BigDecimal.valueOf(5))
+                    .unitPrice(new BigDecimal("10.00"))
+                    .total(new BigDecimal("50.00"))
+                    .receivedQuantity(BigDecimal.ZERO)
+                    .comments("Reception line")
+                    .status(pendingDetailStatus)
+                    .enabled(true)
+                    .build());
 
-        return new ReceptionFixtures(order, detail, variant);
+            return new ReceptionFixtures(order, detail, variant);
+        });
     }
 
     private GoodsReceipt newReceipt(PurchaseOrder order, String receiptNumber) {
@@ -490,47 +507,63 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
 
     /** A purchase order in the given header status, ready to be received against. */
     private PurchaseOrder createReceivableOrder(String statusName) {
-        return purchaseOrderRepository.save(PurchaseOrder.builder()
-                .orderNumber("PO-GR-" + UUID.randomUUID().toString().substring(0, 8))
-                .supplier(supplier)
-                .companyStore(store)
-                // V43: the owner is the company of the store the order hangs off.
-                .company(company)
-                .paymentMethod(paymentMethod)
-                .status(statusByName("PURCHASE_ORDER", statusName))
-                .comments("Reception order")
-                .enabled(true)
-                .build());
+        return TenantFixtures.inTenant(
+                company.getId(),
+                () -> purchaseOrderRepository.save(PurchaseOrder.builder()
+                        .orderNumber("PO-GR-" + UUID.randomUUID().toString().substring(0, 8))
+                        .supplier(supplier)
+                        .companyStore(store)
+                        // V43: the owner is the company of the store the order hangs off.
+                        .company(company)
+                        .paymentMethod(paymentMethod)
+                        .status(statusByName("PURCHASE_ORDER", statusName))
+                        .comments("Reception order")
+                        .enabled(true)
+                        .build()));
     }
 
     /** One variant-backed line of a receivable order, with its own product and variant. */
     private PurchaseOrderDetail addReceivableLine(PurchaseOrder order, String quantity, String detailStatusName) {
-        var product = productRepository.save(Product.builder()
-                .sku("GR-SKU-" + UUID.randomUUID().toString().substring(0, 12))
-                .name("Goods Receipt Product")
-                .company(company)
-                .enabled(true)
-                .build());
-        var variant = productVariantRepository.save(ProductVariant.builder()
-                .productId(product.getId())
-                .companyId(company.getId())
-                .barCode("GR-BAR-" + UUID.randomUUID().toString().substring(0, 12))
-                .variantName("Variant-" + UUID.randomUUID().toString().substring(0, 8))
-                .enabled(true)
-                .build());
-        saveStoreStock(variant.getId());
-        return purchaseOrderDetailRepository.save(PurchaseOrderDetail.builder()
-                .purchaseOrder(order)
-                .product(product)
-                .productVariant(variant)
-                .quantity(new BigDecimal(quantity))
-                .unitPrice(new BigDecimal("10.00"))
-                .total(new BigDecimal("50.00"))
-                .receivedQuantity(BigDecimal.ZERO)
-                .comments("Reception line")
-                .status(statusByName("PURCHASE_ORDER_DETAIL", detailStatusName))
-                .enabled(true)
-                .build());
+        return TenantFixtures.inTenant(company.getId(), () -> {
+            var product = productRepository.save(Product.builder()
+                    .sku("GR-SKU-" + UUID.randomUUID().toString().substring(0, 12))
+                    .name("Goods Receipt Product")
+                    .company(company)
+                    .enabled(true)
+                    .build());
+            var variant = productVariantRepository.save(ProductVariant.builder()
+                    .productId(product.getId())
+                    .companyId(company.getId())
+                    .barCode("GR-BAR-" + UUID.randomUUID().toString().substring(0, 12))
+                    .variantName("Variant-" + UUID.randomUUID().toString().substring(0, 8))
+                    .enabled(true)
+                    .build());
+            saveStoreStock(variant.getId());
+            return purchaseOrderDetailRepository.save(PurchaseOrderDetail.builder()
+                    .purchaseOrder(order)
+                    .product(product)
+                    .productVariant(variant)
+                    .quantity(new BigDecimal(quantity))
+                    .unitPrice(new BigDecimal("10.00"))
+                    .total(new BigDecimal("50.00"))
+                    .receivedQuantity(BigDecimal.ZERO)
+                    .comments("Reception line")
+                    .status(statusByName("PURCHASE_ORDER_DETAIL", detailStatusName))
+                    .enabled(true)
+                    .build());
+        });
+    }
+
+    /**
+     * Calls the service directly under this class's company.
+     *
+     * <p>The production path states the tenant from the caller's claims at the transaction boundary; a
+     * test that calls the service instead of the controller has no principal carrying a tenant, so the
+     * fixture states it around the call. Without it the service's first read — the purchase order it locks
+     * — runs on a policy-armed table with no tenant and answers not-found.</p>
+     */
+    private GoodsReceiptResponse createReceipt(GoodsReceiptRequest request) {
+        return TenantFixtures.inTenant(company.getId(), () -> goodsReceiptService.createReceipt(request));
     }
 
     private Status statusByName(String typeName, String statusName) {
@@ -549,11 +582,12 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
     }
 
     /**
-     * Reads a lazy association inside a transaction: the service commits its own transaction, so
-     * reading {@code detail.status} afterwards on the detached entity would throw.
+     * Reads a lazy association inside a transaction that states this class's company: the service commits
+     * its own transaction, so reading {@code detail.status} afterwards on the detached entity would throw,
+     * and a policy-armed row such as a purchase order is invisible to a read with no tenant stated.
      */
     private <T> T inTransaction(java.util.function.Supplier<T> reader) {
-        return new TransactionTemplate(transactionManager).execute(status -> reader.get());
+        return TenantFixtures.inTenant(company.getId(), reader);
     }
 
     private String detailStatusName(UUID detailId) {
@@ -764,7 +798,7 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
             var detail = addReceivableLine(order, "5", "In Transit");
             var variantId = detail.getProductVariant().getId();
 
-            var response = goodsReceiptService.createReceipt(receptionRequest(order, line(detail.getId(), "3")));
+            var response = createReceipt(receptionRequest(order, line(detail.getId(), "3")));
 
             assertThat(goodsReceiptRepository.count()).isEqualTo(1);
             assertThat(response.receiptNumber()).isEqualTo("GR-" + order.getOrderNumber() + "-01");
@@ -809,7 +843,7 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
             var order = createReceivableOrder("In Transit");
             var detail = addReceivableLine(order, "5", "In Transit");
 
-            var first = goodsReceiptService.createReceipt(receptionRequest(order, line(detail.getId(), "2")));
+            var first = createReceipt(receptionRequest(order, line(detail.getId(), "2")));
             var afterFirst =
                     purchaseOrderDetailRepository.findById(detail.getId()).orElseThrow();
             assertThat(afterFirst.getReceivedQuantity()).isEqualByComparingTo("2");
@@ -817,7 +851,7 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
             assertThat(orderStatusName(order.getId())).isEqualTo("In Transit");
             assertThat(first.receiptNumber()).endsWith("-01");
 
-            var second = goodsReceiptService.createReceipt(receptionRequest(order, line(detail.getId(), "3")));
+            var second = createReceipt(receptionRequest(order, line(detail.getId(), "3")));
 
             var afterSecond =
                     purchaseOrderDetailRepository.findById(detail.getId()).orElseThrow();
@@ -838,7 +872,7 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
             var secondLine = addReceivableLine(order, "5", "In Transit");
             var secondVariantId = secondLine.getProductVariant().getId();
 
-            assertThatThrownBy(() -> goodsReceiptService.createReceipt(
+            assertThatThrownBy(() -> createReceipt(
                             receptionRequest(order, line(firstLine.getId(), "3"), line(secondLine.getId(), "10"))))
                     .isInstanceOf(OverReceiptException.class);
 
@@ -937,9 +971,11 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
             var secondLine = addReceivableLine(order, "5", "In Transit");
             var secondVariant = secondLine.getProductVariant();
             secondVariant.setEnabled(false);
-            productVariantRepository.saveAndFlush(secondVariant);
+            // A merge on a detached variant is an UPDATE on an armed table: unscoped it matches zero rows
+            // and Hibernate reports an optimistic-lock failure instead of the fixture's intent.
+            TenantFixtures.inTenant(company.getId(), () -> productVariantRepository.saveAndFlush(secondVariant));
 
-            assertThatThrownBy(() -> goodsReceiptService.createReceipt(
+            assertThatThrownBy(() -> createReceipt(
                             receptionRequest(order, line(firstLine.getId(), "3"), line(secondLine.getId(), "3"))))
                     .isInstanceOf(DisabledProductVariantException.class)
                     .hasMessageContaining("Reception line 1");
@@ -958,7 +994,7 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
             var firstLine = addReceivableLine(order, "5", "In Transit");
             var secondLine = addReceivableLine(order, "5", "Cancelled");
 
-            assertThatThrownBy(() -> goodsReceiptService.createReceipt(
+            assertThatThrownBy(() -> createReceipt(
                             receptionRequest(order, line(firstLine.getId(), "3"), line(secondLine.getId(), "3"))))
                     .isInstanceOf(UnreceivableDetailStatusException.class)
                     .hasMessageContaining("Reception line 1");
@@ -990,7 +1026,7 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
             // the mutator answered 409 after it. The corrected guard rejects the line pre-write, so the
             // receipt error category answers 400 and names the offending line.
             mockMvc.perform(post("/api/goods-receipts")
-                            .with(jwt().authorities(ROLE_LC_ADMIN))
+                            .with(adminPrincipal())
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(request)))
                     .andExpect(status().isBadRequest())
@@ -1072,7 +1108,7 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
             var foreignOrder = persistedOrder(foreignStore, "PO-GR-ADMIN-B");
             goodsReceiptRepository.saveAndFlush(receiptFor(foreignStore, foreignOrder, "GR-ADMIN-002"));
 
-            mockMvc.perform(get("/api/goods-receipts").with(jwt().authorities(ROLE_LC_ADMIN)))
+            mockMvc.perform(get("/api/goods-receipts").with(adminPrincipal()))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.totalElements").value(2))
                     .andExpect(jsonPath("$.content[*].receiptNumber").value(hasItems("GR-ADMIN-001", "GR-ADMIN-002")));
@@ -1149,7 +1185,7 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
             var enabledOrder = persistedOrder(store, "PO-GR-DISABLED-B");
             goodsReceiptRepository.saveAndFlush(receiptFor(store, enabledOrder, "GR-DISABLED-002"));
 
-            mockMvc.perform(get("/api/goods-receipts").with(jwt().authorities(ROLE_LC_ADMIN)))
+            mockMvc.perform(get("/api/goods-receipts").with(adminPrincipal()))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.totalElements").value(1))
                     .andExpect(jsonPath("$.content[0].receiptNumber").value("GR-DISABLED-002"));
@@ -1158,7 +1194,7 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
             // term that would surface it if findBySearchTerm lost `gr.enabled = true`.
             mockMvc.perform(get("/api/goods-receipts")
                             .param("search", "PO-GR-DISABLED-A")
-                            .with(jwt().authorities(ROLE_LC_ADMIN)))
+                            .with(adminPrincipal()))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.totalElements").value(0))
                     .andExpect(jsonPath("$.content").isEmpty());
@@ -1208,7 +1244,7 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
             receipt.setEnabled(false);
             var disabled = goodsReceiptRepository.saveAndFlush(receipt);
 
-            mockMvc.perform(get("/api/goods-receipts/{id}", disabled.getId()).with(jwt().authorities(ROLE_LC_ADMIN)))
+            mockMvc.perform(get("/api/goods-receipts/{id}", disabled.getId()).with(adminPrincipal()))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.id").value(disabled.getId().toString()))
                     .andExpect(jsonPath("$.receiptNumber").value("GR-DISABLED-DETAIL-001"))
@@ -1246,18 +1282,20 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
         }
 
         private PurchaseOrder persistedOrder(CompanyStore companyStore, String orderNumber) {
-            return purchaseOrderRepository.save(PurchaseOrder.builder()
-                    .orderNumber(orderNumber)
-                    .supplier(supplier)
-                    .companyStore(companyStore)
-                    // V43: the store may be the other one of the same zone; its company is still this
-                    // fixture's, and that is the owner the order stores.
-                    .company(company)
-                    .paymentMethod(paymentMethod)
-                    .status(draftStatus)
-                    .comments("List order")
-                    .enabled(true)
-                    .build());
+            return TenantFixtures.inTenant(
+                    company.getId(),
+                    () -> purchaseOrderRepository.save(PurchaseOrder.builder()
+                            .orderNumber(orderNumber)
+                            .supplier(supplier)
+                            .companyStore(companyStore)
+                            // V43: the store may be the other one of the same zone; its company is still this
+                            // fixture's, and that is the owner the order stores.
+                            .company(company)
+                            .paymentMethod(paymentMethod)
+                            .status(draftStatus)
+                            .comments("List order")
+                            .enabled(true)
+                            .build()));
         }
 
         private GoodsReceipt receiptFor(CompanyStore companyStore, PurchaseOrder order, String receiptNumber) {
@@ -1273,6 +1311,21 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
                     .enabled(true)
                     .build();
         }
+    }
+
+    /**
+     * An admin principal that states this class's company.
+     *
+     * <p>{@code /api/goods-receipts} names no company in its path, so the tenant comes from the token's
+     * claims (T5b): a token carrying none states none, and every policy-armed table the request touches
+     * then answers zero rows or fails to resolve a lazy parent. The claim belongs to the fixture and not to
+     * the assertions: these cases are about store scoping, and an administrator is admitted for its company
+     * with or without a per-company claim.</p>
+     */
+    private org.springframework.test.web.servlet.request.RequestPostProcessor adminPrincipal() {
+        return jwt().authorities(ROLE_LC_ADMIN)
+                .jwt(builder -> builder.claim("preferred_username", "admin")
+                        .claim("company_id", company.getId().toString()));
     }
 
     /** The real company -> country -> region -> zone -> store ids behind {@link #store}. */

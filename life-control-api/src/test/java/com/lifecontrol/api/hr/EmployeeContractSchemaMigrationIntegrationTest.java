@@ -72,12 +72,17 @@ class EmployeeContractSchemaMigrationIntegrationTest extends AbstractPostgresInt
         // method starts from a wholly owned state. companies, statuses and status_types are shared
         // fixtures and are never touched here.
         deleteAllAccessProvisioningRows(jdbcTemplate);
-        deleteAllEmployees(jdbcTemplate);
-        jdbcTemplate.update("DELETE FROM position_salary_bands");
-        jdbcTemplate.update("DELETE FROM position_roles");
-        jdbcTemplate.update("DELETE FROM positions");
-        jdbcTemplate.update("DELETE FROM departments");
-        jdbcTemplate.update("DELETE FROM seniority_levels");
+        // `employees` and `departments` are policy-armed, so their DELETEs run under this suite's own
+        // tenant: unscoped they remove zero rows without an error, and the next method then collides on
+        // the natural keys this suite writes.
+        TenantFixtures.inTenant(contractCompanyId(), () -> {
+            deleteAllEmployees(jdbcTemplate);
+            jdbcTemplate.update("DELETE FROM position_salary_bands");
+            jdbcTemplate.update("DELETE FROM position_roles");
+            jdbcTemplate.update("DELETE FROM positions");
+            jdbcTemplate.update("DELETE FROM departments");
+            jdbcTemplate.update("DELETE FROM seniority_levels");
+        });
     }
 
     @Test
@@ -352,12 +357,13 @@ class EmployeeContractSchemaMigrationIntegrationTest extends AbstractPostgresInt
         return new ContractFixtures(employeeId, positionId, seniorityLevelId);
     }
 
+    /** One department of {@code companyId}, written under that company's tenant: the table is armed. */
     private UUID insertDepartment(UUID companyId, String code, String name) {
         var id = UUID.randomUUID();
-        jdbcTemplate.update("""
+        TenantFixtures.inTenant(companyId, () -> jdbcTemplate.update("""
                 INSERT INTO departments (id, company_id, department_code, department_name)
                 VALUES (?, ?, ?, ?)
-                """, id, companyId, code, name);
+                """, id, companyId, code, name));
         return id;
     }
 
@@ -379,14 +385,15 @@ class EmployeeContractSchemaMigrationIntegrationTest extends AbstractPostgresInt
         return id;
     }
 
+    /** One employee of {@code companyId}, written under that company's tenant: the table is armed. */
     private UUID insertEmployee(UUID companyId, UUID statusId, String number, String email) {
         var id = UUID.randomUUID();
-        jdbcTemplate.update("""
+        TenantFixtures.inTenant(companyId, () -> jdbcTemplate.update("""
                 INSERT INTO employees
                     (id, company_id, employee_number, first_name, paternal_last_name, email,
                      birth_date, hire_date, employment_status_id)
                 VALUES (?, ?, ?, 'Ada', 'Lovelace', ?, DATE '1990-01-01', DATE '2020-01-01', ?)
-                """, id, companyId, number, email, statusId);
+                """, id, companyId, number, email, statusId));
         return id;
     }
 
@@ -431,7 +438,7 @@ class EmployeeContractSchemaMigrationIntegrationTest extends AbstractPostgresInt
      * names the exact constraint. The most specific cause carries the {@code PSQLException} message.
      */
     private void assertViolatesConstraint(String constraintName, String sql, Object... args) {
-        assertThatThrownBy(() -> jdbcTemplate.update(sql, args))
+        assertThatThrownBy(() -> TenantFixtures.inTenant(contractCompanyId(), () -> jdbcTemplate.update(sql, args)))
                 .as("write rejected by %s", constraintName)
                 .isInstanceOf(DataIntegrityViolationException.class)
                 .satisfies(thrown -> assertThat(((DataIntegrityViolationException) thrown)

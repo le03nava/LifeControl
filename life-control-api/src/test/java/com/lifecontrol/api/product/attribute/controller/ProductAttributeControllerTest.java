@@ -176,14 +176,17 @@ class ProductAttributeControllerTest extends AbstractPostgresIntegrationTest {
                 .getId();
     }
 
+    /** A category of {@code ownerId}: the company read and the armed INSERT state that tenant. */
     private ProductCategory category(UUID ownerId, ProductCategory parent, String name, int displayOrder) {
-        return categoryRepository.saveAndFlush(ProductCategory.builder()
-                .company(companyRepository.findById(ownerId).orElseThrow())
-                .parentCategory(parent)
-                .categoryName(name)
-                .displayOrder(displayOrder)
-                .enabled(true)
-                .build());
+        return TenantFixtures.inTenant(
+                ownerId,
+                () -> categoryRepository.saveAndFlush(ProductCategory.builder()
+                        .company(companyRepository.findById(ownerId).orElseThrow())
+                        .parentCategory(parent)
+                        .categoryName(name)
+                        .displayOrder(displayOrder)
+                        .enabled(true)
+                        .build()));
     }
 
     /**
@@ -192,9 +195,13 @@ class ProductAttributeControllerTest extends AbstractPostgresIntegrationTest {
      * no company — is out of reach.
      */
     private void removeCompanyRows(UUID ownerId) {
-        jdbcTemplate.update(
-                "DELETE FROM product_categories WHERE company_id = ? AND parent_category_id IS NOT NULL", ownerId);
-        jdbcTemplate.update("UPDATE product_categories SET parent_category_id = NULL WHERE company_id = ?", ownerId);
-        jdbcTemplate.update("DELETE FROM product_categories WHERE company_id = ?", ownerId);
+        // `product_categories` is armed, so the cleanup states the company whose rows it removes.
+        TenantFixtures.inTenant(ownerId, () -> {
+            jdbcTemplate.update(
+                    "DELETE FROM product_categories WHERE company_id = ? AND parent_category_id IS NOT NULL", ownerId);
+            jdbcTemplate.update(
+                    "UPDATE product_categories SET parent_category_id = NULL WHERE company_id = ?", ownerId);
+            jdbcTemplate.update("DELETE FROM product_categories WHERE company_id = ?", ownerId);
+        });
     }
 }

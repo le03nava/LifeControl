@@ -3,6 +3,7 @@ package com.lifecontrol.api.store;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowable;
 
+import com.lifecontrol.api.common.tenant.TenantScope;
 import com.lifecontrol.api.company.model.CompanyCountry;
 import com.lifecontrol.api.company.model.CompanyRegion;
 import com.lifecontrol.api.company.model.CompanyZone;
@@ -65,6 +66,7 @@ class StoreOptimisticLockingIntegrationTest extends AbstractPostgresIntegrationT
     @Autowired
     private PlatformTransactionManager transactionManager;
 
+    private UUID companyId;
     private UUID zoneId;
 
     @BeforeEach
@@ -73,44 +75,53 @@ class StoreOptimisticLockingIntegrationTest extends AbstractPostgresIntegrationT
 
         var company = TenantFixtures.findOrCreate(
                 companyRepository, "STORE-LOCK-KEY", "Store Locking Test Company", "SLOK010101ABC");
+        companyId = company.getId();
 
-        var companyCountry = companyCountryRepository
-                .findByCompanyIdAndCountryId(company.getId(), country.getId())
-                .orElseGet(() -> companyCountryRepository.save(CompanyCountry.builder()
-                        .company(company)
-                        .country(country)
-                        .build()));
+        // One boundary states the company for the chain below: each child is a row on a policy-armed
+        // table and references the detached Company, so its insert and the flush's unsaved-value probe
+        // both need that tenant.
+        zoneId = TenantFixtures.inTenant(companyId, () -> {
+            var companyCountry = companyCountryRepository
+                    .findByCompanyIdAndCountryId(company.getId(), country.getId())
+                    .orElseGet(() -> companyCountryRepository.save(CompanyCountry.builder()
+                            .company(company)
+                            .country(country)
+                            .build()));
 
-        var region = companyRegionRepository.findByCompanyCountryIdOrderByRegionNameAsc(companyCountry.getId()).stream()
-                .findFirst()
-                .orElseGet(() -> companyRegionRepository.save(CompanyRegion.builder()
-                        .companyCountry(companyCountry)
-                        .regionCode("SL")
-                        .regionName("Store Locking Region")
-                        .enabled(true)
-                        .build()));
+            var region =
+                    companyRegionRepository.findByCompanyCountryIdOrderByRegionNameAsc(companyCountry.getId()).stream()
+                            .findFirst()
+                            .orElseGet(() -> companyRegionRepository.save(CompanyRegion.builder()
+                                    .companyCountry(companyCountry)
+                                    .regionCode("SL")
+                                    .regionName("Store Locking Region")
+                                    .enabled(true)
+                                    .build()));
 
-        var zone = companyZoneRepository.findByCompanyRegionIdOrderByZoneNameAsc(region.getId()).stream()
-                .findFirst()
-                .orElseGet(() -> companyZoneRepository.save(CompanyZone.builder()
-                        .companyRegion(region)
-                        .zoneCode("SL")
-                        .zoneName("Store Locking Zone")
-                        .enabled(true)
-                        .build()));
+            var zone = companyZoneRepository.findByCompanyRegionIdOrderByZoneNameAsc(region.getId()).stream()
+                    .findFirst()
+                    .orElseGet(() -> companyZoneRepository.save(CompanyZone.builder()
+                            .companyRegion(region)
+                            .zoneCode("SL")
+                            .zoneName("Store Locking Zone")
+                            .enabled(true)
+                            .build()));
 
-        zoneId = zone.getId();
+            return zone.getId();
+        });
     }
 
     @Test
     @DisplayName("should fail a stale version commit instead of silently winning the write")
     void staleUpdate_FailsInsteadOfSilentlyWinning() throws Exception {
-        var zone = companyZoneRepository.findById(zoneId).orElseThrow();
-        var store = companyStoreRepository.save(CompanyStore.builder()
-                .companyZone(zone)
-                .storeName("Concurrency Store")
-                .enabled(true)
-                .build());
+        var store = TenantFixtures.inTenant(companyId, () -> {
+            var zone = companyZoneRepository.findById(zoneId).orElseThrow();
+            return companyStoreRepository.save(CompanyStore.builder()
+                    .companyZone(zone)
+                    .storeName("Concurrency Store")
+                    .enabled(true)
+                    .build());
+        });
         var storeId = store.getId();
         assertThat(store.getVersion()).isZero();
 
@@ -121,24 +132,34 @@ class StoreOptimisticLockingIntegrationTest extends AbstractPostgresIntegrationT
 
         try {
             // Thread A loads the store, mutates it, and holds its transaction open until B commits.
-            var firstTransaction = executor.submit(() -> template.execute(status -> {
-                var loaded = companyStoreRepository.findById(storeId).orElseThrow();
-                loaded.setStoreName("Name from thread A");
-                threadAHasLoaded.countDown();
-                awaitLatch(threadBMayCommit, "thread B to commit");
-                return null;
-            }));
+            //
+            // The two threads state the tenant themselves, one thread at a time, because the scope is
+            // thread-confined and a transaction installs it at its boundary: `TenantScope.with` is the
+            // entry point the record names for a caller that owns its own thread, and the boundary it
+            // matters for is `template`'s, which begins inside it. Opening the read in its own fixture
+            // transaction instead would detach the row and defeat the lost-update probe this test is.
+            var firstTransaction = executor.submit(() -> TenantScope.with(
+                    companyId,
+                    () -> template.execute(status -> {
+                        var loaded = companyStoreRepository.findById(storeId).orElseThrow();
+                        loaded.setStoreName("Name from thread A");
+                        threadAHasLoaded.countDown();
+                        awaitLatch(threadBMayCommit, "thread B to commit");
+                        return null;
+                    })));
             assertThat(threadAHasLoaded.await(10, TimeUnit.SECONDS))
                     .as("thread A loads the store within the timeout")
                     .isTrue();
 
             // Thread B loads the same row in its own persistence context, mutates and commits first.
-            var secondTransaction = executor.submit(() -> template.execute(status -> {
-                var loaded = companyStoreRepository.findById(storeId).orElseThrow();
-                loaded.setStoreName("Name from thread B");
-                companyStoreRepository.saveAndFlush(loaded);
-                return null;
-            }));
+            var secondTransaction = executor.submit(() -> TenantScope.with(
+                    companyId,
+                    () -> template.execute(status -> {
+                        var loaded = companyStoreRepository.findById(storeId).orElseThrow();
+                        loaded.setStoreName("Name from thread B");
+                        companyStoreRepository.saveAndFlush(loaded);
+                        return null;
+                    })));
             secondTransaction.get(15, TimeUnit.SECONDS);
             threadBMayCommit.countDown();
 
@@ -155,7 +176,10 @@ class StoreOptimisticLockingIntegrationTest extends AbstractPostgresIntegrationT
         }
 
         // No lost update: the row keeps the value committed by the winning transaction.
-        assertThat(companyStoreRepository.findById(storeId).orElseThrow().getStoreName())
+        assertThat(TenantFixtures.inTenant(
+                                companyId,
+                                () -> companyStoreRepository.findById(storeId).orElseThrow())
+                        .getStoreName())
                 .isEqualTo("Name from thread B");
     }
 

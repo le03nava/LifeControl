@@ -181,7 +181,8 @@ class ProductAttributeCatalogServiceTest extends AbstractPostgresIntegrationTest
         @Test
         @DisplayName("a root with no attachment answers empty instead of inventing a profile")
         void rootWithoutAttachmentAnswersEmpty() {
-            assertThat(catalogService.findProfile(companyId, unattachedRootId))
+            assertThat(TenantFixtures.inTenant(
+                            companyId, () -> catalogService.findProfile(companyId, unattachedRootId)))
                     .as("V38 leaves Accesorios y Cuidado unattached on purpose")
                     .isEmpty();
         }
@@ -191,13 +192,14 @@ class ProductAttributeCatalogServiceTest extends AbstractPostgresIntegrationTest
         void disabledProfileAnswersEmpty() {
             // The probe profile attached to this root is disabled while its single definition is not:
             // the answer has to come from the profile's own flag, not from an empty definition set.
-            assertThat(catalogService.findProfile(companyId, probeRootId))
+            assertThat(TenantFixtures.inTenant(companyId, () -> catalogService.findProfile(companyId, probeRootId)))
                     .as("the enabled probe profile is on a different root")
                     .isPresent();
 
             var disabledRootId = categoryId(DISABLED_ROOT_NAME);
 
-            assertThat(catalogService.findProfile(companyId, disabledRootId)).isEmpty();
+            assertThat(TenantFixtures.inTenant(companyId, () -> catalogService.findProfile(companyId, disabledRootId)))
+                    .isEmpty();
         }
 
         @Test
@@ -280,8 +282,13 @@ class ProductAttributeCatalogServiceTest extends AbstractPostgresIntegrationTest
         void variantCodeAtProductLevelIsRefused() {
             assertRefused(calzadoDeepChildId, Map.of("color", "negro"), ProductAttributeLevel.PRODUCT, "color");
 
-            assertThatCode(() -> catalogService.validate(
-                            companyId, calzadoDeepChildId, Map.of("color", "negro"), ProductAttributeLevel.VARIANT))
+            assertThatCode(() -> TenantFixtures.inTenant(
+                            companyId,
+                            () -> catalogService.validate(
+                                    companyId,
+                                    calzadoDeepChildId,
+                                    Map.of("color", "negro"),
+                                    ProductAttributeLevel.VARIANT)))
                     .as("the same code is accepted at the level it belongs to")
                     .doesNotThrowAnyException();
         }
@@ -291,11 +298,19 @@ class ProductAttributeCatalogServiceTest extends AbstractPostgresIntegrationTest
         void missingRequiredAttributeIsRefused() {
             assertRefused(calzadoDeepChildId, Map.of(), ProductAttributeLevel.PRODUCT, "material_externo");
 
-            assertThatCode(() -> catalogService.validate(
+            assertThatCode(() -> TenantFixtures.inTenant(
                             companyId,
-                            calzadoDeepChildId,
-                            attributes("material_externo", "piel_vacuno", "tipo_ajuste", "agujeta", "genero", "dama"),
-                            ProductAttributeLevel.PRODUCT))
+                            () -> catalogService.validate(
+                                    companyId,
+                                    calzadoDeepChildId,
+                                    attributes(
+                                            "material_externo",
+                                            "piel_vacuno",
+                                            "tipo_ajuste",
+                                            "agujeta",
+                                            "genero",
+                                            "dama"),
+                                    ProductAttributeLevel.PRODUCT)))
                     .as("every required attribute present is a complete set")
                     .doesNotThrowAnyException();
         }
@@ -309,11 +324,14 @@ class ProductAttributeCatalogServiceTest extends AbstractPostgresIntegrationTest
                     ProductAttributeLevel.PRODUCT,
                     "material_externo");
 
-            assertThatCode(() -> catalogService.validate(
+            assertThatCode(() -> TenantFixtures.inTenant(
                             companyId,
-                            calzadoDeepChildId,
-                            attributes("material_externo", "gamuza", "tipo_ajuste", "velcro", "genero", "unisex"),
-                            ProductAttributeLevel.PRODUCT))
+                            () -> catalogService.validate(
+                                    companyId,
+                                    calzadoDeepChildId,
+                                    attributes(
+                                            "material_externo", "gamuza", "tipo_ajuste", "velcro", "genero", "unisex"),
+                                    ProductAttributeLevel.PRODUCT)))
                     .as("an allowed value passes the same check")
                     .doesNotThrowAnyException();
         }
@@ -334,11 +352,13 @@ class ProductAttributeCatalogServiceTest extends AbstractPostgresIntegrationTest
                     ProductAttributeLevel.PRODUCT,
                     "conectividad");
 
-            assertThatCode(() -> catalogService.validate(
+            assertThatCode(() -> TenantFixtures.inTenant(
                             companyId,
-                            electroChildId,
-                            attributes("voltaje", "110v", "conectividad", List.of("wifi", "bluetooth")),
-                            ProductAttributeLevel.PRODUCT))
+                            () -> catalogService.validate(
+                                    companyId,
+                                    electroChildId,
+                                    attributes("voltaje", "110v", "conectividad", List.of("wifi", "bluetooth")),
+                                    ProductAttributeLevel.PRODUCT)))
                     .as("Wi-Fi AND Bluetooth is the case the kind exists for")
                     .doesNotThrowAnyException();
         }
@@ -394,11 +414,17 @@ class ProductAttributeCatalogServiceTest extends AbstractPostgresIntegrationTest
             assertThat(attribute(resolve(ferreteriaChildId), "medida_nominal").unitLabel())
                     .isEqualTo("mm");
 
-            assertThatCode(() -> catalogService.validate(
+            assertThatCode(() -> TenantFixtures.inTenant(
                             companyId,
-                            ferreteriaChildId,
-                            attributes("material", "pvc", "medida_nominal", Map.of("value", 0.5, "unit", "pulgada")),
-                            ProductAttributeLevel.PRODUCT))
+                            () -> catalogService.validate(
+                                    companyId,
+                                    ferreteriaChildId,
+                                    attributes(
+                                            "material",
+                                            "pvc",
+                                            "medida_nominal",
+                                            Map.of("value", 0.5, "unit", "pulgada")),
+                                    ProductAttributeLevel.PRODUCT)))
                     .doesNotThrowAnyException();
         }
 
@@ -407,11 +433,13 @@ class ProductAttributeCatalogServiceTest extends AbstractPostgresIntegrationTest
         void blankTextIsRefused() {
             assertRefused(ferreteriaChildId, Map.of("marca", "   "), ProductAttributeLevel.PRODUCT, "marca");
 
-            assertThatCode(() -> catalogService.validate(
+            assertThatCode(() -> TenantFixtures.inTenant(
                             companyId,
-                            ferreteriaChildId,
-                            attributes("material", "cobre", "marca", "Truper"),
-                            ProductAttributeLevel.PRODUCT))
+                            () -> catalogService.validate(
+                                    companyId,
+                                    ferreteriaChildId,
+                                    attributes("material", "cobre", "marca", "Truper"),
+                                    ProductAttributeLevel.PRODUCT)))
                     .as("a free string is what TEXT is for")
                     .doesNotThrowAnyException();
         }
@@ -423,8 +451,13 @@ class ProductAttributeCatalogServiceTest extends AbstractPostgresIntegrationTest
             // are the service's, and this is the only kind the starter vocabulary does not exercise.
             assertRefused(probeRootId, Map.of("flag_prueba", "si"), ProductAttributeLevel.PRODUCT, "flag_prueba");
 
-            assertThatCode(() -> catalogService.validate(
-                            companyId, probeRootId, Map.of("flag_prueba", true), ProductAttributeLevel.PRODUCT))
+            assertThatCode(() -> TenantFixtures.inTenant(
+                            companyId,
+                            () -> catalogService.validate(
+                                    companyId,
+                                    probeRootId,
+                                    Map.of("flag_prueba", true),
+                                    ProductAttributeLevel.PRODUCT)))
                     .doesNotThrowAnyException();
         }
 
@@ -445,7 +478,9 @@ class ProductAttributeCatalogServiceTest extends AbstractPostgresIntegrationTest
         void unclassifiedProductCases() {
             // Without a category there is no profile, so there are no codes: an empty set is a legal
             // write, and any key is unknown — the same refusal an unknown code gets on a classified one.
-            assertThatCode(() -> catalogService.validate(companyId, null, Map.of(), ProductAttributeLevel.PRODUCT))
+            assertThatCode(() -> TenantFixtures.inTenant(
+                            companyId,
+                            () -> catalogService.validate(companyId, null, Map.of(), ProductAttributeLevel.PRODUCT)))
                     .doesNotThrowAnyException();
 
             assertRefused(
@@ -458,8 +493,7 @@ class ProductAttributeCatalogServiceTest extends AbstractPostgresIntegrationTest
     // ──────────────────────────────────────
 
     private ProductAttributeProfileResponse resolve(UUID categoryId) {
-        return catalogService
-                .findProfile(companyId, categoryId)
+        return TenantFixtures.inTenant(companyId, () -> catalogService.findProfile(companyId, categoryId))
                 .orElseThrow(() -> new AssertionError("expected a profile for category " + categoryId));
     }
 
@@ -490,27 +524,32 @@ class ProductAttributeCatalogServiceTest extends AbstractPostgresIntegrationTest
      */
     private void assertRefused(
             UUID categoryId, Map<String, Object> attributes, ProductAttributeLevel level, String offendingCode) {
-        assertThatThrownBy(() -> catalogService.validate(companyId, categoryId, attributes, level))
+        assertThatThrownBy(() -> TenantFixtures.inTenant(
+                        companyId, () -> catalogService.validate(companyId, categoryId, attributes, level)))
                 .as("'%s' must be refused at %s level", offendingCode, level)
                 .isInstanceOf(ProductAttributeValidationException.class)
                 .hasMessageContaining("'" + offendingCode + "'");
     }
 
     private UUID categoryId(String rootName) {
-        return jdbcTemplate.queryForObject("""
-                SELECT id FROM product_categories
-                WHERE company_id = ? AND parent_category_id IS NULL AND category_name = ?
-                """, UUID.class, companyId, rootName);
+        return TenantFixtures.inTenant(
+                companyId, () -> jdbcTemplate.queryForObject("""
+                        SELECT id FROM product_categories
+                        WHERE company_id = ? AND parent_category_id IS NULL AND category_name = ?
+                        """, UUID.class, companyId, rootName));
     }
 
+    /** One category of this suite's company: `product_categories` is armed, so the insert states it. */
     private ProductCategory category(ProductCategory parent, String name, int displayOrder) {
-        return categoryRepository.saveAndFlush(ProductCategory.builder()
-                .company(company)
-                .parentCategory(parent)
-                .categoryName(name)
-                .displayOrder(displayOrder)
-                .enabled(true)
-                .build());
+        return TenantFixtures.inTenant(
+                companyId,
+                () -> categoryRepository.saveAndFlush(ProductCategory.builder()
+                        .company(company)
+                        .parentCategory(parent)
+                        .categoryName(name)
+                        .displayOrder(displayOrder)
+                        .enabled(true)
+                        .build()));
     }
 
     private ProductAttributeProfile profile(String profileKey, boolean enabled) {
@@ -519,7 +558,7 @@ class ProductAttributeCatalogServiceTest extends AbstractPostgresIntegrationTest
         profile.setProfileKey(profileKey);
         profile.setLabel("Catálogo " + profileKey);
         profile.setEnabled(enabled);
-        return profileRepository.saveAndFlush(profile);
+        return TenantFixtures.inTenant(companyId, () -> profileRepository.saveAndFlush(profile));
     }
 
     private ProductAttributeDefinition definition(
@@ -578,7 +617,7 @@ class ProductAttributeCatalogServiceTest extends AbstractPostgresIntegrationTest
         attachment.setProfile(profile);
         attachment.setCompany(profile.getCompany());
         attachment.setRootName(rootName);
-        profileRootRepository.saveAndFlush(attachment);
+        TenantFixtures.inTenant(companyId, () -> profileRootRepository.saveAndFlush(attachment));
     }
 
     /**
@@ -644,6 +683,14 @@ class ProductAttributeCatalogServiceTest extends AbstractPostgresIntegrationTest
      * seeded catalog carries {@code company_id IS NULL} and is therefore out of reach of every statement.
      */
     private void removeCompanyRows() {
+        // Every statement below touches a policy-armed table (`product_categories`,
+        // `product_attribute_profiles`, `product_attribute_profile_roots`), so the whole cleanup runs
+        // under this suite's tenant: unscoped, each DELETE removes zero rows without an error and the
+        // next method inherits the previous one's catalog.
+        TenantFixtures.inTenant(companyId, () -> removeCompanyRows(companyId));
+    }
+
+    private void removeCompanyRows(UUID companyId) {
         var ownProfiles = "SELECT id FROM product_attribute_profiles WHERE company_id = ?";
         jdbcTemplate.update(
                 "DELETE FROM product_attribute_values WHERE definition_id IN "

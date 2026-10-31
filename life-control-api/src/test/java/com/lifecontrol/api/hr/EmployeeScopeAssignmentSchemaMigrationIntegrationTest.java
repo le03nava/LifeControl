@@ -120,12 +120,18 @@ class EmployeeScopeAssignmentSchemaMigrationIntegrationTest extends AbstractPost
      * violate a foreign key.
      */
     private void deleteOwnedRows() {
-        jdbcTemplate.update("""
-                DELETE FROM employee_scope_assignments a
-                USING employees e
-                WHERE a.employee_id = e.id AND e.employee_number LIKE 'EMP-SCOPE-%'
-                """);
-        jdbcTemplate.update("DELETE FROM employees WHERE employee_number LIKE 'EMP-SCOPE-%'");
+        // `employees` is policy-armed, so the delete has to state this suite's tenant. The id is the one
+        // {@link TenantFixtures#findOrCreate} derives from {@link #COMPANY_KEY}, which is the row the
+        // fixtures below seed; stating it before the row exists is harmless, because the delete then
+        // matches nothing.
+        TenantFixtures.inTenant(TenantFixtures.derivedId(COMPANY_KEY), () -> {
+            jdbcTemplate.update("""
+                    DELETE FROM employee_scope_assignments a
+                    USING employees e
+                    WHERE a.employee_id = e.id AND e.employee_number LIKE 'EMP-SCOPE-%'
+                    """);
+            jdbcTemplate.update("DELETE FROM employees WHERE employee_number LIKE 'EMP-SCOPE-%'");
+        });
     }
 
     @Test
@@ -509,13 +515,18 @@ class EmployeeScopeAssignmentSchemaMigrationIntegrationTest extends AbstractPost
                 null,
                 false);
 
-        var covering = employeeScopeAssignmentRepository.findEnabledAssignmentsCoveringDate(
-                fixtures.employeeId(), LocalDate.now());
+        // The read states the company the rows belong to: the fetch graph's LEFT JOINs read the armed
+        // hierarchy tables, and with no tenant stated every joined row is invisible, so the whole chain
+        // would come back null instead of the entity the graph is supposed to have loaded.
+        var covering = TenantFixtures.inTenant(
+                TenantFixtures.derivedId(COMPANY_KEY),
+                () -> employeeScopeAssignmentRepository.findEnabledAssignmentsCoveringDate(
+                        fixtures.employeeId(), LocalDate.now()));
 
         assertThat(covering).hasSize(1);
         var row = covering.get(0);
-        // Read outside a transaction on purpose: these assertions only hold because the query fetches
-        // the chain, which is the point of the fetch graph.
+        // No lazy access is needed: these assertions only hold because the query fetches the chain,
+        // which is the point of the fetch graph.
         assertThat(row.getCompanyZone().getId()).isEqualTo(fixtures.zoneId());
         assertThat(row.getCompanyZone().getCompanyRegion().getId()).isEqualTo(fixtures.regionId());
         assertThat(row.getCompanyZone().getCompanyRegion().getCompanyCountry().getId())
@@ -541,13 +552,17 @@ class EmployeeScopeAssignmentSchemaMigrationIntegrationTest extends AbstractPost
         insertStoreAssignment(
                 fixtures.employeeId(), fixtures.storeId(), LocalDate.now().minusDays(10), null, true);
 
-        var covering = employeeScopeAssignmentRepository.findEnabledAssignmentsCoveringDate(
-                fixtures.employeeId(), LocalDate.now());
+        // Stated tenant for the same reason as the zone case above: the store chain's rows are armed, so
+        // an unscoped read leaves every fetched ancestor null.
+        var covering = TenantFixtures.inTenant(
+                TenantFixtures.derivedId(COMPANY_KEY),
+                () -> employeeScopeAssignmentRepository.findEnabledAssignmentsCoveringDate(
+                        fixtures.employeeId(), LocalDate.now()));
 
         assertThat(covering).hasSize(1);
         var row = covering.get(0);
-        // Read outside a transaction on purpose: these assertions only hold because the query's fetch
-        // graph walks the store chain, which is what the derivation reads on every request.
+        // No lazy access is needed: these assertions only hold because the query's fetch graph walks the
+        // store chain, which is what the derivation reads on every request.
         assertThat(row.getCompanyStore().getId()).isEqualTo(fixtures.storeId());
         assertThat(row.getCompanyStore().getCompanyZone().getId()).isEqualTo(fixtures.zoneId());
         assertThat(row.getCompanyStore().getCompanyZone().getCompanyRegion().getId())
@@ -645,31 +660,35 @@ class EmployeeScopeAssignmentSchemaMigrationIntegrationTest extends AbstractPost
         var company = TenantFixtures.findOrCreate(
                 companyRepository, COMPANY_KEY, "Employee Scope Assignment Schema Test Company", COMPANY_RFC);
 
-        var companyCountry = companyCountryRepository
-                .findByCompanyIdAndCountryId(company.getId(), country.getId())
-                .orElseGet(() -> companyCountryRepository.save(CompanyCountry.builder()
-                        .company(company)
-                        .country(country)
-                        .build()));
+        // One boundary states the company for the whole tree and the employee: every row here is on a
+        // policy-armed table, so both the find-or-create reads and the INSERTs need that tenant.
+        return TenantFixtures.inTenant(company.getId(), () -> {
+            var companyCountry = companyCountryRepository
+                    .findByCompanyIdAndCountryId(company.getId(), country.getId())
+                    .orElseGet(() -> companyCountryRepository.save(CompanyCountry.builder()
+                            .company(company)
+                            .country(country)
+                            .build()));
 
-        var region = findOrCreateRegion(companyCountry);
-        var zone = findOrCreateZone(region, FIRST_ZONE_CODE, "Employee Scope Zone A");
-        var otherZone = findOrCreateZone(region, SECOND_ZONE_CODE, "Employee Scope Zone B");
-        var store = findOrCreateStore(zone, STORE_NAME);
-        var otherStore = findOrCreateStore(otherZone, SECOND_STORE_NAME);
+            var region = findOrCreateRegion(companyCountry);
+            var zone = findOrCreateZone(region, FIRST_ZONE_CODE, "Employee Scope Zone A");
+            var otherZone = findOrCreateZone(region, SECOND_ZONE_CODE, "Employee Scope Zone B");
+            var store = findOrCreateStore(zone, STORE_NAME);
+            var otherStore = findOrCreateStore(otherZone, SECOND_STORE_NAME);
 
-        var statusId = activeEmployeeStatusId();
-        var n = sequence.incrementAndGet();
-        var employeeId =
-                insertEmployee(company.getId(), statusId, "EMP-SCOPE-" + n, "scope.employee" + n + "@example.com");
-        return new Fixtures(
-                employeeId,
-                companyCountry.getId(),
-                region.getId(),
-                zone.getId(),
-                otherZone.getId(),
-                store.getId(),
-                otherStore.getId());
+            var statusId = activeEmployeeStatusId();
+            var n = sequence.incrementAndGet();
+            var employeeId =
+                    insertEmployee(company.getId(), statusId, "EMP-SCOPE-" + n, "scope.employee" + n + "@example.com");
+            return new Fixtures(
+                    employeeId,
+                    companyCountry.getId(),
+                    region.getId(),
+                    zone.getId(),
+                    otherZone.getId(),
+                    store.getId(),
+                    otherStore.getId());
+        });
     }
 
     private CompanyStore findOrCreateStore(CompanyZone zone, String storeName) {
@@ -706,14 +725,15 @@ class EmployeeScopeAssignmentSchemaMigrationIntegrationTest extends AbstractPost
                         .build()));
     }
 
+    /** One employee of {@code companyId}, written under that company's tenant: the table is armed. */
     private UUID insertEmployee(UUID companyId, UUID statusId, String number, String email) {
         var id = UUID.randomUUID();
-        jdbcTemplate.update("""
+        TenantFixtures.inTenant(companyId, () -> jdbcTemplate.update("""
                 INSERT INTO employees
                     (id, company_id, employee_number, first_name, paternal_last_name, email,
                      birth_date, hire_date, employment_status_id)
                 VALUES (?, ?, ?, 'Ada', 'Lovelace', ?, DATE '1990-01-01', DATE '2020-01-01', ?)
-                """, id, companyId, number, email, statusId);
+                """, id, companyId, number, email, statusId));
         return id;
     }
 
@@ -792,7 +812,8 @@ class EmployeeScopeAssignmentSchemaMigrationIntegrationTest extends AbstractPost
      * the exact constraint. The most specific cause carries the {@code PSQLException} message.
      */
     private void assertViolatesConstraint(String constraintName, String sql, Object... args) {
-        assertThatThrownBy(() -> jdbcTemplate.update(sql, args))
+        assertThatThrownBy(() -> TenantFixtures.inTenant(
+                        TenantFixtures.derivedId(COMPANY_KEY), () -> jdbcTemplate.update(sql, args)))
                 .as("write rejected by %s", constraintName)
                 .isInstanceOf(DataIntegrityViolationException.class)
                 .satisfies(thrown -> assertThat(((DataIntegrityViolationException) thrown)

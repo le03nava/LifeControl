@@ -163,16 +163,25 @@ class EmployeeScopeAssignmentHttpIntegrationTest extends AbstractPostgresIntegra
      * delete.</p>
      */
     private void cleanOwnedRows() {
-        jdbcTemplate.update("""
-                DELETE FROM employee_scope_assignments a
-                USING employees e
-                WHERE a.employee_id = e.id AND e.company_id IN
-                    (SELECT id FROM companies WHERE company_key IN (?, ?))
-                """, COMPANY_KEY, OTHER_COMPANY_KEY);
-        jdbcTemplate.update("""
-                DELETE FROM employees WHERE company_id IN
-                    (SELECT id FROM companies WHERE company_key IN (?, ?))
-                """, COMPANY_KEY, OTHER_COMPANY_KEY);
+        // One pass per company, each stating that company's tenant: `employees` is policy-armed, so
+        // without a scope the DELETE removes nothing and the natural-key subquery cannot even see the
+        // company row it filters on. The id is the one `TenantFixtures.findOrCreate` derives from each
+        // key, which is how the seed above created the row, so the statement needs no lookup of its own;
+        // running the same SQL once per tenant is what reaches both companies' rows.
+        for (var key : java.util.List.of(COMPANY_KEY, OTHER_COMPANY_KEY)) {
+            TenantFixtures.inTenant(TenantFixtures.derivedId(key), () -> {
+                jdbcTemplate.update("""
+                        DELETE FROM employee_scope_assignments a
+                        USING employees e
+                        WHERE a.employee_id = e.id AND e.company_id IN
+                            (SELECT id FROM companies WHERE company_key IN (?, ?))
+                        """, COMPANY_KEY, OTHER_COMPANY_KEY);
+                jdbcTemplate.update("""
+                        DELETE FROM employees WHERE company_id IN
+                            (SELECT id FROM companies WHERE company_key IN (?, ?))
+                        """, COMPANY_KEY, OTHER_COMPANY_KEY);
+            });
+        }
     }
 
     private void seedCompanyTrees() {
@@ -181,17 +190,24 @@ class EmployeeScopeAssignmentHttpIntegrationTest extends AbstractPostgresIntegra
 
         var company = findOrCreateCompany(COMPANY_KEY, COMPANY_RFC, COMPANY_NAME);
         companyId = company.getId();
-        var seeded = companyZone(company, REGION_CODE, REGION_NAME, ZONE_CODE, ZONE_NAME);
-        companyCountryId = seeded.companyCountryId();
-        regionId = seeded.regionId();
-        zoneId = seeded.zone().getId();
-        storeId = findOrCreateStore(seeded.zone(), STORE_NAME);
-        secondStoreId = findOrCreateStore(seeded.zone(), SECOND_STORE_NAME);
+        // Each tree is seeded under its own company's tenant: every node and store is on a policy-armed
+        // table and references the detached {@code Company}, so both the find-or-create reads and the
+        // INSERTs need that tenant — and a tenant is not transferable, which is why there are two.
+        TenantFixtures.inTenant(companyId, () -> {
+            var seeded = companyZone(company, REGION_CODE, REGION_NAME, ZONE_CODE, ZONE_NAME);
+            companyCountryId = seeded.companyCountryId();
+            regionId = seeded.regionId();
+            zoneId = seeded.zone().getId();
+            storeId = findOrCreateStore(seeded.zone(), STORE_NAME);
+            secondStoreId = findOrCreateStore(seeded.zone(), SECOND_STORE_NAME);
+        });
 
         var otherCompany = findOrCreateCompany(OTHER_COMPANY_KEY, OTHER_COMPANY_RFC, OTHER_COMPANY_NAME);
         otherCompanyId = otherCompany.getId();
-        var otherSeeded = companyZone(otherCompany, REGION_CODE, REGION_NAME, ZONE_CODE, ZONE_NAME);
-        foreignStoreId = findOrCreateStore(otherSeeded.zone(), FOREIGN_STORE_NAME);
+        foreignStoreId = TenantFixtures.inTenant(otherCompanyId, () -> {
+            var otherSeeded = companyZone(otherCompany, REGION_CODE, REGION_NAME, ZONE_CODE, ZONE_NAME);
+            return findOrCreateStore(otherSeeded.zone(), FOREIGN_STORE_NAME);
+        });
     }
 
     /**
@@ -259,14 +275,15 @@ class EmployeeScopeAssignmentHttpIntegrationTest extends AbstractPostgresIntegra
                 """, UUID.class);
     }
 
+    /** One employee of {@code company}, written under that company's tenant: the table is armed. */
     private UUID insertEmployee(UUID company, UUID statusId, String number, String email) {
         var id = UUID.randomUUID();
-        jdbcTemplate.update("""
+        TenantFixtures.inTenant(company, () -> jdbcTemplate.update("""
                 INSERT INTO employees
                     (id, company_id, employee_number, first_name, paternal_last_name, email,
                      birth_date, hire_date, employment_status_id)
                 VALUES (?, ?, ?, 'Ada', 'Lovelace', ?, DATE '1990-01-01', DATE '2020-01-01', ?)
-                """, id, company, number, email, statusId);
+                """, id, company, number, email, statusId));
         return id;
     }
 

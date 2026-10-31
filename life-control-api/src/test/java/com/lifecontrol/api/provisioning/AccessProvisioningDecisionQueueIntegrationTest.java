@@ -127,7 +127,9 @@ class AccessProvisioningDecisionQueueIntegrationTest extends AbstractPostgresInt
         // Waiting for a human in another company: the join from the employee is the only scope there is.
         insertTask(foreign, "APPROVAL_PENDING", LocalDateTime.of(2026, 10, 7, 9, 0), null);
 
-        var queue = queryService.getDecisionQueue(companyId);
+        // The service is called directly, so no request states the tenant its query's join to
+        // `employees` needs; without it the join yields no row for any task.
+        var queue = TenantFixtures.inTenant(companyId, () -> queryService.getDecisionQueue(companyId));
 
         assertThat(queue)
                 .as("exactly the two APPROVAL_PENDING tasks of this company, oldest request first")
@@ -169,29 +171,34 @@ class AccessProvisioningDecisionQueueIntegrationTest extends AbstractPostgresInt
     }
 
     private void deleteScopedRows(String companyKey) {
-        jdbcTemplate.update("""
-                DELETE FROM access_provisioning_applied_roles WHERE task_id IN
-                    (SELECT t.id FROM access_provisioning_tasks t
-                     JOIN employees e ON e.id = t.employee_id
-                     JOIN companies c ON c.id = e.company_id
-                     WHERE c.company_key = ?)
-                """, companyKey);
-        jdbcTemplate.update("""
-                DELETE FROM access_provisioning_reviewed_roles WHERE task_id IN
-                    (SELECT t.id FROM access_provisioning_tasks t
-                     JOIN employees e ON e.id = t.employee_id
-                     JOIN companies c ON c.id = e.company_id
-                     WHERE c.company_key = ?)
-                """, companyKey);
-        jdbcTemplate.update("""
-                DELETE FROM access_provisioning_tasks WHERE employee_id IN
-                    (SELECT e.id FROM employees e
-                     JOIN companies c ON c.id = e.company_id
-                     WHERE c.company_key = ?)
-                """, companyKey);
-        jdbcTemplate.update(
-                "DELETE FROM employees WHERE company_id IN (SELECT id FROM companies WHERE company_key = ?)",
-                companyKey);
+        // Stated under the key's own tenant, and the id is the one `TenantFixtures.findOrCreate` derives
+        // from it: each DELETE joins `employees` and `companies`, both policy-armed, so unscoped it
+        // matches zero rows — silently for the DELETE, and by hiding the company row the subquery needs.
+        TenantFixtures.inTenant(TenantFixtures.derivedId(companyKey), () -> {
+            jdbcTemplate.update("""
+                    DELETE FROM access_provisioning_applied_roles WHERE task_id IN
+                        (SELECT t.id FROM access_provisioning_tasks t
+                         JOIN employees e ON e.id = t.employee_id
+                         JOIN companies c ON c.id = e.company_id
+                         WHERE c.company_key = ?)
+                    """, companyKey);
+            jdbcTemplate.update("""
+                    DELETE FROM access_provisioning_reviewed_roles WHERE task_id IN
+                        (SELECT t.id FROM access_provisioning_tasks t
+                         JOIN employees e ON e.id = t.employee_id
+                         JOIN companies c ON c.id = e.company_id
+                         WHERE c.company_key = ?)
+                    """, companyKey);
+            jdbcTemplate.update("""
+                    DELETE FROM access_provisioning_tasks WHERE employee_id IN
+                        (SELECT e.id FROM employees e
+                         JOIN companies c ON c.id = e.company_id
+                         WHERE c.company_key = ?)
+                    """, companyKey);
+            jdbcTemplate.update(
+                    "DELETE FROM employees WHERE company_id IN (SELECT id FROM companies WHERE company_key = ?)",
+                    companyKey);
+        });
     }
 
     /** Find-or-create one company row; reuses the persisted entity path rather than a raw insert. */
@@ -220,21 +227,24 @@ class AccessProvisioningDecisionQueueIntegrationTest extends AbstractPostgresInt
         var statusId = activeEmployeeStatusId();
         var n = sequence.incrementAndGet();
         var id = UUID.randomUUID();
-        jdbcTemplate.update(
-                """
-                INSERT INTO employees
-                    (id, company_id, employee_number, first_name, paternal_last_name, maternal_last_name,
-                     email, birth_date, hire_date, employment_status_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, DATE '1990-01-01', DATE '2020-01-01', ?)
-                """,
-                id,
+        // `employees` is policy-armed, so the insert states the company that owns the row.
+        TenantFixtures.inTenant(
                 companyId,
-                employeeNumber,
-                firstName,
-                paternalLastName,
-                maternalLastName,
-                "provq.employee" + n + "@example.com",
-                statusId);
+                () -> jdbcTemplate.update(
+                        """
+                        INSERT INTO employees
+                            (id, company_id, employee_number, first_name, paternal_last_name, maternal_last_name,
+                             email, birth_date, hire_date, employment_status_id)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, DATE '1990-01-01', DATE '2020-01-01', ?)
+                        """,
+                        id,
+                        companyId,
+                        employeeNumber,
+                        firstName,
+                        paternalLastName,
+                        maternalLastName,
+                        "provq.employee" + n + "@example.com",
+                        statusId));
         return id;
     }
 
