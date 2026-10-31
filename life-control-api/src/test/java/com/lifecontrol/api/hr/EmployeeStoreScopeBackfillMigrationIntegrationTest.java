@@ -18,6 +18,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 
 /**
@@ -71,8 +72,14 @@ class EmployeeStoreScopeBackfillMigrationIntegrationTest extends AbstractPostgre
         databaseName = "scratch_v32_" + UUID.randomUUID().toString().replace("-", "");
         createDatabase(databaseName);
         jdbcUrl = jdbcUrlFor(databaseName);
-        jdbcTemplate =
-                new JdbcTemplate(new DriverManagerDataSource(jdbcUrl, POSTGRES.getUsername(), POSTGRES.getPassword()));
+        var scratchDataSource = new DriverManagerDataSource(jdbcUrl, POSTGRES.getUsername(), POSTGRES.getPassword());
+        jdbcTemplate = new JdbcTemplate(scratchDataSource);
+        // This suite owns a database of its own and creates it with the container's SUPERUSER, so no
+        // ADR-0005 policy applies here and the scope has nothing to filter. The boundary is bound anyway
+        // because `TenantFixtures` states one rule without exceptions — a raw write needs a transaction to
+        // carry it — and a suite that skips the binding would fail on the helper's refusal rather than on
+        // the migration it is here to measure.
+        TenantFixtures.bindTransactionManager(new DataSourceTransactionManager(scratchDataSource));
     }
 
     @AfterEach

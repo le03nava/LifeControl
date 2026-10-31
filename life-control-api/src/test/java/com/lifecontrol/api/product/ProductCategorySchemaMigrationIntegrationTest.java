@@ -58,9 +58,22 @@ class ProductCategorySchemaMigrationIntegrationTest extends AbstractPostgresInte
         // (a grandchild and its parent go in the same statement). Only then are the surviving roots
         // detached and the table emptied. The detach is kept because deleting a parent before its
         // children is exactly the ordering trap this reset has to avoid.
-        jdbcTemplate.update("DELETE FROM product_categories WHERE parent_category_id IS NOT NULL");
-        jdbcTemplate.update("UPDATE product_categories SET parent_category_id = NULL");
-        jdbcTemplate.update("DELETE FROM product_categories");
+        resetCategories(categoryCompanyId());
+        resetCategories(otherCompanyId());
+    }
+
+    /**
+     * The three statements of the reset, run once per tenant this class owns.
+     *
+     * <p>Per tenant and not table-wide, because an unscoped {@code DELETE} on an armed table matches no
+     * row: the reset would clear nothing and every method would count the previous one's fixtures.</p>
+     */
+    private void resetCategories(UUID companyId) {
+        TenantFixtures.inTenant(companyId, () -> {
+            jdbcTemplate.update("DELETE FROM product_categories WHERE parent_category_id IS NOT NULL");
+            jdbcTemplate.update("UPDATE product_categories SET parent_category_id = NULL");
+            jdbcTemplate.update("DELETE FROM product_categories");
+        });
     }
 
     @Test
@@ -90,12 +103,17 @@ class ProductCategorySchemaMigrationIntegrationTest extends AbstractPostgresInte
         var foreignParentId = insertCategory(otherCompanyId, "Bebidas");
 
         assertViolatesConstraint(
-                "fk_product_categories_parent_same_company", """
+                ownCompanyId,
+                "fk_product_categories_parent_same_company",
+                """
                 INSERT INTO product_categories (id, company_id, parent_category_id, category_name)
                 VALUES (?, ?, ?, 'Refrescos')
-                """, UUID.randomUUID(), ownCompanyId, foreignParentId);
+                """,
+                UUID.randomUUID(),
+                ownCompanyId,
+                foreignParentId);
 
-        assertThat(count("product_categories")).isEqualTo(1);
+        assertThat(count("product_categories", ownCompanyId, otherCompanyId)).isEqualTo(1);
     }
 
     @Test
@@ -107,12 +125,12 @@ class ProductCategorySchemaMigrationIntegrationTest extends AbstractPostgresInte
         var companyId = categoryCompanyId();
         insertCategory(companyId, "Bebidas");
 
-        assertViolatesConstraint("uq_product_categories_sibling_name", """
+        assertViolatesConstraint(companyId, "uq_product_categories_sibling_name", """
                 INSERT INTO product_categories (id, company_id, category_name)
                 VALUES (?, ?, 'bebidas')
                 """, UUID.randomUUID(), companyId);
 
-        assertThat(count("product_categories")).isEqualTo(1);
+        assertThat(count("product_categories", companyId)).isEqualTo(1);
     }
 
     @Test
@@ -123,18 +141,21 @@ class ProductCategorySchemaMigrationIntegrationTest extends AbstractPostgresInte
         var firstParentId = insertCategory(companyId, "Alimentos");
         var secondParentId = insertCategory(companyId, "Limpieza");
 
-        var underFirstParent = jdbcTemplate.update("""
+        var underFirstParent = TenantFixtures.inTenant(
+                companyId, () -> jdbcTemplate.update("""
                 INSERT INTO product_categories (id, company_id, parent_category_id, category_name)
                 VALUES (?, ?, ?, 'Bebidas')
-                """, UUID.randomUUID(), companyId, firstParentId);
-        var underSecondParent = jdbcTemplate.update("""
+                """, UUID.randomUUID(), companyId, firstParentId));
+        var underSecondParent = TenantFixtures.inTenant(
+                companyId, () -> jdbcTemplate.update("""
                 INSERT INTO product_categories (id, company_id, parent_category_id, category_name)
                 VALUES (?, ?, ?, 'Bebidas')
-                """, UUID.randomUUID(), companyId, secondParentId);
-        var inOtherCompany = jdbcTemplate.update("""
+                """, UUID.randomUUID(), companyId, secondParentId));
+        var inOtherCompany = TenantFixtures.inTenant(
+                otherCompanyId, () -> jdbcTemplate.update("""
                 INSERT INTO product_categories (id, company_id, category_name)
                 VALUES (?, ?, 'Bebidas')
-                """, UUID.randomUUID(), otherCompanyId);
+                """, UUID.randomUUID(), otherCompanyId));
 
         assertThat(underFirstParent)
                 .as("same name under a different parent is accepted")
@@ -145,7 +166,7 @@ class ProductCategorySchemaMigrationIntegrationTest extends AbstractPostgresInte
         assertThat(inOtherCompany)
                 .as("same name in a different company is accepted")
                 .isEqualTo(1);
-        assertThat(count("product_categories")).isEqualTo(5);
+        assertThat(count("product_categories", companyId, otherCompanyId)).isEqualTo(5);
     }
 
     @Test
@@ -154,12 +175,13 @@ class ProductCategorySchemaMigrationIntegrationTest extends AbstractPostgresInte
         var companyId = categoryCompanyId();
         var categoryId = UUID.randomUUID();
 
-        assertViolatesConstraint("ck_product_categories_not_self_parent", """
+        assertViolatesConstraint(
+                companyId, "ck_product_categories_not_self_parent", """
                 INSERT INTO product_categories (id, company_id, parent_category_id, category_name)
                 VALUES (?, ?, ?, 'Bucle')
                 """, categoryId, companyId, categoryId);
 
-        assertThat(count("product_categories")).isZero();
+        assertThat(count("product_categories", companyId)).isZero();
     }
 
     @Test
@@ -168,13 +190,14 @@ class ProductCategorySchemaMigrationIntegrationTest extends AbstractPostgresInte
         var companyId = categoryCompanyId();
         var parentId = insertCategory(companyId, "Bebidas");
 
-        var child = jdbcTemplate.update("""
+        var child = TenantFixtures.inTenant(
+                companyId, () -> jdbcTemplate.update("""
                 INSERT INTO product_categories (id, company_id, parent_category_id, category_name)
                 VALUES (?, ?, ?, 'Refrescos')
-                """, UUID.randomUUID(), companyId, parentId);
+                """, UUID.randomUUID(), companyId, parentId));
 
         assertThat(child).as("the tenancy FK admits the legal half of the rule").isEqualTo(1);
-        assertThat(count("product_categories")).isEqualTo(2);
+        assertThat(count("product_categories", companyId)).isEqualTo(2);
     }
 
     @Test
@@ -205,11 +228,11 @@ class ProductCategorySchemaMigrationIntegrationTest extends AbstractPostgresInte
         var withKeyId = insertCategoryWithSatCode(companyId, "Con Clave", "27110000");
         var withoutKeyId = insertCategoryWithSatCode(companyId, "Sin Clave", null);
 
-        assertThat(count("product_categories"))
+        assertThat(count("product_categories", companyId))
                 .as("an absent SAT key is legal next to a present one")
                 .isEqualTo(2);
-        assertThat(categorySatCode(withKeyId)).isEqualTo("27110000");
-        assertThat(categorySatCode(withoutKeyId)).isNull();
+        assertThat(categorySatCode(companyId, withKeyId)).isEqualTo("27110000");
+        assertThat(categorySatCode(companyId, withoutKeyId)).isNull();
     }
 
     @Test
@@ -217,17 +240,17 @@ class ProductCategorySchemaMigrationIntegrationTest extends AbstractPostgresInte
     void satCodeFormatRejectsMalformedKeys() {
         var companyId = categoryCompanyId();
 
-        assertViolatesConstraint("ck_product_categories_sat_code_format", """
+        assertViolatesConstraint(companyId, "ck_product_categories_sat_code_format", """
                 INSERT INTO product_categories (id, company_id, category_name, sat_code)
                 VALUES (?, ?, 'Corta', '2711000')
                 """, UUID.randomUUID(), companyId);
 
-        assertViolatesConstraint("ck_product_categories_sat_code_format", """
+        assertViolatesConstraint(companyId, "ck_product_categories_sat_code_format", """
                 INSERT INTO product_categories (id, company_id, category_name, sat_code)
                 VALUES (?, ?, 'Con Letras', 'ABCDEFGH')
                 """, UUID.randomUUID(), companyId);
 
-        assertThat(count("product_categories")).isZero();
+        assertThat(count("product_categories", companyId)).isZero();
     }
 
     @Test
@@ -236,12 +259,17 @@ class ProductCategorySchemaMigrationIntegrationTest extends AbstractPostgresInte
         var companyId = categoryCompanyId();
         var rootId = insertCategoryWithSatCode(companyId, "Calzado para Dama", "53110000");
         var childId = insertCategoryWithSatCode(companyId, "Botas y Botines", "53110000");
-        jdbcTemplate.update("UPDATE product_categories SET parent_category_id = ? WHERE id = ?", rootId, childId);
+        TenantFixtures.inTenant(
+                companyId,
+                () -> jdbcTemplate.update(
+                        "UPDATE product_categories SET parent_category_id = ? WHERE id = ?", rootId, childId));
 
-        var rowsWithKey = jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) FROM product_categories WHERE company_id = ? AND sat_code = '53110000'",
-                Integer.class,
-                companyId);
+        var rowsWithKey = TenantFixtures.inTenant(
+                companyId,
+                () -> jdbcTemplate.queryForObject(
+                        "SELECT COUNT(*) FROM product_categories WHERE company_id = ? AND sat_code = '53110000'",
+                        Integer.class,
+                        companyId));
 
         assertThat(rowsWithKey)
                 .as("a segment key legitimately appears on the parent and on its children")
@@ -294,6 +322,7 @@ class ProductCategorySchemaMigrationIntegrationTest extends AbstractPostgresInte
     @DisplayName("fk_products_category_same_company rejects a category id that does not exist")
     void productCategoryForeignKeyRejectsAnUnknownId() {
         assertViolatesConstraint(
+                categoryCompanyId(),
                 "fk_products_category_same_company",
                 """
                 INSERT INTO products (id, sku, name, company_id, category_id)
@@ -312,7 +341,10 @@ class ProductCategorySchemaMigrationIntegrationTest extends AbstractPostgresInte
         var companyId = categoryCompanyId();
         var rootId = insertCategory(companyId, "Calzado");
         var childId = insertCategory(companyId, "Botas");
-        jdbcTemplate.update("UPDATE product_categories SET parent_category_id = ? WHERE id = ?", rootId, childId);
+        TenantFixtures.inTenant(
+                companyId,
+                () -> jdbcTemplate.update(
+                        "UPDATE product_categories SET parent_category_id = ? WHERE id = ?", rootId, childId));
 
         try {
             var unclassified = insertProduct(companyId, "PCSL-NONE", null);
@@ -343,7 +375,10 @@ class ProductCategorySchemaMigrationIntegrationTest extends AbstractPostgresInte
             // The API soft-deletes (`enabled = false`), so this path exists only for a direct SQL
             // delete — which is exactly what the default NO ACTION has to refuse.
             assertViolatesConstraint(
-                    "fk_products_category_same_company", "DELETE FROM product_categories WHERE id = ?", rootId);
+                    companyId,
+                    "fk_products_category_same_company",
+                    "DELETE FROM product_categories WHERE id = ?",
+                    rootId);
         } finally {
             deleteSeedProducts();
         }
@@ -351,10 +386,12 @@ class ProductCategorySchemaMigrationIntegrationTest extends AbstractPostgresInte
 
     /** Inserts a minimal product row; returns the affected-row count so the caller can assert it. */
     private int insertProduct(UUID companyId, String sku, UUID categoryId) {
-        return jdbcTemplate.update("""
+        return TenantFixtures.inTenant(
+                companyId,
+                () -> jdbcTemplate.update("""
                 INSERT INTO products (id, sku, name, company_id, category_id)
                 VALUES (?, ?, ?, ?, ?)
-                """, UUID.randomUUID(), sku, "Seed product " + sku, companyId, categoryId);
+                """, UUID.randomUUID(), sku, "Seed product " + sku, companyId, categoryId));
     }
 
     /**
@@ -365,7 +402,8 @@ class ProductCategorySchemaMigrationIntegrationTest extends AbstractPostgresInte
      * prefix keeps the sweep from touching fixtures other suites own.</p>
      */
     private void deleteSeedProducts() {
-        jdbcTemplate.update("DELETE FROM products WHERE sku LIKE 'PCSL-%'");
+        TenantFixtures.inTenant(
+                categoryCompanyId(), () -> jdbcTemplate.update("DELETE FROM products WHERE sku LIKE 'PCSL-%'"));
     }
 
     /**
@@ -391,37 +429,59 @@ class ProductCategorySchemaMigrationIntegrationTest extends AbstractPostgresInte
 
     private UUID insertCategory(UUID companyId, String name) {
         var id = UUID.randomUUID();
-        jdbcTemplate.update("""
+        TenantFixtures.inTenant(companyId, () -> jdbcTemplate.update("""
                 INSERT INTO product_categories (id, company_id, category_name)
                 VALUES (?, ?, ?)
-                """, id, companyId, name);
+                """, id, companyId, name));
         return id;
     }
 
     private UUID insertCategoryWithSatCode(UUID companyId, String name, String satCode) {
         var id = UUID.randomUUID();
-        jdbcTemplate.update("""
+        TenantFixtures.inTenant(companyId, () -> jdbcTemplate.update("""
                 INSERT INTO product_categories (id, company_id, category_name, sat_code)
                 VALUES (?, ?, ?, ?)
-                """, id, companyId, name, satCode);
+                """, id, companyId, name, satCode));
         return id;
     }
 
-    private String categorySatCode(UUID categoryId) {
-        return jdbcTemplate.queryForObject(
-                "SELECT sat_code FROM product_categories WHERE id = ?", String.class, categoryId);
+    /** The row's SAT key, read inside the tenant whose policy guards it. */
+    private String categorySatCode(UUID companyId, UUID categoryId) {
+        return TenantFixtures.inTenant(
+                companyId,
+                () -> jdbcTemplate.queryForObject(
+                        "SELECT sat_code FROM product_categories WHERE id = ?", String.class, categoryId));
     }
 
-    private int count(String table) {
-        return jdbcTemplate.queryForObject("SELECT COUNT(*) FROM " + table, Integer.class);
+    /**
+     * How many rows {@code table} holds for the given tenants together.
+     *
+     * <p>One count per tenant named, summed, and not a single {@code COUNT(*)}: the policy filters the
+     * table to the scope the connection stated, so an unscoped count answers zero. The statement therefore
+     * names the tenant in its own predicate instead of relying on the scope alone — that is the shape that
+     * answers the same question on both pools, the superuser one the default run uses (where the scope is
+     * inert and a filtered count still counts once) and the application one the gate will use.</p>
+     */
+    private int count(String table, UUID... companyIds) {
+        var total = 0;
+        for (var companyId : companyIds) {
+            total += TenantFixtures.inTenant(
+                    companyId,
+                    () -> jdbcTemplate.queryForObject(
+                            "SELECT COUNT(*) FROM " + table + " WHERE company_id = ?", Integer.class, companyId));
+        }
+        return total;
     }
 
     /**
      * Asserts the raw write is rejected by a real PostgreSQL constraint and that the reported error
      * names the exact constraint. The most specific cause carries the {@code PSQLException} message.
+     *
+     * <p>The write runs inside {@code companyId}'s tenant: the scope is what the row names, so the policy
+     * admits the write and the constraint under test is the rule that refuses it.</p>
      */
-    private void assertViolatesConstraint(String constraintName, String sql, Object... args) {
-        assertThatThrownBy(() -> jdbcTemplate.update(sql, args))
+    private void assertViolatesConstraint(UUID companyId, String constraintName, String sql, Object... args) {
+        assertThatThrownBy(() -> TenantFixtures.inTenant(companyId, () -> jdbcTemplate.update(sql, args)))
                 .as("write rejected by %s", constraintName)
                 .isInstanceOf(DataIntegrityViolationException.class)
                 .satisfies(thrown -> assertThat(((DataIntegrityViolationException) thrown)

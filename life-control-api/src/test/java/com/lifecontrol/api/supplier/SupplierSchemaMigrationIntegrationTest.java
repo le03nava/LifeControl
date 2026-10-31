@@ -60,15 +60,15 @@ class SupplierSchemaMigrationIntegrationTest extends AbstractPostgresIntegration
     private UUID companyAId;
     private UUID companyBId;
 
-    private final List<UUID> insertedSuppliers = new ArrayList<>();
-    private final List<UUID> insertedCompanies = new ArrayList<>();
-    private final List<UUID> insertedProducts = new ArrayList<>();
-    private final List<UUID> insertedProductSuppliers = new ArrayList<>();
-    private final List<UUID> insertedPurchaseOrders = new ArrayList<>();
-    private final List<UUID> insertedStores = new ArrayList<>();
-    private final List<UUID> insertedZones = new ArrayList<>();
-    private final List<UUID> insertedRegions = new ArrayList<>();
-    private final List<UUID> insertedCompanyCountries = new ArrayList<>();
+    private final List<InsertedRow> insertedSuppliers = new ArrayList<>();
+    private final List<InsertedRow> insertedCompanies = new ArrayList<>();
+    private final List<InsertedRow> insertedProducts = new ArrayList<>();
+    private final List<InsertedRow> insertedProductSuppliers = new ArrayList<>();
+    private final List<InsertedRow> insertedPurchaseOrders = new ArrayList<>();
+    private final List<InsertedRow> insertedStores = new ArrayList<>();
+    private final List<InsertedRow> insertedZones = new ArrayList<>();
+    private final List<InsertedRow> insertedRegions = new ArrayList<>();
+    private final List<InsertedRow> insertedCompanyCountries = new ArrayList<>();
 
     private UUID paymentMethodId;
     private UUID draftPurchaseOrderStatusId;
@@ -92,41 +92,41 @@ class SupplierSchemaMigrationIntegrationTest extends AbstractPostgresIntegration
     @AfterEach
     void removeInsertedRows() {
         // Leaf first: every list below references the one after it.
-        for (var id : insertedPurchaseOrders) {
-            jdbcTemplate.update("DELETE FROM purchase_orders WHERE id = ?", id);
+        for (var row : insertedPurchaseOrders) {
+            deleteRow(row, "DELETE FROM purchase_orders WHERE id = ?");
         }
         insertedPurchaseOrders.clear();
-        for (var id : insertedProductSuppliers) {
-            jdbcTemplate.update("DELETE FROM product_suppliers WHERE id = ?", id);
+        for (var row : insertedProductSuppliers) {
+            deleteRow(row, "DELETE FROM product_suppliers WHERE id = ?");
         }
         insertedProductSuppliers.clear();
-        for (var id : insertedStores) {
-            jdbcTemplate.update("DELETE FROM company_stores WHERE id = ?", id);
+        for (var row : insertedStores) {
+            deleteRow(row, "DELETE FROM company_stores WHERE id = ?");
         }
         insertedStores.clear();
-        for (var id : insertedZones) {
-            jdbcTemplate.update("DELETE FROM company_zones WHERE id = ?", id);
+        for (var row : insertedZones) {
+            deleteRow(row, "DELETE FROM company_zones WHERE id = ?");
         }
         insertedZones.clear();
-        for (var id : insertedRegions) {
-            jdbcTemplate.update("DELETE FROM company_regions WHERE id = ?", id);
+        for (var row : insertedRegions) {
+            deleteRow(row, "DELETE FROM company_regions WHERE id = ?");
         }
         insertedRegions.clear();
-        for (var id : insertedCompanyCountries) {
-            jdbcTemplate.update("DELETE FROM company_countries WHERE id = ?", id);
+        for (var row : insertedCompanyCountries) {
+            deleteRow(row, "DELETE FROM company_countries WHERE id = ?");
         }
         insertedCompanyCountries.clear();
-        for (var id : insertedProducts) {
-            jdbcTemplate.update("DELETE FROM products WHERE id = ?", id);
+        for (var row : insertedProducts) {
+            deleteRow(row, "DELETE FROM products WHERE id = ?");
         }
         insertedProducts.clear();
         // Suppliers reference companies, so the child goes first.
-        for (var id : insertedSuppliers) {
-            jdbcTemplate.update("DELETE FROM suppliers WHERE id = ?", id);
+        for (var row : insertedSuppliers) {
+            deleteRow(row, "DELETE FROM suppliers WHERE id = ?");
         }
         insertedSuppliers.clear();
-        for (var id : insertedCompanies) {
-            jdbcTemplate.update("DELETE FROM companies WHERE id = ?", id);
+        for (var row : insertedCompanies) {
+            deleteRow(row, "DELETE FROM companies WHERE id = ?");
         }
         insertedCompanies.clear();
     }
@@ -221,9 +221,8 @@ class SupplierSchemaMigrationIntegrationTest extends AbstractPostgresIntegration
         var inCompanyA = insertSupplier(companyAId, rfc);
         var inCompanyB = insertSupplier(companyBId, rfc);
 
-        var stored = jdbcTemplate.queryForObject("""
-                SELECT COUNT(*) FROM suppliers WHERE id IN (?, ?)
-                """, Integer.class, inCompanyA, inCompanyB);
+        // One count per tenant, because a single COUNT(*) with no scope stated sees at most one of them.
+        var stored = countSupplier(companyAId, inCompanyA) + countSupplier(companyBId, inCompanyB);
 
         assertThat(stored).as("both businesses registered the same RFC").isEqualTo(2);
     }
@@ -235,17 +234,18 @@ class SupplierSchemaMigrationIntegrationTest extends AbstractPostgresIntegration
         var accepted = insertSupplier(companyAId, rfc);
         var refusedId = UUID.randomUUID();
 
-        assertThatThrownBy(() -> jdbcTemplate.update("""
+        assertThatThrownBy(() ->
+                        TenantFixtures.inTenant(companyAId, () -> jdbcTemplate.update("""
                 INSERT INTO suppliers (id, supplier_name, rfc, company_id)
                 VALUES (?, 'Proveedor', ?, ?)
-                """, refusedId, rfc, companyAId))
+                """, refusedId, rfc, companyAId)))
                 .isInstanceOf(DataIntegrityViolationException.class)
                 .hasMessageContaining("uq_suppliers_company_rfc");
 
-        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM suppliers WHERE id = ?", Integer.class, refusedId))
+        assertThat(countSupplier(companyAId, refusedId))
                 .as("the refused row stored nothing")
                 .isZero();
-        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM suppliers WHERE id = ?", Integer.class, accepted))
+        assertThat(countSupplier(companyAId, accepted))
                 .as("the accepted row is the only one holding this RFC in this company")
                 .isEqualTo(1);
     }
@@ -253,10 +253,15 @@ class SupplierSchemaMigrationIntegrationTest extends AbstractPostgresIntegration
     @Test
     @DisplayName("fk_suppliers_company survives the contract and rejects a company that does not exist")
     void unknownCompanyIsRejectedByTheForeignKey() {
-        assertThatThrownBy(() -> jdbcTemplate.update("""
+        var unknownCompanyId = UUID.randomUUID();
+
+        // The scope carries the id the row names, so the policy admits the write and the foreign key is
+        // the rule that refuses it: a scope of another tenant would refuse it first and prove nothing.
+        assertThatThrownBy(() -> TenantFixtures.inTenant(
+                        unknownCompanyId, () -> jdbcTemplate.update("""
                 INSERT INTO suppliers (id, supplier_name, rfc, company_id)
                 VALUES (?, 'Proveedor', 'SCHEMA-FK-1', ?)
-                """, UUID.randomUUID(), UUID.randomUUID()))
+                """, UUID.randomUUID(), unknownCompanyId)))
                 .isInstanceOf(DataIntegrityViolationException.class)
                 .hasMessageContaining("fk_suppliers_company");
     }
@@ -302,8 +307,7 @@ class SupplierSchemaMigrationIntegrationTest extends AbstractPostgresIntegration
 
         var id = insertProductSupplier(companyAId, productOfA, supplierOfA);
 
-        assertThat(jdbcTemplate.queryForObject(
-                        "SELECT COUNT(*) FROM product_suppliers WHERE id = ?", Integer.class, id))
+        assertThat(countProductSupplier(companyAId, id))
                 .as("the consistent triple is written")
                 .isEqualTo(1);
     }
@@ -315,15 +319,15 @@ class SupplierSchemaMigrationIntegrationTest extends AbstractPostgresIntegration
         var productOfA = insertProduct(companyAId);
         var refusedId = UUID.randomUUID();
 
-        assertThatThrownBy(() -> jdbcTemplate.update("""
+        assertThatThrownBy(() -> TenantFixtures.inTenant(
+                        companyBId, () -> jdbcTemplate.update("""
                         INSERT INTO product_suppliers (id, product_id, supplier_id, company_id)
                         VALUES (?, ?, ?, ?)
-                        """, refusedId, productOfA, supplierOfB, companyBId))
+                        """, refusedId, productOfA, supplierOfB, companyBId)))
                 .isInstanceOf(DataIntegrityViolationException.class)
                 .hasMessageContaining("fk_product_suppliers_product_same_company");
 
-        assertThat(jdbcTemplate.queryForObject(
-                        "SELECT COUNT(*) FROM product_suppliers WHERE id = ?", Integer.class, refusedId))
+        assertThat(countProductSupplier(companyBId, refusedId))
                 .as("the refused link stored nothing")
                 .isZero();
     }
@@ -335,15 +339,15 @@ class SupplierSchemaMigrationIntegrationTest extends AbstractPostgresIntegration
         var productOfA = insertProduct(companyAId);
         var refusedId = UUID.randomUUID();
 
-        assertThatThrownBy(() -> jdbcTemplate.update("""
+        assertThatThrownBy(() -> TenantFixtures.inTenant(
+                        companyAId, () -> jdbcTemplate.update("""
                         INSERT INTO product_suppliers (id, product_id, supplier_id, company_id)
                         VALUES (?, ?, ?, ?)
-                        """, refusedId, productOfA, supplierOfB, companyAId))
+                        """, refusedId, productOfA, supplierOfB, companyAId)))
                 .isInstanceOf(DataIntegrityViolationException.class)
                 .hasMessageContaining("fk_product_suppliers_supplier_same_company");
 
-        assertThat(jdbcTemplate.queryForObject(
-                        "SELECT COUNT(*) FROM product_suppliers WHERE id = ?", Integer.class, refusedId))
+        assertThat(countProductSupplier(companyAId, refusedId))
                 .as("the refused link stored nothing")
                 .isZero();
     }
@@ -356,7 +360,7 @@ class SupplierSchemaMigrationIntegrationTest extends AbstractPostgresIntegration
 
         var id = insertPurchaseOrder(companyAId, storeOfA, supplierOfA);
 
-        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM purchase_orders WHERE id = ?", Integer.class, id))
+        assertThat(countPurchaseOrder(companyAId, id))
                 .as("the order whose supplier belongs to its store's company is written")
                 .isEqualTo(1);
     }
@@ -372,46 +376,84 @@ class SupplierSchemaMigrationIntegrationTest extends AbstractPostgresIntegration
                 .isInstanceOf(DataIntegrityViolationException.class)
                 .hasMessageContaining("fk_purchase_orders_supplier_same_company");
 
-        assertThat(jdbcTemplate.queryForObject(
-                        "SELECT COUNT(*) FROM purchase_orders WHERE id = ?", Integer.class, refusedId))
+        assertThat(countPurchaseOrder(companyAId, refusedId))
                 .as("the refused order stored nothing")
                 .isZero();
     }
 
+    /**
+     * A row this class inserted, with the tenant whose policy guards it.
+     *
+     * <p>The tenant travels with the id because the cleanup below has to state it: an unscoped
+     * {@code DELETE} on an armed table matches no row, so a fixture that forgot it would leave every row
+     * behind for the next class of the shared container to count.</p>
+     */
+    private record InsertedRow(UUID companyId, UUID id) {}
+
+    /** Deletes one row inside the tenant that guards it. */
+    private void deleteRow(InsertedRow row, String sql) {
+        TenantFixtures.inTenant(row.companyId(), () -> jdbcTemplate.update(sql, row.id()));
+    }
+
     private UUID insertCompany(String key, String name, String rfc) {
         var id = TenantFixtures.insertCompany(jdbcTemplate, key, name, rfc);
-        insertedCompanies.add(id);
+        insertedCompanies.add(new InsertedRow(id, id));
         return id;
     }
 
     private UUID insertSupplier(UUID companyId, String rfc) {
         var id = UUID.randomUUID();
-        jdbcTemplate.update("""
+        TenantFixtures.inTenant(companyId, () -> jdbcTemplate.update("""
                 INSERT INTO suppliers (id, supplier_name, rfc, company_id)
                 VALUES (?, 'Proveedor', ?, ?)
-                """, id, rfc, companyId);
-        insertedSuppliers.add(id);
+                """, id, rfc, companyId));
+        insertedSuppliers.add(new InsertedRow(companyId, id));
         return id;
     }
 
     private UUID insertProduct(UUID companyId) {
         var id = UUID.randomUUID();
-        jdbcTemplate.update("""
+        var sku = "SCHEMA-" + UUID.randomUUID().toString().substring(0, 8);
+        TenantFixtures.inTenant(companyId, () -> jdbcTemplate.update("""
                 INSERT INTO products (id, sku, name, company_id, enabled)
                 VALUES (?, ?, 'Schema product', ?, true)
-                """, id, "SCHEMA-" + UUID.randomUUID().toString().substring(0, 8), companyId);
-        insertedProducts.add(id);
+                """, id, sku, companyId));
+        insertedProducts.add(new InsertedRow(companyId, id));
         return id;
     }
 
     private UUID insertProductSupplier(UUID companyId, UUID productId, UUID supplierId) {
         var id = UUID.randomUUID();
-        jdbcTemplate.update("""
+        TenantFixtures.inTenant(companyId, () -> jdbcTemplate.update("""
                 INSERT INTO product_suppliers (id, product_id, supplier_id, company_id)
                 VALUES (?, ?, ?, ?)
-                """, id, productId, supplierId, companyId);
-        insertedProductSuppliers.add(id);
+                """, id, productId, supplierId, companyId));
+        insertedProductSuppliers.add(new InsertedRow(companyId, id));
         return id;
+    }
+
+    /** The stored supplier row, counted inside its own tenant. */
+    private int countSupplier(UUID companyId, UUID supplierId) {
+        return TenantFixtures.inTenant(
+                companyId,
+                () -> jdbcTemplate.queryForObject(
+                        "SELECT COUNT(*) FROM suppliers WHERE id = ?", Integer.class, supplierId));
+    }
+
+    /** The stored link row, counted inside its own tenant. */
+    private int countProductSupplier(UUID companyId, UUID id) {
+        return TenantFixtures.inTenant(
+                companyId,
+                () -> jdbcTemplate.queryForObject(
+                        "SELECT COUNT(*) FROM product_suppliers WHERE id = ?", Integer.class, id));
+    }
+
+    /** The stored order row, counted inside its own tenant. */
+    private int countPurchaseOrder(UUID companyId, UUID id) {
+        return TenantFixtures.inTenant(
+                companyId,
+                () -> jdbcTemplate.queryForObject(
+                        "SELECT COUNT(*) FROM purchase_orders WHERE id = ?", Integer.class, id));
     }
 
     private UUID insertPurchaseOrder(UUID companyId, UUID storeId, UUID supplierId) {
@@ -421,20 +463,23 @@ class SupplierSchemaMigrationIntegrationTest extends AbstractPostgresIntegration
     }
 
     private void insertPurchaseOrderWithId(UUID id, UUID companyId, UUID storeId, UUID supplierId) {
-        jdbcTemplate.update(
-                """
+        var orderNumber = "SCHEMA-PO-" + UUID.randomUUID().toString().substring(0, 8);
+        TenantFixtures.inTenant(
+                companyId,
+                () -> jdbcTemplate.update(
+                        """
                 INSERT INTO purchase_orders (id, order_number, supplier_id, company_store_id,
                                              payment_method_id, status_id, company_id, enabled)
                 VALUES (?, ?, ?, ?, ?, ?, ?, true)
                 """,
-                id,
-                "SCHEMA-PO-" + UUID.randomUUID().toString().substring(0, 8),
-                supplierId,
-                storeId,
-                paymentMethodId,
-                draftPurchaseOrderStatusId,
-                companyId);
-        insertedPurchaseOrders.add(id);
+                        id,
+                        orderNumber,
+                        supplierId,
+                        storeId,
+                        paymentMethodId,
+                        draftPurchaseOrderStatusId,
+                        companyId));
+        insertedPurchaseOrders.add(new InsertedRow(companyId, id));
     }
 
     /**
@@ -443,38 +488,41 @@ class SupplierSchemaMigrationIntegrationTest extends AbstractPostgresIntegration
      * {@code company_id}, so a raw insert has to name one at each hop.
      */
     private UUID insertStore(UUID companyId, String storeName) {
-        var countryId = jdbcTemplate.queryForObject("SELECT id FROM countries WHERE country_code = 'MX'", UUID.class);
+        return TenantFixtures.inTenant(companyId, () -> {
+            var countryId =
+                    jdbcTemplate.queryForObject("SELECT id FROM countries WHERE country_code = 'MX'", UUID.class);
 
-        var companyCountryId = UUID.randomUUID();
-        jdbcTemplate.update(
-                "INSERT INTO company_countries (id, company_id, country_id) VALUES (?, ?, ?)",
-                companyCountryId,
-                companyId,
-                countryId);
-        insertedCompanyCountries.add(companyCountryId);
+            var companyCountryId = UUID.randomUUID();
+            jdbcTemplate.update(
+                    "INSERT INTO company_countries (id, company_id, country_id) VALUES (?, ?, ?)",
+                    companyCountryId,
+                    companyId,
+                    countryId);
+            insertedCompanyCountries.add(new InsertedRow(companyId, companyCountryId));
 
-        var suffix = UUID.randomUUID().toString().substring(0, 6).toUpperCase();
+            var suffix = UUID.randomUUID().toString().substring(0, 6).toUpperCase();
 
-        var regionId = UUID.randomUUID();
-        jdbcTemplate.update("""
-                INSERT INTO company_regions (id, company_country_id, company_id, region_code, region_name, enabled)
-                VALUES (?, ?, ?, ?, ?, true)
-                """, regionId, companyCountryId, companyId, suffix, "Schema region " + suffix);
-        insertedRegions.add(regionId);
+            var regionId = UUID.randomUUID();
+            jdbcTemplate.update("""
+                    INSERT INTO company_regions (id, company_country_id, company_id, region_code, region_name, enabled)
+                    VALUES (?, ?, ?, ?, ?, true)
+                    """, regionId, companyCountryId, companyId, suffix, "Schema region " + suffix);
+            insertedRegions.add(new InsertedRow(companyId, regionId));
 
-        var zoneId = UUID.randomUUID();
-        jdbcTemplate.update("""
-                INSERT INTO company_zones (id, company_region_id, company_id, zone_code, zone_name, enabled)
-                VALUES (?, ?, ?, ?, ?, true)
-                """, zoneId, regionId, companyId, suffix, "Schema zone " + suffix);
-        insertedZones.add(zoneId);
+            var zoneId = UUID.randomUUID();
+            jdbcTemplate.update("""
+                    INSERT INTO company_zones (id, company_region_id, company_id, zone_code, zone_name, enabled)
+                    VALUES (?, ?, ?, ?, ?, true)
+                    """, zoneId, regionId, companyId, suffix, "Schema zone " + suffix);
+            insertedZones.add(new InsertedRow(companyId, zoneId));
 
-        var storeId = UUID.randomUUID();
-        jdbcTemplate.update("""
-                INSERT INTO company_stores (id, company_zone_id, company_id, store_name, enabled)
-                VALUES (?, ?, ?, ?, true)
-                """, storeId, zoneId, companyId, storeName + " " + suffix);
-        insertedStores.add(storeId);
-        return storeId;
+            var storeId = UUID.randomUUID();
+            jdbcTemplate.update("""
+                    INSERT INTO company_stores (id, company_zone_id, company_id, store_name, enabled)
+                    VALUES (?, ?, ?, ?, true)
+                    """, storeId, zoneId, companyId, storeName + " " + suffix);
+            insertedStores.add(new InsertedRow(companyId, storeId));
+            return storeId;
+        });
     }
 }

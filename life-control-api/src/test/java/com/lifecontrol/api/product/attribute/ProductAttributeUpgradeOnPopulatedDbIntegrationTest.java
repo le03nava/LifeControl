@@ -11,6 +11,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.jdbc.datasource.DataSourceUtils;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.jdbc.datasource.init.ScriptUtils;
@@ -54,7 +55,12 @@ class ProductAttributeUpgradeOnPopulatedDbIntegrationTest extends AbstractPostgr
                 .load();
         assertThat(toV36.migrate().migrationsExecuted).isEqualTo(36);
 
-        var jdbc = new JdbcTemplate(new DriverManagerDataSource(url, user, password));
+        var probeDataSource = new DriverManagerDataSource(url, user, password);
+        var jdbc = new JdbcTemplate(probeDataSource);
+        // The probe database is created with the container's SUPERUSER, so no ADR-0005 policy applies and
+        // the scope filters nothing here; the boundary is bound because `TenantFixtures` states that every
+        // raw write runs inside one, and the seed below is a raw write.
+        TenantFixtures.bindTransactionManager(new DataSourceTransactionManager(probeDataSource));
         var companyId = TenantFixtures.insertCompany(
                 jdbc, UUID.randomUUID(), "PROBE-NONEMPTY", "Probe non-empty co", "PNEM010101AB1");
         var ferreteria = UUID.randomUUID();

@@ -302,7 +302,7 @@ class ProductAttributeSchemaMigrationIntegrationTest extends AbstractPostgresInt
 
             insertCompanyProfile(PROBE_PROFILE_KEY, companyId);
 
-            assertThat(countProfiles(PROBE_PROFILE_KEY, companyId))
+            assertThat(countCompanyProfiles(companyId, PROBE_PROFILE_KEY))
                     .as("the owner is part of the key, so the global row is not in the way")
                     .isEqualTo(1);
             assertThat(countProfiles(PROBE_PROFILE_KEY, null))
@@ -344,19 +344,22 @@ class ProductAttributeSchemaMigrationIntegrationTest extends AbstractPostgresInt
             var companyProfileId = insertCompanyProfile(OTHER_PROBE_PROFILE_KEY, companyId);
             insertGlobalRootAttachment(globalProfileId, PROBE_ROOT);
 
-            var inserted = jdbcTemplate.update("""
+            var inserted = TenantFixtures.inTenant(
+                    companyId,
+                    () -> jdbcTemplate.update("""
                     INSERT INTO product_attribute_profile_roots (id, profile_id, company_id, root_name)
                     VALUES (?, ?, ?, ?)
-                    """, UUID.randomUUID(), companyProfileId, companyId, PROBE_ROOT);
+                    """, UUID.randomUUID(), companyProfileId, companyId, PROBE_ROOT));
 
             assertThat(inserted)
                     .as("the override the schema ships is expressible")
                     .isEqualTo(1);
             assertThat(countGlobalRootAttachments(PROBE_ROOT)).isEqualTo(1);
-            assertThat(jdbcTemplate.queryForObject("""
+            assertThat(TenantFixtures.inTenant(
+                            companyId, () -> jdbcTemplate.queryForObject("""
                             SELECT COUNT(*) FROM product_attribute_profile_roots
                             WHERE company_id = ? AND lower(root_name) = lower(?)
-                            """, Integer.class, companyId, PROBE_ROOT))
+                            """, Integer.class, companyId, PROBE_ROOT)))
                     .isEqualTo(1);
         }
     }
@@ -533,10 +536,11 @@ class ProductAttributeSchemaMigrationIntegrationTest extends AbstractPostgresInt
 
     private UUID insertCompanyProfile(String profileKey, UUID companyId) {
         var id = UUID.randomUUID();
-        jdbcTemplate.update("""
+        TenantFixtures.inTenant(
+                companyId, () -> jdbcTemplate.update("""
                 INSERT INTO product_attribute_profiles (id, company_id, profile_key, label)
                 VALUES (?, ?, ?, ?)
-                """, id, companyId, profileKey, "Sonda " + profileKey);
+                """, id, companyId, profileKey, "Sonda " + profileKey));
         return id;
     }
 
@@ -565,6 +569,17 @@ class ProductAttributeSchemaMigrationIntegrationTest extends AbstractPostgresInt
                 SELECT COUNT(*) FROM product_attribute_profiles
                 WHERE lower(profile_key) = lower(?) AND company_id IS NOT DISTINCT FROM ?
                 """, Integer.class, profileKey, companyId);
+    }
+
+    /**
+     * The company-owned override row, counted inside its tenant.
+     *
+     * <p>`shared` kind: a row with a NULL {@code company_id} is visible to everyone and needs no scope, but
+     * a row the company owns is only visible when the connection states that company — the same statement,
+     * run where it can see the row.</p>
+     */
+    private int countCompanyProfiles(UUID companyId, String profileKey) {
+        return TenantFixtures.inTenant(companyId, () -> countProfiles(profileKey, companyId));
     }
 
     private int countGlobalRootAttachments(String rootName) {
