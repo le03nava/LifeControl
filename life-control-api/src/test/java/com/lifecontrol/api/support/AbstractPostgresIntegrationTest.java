@@ -31,8 +31,9 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
  * {@code src/test/resources/test-container-roles.sql}: the migration that grants the application its
  * privileges names {@code lifecontrol_app}, and the container's own user ({@code lifecontrol}) is a
  * superuser — which always bypasses Row-Level Security — so the role the policies actually apply to has
- * to exist for those suites to prove anything. The script is idempotent, runs once per container before
- * Flyway, and is inert for every suite that never switches to either role with {@code SET ROLE}.
+ * to exist for those suites to prove anything. The script is idempotent and runs once per container
+ * before Flyway. Since record T6b the <b>pool</b> logs in as {@code lifecontrol_app} while <b>Flyway</b>
+ * keeps the container's superuser; {@link #postgresProperties} states why the split exists.
  *
  * <p><b>The server takes 300 connections because the suite caches one pool per Spring context.</b> Each
  * distinct {@code @SpringBootTest} configuration keeps its own Hikari pool alive for the whole JVM and the
@@ -55,14 +56,77 @@ public abstract class AbstractPostgresIntegrationTest {
         POSTGRES.start();
     }
 
+    /**
+     * The role the pool logs in as: the one ADR-0005's policies apply to, and the reason this base exists.
+     *
+     * <p><b>Why the pool and Flyway are two credentials</b> (record T6b). Until T6b both were
+     * {@code lifecontrol}, the container's SUPERUSER, and a superuser <b>always</b> bypasses Row-Level
+     * Security whatever the policies say — so the sixteen armed tables were installed and enforced nothing
+     * that any test could see. S5 of issue #696 asks for the suite to pass <i>under</i> the policies, which
+     * is only measurable if the connections that run the queries are the connections the policies apply to.
+     * The two halves have opposite requirements:</p>
+     *
+     * <ul>
+     *   <li><b>Flyway cannot be the application role.</b> It owns nothing and has no DDL rights in
+     *       delivery ({@code V52} grants it DML and nothing else), so {@code CREATE TABLE} would fail on
+     *       the first migration. Migrations run as the owner, in the test container the superuser — the
+     *       same split delivery uses ({@code DATABASE_USERNAME} for the pool, the owner for Flyway).</li>
+     *   <li><b>The pool must not be the owner nor a superuser.</b> Both are exempt from RLS unless a policy
+     *       is {@code FORCE}d on them, and the point of this slice is to stop being exempt: from here on a
+     *       missing or wrong policy fails a test instead of hiding in production.</li>
+     * </ul>
+     *
+     * <p>{@code spring.flyway.url}, {@code .user} and {@code .password} are Boot's own properties, so
+     * Flyway takes its credential from them and not from {@code spring.datasource.*}. Passing the URL too
+     * is redundant today (it equals the pool's) and deliberate: it states the separation in one place
+     * instead of leaving it implied by a shared default, which is the shape delivery will need when the two
+     * URLs diverge.</p>
+     */
+    private static final String APPLICATION_USERNAME = "lifecontrol_app";
+
+    /** Not a secret: a literal for a container that lives for one JVM on a random loopback port. */
+    private static final String APPLICATION_PASSWORD = "lifecontrol_app";
+
+    /**
+     * Whether the pool logs in as the application role, off unless {@code TEST_POOL_APP_ROLE=true}.
+     *
+     * <p><b>Why a switch and not the new default yet</b> (record L24). Flipping it unconditionally leaves
+     * <b>545 of 4 240</b> tests failing across 133 classes, and none of those failures is a production
+     * defect: they are fixtures that resolve a company by its natural key before any tenant is stated, raw
+     * fixtures whose statement never passes a transaction boundary, {@code @Transactional} suites whose
+     * transaction opens before their fixture states a scope, and the fallout of the three. Adopting them is
+     * four slices, and each one has to be able to prove it moved the number — which needs the same suite run
+     * both ways until the last slice makes the application role the default.</p>
+     *
+     * <p>An environment variable rather than a system property on purpose: Gradle does not forward the
+     * daemon's {@code -D} flags to the forked test JVM, but it does inherit the environment, so
+     * {@code TEST_POOL_APP_ROLE=true ./gradlew test} is the whole invocation and no build file has to change
+     * for a switch that is scheduled to disappear.</p>
+     */
+    private static final boolean POOL_IS_THE_APPLICATION_ROLE =
+            "true".equalsIgnoreCase(System.getenv("TEST_POOL_APP_ROLE"));
+
     @DynamicPropertySource
     static void postgresProperties(DynamicPropertyRegistry registry) {
         registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
-        registry.add("spring.datasource.username", POSTGRES::getUsername);
-        registry.add("spring.datasource.password", POSTGRES::getPassword);
+        registry.add("spring.datasource.username", AbstractPostgresIntegrationTest::poolUsername);
+        registry.add("spring.datasource.password", AbstractPostgresIntegrationTest::poolPassword);
         registry.add("spring.datasource.driver-class-name", () -> "org.postgresql.Driver");
         registry.add("spring.flyway.enabled", () -> true);
+        registry.add("spring.flyway.url", POSTGRES::getJdbcUrl);
+        registry.add("spring.flyway.user", POSTGRES::getUsername);
+        registry.add("spring.flyway.password", POSTGRES::getPassword);
         registry.add("spring.jpa.hibernate.ddl-auto", () -> "validate");
+    }
+
+    /** The pool's login: the application role when the switch is on, the container's own user otherwise. */
+    private static String poolUsername() {
+        return POOL_IS_THE_APPLICATION_ROLE ? APPLICATION_USERNAME : POSTGRES.getUsername();
+    }
+
+    /** The pool's password, paired with {@link #poolUsername()}. */
+    private static String poolPassword() {
+        return POOL_IS_THE_APPLICATION_ROLE ? APPLICATION_PASSWORD : POSTGRES.getPassword();
     }
 
     /**

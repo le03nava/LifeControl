@@ -967,3 +967,75 @@ the item named above. **Handoff to T6c** — the production credential: the wrap
 slice, the delivery path that makes `lifecontrol_app` the pool's only principal, and `Closes #696` in the
 PR. What T6a does not claim: no policy was observed by this slice (the superuser still bypasses them), and
 the fixtures are ready for the switch rather than proof of it.
+
+L24 — **T6b's premise was falsified by its own first run, and the slice is now four.** The handoff in L23
+predicted nineteen failures once the pool logged in as `lifecontrol_app`. Measured: **545 of 4 240 tests
+across 133 classes**, and the four causes that carry 96% of them are none of the nineteen:
+
+| # | failures | cause |
+| --- | --- | --- |
+| A | 376 | a find-or-create seed reads `companies` by its natural key with no tenant stated, sees nothing — the previous test in the same class already inserted that row — and inserts it again: `duplicate key value violates unique constraint "companies_company_key_key"` |
+| B | 26+ | `@Transactional` integration tests: Spring's test transaction begins **before** `@BeforeEach`, so `doBegin` already ran and the scope the fixture states afterwards is never installed |
+| C | ~83 | per-class seeds outside `TenantFixtures`: raw inserts of suppliers, products, categories, employees, departments and attribute profiles, and services called directly with no scope |
+| D | 32 | fallout of A: the parent company was never persisted, so the child fails with a transient reference |
+
+None of the four is a production defect, and that is the useful finding: the application code is already
+right, and what T6a taught the company fixtures the rest of the suite still has to learn.
+
+**The split, decided by the maintainer**, verbatim: «A: cuatro slices, switch tras una property» and «Id
+determinístico desde la key». The pool switch therefore lands **behind an environment variable**,
+`TEST_POOL_APP_ROLE=true ./gradlew test`, off by default: an environment variable and not a system property
+because Gradle forwards neither to a forked test JVM except by inheriting the environment, and no build file
+should change for a switch scheduled to disappear. Each slice reports the number the other way, and the last
+one makes the application role the default and removes the switch.
+
+The find-or-create rule the 376 failures ask for, recorded before it is implemented: **a seed that resolves a
+company by its natural key derives the id from that key** (`UUID.nameUUIDFromBytes(companyKey.getBytes(UTF_8))`,
+or the same value the fixture writes) and states it **before the read**, because a company's tenant is its own
+id. It is a test-only convention; production keeps generating its ids.
+
+What this slice lands, and what it deliberately does not. `AbstractPostgresIntegrationTest` takes the pool's
+credential from `TEST_POOL_APP_ROLE` and always gives Flyway the container's superuser through
+`spring.flyway.url/user/password` — measured in the previous round as required and honoured, where Boot's own
+Flyway properties override the datasource for Flyway alone. `test-container-roles.sql` gains the role's
+password and a `GRANT CREATE ON SCHEMA public`, **container only**: three suites own the DDL they assert on
+and would fail on a fixture limit rather than a policy finding, and delivery must not grant it, because a role
+that can create tables can build structures no row of `tenant_table` knows about — precisely what the startup
+assertion exists to refuse. The wiring carries no assertion that the gate is met; it carries the measurement
+that says it is not yet.
+
+Evidence as observed: `./gradlew test` (default, superuser pool) green — **4 240 tests, 0 failed** — and
+`TEST_POOL_APP_ROLE=true ./gradlew test` — **4 240 tests, 545 failed** — which is the baseline the next four
+slices have to move. `spotlessCheck`, `spotbugsMain` and the eleven shell suites are green. The startup path
+was confirmed on the application role in the previous round: the guard runs on the pool and
+`unprotected_tenant_tables()` answers it with nothing, and `permission denied for schema public` appears zero
+times with the container grant in place.
+
+Handoff: **T6b-1** the 376 find-or-create seeds with the derived id; **T6b-2** the raw fixtures through a
+`TransactionTemplate` (the invariant `TenantFixtures` documents but cannot enforce alone) and the ~83
+per-class seeds; **T6b-3** the `@Transactional` suites, where the fix is a `REQUIRES_NEW` fixture write
+because removing the annotation would cost those classes their rollback; **T6b-4** the machinery suites
+(`TenantScopeBoundaryIntegrationTest`'s control counts assume a superuser pool, `CompanyTenantScopeIntegrationTest`
+re-arms a table the migration already armed, and one constraint assertion now meets the policy first), then the
+default flips and S5 closes. **T6c** stays as L23 left it: `DATABASE_USERNAME` still names the owner, and
+`Closes #696` waits for the whole chain.
+
+**And the gate itself needed one line.** The first measurement of this slice died twice with
+`java.lang.OutOfMemoryError` — on CI for PR #711 before any assertion, and locally here, where the run stopped
+after 1 903 of the 4 240 tests — because the `test` task never set `maxHeapSize` and the fork ran on Gradle's
+default 512 MB. The suite caches one Spring context and one Hikari pool per distinct `@SpringBootTest`
+configuration, so the heap it needs grows with the number of configurations and not with the code under test —
+the same reason `AbstractPostgresIntegrationTest` raises the server's connection ceiling. 1 GB is the smallest
+value that carried the full run; a gate that OOMs one run in three cannot measure four slices.
+
+**One more measurement, and it is a pre-existing flake rather than this slice's.** The first full default run
+after the heap bump reported `TenantScopeH2NoOpTest` failing with an H2 syntax error on
+`select count(*) from companies` — the table was gone. The class alone is green, and a second full run executed
+the whole suite again: **4 240 tests, 0 failed**. So the failure is order-dependent, and the mechanism is
+visible in the configuration rather than guessed: every H2 context shares `jdbc:h2:mem:testdb` while
+`ddl-auto=create-drop` drops the schema when **any** context closes, so a cached context that outlives another
+context's shutdown loses its tables. It is not this unit's to fix — the honest fix is one database per context
+(`spring.datasource.generate-unique-name` with no explicit URL) and it deserves its own measurement — but it is
+recorded here for two reasons: a gate that fails by ordering cannot measure four slices, and this slice exists
+to make the gate measurable. The numbers that belong to T6b-0 stand as observed: default **4 240 / 0**, app role
+**4 240 / 545**, with zero `OutOfMemoryError` after the heap bump.

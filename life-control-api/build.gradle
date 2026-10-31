@@ -93,6 +93,14 @@ dependencies {
 tasks.named('test') {
     outputs.dir snippetsDir
     useJUnitPlatform()
+    // 1 GB, and the number is measured, not preferred. The default 512 MB fork dies with
+    // `java.lang.OutOfMemoryError` part-way through the suite: observed on CI for PR #711
+    // (`SuiteTestDefinitionProcessor`, before any assertion) and locally afterwards, where the run
+    // stopped after 1 903 of 4 240 tests. The suite caches one Spring context and one Hikari pool per
+    // distinct `@SpringBootTest` configuration, so the heap it needs grows with the number of
+    // configurations rather than with the code under test — which is also why the server accepts 300
+    // connections (see AbstractPostgresIntegrationTest). A gate that OOMs one run in three is not a gate.
+    maxHeapSize = '1g'
     // The application's own `spring.profiles.active` defaults to `dev`, and the Logbook
     // fail-closed profile guard refuses to start on that default unless SPRING_PROFILES_ACTIVE
     // is declared. The suite is not a deployment, so it declares its own profile here instead
