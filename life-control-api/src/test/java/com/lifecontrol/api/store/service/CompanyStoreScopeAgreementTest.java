@@ -24,6 +24,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
@@ -53,78 +54,113 @@ class CompanyStoreScopeAgreementTest extends AbstractPostgresIntegrationTest {
     @Autowired
     private CompanyStoreRepository companyStoreRepository;
 
+    @Autowired
+    private JdbcTemplate jdbc;
+
     private UUID caId, cbId, ccaId, ccbId, raId, rbId, zaId, zbId, saId, sbId;
 
     @BeforeEach
     void seed() {
         var country = Country.builder().countryCode("ZQ").countryName("Probe").build();
         em.persist(country);
-        var ca = TenantFixtures.persist(
-                em,
-                Company.builder()
-                        .companyKey("PB-A")
-                        .companyName("A")
-                        .rfc("XAXX010101003")
-                        .build());
-        var cb = TenantFixtures.persist(
-                em,
-                Company.builder()
-                        .companyKey("PB-B")
-                        .companyName("B")
-                        .rfc("XAXX010101004")
-                        .build());
+        // Each company is stated as its own tenant while its chain is written: a company's tenant is its own
+        // id, so no single stated value admits two `companies` rows, and every child row inherits its
+        // parent's tenant (records L24/L26). The transaction is this suite's own — Spring's test transaction
+        // began before @BeforeEach ran — so the tenant is stated inside it.
+        var ca = persistCompany("PB-A", "A", "XAXX010101003");
+        var cb = persistCompany("PB-B", "B", "XAXX010101004");
         caId = ca.getId();
         cbId = cb.getId();
+
+        useTenant(caId);
         var cca = CompanyCountry.builder().company(ca).country(country).build();
-        var ccb = CompanyCountry.builder().company(cb).country(country).build();
         em.persist(cca);
-        em.persist(ccb);
         ccaId = cca.getId();
-        ccbId = ccb.getId();
         var ra = CompanyRegion.builder()
                 .companyCountry(cca)
                 .regionCode("PRA")
                 .regionName("RA")
                 .build();
-        var rb = CompanyRegion.builder()
-                .companyCountry(ccb)
-                .regionCode("PRB")
-                .regionName("RB")
-                .build();
         em.persist(ra);
-        em.persist(rb);
         raId = ra.getId();
-        rbId = rb.getId();
         var za = CompanyZone.builder()
                 .companyRegion(ra)
                 .zoneCode("PZA")
                 .zoneName("ZA")
                 .build();
-        var zb = CompanyZone.builder()
-                .companyRegion(rb)
-                .zoneCode("PZB")
-                .zoneName("ZB")
-                .build();
         em.persist(za);
-        em.persist(zb);
         zaId = za.getId();
-        zbId = zb.getId();
         var sa = CompanyStore.builder()
                 .companyZone(za)
                 .storeName("SA-probe")
                 .enabled(true)
                 .build();
+        em.persist(sa);
+        saId = sa.getId();
+
+        // The switch flushes A's chain under A's own tenant before B's is stated.
+        useTenant(cbId);
+        var ccb = CompanyCountry.builder().company(cb).country(country).build();
+        em.persist(ccb);
+        ccbId = ccb.getId();
+        var rb = CompanyRegion.builder()
+                .companyCountry(ccb)
+                .regionCode("PRB")
+                .regionName("RB")
+                .build();
+        em.persist(rb);
+        rbId = rb.getId();
+        var zb = CompanyZone.builder()
+                .companyRegion(rb)
+                .zoneCode("PZB")
+                .zoneName("ZB")
+                .build();
+        em.persist(zb);
+        zbId = zb.getId();
         var sb = CompanyStore.builder()
                 .companyZone(zb)
                 .storeName("SB-probe")
                 .enabled(true)
                 .build();
-        em.persist(sa);
         em.persist(sb);
-        saId = sa.getId();
         sbId = sb.getId();
-        em.flush();
+
+        // Back to the tenant every case below is about (store SA of company A); the switch flushes B's chain
+        // under B's tenant first.
+        useTenant(caId);
         em.clear();
+    }
+
+    /**
+     * Persists one {@code companies} row at an id chosen in memory, stating it as the tenant before the insert.
+     */
+    private Company persistCompany(String companyKey, String companyName, String rfc) {
+        var company = Company.builder()
+                .id(UUID.randomUUID())
+                .companyKey(companyKey)
+                .companyName(companyName)
+                .rfc(rfc)
+                .build();
+        useTenant(company.getId());
+        em.persist(company);
+        return company;
+    }
+
+    /**
+     * Switches this suite's transaction to {@code companyId}: the statements the previous tenant left pending
+     * run under that tenant first, and the new value is stated after them.
+     *
+     * <p>The whole hierarchy this suite builds is on armed tables, so the order matters twice: the state has to
+     * be stated before the insert that carries it (a company's tenant is its own id, its children's is their
+     * parent's), and a stated value covers only the statements that execute while it is stated — Hibernate
+     * defers an insert to the next flush, so switching without flushing would run the previous tenant's row
+     * under the new tenant's scope. The suite is {@code @Transactional}, so the value lives inside Spring's own
+     * test transaction, which began before {@code @BeforeEach} and cannot be retro-fitted (record L24, cause
+     * B).</p>
+     */
+    private void useTenant(UUID companyId) {
+        em.flush();
+        TenantFixtures.stateTenantWithinTheOpenTransaction(companyId, jdbc);
     }
 
     private Set<UUID> scopeIds(List<String> roles, Object... claimPairs) {
@@ -162,6 +198,11 @@ class CompanyStoreScopeAgreementTest extends AbstractPostgresIntegrationTest {
     @Test
     @DisplayName("every token shape: list contains SA iff the detail admits SA")
     void listAndDetailAgreeOnEveryShape() {
+        // Company A is the stated tenant: the agreement is about store SA, and every case below compares what
+        // A's rows let a token list against what the detail says about that same store. A case whose claim is
+        // foreign still asks for A's store, so it is measured against A's visible rows and the ancestor
+        // predicates are what exclude them.
+        useTenant(caId);
         // 1. country reader, foreign company claim -> must be denied by both
         var ids = scopeIds(
                 List.of("lc-company-country-read"),
@@ -257,8 +298,13 @@ class CompanyStoreScopeAgreementTest extends AbstractPostgresIntegrationTest {
     @Test
     @DisplayName("no cross-tenant bleed: company A reader never resolves company B's store")
     void noBleed() {
+        useTenant(caId);
         var ids = scopeIds(List.of("lc-company-read"), "company_id", caId.toString());
         assertThat(ids).contains(saId).doesNotContain(sbId);
+
+        // The other half reads company B's stores, and one transaction states one tenant: the switch is the
+        // second half of the same assertion, not a second test.
+        useTenant(cbId);
         var idsB = scopeIds(List.of("lc-company-read"), "company_id", cbId.toString());
         assertThat(idsB).contains(sbId).doesNotContain(saId);
     }

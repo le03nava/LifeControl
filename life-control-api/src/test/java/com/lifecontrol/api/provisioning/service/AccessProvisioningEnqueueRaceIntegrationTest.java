@@ -3,6 +3,7 @@ package com.lifecontrol.api.provisioning.service;
 import static com.lifecontrol.api.provisioning.model.AccessProvisioningTaskKind.ACTIVATE;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.lifecontrol.api.common.tenant.TenantScope;
 import com.lifecontrol.api.company.model.Company;
 import com.lifecontrol.api.company.repository.CompanyRepository;
 import com.lifecontrol.api.hr.model.Contract;
@@ -282,13 +283,19 @@ class AccessProvisioningEnqueueRaceIntegrationTest extends AbstractPostgresInteg
                     try {
                         bindRequestContext();
                         barrier.await(COORDINATION_TIMEOUT_SECONDS, TimeUnit.SECONDS);
-                        new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
-                            inTransaction.run();
-                            if (waitsForTheOther) {
-                                awaitSignalThenGrace(peerAboutToCommit);
-                            } else {
-                                peerAboutToCommit.countDown();
-                            }
+                        // The scope is stated on this thread BEFORE the transaction begins: these threads
+                        // run their own boundary, so nothing else can install the employee's tenant for
+                        // them, and the reads they do ({@code employees}) are on an armed table.
+                        TenantScope.with(companyId, () -> {
+                            new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+                                inTransaction.run();
+                                if (waitsForTheOther) {
+                                    awaitSignalThenGrace(peerAboutToCommit);
+                                } else {
+                                    peerAboutToCommit.countDown();
+                                }
+                            });
+                            return null;
                         });
                     } catch (Throwable failure) {
                         error.set(failure);
@@ -366,8 +373,17 @@ class AccessProvisioningEnqueueRaceIntegrationTest extends AbstractPostgresInteg
                 "SELECT COUNT(*) FROM employee_contracts WHERE employee_id = ?", Integer.class, employeeId);
     }
 
+    /**
+     * Seeds the company, its organisational tree and the unlinked employee, deriving the company's id from
+     * its natural key so the cleanup below can state it <b>before</b> the seed runs.
+     *
+     * <p>The child writes run inside the company's tenant: a repository save opens its own transaction, and
+     * it is that boundary's {@code doBegin} that installs the scope (record T6b-2's rule). Without it the
+     * department insert is refused by its policy and the employee save fails on its unsaved-value probe for
+     * the same reason — a company the probe cannot see is a company Hibernate calls transient.</p>
+     */
     private void seedCompanyTree() {
-        var company = TenantFixtures.persist(
+        var company = TenantFixtures.findOrCreate(
                 companyRepository,
                 Company.builder()
                         .companyKey(COMPANY_KEY)
@@ -378,45 +394,47 @@ class AccessProvisioningEnqueueRaceIntegrationTest extends AbstractPostgresInteg
                         .build());
         companyId = company.getId();
 
-        var department = departmentRepository.save(Department.builder()
-                .company(company)
-                .departmentCode("RACE")
-                .departmentName("Race Operations")
-                .enabled(true)
-                .build());
-        positionId = positionRepository
-                .save(Position.builder()
-                        .department(department)
-                        .positionCode("RACE01")
-                        .positionName("Race Operator")
-                        .enabled(true)
-                        .build())
-                .getId();
+        TenantFixtures.inTenant(companyId, () -> {
+            var department = departmentRepository.save(Department.builder()
+                    .company(company)
+                    .departmentCode("RACE")
+                    .departmentName("Race Operations")
+                    .enabled(true)
+                    .build());
+            positionId = positionRepository
+                    .save(Position.builder()
+                            .department(department)
+                            .positionCode("RACE01")
+                            .positionName("Race Operator")
+                            .enabled(true)
+                            .build())
+                    .getId();
 
-        // Globally unique by code/name/rank: the row is deleted in cleanup so it never collides with
-        // another shared-container suite.
-        seniorityLevelId = seniorityLevelRepository
-                .save(SeniorityLevel.builder()
-                        .levelCode(LEVEL_CODE)
-                        .levelName(LEVEL_NAME)
-                        .rank(LEVEL_RANK)
-                        .enabled(true)
-                        .build())
-                .getId();
+            // Globally unique by code/name/rank: the row is deleted in cleanup so it never collides with
+            // another shared-container suite.
+            seniorityLevelId = seniorityLevelRepository
+                    .save(SeniorityLevel.builder()
+                            .levelCode(LEVEL_CODE)
+                            .levelName(LEVEL_NAME)
+                            .rank(LEVEL_RANK)
+                            .enabled(true)
+                            .build())
+                    .getId();
 
-        employeeId = employeeRepository
-                .save(Employee.builder()
-                        .company(company)
-                        .employeeNumber("PERQ-1")
-                        .firstName("Ada")
-                        .paternalLastName("Lovelace")
-                        .email("ada.lovelace@enqueue-race.example")
-                        .birthDate(LocalDate.of(1990, 1, 1))
-                        .hireDate(LocalDate.of(2020, 1, 1))
-                        .status(activeStatus())
-                        .enabled(true)
-                        .build())
-                .getId();
+            employeeId = employeeRepository
+                    .save(Employee.builder()
+                            .company(company)
+                            .employeeNumber("PERQ-1")
+                            .firstName("Ada")
+                            .paternalLastName("Lovelace")
+                            .email("ada.lovelace@enqueue-race.example")
+                            .birthDate(LocalDate.of(1990, 1, 1))
+                            .hireDate(LocalDate.of(2020, 1, 1))
+                            .status(activeStatus())
+                            .enabled(true)
+                            .build())
+                    .getId();
+        });
     }
 
     private Status activeStatus() {
@@ -432,6 +450,14 @@ class AccessProvisioningEnqueueRaceIntegrationTest extends AbstractPostgresInteg
      * every employee, so it is not entitled to delete every intent.
      */
     private void deleteOwnFixtures() {
+        // Inside this suite's tenant, and the id comes from the derivation the seed above uses: an unscoped
+        // DELETE on an armed table removes zero rows and reports success (record L26), so a cleanup that
+        // ignored the scope left the previous method's employees behind and the next seed met them.
+        TenantFixtures.inTenant(TenantFixtures.derivedId(COMPANY_KEY), this::deleteRowsOfThisSuite);
+    }
+
+    /** The row deletes themselves, verbatim: the wrapper above is the only difference between runs. */
+    private void deleteRowsOfThisSuite() {
         jdbcTemplate.update("""
                 DELETE FROM access_provisioning_applied_roles WHERE task_id IN
                     (SELECT t.id FROM access_provisioning_tasks t

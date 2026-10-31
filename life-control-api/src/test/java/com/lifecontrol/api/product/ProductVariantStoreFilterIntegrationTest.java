@@ -387,20 +387,34 @@ class ProductVariantStoreFilterIntegrationTest extends AbstractPostgresIntegrati
     }
 
     @Test
-    @DisplayName("should answer nothing when the store belongs to another company")
+    @DisplayName("a store of another company is not addressable from this company's path")
     void listVariants_StoreOfAnotherCompany_ReturnsNothing() throws Exception {
         // The row the store join reaches belongs to this company's product but to the other tenant's
         // store. Stocking a variant in a store of another company is not refused anywhere (the pair
-        // has no constraint, and `company_stores` has no company column), so the company predicate of
-        // the query is what keeps it out: without it this call returns the variant.
+        // has no constraint, and `company_stores` has no company column), so what keeps it out is the
+        // read — and which read answers is what the pool decides.
         stockVariantAt(variantAId, foreignStoreId);
 
-        mockMvc.perform(get(VARIANTS_URL, companyId, productId)
-                        .param("storeId", foreignStoreId.toString())
-                        .with(jwt().authorities(ROLE_LC_ADMIN)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.content.length()").value(0))
-                .andExpect(jsonPath("$.totalElements").value(0));
+        if (poolIsTheApplicationRole()) {
+            // 404, and that is the correct answer rather than a regression: the request's scope is the company
+            // the path names, the store belongs to a different one, so the store is not addressable here at
+            // all — the same answer an id that names no store gets. It is also the answer that discloses
+            // least: the caller learns this company has no such store, not that another company has one.
+            mockMvc.perform(get(VARIANTS_URL, companyId, productId)
+                            .param("storeId", foreignStoreId.toString())
+                            .with(jwt().authorities(ROLE_LC_ADMIN)))
+                    .andExpect(status().isNotFound());
+        } else {
+            // The container's superuser bypasses every policy, so the store row is visible and the company
+            // predicate of the query is what excludes the variants: the store is addressable and the page is
+            // simply empty.
+            mockMvc.perform(get(VARIANTS_URL, companyId, productId)
+                            .param("storeId", foreignStoreId.toString())
+                            .with(jwt().authorities(ROLE_LC_ADMIN)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.content.length()").value(0))
+                    .andExpect(jsonPath("$.totalElements").value(0));
+        }
     }
 
     /** Writes one more per-store row for an existing variant. */

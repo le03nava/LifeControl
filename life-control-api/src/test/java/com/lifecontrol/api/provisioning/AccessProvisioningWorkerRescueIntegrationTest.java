@@ -72,23 +72,41 @@ class AccessProvisioningWorkerRescueIntegrationTest extends AbstractPostgresInte
     void resetProvisioningTables() {
         // Leaf-first: applied_roles references access_provisioning_tasks, which references employees.
         // Every delete is scoped to this suite's company key, so another suite's fixtures survive.
-        jdbcTemplate.update("""
+        deleteScopedToThisSuite("""
                 DELETE FROM access_provisioning_applied_roles WHERE task_id IN
                     (SELECT t.id FROM access_provisioning_tasks t
                      JOIN employees e ON e.id = t.employee_id
                      JOIN companies c ON c.id = e.company_id
                      WHERE c.company_key = ?)
-                """, COMPANY_KEY);
-        jdbcTemplate.update("""
+                """);
+        deleteScopedToThisSuite("""
                 DELETE FROM access_provisioning_tasks WHERE employee_id IN
                     (SELECT e.id FROM employees e
                      JOIN companies c ON c.id = e.company_id
                      WHERE c.company_key = ?)
-                """, COMPANY_KEY);
-        jdbcTemplate.update("""
+                """);
+        deleteScopedToThisSuite("""
                 DELETE FROM employees WHERE company_id IN
                     (SELECT id FROM companies WHERE company_key = ?)
-                """, COMPANY_KEY);
+                """);
+    }
+
+    /**
+     * Runs one {@code DELETE … WHERE c.company_key = ?} inside this suite's tenant.
+     *
+     * <p>The wrapper is not decoration, and it is the failure mode record L26 measured: an unscoped
+     * {@code DELETE} on an armed table removes <b>zero rows and reports success</b>, so a cleanup that ignored
+     * the scope left every previous method's employees behind — and the next method's insert then collided or
+     * met the policy for a row it did not write. The id is the one the seed derives from the same key, so the
+     * scope stated here is the scope of the rows these deletes are about.</p>
+     */
+    private void deleteScopedToThisSuite(String sql) {
+        TenantFixtures.inTenant(derivedCompanyId(), () -> jdbcTemplate.update(sql, COMPANY_KEY));
+    }
+
+    /** The id {@link #accessCompanyId()} lands on, available <b>before</b> the seed runs. */
+    private static UUID derivedCompanyId() {
+        return TenantFixtures.derivedId(COMPANY_KEY);
     }
 
     @Test
@@ -199,12 +217,18 @@ class AccessProvisioningWorkerRescueIntegrationTest extends AbstractPostgresInte
         var statusId = activeEmployeeStatusId();
         var n = sequence.incrementAndGet();
         var id = UUID.randomUUID();
-        jdbcTemplate.update("""
+        // The employee's tenant is its company's, and a raw statement has no boundary of its own to install it:
+        // unwrapped, the INSERT draws a pooled connection, meets the policy with no tenant stated and is
+        // refused with SQLSTATE 42501 (record T6b-2's rule, applied to this suite).
+        TenantFixtures.inTenant(
+                companyId,
+                () -> jdbcTemplate.update(
+                        """
                 INSERT INTO employees
                     (id, company_id, employee_number, first_name, paternal_last_name, email,
                      birth_date, hire_date, employment_status_id)
                 VALUES (?, ?, ?, 'Ada', 'Lovelace', ?, DATE '1990-01-01', DATE '2020-01-01', ?)
-                """, id, companyId, "EMP-PROVR-" + n, "provr.employee" + n + "@example.com", statusId);
+                """, id, companyId, "EMP-PROVR-" + n, "provr.employee" + n + "@example.com", statusId));
         return id;
     }
 

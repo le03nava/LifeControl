@@ -21,6 +21,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.test.web.servlet.MockMvc;
@@ -60,6 +61,9 @@ class SupplierCompanyScopeHttpIntegrationTest extends AbstractPostgresIntegratio
     @Autowired
     private EntityManager em;
 
+    @Autowired
+    private JdbcTemplate jdbc;
+
     private UUID companyId;
     private UUID otherCompanyId;
 
@@ -67,7 +71,7 @@ class SupplierCompanyScopeHttpIntegrationTest extends AbstractPostgresIntegratio
     void seed() {
         companyId = insertCompany("SUPPLIER-SCOPE-KEY", "Supplier Scope Company", "SPSC010101AA1");
         otherCompanyId = insertCompany("SUPPLIER-SCOPE-OTHER-KEY", "Supplier Scope Other", "SPSC010101AA2");
-        em.flush();
+        useTenant(companyId);
         em.clear();
     }
 
@@ -88,12 +92,14 @@ class SupplierCompanyScopeHttpIntegrationTest extends AbstractPostgresIntegratio
     void rfcIsUniquePerCompanyInsteadOfGlobally() throws Exception {
         createSupplier(companyId, "Proveedor Uno", SHARED_RFC);
 
+        useTenant(otherCompanyId);
         mockMvc.perform(post(BASE_URL, otherCompanyId)
                         .with(admin())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(supplierBody("Proveedor Dos", SHARED_RFC)))
                 .andExpect(status().isCreated());
 
+        useTenant(companyId);
         mockMvc.perform(post(BASE_URL, companyId)
                         .with(admin())
                         .contentType(MediaType.APPLICATION_JSON)
@@ -109,6 +115,11 @@ class SupplierCompanyScopeHttpIntegrationTest extends AbstractPostgresIntegratio
         mockMvc.perform(get(BASE_URL + "/{id}", companyId, supplierId).with(admin()))
                 .andExpect(status().isOk());
 
+        // The request names the other company, and that is the tenant the transaction states for it: the row
+        // it asks for belongs to a company the caller's path does not name, so the answer is 404 either way —
+        // from the company predicate on a pool that sees every row, and from the policy on the one that does
+        // not.
+        useTenant(otherCompanyId);
         mockMvc.perform(get(BASE_URL + "/{id}", otherCompanyId, supplierId).with(admin()))
                 .andExpect(status().isNotFound());
     }
@@ -118,12 +129,14 @@ class SupplierCompanyScopeHttpIntegrationTest extends AbstractPostgresIntegratio
     void foreignSupplierCannotBeUpdated() throws Exception {
         var supplierId = createSupplier(companyId, "Proveedor Intacto", SHARED_RFC);
 
+        useTenant(otherCompanyId);
         mockMvc.perform(put(BASE_URL + "/{id}", otherCompanyId, supplierId)
                         .with(admin())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(supplierBody("Nombre Secuestrado", SHARED_RFC)))
                 .andExpect(status().isNotFound());
 
+        useTenant(companyId);
         mockMvc.perform(get(BASE_URL + "/{id}", companyId, supplierId).with(admin()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.supplierName").value("Proveedor Intacto"));
@@ -134,9 +147,11 @@ class SupplierCompanyScopeHttpIntegrationTest extends AbstractPostgresIntegratio
     void foreignSupplierCannotBeDeleted() throws Exception {
         var supplierId = createSupplier(companyId, "Proveedor Vivo", SHARED_RFC);
 
+        useTenant(otherCompanyId);
         mockMvc.perform(delete(BASE_URL + "/{id}", otherCompanyId, supplierId).with(admin()))
                 .andExpect(status().isNotFound());
 
+        useTenant(companyId);
         mockMvc.perform(get(BASE_URL + "/{id}", companyId, supplierId).with(admin()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.enabled").value(true));
@@ -162,6 +177,7 @@ class SupplierCompanyScopeHttpIntegrationTest extends AbstractPostgresIntegratio
         // short-circuits verifyCompanyAccess, which is what lets an admin work across tenants. The
         // case therefore uses a company-scoped role, where the claim is the only thing that can grant
         // access -- and the two answers below stay exactly the two the case always asked for.
+        useTenant(otherCompanyId);
         mockMvc.perform(get(BASE_URL, otherCompanyId)
                         .with(caller(new String[] {"lc-company"}, "company_id", otherCompanyId.toString())))
                 .andExpect(status().isOk());
@@ -206,8 +222,34 @@ class SupplierCompanyScopeHttpIntegrationTest extends AbstractPostgresIntegratio
     }
 
     private UUID insertCompany(String key, String name, String rfc) {
-        var company = TenantFixtures.persist(
-                em, Company.builder().companyKey(key).companyName(name).rfc(rfc).build());
+        var company = Company.builder()
+                .id(UUID.randomUUID())
+                .companyKey(key)
+                .companyName(name)
+                .rfc(rfc)
+                .build();
+        // A company's tenant is its own id, so the id is chosen in memory and stated before the insert.
+        useTenant(company.getId());
+        em.persist(company);
         return company.getId();
+    }
+
+    /**
+     * Switches the transaction this suite runs in to {@code companyId}, flushing what the previous tenant left
+     * pending first.
+     *
+     * <p>This suite is {@code @Transactional}, so its transaction began before {@code @BeforeEach} and
+     * {@code TenantFixtures.persist} cannot install a scope there (record L24, cause B). A {@code MockMvc}
+     * request joins that same transaction, so the value stated here is the one every statement of the case
+     * meets — the ones the fixtures write and the ones the endpoint reads and writes.</p>
+     *
+     * <p>The flush is the half that looks optional and is not: a {@code MockMvc} call that saves an entity
+     * returns before Hibernate has run the {@code INSERT}, so without flushing here the previous tenant's row
+     * would be written under the next tenant's scope and refused by that table's {@code WITH CHECK}. That is
+     * why every tenant switch goes through this one method instead of stating a value inline.</p>
+     */
+    private void useTenant(UUID companyId) {
+        em.flush();
+        TenantFixtures.stateTenantWithinTheOpenTransaction(companyId, jdbc);
     }
 }

@@ -6,9 +6,11 @@ import com.lifecontrol.api.company.repository.CompanyRepository;
 import jakarta.persistence.EntityManager;
 import java.nio.charset.StandardCharsets;
 import java.util.UUID;
+import org.springframework.jdbc.core.JdbcOperations;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
@@ -57,10 +59,12 @@ import org.springframework.transaction.support.TransactionTemplate;
  * the statement.</p>
  *
  * <p>An {@code @Transactional} suite whose own transaction began before its fixture stated a scope is a
- * different defect with the same symptom (record L24, cause B: 26 failures), and it is T6b-3's: there the
- * boundary exists and cannot be retro-fitted with a scope, so the fixture write has to move to its own
- * transaction. This helper does not silently do that for it, because committing a fixture outside the
- * suite's rollback is a change each of those suites has to observe.</p>
+ * different defect with the same symptom (record L24, cause B: 26 failures), and it is T6b-3's. There the
+ * boundary exists and cannot be retro-fitted with a scope, so neither entry point above helps: the scope has to
+ * be stated <b>inside the transaction that is already open</b>, which is
+ * {@link #stateTenantWithinTheOpenTransaction(UUID, JdbcOperations)}. This helper does not do that silently for
+ * it, because the call is the one thing each of those suites has to state itself: which tenant its case works
+ * on, and when it switches.</p>
  *
  * <p><b>The pool is not switched yet.</b> Until T6b the container's Superuser still backs the pool, so a
  * stated scope is inert and the suite stays green; the point of adopting the helper now is that the
@@ -161,6 +165,74 @@ public final class TenantFixtures {
             work.run();
             return null;
         });
+    }
+
+    /**
+     * The one statement this helper runs: V52's own function, which is {@code set_config('app.company_id', …, true)}.
+     */
+    private static final String SET_TENANT_SCOPE = "select set_tenant_scope(cast(? as uuid))";
+
+    /**
+     * States {@code companyId} as the tenant of the transaction that is <b>already open</b> on this thread,
+     * on that transaction's own connection, and through the same V52 function production's boundary runs.
+     *
+     * <p><b>Why it exists: the ordering.</b> A Spring {@code @Transactional} test begins its transaction
+     * <b>before</b> {@code @BeforeEach} runs, so
+     * {@link com.lifecontrol.api.common.tenant.TenantScopeJpaTransactionManager#doBegin} has already run —
+     * with no scope — by the time a suite states one. Nothing can be retro-fitted at that boundary: the
+     * transaction is open, its first statement may already have run, and {@link TenantScope#with} only
+     * changes what a <b>later</b> boundary reads. What is still available is the transaction itself:
+     * {@code set_tenant_scope} is {@code set_config(…, true)}, i.e. {@code SET LOCAL}, so it can be executed
+     * inside the transaction that already exists and applies to every statement that transaction runs from
+     * then on — which is exactly the set of statements the suite's fixtures and its {@code MockMvc} requests
+     * join. Measured on T6b-3's baseline: 83 tests across the {@code @Transactional} suites failed with
+     * SQLSTATE 42501 on their very first fixture insert (record L24, cause B).</p>
+     *
+     * <p><b>Why it is not {@link #inTenant(UUID, java.util.function.Supplier)}.</b> That one exists for a
+     * statement with <b>no</b> boundary of its own: it opens a {@code REQUIRES_NEW} transaction whose
+     * {@code doBegin} installs the scope. Here the boundary exists and is the test's own, so a
+     * {@code REQUIRES_NEW} wrapper would install the scope in a <b>different</b> transaction — the test's own
+     * reads and writes, and every {@code MockMvc} request that joins the test transaction, would still run
+     * unscoped — and it would commit the fixture rows past the rollback the suite relies on to leave the
+     * shared container clean. The two helpers answer two different defects and are not interchangeable.</p>
+     *
+     * <p><b>Why it is not a bypass.</b> It runs the SQL production runs, on the connection the transaction
+     * already owns: {@code set_tenant_scope} is the function V52 defines and
+     * {@code TenantScopeJpaTransactionManager#install} calls at every boundary. There is no {@code SET ROLE},
+     * no {@code ALTER TABLE … NO FORCE}, no policy changed and no exception to one: a row the policy refuses
+     * under this scope is still refused. A suite that states the wrong tenant sees the policy's zero rows, not
+     * a wider answer.</p>
+     *
+     * <p><b>The call shape.</b> Once per {@code @Transactional} suite, with the tenant its case works on — at
+     * the start of the test body or of its {@code @BeforeEach} — and <b>again before switching tenants</b>,
+     * because one transaction carries one {@code SET LOCAL} value at a time and the last statement wins. A seed
+     * that writes two companies therefore has to state each one's own id and flush in between: a company's
+     * tenant is its own id, so no single stated value can admit two {@code companies} rows.</p>
+     *
+     * <p><b>Refusing outside a transaction is deliberate.</b> {@code SET LOCAL} outside a transaction block is
+     * a warning PostgreSQL answers with success, so a call made with no transaction would silently state
+     * nothing on a connection that is about to be returned to the pool — the failure mode this slice exists to
+     * end.</p>
+     *
+     * @param companyId the tenant the open transaction states from here on
+     * @param jdbc an operations handle bound to the test context; inside the open transaction it reuses that
+     *     transaction's connection instead of borrowing another one, which is what makes the {@code SET LOCAL}
+     *     reach the suite's statements
+     * @throws IllegalStateException when no transaction is active on this thread
+     */
+    public static void stateTenantWithinTheOpenTransaction(UUID companyId, JdbcOperations jdbc) {
+        if (companyId == null) {
+            throw new IllegalArgumentException(
+                    "stating the tenant of an open transaction needs the company it is stated for");
+        }
+        if (!TransactionSynchronizationManager.isActualTransactionActive()) {
+            throw new IllegalStateException("No transaction is active on this thread, so stating " + companyId
+                    + " would install nothing: set_config(..., true) is SET LOCAL, which outside a transaction"
+                    + " block is a no-op PostgreSQL answers with success. An @Transactional suite calls this from"
+                    + " its own test body or @BeforeEach; a write with no boundary of its own goes through"
+                    + " TenantFixtures.inTenant(...) instead.");
+        }
+        jdbc.query(SET_TENANT_SCOPE, rs -> {}, companyId);
     }
 
     /**

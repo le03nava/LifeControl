@@ -7,6 +7,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.lifecontrol.api.common.tenant.TenantScope;
@@ -21,6 +22,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.jdbc.core.JdbcOperations;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
@@ -244,6 +246,29 @@ class TenantFixturesTest {
                         + "message instead of this one")
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("AbstractPostgresIntegrationTest");
+    }
+
+    @Test
+    @DisplayName("stating the tenant of an open transaction refuses when there is none, instead of a no-op")
+    void statingTheTenantWithNoOpenTransactionRefuses() {
+        var jdbcTemplate = mock(JdbcOperations.class);
+
+        assertThatThrownBy(() -> TenantFixtures.stateTenantWithinTheOpenTransaction(UUID.randomUUID(), jdbcTemplate))
+                .as("set_config(..., true) is SET LOCAL, and outside a transaction block PostgreSQL answers it with a"
+                        + " warning and success: the call would state nothing on a connection about to go back to"
+                        + " the pool")
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("SET LOCAL");
+        verifyNoInteractions(jdbcTemplate);
+    }
+
+    @Test
+    @DisplayName("stating the tenant of no company is refused, instead of clearing the scope by accident")
+    void statingNoTenantRefuses() {
+        assertThatThrownBy(() -> TenantFixtures.stateTenantWithinTheOpenTransaction(null, mock(JdbcOperations.class)))
+                .as("a null would be a second way to widen the scope, and it is not this helper's decision to make")
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("company");
     }
 
     @Test

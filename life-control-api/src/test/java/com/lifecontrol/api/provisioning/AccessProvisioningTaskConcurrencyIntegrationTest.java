@@ -118,23 +118,36 @@ class AccessProvisioningTaskConcurrencyIntegrationTest extends AbstractPostgresI
         // Leaf-first: applied_roles references access_provisioning_tasks, which references employees.
         // Every delete is scoped to the company this suite creates, so a fixture another suite — or a
         // later work unit — left in these shared tables is never removed.
-        jdbcTemplate.update("""
+        deleteScopedToThisSuite("""
                 DELETE FROM access_provisioning_applied_roles WHERE task_id IN
                     (SELECT t.id FROM access_provisioning_tasks t
                      JOIN employees e ON e.id = t.employee_id
                      JOIN companies c ON c.id = e.company_id
                      WHERE c.company_key = ?)
-                """, COMPANY_KEY);
-        jdbcTemplate.update("""
+                """);
+        deleteScopedToThisSuite("""
                 DELETE FROM access_provisioning_tasks WHERE employee_id IN
                     (SELECT e.id FROM employees e
                      JOIN companies c ON c.id = e.company_id
                      WHERE c.company_key = ?)
-                """, COMPANY_KEY);
-        jdbcTemplate.update("""
+                """);
+        deleteScopedToThisSuite("""
                 DELETE FROM employees WHERE company_id IN
                     (SELECT id FROM companies WHERE company_key = ?)
-                """, COMPANY_KEY);
+                """);
+    }
+
+    /**
+     * Runs one {@code DELETE … WHERE c.company_key = ?} inside this suite's tenant.
+     *
+     * <p>The wrapper is the half that is easy to leave out and the one record L26 measured: an unscoped
+     * {@code DELETE} on an armed table removes <b>zero rows and reports success</b>, so on the
+     * application-role pool this cleanup left every previous method's employee in place and the next method's
+     * insert met a row it had not written. The id is the one the seed derives from the same key, so the scope
+     * stated here is the scope of the rows these deletes are about.</p>
+     */
+    private void deleteScopedToThisSuite(String sql) {
+        TenantFixtures.inTenant(TenantFixtures.derivedId(COMPANY_KEY), () -> jdbcTemplate.update(sql, COMPANY_KEY));
     }
 
     @Test
@@ -354,12 +367,18 @@ class AccessProvisioningTaskConcurrencyIntegrationTest extends AbstractPostgresI
         var statusId = activeEmployeeStatusId();
         var n = sequence.incrementAndGet();
         var id = UUID.randomUUID();
-        jdbcTemplate.update("""
+        // The employee's tenant is its company's, and a raw statement has no boundary of its own to install it:
+        // unwrapped, the INSERT meets the policy with no tenant stated and is refused with SQLSTATE 42501
+        // (record T6b-2's rule, applied to this suite).
+        TenantFixtures.inTenant(
+                companyId,
+                () -> jdbcTemplate.update(
+                        """
                 INSERT INTO employees
                     (id, company_id, employee_number, first_name, paternal_last_name, email,
                      birth_date, hire_date, employment_status_id)
                 VALUES (?, ?, ?, 'Ada', 'Lovelace', ?, DATE '1990-01-01', DATE '2020-01-01', ?)
-                """, id, companyId, "EMP-PROVC-" + n, "provc.employee" + n + "@example.com", statusId);
+                """, id, companyId, "EMP-PROVC-" + n, "provc.employee" + n + "@example.com", statusId));
         return id;
     }
 

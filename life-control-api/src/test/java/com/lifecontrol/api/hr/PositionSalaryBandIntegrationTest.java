@@ -28,6 +28,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -65,6 +66,9 @@ class PositionSalaryBandIntegrationTest extends AbstractPostgresIntegrationTest 
     @Autowired
     private PositionSalaryBandService salaryBandService;
 
+    @Autowired
+    private JdbcTemplate jdbc;
+
     @MockitoBean
     private CurrentUserContext currentUserContext;
 
@@ -73,9 +77,15 @@ class PositionSalaryBandIntegrationTest extends AbstractPostgresIntegrationTest 
 
     @BeforeEach
     void setUp() {
+        // The test's transaction opened before this method ran, so the tenant is stated inside it instead of
+        // around a boundary that already happened (record L24, cause B). The id is chosen here because a
+        // company's tenant is its own id: it has to be stated before the insert that writes it.
+        var newCompanyId = UUID.randomUUID();
+        TenantFixtures.stateTenantWithinTheOpenTransaction(newCompanyId, jdbc);
         var company = TenantFixtures.persist(
                 companyRepository,
                 Company.builder()
+                        .id(newCompanyId)
                         .companyKey("SAL-" + UUID.randomUUID())
                         .companyName("Salary Band Company")
                         .rfc(uniqueRfc())

@@ -46,8 +46,6 @@ import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.transaction.PlatformTransactionManager;
-import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * Proves the one fact the unit suites cannot: the worker's <b>pass</b> reaches {@code APPLIED} against
@@ -143,9 +141,6 @@ class AccessProvisioningWorkerApplyIntegrationTest extends AbstractPostgresInteg
     private AccessProvisioningMembershipService membershipService;
 
     @Autowired
-    private PlatformTransactionManager transactionManager;
-
-    @Autowired
     private IdentityProvider identityProvider;
 
     private final List<UUID> seededCompanyIds = new ArrayList<>();
@@ -177,7 +172,8 @@ class AccessProvisioningWorkerApplyIntegrationTest extends AbstractPostgresInteg
         companyId = company.getId();
         seededCompanyIds.add(companyId);
 
-        positionId = seedPositionTree(company, "APPLY", "Apply Operations", "APPLY-1", "Apply Operator");
+        positionId = TenantFixtures.inTenant(
+                companyId, () -> seedPositionTree(company, "APPLY", "Apply Operations", "APPLY-1", "Apply Operator"));
 
         // A position of a *different* company, used by the retry scenario to fail after the account
         // half: the role convergence refuses a position outside the employee's company.
@@ -191,7 +187,10 @@ class AccessProvisioningWorkerApplyIntegrationTest extends AbstractPostgresInteg
                         .enabled(true)
                         .build());
         seededCompanyIds.add(otherCompany.getId());
-        otherPositionId = seedPositionTree(otherCompany, "OTHER", "Other Operations", "OTHER-1", "Other Operator");
+        var otherCompanyId = otherCompany.getId();
+        otherPositionId = TenantFixtures.inTenant(
+                otherCompanyId,
+                () -> seedPositionTree(otherCompany, "OTHER", "Other Operations", "OTHER-1", "Other Operator"));
 
         seniorityLevelId = seniorityLevelRepository
                 .save(SeniorityLevel.builder()
@@ -204,20 +203,22 @@ class AccessProvisioningWorkerApplyIntegrationTest extends AbstractPostgresInteg
 
         keycloakUserId = provider().createAccount("linked.account", "ada.lovelace@apply.example");
 
-        employeeId = employeeRepository
-                .save(Employee.builder()
-                        .company(company)
-                        .employeeNumber("PAPP-1")
-                        .firstName("Ada")
-                        .paternalLastName("Lovelace")
-                        .email("ada.lovelace@apply.example")
-                        .birthDate(LocalDate.of(1990, 1, 1))
-                        .hireDate(LocalDate.of(2020, 1, 1))
-                        .status(activeStatus())
-                        .keycloakUserId(keycloakUserId)
-                        .enabled(true)
-                        .build())
-                .getId();
+        employeeId = TenantFixtures.inTenant(
+                companyId,
+                () -> employeeRepository
+                        .save(Employee.builder()
+                                .company(company)
+                                .employeeNumber("PAPP-1")
+                                .firstName("Ada")
+                                .paternalLastName("Lovelace")
+                                .email("ada.lovelace@apply.example")
+                                .birthDate(LocalDate.of(1990, 1, 1))
+                                .hireDate(LocalDate.of(2020, 1, 1))
+                                .status(activeStatus())
+                                .keycloakUserId(keycloakUserId)
+                                .enabled(true)
+                                .build())
+                        .getId());
     }
 
     @AfterEach
@@ -264,8 +265,12 @@ class AccessProvisioningWorkerApplyIntegrationTest extends AbstractPostgresInteg
     @DisplayName("a retried ACTIVATE that fails after the account half sends exactly one invitation")
     void retriedActivateSendsExactlyOneInvitation() {
         // Unlinked on purpose: this scenario is about the account half happening in the first place.
-        jdbcTemplate.update("UPDATE employees SET keycloak_user_id = NULL WHERE id = ?", employeeId);
-        // A position of another company makes the role convergence refuse *after* the account half.
+        TenantFixtures.inTenant(
+                companyId,
+                () -> jdbcTemplate.update(
+                        "UPDATE employees SET keycloak_user_id = NULL WHERE id = ?",
+                        employeeId)); // A position of another company makes the role convergence refuse *after* the
+        // account half.
         seedContract(otherPositionId);
         var taskId = seedTask(employeeId);
 
@@ -324,17 +329,23 @@ class AccessProvisioningWorkerApplyIntegrationTest extends AbstractPostgresInteg
     }
 
     private void seedContract(UUID position) {
-        contractRepository.save(Contract.builder()
-                .employee(employeeRepository.findById(employeeId).orElseThrow())
-                .position(positionRepository.findById(position).orElseThrow())
-                .seniorityLevel(
-                        seniorityLevelRepository.findById(seniorityLevelId).orElseThrow())
-                .contractType(ContractType.PERMANENT)
-                .monthlySalary(new BigDecimal("1500.00"))
-                .startDate(LocalDate.now().minusDays(30))
-                .endDate(LocalDate.now().plusDays(30))
-                .enabled(true)
-                .build());
+        // The employee read is on an armed table, so it needs the employee's tenant stated: an unscoped
+        // {@code findById} answers empty and the fixture would fail with "no value present" instead of
+        // building the contract (record L27's read-side half).
+        TenantFixtures.inTenant(
+                companyId,
+                () -> contractRepository.save(Contract.builder()
+                        .employee(employeeRepository.findById(employeeId).orElseThrow())
+                        .position(positionRepository.findById(position).orElseThrow())
+                        .seniorityLevel(seniorityLevelRepository
+                                .findById(seniorityLevelId)
+                                .orElseThrow())
+                        .contractType(ContractType.PERMANENT)
+                        .monthlySalary(new BigDecimal("1500.00"))
+                        .startDate(LocalDate.now().minusDays(30))
+                        .endDate(LocalDate.now().plusDays(30))
+                        .enabled(true)
+                        .build()));
     }
 
     /** Seeds the intent the way the schema suite does: raw, because the guarded creation needs a user. */
@@ -361,9 +372,12 @@ class AccessProvisioningWorkerApplyIntegrationTest extends AbstractPostgresInteg
      * dropped exactly as {@code converge} drops them.
      */
     private Map<String, List<String>> expectedAttributes() {
-        var template = new TransactionTemplate(transactionManager);
-        var scope = template.execute(status -> membershipService.deriveMembership(
-                employeeRepository.findById(employeeId).orElseThrow()));
+        // Inside the employee's tenant: the derivation walks {@code companies}, its hierarchy and the
+        // organisational rows, all of which the policy filters (record T6b-2's boundary rule).
+        var scope = TenantFixtures.inTenant(
+                companyId,
+                () -> membershipService.deriveMembership(
+                        employeeRepository.findById(employeeId).orElseThrow()));
         var expected = new LinkedHashMap<String, List<String>>();
         expected.put(
                 ScopeLevel.COMPANY.claim(),
@@ -397,8 +411,10 @@ class AccessProvisioningWorkerApplyIntegrationTest extends AbstractPostgresInteg
     }
 
     private String committedKeycloakUserId() {
-        return jdbcTemplate.queryForObject(
-                "SELECT keycloak_user_id FROM employees WHERE id = ?", String.class, employeeId);
+        return TenantFixtures.inTenant(
+                companyId,
+                () -> jdbcTemplate.queryForObject(
+                        "SELECT keycloak_user_id FROM employees WHERE id = ?", String.class, employeeId));
     }
 
     private List<String> committedAppliedRoles(UUID taskId) {
@@ -416,36 +432,38 @@ class AccessProvisioningWorkerApplyIntegrationTest extends AbstractPostgresInteg
      */
     private void deleteOwnFixtures() {
         for (var seededCompanyId : seededCompanyIds) {
-            var employeeIds = "SELECT id FROM employees WHERE company_id = ?";
-            jdbcTemplate.update(
-                    "DELETE FROM access_provisioning_applied_roles WHERE task_id IN ("
-                            + "SELECT id FROM access_provisioning_tasks WHERE employee_id IN ("
-                            + employeeIds
-                            + "))",
-                    seededCompanyId);
-            jdbcTemplate.update(
-                    "DELETE FROM access_provisioning_reviewed_roles WHERE task_id IN ("
-                            + "SELECT id FROM access_provisioning_tasks WHERE employee_id IN ("
-                            + employeeIds
-                            + "))",
-                    seededCompanyId);
-            jdbcTemplate.update(
-                    "DELETE FROM access_provisioning_tasks WHERE employee_id IN (" + employeeIds + ")",
-                    seededCompanyId);
-            jdbcTemplate.update(
-                    "DELETE FROM employee_contracts WHERE employee_id IN (" + employeeIds + ")", seededCompanyId);
-            jdbcTemplate.update("DELETE FROM employees WHERE company_id = ?", seededCompanyId);
-            jdbcTemplate.update(
-                    "DELETE FROM position_roles WHERE position_id IN ("
-                            + "SELECT id FROM positions WHERE department_id IN ("
-                            + "SELECT id FROM departments WHERE company_id = ?))",
-                    seededCompanyId);
-            jdbcTemplate.update(
-                    "DELETE FROM positions WHERE department_id IN ("
-                            + "SELECT id FROM departments WHERE company_id = ?)",
-                    seededCompanyId);
-            jdbcTemplate.update("DELETE FROM departments WHERE company_id = ?", seededCompanyId);
-            jdbcTemplate.update("DELETE FROM companies WHERE id = ?", seededCompanyId);
+            TenantFixtures.inTenant(seededCompanyId, () -> {
+                var employeeIds = "SELECT id FROM employees WHERE company_id = ?";
+                jdbcTemplate.update(
+                        "DELETE FROM access_provisioning_applied_roles WHERE task_id IN ("
+                                + "SELECT id FROM access_provisioning_tasks WHERE employee_id IN ("
+                                + employeeIds
+                                + "))",
+                        seededCompanyId);
+                jdbcTemplate.update(
+                        "DELETE FROM access_provisioning_reviewed_roles WHERE task_id IN ("
+                                + "SELECT id FROM access_provisioning_tasks WHERE employee_id IN ("
+                                + employeeIds
+                                + "))",
+                        seededCompanyId);
+                jdbcTemplate.update(
+                        "DELETE FROM access_provisioning_tasks WHERE employee_id IN (" + employeeIds + ")",
+                        seededCompanyId);
+                jdbcTemplate.update(
+                        "DELETE FROM employee_contracts WHERE employee_id IN (" + employeeIds + ")", seededCompanyId);
+                jdbcTemplate.update("DELETE FROM employees WHERE company_id = ?", seededCompanyId);
+                jdbcTemplate.update(
+                        "DELETE FROM position_roles WHERE position_id IN ("
+                                + "SELECT id FROM positions WHERE department_id IN ("
+                                + "SELECT id FROM departments WHERE company_id = ?))",
+                        seededCompanyId);
+                jdbcTemplate.update(
+                        "DELETE FROM positions WHERE department_id IN ("
+                                + "SELECT id FROM departments WHERE company_id = ?)",
+                        seededCompanyId);
+                jdbcTemplate.update("DELETE FROM departments WHERE company_id = ?", seededCompanyId);
+                jdbcTemplate.update("DELETE FROM companies WHERE id = ?", seededCompanyId);
+            });
         }
         seededCompanyIds.clear();
         jdbcTemplate.update("DELETE FROM seniority_levels WHERE level_code = ?", LEVEL_CODE);
