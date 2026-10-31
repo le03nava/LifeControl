@@ -1150,3 +1150,88 @@ the `REQUIRES_NEW` fixture write L24 named. **T6b-4** is the 8 machinery/asserti
 `TenantTaskResolverIntegrationTest`, `StarterProductCategoryCompanyCreationIntegrationTest`). **T6c** is unchanged.
 What T6b-1 does not claim: no test became green, the application role is still not the default, and the 42-key
 agreement holds for the keys that exist today.
+
+L26 — **T6b-2 is the boundary, and its first shape broke the mode that was already green.** The baseline was
+measured before a line was written: **4 246 tests, 545 failed** with `TEST_POOL_APP_ROLE=true`, default mode
+green. Grouped by root cause rather than by class, the 545 were **five** causes wearing many names — 320
+`TransientPropertyValueException` (a child entity referencing a `Company` whose row the flush's unsaved-value
+probe cannot see), 163 `42501` on an armed table, 36 `NoSuchElementException`/`CompanyNotFoundException`, 26
+`@Transactional` suites whose transaction began before the fixture stated a scope, and 19 machinery cases.
+Every one of them reduces to one fact: **a scope declared with no transaction installs nothing** —
+`set_config(..., true)` is `SET LOCAL`, and a `JdbcTemplate` statement that borrows its own pooled connection
+opens no transaction to put it in.
+
+**The refutation, and it came from the mode that was green.** The first shape put a `REQUIRES_NEW` boundary
+inside *every* fixture entry point, and the default run broke at once: `CompanyCountryScopedReadHttpIntegrationTest`
+failed with `companies_company_key_key` because committing a fixture inside a `@Transactional` suite moves the
+row past the rollback that was cleaning it up. No reviewer would have caught that by reading; the two-mode run
+did. The corrected rule is the one the tree now states, and the distinction is measured rather than stylistic:
+
+- **A repository entry point already has a boundary.** `persist(CompanyRepository, …)`,
+  `persistAndFlush(…)` and both `findOrCreate` shapes keep `TenantScope.with(id, …)` and no template: Spring
+  Data's own `@Transactional` runs `doBegin`, and it runs it inside the scope the helper stated **before** the
+  call — which is exactly what T6a's 535 fixture failures needed and what the superuser pool had been hiding.
+  Wrapping it again would have committed the row and bought nothing.
+- **A raw entry point has none.** `insertCompany(JdbcTemplate, …)` and the new
+  `TenantFixtures.inTenant(UUID, Supplier/Runnable)` open a `REQUIRES_NEW` transaction whose `doBegin` installs
+  the scope; inside it the `JdbcTemplate` reuses the transaction's connection, which is the only way
+  `SET LOCAL` reaches the statement.
+
+**The binding, and the two holes it had.** The manager is bound once per PostgreSQL suite, because threading a
+`PlatformTransactionManager` through sixty-five call sites would be sixty-five edits to pass a constant. Two
+defects came out of that, both measured: (1) a `@SpringBootTest`-less pair — `EmployeeStoreScopeBackfillMigrationIntegrationTest`
+and `ProductAttributeUpgradeOnPopulatedDbIntegrationTest`, which migrate their own superuser scratch database —
+extends the base for its container and never receives a manager, so the base now binds only what it has and
+those two bind a `DataSourceTransactionManager` over their own `DataSource`; (2) the binding is a JVM-wide
+static while Spring **caches** a context, so an autowired method runs at creation and not on reuse —
+`TenantFixturesTest` unbinds on purpose, which unbound every later suite whose context was already built
+(**4 failures, order-dependent**). The base class now re-binds in a `@BeforeEach`, which runs before every
+subclass's own. A raw write with nothing bound **refuses** instead of falling back: a silent fallback inserts
+with no scope and turns a fixture mistake into a policy finding.
+
+**What was adopted** (second commit of the slice, eleven suites). Every raw `JdbcTemplate` statement on one of
+the sixteen armed tables runs inside `inTenant(<the row's company>, …)`: the writes, the `COUNT(*)` read-backs
+the assertions depend on, and the `@AfterEach` cleanups — an unscoped `DELETE` on an armed table deletes **zero
+rows without an error**, which is the failure mode that looked like a duplicate key two classes later. The
+legible shape is one boundary per per-class seed helper (`insertSupplier`, `insertCategory`, `insertStore`),
+not one per statement. `SupplierSchemaMigrationIntegrationTest` and `StoreHierarchy*` now track
+`InsertedRow(companyId, id)` so their cleanups know each row's tenant; `ProductCategorySchemaMigrationIntegrationTest`
+resets per tenant; the `'shared'` catalog rows outside a company were deliberately **left alone**, because a NULL
+owner is visible without a scope (V53's `shared` kind) and wrapping them would assert the opposite of the policy.
+
+**One defect the cross-check caught, and it is the kind that only a second mode finds.** The first version of
+the cross-tenant count helpers summed one *unfiltered* `COUNT(*)` per tenant. On the app-role pool that reads
+each tenant's rows and happens to be right; on the superuser pool each count sees everything and the sum
+double-counts — **4 failures in default mode**. Fixed by naming the tenant in the predicate so one statement
+answers correctly on both pools, which is also the shape that reads like the SQL it is.
+
+**Evidence, as observed.** Helper suite: `TenantFixturesTest` **9 → 14** cases, and the RED for them was the
+honest one for a new helper — `cannot find symbol` ×4, `BUILD FAILED in 10s`. Adoption, per suite, app role
+before → after: `StoreHierarchyCompanyScopeSchemaMigration` 18/18 → **0/18**,
+`ProductCategorySchemaMigration` 11/16 → **0/16**, `StarterProductCategoryApplier` 4/5 → **0/5**,
+`ProductAttributeWritePath` 10/10 → **0/10**, `ProductAttributeSchemaMigration` 2/21 → **0/21**,
+`ProductSupplierCompanyScope` 3/3 → **0/3**, `SupplierSchemaMigration` 15/15 → **1/15**,
+`ProductCatalogCompanyScopeSchema` 7/9 → **2/9**. Whole suite, `spotlessApply` clean:
+**default `4251 tests, 0 failed`, exit 0**; **app role `4251 tests, 478 failed`, exit 1** — **545 → 478**, the
++5 tests being the new helper cases.
+
+**Residuals, each with its owner and no euphemism.** 321 `TransientPropertyValueException` (unchanged) and 34
+`NoSuchElementException`/`CompanyNotFoundException` are the child seeds whose probe and reads still run outside a
+boundary — **T6b-2b**. 105 `PSQLException` are almost all the `@Transactional` suites (**T6b-3**, where the
+boundary exists and cannot be retro-fitted with a scope) plus the machinery that owns its connections
+(**T6b-4**). 18 assertions are machinery. **One finding is new and belongs to no earlier slice**: under the app
+role an `INSERT` that omits `company_id` is refused by the **policy** (`42501`) before the `NOT NULL` constraint
+fires, so four assertions that read "not-null" now read the policy's message. That is the order ADR-0005 chose —
+the tenant is checked first — so the assertion has to name the policy's refusal when the pool is the application
+role; it is deferred to **T6b-2b** with that reason rather than patched to accept any exception.
+
+What this slice does not claim: **S5 is not met**, the application role is still not the default, and 478 tests
+still fail without it. The gate moved by 67 and it is now measurable per cause instead of per class.
+
+**The slice's delivery, stated rather than left to be discovered.** Two work-unit commits, so a reviewer can
+read them apart: the boundary (349 authored lines: `TenantFixtures`, its suite, the base class and the two
+context-less bindings) and the adoption (1 183: eleven suites). One pull request for the slice, as this
+feature's chain has done since T1, with the size named here instead of discovered in the diff: the review
+budget is per slice, not per commit, and the adoption half is one mechanical rule applied eleven times —
+read one class of each shape (`SupplierSchemaMigrationIntegrationTest` for the `InsertedRow` cleanup,
+`ProductCategorySchemaMigrationIntegrationTest` for the per-tenant counts) and the other nine follow.
