@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.lifecontrol.api.company.model.Company;
 import com.lifecontrol.api.company.repository.CompanyRepository;
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
+import com.lifecontrol.api.support.TenantFixtures;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
@@ -302,12 +303,14 @@ class ProductCatalogCompanyScopeSchemaMigrationIntegrationTest extends AbstractP
     private UUID catalogCompanyId() {
         return companyRepository
                 .findByCompanyKey(CATALOG_COMPANY_KEY)
-                .orElseGet(() -> companyRepository.save(Company.builder()
-                        .companyKey(CATALOG_COMPANY_KEY)
-                        .companyName("Product Catalog Schema Test Company")
-                        .rfc(CATALOG_COMPANY_RFC)
-                        .enabled(true)
-                        .build()))
+                .orElseGet(() -> TenantFixtures.persist(
+                        companyRepository,
+                        Company.builder()
+                                .companyKey(CATALOG_COMPANY_KEY)
+                                .companyName("Product Catalog Schema Test Company")
+                                .rfc(CATALOG_COMPANY_RFC)
+                                .enabled(true)
+                                .build()))
                 .getId();
     }
 
@@ -315,12 +318,14 @@ class ProductCatalogCompanyScopeSchemaMigrationIntegrationTest extends AbstractP
     private UUID otherCompanyId() {
         return companyRepository
                 .findByCompanyKey(OTHER_COMPANY_KEY)
-                .orElseGet(() -> companyRepository.save(Company.builder()
-                        .companyKey(OTHER_COMPANY_KEY)
-                        .companyName("Product Catalog Other Company")
-                        .rfc(OTHER_COMPANY_RFC)
-                        .enabled(true)
-                        .build()))
+                .orElseGet(() -> TenantFixtures.persist(
+                        companyRepository,
+                        Company.builder()
+                                .companyKey(OTHER_COMPANY_KEY)
+                                .companyName("Product Catalog Other Company")
+                                .rfc(OTHER_COMPANY_RFC)
+                                .enabled(true)
+                                .build()))
                 .getId();
     }
 

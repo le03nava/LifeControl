@@ -18,6 +18,7 @@ import com.lifecontrol.api.provisioning.service.AccessProvisioningTaskService;
 import com.lifecontrol.api.status.model.Status;
 import com.lifecontrol.api.status.repository.StatusRepository;
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
+import com.lifecontrol.api.support.TenantFixtures;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.UUID;
@@ -187,13 +188,15 @@ class AccessProvisioningProducerTransactionIntegrationTest extends AbstractPostg
     }
 
     private void seedActiveEmployee() {
-        var company = companyRepository.save(Company.builder()
-                .companyKey(COMPANY_KEY)
-                .companyName("Provisioning Producer Company")
-                .rfc(COMPANY_RFC)
-                .emailDomain("prov-producer.example")
-                .enabled(true)
-                .build());
+        var company = TenantFixtures.persist(
+                companyRepository,
+                Company.builder()
+                        .companyKey(COMPANY_KEY)
+                        .companyName("Provisioning Producer Company")
+                        .rfc(COMPANY_RFC)
+                        .emailDomain("prov-producer.example")
+                        .enabled(true)
+                        .build());
         companyId = company.getId();
 
         var employee = employeeRepository.save(Employee.builder()

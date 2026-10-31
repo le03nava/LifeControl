@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.lifecontrol.api.company.model.Company;
 import com.lifecontrol.api.company.repository.CompanyRepository;
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
+import com.lifecontrol.api.support.TenantFixtures;
 import java.util.List;
 import java.util.UUID;
 import org.flywaydb.core.Flyway;
@@ -215,12 +216,14 @@ class HrSchemaMigrationIntegrationTest extends AbstractPostgresIntegrationTest {
     private UUID hrCompanyId() {
         return companyRepository
                 .findByCompanyKey(COMPANY_KEY)
-                .orElseGet(() -> companyRepository.save(Company.builder()
-                        .companyKey(COMPANY_KEY)
-                        .companyName("HR Schema Test Company")
-                        .rfc(COMPANY_RFC)
-                        .enabled(true)
-                        .build()))
+                .orElseGet(() -> TenantFixtures.persist(
+                        companyRepository,
+                        Company.builder()
+                                .companyKey(COMPANY_KEY)
+                                .companyName("HR Schema Test Company")
+                                .rfc(COMPANY_RFC)
+                                .enabled(true)
+                                .build()))
                 .getId();
     }
 

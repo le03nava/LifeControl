@@ -13,6 +13,7 @@ import com.lifecontrol.api.hr.repository.DepartmentRepository;
 import com.lifecontrol.api.hr.repository.PositionRepository;
 import com.lifecontrol.api.hr.service.PositionService;
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
+import com.lifecontrol.api.support.TenantFixtures;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -54,12 +55,14 @@ class PositionSelfReferenceIntegrationTest extends AbstractPostgresIntegrationTe
 
     @BeforeEach
     void setUp() {
-        var company = companyRepository.save(Company.builder()
-                .companyKey("POS-SELF-" + UUID.randomUUID())
-                .companyName("Position Self FK Company")
-                .rfc(uniqueRfc())
-                .enabled(true)
-                .build());
+        var company = TenantFixtures.persist(
+                companyRepository,
+                Company.builder()
+                        .companyKey("POS-SELF-" + UUID.randomUUID())
+                        .companyName("Position Self FK Company")
+                        .rfc(uniqueRfc())
+                        .enabled(true)
+                        .build());
         companyId = company.getId();
 
         var department = departmentRepository.save(Department.builder()

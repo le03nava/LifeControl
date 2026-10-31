@@ -880,3 +880,90 @@ probe now answers on the connection the check already holds, and
 `TenantIsolationStartupCheckH2Test#theCheckAsksThePoolForOneConnectionOnly` pins it by counting the
 requests: one, where the old shape made two. RED measured by reverting that one call: 3 tests, 1 failed,
 `expected: 1 but was: 2`.
+
+L23 — **T6a is the fixtures, not the call sites: 64 suites now state a company's tenant the way production
+does.** Measured with the Testcontainers pool connected as `lifecontrol_app` — the role the sixteen
+ADR-0005 policies apply to — **556 of 4 237 backend tests failed**. The failures group like this:
+
+| Group | Failures | Cause | Slice |
+| --- | --- | --- | --- |
+| A fixture inserts a `companies` row without stating a tenant | **537** | `companies` is isolated by `id = current_setting('app.company_id', true)` for both `USING` and `WITH CHECK`, so PostgreSQL refuses the insert with SQLSTATE 42501 | T6a |
+| …of those, with **no production stack frame** | **535** | production already does it right in `CompanyService.createCompany`; only the fixture did not | T6a |
+| …of those, **raw `JdbcTemplate`** rather than JPA | **46–48** | the same missing tenant, written as `INSERT INTO companies` | T6a |
+| Machinery suites that switch roles, connections and policies on purpose | **19** (556 − 537) | the tests own the connection and the role; the pool switch is what changes their premise | T6b |
+
+**Why the fixtures and not the call sites.** The 150 call-site checks are authorization and stay exactly
+as they are (S1, decision item 5). A call site cannot fix an insert: the refusal happens before any
+controller or service method the fixture calls, and in 535 of the 537 failures there was no production
+frame to blame at all. The production path already generates the identity in memory, states it with
+`TenantScope.with(id, …)` and drives the transaction itself (`CompanyService.createCompany`), because the
+boundary hook reads the scope in `doBegin`, i.e. before a `@Transactional` method body runs. The tests
+were the only writers that did the same work in the wrong order, and a fixture is exactly what a test
+teaches.
+
+**The helper.** `support/TenantFixtures` has one rule and four entry points. The rule, stated in its
+javadoc with the measurement above: *a company's tenant is its own id, so a fixture that persists one must
+state it before the insert, exactly as `CompanyService.createCompany` does.* The entry points are
+`persist(CompanyRepository, Company)`, `persistAndFlush(CompanyRepository, Company)`,
+`persist(EntityManager, Company)` and the two `insertCompany(JdbcTemplate, …)` overloads (generated id, and
+a caller-chosen id for the fixtures that mirror a migration). Each assigns the id **in memory** when the
+caller stated none — the entity's `@PrePersist` fallback runs inside the transaction, one boundary too late
+for the scope — and then wraps the save or the raw `INSERT` in `TenantScope.with(id, …)`. There is
+deliberately **no test-only bypass**: no `SET LOCAL ROLE`, no `ALTER TABLE … NO FORCE`, no wider policy.
+A fixture that states its tenant is the model the tests should teach, and the pool still connects as the
+container's superuser, so the stated scope is inert until T6b.
+
+**What was adopted.** **64 top-level classes and 73 fixture lines**, from these greps over
+`src/test/java`: `companyRepository.save(`, `companyRepository.saveAndFlush(`, `INSERT INTO companies`,
+`Company.builder()`, `em.persist(company)` / `entityManager.persist(company)` and
+`.save(Company.builder(`. The sweep after the batches found no DB-backed class with `Company.builder()`
+left unadopted; the only remaining repository saves are Mockito stubs in `CompanyServiceTest`, and the only
+remaining raw inserts are `TenantPoliciesIntegrationTest`, `CompanyTenantScopeIntegrationTest` and
+`TenantTaskResolverIntegrationTest`, which switch roles and connections on purpose and belong to T6b's
+machinery group. The three deciders the brief named are among the adopted:
+`GoodsReceiptIntegrationTest#seedCompanyHierarchy`, `SupplierSchemaMigrationIntegrationTest#insertCompany`
+(raw), `CompanyCountryScopedReadHttpIntegrationTest#seed` (EntityManager) and
+`SalesOrderIntegrationTest:311` / `EmployeeScopeAssignmentHttpIntegrationTest:210`. Production code is
+untouched, including every service that creates its own company, and so are
+`test-container-roles.sql`, `AbstractPostgresIntegrationTest`'s datasource properties and the migrations.
+
+**Evidence, as observed.** RED: `./gradlew compileTestJava` → `cannot find symbol: variable
+TenantFixtures`, 3 errors, `BUILD FAILED in 3s` — the honest RED for a new helper, because the contract it
+has to satisfy is the suite that will call it. GREEN: `./gradlew test --tests '*TenantFixturesTest'` →
+`BUILD SUCCESSFUL`, 3 tests: the id is assigned before the save and the scope carries it; a caller-stated
+id is kept; the raw insert states the generated id. Three cases, so the whole-suite count moves by exactly
+three (below). Batches, each run after its own edits: store
+(`--tests '*CompanyStore*' --tests '*StoreArea*' --tests '*StoreLocation*' --tests '*StoreZone*'
+--tests '*StoreOptimisticLocking*' --tests '*StoreHierarchy*'`) `BUILD SUCCESSFUL in 1m 6s`; hr
+(`--tests '*hr.*'`) `BUILD SUCCESSFUL in 1m 11s`; product (`--tests '*product.*'`)
+`BUILD SUCCESSFUL in 47s`; provisioning (`--tests '*provisioning.*'`) `BUILD SUCCESSFUL in 43s`;
+purchaseorder/salesorder/scheduling/goodsreceipt/inventory `BUILD SUCCESSFUL in 1m 12s`; the final five
+(supplier, company country scope, provisioning worker scope, tenant filter) `BUILD SUCCESSFUL in 45s`.
+Then the whole suite: `./gradlew test` → **exit 0, 4 240 tests in 1 022 classes, 0 failed, 0 skipped,
+BUILD SUCCESSFUL in 4m 36s**. The baseline was 4 237 in 1 021 classes; the +3 tests are this entry's
+helper suite and the +1 class is its file. `./gradlew spotlessApply spotlessCheck spotbugsMain` → exit 0,
+`BUILD SUCCESSFUL in 26s`. The repository's eleven shell suites → **385 assertions, 0 failed**, every
+suite returning 0 and no `FAILED` line.
+
+**Deviations and the one risk this slice cannot close.** The helper states the tenant the way production
+does, but for a **raw `JdbcTemplate`** statement that statement still opens its own pooled connection and
+never passes through `TenantScopeJpaTransactionManager.doBegin`, so a stated `TenantScope` is not installed
+on that connection — inert today, and still insufficient if T6b only swaps the credential. The 46–48 raw
+fixtures therefore also need a connection-level installation (or the raw helper driving a
+`TransactionTemplate` whose `doBegin` runs inside the scope), and that is T6b's to choose and observe; this
+slice could not observe it without switching the pool. The second, smaller deviation is coverage: our
+greps found **64 classes / 73 lines** where the measurement found 63 / ~71, because the sweep also caught
+`CompanyStoreScopeProjectionTest`, `CompanyStoreScopeAgreementTest` and the two `saveAndFlush` attribute
+suites; the measurement's list was a starting point, and the run was the authority.
+
+**Handoff to T6b** — the pool switch: point `AbstractPostgresIntegrationTest`'s datasource at
+`lifecontrol_app`, grant the container user `CREATE` (and the sequence/default-privilege half the role
+script carries) so Flyway's `V52` grants and the container's own setup agree, and take the **19 machinery
+failures** — `TenantPoliciesIntegrationTest`, `CompanyTenantScopeIntegrationTest`,
+`TenantTaskResolverIntegrationTest`, `TenantScopeBoundaryIntegrationTest` and
+`TenantScopeFunctionsIntegrationTest` switch role or own a connection on purpose, so their premise changes
+with the credential. Re-measure the 556: the 535 fixture failures should be gone, and the raw residue is
+the item named above. **Handoff to T6c** — the production credential: the wrapper's `DATABASE_APP_PASSWORD`
+slice, the delivery path that makes `lifecontrol_app` the pool's only principal, and `Closes #696` in the
+PR. What T6a does not claim: no policy was observed by this slice (the superuser still bypasses them), and
+the fixtures are ready for the switch rather than proof of it.

@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.lifecontrol.api.common.tenant.TenantScope;
 import com.lifecontrol.api.company.model.Company;
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
+import com.lifecontrol.api.support.TenantFixtures;
 import jakarta.persistence.EntityManager;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -254,13 +255,14 @@ class TenantScopeFilterIntegrationTest extends AbstractPostgresIntegrationTest {
     }
 
     private UUID persistCompany(String companyKey, String rfc) {
-        var company = Company.builder()
-                .companyKey(companyKey)
-                .companyName("Tenant Scope " + companyKey)
-                .rfc(rfc)
-                .enabled(true)
-                .build();
-        entityManager.persist(company);
+        var company = TenantFixtures.persist(
+                entityManager,
+                Company.builder()
+                        .companyKey(companyKey)
+                        .companyName("Tenant Scope " + companyKey)
+                        .rfc(rfc)
+                        .enabled(true)
+                        .build());
         entityManager.flush();
         return company.getId();
     }

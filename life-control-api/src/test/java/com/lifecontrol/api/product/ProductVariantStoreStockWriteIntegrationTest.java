@@ -38,6 +38,7 @@ import com.lifecontrol.api.store.repository.StoreAreaRepository;
 import com.lifecontrol.api.store.repository.StoreLocationRepository;
 import com.lifecontrol.api.store.repository.StoreZoneRepository;
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
+import com.lifecontrol.api.support.TenantFixtures;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -626,12 +627,14 @@ class ProductVariantStoreStockWriteIntegrationTest extends AbstractPostgresInteg
 
         var company = companyRepository
                 .findByCompanyKey("VARIANT-STOCK-WRITE-KEY")
-                .orElseGet(() -> companyRepository.save(Company.builder()
-                        .companyKey("VARIANT-STOCK-WRITE-KEY")
-                        .companyName("Variant Stock Write Test Company")
-                        .rfc("VSWT010101ABC")
-                        .enabled(true)
-                        .build()));
+                .orElseGet(() -> TenantFixtures.persist(
+                        companyRepository,
+                        Company.builder()
+                                .companyKey("VARIANT-STOCK-WRITE-KEY")
+                                .companyName("Variant Stock Write Test Company")
+                                .rfc("VSWT010101ABC")
+                                .enabled(true)
+                                .build()));
         companyId = company.getId();
 
         var companyCountry = companyCountryRepository

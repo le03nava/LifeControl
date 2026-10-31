@@ -27,6 +27,7 @@ import com.lifecontrol.api.product.repository.ProductVariantStoreStockRepository
 import com.lifecontrol.api.store.model.CompanyStore;
 import com.lifecontrol.api.store.repository.CompanyStoreRepository;
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
+import com.lifecontrol.api.support.TenantFixtures;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
@@ -158,12 +159,14 @@ class ProductVariantStoreFilterIntegrationTest extends AbstractPostgresIntegrati
 
         var company = companyRepository
                 .findByCompanyKey("VARIANT-FILTER-KEY")
-                .orElseGet(() -> companyRepository.save(Company.builder()
-                        .companyKey("VARIANT-FILTER-KEY")
-                        .companyName("Variant Filter Test Company")
-                        .rfc("VFTC010101ABC")
-                        .enabled(true)
-                        .build()));
+                .orElseGet(() -> TenantFixtures.persist(
+                        companyRepository,
+                        Company.builder()
+                                .companyKey("VARIANT-FILTER-KEY")
+                                .companyName("Variant Filter Test Company")
+                                .rfc("VFTC010101ABC")
+                                .enabled(true)
+                                .build()));
         companyId = company.getId();
 
         var companyCountry = companyCountryRepository
@@ -206,12 +209,14 @@ class ProductVariantStoreFilterIntegrationTest extends AbstractPostgresIntegrati
 
         var company = companyRepository
                 .findByCompanyKey("VARIANT-FILTER-FOREIGN-KEY")
-                .orElseGet(() -> companyRepository.save(Company.builder()
-                        .companyKey("VARIANT-FILTER-FOREIGN-KEY")
-                        .companyName("Variant Filter Foreign Company")
-                        .rfc("VFFC010101AB")
-                        .enabled(true)
-                        .build()));
+                .orElseGet(() -> TenantFixtures.persist(
+                        companyRepository,
+                        Company.builder()
+                                .companyKey("VARIANT-FILTER-FOREIGN-KEY")
+                                .companyName("Variant Filter Foreign Company")
+                                .rfc("VFFC010101AB")
+                                .enabled(true)
+                                .build()));
 
         var companyCountry = companyCountryRepository
                 .findByCompanyIdAndCountryId(company.getId(), country.getId())

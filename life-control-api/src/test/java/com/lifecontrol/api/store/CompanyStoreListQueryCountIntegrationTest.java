@@ -20,6 +20,7 @@ import com.lifecontrol.api.country.repository.CountryRepository;
 import com.lifecontrol.api.store.model.CompanyStore;
 import com.lifecontrol.api.store.repository.CompanyStoreRepository;
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
+import com.lifecontrol.api.support.TenantFixtures;
 import jakarta.persistence.EntityManagerFactory;
 import java.util.UUID;
 import org.hibernate.SessionFactory;
@@ -95,12 +96,14 @@ class CompanyStoreListQueryCountIntegrationTest extends AbstractPostgresIntegrat
 
         var company = companyRepository
                 .findByCompanyKey("STORE-QUERY-COUNT-KEY")
-                .orElseGet(() -> companyRepository.save(Company.builder()
-                        .companyKey("STORE-QUERY-COUNT-KEY")
-                        .companyName("Store Query Count Test Company")
-                        .rfc("SQCT010101ABC")
-                        .enabled(true)
-                        .build()));
+                .orElseGet(() -> TenantFixtures.persist(
+                        companyRepository,
+                        Company.builder()
+                                .companyKey("STORE-QUERY-COUNT-KEY")
+                                .companyName("Store Query Count Test Company")
+                                .rfc("SQCT010101ABC")
+                                .enabled(true)
+                                .build()));
 
         var companyCountry = companyCountryRepository
                 .findByCompanyIdAndCountryId(company.getId(), country.getId())

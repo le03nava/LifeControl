@@ -13,6 +13,7 @@ import com.lifecontrol.api.hr.exception.DuplicateEmployeeException;
 import com.lifecontrol.api.hr.repository.EmployeeRepository;
 import com.lifecontrol.api.hr.service.EmployeeService;
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
+import com.lifecontrol.api.support.TenantFixtures;
 import java.time.LocalDate;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
@@ -541,26 +542,30 @@ class EmployeeCrudIntegrationTest extends AbstractPostgresIntegrationTest {
     private UUID employeeCompanyId() {
         return companyRepository
                 .findByCompanyKey(COMPANY_KEY)
-                .orElseGet(() -> companyRepository.save(Company.builder()
-                        .companyKey(COMPANY_KEY)
-                        .companyName("Employee CRUD Test Company")
-                        .rfc(COMPANY_RFC)
-                        .emailDomain(COMPANY_DOMAIN)
-                        .enabled(true)
-                        .build()))
+                .orElseGet(() -> TenantFixtures.persist(
+                        companyRepository,
+                        Company.builder()
+                                .companyKey(COMPANY_KEY)
+                                .companyName("Employee CRUD Test Company")
+                                .rfc(COMPANY_RFC)
+                                .emailDomain(COMPANY_DOMAIN)
+                                .enabled(true)
+                                .build()))
                 .getId();
     }
 
     private UUID otherCompanyId() {
         return companyRepository
                 .findByCompanyKey(OTHER_COMPANY_KEY)
-                .orElseGet(() -> companyRepository.save(Company.builder()
-                        .companyKey(OTHER_COMPANY_KEY)
-                        .companyName("Employee CRUD Other Company")
-                        .rfc(OTHER_COMPANY_RFC)
-                        .emailDomain(OTHER_COMPANY_DOMAIN)
-                        .enabled(true)
-                        .build()))
+                .orElseGet(() -> TenantFixtures.persist(
+                        companyRepository,
+                        Company.builder()
+                                .companyKey(OTHER_COMPANY_KEY)
+                                .companyName("Employee CRUD Other Company")
+                                .rfc(OTHER_COMPANY_RFC)
+                                .emailDomain(OTHER_COMPANY_DOMAIN)
+                                .enabled(true)
+                                .build()))
                 .getId();
     }
 

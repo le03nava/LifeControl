@@ -14,6 +14,7 @@ import com.lifecontrol.api.provisioning.model.AccessProvisioningTaskKind;
 import com.lifecontrol.api.provisioning.model.AccessProvisioningTaskStatus;
 import com.lifecontrol.api.provisioning.service.AccessProvisioningQueryService;
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
+import com.lifecontrol.api.support.TenantFixtures;
 import com.lifecontrol.api.usersadmin.identity.IdentityProvider;
 import java.time.LocalDateTime;
 import java.util.Optional;
@@ -198,12 +199,14 @@ class AccessProvisioningDecisionQueueIntegrationTest extends AbstractPostgresInt
     private UUID companyId(String companyKey, String companyName, String rfc) {
         return companyRepository
                 .findByCompanyKey(companyKey)
-                .orElseGet(() -> companyRepository.save(Company.builder()
-                        .companyKey(companyKey)
-                        .companyName(companyName)
-                        .rfc(rfc)
-                        .enabled(true)
-                        .build()))
+                .orElseGet(() -> TenantFixtures.persist(
+                        companyRepository,
+                        Company.builder()
+                                .companyKey(companyKey)
+                                .companyName(companyName)
+                                .rfc(rfc)
+                                .enabled(true)
+                                .build()))
                 .getId();
     }
 

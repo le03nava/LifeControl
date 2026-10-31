@@ -36,6 +36,7 @@ import com.lifecontrol.api.store.repository.StoreAreaRepository;
 import com.lifecontrol.api.store.repository.StoreLocationRepository;
 import com.lifecontrol.api.store.repository.StoreZoneRepository;
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
+import com.lifecontrol.api.support.TenantFixtures;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -179,12 +180,14 @@ class InventoryIntegrationTest extends AbstractPostgresIntegrationTest {
 
         var company = companyRepository
                 .findByCompanyKey("INVENTORY-KEY")
-                .orElseGet(() -> companyRepository.save(Company.builder()
-                        .companyKey("INVENTORY-KEY")
-                        .companyName("Inventory Test Company")
-                        .rfc("INVT010101ABC")
-                        .enabled(true)
-                        .build()));
+                .orElseGet(() -> TenantFixtures.persist(
+                        companyRepository,
+                        Company.builder()
+                                .companyKey("INVENTORY-KEY")
+                                .companyName("Inventory Test Company")
+                                .rfc("INVT010101ABC")
+                                .enabled(true)
+                                .build()));
 
         var companyCountry = companyCountryRepository
                 .findByCompanyIdAndCountryId(company.getId(), country.getId())
@@ -692,12 +695,14 @@ class InventoryIntegrationTest extends AbstractPostgresIntegrationTest {
         private ProductVariant createForeignVariant(String stock) {
             var foreignCompany = companyRepository
                     .findByCompanyKey(FOREIGN_COMPANY_KEY)
-                    .orElseGet(() -> companyRepository.save(Company.builder()
-                            .companyKey(FOREIGN_COMPANY_KEY)
-                            .companyName("Inventory Foreign Company")
-                            .rfc("INVF010101ABC")
-                            .enabled(true)
-                            .build()));
+                    .orElseGet(() -> TenantFixtures.persist(
+                            companyRepository,
+                            Company.builder()
+                                    .companyKey(FOREIGN_COMPANY_KEY)
+                                    .companyName("Inventory Foreign Company")
+                                    .rfc("INVF010101ABC")
+                                    .enabled(true)
+                                    .build()));
 
             var product = productRepository.save(Product.builder()
                     .sku("INV-FSKU-" + UUID.randomUUID().toString().substring(0, 8))

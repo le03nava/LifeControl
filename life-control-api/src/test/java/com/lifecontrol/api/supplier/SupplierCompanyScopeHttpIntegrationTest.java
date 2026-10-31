@@ -10,6 +10,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.lifecontrol.api.company.model.Company;
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
+import com.lifecontrol.api.support.TenantFixtures;
 import jakarta.persistence.EntityManager;
 import java.util.Arrays;
 import java.util.UUID;
@@ -205,9 +206,8 @@ class SupplierCompanyScopeHttpIntegrationTest extends AbstractPostgresIntegratio
     }
 
     private UUID insertCompany(String key, String name, String rfc) {
-        var company =
-                Company.builder().companyKey(key).companyName(name).rfc(rfc).build();
-        em.persist(company);
+        var company = TenantFixtures.persist(
+                em, Company.builder().companyKey(key).companyName(name).rfc(rfc).build());
         return company.getId();
     }
 }

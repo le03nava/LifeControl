@@ -3,6 +3,7 @@ package com.lifecontrol.api.hr;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
+import com.lifecontrol.api.support.TenantFixtures;
 import java.sql.DriverManager;
 import java.sql.Timestamp;
 import java.time.LocalDate;
@@ -245,11 +246,8 @@ class EmployeeStoreScopeBackfillMigrationIntegrationTest extends AbstractPostgre
     private Seeded seedStoreAssignments() {
         var countryId = jdbcTemplate.queryForObject("SELECT id FROM countries WHERE country_code = 'MX'", UUID.class);
 
-        var companyId = UUID.randomUUID();
-        jdbcTemplate.update("""
-                INSERT INTO companies (id, company_key, company_name, rfc, enabled)
-                VALUES (?, 'V32-BACKFILL', 'V32 Backfill Company', 'V32BF010101AB', true)
-                """, companyId);
+        var companyId = TenantFixtures.insertCompany(
+                jdbcTemplate, UUID.randomUUID(), "V32-BACKFILL", "V32 Backfill Company", "V32BF010101AB");
 
         var companyCountryId = UUID.randomUUID();
         jdbcTemplate.update(

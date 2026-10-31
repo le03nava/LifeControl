@@ -11,6 +11,7 @@ import com.lifecontrol.api.company.repository.CompanyRepository;
 import com.lifecontrol.api.product.category.model.ProductCategory;
 import com.lifecontrol.api.product.category.repository.ProductCategoryRepository;
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
+import com.lifecontrol.api.support.TenantFixtures;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -174,12 +175,14 @@ class ProductAttributeControllerTest extends AbstractPostgresIntegrationTest {
     private UUID companyId(String companyKey, String companyName, String rfc) {
         return companyRepository
                 .findByCompanyKey(companyKey)
-                .orElseGet(() -> companyRepository.saveAndFlush(Company.builder()
-                        .companyKey(companyKey)
-                        .companyName(companyName)
-                        .rfc(rfc)
-                        .enabled(true)
-                        .build()))
+                .orElseGet(() -> TenantFixtures.persistAndFlush(
+                        companyRepository,
+                        Company.builder()
+                                .companyKey(companyKey)
+                                .companyName(companyName)
+                                .rfc(rfc)
+                                .enabled(true)
+                                .build()))
                 .getId();
     }
 

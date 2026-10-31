@@ -7,6 +7,7 @@ import com.lifecontrol.api.company.model.Company;
 import com.lifecontrol.api.company.repository.CompanyRepository;
 import com.lifecontrol.api.product.category.catalog.StarterProductCategoryCatalog;
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
+import com.lifecontrol.api.support.TenantFixtures;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -586,12 +587,14 @@ class ProductAttributeSchemaMigrationIntegrationTest extends AbstractPostgresInt
     private UUID companyId() {
         return companyRepository
                 .findByCompanyKey(COMPANY_KEY)
-                .orElseGet(() -> companyRepository.saveAndFlush(Company.builder()
-                        .companyKey(COMPANY_KEY)
-                        .companyName("Product Attribute Schema Test Company")
-                        .rfc(COMPANY_RFC)
-                        .enabled(true)
-                        .build()))
+                .orElseGet(() -> TenantFixtures.persistAndFlush(
+                        companyRepository,
+                        Company.builder()
+                                .companyKey(COMPANY_KEY)
+                                .companyName("Product Attribute Schema Test Company")
+                                .rfc(COMPANY_RFC)
+                                .enabled(true)
+                                .build()))
                 .getId();
     }
 

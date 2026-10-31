@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.lifecontrol.api.company.model.Company;
 import com.lifecontrol.api.company.repository.CompanyRepository;
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
+import com.lifecontrol.api.support.TenantFixtures;
 import java.time.LocalDate;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -324,12 +325,14 @@ class EmployeeContractSchemaMigrationIntegrationTest extends AbstractPostgresInt
     private UUID contractCompanyId() {
         return companyRepository
                 .findByCompanyKey(COMPANY_KEY)
-                .orElseGet(() -> companyRepository.save(Company.builder()
-                        .companyKey(COMPANY_KEY)
-                        .companyName("Employee Contract Schema Test Company")
-                        .rfc(COMPANY_RFC)
-                        .enabled(true)
-                        .build()))
+                .orElseGet(() -> TenantFixtures.persist(
+                        companyRepository,
+                        Company.builder()
+                                .companyKey(COMPANY_KEY)
+                                .companyName("Employee Contract Schema Test Company")
+                                .rfc(COMPANY_RFC)
+                                .enabled(true)
+                                .build()))
                 .getId();
     }
 

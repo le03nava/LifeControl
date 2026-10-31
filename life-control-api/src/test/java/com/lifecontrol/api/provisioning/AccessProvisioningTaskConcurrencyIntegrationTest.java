@@ -12,6 +12,7 @@ import com.lifecontrol.api.provisioning.model.AccessProvisioningTaskStatus;
 import com.lifecontrol.api.provisioning.repository.AccessProvisioningTaskRepository;
 import com.lifecontrol.api.provisioning.service.AccessProvisioningTaskService;
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
+import com.lifecontrol.api.support.TenantFixtures;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
@@ -332,12 +333,14 @@ class AccessProvisioningTaskConcurrencyIntegrationTest extends AbstractPostgresI
     private UUID accessCompanyId() {
         return companyRepository
                 .findByCompanyKey(COMPANY_KEY)
-                .orElseGet(() -> companyRepository.save(Company.builder()
-                        .companyKey(COMPANY_KEY)
-                        .companyName("Access Provisioning Concurrency Test Company")
-                        .rfc(COMPANY_RFC)
-                        .enabled(true)
-                        .build()))
+                .orElseGet(() -> TenantFixtures.persist(
+                        companyRepository,
+                        Company.builder()
+                                .companyKey(COMPANY_KEY)
+                                .companyName("Access Provisioning Concurrency Test Company")
+                                .rfc(COMPANY_RFC)
+                                .enabled(true)
+                                .build()))
                 .getId();
     }
 

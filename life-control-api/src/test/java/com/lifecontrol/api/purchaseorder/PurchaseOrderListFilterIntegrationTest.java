@@ -26,6 +26,7 @@ import com.lifecontrol.api.store.repository.CompanyStoreRepository;
 import com.lifecontrol.api.supplier.model.Supplier;
 import com.lifecontrol.api.supplier.repository.SupplierRepository;
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
+import com.lifecontrol.api.support.TenantFixtures;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
@@ -222,12 +223,14 @@ class PurchaseOrderListFilterIntegrationTest extends AbstractPostgresIntegration
     private Company findOrCreateCompany(String key, String name, String rfc) {
         return companyRepository
                 .findByCompanyKey(key)
-                .orElseGet(() -> companyRepository.save(Company.builder()
-                        .companyKey(key)
-                        .companyName(name)
-                        .rfc(rfc)
-                        .enabled(true)
-                        .build()));
+                .orElseGet(() -> TenantFixtures.persist(
+                        companyRepository,
+                        Company.builder()
+                                .companyKey(key)
+                                .companyName(name)
+                                .rfc(rfc)
+                                .enabled(true)
+                                .build()));
     }
 
     private CompanyCountry findOrCreateCompanyCountry(Company company) {

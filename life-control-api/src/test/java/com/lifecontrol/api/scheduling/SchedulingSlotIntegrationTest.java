@@ -26,6 +26,7 @@ import com.lifecontrol.api.scheduling.repository.SchedulingSlotRepository;
 import com.lifecontrol.api.store.model.CompanyStore;
 import com.lifecontrol.api.store.repository.CompanyStoreRepository;
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
+import com.lifecontrol.api.support.TenantFixtures;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -328,12 +329,14 @@ class SchedulingSlotIntegrationTest extends AbstractPostgresIntegrationTest {
 
         var company = companyRepository
                 .findByCompanyKey("SCHEDULING-AVAILABILITY-KEY")
-                .orElseGet(() -> companyRepository.save(Company.builder()
-                        .companyKey("SCHEDULING-AVAILABILITY-KEY")
-                        .companyName("Scheduling Availability Test Company")
-                        .rfc("SAT010101ABC")
-                        .enabled(true)
-                        .build()));
+                .orElseGet(() -> TenantFixtures.persist(
+                        companyRepository,
+                        Company.builder()
+                                .companyKey("SCHEDULING-AVAILABILITY-KEY")
+                                .companyName("Scheduling Availability Test Company")
+                                .rfc("SAT010101ABC")
+                                .enabled(true)
+                                .build()));
 
         var companyCountry = companyCountryRepository
                 .findByCompanyIdAndCountryId(company.getId(), country.getId())

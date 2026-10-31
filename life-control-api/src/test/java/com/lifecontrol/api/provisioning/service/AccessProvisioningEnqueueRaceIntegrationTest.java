@@ -21,6 +21,7 @@ import com.lifecontrol.api.provisioning.repository.AccessProvisioningTaskReposit
 import com.lifecontrol.api.status.model.Status;
 import com.lifecontrol.api.status.repository.StatusRepository;
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
+import com.lifecontrol.api.support.TenantFixtures;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.Arrays;
@@ -366,13 +367,15 @@ class AccessProvisioningEnqueueRaceIntegrationTest extends AbstractPostgresInteg
     }
 
     private void seedCompanyTree() {
-        var company = companyRepository.save(Company.builder()
-                .companyKey(COMPANY_KEY)
-                .companyName("Enqueue Race Test Company")
-                .rfc(COMPANY_RFC)
-                .emailDomain("enqueue-race.example")
-                .enabled(true)
-                .build());
+        var company = TenantFixtures.persist(
+                companyRepository,
+                Company.builder()
+                        .companyKey(COMPANY_KEY)
+                        .companyName("Enqueue Race Test Company")
+                        .rfc(COMPANY_RFC)
+                        .emailDomain("enqueue-race.example")
+                        .enabled(true)
+                        .build());
         companyId = company.getId();
 
         var department = departmentRepository.save(Department.builder()

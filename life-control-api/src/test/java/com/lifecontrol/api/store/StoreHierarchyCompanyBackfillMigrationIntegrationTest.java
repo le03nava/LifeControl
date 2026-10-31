@@ -3,6 +3,7 @@ package com.lifecontrol.api.store;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
+import com.lifecontrol.api.support.TenantFixtures;
 import java.sql.DriverManager;
 import java.util.List;
 import java.util.UUID;
@@ -255,11 +256,8 @@ class StoreHierarchyCompanyBackfillMigrationIntegrationTest extends AbstractPost
     private Seeded seedCompanyTree() {
         var countryId = jdbcTemplate.queryForObject("SELECT id FROM countries WHERE country_code = 'MX'", UUID.class);
 
-        var companyId = UUID.randomUUID();
-        jdbcTemplate.update("""
-                INSERT INTO companies (id, company_key, company_name, rfc, enabled)
-                VALUES (?, 'STORE-BACKFILL', 'Store Backfill Company', 'STBF010101AB1', true)
-                """, companyId);
+        var companyId = TenantFixtures.insertCompany(
+                jdbcTemplate, UUID.randomUUID(), "STORE-BACKFILL", "Store Backfill Company", "STBF010101AB1");
 
         var companyCountryId = UUID.randomUUID();
         jdbcTemplate.update(

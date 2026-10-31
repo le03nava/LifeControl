@@ -17,6 +17,7 @@ import com.lifecontrol.api.hr.repository.PositionRepository;
 import com.lifecontrol.api.hr.repository.PositionRoleRepository;
 import com.lifecontrol.api.hr.service.PositionRoleService;
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
+import com.lifecontrol.api.support.TenantFixtures;
 import com.lifecontrol.api.usersadmin.identity.IdentityProvider;
 import com.lifecontrol.api.usersadmin.identity.RoleDto;
 import com.lifecontrol.api.usersadmin.identity.RoleScope;
@@ -76,12 +77,14 @@ class PositionRoleIntegrationTest extends AbstractPostgresIntegrationTest {
 
     @BeforeEach
     void setUp() {
-        var company = companyRepository.save(Company.builder()
-                .companyKey("PR-" + UUID.randomUUID())
-                .companyName("Position Role Company")
-                .rfc(uniqueRfc())
-                .enabled(true)
-                .build());
+        var company = TenantFixtures.persist(
+                companyRepository,
+                Company.builder()
+                        .companyKey("PR-" + UUID.randomUUID())
+                        .companyName("Position Role Company")
+                        .rfc(uniqueRfc())
+                        .enabled(true)
+                        .build());
         companyId = company.getId();
 
         var department = departmentRepository.save(Department.builder()

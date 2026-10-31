@@ -11,6 +11,7 @@ import com.lifecontrol.api.hr.repository.EmployeeRepository;
 import com.lifecontrol.api.provisioning.service.AccessProvisioningWorker;
 import com.lifecontrol.api.provisioning.service.AccessProvisioningWorkerHandler;
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
+import com.lifecontrol.api.support.TenantFixtures;
 import com.lifecontrol.api.usersadmin.identity.IdentityProvider;
 import com.lifecontrol.api.usersadmin.identity.InMemoryIdentityProvider;
 import jakarta.persistence.EntityManager;
@@ -271,12 +272,14 @@ class ProvisioningWorkerTenantScopeIntegrationTest extends AbstractPostgresInteg
     private UUID companyId(String companyKey, String rfc) {
         return companyRepository
                 .findByCompanyKey(companyKey)
-                .orElseGet(() -> companyRepository.save(Company.builder()
-                        .companyKey(companyKey)
-                        .companyName("Access Provisioning Scope " + companyKey)
-                        .rfc(rfc)
-                        .enabled(true)
-                        .build()))
+                .orElseGet(() -> TenantFixtures.persist(
+                        companyRepository,
+                        Company.builder()
+                                .companyKey(companyKey)
+                                .companyName("Access Provisioning Scope " + companyKey)
+                                .rfc(rfc)
+                                .enabled(true)
+                                .build()))
                 .getId();
     }
 

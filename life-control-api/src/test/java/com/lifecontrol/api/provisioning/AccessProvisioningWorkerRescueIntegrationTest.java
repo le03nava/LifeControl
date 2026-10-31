@@ -7,6 +7,7 @@ import com.lifecontrol.api.company.repository.CompanyRepository;
 import com.lifecontrol.api.config.provisioning.ProvisioningWorkerProperties;
 import com.lifecontrol.api.provisioning.service.AccessProvisioningWorker;
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
+import com.lifecontrol.api.support.TenantFixtures;
 import java.time.LocalDateTime;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -180,12 +181,14 @@ class AccessProvisioningWorkerRescueIntegrationTest extends AbstractPostgresInte
     private UUID accessCompanyId() {
         return companyRepository
                 .findByCompanyKey(COMPANY_KEY)
-                .orElseGet(() -> companyRepository.save(Company.builder()
-                        .companyKey(COMPANY_KEY)
-                        .companyName("Access Provisioning Rescue Test Company")
-                        .rfc(COMPANY_RFC)
-                        .enabled(true)
-                        .build()))
+                .orElseGet(() -> TenantFixtures.persist(
+                        companyRepository,
+                        Company.builder()
+                                .companyKey(COMPANY_KEY)
+                                .companyName("Access Provisioning Rescue Test Company")
+                                .rfc(COMPANY_RFC)
+                                .enabled(true)
+                                .build()))
                 .getId();
     }
 
