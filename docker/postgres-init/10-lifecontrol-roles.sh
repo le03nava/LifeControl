@@ -13,23 +13,37 @@
 # /opt/lifecontrol/lifecontrol-roles.sql: it is deliberately NOT inside the init directory, whose glob
 # would run it a second time after this script already did.
 #
-# This wrapper owns the one thing psql cannot check by itself: that the credential it is about to set
-# exists and is real.
+# This wrapper owns the one thing psql cannot check by itself: that the two credentials it is about to
+# set exist and are real. The owner's password is no longer a side effect of initdb -- initdb's role is
+# the maintenance one now (POSTGRES_USER=lifecontrol_bootstrap), so lifecontrol_owner is created and given
+# a password by the SQL, from the secret this wrapper validates first.
 
 set -euo pipefail
 
 sql_file="${LIFECONTROL_ROLES_SQL:-/opt/lifecontrol/lifecontrol-roles.sql}"
-password_file="${LIFECONTROL_APP_PASSWORD_FILE:-/run/secrets/lifecontrol_app_password}"
+app_password_file="${LIFECONTROL_APP_PASSWORD_FILE:-/run/secrets/lifecontrol_app_password}"
+owner_password_file="${LIFECONTROL_OWNER_PASSWORD_FILE:-/run/secrets/lifecontrol_postgres_password}"
 db_name="${POSTGRES_DB:-lifecontrol}"
 
-if [ ! -f "$password_file" ] || [ ! -s "$password_file" ]; then
-	echo "FATAL: $password_file is missing or empty — run ./docker/scripts/setup-env.sh and set the value" >&2
-	exit 1
-fi
-if grep -q CHANGEME "$password_file"; then
-	echo "FATAL: $password_file still holds CHANGEME — set the real application password" >&2
-	exit 1
-fi
+# require_secret <file> <what>: an absent or empty file would reach psql as an empty password, and a
+# CHANGEME would reach it as a working credential that anybody who read the template also knows. Both
+# are refused here, before psql runs, because psql cannot tell either of them from a real one.
+require_secret() {
+	local file="$1" what="$2"
+	if [ ! -f "$file" ] || [ ! -s "$file" ]; then
+		echo "FATAL: $file is missing or empty — $what" >&2
+		echo "FATAL: run ./docker/scripts/setup-env.sh and set the value" >&2
+		exit 1
+	fi
+	if grep -q CHANGEME "$file"; then
+		echo "FATAL: $file still holds CHANGEME — $what" >&2
+		exit 1
+	fi
+}
+
+require_secret "$app_password_file" "the application role's password (ADR-0005, the pool's credential)"
+require_secret "$owner_password_file" "the owner role's password (ADR-0005, the credential Flyway logs in with)"
+
 if [ ! -f "$sql_file" ]; then
 	echo "FATAL: $sql_file is missing — it is mounted from docker/postgres-init/lifecontrol-roles.sql" >&2
 	exit 1
@@ -42,9 +56,12 @@ fi
 # candidate that connects but cannot ALTER ROLE is skipped instead of used.
 SUPERUSER_PROBE="SELECT 1 FROM pg_roles WHERE rolname = current_user AND rolsuper"
 
-# lifecontrol_bootstrap first: it is the maintenance superuser lifecontrol-roles.sql creates precisely so
-# this file can be applied again. Then the image's default superuser, then the declared one, then the two
-# names the owner can have.
+# lifecontrol_bootstrap first: it is the maintenance superuser, and since the arrangement was corrected it
+# is also what initdb creates, so on a fresh volume the first candidate and the declared one are the same
+# role. It stays first because it is the one role that may ALTER ROLE on the second run. Then the image's
+# default superuser, then the declared one, then the two names the owner can have -- a volume initialized
+# before the correction has lifecontrol_user renamed, and one initialized while the owner was POSTGRES_USER
+# still has the owner carrying the flag, so both remain reachable candidates.
 for candidate in lifecontrol_bootstrap postgres "${POSTGRES_USER:-}" lifecontrol_owner lifecontrol_user; do
 	[ -n "$candidate" ] || continue
 	if [ "$(psql --username "$candidate" --dbname "$db_name" --no-psqlrc --no-password \

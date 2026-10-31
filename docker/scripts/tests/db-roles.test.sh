@@ -12,9 +12,12 @@
 #
 # Pinned here, in the order a reader needs them:
 #
-#   1. the SQL is one body, it renames the pre-ADR role instead of creating a new one (ownership must
-#      survive), the extension is created *before* the superuser flag is dropped (V21 needs superuser),
-#      and the app role is exactly `LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS`;
+#   1. the SQL is one body, it renames the pre-ADR role when it exists and CREATES the owner
+#      `NOSUPERUSER` when initdb did not (PostgreSQL refuses to demote the role initdb created, so the
+#      owner can never be `POSTGRES_USER`), the extension is created *before* the superuser flag is
+#      dropped (V21 needs superuser), the owner gets its password from its own secret and the database
+#      from `ALTER DATABASE`, and the app role is exactly `LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE
+#      NOINHERIT NOBYPASSRLS`;
 #   2. the SQL grants CONNECT and USAGE and nothing else: table, sequence and ALTER DEFAULT PRIVILEGES
 #      grants belong to the migration that creates the policies, and asserting their absence is how
 #      this slice's boundary stays closed;
@@ -30,9 +33,10 @@
 #      writes the env file it read;
 #   6. `deploy.sh <env> start` starts postgres alone, applies the roles, and only then starts the rest —
 #      failing the start when the roles are not in place;
-#   7. both compose files wire the init script, the SQL and the app secret, and every consumer of the
-#      role name (postgres, the API, and `postgres-exporter-lifecontrol`, the second consumer of the
-#      same credential) moved to the new name in the same change;
+#   7. both compose files wire the init script, the SQL and the app secret, initialize the database with
+#      the role initdb creates (the maintenance one, never the owner), and point Flyway and the exporter
+#      at the owner by name; the maintenance role is never a service credential, and its password is
+#      dropped by the SQL so it cannot authenticate over TCP at all;
 #   8. the API wrapper exports both credentials and still launches the same command.
 #
 # No Docker daemon, no network, no psql, no repository file written: the wrapper cases run against
@@ -163,6 +167,34 @@ else
 	assert_contains "the rename is guarded by an existence check on the new name" "$code" \
 		"pg_roles WHERE rolname = 'lifecontrol_owner'"
 
+	# The defect of issue #720, pinned as the shape that was wrong: this step used to RAISE when the owner
+	# did not exist, and PostgreSQL refuses to take SUPERUSER away from the role initdb created, so step 3
+	# could not succeed on any database. The owner is created here instead, and the raise must not come back.
+	assert_contains "the owner is created when initdb did not create it" "$code" \
+		"CREATE ROLE lifecontrol_owner LOGIN NOSUPERUSER"
+	assert_absent "the SQL never requires POSTGRES_USER to be the owner" "$code" \
+		"POSTGRES_USER must be lifecontrol_owner"
+	rename_line="$(printf '%s\n' "$code" | grep -n 'ALTER ROLE lifecontrol_user RENAME TO lifecontrol_owner' | cut -d: -f1)"
+	owner_create_line="$(printf '%s\n' "$code" | grep -n 'CREATE ROLE lifecontrol_owner' | cut -d: -f1)"
+	if [ -n "$rename_line" ] && [ -n "$owner_create_line" ] && [ "$rename_line" -lt "$owner_create_line" ]; then
+		pass "the rename is tried before the create, so an old volume keeps its objects (line $rename_line < $owner_create_line)"
+	else
+		fail "the rename must come BEFORE 'CREATE ROLE lifecontrol_owner' (found '$rename_line' / '$owner_create_line')"
+	fi
+
+	# Flyway logs in as the owner over TCP, where the image requires scram-sha-256, and initdb no longer
+	# gives the owner a password: the SQL sets it from the owner's own secret, by psql's shell escape.
+	assert_contains "the owner's password comes from the owner's own mounted secret" "$code" \
+		'cat /run/secrets/lifecontrol_postgres_password'
+	assert_contains "the owner keeps LOGIN, which the read-back demands" "$code" \
+		"ALTER ROLE lifecontrol_owner WITH LOGIN PASSWORD :'owner_password'"
+
+	# initdb hands the database -- and through `pg_database_owner` the `public` schema -- to POSTGRES_USER,
+	# which is the maintenance role now: without this statement the owner cannot create its first table and
+	# V1__baseline_schema.sql fails on every fresh volume with "permission denied for schema public".
+	assert_contains "the database is moved to the owner, so it can create its first table" "$code" \
+		"ALTER DATABASE %I OWNER TO lifecontrol_owner"
+
 	# The one ordering that makes a fresh volume work: V21 needs superuser, so the extension is created
 	# while the bootstrap session still has it.
 	extension_line="$(printf '%s\n' "$code" | grep -n 'CREATE EXTENSION IF NOT EXISTS btree_gist' | cut -d: -f1)"
@@ -186,9 +218,14 @@ else
 	fi
 	assert_contains "the bootstrap role is a superuser that can log in" "$code" \
 		"CREATE ROLE lifecontrol_bootstrap SUPERUSER LOGIN"
-	bootstrap_with_password="$(printf '%s\n' "$code" | grep 'lifecontrol_bootstrap' | grep -c 'PASSWORD' || true)"
-	check_equal "the bootstrap role is created with no password (the local socket is trust, TCP needs scram)" \
-		"0" "$bootstrap_with_password"
+	# No password, ever -- and now that initdb creates this role, the SQL has to TAKE AWAY the one the image
+	# gives it, because POSTGRES_PASSWORD is the owner's own secret: a superuser reachable over TCP with
+	# Flyway's credential is exactly what ADR-0005 item 3 forbids.
+	bootstrap_with_password="$(printf '%s\n' "$code" | grep 'lifecontrol_bootstrap' | grep 'PASSWORD' | grep -vF 'PASSWORD NULL' || true)"
+	check_equal "the bootstrap role is never given a password (the local socket is trust, TCP needs scram)" \
+		"" "$bootstrap_with_password"
+	assert_contains "the password initdb gave it is dropped on every run" "$code" \
+		"ALTER ROLE lifecontrol_bootstrap PASSWORD NULL"
 	assert_file_contains "the SQL says why the bootstrap role exists" "$SQL_FILE" \
 		"superuser on every run"
 
@@ -320,7 +357,7 @@ else
 
 	# The resolver is not a table grant and not a policy: the policy set is T5's, and this slice adds none.
 	assert_absent "the resolver section creates no policy either" "$code" "CREATE POLICY"
-	assert_absent "the resolver is not a second application credential" "$code" "lifecontrol_bootstrap PASSWORD"
+	assert_absent "the resolver is not a second application credential" "$code" "lifecontrol_bootstrap PASSWORD :"
 fi
 
 # ------------------------------------------
@@ -332,6 +369,7 @@ WRAP_DIR="$TMP_BASE/wrapper"
 mkdir -p "$WRAP_DIR/bin"
 printf 'role sql\n' >"$WRAP_DIR/roles.sql"
 printf 'app-secret\n' >"$WRAP_DIR/password"
+printf 'owner-secret\n' >"$WRAP_DIR/owner-password"
 printf 'CHANGEME\n' >"$WRAP_DIR/changeme"
 : >"$WRAP_DIR/empty"
 
@@ -368,13 +406,17 @@ STUB
 chmod +x "$WRAP_DIR/bin/psql"
 
 # run_wrapper <password file> <sql file> [extra env assignments...]
+# The owner's credential defaults to a real file here, because the SQL now SETS that password from the
+# mounted secret; the cases that need it absent or unusable override LIFECONTROL_OWNER_PASSWORD_FILE.
 run_wrapper() {
 	local password_file="$1" sql="$2"
 	shift 2
 	: >"$WRAP_DIR/psql.log"
 	(
 		PATH="$WRAP_DIR/bin:$PATH" PSQL_LOG="$WRAP_DIR/psql.log" \
-			LIFECONTROL_APP_PASSWORD_FILE="$password_file" LIFECONTROL_ROLES_SQL="$sql" \
+			LIFECONTROL_APP_PASSWORD_FILE="$password_file" \
+			LIFECONTROL_OWNER_PASSWORD_FILE="$WRAP_DIR/owner-password" \
+			LIFECONTROL_ROLES_SQL="$sql" \
 			POSTGRES_DB="lifecontrol" "$@" "$ROLE_WRAPPER"
 	) >"$WRAP_DIR/out.log" 2>&1
 	LAST_RC=$?
@@ -393,18 +435,20 @@ candidate_order="$(sed -n 's/^for candidate in \(.*\); do$/\1/p' "$ROLE_WRAPPER"
 check_equal "the candidate order is bootstrap, postgres, POSTGRES_USER, owner, legacy" \
 	'lifecontrol_bootstrap postgres "${POSTGRES_USER:-}" lifecontrol_owner lifecontrol_user' "$candidate_order"
 
-# A fresh volume: initdb made POSTGRES_USER the only superuser and lifecontrol_bootstrap does not exist
-# yet, so the bootstrap candidate misses and the declared role is used.
-run_wrapper "$WRAP_DIR/password" "$WRAP_DIR/roles.sql" env POSTGRES_USER=lifecontrol_owner SUPERUSERS=lifecontrol_owner
+# A fresh volume: initdb made POSTGRES_USER (lifecontrol_bootstrap) the only superuser, so the first
+# candidate and the declared one are the same row -- which is the point of the correction: the owner is
+# created by the SQL, not by initdb.
+run_wrapper "$WRAP_DIR/password" "$WRAP_DIR/roles.sql" env POSTGRES_USER=lifecontrol_bootstrap SUPERUSERS=lifecontrol_bootstrap
 check_equal "a fresh volume connects as POSTGRES_USER" "0" "$LAST_RC"
 assert_contains "it runs the SQL file it was pointed at" "$LAST_CALLS" "--file $WRAP_DIR/roles.sql"
 assert_contains "it stops on the first SQL error" "$LAST_CALLS" "--set ON_ERROR_STOP=1"
 assert_contains "the probe asks pg_roles for rolsuper, not merely for connectivity" "$LAST_CALLS" "rolsuper"
 assert_contains "the probe is asked about current_user" "$LAST_CALLS" "current_user"
-assert_contains "on a fresh volume it uses the declared bootstrap role" "$LAST_CALLS" "username=lifecontrol_owner"
+assert_contains "on a fresh volume it uses the role initdb created" "$LAST_CALLS" "username=lifecontrol_bootstrap"
 
 # The second run, which is what this correction is about: the owner exists and connects, but it is
-# NOSUPERUSER on purpose, so the maintenance role is the only one that may ALTER ROLE from now on.
+# NOSUPERUSER on purpose, so the maintenance role is the only one that may ALTER ROLE from now on -- and
+# it wins over a declared POSTGRES_USER that names something else.
 run_wrapper "$WRAP_DIR/password" "$WRAP_DIR/roles.sql" env POSTGRES_USER=lifecontrol_owner SUPERUSERS=lifecontrol_bootstrap
 check_equal "the second run succeeds" "0" "$LAST_RC"
 assert_contains "the second run connects as lifecontrol_bootstrap" "$LAST_CALLS" "username=lifecontrol_bootstrap"
@@ -439,6 +483,21 @@ check_equal "an empty app credential fails" "1" "$LAST_RC"
 run_wrapper "$WRAP_DIR/changeme" "$WRAP_DIR/roles.sql" env POSTGRES_USER=lifecontrol_owner
 check_equal "a CHANGEME app credential fails" "1" "$LAST_RC"
 assert_contains "the failure names CHANGEME" "$LAST_TEXT" "CHANGEME"
+
+# The owner's password is now one of the credentials this file SETS, and initdb no longer sets it: an
+# absent, empty or CHANGEME file would reach psql as an empty or guessable password, and the failure would
+# surface in the API container as an authentication error nobody traces back to here.
+run_wrapper "$WRAP_DIR/password" "$WRAP_DIR/roles.sql" env POSTGRES_USER=lifecontrol_bootstrap LIFECONTROL_OWNER_PASSWORD_FILE="$WRAP_DIR/missing"
+check_equal "an absent owner credential fails" "1" "$LAST_RC"
+assert_contains "the failure says the owner file is missing" "$LAST_TEXT" "missing or empty"
+check_equal "an absent owner credential never reaches psql" "" "$LAST_CALLS"
+
+run_wrapper "$WRAP_DIR/password" "$WRAP_DIR/roles.sql" env POSTGRES_USER=lifecontrol_bootstrap LIFECONTROL_OWNER_PASSWORD_FILE="$WRAP_DIR/empty"
+check_equal "an empty owner credential fails" "1" "$LAST_RC"
+
+run_wrapper "$WRAP_DIR/password" "$WRAP_DIR/roles.sql" env POSTGRES_USER=lifecontrol_bootstrap LIFECONTROL_OWNER_PASSWORD_FILE="$WRAP_DIR/changeme"
+check_equal "a CHANGEME owner credential fails" "1" "$LAST_RC"
+assert_contains "the failure names the CHANGEME owner file" "$LAST_TEXT" "$WRAP_DIR/changeme still holds CHANGEME"
 
 run_wrapper "$WRAP_DIR/password" "$WRAP_DIR/no-such.sql" env POSTGRES_USER=lifecontrol_owner
 check_equal "an absent SQL file fails" "1" "$LAST_RC"
@@ -494,27 +553,37 @@ assert_contains "it reports the key still naming the old role" "$DB_TEXT" \
 	"LIFECONTROL_POSTGRES_USER=lifecontrol_user is stale"
 assert_contains "it reports the API username the same way" "$DB_TEXT" \
 	"LIFECONTROL_DATABASE_USERNAME=lifecontrol_user is stale"
-assert_contains "it names the owner as the replacement for the postgres role" "$DB_TEXT" \
-	"LIFECONTROL_POSTGRES_USER=lifecontrol_user is stale: that key must name lifecontrol_owner"
+assert_contains "it names the maintenance role as the replacement for the postgres key" "$DB_TEXT" \
+	"LIFECONTROL_POSTGRES_USER=lifecontrol_user is stale: that key must name lifecontrol_bootstrap"
 # The pool key is not the owner's: since the delivery split, an env file that still names the owner there
 # puts the credential that owns every table back into the pool, and no policy applies to it.
 assert_contains "it names the application role as the replacement for the pool key" "$DB_TEXT" \
 	"LIFECONTROL_DATABASE_USERNAME=lifecontrol_user is stale: that key must name lifecontrol_app"
-assert_contains "it names the replacement role" "$DB_TEXT" "lifecontrol_owner"
-assert_contains "it names the exporter as the other consumer that breaks" "$DB_TEXT" "postgres exporter"
+assert_contains "it says what the postgres key is for, so the fix is not a guess" "$DB_TEXT" \
+	"the only superuser this file may be applied with"
 assert_contains "it names the pool as the consumer that would run as the wrong login" "$DB_TEXT" \
-	"the API's pool"
+	"is the pool, which must not be the owner"
 
-# The pre-split value, which is what a materialized .env.dev from before this slice carries: the role
-# exists and authenticates, so nothing fails — the pool simply runs as the owner again, and that silence
-# is the whole reason this report exists.
+# The value a materialized .env.dev carries from before this correction: the owner named as the role initdb
+# creates, which is the one row PostgreSQL refuses to demote. Nothing fails -- the database simply comes up
+# with the owner as its bootstrap superuser and step 3 of the roles SQL dies on it -- and that silence is
+# the whole reason this report exists. The pool key is reported in the same run, for the same reason.
 printf 'LIFECONTROL_POSTGRES_USER=lifecontrol_owner\nLIFECONTROL_DATABASE_USERNAME=lifecontrol_owner\n' >"$WORK/.env.dev"
 run_db_roles env
 check_equal "an env file naming the owner as the pool user still starts" "0" "$DB_RC"
 assert_contains "it reports the owner in the pool key as stale" "$DB_TEXT" \
 	"LIFECONTROL_DATABASE_USERNAME=lifecontrol_owner is stale: that key must name lifecontrol_app"
-assert_absent "the postgres role key is not reported when it already names the owner" "$DB_TEXT" \
-	"LIFECONTROL_POSTGRES_USER=lifecontrol_owner is stale"
+assert_contains "it reports the owner in the postgres key as stale too" "$DB_TEXT" \
+	"LIFECONTROL_POSTGRES_USER=lifecontrol_owner is stale: that key must name lifecontrol_bootstrap"
+
+# The arrangement the SQL and the compose declare, in one file: nothing to report, and the run still
+# succeeds. Without this case a report that fired on every env file would pass the two above.
+printf 'LIFECONTROL_POSTGRES_USER=lifecontrol_bootstrap\nLIFECONTROL_DATABASE_USERNAME=lifecontrol_app\n' >"$WORK/.env.dev"
+run_db_roles env
+check_equal "an aligned env file still starts" "0" "$DB_RC"
+assert_absent "an aligned env file produces no stale-name report" "$DB_TEXT" "is stale"
+assert_contains "the success line names the three roles and their jobs" "$DB_TEXT" \
+	"lifecontrol_bootstrap (SUPERUSER, no password) maintains"
 printf 'LIFECONTROL_POSTGRES_USER=lifecontrol_user\nLIFECONTROL_DATABASE_USERNAME=lifecontrol_user\n' >"$WORK/.env.dev"
 
 run_db_roles env FAIL_ON="/docker-entrypoint-initdb.d/10-lifecontrol-roles.sh"
@@ -551,9 +620,9 @@ assert_contains "the 'up' command goes through start_services" "$up_site" "start
 assert_file_contains "restart reuses start_services" "$DEPLOY_SH" "restart_services() {"
 
 # ------------------------------------------
-# 5. compose wiring, in both files, and the second consumer of the same role name.
+# 5. compose wiring, in both files, and the two logins that are not initdb's.
 # ------------------------------------------
-echo "== 5. compose: init script, SQL and app secret mounted; every consumer uses the new role name"
+echo "== 5. compose: init script, SQL and app secret mounted; initdb's role is the maintenance one"
 
 for compose in "$COMPOSE_BASE" "$COMPOSE_PROD"; do
 	file="$(basename "$compose")"
@@ -566,21 +635,51 @@ for compose in "$COMPOSE_BASE" "$COMPOSE_PROD"; do
 		"$postgres" "./postgres-init/lifecontrol-roles.sql:/opt/lifecontrol/lifecontrol-roles.sql:ro"
 	assert_contains "$file: postgres mounts the app credential read-only to create the role" "$postgres" \
 		"./secrets/lifecontrol_app_password:/run/secrets/lifecontrol_app_password:ro"
+	# The SQL now sets the owner's password from its own secret, so the container needs that secret too.
+	assert_contains "$file: postgres mounts the owner credential the roles SQL sets its password from" \
+		"$postgres" "./secrets/lifecontrol_postgres_password:/run/secrets/lifecontrol_postgres_password:ro"
 	assert_contains "$file: the API mounts the pool credential read-only" "$api" \
 		"./secrets/lifecontrol_app_password:/run/secrets/lifecontrol_app_password:ro"
-	assert_file_contains "$file: the postgres service defaults to the owner role" "$compose" "LIFECONTROL_POSTGRES_USER:-lifecontrol_owner"
+
+	# Issue #720, pinned: initdb creates exactly one role and PostgreSQL refuses to take SUPERUSER away
+	# from it, so the role the database is initialized with is the maintenance one. The owner is created by
+	# the SQL. Declaring the owner here is the defect, not a style choice: it makes step 3 illegal.
+	assert_file_contains "$file: the database is initialized with the maintenance role" "$compose" \
+		"LIFECONTROL_POSTGRES_USER:-lifecontrol_bootstrap"
+	assert_contains "$file: the healthcheck asks about that same role" "$postgres" \
+		'pg_isready -U ${LIFECONTROL_POSTGRES_USER:-lifecontrol_bootstrap}'
+	assert_file_absent "$file: the owner is never the role initdb creates" "$compose" \
+		"LIFECONTROL_POSTGRES_USER:-lifecontrol_owner"
 	assert_file_absent "$file: the pre-ADR owner never survives as a default" "$compose" "lifecontrol_user"
+
+	# Flyway and the exporter log in as the owner, by the name the roles SQL creates it under. The key
+	# above names a different role now, so neither may read it any more. Flyway's name is declared in the
+	# base file and inherited by prod, which is why it is pinned there and its absence is pinned here.
+	assert_absent "$file: Flyway never logs in as the role initdb creates" "$api" "lifecontrol_bootstrap"
+	assert_absent "$file: Flyway's login never follows the initdb key" "$api" "FLYWAY_USERNAME=\${LIFECONTROL_POSTGRES_USER"
+	exporter="$(service_block "$compose" postgres-exporter-lifecontrol)"
+	assert_contains "$file: the exporter logs in as the owner its secret belongs to" "$exporter" \
+		"DATA_SOURCE_USER: lifecontrol_owner"
+	assert_absent "$file: the exporter never logs in as the maintenance superuser" "$exporter" \
+		"lifecontrol_bootstrap"
 done
 
-exporter_block="$(service_block "$COMPOSE_BASE" postgres-exporter-lifecontrol)"
-assert_contains "the LifeControl exporter follows the rename (it reads the same credential)" \
-	"$exporter_block" 'DATA_SOURCE_USER: ${LIFECONTROL_POSTGRES_USER:-lifecontrol_owner}'
-prod_exporter_block="$(service_block "$COMPOSE_PROD" postgres-exporter-lifecontrol)"
-assert_contains "the prod exporter follows it too" "$prod_exporter_block" \
-	'DATA_SOURCE_USER: ${LIFECONTROL_POSTGRES_USER:-lifecontrol_owner}'
+base_api="$(service_block "$COMPOSE_BASE" lifecontrol-api)"
+assert_contains "base compose: Flyway logs in as the owner, by name" "$base_api" \
+	"FLYWAY_USERNAME=lifecontrol_owner"
+assert_absent "prod inherits Flyway's login instead of re-pointing it" \
+	"$(service_block "$COMPOSE_PROD" lifecontrol-api)" "FLYWAY_USERNAME="
 
-assert_file_contains "the template declares the owner name a fresh volume creates" \
-	"$DOCKER_DIR/.env.template" "LIFECONTROL_POSTGRES_USER=lifecontrol_owner"
+# The template's own line is the one edit issue #720 still owes (`.env*` is outside this change's surface):
+# the compose default pinned above is what an env file that does not declare the key falls back to, and
+# db-roles.sh reports a template-derived env file that still names the owner -- both halves are pinned in
+# this suite. What must never appear in that key is the application role.
+assert_file_contains "the template still declares the role initdb creates" \
+	"$DOCKER_DIR/.env.template" "LIFECONTROL_POSTGRES_USER="
+assert_file_absent "the template never points the postgres user at the application role" \
+	"$DOCKER_DIR/.env.template" "LIFECONTROL_POSTGRES_USER=lifecontrol_app"
+assert_file_absent "the template never declares the pre-ADR owner" \
+	"$DOCKER_DIR/.env.template" "LIFECONTROL_POSTGRES_USER=lifecontrol_user"
 assert_file_contains "the template points the pool at the application role" \
 	"$DOCKER_DIR/.env.template" "LIFECONTROL_DATABASE_USERNAME=lifecontrol_app"
 
@@ -613,21 +712,29 @@ assert_absent "no compose file or template holds the app password as a value" \
 	"$(cat "$COMPOSE_BASE" "$COMPOSE_PROD" "$DOCKER_DIR/.env.template")" "lifecontrol_app_password="
 
 # ------------------------------------------
-# 7. The maintenance superuser never becomes an application credential.
-#    It exists because the owner is NOSUPERUSER on purpose and the role SQL needs superuser on every run.
-#    Its credential must not be reachable from anything the stack runs: no compose file mounts or exports
-#    it, the API wrapper never names it, and no secret file carries it.
+# 7. The maintenance superuser is initdb's role now, and it is still never a service credential.
+#    The SQL drops its password, so it cannot authenticate over TCP at all: no exporter, no Flyway login
+#    and no pool may name it. What changed is that the postgres service itself must, because that is the
+#    role initdb creates.
 # ------------------------------------------
-echo "== 7. lifecontrol_bootstrap is a maintenance role, never a credential a service holds"
+echo "== 7. lifecontrol_bootstrap is initdb's role and never a credential a service holds"
 
-for compose in "$COMPOSE_BASE" "$COMPOSE_PROD" "$DOCKER_DIR/docker-compose.override.yml"; do
+for compose in "$COMPOSE_BASE" "$COMPOSE_PROD"; do
 	[ -f "$compose" ] || continue
-	assert_file_absent "$(basename "$compose") never names the bootstrap role" "$compose" "lifecontrol_bootstrap"
+	file="$(basename "$compose")"
+	assert_file_contains "$file: the postgres service names it, because initdb creates it" "$compose" \
+		"POSTGRES_USER: \${LIFECONTROL_POSTGRES_USER:-lifecontrol_bootstrap}"
+	assert_file_absent "$file: no exporter credential for it" "$compose" \
+		"DATA_SOURCE_USER: lifecontrol_bootstrap"
+	assert_file_absent "$file: no pool credential for it" "$compose" \
+		"DATABASE_USERNAME=\${LIFECONTROL_POSTGRES_USER"
+	assert_file_absent "$file: no secret of its own" "$compose" "lifecontrol_bootstrap_password"
 done
 assert_file_absent "the API wrapper never names the bootstrap role" "$ENTRYPOINT" "lifecontrol_bootstrap"
-assert_file_absent "the env template declares no bootstrap role or credential" \
-	"$DOCKER_DIR/.env.template" "lifecontrol_bootstrap"
-assert_file_absent "db-roles.sh needs no knowledge of the bootstrap role" "$DB_ROLES_SH" "lifecontrol_bootstrap"
+assert_file_absent "the env template declares no bootstrap credential" \
+	"$DOCKER_DIR/.env.template" "LIFECONTROL_BOOTSTRAP"
+assert_file_contains "db-roles.sh names it as the role the initdb key must carry" "$DB_ROLES_SH" \
+	'BOOTSTRAP_ROLE_NAME="lifecontrol_bootstrap"'
 bootstrap_secrets=0
 for secret in "$DOCKER_DIR/secrets"/*; do
 	[ -e "$secret" ] || continue
