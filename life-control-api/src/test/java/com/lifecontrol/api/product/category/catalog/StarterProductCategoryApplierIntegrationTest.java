@@ -3,7 +3,6 @@ package com.lifecontrol.api.product.category.catalog;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.lifecontrol.api.company.exception.CompanyNotFoundException;
-import com.lifecontrol.api.company.model.Company;
 import com.lifecontrol.api.company.repository.CompanyRepository;
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
 import com.lifecontrol.api.support.TenantFixtures;
@@ -176,16 +175,7 @@ class StarterProductCategoryApplierIntegrationTest extends AbstractPostgresInteg
     }
 
     private UUID companyId() {
-        return companyRepository
-                .findByCompanyKey(COMPANY_KEY)
-                .orElseGet(() -> TenantFixtures.persist(
-                        companyRepository,
-                        Company.builder()
-                                .companyKey(COMPANY_KEY)
-                                .companyName("Starter Catalog Test Company")
-                                .rfc(COMPANY_RFC)
-                                .enabled(true)
-                                .build()))
+        return TenantFixtures.findOrCreate(companyRepository, COMPANY_KEY, "Starter Catalog Test Company", COMPANY_RFC)
                 .getId();
     }
 

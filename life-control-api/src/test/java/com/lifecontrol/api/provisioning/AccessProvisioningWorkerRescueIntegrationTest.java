@@ -2,7 +2,6 @@ package com.lifecontrol.api.provisioning;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.lifecontrol.api.company.model.Company;
 import com.lifecontrol.api.company.repository.CompanyRepository;
 import com.lifecontrol.api.config.provisioning.ProvisioningWorkerProperties;
 import com.lifecontrol.api.provisioning.service.AccessProvisioningWorker;
@@ -179,16 +178,8 @@ class AccessProvisioningWorkerRescueIntegrationTest extends AbstractPostgresInte
      * through the entity path.
      */
     private UUID accessCompanyId() {
-        return companyRepository
-                .findByCompanyKey(COMPANY_KEY)
-                .orElseGet(() -> TenantFixtures.persist(
-                        companyRepository,
-                        Company.builder()
-                                .companyKey(COMPANY_KEY)
-                                .companyName("Access Provisioning Rescue Test Company")
-                                .rfc(COMPANY_RFC)
-                                .enabled(true)
-                                .build()))
+        return TenantFixtures.findOrCreate(
+                        companyRepository, COMPANY_KEY, "Access Provisioning Rescue Test Company", COMPANY_RFC)
                 .getId();
     }
 

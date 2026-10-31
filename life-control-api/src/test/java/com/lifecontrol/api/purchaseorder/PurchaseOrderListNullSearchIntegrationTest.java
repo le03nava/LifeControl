@@ -5,7 +5,6 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.lifecontrol.api.company.model.Company;
 import com.lifecontrol.api.company.model.CompanyCountry;
 import com.lifecontrol.api.company.model.CompanyRegion;
 import com.lifecontrol.api.company.model.CompanyZone;
@@ -142,16 +141,8 @@ class PurchaseOrderListNullSearchIntegrationTest extends AbstractPostgresIntegra
      * singleton PostgreSQL container is shared by every integration class of the JVM).
      */
     private String seedOrder() {
-        var company = companyRepository
-                .findByCompanyKey("PO-NULLSEARCH-A")
-                .orElseGet(() -> TenantFixtures.persist(
-                        companyRepository,
-                        Company.builder()
-                                .companyKey("PO-NULLSEARCH-A")
-                                .companyName("PO Null Search Company")
-                                .rfc("PONSA01010ABC")
-                                .enabled(true)
-                                .build()));
+        var company = TenantFixtures.findOrCreate(
+                companyRepository, "PO-NULLSEARCH-A", "PO Null Search Company", "PONSA01010ABC");
         var country = countryRepository.findByCountryCode("MX").orElseThrow();
         var companyCountry = companyCountryRepository
                 .findByCompanyIdAndCountryId(company.getId(), country.getId())

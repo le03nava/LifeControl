@@ -3,7 +3,6 @@ package com.lifecontrol.api.provisioning;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import com.lifecontrol.api.company.model.Company;
 import com.lifecontrol.api.company.repository.CompanyRepository;
 import com.lifecontrol.api.provisioning.model.AccessProvisioningAppliedRole;
 import com.lifecontrol.api.provisioning.model.AccessProvisioningTaskStatus;
@@ -172,16 +171,8 @@ class AccessProvisioningTaskSnapshotIntegrationTest extends AbstractPostgresInte
      * {@code companies}; the rows this suite asserts over are inserted raw.
      */
     private UUID accessCompanyId() {
-        return companyRepository
-                .findByCompanyKey(COMPANY_KEY)
-                .orElseGet(() -> TenantFixtures.persist(
-                        companyRepository,
-                        Company.builder()
-                                .companyKey(COMPANY_KEY)
-                                .companyName("Access Provisioning Snapshot Test Company")
-                                .rfc(COMPANY_RFC)
-                                .enabled(true)
-                                .build()))
+        return TenantFixtures.findOrCreate(
+                        companyRepository, COMPANY_KEY, "Access Provisioning Snapshot Test Company", COMPANY_RFC)
                 .getId();
     }
 

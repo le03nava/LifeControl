@@ -6,7 +6,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.lifecontrol.api.company.model.Company;
 import com.lifecontrol.api.company.repository.CompanyRepository;
 import com.lifecontrol.api.product.category.model.ProductCategory;
 import com.lifecontrol.api.product.category.repository.ProductCategoryRepository;
@@ -173,16 +172,7 @@ class ProductAttributeControllerTest extends AbstractPostgresIntegrationTest {
     }
 
     private UUID companyId(String companyKey, String companyName, String rfc) {
-        return companyRepository
-                .findByCompanyKey(companyKey)
-                .orElseGet(() -> TenantFixtures.persistAndFlush(
-                        companyRepository,
-                        Company.builder()
-                                .companyKey(companyKey)
-                                .companyName(companyName)
-                                .rfc(rfc)
-                                .enabled(true)
-                                .build()))
+        return TenantFixtures.findOrCreateAndFlush(companyRepository, companyKey, companyName, rfc)
                 .getId();
     }
 

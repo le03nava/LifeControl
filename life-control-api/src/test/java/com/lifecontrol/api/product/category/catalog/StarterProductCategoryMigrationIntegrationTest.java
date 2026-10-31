@@ -2,7 +2,6 @@ package com.lifecontrol.api.product.category.catalog;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.lifecontrol.api.company.model.Company;
 import com.lifecontrol.api.company.repository.CompanyRepository;
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
 import com.lifecontrol.api.support.TenantFixtures;
@@ -162,16 +161,8 @@ class StarterProductCategoryMigrationIntegrationTest extends AbstractPostgresInt
      * pending insert would make the migration's {@code JOIN companies} see no company at all.
      */
     private UUID companyId() {
-        return companyRepository
-                .findByCompanyKey(COMPANY_KEY)
-                .orElseGet(() -> TenantFixtures.persistAndFlush(
-                        companyRepository,
-                        Company.builder()
-                                .companyKey(COMPANY_KEY)
-                                .companyName("Starter Catalog Migration Test Company")
-                                .rfc(COMPANY_RFC)
-                                .enabled(true)
-                                .build()))
+        return TenantFixtures.findOrCreateAndFlush(
+                        companyRepository, COMPANY_KEY, "Starter Catalog Migration Test Company", COMPANY_RFC)
                 .getId();
     }
 

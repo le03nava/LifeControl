@@ -7,7 +7,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.lifecontrol.api.company.model.Company;
 import com.lifecontrol.api.company.model.CompanyCountry;
 import com.lifecontrol.api.company.model.CompanyRegion;
 import com.lifecontrol.api.company.model.CompanyZone;
@@ -625,16 +624,8 @@ class ProductVariantStoreStockWriteIntegrationTest extends AbstractPostgresInteg
     private void seedStoreHierarchy() {
         var country = countryRepository.findByCountryCode("MX").orElseThrow();
 
-        var company = companyRepository
-                .findByCompanyKey("VARIANT-STOCK-WRITE-KEY")
-                .orElseGet(() -> TenantFixtures.persist(
-                        companyRepository,
-                        Company.builder()
-                                .companyKey("VARIANT-STOCK-WRITE-KEY")
-                                .companyName("Variant Stock Write Test Company")
-                                .rfc("VSWT010101ABC")
-                                .enabled(true)
-                                .build()));
+        var company = TenantFixtures.findOrCreate(
+                companyRepository, "VARIANT-STOCK-WRITE-KEY", "Variant Stock Write Test Company", "VSWT010101ABC");
         companyId = company.getId();
 
         var companyCountry = companyCountryRepository

@@ -3,7 +3,6 @@ package com.lifecontrol.api.product.attribute;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import com.lifecontrol.api.company.model.Company;
 import com.lifecontrol.api.company.repository.CompanyRepository;
 import com.lifecontrol.api.product.category.catalog.StarterProductCategoryCatalog;
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
@@ -585,16 +584,8 @@ class ProductAttributeSchemaMigrationIntegrationTest extends AbstractPostgresInt
 
     /** Find-or-create the company the override rows hang off, the same fixture style as the siblings. */
     private UUID companyId() {
-        return companyRepository
-                .findByCompanyKey(COMPANY_KEY)
-                .orElseGet(() -> TenantFixtures.persistAndFlush(
-                        companyRepository,
-                        Company.builder()
-                                .companyKey(COMPANY_KEY)
-                                .companyName("Product Attribute Schema Test Company")
-                                .rfc(COMPANY_RFC)
-                                .enabled(true)
-                                .build()))
+        return TenantFixtures.findOrCreateAndFlush(
+                        companyRepository, COMPANY_KEY, "Product Attribute Schema Test Company", COMPANY_RFC)
                 .getId();
     }
 

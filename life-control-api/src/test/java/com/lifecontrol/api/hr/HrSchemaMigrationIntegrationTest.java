@@ -3,7 +3,6 @@ package com.lifecontrol.api.hr;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import com.lifecontrol.api.company.model.Company;
 import com.lifecontrol.api.company.repository.CompanyRepository;
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
 import com.lifecontrol.api.support.TenantFixtures;
@@ -214,16 +213,7 @@ class HrSchemaMigrationIntegrationTest extends AbstractPostgresIntegrationTest {
      * hand-writing an insert into {@code companies}.
      */
     private UUID hrCompanyId() {
-        return companyRepository
-                .findByCompanyKey(COMPANY_KEY)
-                .orElseGet(() -> TenantFixtures.persist(
-                        companyRepository,
-                        Company.builder()
-                                .companyKey(COMPANY_KEY)
-                                .companyName("HR Schema Test Company")
-                                .rfc(COMPANY_RFC)
-                                .enabled(true)
-                                .build()))
+        return TenantFixtures.findOrCreate(companyRepository, COMPANY_KEY, "HR Schema Test Company", COMPANY_RFC)
                 .getId();
     }
 

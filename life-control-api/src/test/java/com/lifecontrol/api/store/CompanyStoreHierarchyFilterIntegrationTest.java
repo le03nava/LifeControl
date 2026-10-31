@@ -154,16 +154,7 @@ class CompanyStoreHierarchyFilterIntegrationTest extends AbstractPostgresIntegra
     // ─── fixture ────────────────────────────────────────────────────────
 
     private Company findOrCreateCompany(String key, String name, String rfc) {
-        return companyRepository
-                .findByCompanyKey(key)
-                .orElseGet(() -> TenantFixtures.persist(
-                        companyRepository,
-                        Company.builder()
-                                .companyKey(key)
-                                .companyName(name)
-                                .rfc(rfc)
-                                .enabled(true)
-                                .build()));
+        return TenantFixtures.findOrCreate(companyRepository, key, name, rfc);
     }
 
     private CompanyCountry findOrCreateCompanyCountry(Company company) {

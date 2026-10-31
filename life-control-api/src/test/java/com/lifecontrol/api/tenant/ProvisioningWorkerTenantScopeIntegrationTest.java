@@ -5,7 +5,6 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
 
 import com.lifecontrol.api.common.tenant.TenantScope;
-import com.lifecontrol.api.company.model.Company;
 import com.lifecontrol.api.company.repository.CompanyRepository;
 import com.lifecontrol.api.hr.repository.EmployeeRepository;
 import com.lifecontrol.api.provisioning.service.AccessProvisioningWorker;
@@ -270,16 +269,8 @@ class ProvisioningWorkerTenantScopeIntegrationTest extends AbstractPostgresInteg
 
     /** Find-or-create the company the employee fixture hangs off, mirroring the sibling worker suites. */
     private UUID companyId(String companyKey, String rfc) {
-        return companyRepository
-                .findByCompanyKey(companyKey)
-                .orElseGet(() -> TenantFixtures.persist(
-                        companyRepository,
-                        Company.builder()
-                                .companyKey(companyKey)
-                                .companyName("Access Provisioning Scope " + companyKey)
-                                .rfc(rfc)
-                                .enabled(true)
-                                .build()))
+        return TenantFixtures.findOrCreate(
+                        companyRepository, companyKey, "Access Provisioning Scope " + companyKey, rfc)
                 .getId();
     }
 

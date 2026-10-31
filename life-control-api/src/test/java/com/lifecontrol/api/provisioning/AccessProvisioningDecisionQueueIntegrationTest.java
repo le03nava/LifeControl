@@ -7,7 +7,6 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
-import com.lifecontrol.api.company.model.Company;
 import com.lifecontrol.api.company.repository.CompanyRepository;
 import com.lifecontrol.api.provisioning.dto.AccessProvisioningQueueEntry;
 import com.lifecontrol.api.provisioning.model.AccessProvisioningTaskKind;
@@ -197,16 +196,7 @@ class AccessProvisioningDecisionQueueIntegrationTest extends AbstractPostgresInt
 
     /** Find-or-create one company row; reuses the persisted entity path rather than a raw insert. */
     private UUID companyId(String companyKey, String companyName, String rfc) {
-        return companyRepository
-                .findByCompanyKey(companyKey)
-                .orElseGet(() -> TenantFixtures.persist(
-                        companyRepository,
-                        Company.builder()
-                                .companyKey(companyKey)
-                                .companyName(companyName)
-                                .rfc(rfc)
-                                .enabled(true)
-                                .build()))
+        return TenantFixtures.findOrCreate(companyRepository, companyKey, companyName, rfc)
                 .getId();
     }
 

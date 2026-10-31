@@ -11,7 +11,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.lifecontrol.api.company.model.Company;
 import com.lifecontrol.api.company.repository.CompanyRepository;
 import com.lifecontrol.api.hr.dto.CloseContractRequest;
 import com.lifecontrol.api.hr.dto.ContractRequest;
@@ -514,17 +513,7 @@ class ContractCrudIntegrationTest extends AbstractPostgresIntegrationTest {
     }
 
     private UUID companyId(String key, String rfc, String name) {
-        return companyRepository
-                .findByCompanyKey(key)
-                .orElseGet(() -> TenantFixtures.persist(
-                        companyRepository,
-                        Company.builder()
-                                .companyKey(key)
-                                .companyName(name)
-                                .rfc(rfc)
-                                .enabled(true)
-                                .build()))
-                .getId();
+        return TenantFixtures.findOrCreate(companyRepository, key, name, rfc).getId();
     }
 
     private int countContracts(UUID employeeId) {
