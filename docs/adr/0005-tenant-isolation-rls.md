@@ -75,13 +75,18 @@ ignored that would empty a shared catalog.
 3. **Three roles, three jobs.** `lifecontrol_owner` owns the objects and runs Flyway; `lifecontrol_app`
    owns nothing, has no `BYPASSRLS`, and is the only role the pool connects as; and
    `lifecontrol_bootstrap` is a `SUPERUSER LOGIN` maintenance credential with **no password** and no
-   grant on any table. The third is not a spare: `initdb` creates exactly one superuser and it is
-   `POSTGRES_USER`, the owner, so the moment this item drops that flag nothing in the database can
+   grant on any table. The third is not a spare: it is the role `initdb` itself creates, because
+   `POSTGRES_USER` names **it** and not the owner. The owner is created `NOSUPERUSER` by the role script,
+   since PostgreSQL refuses to take `SUPERUSER` away from the role `initdb` created (`ERROR: permission
+   denied to alter role / DETAIL: The bootstrap superuser must have the SUPERUSER attribute`), so the
+   two can never be one row. Without the bootstrap role nothing in the database can
    `ALTER ROLE ... PASSWORD` or `ALTER ROLE ... NOSUPERUSER` again — the role script fails from its
    **second** run onward — and no later migration can `CREATE EXTENSION`, which
    `V21__employee_contracts.sql:27` already needs for `btree_gist`. It authenticates on the container's
-   local socket, which is `trust`; a role with no password cannot connect over TCP at all, where the
-   image requires `scram-sha-256`, so no compose file, no API wrapper and no exporter ever names it.
+   local socket, which is `trust`; its password is dropped (`ALTER ROLE ... PASSWORD NULL`), and a role
+   with no password cannot connect over TCP at all, where the image requires `scram-sha-256`. The compose
+   files name it because `initdb` needs it, which is the only place its name appears; nothing logs in as
+   it.
    The rule that follows, and it is the point: the bootstrap role is for the DDL PostgreSQL reserves to
    superuser — creating a role, moving a role's attributes, creating an extension — and **never** for a
    migration that touches tenant rows, because that connection bypasses every policy, which is exactly
@@ -112,15 +117,19 @@ ignored that would empty a shared catalog.
 
 ```sql
 -- ─── three roles: one owns and migrates, one runs the application, one maintains ────────────
-CREATE ROLE lifecontrol_owner LOGIN;               -- Flyway: owns every object
+CREATE ROLE lifecontrol_owner LOGIN NOSUPERUSER;   -- Flyway: owns every object, bypasses nothing
 CREATE ROLE lifecontrol_app   LOGIN NOBYPASSRLS;   -- the pool: owns nothing
-CREATE ROLE lifecontrol_bootstrap SUPERUSER LOGIN; -- roles and extensions only: no password, no grant
--- The bootstrap role is not a second application credential. `initdb` creates exactly one superuser,
--- `POSTGRES_USER`, and item 3 drops that flag from the owner, so without this role the second run of
--- the role script cannot alter a role and no later migration can `CREATE EXTENSION`. No password means
--- the `trust` local socket is its only way in (the image requires scram-sha-256 over TCP), and no table
--- is granted to it. A migration that connects with it says why in its own file; one that touches tenant
--- rows never does (item 6, invariant T5).
+CREATE ROLE lifecontrol_bootstrap SUPERUSER LOGIN; -- initdb's role: roles and extensions only
+ALTER ROLE lifecontrol_owner WITH LOGIN PASSWORD :'owner_password';   -- the owner's secret file
+ALTER DATABASE lifecontrol OWNER TO lifecontrol_owner;                -- see the note below
+ALTER ROLE lifecontrol_bootstrap PASSWORD NULL;                       -- no TCP login, ever
+-- The bootstrap role is not a second application credential: it is the role `initdb` creates, because
+-- `POSTGRES_USER` names it. The owner is created `NOSUPERUSER` here and takes ownership of the database,
+-- which is what lets a fresh volume create its first table: `pg_database_owner` resolves to
+-- `POSTGRES_USER`, so a database left owned by the bootstrap role refuses the owner's DDL. No password
+-- means the `trust` local socket is its only way in (the image requires scram-sha-256 over TCP), and no
+-- table is granted to it. A migration that connects with it says why in its own file; one that touches
+-- tenant rows never does (item 6, invariant T5).
 GRANT USAGE ON SCHEMA public TO lifecontrol_app;
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO lifecontrol_app;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO lifecontrol_app;
@@ -428,3 +437,24 @@ all. Two consequences the ADR had left implicit follow, and both are narrow on p
   tenant: creating a company states the id the application generates, so the row's tenant is its own
   identity, and listing companies resolves the caller's claims one at a time instead of widening a policy.
   A user who belongs to no company gets an empty list, which is the honest answer.
+
+**2026-10-31 — the role `initdb` creates is the maintenance one, not the owner.** Bringing the dev stack
+up after the delivery half of item 3 (issue #720) measured the arrangement as impossible: `POSTGRES_USER`
+named `lifecontrol_owner`, so `initdb` created **the owner** as its bootstrap superuser, and the role
+script's `ALTER ROLE lifecontrol_owner NOSUPERUSER` was then refused — `ERROR: permission denied to alter
+role / DETAIL: The bootstrap superuser must have the SUPERUSER attribute` — on a brand-new data directory
+exactly as on an old one. Nothing could initialize: no fresh environment, and no `db-roles.sh` run against
+an existing volume either. The 23 offline `docker/scripts/tests` suites could not see it, because they pin
+the text of these scripts and never ask a server to accept the SQL.
+
+The decision is unchanged — three roles, three jobs — and what changes is which one `initdb` makes. Item 3
+and `## Schema` now say: `POSTGRES_USER` is `lifecontrol_bootstrap`, the maintenance role; the owner is
+**created** `NOSUPERUSER` by the role script, with its password taken from the owner's secret, and it
+takes ownership of the database, because `pg_database_owner` resolves to `POSTGRES_USER` and a database
+left owned by the bootstrap role refuses the owner's first `CREATE TABLE`. The bootstrap's password is
+dropped (`PASSWORD NULL`) so nothing can log in as it over TCP, and the two compose files name it — the
+one exception to "never named by a compose file", since `initdb` needs it.
+
+A data directory whose `initdb` role already was the owner cannot be repaired: PostgreSQL will not demote
+that role, so the volume has to be recreated once. That is a consequence of this decision, not a defect of
+the script that applies it.
