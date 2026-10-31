@@ -9,6 +9,7 @@ import jakarta.persistence.EntityManagerFactory;
 import java.util.List;
 import java.util.UUID;
 import java.util.function.Supplier;
+import javax.sql.DataSource;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -36,11 +37,14 @@ import org.springframework.transaction.support.TransactionTemplate;
  * prove the mechanism now instead of waiting for T5: the policy, the scope function and the boundary hook
  * are the same three artifacts either way.</p>
  *
- * <p><b>Why the app role appears in a test.</b> The container's own user is a superuser, and a superuser
- * bypasses every policy — the same trap T1 removed from production (record L9). So each scoped read
- * switches with {@code set_config('role', 'lifecontrol_app', true)} inside <b>its own</b> transaction:
- * {@code LOCAL} means the role dies with the commit and never leaks onto the pooled connection the next
- * suite gets, which a plain {@code SET ROLE} would not do.</p>
+ * <p><b>Why the app role appears in a test, and what the pool runs as.</b> The suite's own premise is a
+ * connection no policy filters, and it is stated instead of inherited: the {@code DataSource} bean in
+ * {@link SuperuserPoolConfiguration} below makes <b>this</b> suite's pool log in as the container's own user, a
+ * SUPERUSER. Since T6b-4 the shared default is {@code lifecontrol_app}, the role the policies apply to, and this
+ * is a suite about the <b>machinery</b>: the boundary hook, the scope functions and the policy a throwaway table
+ * is armed with. When a policy is what a case wants to observe, it switches down inside the transaction with
+ * {@code set_config('role', 'lifecontrol_app', true)}; the control reads that prove the rows exist are the ones
+ * that have to stay unfiltered, which is exactly the fact the superuser pool supplies.</p>
  *
  * <p><b>The case that carries the design</b> is
  * {@link #theScopeIsInstalledAgainAfterANotSupportedSuspension()}: {@code ProfileLocationResolver.resolve}
@@ -222,6 +226,22 @@ class TenantScopeBoundaryIntegrationTest extends AbstractPostgresIntegrationTest
 
     @TestConfiguration
     static class SuspensionProbeConfiguration {
+
+        /**
+         * This suite's pool, logging in as the container's own user instead of {@code lifecontrol_app}.
+         *
+         * <p>Stated here rather than assumed, because the fact matters: the boundary hook is observed through
+         * transactions this suite opens, so the credential is the pool's and cannot be switched per statement,
+         * and two of the cases compare “what the policy answers” with an unfiltered control read on the same
+         * connection. {@code apply_tenant_isolation} also runs {@code ALTER TABLE … FORCE ROW LEVEL SECURITY},
+         * which needs the table's owner. None of that is available to the application role, which is the pool's
+         * login everywhere else and the role whose behaviour the other fifty-odd PostgreSQL suites measure — so
+         * a suite needing the superuser says so, in one place, with its reason.</p>
+         */
+        @Bean
+        DataSource dataSource() {
+            return containerSuperuserPool();
+        }
 
         @Bean
         ScopedRowsReader scopedRowsReader(EntityManagerFactory entityManagerFactory) {

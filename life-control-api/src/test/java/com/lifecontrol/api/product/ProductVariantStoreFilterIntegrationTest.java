@@ -392,29 +392,18 @@ class ProductVariantStoreFilterIntegrationTest extends AbstractPostgresIntegrati
         // The row the store join reaches belongs to this company's product but to the other tenant's
         // store. Stocking a variant in a store of another company is not refused anywhere (the pair
         // has no constraint, and `company_stores` has no company column), so what keeps it out is the
-        // read — and which read answers is what the pool decides.
+        // read: the request's scope is the company the path names, so the foreign store is not
+        // addressable here at all.
         stockVariantAt(variantAId, foreignStoreId);
 
-        if (poolIsTheApplicationRole()) {
-            // 404, and that is the correct answer rather than a regression: the request's scope is the company
-            // the path names, the store belongs to a different one, so the store is not addressable here at
-            // all — the same answer an id that names no store gets. It is also the answer that discloses
-            // least: the caller learns this company has no such store, not that another company has one.
-            mockMvc.perform(get(VARIANTS_URL, companyId, productId)
-                            .param("storeId", foreignStoreId.toString())
-                            .with(jwt().authorities(ROLE_LC_ADMIN)))
-                    .andExpect(status().isNotFound());
-        } else {
-            // The container's superuser bypasses every policy, so the store row is visible and the company
-            // predicate of the query is what excludes the variants: the store is addressable and the page is
-            // simply empty.
-            mockMvc.perform(get(VARIANTS_URL, companyId, productId)
-                            .param("storeId", foreignStoreId.toString())
-                            .with(jwt().authorities(ROLE_LC_ADMIN)))
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.content.length()").value(0))
-                    .andExpect(jsonPath("$.totalElements").value(0));
-        }
+        // 404, and that is the correct answer rather than a regression: the store belongs to a different
+        // company, so it is not addressable from this company's path — the same answer an id that names no
+        // store gets. It is also the answer that discloses least: the caller learns this company has no such
+        // store, not that another company has one.
+        mockMvc.perform(get(VARIANTS_URL, companyId, productId)
+                        .param("storeId", foreignStoreId.toString())
+                        .with(jwt().authorities(ROLE_LC_ADMIN)))
+                .andExpect(status().isNotFound());
     }
 
     /** Writes one more per-store row for an existing variant. */

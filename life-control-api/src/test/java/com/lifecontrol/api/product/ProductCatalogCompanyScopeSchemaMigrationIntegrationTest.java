@@ -100,24 +100,15 @@ class ProductCatalogCompanyScopeSchemaMigrationIntegrationTest extends AbstractP
                         INSERT INTO products (id, sku, name) VALUES (?, 'PCS-NO-COMPANY', 'Unattributable')
                         """, UUID.randomUUID()));
 
-        // The column is what makes the row unattributable and the policy is what answers first, so which
-        // layer refuses it is the pool's answer and both halves are asserted as their own fact (record L27).
-        if (poolIsTheApplicationRole()) {
-            assertThat(refused)
-                    .as("a product nobody can attribute has no company: the policy refuses the insert with "
-                            + "SQLSTATE 42501 before NOT NULL can fire, which is the order ADR-0005 chose")
-                    .isInstanceOf(BadSqlGrammarException.class)
-                    .satisfies(thrown -> assertThat(deepestMessage(thrown))
-                            .contains("row-level security policy for table \"products\"")
-                            .doesNotContain("not-null"));
-        } else {
-            assertThat(refused)
-                    .as("a product nobody can attribute has no company and no owner")
-                    .isInstanceOf(DataIntegrityViolationException.class)
-                    .satisfies(thrown -> assertThat(deepestMessage(thrown))
-                            .contains("company_id")
-                            .contains("not-null"));
-        }
+        // The policy is checked before the constraint: ADR-0005 answers a row whose tenant it cannot
+        // establish with SQLSTATE 42501, so `NOT NULL` never gets to fire (record L27).
+        assertThat(refused)
+                .as("a product nobody can attribute has no company: the policy refuses the insert with "
+                        + "SQLSTATE 42501 before NOT NULL can fire, which is the order ADR-0005 chose")
+                .isInstanceOf(BadSqlGrammarException.class)
+                .satisfies(thrown -> assertThat(deepestMessage(thrown))
+                        .contains("row-level security policy for table \"products\"")
+                        .doesNotContain("not-null"));
 
         assertThat(countProducts(catalogCompanyId())).isZero();
     }
@@ -133,22 +124,13 @@ class ProductCatalogCompanyScopeSchemaMigrationIntegrationTest extends AbstractP
                         VALUES (?, ?, 'PCS-BC-NO-COMPANY', '26')
                         """, UUID.randomUUID(), productId));
 
-        if (poolIsTheApplicationRole()) {
-            assertThat(refused)
-                    .as("the barcode key is per company, so the row has to name its company: the policy refuses "
-                            + "it with SQLSTATE 42501 before NOT NULL can fire")
-                    .isInstanceOf(BadSqlGrammarException.class)
-                    .satisfies(thrown -> assertThat(deepestMessage(thrown))
-                            .contains("row-level security policy for table \"product_variants\"")
-                            .doesNotContain("not-null"));
-        } else {
-            assertThat(refused)
-                    .as("the barcode key is per company, so the row has to name its company")
-                    .isInstanceOf(DataIntegrityViolationException.class)
-                    .satisfies(thrown -> assertThat(deepestMessage(thrown))
-                            .contains("company_id")
-                            .contains("not-null"));
-        }
+        assertThat(refused)
+                .as("the barcode key is per company, so the row has to name its company: the policy refuses "
+                        + "it with SQLSTATE 42501 before NOT NULL can fire")
+                .isInstanceOf(BadSqlGrammarException.class)
+                .satisfies(thrown -> assertThat(deepestMessage(thrown))
+                        .contains("row-level security policy for table \"product_variants\"")
+                        .doesNotContain("not-null"));
 
         assertThat(countVariants(companyId)).isZero();
     }
@@ -337,12 +319,11 @@ class ProductCatalogCompanyScopeSchemaMigrationIntegrationTest extends AbstractP
     /**
      * The rows this suite owns, counted per tenant and summed.
      *
-     * <p>A single unscoped count measures whatever ran before this class — and, once the pool connects as
-     * the application role, nothing at all: the policy filters {@code products} to the scope the
-     * connection stated. The statement names the tenant in its own predicate for the same reason: it
-     * answers the same question on the superuser pool the default run uses (where the scope is inert and a
-     * filtered count still counts each tenant's rows once) and on the application pool the gate will use.
-     * </p>
+     * <p>A single unscoped count would measure nothing: the pool logs in as the application role, so the
+     * policy filters {@code products} to the scope the connection stated, and an unscoped statement states
+     * none. The count is therefore taken once per tenant, inside that tenant's scope, and the statement names
+     * the tenant in its own predicate as well — so the number is this suite's rows and not whatever ran before
+     * this class.</p>
      */
     private int countProducts(UUID... companyIds) {
         var total = 0;

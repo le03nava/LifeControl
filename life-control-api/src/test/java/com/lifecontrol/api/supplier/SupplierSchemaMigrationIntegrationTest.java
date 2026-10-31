@@ -211,25 +211,16 @@ class SupplierSchemaMigrationIntegrationTest extends AbstractPostgresIntegration
                 VALUES (?, 'Proveedor', 'SCHEMA-NOC-1')
                 """, id));
 
-        // Which layer refuses the row is what the pool decides, and both answers are the schema working. The
-        // two halves are asserted separately on purpose: an assertion that accepted either exception would
-        // stop proving that omitting company_id is refused at all (record L27).
-        if (poolIsTheApplicationRole()) {
-            assertThat(refused)
-                    .as("the policy is checked before the constraint (ADR-0005), so the application role meets "
-                            + "SQLSTATE 42501 row-level security and NOT NULL never gets to fire")
-                    .isInstanceOf(BadSqlGrammarException.class)
-                    .satisfies(thrown -> assertThat(deepestMessage(thrown))
-                            .contains("row-level security policy for table \"suppliers\"")
-                            .doesNotContain("not-null"));
-        } else {
-            assertThat(refused)
-                    .as("the container's superuser bypasses every policy, so the column's own NOT NULL answers")
-                    .isInstanceOf(DataIntegrityViolationException.class)
-                    .satisfies(thrown -> assertThat(deepestMessage(thrown))
-                            .contains("company_id")
-                            .contains("not-null"));
-        }
+        // The policy is checked before the constraint (ADR-0005), so the row meets SQLSTATE 42501
+        // row-level security and NOT NULL never gets to fire — and the assertion names that layer, so an
+        // exception of any other kind would still fail it (record L27).
+        assertThat(refused)
+                .as("the policy is checked before the constraint (ADR-0005), so the application role meets "
+                        + "SQLSTATE 42501 row-level security and NOT NULL never gets to fire")
+                .isInstanceOf(BadSqlGrammarException.class)
+                .satisfies(thrown -> assertThat(deepestMessage(thrown))
+                        .contains("row-level security policy for table \"suppliers\"")
+                        .doesNotContain("not-null"));
 
         assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM suppliers WHERE id = ?", Integer.class, id))
                 .as("the refused insert stored nothing")

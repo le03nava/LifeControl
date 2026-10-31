@@ -8,13 +8,14 @@ import com.lifecontrol.api.common.tenant.TenantScope;
 import com.lifecontrol.api.company.dto.CompanyRequest;
 import com.lifecontrol.api.company.service.CompanyService;
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
+import com.lifecontrol.api.support.TenantFixtures;
 import java.sql.Connection;
+import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
-import javax.sql.DataSource;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -45,6 +46,15 @@ import org.springframework.transaction.support.TransactionTemplate;
  * by nobody else, and a write naming another tenant is refused. The Java half — that the id exists before
  * the transaction and that the scope names it — runs through the real service, and cannot arm a policy for
  * the reason above: it observes the scope at the insert and the row the committed insert produced.</p>
+ *
+ * <p><b>Which role runs what, and why.</b> The pool, and therefore the service case, runs as
+ * {@code lifecontrol_app} — S5's default since T6b-4 — which is what makes the row the service committed a
+ * real observation under V53's policy: the count that proves the row exists states that row's own tenant, as
+ * any other tenant-table read now must. The policy case needs the opposite premise and states it: it opens
+ * <b>its own</b> connection as the container's own user (a superuser) because arming the real {@code companies}
+ * table is {@code ALTER TABLE … FORCE ROW LEVEL SECURITY}, which needs the table's owner, and then switches
+ * down with {@code SET LOCAL ROLE lifecontrol_app} to write and read as the tenant being proved. The role is a
+ * parameter of each half instead of an ambient fact.</p>
  */
 @SpringBootTest
 @DisplayName("Creating a company states its own id as the tenant")
@@ -58,9 +68,6 @@ class CompanyTenantScopeIntegrationTest extends AbstractPostgresIntegrationTest 
     private static final String APPLICATION_ROLE = "lifecontrol_app";
 
     private static final String CREATED_KEY = "TENANT-SCOPE-CREATE";
-
-    @Autowired
-    private DataSource dataSource;
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
@@ -100,16 +107,21 @@ class CompanyTenantScopeIntegrationTest extends AbstractPostgresIntegrationTest 
             }
         }
         if (createdCompanyId != null) {
-            // Leaf-first: the company's creation seeds the starter product catalog through
-            // `CompanyCreatedEvent`, and `product_categories.company_id` is a foreign key. The shared
-            // container must not accumulate a tenant whose categories other suites would count around.
-            jdbcTemplate.update(
-                    "DELETE FROM product_categories WHERE parent_category_id IS NOT NULL AND company_id = ?",
-                    createdCompanyId);
-            jdbcTemplate.update(
-                    "UPDATE product_categories SET parent_category_id = NULL WHERE company_id = ?", createdCompanyId);
-            jdbcTemplate.update("DELETE FROM product_categories WHERE company_id = ?", createdCompanyId);
-            jdbcTemplate.update("DELETE FROM companies WHERE id = ?", createdCompanyId);
+            // Leaf-first, and inside the created company's own tenant: `product_categories` and `companies`
+            // are armed, so an unscoped DELETE removes zero rows and reports success — a tenant left behind
+            // is precisely what record L27 found hiding behind a green run. `CompanyService.createCompany`
+            // seeds the starter product catalog through `CompanyCreatedEvent`, and
+            // `product_categories.company_id` is a foreign key, so the children go first.
+            var createdCompany = createdCompanyId;
+            TenantFixtures.inTenant(createdCompany, () -> {
+                jdbcTemplate.update(
+                        "DELETE FROM product_categories WHERE parent_category_id IS NOT NULL AND company_id = ?",
+                        createdCompany);
+                jdbcTemplate.update(
+                        "UPDATE product_categories SET parent_category_id = NULL WHERE company_id = ?", createdCompany);
+                jdbcTemplate.update("DELETE FROM product_categories WHERE company_id = ?", createdCompany);
+                jdbcTemplate.update("DELETE FROM companies WHERE id = ?", createdCompany);
+            });
             createdCompanyId = null;
         }
     }
@@ -198,15 +210,31 @@ class CompanyTenantScopeIntegrationTest extends AbstractPostgresIntegrationTest 
     // helpers
     // ──────────────────────────────────────
 
+    /**
+     * The container's <b>own</b> login, opened here and not taken from the pool.
+     *
+     * <p>The policy case arms the real {@code companies} table inside this transaction, and that is DDL only
+     * the table's owner or a superuser may run: since T6b-4 the pool is {@code lifecontrol_app}, which owns
+     * nothing. Stating the credential per suite is the whole point — the role is a parameter of the case, not
+     * an ambient fact, and the case says which one it needs and why.</p>
+     */
     private Connection beginTransaction() throws SQLException {
-        transaction = dataSource.getConnection();
+        transaction =
+                DriverManager.getConnection(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
         transaction.setAutoCommit(false);
         return transaction;
     }
 
+    /**
+     * Counts the committed row <b>under its own tenant</b>: {@code companies} is armed by V53, so a read with
+     * no scope stated answers zero rows — for every role, which is the isolation working. A company's tenant is
+     * its own id, so stating it is the same fact the create path states before the insert.
+     */
     private int countOfTheCreatedRow() {
-        return jdbcTemplate.queryForObject(
-                "SELECT count(*) FROM companies WHERE id = ?", Integer.class, createdCompanyId);
+        return TenantFixtures.inTenant(
+                createdCompanyId,
+                () -> jdbcTemplate.queryForObject(
+                        "SELECT count(*) FROM companies WHERE id = ?", Integer.class, createdCompanyId));
     }
 
     private static List<String> ids(Connection connection, String sql, Object... parameters) throws SQLException {

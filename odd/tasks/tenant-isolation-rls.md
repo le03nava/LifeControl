@@ -989,6 +989,11 @@ because Gradle forwards neither to a forked test JVM except by inheriting the en
 should change for a switch scheduled to disappear. Each slice reports the number the other way, and the last
 one makes the application role the default and removes the switch.
 
+> **The switch is gone (T6b-4, L29).** `TEST_POOL_APP_ROLE` no longer exists and no invocation below needs it:
+> the pool logs in as `lifecontrol_app` in every run, so `./gradlew cleanTest test` with no environment
+> variable is the acceptance. The paragraphs around this note stay as they were written, because the reason
+> the switch existed is evidence.
+
 The find-or-create rule the 376 failures ask for, recorded before it is implemented: **a seed that resolves a
 company by its natural key derives the id from that key** (`UUID.nameUUIDFromBytes(companyKey.getBytes(UTF_8))`,
 or the same value the fixture writes) and states it **before the read**, because a company's tenant is its own
@@ -1369,3 +1374,76 @@ more occurrences are currently unreachable because the row is already company-sc
 `GoodsReceiptService:549-551`) resting on foreign keys that do not constrain the referenced row to the same
 company — unverified, and therefore listed rather than trusted. None was fixed here: each is a production
 change with its own evidence, and doing them inside a fixture slice would hide them.
+
+L29 — **T6b-4 takes the 29 to zero and the application role becomes the pool's only login: S5 closes.** The 29
+were the nine classes that own their roles, connections, policies and roles-of-the-catalogue on purpose, and
+each one was judged on what it actually asserts rather than on the class it lives in.
+
+**Three directions, and no assertion was weakened or deleted.**
+
+- **The policy applies, so the case runs as `lifecontrol_app` and its fixture states its tenant.**
+  `TenantScopeFilterIntegrationTest` (8) is `@Transactional`, so its transaction — and `doBegin` — begins before
+  `@BeforeEach` and both `companies` inserts met V53's `WITH CHECK`; the fixture now states each row's own id on
+  the open transaction through `TenantFixtures.stateTenantWithinTheOpenTransaction`, the T6b-3 mechanism, and
+  the eight cases keep proving which requests the filter refuses. `ProvisioningWorkerTenantScopeIntegrationTest`
+  (3) seeded `employees` and cleaned it with unscoped raw statements; the inserts and the three deletes now run
+  inside the tenant whose rows they name, which is also what stops a `DELETE` from removing zero rows and
+  reporting success.
+- **The mechanism, so the case gets the connection it needs, stated explicitly.** `TenantPoliciesIntegrationTest`
+  (6), `TenantScopeFunctionsIntegrationTest` (2), `CompanyTenantScopeIntegrationTest` (1) and
+  `TenantTaskResolverIntegrationTest` (3) open their own transactions on the container's own login
+  (`DriverManager`, or a `DataSource` bean from `containerSuperuserPool()`) because their premise is a
+  connection no policy filters and, for three of them, `ALTER TABLE … FORCE ROW LEVEL SECURITY`, which needs the
+  table's owner. `TenantScopeBoundaryIntegrationTest` (2) is the same fact one layer down: the boundary hook is
+  observed through transactions the suite opens, so its **pool** declares the credential. Its two failing cases
+  were the “both rows exist” controls, which are unfiltered by design and had been reading `0` and `1` under the
+  application role — the policy applying to the probe table's own owner. The role is now a parameter of each
+  suite, argued in its javadoc, instead of an ambient fact of the run.
+- **A production behaviour the policy now filters, stated as the tenant the request is about.**
+  `CompanyTenantScopeIntegrationTest#theServiceStatesTheIdItsRowWillCarry` (1) counted the committed row through
+  the pool with no scope and read `0`; a company's tenant **is** its own id, so the count states it.
+  `StarterProductCategoryCompanyCreationIntegrationTest` (2) counted the seeded catalog the same way, and its
+  cleanup deleted on armed tables with no scope — three deletes that removed nothing. Both now read and clean
+  inside the company's tenant.
+
+**The `information_schema` question, answered with the measurement that was missing.** The unexplained case was
+`EmployeeCrudIntegrationTest$IsolationTests#everyReferencingTableIsCleaned`, whose join over
+`information_schema.table_constraints` answered **zero rows** under the application role. Measured on this
+container with the role holding `SELECT, INSERT, UPDATE, DELETE` on every table: `table_constraints` answers
+**99** foreign-key rows, `has_table_privilege(…, 'INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER')` and
+`has_any_column_privilege(…)` are both **true**, `pg_has_role(<owner>, 'USAGE')` is **false** — and
+`information_schema.constraint_column_usage` answers **0 rows**, because its definition filters on
+`pg_has_role(c.relowner, 'USAGE')` alone: it lists columns only of tables the caller **owns**, and this role owns
+nothing (S4). The join was therefore empty for the role and non-empty for the superuser the pool used to be. The
+resolution is the honest one: the rule is read from `pg_catalog.pg_constraint`, which answers for any role that
+may connect, and the case still proves exactly what it proved — every table with a foreign key to `employees`
+must be emptied by the shared helper, and a new one fails here.
+
+**The switch, deleted rather than defaulted.** `AbstractPostgresIntegrationTest` gives the pool
+`lifecontrol_app` and only that: `POOL_IS_THE_APPLICATION_ROLE`, `TEST_POOL_APP_ROLE` and the two conditional
+accessors are gone, and the Flyway split (owner/superuser migrates, the application role queries) is untouched
+because it is also delivery's shape. `TenantFixtures` lost the paragraph that said the pool was not switched yet.
+
+The six assertions that stated **both halves** of a refusal — `ProductCatalogCompanyScopeSchemaMigration` (2),
+`ProductVariantStoreFilter` (1), `SupplierSchemaMigration` (1) and `PurchaseOrderListFilter` (2) — asserted
+the policy's answer under this pool and the constraint's under the old superuser one, branched through a
+`poolIsTheApplicationRole()` predicate. With one mode left the predicate is deleted and each site keeps only the
+application-role assertion, unchanged in its message, its matcher and its `doesNotContain`, so the reader finds
+one fact instead of a mode that no longer exists. The only `else` branch deleted was unreachable; every
+surviving assertion text is the text that was already there.
+
+**One production gap found and reported, not patched.** `StarterProductCategoryApplier.applyTo` opens a
+`REQUIRES_NEW` transaction and takes the company id as an argument, but never states it: it reads
+`companies` and writes `product_categories` on whatever scope the caller happened to carry. The
+`AFTER_COMMIT` path from `CompanyService.createCompany` works because the service states the new company's id
+around its transaction, and that is why the first case is green; a publisher with **no** scope — the
+`fallbackExecution` case, an operator script, a bulk import — gets `CompanyNotFoundException`, a logged `ERROR`
+and no catalog. The case pins the listener's fallback with the tenant stated, which is the fact the listener
+needs; closing the gap is a `src/main` change (state `companyId` inside `applyTo`, as L16 did for the create
+path) and belongs to its own slice.
+
+**Evidence, as observed.** The nine classes, same invocation before and after: **64 tests, 29 failed** → **64
+tests, 0 failed**. Whole suite with no environment variable at all: **4 254 tests, 0 failed, exit 0** — S5's
+acceptance. `spotlessApply spotlessCheck spotbugsMain` clean. The machinery suites on their own —
+`TenantPoliciesIntegrationTest`, `TenantScopeFunctionsIntegrationTest`, `TenantScopeBoundaryIntegrationTest` —
+green, each for the reason its javadoc now states.

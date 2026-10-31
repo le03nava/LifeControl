@@ -59,16 +59,18 @@ import org.springframework.transaction.support.TransactionTemplate;
  * the statement.</p>
  *
  * <p>An {@code @Transactional} suite whose own transaction began before its fixture stated a scope is a
- * different defect with the same symptom (record L24, cause B: 26 failures), and it is T6b-3's. There the
+ * different defect with the same symptom (record L24, cause B: 26 failures), and it was T6b-3's. There the
  * boundary exists and cannot be retro-fitted with a scope, so neither entry point above helps: the scope has to
  * be stated <b>inside the transaction that is already open</b>, which is
  * {@link #stateTenantWithinTheOpenTransaction(UUID, JdbcOperations)}. This helper does not do that silently for
  * it, because the call is the one thing each of those suites has to state itself: which tenant its case works
  * on, and when it switches.</p>
  *
- * <p><b>The pool is not switched yet.</b> Until T6b the container's Superuser still backs the pool, so a
- * stated scope is inert and the suite stays green; the point of adopting the helper now is that the
- * fixtures already carry the fact the switch will require.</p>
+ * <p><b>Why the third rule can no longer be delegated to a later slice.</b> The rule was adopted before the
+ * pool logged in as the application role, when a stated scope was inert and the suite stayed green without
+ * it (record T6b-2). The pool now <b>is</b> the application role in every run — T6b-4 removed the switch that
+ * made this optional — so a raw statement outside a boundary is refused by the policy instead of passing
+ * silently, and S5's acceptance run is the one that keeps it that way.</p>
  *
  * <p><b>The second rule: a find-or-create seed derives the company's id from its natural key.</b> Many
  * suites seed a company idempotently — read it by {@code company_key}, insert it when absent — and once the
@@ -238,9 +240,9 @@ public final class TenantFixtures {
     /**
      * The manager the writes open their transactions on, refusing when nothing was bound.
      *
-     * <p>Refusing is deliberate. A fallback that ran the write with no transaction would look like it worked
-     * on the superuser pool and be refused by the policy on the application role, which turns a fixture
-     * mistake into a policy finding — the exact confusion T6b exists to end.</p>
+     * <p>Refusing is deliberate. A fallback that ran the write with no transaction would insert with no
+     * scope stated, and the policy would refuse it — which turns a fixture mistake into a policy finding, the
+     * exact confusion T6b exists to end.</p>
      */
     private static PlatformTransactionManager requireTransactionManager() {
         var manager = transactionManager;
