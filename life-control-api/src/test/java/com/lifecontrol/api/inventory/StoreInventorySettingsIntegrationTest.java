@@ -144,67 +144,84 @@ class StoreInventorySettingsIntegrationTest extends AbstractPostgresIntegrationT
         storeInventorySettingsRepository.deleteAll();
     }
 
-    /** Find-or-create the company &rarr; country &rarr; region &rarr; zone chain. */
+    /**
+     * Find-or-create the company &rarr; country &rarr; region &rarr; zone chain.
+     *
+     * <p>One {@link TenantFixtures#inTenant} around the children, not one per statement: every child of the
+     * chain is a row on a policy-armed table and references the detached {@code Company} above, so both its
+     * {@code INSERT} and the flush's unsaved-value probe need the parent's tenant installed.</p>
+     */
     private void seedCompanyHierarchy() {
         var country = countryRepository.findByCountryCode("MX").orElseThrow();
 
         var company = TenantFixtures.findOrCreate(
                 companyRepository, "STORE-INV-SETTINGS-KEY", "Store Inventory Settings Test Company", "SISG010101ABC");
 
-        var companyCountry = companyCountryRepository
-                .findByCompanyIdAndCountryId(company.getId(), country.getId())
-                .orElseGet(() -> companyCountryRepository.save(CompanyCountry.builder()
-                        .company(company)
-                        .country(country)
-                        .build()));
-
-        var region = companyRegionRepository.findByCompanyCountryIdOrderByRegionNameAsc(companyCountry.getId()).stream()
-                .findFirst()
-                .orElseGet(() -> companyRegionRepository.save(CompanyRegion.builder()
-                        .companyCountry(companyCountry)
-                        .regionCode("SIS")
-                        .regionName("Store Inventory Settings Region")
-                        .enabled(true)
-                        .build()));
-
-        companyZone = companyZoneRepository.findByCompanyRegionIdOrderByZoneNameAsc(region.getId()).stream()
-                .findFirst()
-                .orElseGet(() -> companyZoneRepository.save(CompanyZone.builder()
-                        .companyRegion(region)
-                        .zoneCode("SIS")
-                        .zoneName("Store Inventory Settings Zone")
-                        .enabled(true)
-                        .build()));
-
         companyId = company.getId();
-        companyCountryId = companyCountry.getId();
-        regionId = region.getId();
-        zoneId = companyZone.getId();
+        TenantFixtures.inTenant(companyId, () -> {
+            var companyCountry = companyCountryRepository
+                    .findByCompanyIdAndCountryId(company.getId(), country.getId())
+                    .orElseGet(() -> companyCountryRepository.save(CompanyCountry.builder()
+                            .company(company)
+                            .country(country)
+                            .build()));
+
+            var region =
+                    companyRegionRepository.findByCompanyCountryIdOrderByRegionNameAsc(companyCountry.getId()).stream()
+                            .findFirst()
+                            .orElseGet(() -> companyRegionRepository.save(CompanyRegion.builder()
+                                    .companyCountry(companyCountry)
+                                    .regionCode("SIS")
+                                    .regionName("Store Inventory Settings Region")
+                                    .enabled(true)
+                                    .build()));
+
+            companyZone = companyZoneRepository.findByCompanyRegionIdOrderByZoneNameAsc(region.getId()).stream()
+                    .findFirst()
+                    .orElseGet(() -> companyZoneRepository.save(CompanyZone.builder()
+                            .companyRegion(region)
+                            .zoneCode("SIS")
+                            .zoneName("Store Inventory Settings Zone")
+                            .enabled(true)
+                            .build()));
+
+            companyCountryId = companyCountry.getId();
+            regionId = region.getId();
+            zoneId = companyZone.getId();
+        });
     }
 
-    /** Two stores of the same company zone, each with its own area/zone/location tree. */
+    /**
+     * Two stores of the same company zone, each with its own area/zone/location tree.
+     *
+     * <p>The stores are rows on a policy-armed table and the area's and zone's {@code INSERT} probe the
+     * detached {@code CompanyStore} they reference, so one boundary states this class's company for the
+     * whole tree instead of one per statement.</p>
+     */
     private void seedStoreLocations() {
-        storeA = findOrCreateStore("Inventory Settings Store A");
-        storeB = findOrCreateStore("Inventory Settings Store B");
+        TenantFixtures.inTenant(companyId, () -> {
+            storeA = findOrCreateStore("Inventory Settings Store A");
+            storeB = findOrCreateStore("Inventory Settings Store B");
 
-        var areaA1 = findOrCreateArea(storeA, "ISA1", "Warehouse", 1);
-        var zoneA1 = findOrCreateZone(areaA1, "ISZ1", "Aisle", 1);
-        locationA1 =
-                findOrCreateLocation(zoneA1, "ISL1", "Receiving shelf", 1, true).getId();
-        locationA2 =
-                findOrCreateLocation(zoneA1, "ISL2", "Sales floor", 2, true).getId();
-        disabledLocationA =
-                findOrCreateLocation(zoneA1, "ISL3", "Decommissioned", 3, false).getId();
+            var areaA1 = findOrCreateArea(storeA, "ISA1", "Warehouse", 1);
+            var zoneA1 = findOrCreateZone(areaA1, "ISZ1", "Aisle", 1);
+            locationA1 = findOrCreateLocation(zoneA1, "ISL1", "Receiving shelf", 1, true)
+                    .getId();
+            locationA2 =
+                    findOrCreateLocation(zoneA1, "ISL2", "Sales floor", 2, true).getId();
+            disabledLocationA = findOrCreateLocation(zoneA1, "ISL3", "Decommissioned", 3, false)
+                    .getId();
 
-        var areaA2 = findOrCreateArea(storeA, "ISA2", "Backroom", 2);
-        var zoneA2 = findOrCreateZone(areaA2, "ISZ2", "Overflow", 1);
-        locationA3 =
-                findOrCreateLocation(zoneA2, "ISL1", "Overflow shelf", 1, true).getId();
+            var areaA2 = findOrCreateArea(storeA, "ISA2", "Backroom", 2);
+            var zoneA2 = findOrCreateZone(areaA2, "ISZ2", "Overflow", 1);
+            locationA3 = findOrCreateLocation(zoneA2, "ISL1", "Overflow shelf", 1, true)
+                    .getId();
 
-        var areaB1 = findOrCreateArea(storeB, "ISB1", "Warehouse", 1);
-        var zoneB1 = findOrCreateZone(areaB1, "ISZB1", "Aisle", 1);
-        locationB1 =
-                findOrCreateLocation(zoneB1, "ISLB1", "B receiving", 1, true).getId();
+            var areaB1 = findOrCreateArea(storeB, "ISB1", "Warehouse", 1);
+            var zoneB1 = findOrCreateZone(areaB1, "ISZB1", "Aisle", 1);
+            locationB1 = findOrCreateLocation(zoneB1, "ISLB1", "B receiving", 1, true)
+                    .getId();
+        });
     }
 
     private CompanyStore findOrCreateStore(String storeName) {

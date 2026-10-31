@@ -173,6 +173,10 @@ class InventoryIntegrationTest extends AbstractPostgresIntegrationTest {
      * Find-or-create the company &rarr; country &rarr; region &rarr; zone &rarr; store chain.
      * Idempotent because the Testcontainers database is shared per JVM and the data survives
      * across methods.
+     *
+     * <p>One {@link TenantFixtures#inTenant} around the children, not one per statement: every child of
+     * the chain is a row on a policy-armed table and references the detached {@code Company} above, so
+     * both its {@code INSERT} and the flush's unsaved-value probe need the parent's tenant installed.</p>
      */
     private void seedCompanyHierarchy() {
         var country = countryRepository.findByCountryCode("MX").orElseThrow();
@@ -180,45 +184,48 @@ class InventoryIntegrationTest extends AbstractPostgresIntegrationTest {
         var company = TenantFixtures.findOrCreate(
                 companyRepository, "INVENTORY-KEY", "Inventory Test Company", "INVT010101ABC");
 
-        var companyCountry = companyCountryRepository
-                .findByCompanyIdAndCountryId(company.getId(), country.getId())
-                .orElseGet(() -> companyCountryRepository.save(CompanyCountry.builder()
-                        .company(company)
-                        .country(country)
-                        .build()));
-
-        var region = companyRegionRepository.findByCompanyCountryIdOrderByRegionNameAsc(companyCountry.getId()).stream()
-                .findFirst()
-                .orElseGet(() -> companyRegionRepository.save(CompanyRegion.builder()
-                        .companyCountry(companyCountry)
-                        .regionCode("INV")
-                        .regionName("Inventory Region")
-                        .enabled(true)
-                        .build()));
-
-        var zone = companyZoneRepository.findByCompanyRegionIdOrderByZoneNameAsc(region.getId()).stream()
-                .findFirst()
-                .orElseGet(() -> companyZoneRepository.save(CompanyZone.builder()
-                        .companyRegion(region)
-                        .zoneCode("INV")
-                        .zoneName("Inventory Zone")
-                        .enabled(true)
-                        .build()));
-
-        var store = companyStoreRepository.findByCompanyZoneId(zone.getId()).stream()
-                .filter(candidate -> "Inventory Test Store".equals(candidate.getStoreName()))
-                .findFirst()
-                .orElseGet(() -> companyStoreRepository.save(CompanyStore.builder()
-                        .companyZone(zone)
-                        .storeName("Inventory Test Store")
-                        .enabled(true)
-                        .build()));
-
         companyId = company.getId();
-        companyCountryId = companyCountry.getId();
-        regionId = region.getId();
-        zoneId = zone.getId();
-        storeId = store.getId();
+        TenantFixtures.inTenant(companyId, () -> {
+            var companyCountry = companyCountryRepository
+                    .findByCompanyIdAndCountryId(company.getId(), country.getId())
+                    .orElseGet(() -> companyCountryRepository.save(CompanyCountry.builder()
+                            .company(company)
+                            .country(country)
+                            .build()));
+
+            var region =
+                    companyRegionRepository.findByCompanyCountryIdOrderByRegionNameAsc(companyCountry.getId()).stream()
+                            .findFirst()
+                            .orElseGet(() -> companyRegionRepository.save(CompanyRegion.builder()
+                                    .companyCountry(companyCountry)
+                                    .regionCode("INV")
+                                    .regionName("Inventory Region")
+                                    .enabled(true)
+                                    .build()));
+
+            var zone = companyZoneRepository.findByCompanyRegionIdOrderByZoneNameAsc(region.getId()).stream()
+                    .findFirst()
+                    .orElseGet(() -> companyZoneRepository.save(CompanyZone.builder()
+                            .companyRegion(region)
+                            .zoneCode("INV")
+                            .zoneName("Inventory Zone")
+                            .enabled(true)
+                            .build()));
+
+            var store = companyStoreRepository.findByCompanyZoneId(zone.getId()).stream()
+                    .filter(candidate -> "Inventory Test Store".equals(candidate.getStoreName()))
+                    .findFirst()
+                    .orElseGet(() -> companyStoreRepository.save(CompanyStore.builder()
+                            .companyZone(zone)
+                            .storeName("Inventory Test Store")
+                            .enabled(true)
+                            .build()));
+
+            companyCountryId = companyCountry.getId();
+            regionId = region.getId();
+            zoneId = zone.getId();
+            storeId = store.getId();
+        });
     }
 
     /** Creates the area, zone and location through the store endpoints and returns the location id. */
@@ -301,34 +308,46 @@ class InventoryIntegrationTest extends AbstractPostgresIntegrationTest {
     }
 
     private ProductVariant createVariant(String stock) {
-        var product = productRepository.save(Product.builder()
-                .sku("INV-SKU-" + UUID.randomUUID().toString().substring(0, 12))
-                .name("Inventory Test Product")
-                .company(companyRepository.findById(companyId).orElseThrow())
-                .enabled(true)
-                .build());
+        return TenantFixtures.inTenant(companyId, () -> {
+            var product = productRepository.save(Product.builder()
+                    .sku("INV-SKU-" + UUID.randomUUID().toString().substring(0, 12))
+                    .name("Inventory Test Product")
+                    .company(companyRepository.findById(companyId).orElseThrow())
+                    .enabled(true)
+                    .build());
 
-        var variant = productVariantRepository.save(ProductVariant.builder()
-                .productId(product.getId())
-                .companyId(companyId)
-                .barCode("INV-BAR-" + UUID.randomUUID().toString().substring(0, 12))
-                .variantName("Variant-" + UUID.randomUUID().toString().substring(0, 8))
-                .enabled(true)
-                .build());
+            var variant = productVariantRepository.save(ProductVariant.builder()
+                    .productId(product.getId())
+                    .companyId(companyId)
+                    .barCode("INV-BAR-" + UUID.randomUUID().toString().substring(0, 12))
+                    .variantName("Variant-" + UUID.randomUUID().toString().substring(0, 8))
+                    .enabled(true)
+                    .build());
 
-        productVariantStoreStockRepository.save(ProductVariantStoreStock.builder()
-                .productVariantId(variant.getId())
-                .companyStoreId(storeId)
-                .costPrice(new BigDecimal("10.00"))
-                .listPrice(new BigDecimal("20.00"))
-                .stock(new BigDecimal(stock))
-                .build());
-        return variant;
+            productVariantStoreStockRepository.save(ProductVariantStoreStock.builder()
+                    .productVariantId(variant.getId())
+                    .companyStoreId(storeId)
+                    .costPrice(new BigDecimal("10.00"))
+                    .listPrice(new BigDecimal("20.00"))
+                    .stock(new BigDecimal(stock))
+                    .build());
+            return variant;
+        });
     }
 
+    /**
+     * Applies a receipt under this class's company.
+     *
+     * <p>{@link InventoryService} derives its tenant from the request principal at the transaction
+     * boundary; a test that calls it without an HTTP request has no principal, so the fixture states the
+     * company the store belongs to. Without it the service's first read of {@code company_stores} answers
+     * not-found instead of reaching the rule under test.</p>
+     */
     private void applyReceipt(UUID variantId, String quantity) {
-        inventoryService.applyReceipt(
-                variantId, storeId, locationId, new BigDecimal(quantity), "GOODS_RECEIPT", null, "receiver");
+        TenantFixtures.inTenant(
+                companyId,
+                () -> inventoryService.applyReceipt(
+                        variantId, storeId, locationId, new BigDecimal(quantity), "GOODS_RECEIPT", null, "receiver"));
     }
 
     private Optional<ProductVariantLocation> balanceOf(UUID variantId) {
@@ -352,14 +371,16 @@ class InventoryIntegrationTest extends AbstractPostgresIntegrationTest {
             var variant = createVariant("0.00");
             var referenceId = UUID.randomUUID();
 
-            inventoryService.applyReceipt(
-                    variant.getId(),
-                    storeId,
-                    locationId,
-                    new BigDecimal("12.50"),
-                    "GOODS_RECEIPT",
-                    referenceId,
-                    "receiver");
+            TenantFixtures.inTenant(
+                    companyId,
+                    () -> inventoryService.applyReceipt(
+                            variant.getId(),
+                            storeId,
+                            locationId,
+                            new BigDecimal("12.50"),
+                            "GOODS_RECEIPT",
+                            referenceId,
+                            "receiver"));
 
             var balance = balanceOf(variant.getId()).orElseThrow();
             assertThat(balance.getStock()).isEqualByComparingTo("12.50");
@@ -478,12 +499,20 @@ class InventoryIntegrationTest extends AbstractPostgresIntegrationTest {
             assertInvariant(variant.getId());
 
             var referenceId = UUID.randomUUID();
-            inventoryService.applySaleDeduction(
-                    variant.getId(), storeId, new BigDecimal("4.00"), "SALES_ORDER_ITEM", referenceId, "seller");
+            TenantFixtures.inTenant(
+                    companyId,
+                    () -> inventoryService.applySaleDeduction(
+                            variant.getId(),
+                            storeId,
+                            new BigDecimal("4.00"),
+                            "SALES_ORDER_ITEM",
+                            referenceId,
+                            "seller"));
             assertInvariant(variant.getId());
             assertThat(aggregateStockOf(variant.getId())).isEqualByComparingTo("6.00");
 
-            inventoryService.applySaleReversal("SALES_ORDER_ITEM", referenceId, "seller");
+            TenantFixtures.inTenant(
+                    companyId, () -> inventoryService.applySaleReversal("SALES_ORDER_ITEM", referenceId, "seller"));
             assertInvariant(variant.getId());
             assertThat(aggregateStockOf(variant.getId())).isEqualByComparingTo("10.00");
         }
@@ -615,7 +644,9 @@ class InventoryIntegrationTest extends AbstractPostgresIntegrationTest {
                 if (!start.await(10, TimeUnit.SECONDS)) {
                     throw new IllegalStateException("race start signal was never released");
                 }
-                inventoryService.applySaleBatch("SALES_ORDER_ITEM", "seller", deductionsOf(variantIds));
+                TenantFixtures.inTenant(
+                        companyId,
+                        () -> inventoryService.applySaleBatch("SALES_ORDER_ITEM", "seller", deductionsOf(variantIds)));
             } catch (InterruptedException interrupted) {
                 Thread.currentThread().interrupt();
                 throw new IllegalStateException("raced sale-batch thread was interrupted", interrupted);
@@ -641,14 +672,16 @@ class InventoryIntegrationTest extends AbstractPostgresIntegrationTest {
         void receiptOfForeignVariant_IsRefusedAndWritesNothing() {
             var foreignVariant = createForeignVariant("0.00");
 
-            assertThatThrownBy(() -> inventoryService.applyReceipt(
-                            foreignVariant.getId(),
-                            storeId,
-                            locationId,
-                            new BigDecimal("5.00"),
-                            "GOODS_RECEIPT",
-                            UUID.randomUUID(),
-                            "receiver"))
+            assertThatThrownBy(() -> TenantFixtures.inTenant(
+                            companyId,
+                            () -> inventoryService.applyReceipt(
+                                    foreignVariant.getId(),
+                                    storeId,
+                                    locationId,
+                                    new BigDecimal("5.00"),
+                                    "GOODS_RECEIPT",
+                                    UUID.randomUUID(),
+                                    "receiver")))
                     .isInstanceOf(ProductVariantNotFoundException.class);
 
             // Nothing persisted: no ledger row, no location balance and no aggregate move.
@@ -662,13 +695,15 @@ class InventoryIntegrationTest extends AbstractPostgresIntegrationTest {
         void saleOfForeignVariant_IsRefusedAndWritesNothing() {
             var foreignVariant = createForeignVariant("5.00");
 
-            assertThatThrownBy(() -> inventoryService.applySaleDeduction(
-                            foreignVariant.getId(),
-                            storeId,
-                            new BigDecimal("1.00"),
-                            "SALES_ORDER_ITEM",
-                            UUID.randomUUID(),
-                            "seller"))
+            assertThatThrownBy(() -> TenantFixtures.inTenant(
+                            companyId,
+                            () -> inventoryService.applySaleDeduction(
+                                    foreignVariant.getId(),
+                                    storeId,
+                                    new BigDecimal("1.00"),
+                                    "SALES_ORDER_ITEM",
+                                    UUID.randomUUID(),
+                                    "seller")))
                     .isInstanceOf(ProductVariantNotFoundException.class);
 
             assertThat(inventoryMovementRepository.count()).isZero();
@@ -687,29 +722,33 @@ class InventoryIntegrationTest extends AbstractPostgresIntegrationTest {
             var foreignCompany = TenantFixtures.findOrCreate(
                     companyRepository, FOREIGN_COMPANY_KEY, "Inventory Foreign Company", "INVF010101ABC");
 
-            var product = productRepository.save(Product.builder()
-                    .sku("INV-FSKU-" + UUID.randomUUID().toString().substring(0, 8))
-                    .name("Inventory Foreign Product")
-                    .company(foreignCompany)
-                    .enabled(true)
-                    .build());
+            // Everything the receipt and the sale touch below belongs to the foreign company, so the
+            // children are seeded under ITS tenant, not this class's.
+            return TenantFixtures.inTenant(foreignCompany.getId(), () -> {
+                var product = productRepository.save(Product.builder()
+                        .sku("INV-FSKU-" + UUID.randomUUID().toString().substring(0, 8))
+                        .name("Inventory Foreign Product")
+                        .company(foreignCompany)
+                        .enabled(true)
+                        .build());
 
-            var variant = productVariantRepository.save(ProductVariant.builder()
-                    .productId(product.getId())
-                    .companyId(foreignCompany.getId())
-                    .barCode("INV-FBAR-" + UUID.randomUUID().toString().substring(0, 8))
-                    .variantName("Foreign-" + UUID.randomUUID().toString().substring(0, 8))
-                    .enabled(true)
-                    .build());
+                var variant = productVariantRepository.save(ProductVariant.builder()
+                        .productId(product.getId())
+                        .companyId(foreignCompany.getId())
+                        .barCode("INV-FBAR-" + UUID.randomUUID().toString().substring(0, 8))
+                        .variantName("Foreign-" + UUID.randomUUID().toString().substring(0, 8))
+                        .enabled(true)
+                        .build());
 
-            productVariantStoreStockRepository.save(ProductVariantStoreStock.builder()
-                    .productVariantId(variant.getId())
-                    .companyStoreId(storeId)
-                    .costPrice(new BigDecimal("10.00"))
-                    .listPrice(new BigDecimal("20.00"))
-                    .stock(new BigDecimal(stock))
-                    .build());
-            return variant;
+                productVariantStoreStockRepository.save(ProductVariantStoreStock.builder()
+                        .productVariantId(variant.getId())
+                        .companyStoreId(storeId)
+                        .costPrice(new BigDecimal("10.00"))
+                        .listPrice(new BigDecimal("20.00"))
+                        .stock(new BigDecimal(stock))
+                        .build());
+                return variant;
+            });
         }
     }
 }

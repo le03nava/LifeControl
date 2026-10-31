@@ -106,6 +106,9 @@ class PurchaseOrderListNullSearchIntegrationTest extends AbstractPostgresIntegra
     @Autowired
     private CountryRepository countryRepository;
 
+    /** The company {@link #seedOrder()} writes, which the admin principal below has to claim. */
+    private UUID companyId;
+
     @AfterEach
     void tearDown() {
         // Purchase order rows reference suppliers and stores; other integration classes that run later
@@ -121,7 +124,7 @@ class PurchaseOrderListNullSearchIntegrationTest extends AbstractPostgresIntegra
 
         // No `search` param at all: an absent term must match every enabled order (S5).
         var result = mockMvc.perform(
-                        get("/api/purchase-orders").param("size", "5").with(jwt().authorities(ROLE_LC_ADMIN)))
+                        get("/api/purchase-orders").param("size", "5").with(adminPrincipal()))
                 .andExpect(status().isOk())
                 .andReturn();
 
@@ -136,74 +139,95 @@ class PurchaseOrderListNullSearchIntegrationTest extends AbstractPostgresIntegra
     // ─── fixture ────────────────────────────────────────────────────────
 
     /**
+     * An admin principal that states the company under test.
+     *
+     * <p>{@code /api/purchase-orders} names no company in its path, so the tenant comes from the token's
+     * claims (T5b): a token carrying none states none, and the policy then answers zero rows. The claim
+     * belongs to the fixture, not to the assertion — the case is about the null {@code search} binding,
+     * and the administrator is admitted for its company either way.</p>
+     */
+    private org.springframework.test.web.servlet.request.RequestPostProcessor adminPrincipal() {
+        return jwt().authorities(ROLE_LC_ADMIN)
+                .jwt(builder -> builder.claim("preferred_username", "admin").claim("company_id", companyId.toString()));
+    }
+
+    /**
      * Seeds one enabled order through the repositories, on its own company/region/zone/store chain so
      * it cannot collide with the fixture of {@code PurchaseOrderListFilterIntegrationTest} (the
      * singleton PostgreSQL container is shared by every integration class of the JVM).
+     *
+     * <p>Every row below this company — the chain, the supplier and the order itself — is on a
+     * policy-armed table and references the detached {@code Company}, so one
+     * {@link TenantFixtures#inTenant} states that company for all of them.</p>
      */
     private String seedOrder() {
         var company = TenantFixtures.findOrCreate(
                 companyRepository, "PO-NULLSEARCH-A", "PO Null Search Company", "PONSA01010ABC");
+        companyId = company.getId();
         var country = countryRepository.findByCountryCode("MX").orElseThrow();
-        var companyCountry = companyCountryRepository
-                .findByCompanyIdAndCountryId(company.getId(), country.getId())
-                .orElseGet(() -> companyCountryRepository.save(CompanyCountry.builder()
-                        .company(company)
-                        .country(country)
-                        .build()));
-        var region = companyRegionRepository.findByCompanyCountryIdOrderByRegionNameAsc(companyCountry.getId()).stream()
-                .filter(candidate -> "PO Null Search Region".equals(candidate.getRegionName()))
-                .findFirst()
-                .orElseGet(() -> companyRegionRepository.save(CompanyRegion.builder()
-                        .companyCountry(companyCountry)
-                        .regionCode("PNSR")
-                        .regionName("PO Null Search Region")
-                        .enabled(true)
-                        .build()));
-        var zone = companyZoneRepository.findByCompanyRegionIdOrderByZoneNameAsc(region.getId()).stream()
-                .filter(candidate -> "PO Null Search Zone".equals(candidate.getZoneName()))
-                .findFirst()
-                .orElseGet(() -> companyZoneRepository.save(CompanyZone.builder()
-                        .companyRegion(region)
-                        .zoneCode("PNSZ")
-                        .zoneName("PO Null Search Zone")
-                        .enabled(true)
-                        .build()));
-        var store = companyStoreRepository.findByCompanyZoneId(zone.getId()).stream()
-                .filter(candidate -> "NullSearchStore".equals(candidate.getStoreName()))
-                .findFirst()
-                .orElseGet(() -> companyStoreRepository.save(CompanyStore.builder()
-                        .companyZone(zone)
-                        .storeName("NullSearchStore")
-                        .enabled(true)
-                        .build()));
-        var supplier = supplierRepository.save(Supplier.builder()
-                .supplierName("Null Search Supplier")
-                .rfc("PNS" + UUID.randomUUID().toString().substring(0, 10))
-                .company(company)
-                .enabled(true)
-                .build());
-        var paymentMethod = paymentMethodRepository
-                .findByPaymentMethodNameIgnoreCase("PO Filter Transfer")
-                .orElseGet(() -> paymentMethodRepository.save(PaymentMethod.builder()
-                        .paymentMethodName("PO Filter Transfer")
-                        .paymentMethodShortName("POFT")
-                        .enabled(true)
-                        .build()));
-        var status = statusRepository
-                .findByTypeNameAndStatusName("PURCHASE_ORDER", "Draft")
-                .orElseThrow();
+        return TenantFixtures.inTenant(company.getId(), () -> {
+            var companyCountry = companyCountryRepository
+                    .findByCompanyIdAndCountryId(company.getId(), country.getId())
+                    .orElseGet(() -> companyCountryRepository.save(CompanyCountry.builder()
+                            .company(company)
+                            .country(country)
+                            .build()));
+            var region =
+                    companyRegionRepository.findByCompanyCountryIdOrderByRegionNameAsc(companyCountry.getId()).stream()
+                            .filter(candidate -> "PO Null Search Region".equals(candidate.getRegionName()))
+                            .findFirst()
+                            .orElseGet(() -> companyRegionRepository.save(CompanyRegion.builder()
+                                    .companyCountry(companyCountry)
+                                    .regionCode("PNSR")
+                                    .regionName("PO Null Search Region")
+                                    .enabled(true)
+                                    .build()));
+            var zone = companyZoneRepository.findByCompanyRegionIdOrderByZoneNameAsc(region.getId()).stream()
+                    .filter(candidate -> "PO Null Search Zone".equals(candidate.getZoneName()))
+                    .findFirst()
+                    .orElseGet(() -> companyZoneRepository.save(CompanyZone.builder()
+                            .companyRegion(region)
+                            .zoneCode("PNSZ")
+                            .zoneName("PO Null Search Zone")
+                            .enabled(true)
+                            .build()));
+            var store = companyStoreRepository.findByCompanyZoneId(zone.getId()).stream()
+                    .filter(candidate -> "NullSearchStore".equals(candidate.getStoreName()))
+                    .findFirst()
+                    .orElseGet(() -> companyStoreRepository.save(CompanyStore.builder()
+                            .companyZone(zone)
+                            .storeName("NullSearchStore")
+                            .enabled(true)
+                            .build()));
+            var supplier = supplierRepository.save(Supplier.builder()
+                    .supplierName("Null Search Supplier")
+                    .rfc("PNS" + UUID.randomUUID().toString().substring(0, 10))
+                    .company(company)
+                    .enabled(true)
+                    .build());
+            var paymentMethod = paymentMethodRepository
+                    .findByPaymentMethodNameIgnoreCase("PO Filter Transfer")
+                    .orElseGet(() -> paymentMethodRepository.save(PaymentMethod.builder()
+                            .paymentMethodName("PO Filter Transfer")
+                            .paymentMethodShortName("POFT")
+                            .enabled(true)
+                            .build()));
+            var status = statusRepository
+                    .findByTypeNameAndStatusName("PURCHASE_ORDER", "Draft")
+                    .orElseThrow();
 
-        var order = purchaseOrderRepository.save(PurchaseOrder.builder()
-                .orderNumber("PO-NULLSEARCH-" + UUID.randomUUID().toString().substring(0, 12))
-                .supplier(supplier)
-                .companyStore(store)
-                // The order's owner (V43) is the company of its store — the one this fixture just built.
-                .company(company)
-                .paymentMethod(paymentMethod)
-                .status(status)
-                .comments("PO null search fixture")
-                .enabled(true)
-                .build());
-        return order.getOrderNumber();
+            var order = purchaseOrderRepository.save(PurchaseOrder.builder()
+                    .orderNumber("PO-NULLSEARCH-" + UUID.randomUUID().toString().substring(0, 12))
+                    .supplier(supplier)
+                    .companyStore(store)
+                    // The order's owner (V43) is the company of its store — the one this fixture just built.
+                    .company(company)
+                    .paymentMethod(paymentMethod)
+                    .status(status)
+                    .comments("PO null search fixture")
+                    .enabled(true)
+                    .build());
+            return order.getOrderNumber();
+        });
     }
 }

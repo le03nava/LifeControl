@@ -83,8 +83,6 @@ import org.springframework.http.MediaType;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
-import org.springframework.transaction.PlatformTransactionManager;
-import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.ObjectMapper;
 
 @SpringBootTest
@@ -163,9 +161,6 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
 
     @Autowired
     private StoreLocationRepository storeLocationRepository;
-
-    @Autowired
-    private PlatformTransactionManager transactionManager;
 
     private UUID customerId;
     private UUID companyStoreId;
@@ -307,49 +302,55 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
 
         var company = TenantFixtures.findOrCreate(companyRepository, "TEST-KEY", "Test Company", "TEST123456ABC");
 
-        var companyCountry = companyCountryRepository
-                .findByCompanyIdAndCountryId(company.getId(), country.getId())
-                .orElseGet(() -> companyCountryRepository.save(CompanyCountry.builder()
-                        .company(company)
-                        .country(country)
-                        .build()));
+        // One boundary states the company for the whole chain, its store tree and the settings row that
+        // names the sales location: every one of those rows is on a policy-armed table or references one,
+        // so an unscoped read and the flush's unsaved-value probe would both answer "no rows".
+        TenantFixtures.inTenant(company.getId(), () -> {
+            var companyCountry = companyCountryRepository
+                    .findByCompanyIdAndCountryId(company.getId(), country.getId())
+                    .orElseGet(() -> companyCountryRepository.save(CompanyCountry.builder()
+                            .company(company)
+                            .country(country)
+                            .build()));
 
-        var region = companyRegionRepository.findByCompanyCountryIdOrderByRegionNameAsc(companyCountry.getId()).stream()
-                .findFirst()
-                .orElseGet(() -> companyRegionRepository.save(CompanyRegion.builder()
-                        .companyCountry(companyCountry)
-                        .regionCode("01")
-                        .regionName("Test Region")
-                        .enabled(true)
-                        .build()));
+            var region =
+                    companyRegionRepository.findByCompanyCountryIdOrderByRegionNameAsc(companyCountry.getId()).stream()
+                            .findFirst()
+                            .orElseGet(() -> companyRegionRepository.save(CompanyRegion.builder()
+                                    .companyCountry(companyCountry)
+                                    .regionCode("01")
+                                    .regionName("Test Region")
+                                    .enabled(true)
+                                    .build()));
 
-        var zone = companyZoneRepository.findByCompanyRegionIdOrderByZoneNameAsc(region.getId()).stream()
-                .findFirst()
-                .orElseGet(() -> companyZoneRepository.save(CompanyZone.builder()
-                        .companyRegion(region)
-                        .zoneCode("01")
-                        .zoneName("Test Zone")
-                        .enabled(true)
-                        .build()));
+            var zone = companyZoneRepository.findByCompanyRegionIdOrderByZoneNameAsc(region.getId()).stream()
+                    .findFirst()
+                    .orElseGet(() -> companyZoneRepository.save(CompanyZone.builder()
+                            .companyRegion(region)
+                            .zoneCode("01")
+                            .zoneName("Test Zone")
+                            .enabled(true)
+                            .build()));
 
-        var store = companyStoreRepository.findByCompanyZoneId(zone.getId()).stream()
-                .findFirst()
-                .orElseGet(() -> companyStoreRepository.save(CompanyStore.builder()
-                        .companyZone(zone)
-                        .storeName("Test Store")
-                        .enabled(true)
-                        .build()));
+            var store = companyStoreRepository.findByCompanyZoneId(zone.getId()).stream()
+                    .findFirst()
+                    .orElseGet(() -> companyStoreRepository.save(CompanyStore.builder()
+                            .companyZone(zone)
+                            .storeName("Test Store")
+                            .enabled(true)
+                            .build()));
 
-        companyStoreId = store.getId();
-        companyId = store.getCompanyZone()
-                .getCompanyRegion()
-                .getCompanyCountry()
-                .getCompany()
-                .getId();
+            // The sales path now deducts through InventoryService, which needs a per-location balance
+            // and the store's sales location to allocate against. Seed them once per store.
+            ensureInventoryLocations(store);
 
-        // The sales path now deducts through InventoryService, which needs a per-location balance
-        // and the store's sales location to allocate against. Seed them once per store.
-        ensureInventoryLocations(store);
+            companyStoreId = store.getId();
+            companyId = store.getCompanyZone()
+                    .getCompanyRegion()
+                    .getCompanyCountry()
+                    .getCompany()
+                    .getId();
+        });
 
         // Customer: find or create
         var customer = customerRepository.findBySalesChannel("TEST").stream()
@@ -439,43 +440,55 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
      * {@code product_variants.product_id -> products.id}, so variants cannot be
      * persisted against a fabricated product id.
      */
+    /**
+     * A product of this class's company.
+     *
+     * <p>The company read and the armed {@code INSERT} share one stated tenant: without it the read answers
+     * empty and the product's parent looks unsaved to the flush.</p>
+     */
     private Product createTestProduct() {
-        return productRepository.save(Product.builder()
-                .sku("SKU-" + UUID.randomUUID().toString().substring(0, 12))
-                .name("Test Product")
-                .company(companyRepository.findById(companyId).orElseThrow())
-                .enabled(true)
-                .build());
+        return TenantFixtures.inTenant(
+                companyId,
+                () -> productRepository.save(Product.builder()
+                        .sku("SKU-" + UUID.randomUUID().toString().substring(0, 12))
+                        .name("Test Product")
+                        .company(companyRepository.findById(companyId).orElseThrow())
+                        .enabled(true)
+                        .build()));
     }
 
     /**
      * Creates a product variant with the given stock quantity for testing.
      */
     private ProductVariant createTestVariant(BigDecimal stock) {
-        var variant = new ProductVariant();
-        variant.setProductId(createTestProduct().getId());
-        variant.setCompanyId(companyId);
-        variant.setBarCode("BAR-" + UUID.randomUUID().toString().substring(0, 12));
-        variant.setVariantName("Variant-" + UUID.randomUUID().toString().substring(0, 8));
-        variant.setEnabled(true);
-        variant = productVariantRepository.save(variant);
-        saveStoreStock(variant.getId(), stock, new BigDecimal("100.00"), new BigDecimal("60.00"));
-        return variant;
+        return TenantFixtures.inTenant(companyId, () -> {
+            var variant = new ProductVariant();
+            variant.setProductId(createTestProduct().getId());
+            variant.setCompanyId(companyId);
+            variant.setBarCode("BAR-" + UUID.randomUUID().toString().substring(0, 12));
+            variant.setVariantName("Variant-" + UUID.randomUUID().toString().substring(0, 8));
+            variant.setEnabled(true);
+            var saved = productVariantRepository.save(variant);
+            saveStoreStock(saved.getId(), stock, new BigDecimal("100.00"), new BigDecimal("60.00"));
+            return saved;
+        });
     }
 
     /**
      * Creates a second variant with given stock (different productId) for multi-variant tests.
      */
     private ProductVariant createTestVariantB(BigDecimal stock) {
-        var variant = new ProductVariant();
-        variant.setProductId(createTestProduct().getId());
-        variant.setCompanyId(companyId);
-        variant.setBarCode("BAR-" + UUID.randomUUID().toString().substring(0, 12));
-        variant.setVariantName("VariantB-" + UUID.randomUUID().toString().substring(0, 8));
-        variant.setEnabled(true);
-        variant = productVariantRepository.save(variant);
-        saveStoreStock(variant.getId(), stock, new BigDecimal("50.00"), new BigDecimal("30.00"));
-        return variant;
+        return TenantFixtures.inTenant(companyId, () -> {
+            var variant = new ProductVariant();
+            variant.setProductId(createTestProduct().getId());
+            variant.setCompanyId(companyId);
+            variant.setBarCode("BAR-" + UUID.randomUUID().toString().substring(0, 12));
+            variant.setVariantName("VariantB-" + UUID.randomUUID().toString().substring(0, 8));
+            variant.setEnabled(true);
+            var saved = productVariantRepository.save(variant);
+            saveStoreStock(saved.getId(), stock, new BigDecimal("50.00"), new BigDecimal("30.00"));
+            return saved;
+        });
     }
 
     /**
@@ -483,13 +496,16 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
      * location balance. A sale of it is a stock insufficiency, not a malformed request.
      */
     private ProductVariant createVariantWithoutStoreStock() {
-        var variant = new ProductVariant();
-        variant.setProductId(createTestProduct().getId());
-        variant.setCompanyId(companyId);
-        variant.setBarCode("BAR-" + UUID.randomUUID().toString().substring(0, 12));
-        variant.setVariantName("VariantNoStore-" + UUID.randomUUID().toString().substring(0, 8));
-        variant.setEnabled(true);
-        return productVariantRepository.save(variant);
+        return TenantFixtures.inTenant(companyId, () -> {
+            var variant = new ProductVariant();
+            variant.setProductId(createTestProduct().getId());
+            variant.setCompanyId(companyId);
+            variant.setBarCode("BAR-" + UUID.randomUUID().toString().substring(0, 12));
+            variant.setVariantName(
+                    "VariantNoStore-" + UUID.randomUUID().toString().substring(0, 8));
+            variant.setEnabled(true);
+            return productVariantRepository.save(variant);
+        });
     }
 
     private void saveStoreStock(UUID variantId, BigDecimal stock, BigDecimal listPrice, BigDecimal costPrice) {
@@ -1456,15 +1472,20 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             assertThat(storeStockOf(variant.getId()).getStock()).isEqualByComparingTo(new BigDecimal("8.00"));
             assertThat(locationStockOf(variant.getId(), salesLocationId)).isEqualByComparingTo(new BigDecimal("8.00"));
 
-            var zone = companyStoreRepository
-                    .findById(companyStoreId)
-                    .orElseThrow()
+            var zone = TenantFixtures.inTenant(
+                            companyId,
+                            () -> companyStoreRepository
+                                    .findById(companyStoreId)
+                                    .orElseThrow())
                     .getCompanyZone();
-            var otherStore = companyStoreRepository.save(CompanyStore.builder()
-                    .companyZone(zone)
-                    .storeName("Other Store " + UUID.randomUUID().toString().substring(0, 8))
-                    .enabled(true)
-                    .build());
+            var otherStore = TenantFixtures.inTenant(
+                    companyId,
+                    () -> companyStoreRepository.save(CompanyStore.builder()
+                            .companyZone(zone)
+                            .storeName("Other Store "
+                                    + UUID.randomUUID().toString().substring(0, 8))
+                            .enabled(true)
+                            .build()));
 
             var moveRequest = new SalesOrderRequest(customerId, otherStore.getId(), shiftId, "user123", null);
 
@@ -1509,10 +1530,17 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             // token carries no store claim, so the company -> country -> region -> zone -> store
             // check in CurrentUserContext.verifyCompanyStoreAccess throws, GlobalExceptionHandler
             // maps it to 403 and the write phase never starts.
+            //
+            // The company claim stays: /api/sales-orders names no company in its path, so that claim is
+            // the tenant the policy reads, and without it the order's store is hidden and the write is
+            // refused 404 before the store check this case is about ever runs.
+            var noStoreClaim = jwt().authorities(ROLE_LC_SALES)
+                    .jwt(builder ->
+                            builder.claim("preferred_username", "seller").claim("company_id", companyId.toString()));
             mockMvc.perform(post("/api/sales-orders")
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(request))
-                            .with(jwt().authorities(ROLE_LC_SALES)))
+                            .with(noStoreClaim))
                     .andExpect(status().isForbidden())
                     .andExpect(jsonPath("$.status").value(403));
 
@@ -2450,11 +2478,12 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
     }
 
     /**
-     * Reads a lazy association inside a transaction: the store chain is LAZY and the service commits
-     * its own transaction, so reading it on a detached entity would throw.
+     * Reads inside a transaction that states this class's company: the store chain is LAZY and the service
+     * commits its own transaction, so reading it on a detached entity would throw — and {@code company_stores}
+     * is policy-armed, so a read with no tenant stated finds no row at all.
      */
     private <T> T inTransaction(Supplier<T> reader) {
-        return new TransactionTemplate(transactionManager).execute(status -> reader.get());
+        return TenantFixtures.inTenant(companyId, reader);
     }
 
     /** The store chain ids, resolved inside a transaction so the lazy associations are readable. */

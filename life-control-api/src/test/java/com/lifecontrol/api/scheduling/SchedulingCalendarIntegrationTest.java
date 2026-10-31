@@ -53,8 +53,6 @@ import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
-import org.springframework.transaction.PlatformTransactionManager;
-import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * Persistence-level verification of the calendar projection and the filtered appointment list against
@@ -114,11 +112,9 @@ class SchedulingCalendarIntegrationTest extends AbstractPostgresIntegrationTest 
     @Autowired
     private MockMvc mockMvc;
 
-    @Autowired
-    private PlatformTransactionManager transactionManager;
-
     private CompanyStore store;
     private SchedulingActivity activity;
+    private UUID companyId;
 
     @BeforeEach
     void setUp() {
@@ -480,46 +476,56 @@ class SchedulingCalendarIntegrationTest extends AbstractPostgresIntegrationTest 
                 .getId();
     }
 
-    /** Find-or-create the company &rarr; country &rarr; region &rarr; zone &rarr; store chain. */
+    /**
+     * Find-or-create the company &rarr; country &rarr; region &rarr; zone &rarr; store chain.
+     *
+     * <p>One {@link TenantFixtures#inTenant} around the children, not one per statement: every child of
+     * the chain is a row on a policy-armed table and references the detached {@code Company} above, so
+     * both its {@code INSERT} and the flush's unsaved-value probe need the parent's tenant installed.</p>
+     */
     private void seedCompanyHierarchy() {
         var country = countryRepository.findByCountryCode("MX").orElseThrow();
 
         var company = TenantFixtures.findOrCreate(
                 companyRepository, "SCHEDULING-CALENDAR-KEY", "Scheduling Calendar Test Company", "SCA010101ABC");
 
-        var companyCountry = companyCountryRepository
-                .findByCompanyIdAndCountryId(company.getId(), country.getId())
-                .orElseGet(() -> companyCountryRepository.save(CompanyCountry.builder()
-                        .company(company)
-                        .country(country)
-                        .build()));
+        companyId = company.getId();
+        store = TenantFixtures.inTenant(companyId, () -> {
+            var companyCountry = companyCountryRepository
+                    .findByCompanyIdAndCountryId(company.getId(), country.getId())
+                    .orElseGet(() -> companyCountryRepository.save(CompanyCountry.builder()
+                            .company(company)
+                            .country(country)
+                            .build()));
 
-        var region = companyRegionRepository.findByCompanyCountryIdOrderByRegionNameAsc(companyCountry.getId()).stream()
-                .findFirst()
-                .orElseGet(() -> companyRegionRepository.save(CompanyRegion.builder()
-                        .companyCountry(companyCountry)
-                        .regionCode("SCA")
-                        .regionName("Scheduling Calendar Region")
-                        .enabled(true)
-                        .build()));
+            var region =
+                    companyRegionRepository.findByCompanyCountryIdOrderByRegionNameAsc(companyCountry.getId()).stream()
+                            .findFirst()
+                            .orElseGet(() -> companyRegionRepository.save(CompanyRegion.builder()
+                                    .companyCountry(companyCountry)
+                                    .regionCode("SCA")
+                                    .regionName("Scheduling Calendar Region")
+                                    .enabled(true)
+                                    .build()));
 
-        var companyZone = companyZoneRepository.findByCompanyRegionIdOrderByZoneNameAsc(region.getId()).stream()
-                .findFirst()
-                .orElseGet(() -> companyZoneRepository.save(CompanyZone.builder()
-                        .companyRegion(region)
-                        .zoneCode("SCA")
-                        .zoneName("Scheduling Calendar Zone")
-                        .enabled(true)
-                        .build()));
+            var companyZone = companyZoneRepository.findByCompanyRegionIdOrderByZoneNameAsc(region.getId()).stream()
+                    .findFirst()
+                    .orElseGet(() -> companyZoneRepository.save(CompanyZone.builder()
+                            .companyRegion(region)
+                            .zoneCode("SCA")
+                            .zoneName("Scheduling Calendar Zone")
+                            .enabled(true)
+                            .build()));
 
-        store = companyStoreRepository.findByCompanyZoneId(companyZone.getId()).stream()
-                .filter(candidate -> STORE_NAME.equals(candidate.getStoreName()))
-                .findFirst()
-                .orElseGet(() -> companyStoreRepository.save(CompanyStore.builder()
-                        .companyZone(companyZone)
-                        .storeName(STORE_NAME)
-                        .enabled(true)
-                        .build()));
+            return companyStoreRepository.findByCompanyZoneId(companyZone.getId()).stream()
+                    .filter(candidate -> STORE_NAME.equals(candidate.getStoreName()))
+                    .findFirst()
+                    .orElseGet(() -> companyStoreRepository.save(CompanyStore.builder()
+                            .companyZone(companyZone)
+                            .storeName(STORE_NAME)
+                            .enabled(true)
+                            .build()));
+        });
     }
 
     /**
@@ -539,7 +545,7 @@ class SchedulingCalendarIntegrationTest extends AbstractPostgresIntegrationTest 
 
     /** The real chain behind {@link #store}, resolved inside a transaction so the lazies are readable. */
     private StoreChain resolveChain() {
-        return new TransactionTemplate(transactionManager).execute(status -> {
+        return TenantFixtures.inTenant(companyId, () -> {
             var s = companyStoreRepository.findById(store.getId()).orElseThrow();
             var z = s.getCompanyZone();
             var r = z.getCompanyRegion();

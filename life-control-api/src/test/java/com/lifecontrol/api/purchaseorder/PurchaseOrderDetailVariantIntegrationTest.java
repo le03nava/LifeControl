@@ -139,11 +139,13 @@ class PurchaseOrderDetailVariantIntegrationTest extends AbstractPostgresIntegrat
 
     @BeforeEach
     void setUp() {
+        // The reference data first, because it names the company this class's purchase orders belong
+        // to and the cleanup below has to state it: an unscoped DELETE on a policy-armed table removes
+        // zero rows without an error, which is how a previous method's orders survived into the next.
+        seedReferenceData();
         // Details reference purchase orders, so they must go first.
         purchaseOrderDetailRepository.deleteAll();
-        purchaseOrderRepository.deleteAll();
-
-        seedReferenceData();
+        TenantFixtures.inTenant(companyId, () -> purchaseOrderRepository.deleteAll());
     }
 
     @AfterEach
@@ -151,13 +153,17 @@ class PurchaseOrderDetailVariantIntegrationTest extends AbstractPostgresIntegrat
         // Do not leave purchase order rows behind: they reference products, and other
         // integration classes that run later in the same JVM delete products wholesale.
         purchaseOrderDetailRepository.deleteAll();
-        purchaseOrderRepository.deleteAll();
+        TenantFixtures.inTenant(companyId, () -> purchaseOrderRepository.deleteAll());
     }
 
     /**
      * Find-or-create the supplier, payment method and company chain the purchase
      * order write paths require; statuses come from Flyway {@code V3}. Idempotent
      * because the Testcontainers database is shared per JVM and survives methods.
+     *
+     * <p>One {@link TenantFixtures#inTenant} wraps the chain, the supplier and their reads: every one of
+     * those rows is on a policy-armed table, and the read that decides whether a row already exists has to
+     * see the previous method's row as well.</p>
      *
      * <p>The supplier is looked up <b>within</b> the company the seed creates, because the write path
      * only accepts a supplier of the order's store's company: an unscoped lookup would hand back a row
@@ -170,54 +176,58 @@ class PurchaseOrderDetailVariantIntegrationTest extends AbstractPostgresIntegrat
         var company = TenantFixtures.findOrCreate(
                 companyRepository, "PO-RECEIPT-KEY", "PO Receipt Test Company", "PORC010101ABC");
 
-        var companyCountry = companyCountryRepository
-                .findByCompanyIdAndCountryId(company.getId(), country.getId())
-                .orElseGet(() -> companyCountryRepository.save(CompanyCountry.builder()
-                        .company(company)
-                        .country(country)
-                        .build()));
-
-        var region = companyRegionRepository.findByCompanyCountryIdOrderByRegionNameAsc(companyCountry.getId()).stream()
-                .findFirst()
-                .orElseGet(() -> companyRegionRepository.save(CompanyRegion.builder()
-                        .companyCountry(companyCountry)
-                        .regionCode("POC")
-                        .regionName("PO Receipt Region")
-                        .enabled(true)
-                        .build()));
-
-        var zone = companyZoneRepository.findByCompanyRegionIdOrderByZoneNameAsc(region.getId()).stream()
-                .findFirst()
-                .orElseGet(() -> companyZoneRepository.save(CompanyZone.builder()
-                        .companyRegion(region)
-                        .zoneCode("POC")
-                        .zoneName("PO Receipt Zone")
-                        .enabled(true)
-                        .build()));
-
-        var store = companyStoreRepository.findByCompanyZoneId(zone.getId()).stream()
-                .filter(candidate -> "PO Receipt Store".equals(candidate.getStoreName()))
-                .findFirst()
-                .orElseGet(() -> companyStoreRepository.save(CompanyStore.builder()
-                        .companyZone(zone)
-                        .storeName("PO Receipt Store")
-                        .enabled(true)
-                        .build()));
-
-        storeId = store.getId();
         companyId = company.getId();
+        TenantFixtures.inTenant(companyId, () -> {
+            var companyCountry = companyCountryRepository
+                    .findByCompanyIdAndCountryId(company.getId(), country.getId())
+                    .orElseGet(() -> companyCountryRepository.save(CompanyCountry.builder()
+                            .company(company)
+                            .country(country)
+                            .build()));
 
-        var supplier = supplierRepository.findByCompanyIdAndEnabledTrue(company.getId(), Pageable.unpaged()).stream()
-                .filter(candidate -> "PORC010101ABC".equals(candidate.getRfc()))
-                .findFirst()
-                .orElseGet(() -> supplierRepository.save(Supplier.builder()
-                        .supplierName("PO Receipt Supplier")
-                        .rfc("PORC010101ABC")
-                        .company(company)
-                        .enabled(true)
-                        .build()));
+            var region =
+                    companyRegionRepository.findByCompanyCountryIdOrderByRegionNameAsc(companyCountry.getId()).stream()
+                            .findFirst()
+                            .orElseGet(() -> companyRegionRepository.save(CompanyRegion.builder()
+                                    .companyCountry(companyCountry)
+                                    .regionCode("POC")
+                                    .regionName("PO Receipt Region")
+                                    .enabled(true)
+                                    .build()));
 
-        supplierId = supplier.getId();
+            var zone = companyZoneRepository.findByCompanyRegionIdOrderByZoneNameAsc(region.getId()).stream()
+                    .findFirst()
+                    .orElseGet(() -> companyZoneRepository.save(CompanyZone.builder()
+                            .companyRegion(region)
+                            .zoneCode("POC")
+                            .zoneName("PO Receipt Zone")
+                            .enabled(true)
+                            .build()));
+
+            var store = companyStoreRepository.findByCompanyZoneId(zone.getId()).stream()
+                    .filter(candidate -> "PO Receipt Store".equals(candidate.getStoreName()))
+                    .findFirst()
+                    .orElseGet(() -> companyStoreRepository.save(CompanyStore.builder()
+                            .companyZone(zone)
+                            .storeName("PO Receipt Store")
+                            .enabled(true)
+                            .build()));
+
+            storeId = store.getId();
+
+            var supplier =
+                    supplierRepository.findByCompanyIdAndEnabledTrue(company.getId(), Pageable.unpaged()).stream()
+                            .filter(candidate -> "PORC010101ABC".equals(candidate.getRfc()))
+                            .findFirst()
+                            .orElseGet(() -> supplierRepository.save(Supplier.builder()
+                                    .supplierName("PO Receipt Supplier")
+                                    .rfc("PORC010101ABC")
+                                    .company(company)
+                                    .enabled(true)
+                                    .build()));
+
+            supplierId = supplier.getId();
+        });
 
         var paymentMethod = paymentMethodRepository
                 .findByPaymentMethodNameIgnoreCase("PO Receipt Transfer")
@@ -239,32 +249,51 @@ class PurchaseOrderDetailVariantIntegrationTest extends AbstractPostgresIntegrat
                 .getId();
     }
 
+    /** A product of this class's company: the read of the company and the armed {@code INSERT} share one scope. */
+    /**
+     * An admin principal that states this class's company.
+     *
+     * <p>{@code /api/purchase-orders} and its detail routes name no company in their paths, so the tenant
+     * comes from the token's claims (T5b): a token carrying none states none, and the lookups behind the
+     * write then answer 404 on rows that exist. The claim belongs to the fixture, not to the assertion —
+     * every case here is about the line contract, and the administrator is admitted for its company
+     * either way.</p>
+     */
+    private org.springframework.test.web.servlet.request.RequestPostProcessor adminPrincipal() {
+        return jwt().authorities(ROLE_LC_ADMIN)
+                .jwt(builder -> builder.claim("preferred_username", "admin").claim("company_id", companyId.toString()));
+    }
+
     private Product createProduct() {
-        return productRepository.save(Product.builder()
-                .sku("PO-SKU-" + UUID.randomUUID().toString().substring(0, 12))
-                .name("PO Receipt Product")
-                .company(companyRepository.findById(companyId).orElseThrow())
-                .enabled(true)
-                .build());
+        return TenantFixtures.inTenant(
+                companyId,
+                () -> productRepository.save(Product.builder()
+                        .sku("PO-SKU-" + UUID.randomUUID().toString().substring(0, 12))
+                        .name("PO Receipt Product")
+                        .company(companyRepository.findById(companyId).orElseThrow())
+                        .enabled(true)
+                        .build()));
     }
 
     private ProductVariant createVariant(UUID productId, UUID variantStoreId) {
-        var variant = new ProductVariant();
-        variant.setProductId(productId);
-        variant.setCompanyId(companyId);
-        variant.setBarCode("PO-BAR-" + UUID.randomUUID().toString().substring(0, 12));
-        variant.setVariantName("Variant-" + UUID.randomUUID().toString().substring(0, 8));
-        variant.setEnabled(true);
-        variant = productVariantRepository.save(variant);
+        return TenantFixtures.inTenant(companyId, () -> {
+            var variant = new ProductVariant();
+            variant.setProductId(productId);
+            variant.setCompanyId(companyId);
+            variant.setBarCode("PO-BAR-" + UUID.randomUUID().toString().substring(0, 12));
+            variant.setVariantName("Variant-" + UUID.randomUUID().toString().substring(0, 8));
+            variant.setEnabled(true);
+            var saved = productVariantRepository.save(variant);
 
-        productVariantStoreStockRepository.save(ProductVariantStoreStock.builder()
-                .productVariantId(variant.getId())
-                .companyStoreId(variantStoreId)
-                .costPrice(new BigDecimal("10.00"))
-                .listPrice(new BigDecimal("20.00"))
-                .stock(BigDecimal.ZERO)
-                .build());
-        return variant;
+            productVariantStoreStockRepository.save(ProductVariantStoreStock.builder()
+                    .productVariantId(saved.getId())
+                    .companyStoreId(variantStoreId)
+                    .costPrice(new BigDecimal("10.00"))
+                    .listPrice(new BigDecimal("20.00"))
+                    .stock(BigDecimal.ZERO)
+                    .build());
+            return saved;
+        });
     }
 
     private UUID createEmptyPurchaseOrder() throws Exception {
@@ -272,7 +301,7 @@ class PurchaseOrderDetailVariantIntegrationTest extends AbstractPostgresIntegrat
                 new PurchaseOrderRequest(supplierId, storeId, paymentMethodId, draftStatusId, "Receipt test", null);
 
         var result = mockMvc.perform(post("/api/purchase-orders")
-                        .with(jwt().authorities(ROLE_LC_ADMIN))
+                        .with(adminPrincipal())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isCreated())
@@ -374,7 +403,7 @@ class PurchaseOrderDetailVariantIntegrationTest extends AbstractPostgresIntegrat
                 productId, variantId, quantity, new BigDecimal("25.00"), "Reception line", pendingDetailStatusId);
 
         var result = mockMvc.perform(post("/api/purchase-orders/{id}/details", purchaseOrderId)
-                        .with(jwt().authorities(ROLE_LC_ADMIN))
+                        .with(adminPrincipal())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(detailRequest)))
                 .andExpect(status().isCreated())
@@ -397,15 +426,27 @@ class PurchaseOrderDetailVariantIntegrationTest extends AbstractPostgresIntegrat
         var request = new UpdatePurchaseOrderStatusRequest(purchaseOrderStatusId(statusName));
 
         mockMvc.perform(patch("/api/purchase-orders/{id}/status", purchaseOrderId)
-                        .with(jwt().authorities(ROLE_LC_ADMIN))
+                        .with(adminPrincipal())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.statusName").value(statusName));
     }
 
+    /**
+     * Registers a received quantity under this class's company.
+     *
+     * <p>{@link PurchaseOrderService} is called directly here instead of through the controller, so no
+     * principal states the tenant at its transaction boundary and its first read of
+     * {@code purchase_orders} — an armed table — would answer not-found. The fixture states it.</p>
+     */
+    private void registerReceivedQuantity(UUID purchaseOrderId, UUID detailId, BigDecimal quantity) {
+        TenantFixtures.inTenant(
+                companyId, () -> purchaseOrderService.registerReceivedQuantity(purchaseOrderId, detailId, quantity));
+    }
+
     private void assertHeaderStatus(UUID purchaseOrderId, String statusName) throws Exception {
-        mockMvc.perform(get("/api/purchase-orders/{id}", purchaseOrderId).with(jwt().authorities(ROLE_LC_ADMIN)))
+        mockMvc.perform(get("/api/purchase-orders/{id}", purchaseOrderId).with(adminPrincipal()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.statusName").value(statusName));
     }
@@ -413,7 +454,7 @@ class PurchaseOrderDetailVariantIntegrationTest extends AbstractPostgresIntegrat
     private void assertDetailState(UUID purchaseOrderId, UUID detailId, String statusName, int receivedQuantity)
             throws Exception {
         var result = mockMvc.perform(get("/api/purchase-orders/{id}/details", purchaseOrderId)
-                        .with(jwt().authorities(ROLE_LC_ADMIN)))
+                        .with(adminPrincipal()))
                 .andExpect(status().isOk())
                 .andReturn();
 
@@ -452,7 +493,7 @@ class PurchaseOrderDetailVariantIntegrationTest extends AbstractPostgresIntegrat
                     pendingDetailStatusId);
 
             mockMvc.perform(post("/api/purchase-orders/{id}/details", purchaseOrderId)
-                            .with(jwt().authorities(ROLE_LC_ADMIN))
+                            .with(adminPrincipal())
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(detailRequest)))
                     .andExpect(status().isCreated())
@@ -461,7 +502,7 @@ class PurchaseOrderDetailVariantIntegrationTest extends AbstractPostgresIntegrat
                     .andExpect(jsonPath("$.productVariantName").value(variant.getVariantName()));
 
             mockMvc.perform(get("/api/purchase-orders/{id}/details", purchaseOrderId)
-                            .with(jwt().authorities(ROLE_LC_ADMIN)))
+                            .with(adminPrincipal()))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.length()").value(1))
                     .andExpect(jsonPath("$[0].productVariantId")
@@ -506,7 +547,7 @@ class PurchaseOrderDetailVariantIntegrationTest extends AbstractPostgresIntegrat
             var purchaseOrderId = createEmptyPurchaseOrder();
 
             mockMvc.perform(post("/api/purchase-orders/{id}/details", purchaseOrderId)
-                            .with(jwt().authorities(ROLE_LC_ADMIN))
+                            .with(adminPrincipal())
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(detailPayload(product.getId(), variant.getId(), "2.5")))
                     .andExpect(status().isCreated())
@@ -526,7 +567,7 @@ class PurchaseOrderDetailVariantIntegrationTest extends AbstractPostgresIntegrat
 
             // 2.5 x 123.45 = 308.625, which is not a number DECIMAL(12,2) can store.
             var created = mockMvc.perform(post("/api/purchase-orders/{id}/details", purchaseOrderId)
-                            .with(jwt().authorities(ROLE_LC_ADMIN))
+                            .with(adminPrincipal())
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(detailPayload(product.getId(), variant.getId(), "2.5", "123.45")))
                     .andExpect(status().isCreated())
@@ -537,7 +578,7 @@ class PurchaseOrderDetailVariantIntegrationTest extends AbstractPostgresIntegrat
                     .isEqualByComparingTo("308.63");
 
             var listed = mockMvc.perform(get("/api/purchase-orders/{id}/details", purchaseOrderId)
-                            .with(jwt().authorities(ROLE_LC_ADMIN)))
+                            .with(adminPrincipal()))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.length()").value(1))
                     .andReturn();
@@ -563,7 +604,7 @@ class PurchaseOrderDetailVariantIntegrationTest extends AbstractPostgresIntegrat
             var purchaseOrderId = createEmptyPurchaseOrder();
 
             mockMvc.perform(post("/api/purchase-orders/{id}/details", purchaseOrderId)
-                            .with(jwt().authorities(ROLE_LC_ADMIN))
+                            .with(adminPrincipal())
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(detailPayload(product.getId(), variant.getId(), "2.505")))
                     .andExpect(status().isBadRequest());
@@ -580,7 +621,7 @@ class PurchaseOrderDetailVariantIntegrationTest extends AbstractPostgresIntegrat
             var purchaseOrderId = createEmptyPurchaseOrder();
 
             mockMvc.perform(post("/api/purchase-orders/{id}/details", purchaseOrderId)
-                            .with(jwt().authorities(ROLE_LC_ADMIN))
+                            .with(adminPrincipal())
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(detailPayload(product.getId(), variant.getId(), "3")))
                     .andExpect(status().isCreated())
@@ -613,7 +654,7 @@ class PurchaseOrderDetailVariantIntegrationTest extends AbstractPostgresIntegrat
             var purchaseOrderId = createEmptyPurchaseOrder();
 
             mockMvc.perform(post("/api/purchase-orders/{id}/details", purchaseOrderId)
-                            .with(jwt().authorities(ROLE_LC_ADMIN))
+                            .with(adminPrincipal())
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(detailPayloadWithPrice(product.getId(), variant.getId(), "12.345")))
                     .andExpect(status().isBadRequest());
@@ -630,7 +671,7 @@ class PurchaseOrderDetailVariantIntegrationTest extends AbstractPostgresIntegrat
             var purchaseOrderId = createEmptyPurchaseOrder();
 
             mockMvc.perform(post("/api/purchase-orders/{id}/details", purchaseOrderId)
-                            .with(jwt().authorities(ROLE_LC_ADMIN))
+                            .with(adminPrincipal())
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(detailPayloadWithPrice(product.getId(), variant.getId(), "123.45")))
                     .andExpect(status().isCreated())
@@ -656,7 +697,7 @@ class PurchaseOrderDetailVariantIntegrationTest extends AbstractPostgresIntegrat
             var payload = "{\"productId\":\"" + product.getId() + "\",\"quantity\":2,\"unitPrice\":15.00}";
 
             mockMvc.perform(post("/api/purchase-orders/{id}/details", purchaseOrderId)
-                            .with(jwt().authorities(ROLE_LC_ADMIN))
+                            .with(adminPrincipal())
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(payload))
                     .andExpect(status().isBadRequest())
@@ -677,7 +718,7 @@ class PurchaseOrderDetailVariantIntegrationTest extends AbstractPostgresIntegrat
                     + "\",\"productVariantId\":\"\",\"quantity\":2,\"unitPrice\":15.00}";
 
             mockMvc.perform(post("/api/purchase-orders/{id}/details", purchaseOrderId)
-                            .with(jwt().authorities(ROLE_LC_ADMIN))
+                            .with(adminPrincipal())
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(payload))
                     .andExpect(status().isBadRequest())
@@ -692,23 +733,30 @@ class PurchaseOrderDetailVariantIntegrationTest extends AbstractPostgresIntegrat
         void variantlessRowIsRejectedByDatabase() throws Exception {
             var product = createProduct();
             var purchaseOrderId = createEmptyPurchaseOrder();
-            var po = purchaseOrderRepository.findById(purchaseOrderId).orElseThrow();
             var pendingStatus = statusRepository.findById(pendingDetailStatusId).orElseThrow();
 
+            // The order is read and the legacy row written inside one stated tenant: the read answers
+            // not-found without it, and the row's parent would look unsaved to the flush.
+            //
             // V9 left the column nullable for legacy rows; V14 dropped that tolerance together
             // with the discarded data (D5), so the database itself now rejects the shape the old
             // HTTP contract could still produce.
-            assertThatThrownBy(() -> purchaseOrderDetailRepository.saveAndFlush(PurchaseOrderDetail.builder()
-                            .purchaseOrder(po)
-                            .product(product)
-                            .quantity(BigDecimal.valueOf(2))
-                            .unitPrice(new BigDecimal("15.00"))
-                            .total(new BigDecimal("30.00"))
-                            .receivedQuantity(BigDecimal.ZERO)
-                            .comments("Legacy row")
-                            .status(pendingStatus)
-                            .enabled(true)
-                            .build()))
+            assertThatThrownBy(() -> TenantFixtures.inTenant(companyId, () -> {
+                        var po = purchaseOrderRepository
+                                .findById(purchaseOrderId)
+                                .orElseThrow();
+                        purchaseOrderDetailRepository.saveAndFlush(PurchaseOrderDetail.builder()
+                                .purchaseOrder(po)
+                                .product(product)
+                                .quantity(BigDecimal.valueOf(2))
+                                .unitPrice(new BigDecimal("15.00"))
+                                .total(new BigDecimal("30.00"))
+                                .receivedQuantity(BigDecimal.ZERO)
+                                .comments("Legacy row")
+                                .status(pendingStatus)
+                                .enabled(true)
+                                .build());
+                    }))
                     .isInstanceOf(DataIntegrityViolationException.class);
         }
     }
@@ -724,7 +772,7 @@ class PurchaseOrderDetailVariantIntegrationTest extends AbstractPostgresIntegrat
             var ordersBefore = purchaseOrderRepository.count();
 
             mockMvc.perform(post("/api/purchase-orders")
-                            .with(jwt().authorities(ROLE_LC_ADMIN))
+                            .with(adminPrincipal())
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(orderPayloadWithLineMissingVariant(product.getId())))
                     .andExpect(status().isBadRequest())
@@ -742,7 +790,7 @@ class PurchaseOrderDetailVariantIntegrationTest extends AbstractPostgresIntegrat
             var ordersBefore = purchaseOrderRepository.count();
 
             mockMvc.perform(post("/api/purchase-orders")
-                            .with(jwt().authorities(ROLE_LC_ADMIN))
+                            .with(adminPrincipal())
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(orderPayloadWithNullDetailEntry()))
                     .andExpect(status().isBadRequest())
@@ -760,14 +808,14 @@ class PurchaseOrderDetailVariantIntegrationTest extends AbstractPostgresIntegrat
             var purchaseOrderId = createEmptyPurchaseOrder();
 
             mockMvc.perform(put("/api/purchase-orders/{id}", purchaseOrderId)
-                            .with(jwt().authorities(ROLE_LC_ADMIN))
+                            .with(adminPrincipal())
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(orderPayloadWithLineMissingVariant(product.getId())))
                     .andExpect(status().isBadRequest())
                     .andExpect(
                             jsonPath("$.errors['details[0].productVariantId']").value("productVariantId is required"));
 
-            assertThat(purchaseOrderRepository.findById(purchaseOrderId))
+            assertThat(TenantFixtures.inTenant(companyId, () -> purchaseOrderRepository.findById(purchaseOrderId)))
                     .as("order still exists after the rejected update")
                     .isPresent();
             assertThat(purchaseOrderDetailRepository.findByPurchaseOrderIdAndEnabledTrue(purchaseOrderId))
@@ -791,7 +839,7 @@ class PurchaseOrderDetailVariantIntegrationTest extends AbstractPostgresIntegrat
             var variant = createVariant(product.getId(), storeId);
 
             var created = mockMvc.perform(post("/api/purchase-orders")
-                            .with(jwt().authorities(ROLE_LC_ADMIN))
+                            .with(adminPrincipal())
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(orderPayloadWithNestedLine(product.getId(), variant.getId())))
                     .andExpect(status().isCreated())
@@ -807,7 +855,7 @@ class PurchaseOrderDetailVariantIntegrationTest extends AbstractPostgresIntegrat
                     .asText());
 
             var listed = mockMvc.perform(get("/api/purchase-orders/{id}/details", purchaseOrderId)
-                            .with(jwt().authorities(ROLE_LC_ADMIN)))
+                            .with(adminPrincipal()))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.length()").value(1))
                     .andExpect(jsonPath("$[0].productId").value(product.getId().toString()))
@@ -849,7 +897,7 @@ class PurchaseOrderDetailVariantIntegrationTest extends AbstractPostgresIntegrat
             var variant = createVariant(product.getId(), storeId);
 
             var created = mockMvc.perform(post("/api/purchase-orders")
-                            .with(jwt().authorities(ROLE_LC_ADMIN))
+                            .with(adminPrincipal())
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(orderPayloadWithNestedLineMissingStatus(product.getId(), variant.getId())))
                     .andExpect(status().isCreated())
@@ -863,7 +911,7 @@ class PurchaseOrderDetailVariantIntegrationTest extends AbstractPostgresIntegrat
                     .asText());
 
             mockMvc.perform(get("/api/purchase-orders/{id}/details", purchaseOrderId)
-                            .with(jwt().authorities(ROLE_LC_ADMIN)))
+                            .with(adminPrincipal()))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.length()").value(1))
                     .andExpect(jsonPath("$[0].productVariantId")
@@ -891,13 +939,13 @@ class PurchaseOrderDetailVariantIntegrationTest extends AbstractPostgresIntegrat
             var purchaseOrderId = createEmptyPurchaseOrder();
 
             mockMvc.perform(put("/api/purchase-orders/{id}", purchaseOrderId)
-                            .with(jwt().authorities(ROLE_LC_ADMIN))
+                            .with(adminPrincipal())
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(orderPayloadWithNestedLineMissingStatus(product.getId(), variant.getId())))
                     .andExpect(status().isOk());
 
             mockMvc.perform(get("/api/purchase-orders/{id}/details", purchaseOrderId)
-                            .with(jwt().authorities(ROLE_LC_ADMIN)))
+                            .with(adminPrincipal()))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.length()").value(1))
                     .andExpect(jsonPath("$[0].productVariantId")
@@ -930,7 +978,7 @@ class PurchaseOrderDetailVariantIntegrationTest extends AbstractPostgresIntegrat
                     pendingDetailStatusId);
 
             mockMvc.perform(post("/api/purchase-orders/{id}/details", purchaseOrderId)
-                            .with(jwt().authorities(ROLE_LC_ADMIN))
+                            .with(adminPrincipal())
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(detailRequest)))
                     .andExpect(status().isNotFound())
@@ -957,7 +1005,7 @@ class PurchaseOrderDetailVariantIntegrationTest extends AbstractPostgresIntegrat
                     pendingDetailStatusId);
 
             mockMvc.perform(post("/api/purchase-orders/{id}/details", purchaseOrderId)
-                            .with(jwt().authorities(ROLE_LC_ADMIN))
+                            .with(adminPrincipal())
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(detailRequest)))
                     .andExpect(status().isNotFound())
@@ -968,18 +1016,21 @@ class PurchaseOrderDetailVariantIntegrationTest extends AbstractPostgresIntegrat
         }
 
         private UUID createSecondStore() {
-            var zone = companyStoreRepository.findById(storeId).orElseThrow().getCompanyZone();
+            return TenantFixtures.inTenant(companyId, () -> {
+                var zone =
+                        companyStoreRepository.findById(storeId).orElseThrow().getCompanyZone();
 
-            var otherStore = companyStoreRepository.findByCompanyZoneId(zone.getId()).stream()
-                    .filter(candidate -> "PO Receipt Other Store".equals(candidate.getStoreName()))
-                    .findFirst()
-                    .orElseGet(() -> companyStoreRepository.save(CompanyStore.builder()
-                            .companyZone(zone)
-                            .storeName("PO Receipt Other Store")
-                            .enabled(true)
-                            .build()));
+                var otherStore = companyStoreRepository.findByCompanyZoneId(zone.getId()).stream()
+                        .filter(candidate -> "PO Receipt Other Store".equals(candidate.getStoreName()))
+                        .findFirst()
+                        .orElseGet(() -> companyStoreRepository.save(CompanyStore.builder()
+                                .companyZone(zone)
+                                .storeName("PO Receipt Other Store")
+                                .enabled(true)
+                                .build()));
 
-            return otherStore.getId();
+                return otherStore.getId();
+            });
         }
     }
 
@@ -1004,17 +1055,17 @@ class PurchaseOrderDetailVariantIntegrationTest extends AbstractPostgresIntegrat
             patchHeaderStatus(purchaseOrderId, "In Transit");
 
             // Partial receipt of line 1: Partial Received while the sibling line is still pending.
-            purchaseOrderService.registerReceivedQuantity(purchaseOrderId, line1, BigDecimal.valueOf(2));
+            registerReceivedQuantity(purchaseOrderId, line1, BigDecimal.valueOf(2));
             assertDetailState(purchaseOrderId, line1, "Partial Received", 2);
             assertHeaderStatus(purchaseOrderId, "In Transit");
 
             // Full receipt of line 1 alone must not promote the header while line 2 is pending.
-            purchaseOrderService.registerReceivedQuantity(purchaseOrderId, line1, BigDecimal.valueOf(5));
+            registerReceivedQuantity(purchaseOrderId, line1, BigDecimal.valueOf(5));
             assertDetailState(purchaseOrderId, line1, "Received", 5);
             assertHeaderStatus(purchaseOrderId, "In Transit");
 
             // Full receipt of the last enabled line promotes the header through PO_TRANSITIONS.
-            purchaseOrderService.registerReceivedQuantity(purchaseOrderId, line2, BigDecimal.valueOf(4));
+            registerReceivedQuantity(purchaseOrderId, line2, BigDecimal.valueOf(4));
             assertDetailState(purchaseOrderId, line2, "Received", 4);
             assertHeaderStatus(purchaseOrderId, "Received");
         }
@@ -1051,7 +1102,7 @@ class PurchaseOrderDetailVariantIntegrationTest extends AbstractPostgresIntegrat
                                     "/api/purchase-orders/{id}/details/{detailId}/status",
                                     UUID.randomUUID(),
                                     UUID.randomUUID())
-                            .with(jwt().authorities(ROLE_LC_ADMIN))
+                            .with(adminPrincipal())
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(statusRequest)))
                     .andExpect(status().isNotFound())
