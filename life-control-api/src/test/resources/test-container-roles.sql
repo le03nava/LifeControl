@@ -16,14 +16,19 @@
 -- option: a migration would put a role in version control without the credential that makes it
 -- usable, and the SQL that owns the role shape is the one the delivery uses.
 --
--- WHY IT IS INERT FOR THE SUITES THAT DO NOT NEED IT
--- --------------------------------------------------
--- No password, no tables, no membership: `LOGIN` is stated so the role carries the production shape
--- and neither role is a superuser. A suite that needs to read or write as the application role
--- switches inside its own connection with `SET ROLE lifecontrol_app` (which is what RLS then applies
--- to) instead of opening a second connection with a credential that would have to live in the tree.
--- Creating these two roles is all this file does for the roles themselves; nothing in the 64 classes
--- that extend the base is affected by their presence.
+-- WHY `lifecontrol_app` CARRIES A PASSWORD (record T6b)
+-- ------------------------------------------------------
+-- Because the pool connects as it. Before T6b the suite reached the database as `lifecontrol`, the
+-- container's SUPERUSER, and a superuser ALWAYS bypasses Row-Level Security — so every one of the
+-- sixteen ADR-0005 policies was installed and not one of them was ever observed by a test. S5 (#696)
+-- asks for the suite to pass *under* the policies, and that needs the pool to log in as the role the
+-- policies apply to; a pool logs in with a credential, not with `SET ROLE`.
+--
+-- The password is a literal in a test fixture on purpose and is not a secret: the container lives for
+-- one JVM, listens on a random loopback port, is created per run and is torn down at the end. Nothing
+-- in delivery reads this file; there the credential is `docker/secrets/lifecontrol_app_password`.
+-- `ALTER ROLE ... PASSWORD` after the `CREATE` keeps the file idempotent when it is replayed against a
+-- container that already has the role.
 DO $$
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'lifecontrol_owner') THEN
@@ -33,6 +38,25 @@ BEGIN
         CREATE ROLE lifecontrol_app LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
     END IF;
 END $$;
+
+ALTER ROLE lifecontrol_app PASSWORD 'lifecontrol_app';
+
+-- WHY THE APPLICATION ROLE MAY CREATE IN `public` HERE, AND MUST NOT IN DELIVERY
+-- ----------------------------------------------------------------------------
+-- Three suites own the DDL they assert on: `TenantScopeFunctionsIntegrationTest` and
+-- `TenantScopeBoundaryIntegrationTest` create `probe_*` tables to call `apply_tenant_isolation` on them,
+-- and `TenantIsolationStartupCheckIntegrationTest` creates one to prove the startup refusal names the
+-- unlisted table. The pool is `lifecontrol_app` from T6b on, so without this grant those twelve-plus
+-- cases fail with `permission denied for schema public` — a fixture limit, not a policy finding.
+--
+-- Delivery must NOT grant this, and the reason is the shape of the credential, not the size of the
+-- privilege: an application role that can create tables can build structures no row of `tenant_table`
+-- knows about, i.e. tables that carry the policies' key column and none of the policies. The startup
+-- assertion (`TenantIsolationStartupCheck`) exists to refuse exactly that, and it reads a list a role
+-- with DDL rights could outrun between two boots. Granting it in the container only keeps the fixture
+-- honest: the probe tables are created, armed and dropped inside one test, and nothing that survives the
+-- container is ever owned by `lifecontrol_app`.
+GRANT CREATE ON SCHEMA public TO lifecontrol_app;
 
 -- WHY IT ALSO CREATES THE TENANT RESOLVER
 -- --------------------------------------
