@@ -5,8 +5,10 @@
 # ADR-0005 decision 3 splits the database credential in two, and the reason is one PostgreSQL rule: a
 # **superuser always bypasses Row-Level Security**, so policies installed over a connection made as a
 # superuser would enforce nothing. `lifecontrol_owner` owns every object and runs Flyway;
-# `lifecontrol_app` owns nothing, may not bypass RLS, and is the role the pool will connect as (that
-# switch is the next slice, which is why no Java is touched here).
+# `lifecontrol_app` owns nothing, may not bypass RLS, and is the role the pool connects as. The delivery
+# half of that split — which secret feeds `spring.datasource` and which one feeds `spring.flyway` — is
+# `app-credential-split.test.sh`'s subject; this suite pins the roles, the grants, the env-file report
+# and the compose wiring around them.
 #
 # Pinned here, in the order a reader needs them:
 #
@@ -464,7 +466,6 @@ STUB
 chmod +x "$WORK/bin/docker"
 
 printf 'LIFECONTROL_POSTGRES_USER=lifecontrol_user\nLIFECONTROL_DATABASE_USERNAME=lifecontrol_user\n' >"$WORK/.env.dev"
-
 run_db_roles() {
 	: >"$WORK/docker.log"
 	(
@@ -493,8 +494,28 @@ assert_contains "it reports the key still naming the old role" "$DB_TEXT" \
 	"LIFECONTROL_POSTGRES_USER=lifecontrol_user is stale"
 assert_contains "it reports the API username the same way" "$DB_TEXT" \
 	"LIFECONTROL_DATABASE_USERNAME=lifecontrol_user is stale"
+assert_contains "it names the owner as the replacement for the postgres role" "$DB_TEXT" \
+	"LIFECONTROL_POSTGRES_USER=lifecontrol_user is stale: that key must name lifecontrol_owner"
+# The pool key is not the owner's: since the delivery split, an env file that still names the owner there
+# puts the credential that owns every table back into the pool, and no policy applies to it.
+assert_contains "it names the application role as the replacement for the pool key" "$DB_TEXT" \
+	"LIFECONTROL_DATABASE_USERNAME=lifecontrol_user is stale: that key must name lifecontrol_app"
 assert_contains "it names the replacement role" "$DB_TEXT" "lifecontrol_owner"
 assert_contains "it names the exporter as the other consumer that breaks" "$DB_TEXT" "postgres exporter"
+assert_contains "it names the pool as the consumer that would run as the wrong login" "$DB_TEXT" \
+	"the API's pool"
+
+# The pre-split value, which is what a materialized .env.dev from before this slice carries: the role
+# exists and authenticates, so nothing fails — the pool simply runs as the owner again, and that silence
+# is the whole reason this report exists.
+printf 'LIFECONTROL_POSTGRES_USER=lifecontrol_owner\nLIFECONTROL_DATABASE_USERNAME=lifecontrol_owner\n' >"$WORK/.env.dev"
+run_db_roles env
+check_equal "an env file naming the owner as the pool user still starts" "0" "$DB_RC"
+assert_contains "it reports the owner in the pool key as stale" "$DB_TEXT" \
+	"LIFECONTROL_DATABASE_USERNAME=lifecontrol_owner is stale: that key must name lifecontrol_app"
+assert_absent "the postgres role key is not reported when it already names the owner" "$DB_TEXT" \
+	"LIFECONTROL_POSTGRES_USER=lifecontrol_owner is stale"
+printf 'LIFECONTROL_POSTGRES_USER=lifecontrol_user\nLIFECONTROL_DATABASE_USERNAME=lifecontrol_user\n' >"$WORK/.env.dev"
 
 run_db_roles env FAIL_ON="/docker-entrypoint-initdb.d/10-lifecontrol-roles.sh"
 check_equal "a failing role script fails db-roles.sh" "1" "$DB_RC"
@@ -560,8 +581,8 @@ assert_contains "the prod exporter follows it too" "$prod_exporter_block" \
 
 assert_file_contains "the template declares the owner name a fresh volume creates" \
 	"$DOCKER_DIR/.env.template" "LIFECONTROL_POSTGRES_USER=lifecontrol_owner"
-assert_file_contains "the template points the API at the owner until the pool switch" \
-	"$DOCKER_DIR/.env.template" "LIFECONTROL_DATABASE_USERNAME=lifecontrol_owner"
+assert_file_contains "the template points the pool at the application role" \
+	"$DOCKER_DIR/.env.template" "LIFECONTROL_DATABASE_USERNAME=lifecontrol_app"
 
 # ------------------------------------------
 # 6. The credential is a secret file, and the API wrapper exports both.
@@ -578,9 +599,15 @@ else
 fi
 
 assert_file_contains "the API wrapper reads the pool credential" "$ENTRYPOINT" "/run/secrets/lifecontrol_app_password"
-assert_file_contains "it exports it as DATABASE_APP_PASSWORD" "$ENTRYPOINT" "DATABASE_APP_PASSWORD="
-assert_file_contains "it still exports the owner credential as DATABASE_PASSWORD" "$ENTRYPOINT" "DATABASE_PASSWORD="
-assert_file_contains "it still refuses a missing owner credential" "$ENTRYPOINT" "FATAL: \$secret_file is missing or empty"
+assert_file_contains "it exports it as the pool's password" "$ENTRYPOINT" 'export DATABASE_PASSWORD="$(cat "$app_secret_file")"'
+assert_file_contains "it exports the owner credential for Flyway, under its own name" "$ENTRYPOINT" \
+	'export FLYWAY_PASSWORD="$(cat "$owner_secret_file")"'
+assert_file_absent "the pool's password is never the owner's file" "$ENTRYPOINT" \
+	'export DATABASE_PASSWORD="$(cat "$owner_secret_file")"'
+assert_file_contains "it still refuses a missing owner credential" "$ENTRYPOINT" \
+	'FATAL: $owner_secret_file is missing or empty'
+assert_file_contains "it still refuses a missing pool credential" "$ENTRYPOINT" \
+	'FATAL: $app_secret_file is missing or empty'
 assert_file_contains "the launch command is unchanged" "$ENTRYPOINT" "exec java"
 assert_absent "no compose file or template holds the app password as a value" \
 	"$(cat "$COMPOSE_BASE" "$COMPOSE_PROD" "$DOCKER_DIR/.env.template")" "lifecontrol_app_password="
