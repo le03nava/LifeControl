@@ -10,6 +10,7 @@ import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Persistence access for the company-scoped employee registry.
@@ -83,7 +84,25 @@ public interface EmployeeRepository extends JpaRepository<Employee, UUID> {
      * {@code employees}, so an inner join cannot drop a row that the inherited {@code findById} would
      * have returned — the two finders agree on existence, and the caller's "vanished row" branch keeps
      * meaning what it says.</p>
+     *
+     * <p><b>Why this finder owns a read-only transaction, and why it has to.</b> A declared {@code @Query}
+     * method carries no transaction of its own, and ADR-0005 installs the tenant in
+     * {@code TenantScopeJpaTransactionManager#doBegin}: a read that owns no boundary therefore has nowhere
+     * to install the tenant its caller stated, so {@code set_config('app.company_id', …, true)} is never
+     * issued for it and the policy filters every row. Measured on T6b-3 with the pool connected as
+     * {@code lifecontrol_app}: inside the worker's stated scope this finder answered {@code present=false}
+     * while the inherited {@code findById} — which {@code SimpleJpaRepository} already makes transactional —
+     * answered {@code present=true}, and the worker turned that empty read into "Employee not found" for
+     * every claimed task. The boundary belongs here rather than in a service that would exist only to carry
+     * a transaction: this is the one production caller's read ({@code AccessProvisioningWorker#process}),
+     * and stating it where the query lives keeps the fail-closed direction — an employee of another company
+     * is still a read that returns empty, so the caller's own not-found branch fails the task instead of
+     * applying it to the wrong tenant.</p>
+     *
+     * <p>{@code readOnly = true} is the honest value: the statement is a {@code SELECT} with two fetch
+     * joins, it modifies nothing, and this interface declares no {@code @Modifying} query at all.</p>
      */
+    @Transactional(readOnly = true)
     @Query("SELECT e FROM Employee e JOIN FETCH e.company JOIN FETCH e.status WHERE e.id = :id")
     Optional<Employee> findByIdWithCompanyAndStatus(@Param("id") UUID id);
 

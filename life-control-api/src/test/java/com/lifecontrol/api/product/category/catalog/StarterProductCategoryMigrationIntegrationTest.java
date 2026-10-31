@@ -159,8 +159,15 @@ class StarterProductCategoryMigrationIntegrationTest extends AbstractPostgresInt
      * The suite's company, flushed before any raw JDBC runs: the script and the fixtures below read
      * {@code companies} through the same connection but not through the persistence context, and a
      * pending insert would make the migration's {@code JOIN companies} see no company at all.
+     *
+     * <p>The tenant is stated <b>inside</b> the test's already-open transaction before the seed runs (record
+     * L24, cause B), and the id it states is the one the seed derives from the key, so the statement and the
+     * row it admits are about the same company. This is also what makes the replay seed only this suite's
+     * company: V35 joins {@code companies}, which the policy has already filtered to that one tenant.</p>
      */
     private UUID companyId() {
+        var derived = TenantFixtures.derivedId(COMPANY_KEY);
+        TenantFixtures.stateTenantWithinTheOpenTransaction(derived, jdbcTemplate);
         return TenantFixtures.findOrCreateAndFlush(
                         companyRepository, COMPANY_KEY, "Starter Catalog Migration Test Company", COMPANY_RFC)
                 .getId();

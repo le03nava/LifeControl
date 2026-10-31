@@ -23,6 +23,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.test.web.servlet.MockMvc;
@@ -62,6 +63,9 @@ class CompanyCountryScopedReadHttpIntegrationTest extends AbstractPostgresIntegr
     @Autowired
     private EntityManager em;
 
+    @Autowired
+    private JdbcTemplate jdbc;
+
     private UUID companyId;
     private UUID foreignCompanyId;
     private UUID claimedCountryRelationId;
@@ -76,23 +80,13 @@ class CompanyCountryScopedReadHttpIntegrationTest extends AbstractPostgresIntegr
         em.persist(claimedCountry);
         em.persist(siblingCountry);
 
-        var company = TenantFixtures.persist(
-                em,
-                Company.builder()
-                        .companyKey("COUNTRY-SCOPE-HTTP-KEY")
-                        .companyName("Country Scope HTTP Company")
-                        .rfc("CSHT010101AB")
-                        .build());
-        var foreignCompany = TenantFixtures.persist(
-                em,
-                Company.builder()
-                        .companyKey("COUNTRY-SCOPE-HTTP-FOREIGN-KEY")
-                        .companyName("Country Scope HTTP Foreign Company")
-                        .rfc("CSHT020202CD")
-                        .build());
+        var company = persistCompany("COUNTRY-SCOPE-HTTP-KEY", "Country Scope HTTP Company", "CSHT010101AB");
+        var foreignCompany =
+                persistCompany("COUNTRY-SCOPE-HTTP-FOREIGN-KEY", "Country Scope HTTP Foreign Company", "CSHT020202CD");
         companyId = company.getId();
         foreignCompanyId = foreignCompany.getId();
 
+        useTenant(companyId);
         var claimed = CompanyCountry.builder()
                 .company(company)
                 .country(claimedCountry)
@@ -106,14 +100,53 @@ class CompanyCountryScopedReadHttpIntegrationTest extends AbstractPostgresIntegr
         claimedCountryRelationId = claimed.getId();
         siblingCountryRelationId = sibling.getId();
 
+        useTenant(foreignCompanyId);
         var foreignCountryRelation = CompanyCountry.builder()
                 .company(foreignCompany)
                 .country(claimedCountry)
                 .build();
         em.persist(foreignCountryRelation);
 
-        em.flush();
+        // Back to the tenant every case below works on; the switch flushes the foreign row under its own
+        // scope first, so nothing is left pending when the persistence context is cleared.
+        useTenant(companyId);
         em.clear();
+    }
+
+    /**
+     * Persists one {@code companies} row in <b>this suite's own</b> transaction, stating that row's id as the
+     * tenant before the insert.
+     *
+     * <p>Why the id is chosen here: a company's tenant is its own id, so the value has to be known and stated
+     * before the insert that writes it, and no single stated value can admit two {@code companies} rows.</p>
+     *
+     * <p>This suite's transaction is the test's own, opened before {@code @BeforeEach} ran, so
+     * {@code TenantFixtures.persist} cannot help here: its scope is read by a boundary that has already
+     * happened (record L24, cause B), which is why the scope is stated inside the open transaction.</p>
+     */
+    private Company persistCompany(String companyKey, String companyName, String rfc) {
+        var company = Company.builder()
+                .id(UUID.randomUUID())
+                .companyKey(companyKey)
+                .companyName(companyName)
+                .rfc(rfc)
+                .build();
+        useTenant(company.getId());
+        em.persist(company);
+        return company;
+    }
+
+    /**
+     * Switches the transaction to {@code companyId}: the statements the previous tenant left pending run under
+     * that tenant first, and the new value is stated after them.
+     *
+     * <p>The flush is not optional. A stated tenant applies to the statements that execute while it is stated,
+     * and Hibernate defers an insert until the next flush — so switching without flushing would run the
+     * previous tenant's insert under the new tenant's scope and meet the {@code WITH CHECK} of its table.</p>
+     */
+    private void useTenant(UUID companyId) {
+        em.flush();
+        TenantFixtures.stateTenantWithinTheOpenTransaction(companyId, jdbc);
     }
 
     /** A caller with the given roles and claim pairs, as a real JWT in the security context. */

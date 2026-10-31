@@ -3,6 +3,7 @@ package com.lifecontrol.api.provisioning;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.lifecontrol.api.common.tenant.TenantScope;
 import com.lifecontrol.api.company.model.Company;
 import com.lifecontrol.api.company.repository.CompanyRepository;
 import com.lifecontrol.api.hr.model.Employee;
@@ -22,6 +23,7 @@ import com.lifecontrol.api.support.TenantFixtures;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.UUID;
+import java.util.function.Supplier;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -165,6 +167,15 @@ class AccessProvisioningProducerTransactionIntegrationTest extends AbstractPostg
     }
 
     private void deleteFixtures() {
+        // Inside this suite's tenant: an unscoped DELETE on an armed table removes zero rows and reports
+        // success (record L26), so the employee delete used to leave the previous method's row behind and the
+        // next seed met it. The id is the one the seed derives from the same key, so it is known before the
+        // first call runs.
+        TenantFixtures.inTenant(TenantFixtures.derivedId(COMPANY_KEY), this::deleteRowsOfThisSuite);
+    }
+
+    /** The row deletes themselves, verbatim: the wrapper above is the only difference between runs. */
+    private void deleteRowsOfThisSuite() {
         // Leaf-first and scoped to this suite's own company key, so a fixture another suite left in
         // these shared tables is never removed.
         jdbcTemplate.update("""
@@ -187,8 +198,16 @@ class AccessProvisioningProducerTransactionIntegrationTest extends AbstractPostg
         jdbcTemplate.update("DELETE FROM companies WHERE company_key = ?", COMPANY_KEY);
     }
 
+    /**
+     * Seeds the company and its active employee, deriving the company's id from its natural key so the
+     * cleanup above can state the tenant before the seed runs.
+     *
+     * <p>The employee write runs in the company's tenant: the save opens its own transaction, and the
+     * employee row carries {@code company_id}, which the policy checks against the setting that
+     * transaction's boundary installed (record T6b-2's rule).</p>
+     */
     private void seedActiveEmployee() {
-        var company = TenantFixtures.persist(
+        var company = TenantFixtures.findOrCreate(
                 companyRepository,
                 Company.builder()
                         .companyKey(COMPANY_KEY)
@@ -199,18 +218,40 @@ class AccessProvisioningProducerTransactionIntegrationTest extends AbstractPostg
                         .build());
         companyId = company.getId();
 
-        var employee = employeeRepository.save(Employee.builder()
-                .company(company)
-                .employeeNumber("PROV-1")
-                .firstName("Juan")
-                .paternalLastName("Pérez")
-                .email("juan.perez@prov-producer.example")
-                .birthDate(LocalDate.of(1990, 1, 1))
-                .hireDate(LocalDate.of(2020, 1, 1))
-                .status(status("Active"))
-                .enabled(true)
-                .build());
-        employeeId = employee.getId();
+        employeeId = inThisSuite(() -> employeeRepository
+                .save(Employee.builder()
+                        .company(company)
+                        .employeeNumber("PROV-1")
+                        .firstName("Juan")
+                        .paternalLastName("Pérez")
+                        .email("juan.perez@prov-producer.example")
+                        .birthDate(LocalDate.of(1990, 1, 1))
+                        .hireDate(LocalDate.of(2020, 1, 1))
+                        .status(status("Active"))
+                        .enabled(true)
+                        .build())
+                .getId());
+    }
+
+    /**
+     * Runs {@code work} with this suite's tenant stated, for the call sites that open their own transaction.
+     *
+     * <p>{@link TenantScope#with} and not a transaction: these calls already own a boundary — a repository's
+     * {@code @Transactional}, this suite's own {@code TransactionTemplate}, or the producer's service
+     * annotation — and the holder is what that boundary reads at {@code doBegin}. It is the shape record L27
+     * recorded for the worker suites, and the alternative (a {@code REQUIRES_NEW} wrapper) would change the
+     * commit boundaries this suite exists to observe.</p>
+     */
+    private <T> T inThisSuite(Supplier<T> work) {
+        return TenantScope.with(companyId, work);
+    }
+
+    /** The writing half of {@link #inThisSuite(Supplier)}. */
+    private void inThisSuite(Runnable work) {
+        inThisSuite(() -> {
+            work.run();
+            return null;
+        });
     }
 
     private Status status(String name) {
@@ -220,15 +261,17 @@ class AccessProvisioningProducerTransactionIntegrationTest extends AbstractPostg
     }
 
     private void openTaskExists(AccessProvisioningTaskKind kind) {
-        var employee = employeeRepository.findById(employeeId).orElseThrow();
-        taskRepository.save(AccessProvisioningTask.builder()
-                .employee(employee)
-                .kind(kind)
-                .status(AccessProvisioningTaskStatus.PENDING)
-                .requestedBy(ACTOR_SUB)
-                .requestedAt(LocalDateTime.now())
-                .attempts(0)
-                .build());
+        inThisSuite(() -> {
+            var employee = employeeRepository.findById(employeeId).orElseThrow();
+            taskRepository.save(AccessProvisioningTask.builder()
+                    .employee(employee)
+                    .kind(kind)
+                    .status(AccessProvisioningTaskStatus.PENDING)
+                    .requestedBy(ACTOR_SUB)
+                    .requestedAt(LocalDateTime.now())
+                    .attempts(0)
+                    .build());
+        });
     }
 
     @Test
@@ -236,23 +279,23 @@ class AccessProvisioningProducerTransactionIntegrationTest extends AbstractPostg
     void theFactCommitsAndThePromiseIsNotDuplicated() {
         openTaskExists(AccessProvisioningTaskKind.DEACTIVATE);
 
-        new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+        inThisSuite(() -> new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
             var employee = employeeRepository.findById(employeeId).orElseThrow();
             employee.setStatus(status("Terminated"));
             employee.setTerminationDate(LocalDate.of(2026, 1, 1));
             employeeRepository.save(employee);
 
             producer.onEmploymentTerminated(companyId, employee);
-        });
+        }));
 
         // The status is a lazy association, so it is read inside a session: outside one, a detached
         // employee's status proxy cannot be initialized and the assertion would fail for the wrong
         // reason.
-        new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+        inThisSuite(() -> new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
             var committed = employeeRepository.findById(employeeId).orElseThrow();
             assertThat(committed.getStatus().getStatusName()).isEqualTo("Terminated");
             assertThat(committed.getTerminationDate()).isEqualTo(LocalDate.of(2026, 1, 1));
-        });
+        }));
         assertThat(taskRepository.findByEmployeeIdOrderByRequestedAtDesc(employeeId))
                 .as("the queued task already represents the fact, so the producer must not add another")
                 .hasSize(1);
@@ -268,7 +311,7 @@ class AccessProvisioningProducerTransactionIntegrationTest extends AbstractPostg
                 .get(0)
                 .getId();
 
-        new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+        inThisSuite(() -> new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
             taskService.supersede(employeeId, staleId, ACTOR_SUB, "Superseded by a newer fact");
             taskService.create(
                     companyId,
@@ -276,7 +319,7 @@ class AccessProvisioningProducerTransactionIntegrationTest extends AbstractPostg
                     AccessProvisioningTaskKind.DEACTIVATE,
                     ACTOR_SUB,
                     AccessProvisioningTaskStatus.PENDING);
-        });
+        }));
 
         var tasks = taskRepository.findByEmployeeIdOrderByRequestedAtDesc(employeeId);
         assertThat(tasks)
@@ -303,11 +346,12 @@ class AccessProvisioningProducerTransactionIntegrationTest extends AbstractPostg
     void theNaiveShapeCannotSwallowTheRefusal() {
         openTaskExists(AccessProvisioningTaskKind.DEACTIVATE);
 
-        assertThatThrownBy(() -> naiveFactWriter.writeFactAndSwallow(companyId, employeeId))
+        assertThatThrownBy(() -> inThisSuite(() -> naiveFactWriter.writeFactAndSwallow(companyId, employeeId)))
                 .as("the boundary that threw marked the joined transaction rollback-only, so the fact dies at commit")
                 .isInstanceOf(UnexpectedRollbackException.class);
 
-        assertThat(employeeRepository.findById(employeeId).orElseThrow().getPhoneNumber())
+        assertThat(inThisSuite(() ->
+                        employeeRepository.findById(employeeId).orElseThrow().getPhoneNumber()))
                 .as("the fact rolled back with the transaction that could not commit")
                 .isNotEqualTo(SWALLOWED_PHONE);
         assertThat(jdbcTemplate.queryForObject(

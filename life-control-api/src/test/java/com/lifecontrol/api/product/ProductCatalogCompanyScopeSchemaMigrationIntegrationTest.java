@@ -2,6 +2,7 @@ package com.lifecontrol.api.product;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowable;
 
 import com.lifecontrol.api.company.repository.CompanyRepository;
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
@@ -15,6 +16,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.jdbc.BadSqlGrammarException;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
@@ -94,16 +96,28 @@ class ProductCatalogCompanyScopeSchemaMigrationIntegrationTest extends AbstractP
     @Test
     @DisplayName("products.company_id is NOT NULL: an unattributable product cannot be stored")
     void productWithoutCompanyIsRejected() {
-        assertThatThrownBy(() -> jdbcTemplate.update("""
+        var refused = catchThrowable(() -> jdbcTemplate.update("""
                         INSERT INTO products (id, sku, name) VALUES (?, 'PCS-NO-COMPANY', 'Unattributable')
-                        """, UUID.randomUUID()))
-                .as("a product nobody can attribute has no company and no owner")
-                .isInstanceOf(DataIntegrityViolationException.class)
-                .satisfies(thrown -> assertThat(((DataIntegrityViolationException) thrown)
-                                .getMostSpecificCause()
-                                .getMessage())
-                        .contains("company_id")
-                        .contains("not-null"));
+                        """, UUID.randomUUID()));
+
+        // The column is what makes the row unattributable and the policy is what answers first, so which
+        // layer refuses it is the pool's answer and both halves are asserted as their own fact (record L27).
+        if (poolIsTheApplicationRole()) {
+            assertThat(refused)
+                    .as("a product nobody can attribute has no company: the policy refuses the insert with "
+                            + "SQLSTATE 42501 before NOT NULL can fire, which is the order ADR-0005 chose")
+                    .isInstanceOf(BadSqlGrammarException.class)
+                    .satisfies(thrown -> assertThat(deepestMessage(thrown))
+                            .contains("row-level security policy for table \"products\"")
+                            .doesNotContain("not-null"));
+        } else {
+            assertThat(refused)
+                    .as("a product nobody can attribute has no company and no owner")
+                    .isInstanceOf(DataIntegrityViolationException.class)
+                    .satisfies(thrown -> assertThat(deepestMessage(thrown))
+                            .contains("company_id")
+                            .contains("not-null"));
+        }
 
         assertThat(countProducts(catalogCompanyId())).isZero();
     }
@@ -114,19 +128,38 @@ class ProductCatalogCompanyScopeSchemaMigrationIntegrationTest extends AbstractP
         var companyId = catalogCompanyId();
         var productId = insertProduct(companyId, "PCS-VARIANT-NO-COMPANY", null);
 
-        assertThatThrownBy(() -> jdbcTemplate.update("""
+        var refused = catchThrowable(() -> jdbcTemplate.update("""
                         INSERT INTO product_variants (id, product_id, bar_code, variant_name)
                         VALUES (?, ?, 'PCS-BC-NO-COMPANY', '26')
-                        """, UUID.randomUUID(), productId))
-                .as("the barcode key is per company, so the row has to name its company")
-                .isInstanceOf(DataIntegrityViolationException.class)
-                .satisfies(thrown -> assertThat(((DataIntegrityViolationException) thrown)
-                                .getMostSpecificCause()
-                                .getMessage())
-                        .contains("company_id")
-                        .contains("not-null"));
+                        """, UUID.randomUUID(), productId));
+
+        if (poolIsTheApplicationRole()) {
+            assertThat(refused)
+                    .as("the barcode key is per company, so the row has to name its company: the policy refuses "
+                            + "it with SQLSTATE 42501 before NOT NULL can fire")
+                    .isInstanceOf(BadSqlGrammarException.class)
+                    .satisfies(thrown -> assertThat(deepestMessage(thrown))
+                            .contains("row-level security policy for table \"product_variants\"")
+                            .doesNotContain("not-null"));
+        } else {
+            assertThat(refused)
+                    .as("the barcode key is per company, so the row has to name its company")
+                    .isInstanceOf(DataIntegrityViolationException.class)
+                    .satisfies(thrown -> assertThat(deepestMessage(thrown))
+                            .contains("company_id")
+                            .contains("not-null"));
+        }
 
         assertThat(countVariants(companyId)).isZero();
+    }
+
+    /** The reason PostgreSQL gave, whichever Spring exception carried it. */
+    private String deepestMessage(Throwable thrown) {
+        var cause = thrown;
+        while (cause.getCause() != null && cause.getCause() != cause) {
+            cause = cause.getCause();
+        }
+        return String.valueOf(cause.getMessage());
     }
 
     @Test

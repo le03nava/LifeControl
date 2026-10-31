@@ -20,6 +20,7 @@ import com.lifecontrol.api.hr.model.Employee;
 import com.lifecontrol.api.hr.model.Position;
 import com.lifecontrol.api.hr.model.PositionRole;
 import com.lifecontrol.api.hr.repository.ContractRepository;
+import com.lifecontrol.api.hr.repository.PositionRepository;
 import com.lifecontrol.api.hr.repository.PositionRoleRepository;
 import com.lifecontrol.api.provisioning.exception.AccountNotLinkedException;
 import com.lifecontrol.api.provisioning.exception.AmbiguousCurrentContractException;
@@ -32,6 +33,7 @@ import com.lifecontrol.api.usersadmin.identity.RoleScope;
 import java.time.LocalDate;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -70,6 +72,9 @@ class AccessProvisioningRoleServiceTest {
     @Mock
     private PositionRoleRepository positionRoleRepository;
 
+    @Mock
+    private PositionRepository positionRepository;
+
     @InjectMocks
     private AccessProvisioningRoleService service;
 
@@ -99,6 +104,13 @@ class AccessProvisioningRoleServiceTest {
                 .build();
         employee = linkedEmployee(company);
         lenient().when(applicationClientProperties.clientId()).thenReturn(CLIENT_ID);
+        // The ownership question is an id predicate over departments.company_id, so the stub answers for the
+        // fixture pair (this company, this position) and the refusal cases below keep the default: the finder
+        // finds nothing, which is the same "outside the company" answer without any department being walked
+        // into. Lenient because the revoked, unlinked and ambiguous-contract paths return before it is asked.
+        lenient()
+                .when(positionRepository.findByDepartmentCompanyIdAndId(companyId, positionId))
+                .thenReturn(Optional.of(position));
     }
 
     // --- fixtures ---

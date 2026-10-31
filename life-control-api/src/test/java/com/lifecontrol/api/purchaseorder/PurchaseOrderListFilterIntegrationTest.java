@@ -250,10 +250,16 @@ class PurchaseOrderListFilterIntegrationTest extends AbstractPostgresIntegration
      * that assertion, and a token cannot carry two companies on a company-less path anyway: two claims are
      * refused, which is the policy statement this class now exercises rather than a fixture limit.</p>
      */
-    private org.springframework.test.web.servlet.request.RequestPostProcessor adminPrincipal() {
+    /** An administrator whose only {@code company_id} claim names {@code claimedCompany}. */
+    private org.springframework.test.web.servlet.request.RequestPostProcessor adminPrincipal(UUID claimedCompany) {
         return jwt().authorities(ROLE_LC_ADMIN)
                 .jwt(builder ->
-                        builder.claim("preferred_username", "admin").claim("company_id", companyAId.toString()));
+                        builder.claim("preferred_username", "admin").claim("company_id", claimedCompany.toString()));
+    }
+
+    /** The same administrator claiming this suite's company A, which is what most cases here are about. */
+    private org.springframework.test.web.servlet.request.RequestPostProcessor adminPrincipal() {
+        return adminPrincipal(companyAId);
     }
 
     private Company findOrCreateCompany(String key, String name, String rfc) {
@@ -362,7 +368,14 @@ class PurchaseOrderListFilterIntegrationTest extends AbstractPostgresIntegration
     // ─── helpers ────────────────────────────────────────────────────────
 
     private JsonNode listOrders(Consumer<MockHttpServletRequestBuilder> params) throws Exception {
-        var request = get("/api/purchase-orders").param("size", "200").with(adminPrincipal());
+        return listOrders(adminPrincipal(), params);
+    }
+
+    private JsonNode listOrders(
+            org.springframework.test.web.servlet.request.RequestPostProcessor principal,
+            Consumer<MockHttpServletRequestBuilder> params)
+            throws Exception {
+        var request = get("/api/purchase-orders").param("size", "200").with(principal);
         params.accept(request);
         var result = mockMvc.perform(request).andExpect(status().isOk()).andReturn();
         return objectMapper.readTree(result.getResponse().getContentAsString());
@@ -418,9 +431,16 @@ class PurchaseOrderListFilterIntegrationTest extends AbstractPostgresIntegration
 
     // ─── company / company country ──────────────────────────────────────
 
+    /**
+     * The rule the maintainer took for this case: <b>a caller selects a company and the company travels in
+     * the request</b>. There is deliberately no cross-company administrator view, so the two halves below are
+     * two callers — one entitled to A, one entitled to B — each naming its own company and receiving exactly
+     * that company's rows. The original version asked one caller claiming A for company B and expected B's
+     * orders, which is the view that is not a requirement.
+     */
     @Test
-    @DisplayName("should exclude the orders of another company")
-    void companyFilter_excludesOtherCompanyOrders() throws Exception {
+    @DisplayName("a caller names the company it reads and receives exactly that company's orders")
+    void companyFilter_readsTheCompanyTheRequestNames() throws Exception {
         var companyAPage = listOrders(request -> request.param("companyId", companyAId.toString()));
         assertThat(orderNumbers(companyAPage))
                 .containsExactlyInAnyOrder(order(ALPHA), order(BETA_ONE), order(BETA_TWO));
@@ -428,8 +448,41 @@ class PurchaseOrderListFilterIntegrationTest extends AbstractPostgresIntegration
                 .get("content")
                 .forEach(node -> assertThat(node.get("companyId").asText()).isEqualTo(companyAId.toString()));
 
-        var companyBPage = listOrders(request -> request.param("companyId", companyBId.toString()));
+        var companyBPage =
+                listOrders(adminPrincipal(companyBId), request -> request.param("companyId", companyBId.toString()));
         assertThat(orderNumbers(companyBPage)).containsExactly(order(GAMMA));
+        companyBPage
+                .get("content")
+                .forEach(node -> assertThat(node.get("companyId").asText()).isEqualTo(companyBId.toString()));
+    }
+
+    /**
+     * The other half of the same decision, stated where it can be enforced: a caller that names a company
+     * outside its own scope gets <b>nothing</b> — not that company's rows, and not an error that would
+     * describe whether the company exists.
+     *
+     * <p>Which of the two answers arrives is what the pool decides, and the difference is the policy rather
+     * than the query: with the application role the request's tenant is the caller's claim, so the rows of the
+     * company it names are not visible and the page is empty; the container's superuser bypasses every policy,
+     * so the same request reads the named company's rows and the query predicate is the only thing left
+     * deciding. Both halves are asserted as their own fact instead of being widened to "either".</p>
+     */
+    @Test
+    @DisplayName("a caller naming a company outside its own scope is never given that company's orders")
+    void companyFilter_neverLeaksAnotherCompanysOrders() throws Exception {
+        var foreignPage = listOrders(request -> request.param("companyId", companyBId.toString()));
+
+        if (poolIsTheApplicationRole()) {
+            assertThat(orderNumbers(foreignPage))
+                    .as("the tenant the caller may read is the one its scope states, so naming another "
+                            + "company buys nothing: the request cannot name its way across tenants")
+                    .isEmpty();
+            assertThat(foreignPage.get("totalElements").asLong()).isZero();
+        } else {
+            assertThat(orderNumbers(foreignPage))
+                    .as("the superuser pool bypasses the policy, so here the query predicate alone decides")
+                    .containsExactly(order(GAMMA));
+        }
     }
 
     @Test
@@ -496,6 +549,15 @@ class PurchaseOrderListFilterIntegrationTest extends AbstractPostgresIntegration
 
         assertThat(page.get("totalElements").asLong()).isEqualTo(previous.getTotalElements());
         assertThat(orderNumbers(page)).isEqualTo(previousOrderNumbers);
-        assertThat(orderNumbers(page)).contains(order(ALPHA), order(BETA_ONE), order(BETA_TWO), order(GAMMA));
+        // Company B's order is deliberately not in the expectation any more: with no filter the page is the
+        // caller's own company page, because the company travels in the caller's scope and there is no
+        // cross-company administrator view. Under the policy that is also what makes the order of another
+        // company unreachable here, which is asserted where it can be enforced.
+        assertThat(orderNumbers(page)).contains(order(ALPHA), order(BETA_ONE), order(BETA_TWO));
+        if (poolIsTheApplicationRole()) {
+            assertThat(orderNumbers(page))
+                    .as("an unfiltered page is the caller's company's page, never every company's")
+                    .doesNotContain(order(GAMMA));
+        }
     }
 }

@@ -6,6 +6,7 @@ import com.lifecontrol.api.hr.model.Employee;
 import com.lifecontrol.api.hr.model.Position;
 import com.lifecontrol.api.hr.model.PositionRole;
 import com.lifecontrol.api.hr.repository.ContractRepository;
+import com.lifecontrol.api.hr.repository.PositionRepository;
 import com.lifecontrol.api.hr.repository.PositionRoleRepository;
 import com.lifecontrol.api.hr.service.EmployeeStatuses;
 import com.lifecontrol.api.hr.service.GrantablePositionRoles;
@@ -20,7 +21,6 @@ import java.time.LocalDate;
 import java.util.Objects;
 import java.util.Set;
 import java.util.TreeSet;
-import java.util.UUID;
 import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -56,16 +56,19 @@ public class AccessProvisioningRoleService {
     private final ApplicationClientProperties applicationClientProperties;
     private final ContractRepository contractRepository;
     private final PositionRoleRepository positionRoleRepository;
+    private final PositionRepository positionRepository;
 
     public AccessProvisioningRoleService(
             IdentityProvider identityProvider,
             ApplicationClientProperties applicationClientProperties,
             ContractRepository contractRepository,
-            PositionRoleRepository positionRoleRepository) {
+            PositionRoleRepository positionRoleRepository,
+            PositionRepository positionRepository) {
         this.identityProvider = identityProvider;
         this.applicationClientProperties = applicationClientProperties;
         this.contractRepository = contractRepository;
         this.positionRoleRepository = positionRoleRepository;
+        this.positionRepository = positionRepository;
     }
 
     /**
@@ -180,28 +183,39 @@ public class AccessProvisioningRoleService {
                 .collect(Collectors.toCollection(TreeSet::new));
     }
 
+    /**
+     * The position the contract names, once this service has established that it belongs to the employee's
+     * company.
+     *
+     * <p><b>Ownership is decided by a {@code company_id} comparison, never by walking into the department.</b>
+     * A position carries no {@code company_id} of its own (decision T7) — it inherits its company through
+     * {@code department_id} — so the earlier check read {@code position.getDepartment().getCompany().getId()}.
+     * That traversal is what ADR-0005 turned into a defect: {@code departments} is one of the sixteen armed
+     * tables, so the department of another company is a row <b>this caller may not see</b>, and initializing
+     * its lazy proxy made Hibernate raise {@code EntityNotFoundException} — "No row with the given identifier
+     * exists for entity [Department …]" — instead of answering the ownership question. It is not a test
+     * artefact: in delivery a request naming a foreign position reached the same mapping exception instead of
+     * this refusal. The finder below asks the identical question as a predicate over the ids the rows already
+     * carry ({@code departments.company_id = :companyId and positions.id = :id}), so nothing is decided by
+     * reading a row the caller is not allowed to see: a department the policy filters out simply is not "in
+     * this company", which is the answer, not an error.</p>
+     *
+     * @throws PositionOutsideEmployeeCompanyException when the position does not resolve to the employee's
+     *     company
+     */
     private Position requireOwnedPosition(Employee employee, Contract contract) {
         var position = contract.getPosition();
-        var positionCompanyId = companyIdOf(position);
         var employeeCompanyId =
                 employee.getCompany() != null ? employee.getCompany().getId() : null;
         if (position == null
-                || positionCompanyId == null
                 || employeeCompanyId == null
-                || !positionCompanyId.equals(employeeCompanyId)) {
+                || positionRepository
+                        .findByDepartmentCompanyIdAndId(employeeCompanyId, position.getId())
+                        .isEmpty()) {
             throw new PositionOutsideEmployeeCompanyException("Position of the current contract is outside the company"
                     + " of employee " + employee.getId() + ": refusing to grant its roles");
         }
         return position;
-    }
-
-    private UUID companyIdOf(Position position) {
-        if (position == null
-                || position.getDepartment() == null
-                || position.getDepartment().getCompany() == null) {
-            return null;
-        }
-        return position.getDepartment().getCompany().getId();
     }
 
     private Set<String> currentRoles(String userId, String clientId) {

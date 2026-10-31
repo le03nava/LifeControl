@@ -1294,3 +1294,78 @@ clean. `src/main` and `support/` untouched: the slice is call sites.
 What this slice does not claim: **S5 is not met**, the application role is still not the default, and 100
 tests still fail without it. The gate moved 545 → 478 → 100, and every remaining failure now has a named
 owner or a question the maintainer owns.
+
+L28 — **T6b-3 found two production defects, and they are the slice's real result: 100 → 29.** The 83
+`@Transactional` failures were a fixture problem with a mechanism nobody had: Spring's test transaction begins
+**before** `@BeforeEach`, so `doBegin` already ran with no scope and nothing can be retro-fitted at that
+boundary. L24 predicted the fix would be a `REQUIRES_NEW` fixture write; measured, that is half a fix — it
+would open a *different* transaction while the test's own reads and every MockMvc request joining it stayed
+unscoped, and it would commit fixture rows past the rollback the suite relies on. The mechanism that works is
+narrower and already existed in the database: `set_tenant_scope(uuid)` is `set_config(…, true)`, i.e.
+`SET LOCAL`, so it can run **inside the transaction the suite already owns**, on that transaction's own
+connection. `TenantFixtures.stateTenantWithinTheOpenTransaction(companyId, jdbc)` is that call, it refuses
+when no transaction is active (outside a transaction block `SET LOCAL` is a success that does nothing), and it
+is not a bypass: no role change, no widened policy, same SQL production's `doBegin` runs. The five suites that
+use it issue `SET LOCAL` and nothing else — **no suite now commits a row it used to roll back**, and the
+default-mode run is the evidence.
+
+**The first production defect: a read with nowhere to put its tenant.** `AccessProvisioningWorker.process`
+stated its tenant and called `EmployeeRepository.findByIdWithCompanyAndStatus`, a declared `@Query` finder that
+owns **no transaction** — and the scope is installed by `doBegin`, so the statement ran unscoped, the policy
+answered zero rows, and the worker concluded "Employee not found" for every claimed task. In delivery that
+provisions nobody while looking like a data problem: the silent failure ADR-0005 exists to remove, and it was
+invisible on the superuser pool. Measured before the fix: under the same stated scope the finder answered
+`present=false` while the inherited `findById` answered `present=true`, and the SQL log showed the employees
+select with no `set_tenant_scope` anywhere before it. Fixed with `@Transactional(readOnly = true)` on the finder
+— the boundary lives with the query, its one production caller is the worker, and `AccessProvisioningWorkerTest`
+stayed untouched because a mock does not read annotations.
+
+**The second, and it is the general consequence of arming the tables.** With the read fixed, one case advanced
+and failed differently: `No row with the given identifier exists for entity [Department]`.
+`AccessProvisioningRoleService.requireOwnedPosition` decided ownership by walking
+`position.getDepartment().getCompany().getId()` — a lazy to-one into `departments`, one of the sixteen armed
+tables. For a position of **another company** that row is invisible, and Hibernate turns "invisible" into a
+mapping exception before any code can name the rule; the same request would 500 in delivery. The rule the ADR
+implies has to be said plainly: **code may not decide by reading a row it is not allowed to see.** The method
+now asks the identical question as an id predicate
+(`positionRepository.findByDepartmentCompanyIdAndId(employeeCompanyId, position.getId())`) and throws the same
+exception with the same message — deterministic on both pools, no foreign row read, and the integration case
+went green **without touching its assertion**. `Position` and `Department` carry no `company_id` column (they
+are the S2 out-of-scope tables), which is why the question had to become a finder rather than a comparison
+against a column on the entity.
+
+**The four decisions the maintainer took, implemented as decided.** A request must **name its company** — there
+is no cross-company administrator view, so the two `PurchaseOrderListFilterIntegrationTest` cases now ask for A
+or for B by name and receive that company's rows, plus a new case that a caller naming a company outside its
+scope is never given that company's orders. The three assertions that read a message the policy preempts now
+assert **both halves** through a `poolIsTheApplicationRole()` predicate — the policy's `42501` under the app
+role, the constraint's message under the superuser — and `ProductVariantStoreFilterIntegrationTest` asserts
+**404** for a store of another company and says in its own words why that is the answer that discloses least.
+Two `store/` suites outside the earlier surfaces got the same one-line mechanism (5 failures), and the three
+provisioning suites that had missed T6b-2's rule for their raw seeds and cleanups got it.
+
+**Evidence.** App role, per class before → after: `CompanyCountryScopedReadHttp` 26 → 0,
+`SupplierCompanyScopeHttp` 7 → 0, `PositionRole` 5 → 0, `StarterProductCategoryMigration` 3 → 0, the three
+provisioning worker suites 8 → 0, `AccessProvisioningWorkerApply` 3 → 0, `SupplierSchemaMigration` 1 → 0,
+`ProductCatalogCompanyScopeSchema` 2 → 0, `ProductVariantStoreFilter` 1 → 0, `PurchaseOrderListFilter` 2 → 0,
+`CompanyStoreScopeProjection` 3 → 0, `CompanyStoreScopeAgreement` 2 → 0. Whole suite: **default 4254/0, exit 0**
+(the differential gate, and the run that proves no rollback was lost); **app role 4254/29, exit 1**.
+`spotlessCheck` and `spotbugsMain` clean. This is the chain's only `src/main` change: 3 files, 57 insertions.
+
+**The 29 that remain are T6b-4's, and one of them is unexplained.** 28 are the machinery suites that own their
+roles and connections (`TenantScopeFilter` 8, `TenantPolicies` 6, `ProvisioningWorkerTenantScope` 3,
+`TenantTaskResolver` 3, `TenantScopeFunctions` 2, `TenantScopeBoundary` 2,
+`StarterProductCategoryCompanyCreation` 2, `CompanyTenantScope` 2), plus the L27 finding that
+`information_schema.table_constraints` answers zero rows under the application role. S5 is therefore **still
+not met**, and the role is still not the default.
+
+**And a survey of the same shape, which is the next real work and is not this slice's.** A static reading of
+`src/main` found the identical traversal pattern — ownership decided by walking a to-one into an armed table —
+**reachable with a caller-supplied id** in `hr/service/PositionService.java:128` and four times in
+`hr/service/EmployeeScopeAssignmentService.java:337,352,367,381` (a `companyCountry` from a request-supplied
+id, where the intended `CompanyCountryNotFoundException` becomes a mapping exception under the policy). Nine
+more occurrences are currently unreachable because the row is already company-scoped, three of them
+(`PurchaseOrderService:879-882`, `ProductSupplierService:71-73/192-194`,
+`GoodsReceiptService:549-551`) resting on foreign keys that do not constrain the referenced row to the same
+company — unverified, and therefore listed rather than trusted. None was fixed here: each is a production
+change with its own evidence, and doing them inside a fixture slice would hide them.

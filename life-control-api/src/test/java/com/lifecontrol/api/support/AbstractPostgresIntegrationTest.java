@@ -109,6 +109,21 @@ public abstract class AbstractPostgresIntegrationTest {
     private static final boolean POOL_IS_THE_APPLICATION_ROLE =
             "true".equalsIgnoreCase(System.getenv("TEST_POOL_APP_ROLE"));
 
+    /**
+     * Whether the pool logs in as the application role, so a suite whose message legitimately differs between
+     * the two modes can assert <b>both</b> halves instead of widening one to "any exception" (record L27).
+     *
+     * <p>Exposed for exactly one reason, measured: an {@code INSERT} that omits {@code company_id} on an armed
+     * table is refused by the <b>policy</b> (SQLSTATE {@code 42501}) when the pool is the application role,
+     * because the tenant is checked before the constraint, and by {@code NOT NULL} when the pool is the
+     * container's superuser, which bypasses every policy. Both messages are correct answers to the same
+     * missing column, and an assertion that accepted either would stop proving that the column's absence is
+     * refused at all.</p>
+     */
+    protected static boolean poolIsTheApplicationRole() {
+        return POOL_IS_THE_APPLICATION_ROLE;
+    }
+
     @DynamicPropertySource
     static void postgresProperties(DynamicPropertyRegistry registry) {
         registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);

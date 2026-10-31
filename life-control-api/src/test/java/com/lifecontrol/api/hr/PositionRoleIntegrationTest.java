@@ -29,6 +29,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -66,6 +67,9 @@ class PositionRoleIntegrationTest extends AbstractPostgresIntegrationTest {
     @Autowired
     private ApplicationClientProperties applicationClientProperties;
 
+    @Autowired
+    private JdbcTemplate jdbc;
+
     @MockitoBean
     private CurrentUserContext currentUserContext;
 
@@ -77,9 +81,15 @@ class PositionRoleIntegrationTest extends AbstractPostgresIntegrationTest {
 
     @BeforeEach
     void setUp() {
+        // The test's transaction opened before this method ran, so the tenant is stated inside it instead of
+        // around a boundary that already happened (record L24, cause B). The id is chosen here because a
+        // company's tenant is its own id: it has to be stated before the insert that writes it.
+        var newCompanyId = UUID.randomUUID();
+        TenantFixtures.stateTenantWithinTheOpenTransaction(newCompanyId, jdbc);
         var company = TenantFixtures.persist(
                 companyRepository,
                 Company.builder()
+                        .id(newCompanyId)
                         .companyKey("PR-" + UUID.randomUUID())
                         .companyName("Position Role Company")
                         .rfc(uniqueRfc())

@@ -2,6 +2,7 @@ package com.lifecontrol.api.supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowable;
 
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
 import com.lifecontrol.api.support.TenantFixtures;
@@ -16,6 +17,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.jdbc.BadSqlGrammarException;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
@@ -204,14 +206,43 @@ class SupplierSchemaMigrationIntegrationTest extends AbstractPostgresIntegration
     void supplierWithoutCompanyIsRefused() {
         var id = UUID.randomUUID();
 
-        assertThatThrownBy(() -> jdbcTemplate.update("""
+        var refused = catchThrowable(() -> jdbcTemplate.update("""
                 INSERT INTO suppliers (id, supplier_name, rfc)
                 VALUES (?, 'Proveedor', 'SCHEMA-NOC-1')
-                """, id)).isInstanceOf(DataIntegrityViolationException.class);
+                """, id));
+
+        // Which layer refuses the row is what the pool decides, and both answers are the schema working. The
+        // two halves are asserted separately on purpose: an assertion that accepted either exception would
+        // stop proving that omitting company_id is refused at all (record L27).
+        if (poolIsTheApplicationRole()) {
+            assertThat(refused)
+                    .as("the policy is checked before the constraint (ADR-0005), so the application role meets "
+                            + "SQLSTATE 42501 row-level security and NOT NULL never gets to fire")
+                    .isInstanceOf(BadSqlGrammarException.class)
+                    .satisfies(thrown -> assertThat(deepestMessage(thrown))
+                            .contains("row-level security policy for table \"suppliers\"")
+                            .doesNotContain("not-null"));
+        } else {
+            assertThat(refused)
+                    .as("the container's superuser bypasses every policy, so the column's own NOT NULL answers")
+                    .isInstanceOf(DataIntegrityViolationException.class)
+                    .satisfies(thrown -> assertThat(deepestMessage(thrown))
+                            .contains("company_id")
+                            .contains("not-null"));
+        }
 
         assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM suppliers WHERE id = ?", Integer.class, id))
                 .as("the refused insert stored nothing")
                 .isZero();
+    }
+
+    /** The reason PostgreSQL gave, whichever Spring exception carried it. */
+    private static String deepestMessage(Throwable thrown) {
+        var cause = thrown;
+        while (cause.getCause() != null && cause.getCause() != cause) {
+            cause = cause.getCause();
+        }
+        return String.valueOf(cause.getMessage());
     }
 
     @Test
