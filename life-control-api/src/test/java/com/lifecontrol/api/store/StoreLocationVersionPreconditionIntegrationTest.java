@@ -129,82 +129,90 @@ class StoreLocationVersionPreconditionIntegrationTest extends AbstractPostgresIn
                 "Store Location Version Test Company",
                 "SLVR010101ABC");
 
-        var companyCountry = companyCountryRepository
-                .findByCompanyIdAndCountryId(company.getId(), country.getId())
-                .orElseGet(() -> companyCountryRepository.save(CompanyCountry.builder()
-                        .company(company)
-                        .country(country)
-                        .build()));
-
-        var region = companyRegionRepository.findByCompanyCountryIdOrderByRegionNameAsc(companyCountry.getId()).stream()
-                .findFirst()
-                .orElseGet(() -> companyRegionRepository.save(CompanyRegion.builder()
-                        .companyCountry(companyCountry)
-                        .regionCode("SLV")
-                        .regionName("Store Location Version Region")
-                        .enabled(true)
-                        .build()));
-
-        var zone = companyZoneRepository.findByCompanyRegionIdOrderByZoneNameAsc(region.getId()).stream()
-                .findFirst()
-                .orElseGet(() -> companyZoneRepository.save(CompanyZone.builder()
-                        .companyRegion(region)
-                        .zoneCode("SLV")
-                        .zoneName("Store Location Version Zone")
-                        .enabled(true)
-                        .build()));
-
-        var store = companyStoreRepository.findByCompanyZoneId(zone.getId()).stream()
-                .findFirst()
-                .orElseGet(() -> companyStoreRepository.save(CompanyStore.builder()
-                        .companyZone(zone)
-                        .storeName("Store Location Version Store")
-                        .enabled(true)
-                        .build()));
-
-        var area = storeAreaRepository.findByCompanyStoreIdOrderByDisplayOrderAscAreaCodeAsc(store.getId()).stream()
-                .findFirst()
-                .orElseGet(() -> storeAreaRepository.save(StoreArea.builder()
-                        .companyStore(store)
-                        .areaCode("VER")
-                        .areaName("Version Precondition Area")
-                        .displayOrder(1)
-                        .enabled(true)
-                        .build()));
-
-        var storeZone = storeZoneRepository.findByStoreAreaIdOrderByDisplayOrderAscZoneCodeAsc(area.getId()).stream()
-                .filter(candidate -> "VER".equals(candidate.getZoneCode()))
-                .findFirst()
-                .orElseGet(() -> storeZoneRepository.save(StoreZone.builder()
-                        .storeArea(area)
-                        .zoneCode("VER")
-                        .zoneName("Version Precondition Zone")
-                        .displayOrder(1)
-                        .enabled(true)
-                        .build()));
-
-        var storeLocation =
-                storeLocationRepository
-                        .findByStoreZoneIdOrderByDisplayOrderAscLocationCodeAsc(storeZone.getId())
-                        .stream()
-                        .filter(candidate -> "VER".equals(candidate.getLocationCode()))
-                        .findFirst()
-                        .orElseGet(() -> storeLocationRepository.save(StoreLocation.builder()
-                                .storeZone(storeZone)
-                                .locationCode("VER")
-                                .locationName("Version Precondition Location")
-                                .displayOrder(1)
-                                .enabled(true)
-                                .build()));
-
         companyId = company.getId();
-        companyCountryId = companyCountry.getId();
-        regionId = region.getId();
-        zoneId = zone.getId();
-        storeId = store.getId();
-        areaId = area.getId();
-        storeZoneId = storeZone.getId();
-        storeLocationId = storeLocation.getId();
+        // One boundary states the company for the children below: each is a row on a
+        // policy-armed table and references the detached Company, so both the find-or-create reads
+        // and the flush's unsaved-value probe need that tenant installed.
+        TenantFixtures.inTenant(companyId, () -> {
+            var companyCountry = companyCountryRepository
+                    .findByCompanyIdAndCountryId(company.getId(), country.getId())
+                    .orElseGet(() -> companyCountryRepository.save(CompanyCountry.builder()
+                            .company(company)
+                            .country(country)
+                            .build()));
+
+            var region =
+                    companyRegionRepository.findByCompanyCountryIdOrderByRegionNameAsc(companyCountry.getId()).stream()
+                            .findFirst()
+                            .orElseGet(() -> companyRegionRepository.save(CompanyRegion.builder()
+                                    .companyCountry(companyCountry)
+                                    .regionCode("SLV")
+                                    .regionName("Store Location Version Region")
+                                    .enabled(true)
+                                    .build()));
+
+            var zone = companyZoneRepository.findByCompanyRegionIdOrderByZoneNameAsc(region.getId()).stream()
+                    .findFirst()
+                    .orElseGet(() -> companyZoneRepository.save(CompanyZone.builder()
+                            .companyRegion(region)
+                            .zoneCode("SLV")
+                            .zoneName("Store Location Version Zone")
+                            .enabled(true)
+                            .build()));
+
+            var store = companyStoreRepository.findByCompanyZoneId(zone.getId()).stream()
+                    .findFirst()
+                    .orElseGet(() -> companyStoreRepository.save(CompanyStore.builder()
+                            .companyZone(zone)
+                            .storeName("Store Location Version Store")
+                            .enabled(true)
+                            .build()));
+
+            var area = storeAreaRepository.findByCompanyStoreIdOrderByDisplayOrderAscAreaCodeAsc(store.getId()).stream()
+                    .findFirst()
+                    .orElseGet(() -> storeAreaRepository.save(StoreArea.builder()
+                            .companyStore(store)
+                            .areaCode("VER")
+                            .areaName("Version Precondition Area")
+                            .displayOrder(1)
+                            .enabled(true)
+                            .build()));
+
+            var storeZone =
+                    storeZoneRepository.findByStoreAreaIdOrderByDisplayOrderAscZoneCodeAsc(area.getId()).stream()
+                            .filter(candidate -> "VER".equals(candidate.getZoneCode()))
+                            .findFirst()
+                            .orElseGet(() -> storeZoneRepository.save(StoreZone.builder()
+                                    .storeArea(area)
+                                    .zoneCode("VER")
+                                    .zoneName("Version Precondition Zone")
+                                    .displayOrder(1)
+                                    .enabled(true)
+                                    .build()));
+
+            var storeLocation =
+                    storeLocationRepository
+                            .findByStoreZoneIdOrderByDisplayOrderAscLocationCodeAsc(storeZone.getId())
+                            .stream()
+                            .filter(candidate -> "VER".equals(candidate.getLocationCode()))
+                            .findFirst()
+                            .orElseGet(() -> storeLocationRepository.save(StoreLocation.builder()
+                                    .storeZone(storeZone)
+                                    .locationCode("VER")
+                                    .locationName("Version Precondition Location")
+                                    .displayOrder(1)
+                                    .enabled(true)
+                                    .build()));
+
+            companyId = company.getId();
+            companyCountryId = companyCountry.getId();
+            regionId = region.getId();
+            zoneId = zone.getId();
+            storeId = store.getId();
+            areaId = area.getId();
+            storeZoneId = storeZone.getId();
+            storeLocationId = storeLocation.getId();
+        });
     }
 
     private ResultActions putLocation(UpdateStoreLocationRequest request) throws Exception {

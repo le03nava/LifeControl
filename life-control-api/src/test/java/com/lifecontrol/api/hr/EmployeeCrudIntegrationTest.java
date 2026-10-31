@@ -9,12 +9,14 @@ import com.lifecontrol.api.common.auth.CurrentUserContext;
 import com.lifecontrol.api.company.model.Company;
 import com.lifecontrol.api.company.repository.CompanyRepository;
 import com.lifecontrol.api.hr.dto.EmployeeRequest;
+import com.lifecontrol.api.hr.dto.EmployeeResponse;
 import com.lifecontrol.api.hr.exception.DuplicateEmployeeException;
 import com.lifecontrol.api.hr.repository.EmployeeRepository;
 import com.lifecontrol.api.hr.service.EmployeeService;
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
 import com.lifecontrol.api.support.TenantFixtures;
 import java.time.LocalDate;
+import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -73,8 +75,10 @@ class EmployeeCrudIntegrationTest extends AbstractPostgresIntegrationTest {
         // employment ends, and that table references employees: the rows that reference them are
         // deleted first (record T90).
         deleteAllAccessProvisioningRows(jdbcTemplate);
-        deleteAllEmployees(jdbcTemplate);
         companyId = employeeCompanyId();
+        // `employees` is policy-armed: the shared helper's unscoped DELETEs run under this suite's own
+        // tenant, which is the whole table the suite owns.
+        TenantFixtures.inTenant(companyId, () -> deleteAllEmployees(jdbcTemplate));
         activeStatusId = employeeStatusId("Active");
         inactiveStatusId = employeeStatusId("Inactive");
     }
@@ -86,8 +90,7 @@ class EmployeeCrudIntegrationTest extends AbstractPostgresIntegrationTest {
         @Test
         @DisplayName("create, read, update and soft-delete an employee through the service")
         void createReadUpdateSoftDelete() {
-            var created = employeeService.createEmployee(
-                    companyId, request("EMP-001", "Ada", "Lovelace", "Byron", null, null));
+            var created = createEmployee(companyId, request("EMP-001", "Ada", "Lovelace", "Byron", null, null));
 
             assertThat(created.id()).isNotNull();
             assertThat(created.employeeNumber()).isEqualTo("EMP-001");
@@ -99,28 +102,31 @@ class EmployeeCrudIntegrationTest extends AbstractPostgresIntegrationTest {
             assertThat(created.enabled()).isTrue();
             assertThat(created.keycloakUserId()).isNull();
 
-            var read = employeeService.getEmployeeById(companyId, created.id());
+            var read = getEmployeeById(companyId, created.id());
             assertThat(read.employeeNumber()).isEqualTo("EMP-001");
 
-            var updated = employeeService.updateEmployee(
-                    companyId, created.id(), request("EMP-001", "Ada", "Lovelace", "Byron", null, null));
+            var updated =
+                    updateEmployee(companyId, created.id(), request("EMP-001", "Ada", "Lovelace", "Byron", null, null));
             assertThat(updated.id()).isEqualTo(created.id());
             assertThat(updated.email()).isEqualTo("ada.lovelace@" + COMPANY_DOMAIN);
 
-            employeeService.deleteEmployee(companyId, created.id());
-            var afterDelete = employeeService.getEmployeeById(companyId, created.id());
+            deleteEmployee(companyId, created.id());
+            var afterDelete = getEmployeeById(companyId, created.id());
             assertThat(afterDelete.enabled()).isFalse();
-            assertThat(employeeRepository.findById(created.id())).isPresent();
+            assertThat(TenantFixtures.inTenant(companyId, () -> employeeRepository.findById(created.id())))
+                    .as("the soft delete keeps the row: `employees` is armed, so the read states its tenant")
+                    .isPresent();
         }
 
         @Test
         @DisplayName("the generated email reaches the database")
         void generatedEmailReachesTheDatabase() {
-            var created = employeeService.createEmployee(
-                    companyId, request("EMP-GEN", "Juan Carlos", "Pérez", null, null, null));
+            var created = createEmployee(companyId, request("EMP-GEN", "Juan Carlos", "Pérez", null, null, null));
 
-            var stored =
-                    jdbcTemplate.queryForObject("SELECT email FROM employees WHERE id = ?", String.class, created.id());
+            var stored = TenantFixtures.inTenant(
+                    companyId,
+                    () -> jdbcTemplate.queryForObject(
+                            "SELECT email FROM employees WHERE id = ?", String.class, created.id()));
 
             assertThat(stored).isEqualTo("juan.perez@" + COMPANY_DOMAIN);
         }
@@ -128,41 +134,38 @@ class EmployeeCrudIntegrationTest extends AbstractPostgresIntegrationTest {
         @Test
         @DisplayName("keycloakUserId stays null after a create and an update")
         void keycloakUserIdStaysNull() {
-            var created =
-                    employeeService.createEmployee(companyId, request("EMP-KC", "Ada", "Lovelace", null, null, null));
+            var created = createEmployee(companyId, request("EMP-KC", "Ada", "Lovelace", null, null, null));
             assertThat(created.keycloakUserId()).isNull();
 
-            var updated = employeeService.updateEmployee(
-                    companyId, created.id(), request("EMP-KC", "Ada", "Lovelace", null, null, null));
+            var updated =
+                    updateEmployee(companyId, created.id(), request("EMP-KC", "Ada", "Lovelace", null, null, null));
 
             assertThat(updated.keycloakUserId()).isNull();
-            assertThat(jdbcTemplate.queryForObject(
-                            "SELECT keycloak_user_id FROM employees WHERE id = ?", String.class, created.id()))
+            assertThat(TenantFixtures.inTenant(
+                            companyId,
+                            () -> jdbcTemplate.queryForObject(
+                                    "SELECT keycloak_user_id FROM employees WHERE id = ?", String.class, created.id())))
                     .isNull();
         }
 
         @Test
         @DisplayName("a soft-deleted row keeps its employee number, so re-creating it is a 409")
         void softDeletedEmployeeNumberCannotBeReused() {
-            var created =
-                    employeeService.createEmployee(companyId, request("EMP-500", "Ada", "Lovelace", null, null, null));
-            employeeService.deleteEmployee(companyId, created.id());
+            var created = createEmployee(companyId, request("EMP-500", "Ada", "Lovelace", null, null, null));
+            deleteEmployee(companyId, created.id());
 
-            assertThatThrownBy(() -> employeeService.createEmployee(
-                            companyId, request("EMP-500", "Grace", "Hopper", null, null, null)))
+            assertThatThrownBy(() -> createEmployee(companyId, request("EMP-500", "Grace", "Hopper", null, null, null)))
                     .isInstanceOf(DuplicateEmployeeException.class);
         }
 
         @Test
         @DisplayName("a soft-deleted row keeps its address, so re-creating it yields the suffixed address")
         void softDeletedEmployeeAddressIsSuffixed() {
-            var created =
-                    employeeService.createEmployee(companyId, request("EMP-600", "Ada", "Lovelace", null, null, null));
+            var created = createEmployee(companyId, request("EMP-600", "Ada", "Lovelace", null, null, null));
             assertThat(created.email()).isEqualTo("ada.lovelace@" + COMPANY_DOMAIN);
-            employeeService.deleteEmployee(companyId, created.id());
+            deleteEmployee(companyId, created.id());
 
-            var recreated =
-                    employeeService.createEmployee(companyId, request("EMP-601", "Ada", "Lovelace", null, null, null));
+            var recreated = createEmployee(companyId, request("EMP-601", "Ada", "Lovelace", null, null, null));
 
             assertThat(recreated.email()).isEqualTo("ada.lovelace2@" + COMPANY_DOMAIN);
         }
@@ -179,8 +182,7 @@ class EmployeeCrudIntegrationTest extends AbstractPostgresIntegrationTest {
             // preferred_username claim the real context resolves.
             when(currentUserContext.getUsername()).thenReturn("hr-operator");
 
-            var created =
-                    employeeService.createEmployee(companyId, request("EMP-CB-1", "Ada", "Lovelace", null, null, null));
+            var created = createEmployee(companyId, request("EMP-CB-1", "Ada", "Lovelace", null, null, null));
 
             assertThat(created.createdBy()).isEqualTo("hr-operator");
             assertThat(storedCreatedBy(created.id())).isEqualTo("hr-operator");
@@ -190,14 +192,13 @@ class EmployeeCrudIntegrationTest extends AbstractPostgresIntegrationTest {
         @DisplayName("update changes the editable fields and leaves created_by and created_at untouched")
         void updateLeavesCreatedByUntouched() {
             when(currentUserContext.getUsername()).thenReturn("hr-operator");
-            var created =
-                    employeeService.createEmployee(companyId, request("EMP-CB-2", "Ada", "Lovelace", null, null, null));
+            var created = createEmployee(companyId, request("EMP-CB-2", "Ada", "Lovelace", null, null, null));
             var createdAtBefore = storedCreatedAt(created.id());
 
             // A different actor edits the row: created_by must still name the creator.
             when(currentUserContext.getUsername()).thenReturn("another-operator");
-            var updated = employeeService.updateEmployee(
-                    companyId, created.id(), request("EMP-CB-2", "Grace", "Hopper", null, null, null));
+            var updated =
+                    updateEmployee(companyId, created.id(), request("EMP-CB-2", "Grace", "Hopper", null, null, null));
 
             assertThat(updated.firstName()).isEqualTo("Grace");
             assertThat(updated.createdBy()).isEqualTo("hr-operator");
@@ -209,23 +210,27 @@ class EmployeeCrudIntegrationTest extends AbstractPostgresIntegrationTest {
         @DisplayName("the enable path leaves created_by untouched")
         void enablePathLeavesCreatedByUntouched() {
             when(currentUserContext.getUsername()).thenReturn("hr-operator");
-            var created =
-                    employeeService.createEmployee(companyId, request("EMP-CB-3", "Ada", "Lovelace", null, null, null));
+            var created = createEmployee(companyId, request("EMP-CB-3", "Ada", "Lovelace", null, null, null));
 
             when(currentUserContext.getUsername()).thenReturn("another-operator");
-            employeeService.setEmployeeEnabled(companyId, created.id(), false);
-            employeeService.setEmployeeEnabled(companyId, created.id(), true);
+            setEmployeeEnabled(companyId, created.id(), false);
+            setEmployeeEnabled(companyId, created.id(), true);
 
             assertThat(storedCreatedBy(created.id())).isEqualTo("hr-operator");
         }
 
         private String storedCreatedBy(UUID id) {
-            return jdbcTemplate.queryForObject("SELECT created_by FROM employees WHERE id = ?", String.class, id);
+            return TenantFixtures.inTenant(
+                    companyId,
+                    () -> jdbcTemplate.queryForObject(
+                            "SELECT created_by FROM employees WHERE id = ?", String.class, id));
         }
 
         private java.time.LocalDateTime storedCreatedAt(UUID id) {
-            return jdbcTemplate.queryForObject(
-                    "SELECT created_at FROM employees WHERE id = ?", java.time.LocalDateTime.class, id);
+            return TenantFixtures.inTenant(
+                    companyId,
+                    () -> jdbcTemplate.queryForObject(
+                            "SELECT created_at FROM employees WHERE id = ?", java.time.LocalDateTime.class, id));
         }
     }
 
@@ -314,14 +319,13 @@ class EmployeeCrudIntegrationTest extends AbstractPostgresIntegrationTest {
         @Test
         @DisplayName("orders lexicographically by employee number and excludes disabled by default")
         void listOrdersAndExcludesDisabled() {
-            var nine =
-                    employeeService.createEmployee(companyId, request("EMP-9", "Ada", "Lovelace", "Byron", null, null));
-            var ten = employeeService.createEmployee(companyId, request("EMP-10", "Grace", "Hopper", null, null, null));
-            var disabled = employeeService.createEmployee(
-                    companyId, request("EMP-100", "Alan", "Turing", null, null, inactiveStatusId));
-            employeeService.deleteEmployee(companyId, disabled.id());
+            var nine = createEmployee(companyId, request("EMP-9", "Ada", "Lovelace", "Byron", null, null));
+            var ten = createEmployee(companyId, request("EMP-10", "Grace", "Hopper", null, null, null));
+            var disabled =
+                    createEmployee(companyId, request("EMP-100", "Alan", "Turing", null, null, inactiveStatusId));
+            deleteEmployee(companyId, disabled.id());
 
-            var result = employeeService.getAllEmployees(companyId, null, null, false);
+            var result = getAllEmployees(companyId, null, null, false);
 
             // Lexicographic VARCHAR ordering: "EMP-10" sorts before "EMP-9", while numeric ordering
             // would put "EMP-9" first.
@@ -332,27 +336,26 @@ class EmployeeCrudIntegrationTest extends AbstractPostgresIntegrationTest {
         @Test
         @DisplayName("the list and search never return another company's employees")
         void listIsScopedToTheRequestedCompany() {
-            employeeService.createEmployee(companyId, request("EMP-100", "Ada", "Lovelace", null, null, null));
+            createEmployee(companyId, request("EMP-100", "Ada", "Lovelace", null, null, null));
             var otherCompanyId = otherCompanyId();
-            employeeService.createEmployee(otherCompanyId, request("EMP-200", "Grace", "Hopper", null, null, null));
+            createEmployee(otherCompanyId, request("EMP-200", "Grace", "Hopper", null, null, null));
 
-            var plain = employeeService.getAllEmployees(companyId, null, null, false);
+            var plain = getAllEmployees(companyId, null, null, false);
             assertThat(plain).extracting(r -> r.employeeNumber()).containsExactly("EMP-100");
 
             // "grace" matches only the other company's employee: without the company predicate this
             // search would leak that row.
-            var searched = employeeService.getAllEmployees(companyId, "grace", null, false);
+            var searched = getAllEmployees(companyId, "grace", null, false);
             assertThat(searched).isEmpty();
         }
 
         @Test
         @DisplayName("includeDisabled true returns the soft-deleted employee")
         void includeDisabledReturnsSoftDeleted() {
-            var employee =
-                    employeeService.createEmployee(companyId, request("EMP-300", "Alan", "Turing", null, null, null));
-            employeeService.deleteEmployee(companyId, employee.id());
+            var employee = createEmployee(companyId, request("EMP-300", "Alan", "Turing", null, null, null));
+            deleteEmployee(companyId, employee.id());
 
-            var result = employeeService.getAllEmployees(companyId, null, null, true);
+            var result = getAllEmployees(companyId, null, null, true);
 
             assertThat(result).extracting(r -> r.employeeNumber()).contains("EMP-300");
         }
@@ -360,9 +363,8 @@ class EmployeeCrudIntegrationTest extends AbstractPostgresIntegrationTest {
         @Test
         @DisplayName("search matches employee number, first name, paternal and maternal last name and email")
         void searchMatchesEveryField() {
-            employeeService.createEmployee(companyId, request("EMP-100", "Ada", "Lovelace", "Byron", null, null));
-            employeeService.createEmployee(
-                    companyId, request("EMP-200", "Grace", "Hopper", "Murray", null, inactiveStatusId));
+            createEmployee(companyId, request("EMP-100", "Ada", "Lovelace", "Byron", null, null));
+            createEmployee(companyId, request("EMP-200", "Grace", "Hopper", "Murray", null, inactiveStatusId));
 
             assertThat(search("EMP-2")).extracting(r -> r.employeeNumber()).containsExactly("EMP-200");
             assertThat(search("grace")).extracting(r -> r.employeeNumber()).containsExactly("EMP-200");
@@ -376,17 +378,16 @@ class EmployeeCrudIntegrationTest extends AbstractPostgresIntegrationTest {
         @Test
         @DisplayName("statusId filters by the EMPLOYEE_STATUS row")
         void statusIdFilters() {
-            employeeService.createEmployee(companyId, request("EMP-100", "Ada", "Lovelace", null, null, null));
-            employeeService.createEmployee(
-                    companyId, request("EMP-200", "Grace", "Hopper", null, null, inactiveStatusId));
+            createEmployee(companyId, request("EMP-100", "Ada", "Lovelace", null, null, null));
+            createEmployee(companyId, request("EMP-200", "Grace", "Hopper", null, null, inactiveStatusId));
 
-            var result = employeeService.getAllEmployees(companyId, null, inactiveStatusId, false);
+            var result = getAllEmployees(companyId, null, inactiveStatusId, false);
 
             assertThat(result).extracting(r -> r.employeeNumber()).containsExactly("EMP-200");
         }
 
         private java.util.List<com.lifecontrol.api.hr.dto.EmployeeResponse> search(String term) {
-            return employeeService.getAllEmployees(companyId, term, null, true);
+            return getAllEmployees(companyId, term, null, true);
         }
     }
 
@@ -410,7 +411,11 @@ class EmployeeCrudIntegrationTest extends AbstractPostgresIntegrationTest {
             assertThat(rowCount("employee_contracts")).isPositive();
             assertThat(rowCount("employee_scope_assignments")).isPositive();
 
-            assertThatCode(() -> deleteAllEmployees(jdbcTemplate)).doesNotThrowAnyException();
+            // Stated under the suite's tenant: the helper's DELETEs are unscoped, and on an armed table
+            // an unscoped DELETE removes zero rows without an error — which would make every assertion
+            // below pass for the wrong reason.
+            assertThatCode(() -> TenantFixtures.inTenant(companyId, () -> deleteAllEmployees(jdbcTemplate)))
+                    .doesNotThrowAnyException();
 
             assertThat(rowCount("employees")).isZero();
             assertThat(rowCount("employee_contracts")).isZero();
@@ -444,8 +449,41 @@ class EmployeeCrudIntegrationTest extends AbstractPostgresIntegrationTest {
         }
 
         private int rowCount(String table) {
-            return jdbcTemplate.queryForObject("SELECT count(*) FROM " + table, Integer.class);
+            return TenantFixtures.inTenant(
+                    companyId, () -> jdbcTemplate.queryForObject("SELECT count(*) FROM " + table, Integer.class));
         }
+    }
+
+    // ─── service calls that state their tenant ──────────────────────────────────────────────────────
+    //
+    // This suite calls the services directly instead of going through a controller, so no request ever
+    // states the tenant the way TenantScopeFilter does and every read of an armed table inside the
+    // service — `companies` first, through resolveCompany — would answer not-found. Each wrapper states
+    // the company the call names, which is also the company whose rows the call may touch.
+
+    private EmployeeResponse createEmployee(UUID company, EmployeeRequest request) {
+        return TenantFixtures.inTenant(company, () -> employeeService.createEmployee(company, request));
+    }
+
+    private EmployeeResponse updateEmployee(UUID company, UUID id, EmployeeRequest request) {
+        return TenantFixtures.inTenant(company, () -> employeeService.updateEmployee(company, id, request));
+    }
+
+    private EmployeeResponse getEmployeeById(UUID company, UUID id) {
+        return TenantFixtures.inTenant(company, () -> employeeService.getEmployeeById(company, id));
+    }
+
+    private void deleteEmployee(UUID company, UUID id) {
+        TenantFixtures.inTenant(company, () -> employeeService.deleteEmployee(company, id));
+    }
+
+    private EmployeeResponse setEmployeeEnabled(UUID company, UUID id, boolean enabled) {
+        return TenantFixtures.inTenant(company, () -> employeeService.setEmployeeEnabled(company, id, enabled));
+    }
+
+    private List<EmployeeResponse> getAllEmployees(UUID company, String term, UUID statusId, boolean includeDisabled) {
+        return TenantFixtures.inTenant(
+                company, () -> employeeService.getAllEmployees(company, term, statusId, includeDisabled));
     }
 
     private EmployeeRequest request(
@@ -469,14 +507,16 @@ class EmployeeCrudIntegrationTest extends AbstractPostgresIntegrationTest {
                 statusId);
     }
 
+    /** One employee of this suite's company, written under its tenant: the table is armed. */
     private UUID insertEmployee(String number, String email) {
         var id = UUID.randomUUID();
-        jdbcTemplate.update("""
+        TenantFixtures.inTenant(
+                companyId, () -> jdbcTemplate.update("""
                 INSERT INTO employees
                     (id, company_id, employee_number, first_name, paternal_last_name, email,
                      birth_date, hire_date, employment_status_id)
                 VALUES (?, ?, ?, 'Ada', 'Lovelace', ?, DATE '1990-01-01', DATE '2020-01-01', ?)
-                """, id, companyId, number, email, activeStatusId);
+                """, id, companyId, number, email, activeStatusId));
         return id;
     }
 
@@ -488,6 +528,12 @@ class EmployeeCrudIntegrationTest extends AbstractPostgresIntegrationTest {
     private void insertChildRows(UUID employeeId) {
         // Six characters keep every generated code inside its VARCHAR(10) ceiling.
         var suffix = employeeId.toString().substring(0, 6);
+        // `departments` and `company_countries` are policy-armed, so both raw INSERTs state the company
+        // the employee belongs to.
+        TenantFixtures.inTenant(companyId, () -> insertChildRows(employeeId, suffix));
+    }
+
+    private void insertChildRows(UUID employeeId, String suffix) {
 
         var departmentId = UUID.randomUUID();
         jdbcTemplate.update(
@@ -573,7 +619,7 @@ class EmployeeCrudIntegrationTest extends AbstractPostgresIntegrationTest {
     }
 
     private void assertViolatesConstraint(String constraintName, String sql, Object... args) {
-        assertThatThrownBy(() -> jdbcTemplate.update(sql, args))
+        assertThatThrownBy(() -> TenantFixtures.inTenant(companyId, () -> jdbcTemplate.update(sql, args)))
                 .as("write rejected by %s", constraintName)
                 .isInstanceOf(DataIntegrityViolationException.class)
                 .satisfies(thrown -> assertThat(((DataIntegrityViolationException) thrown)

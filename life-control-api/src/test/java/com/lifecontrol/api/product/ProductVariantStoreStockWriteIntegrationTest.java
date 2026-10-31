@@ -154,12 +154,15 @@ class ProductVariantStoreStockWriteIntegrationTest extends AbstractPostgresInteg
     void setUp() {
         seedStoreHierarchy();
 
-        var product = productRepository.save(Product.builder()
-                .sku("VARSTOCK-" + UUID.randomUUID().toString().substring(0, 8))
-                .name("Variant Store Stock Product")
-                .company(companyRepository.findById(companyId).orElseThrow())
-                .enabled(true)
-                .build());
+        // The company read and the armed INSERT share one stated tenant.
+        var product = TenantFixtures.inTenant(
+                companyId,
+                () -> productRepository.save(Product.builder()
+                        .sku("VARSTOCK-" + UUID.randomUUID().toString().substring(0, 8))
+                        .name("Variant Store Stock Product")
+                        .company(companyRepository.findById(companyId).orElseThrow())
+                        .enabled(true)
+                        .build()));
         productId = product.getId();
 
         // Neither variant starts with a store row: creating it is part of what is under test.
@@ -197,13 +200,16 @@ class ProductVariantStoreStockWriteIntegrationTest extends AbstractPostgresInteg
                 }
             }
         }
-        productVariantRepository.deleteAllById(createdVariantIds);
+        // `product_variants` and `products` are armed: an unscoped delete removes nothing, so the ids are
+        // removed under this suite's tenant.
+        TenantFixtures.inTenant(companyId, () -> {
+            productVariantRepository.deleteAllById(createdVariantIds);
+            if (productId != null) {
+                productRepository.deleteById(productId);
+            }
+        });
         createdVariantIds.clear();
-
-        if (productId != null) {
-            productRepository.deleteById(productId);
-            productId = null;
-        }
+        productId = null;
 
         // The settings rows are the W3-D14 precondition and this test creates them, so they must
         // not outlive it: the store-tree integration classes tear down with
@@ -233,7 +239,7 @@ class ProductVariantStoreStockWriteIntegrationTest extends AbstractPostgresInteg
         mockMvc.perform(put(STORE_STOCK_URL, bareVariantId, storeAId)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(firstBody))
-                        .with(jwt().authorities(ROLE_LC_ADMIN)))
+                        .with(editorJwt()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.companyStoreId").value(storeAId.toString()))
                 .andExpect(jsonPath("$.stock").value(7));
@@ -256,7 +262,7 @@ class ProductVariantStoreStockWriteIntegrationTest extends AbstractPostgresInteg
         mockMvc.perform(put(STORE_STOCK_URL, bareVariantId, storeAId)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(secondBody))
-                        .with(jwt().authorities(ROLE_LC_ADMIN)))
+                        .with(editorJwt()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.stock").value(11));
 
@@ -276,7 +282,7 @@ class ProductVariantStoreStockWriteIntegrationTest extends AbstractPostgresInteg
         mockMvc.perform(put(STORE_STOCK_URL, bareVariantId, storeAId)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{}")
-                        .with(jwt().authorities(ROLE_LC_ADMIN)))
+                        .with(editorJwt()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.companyStoreId").value(storeAId.toString()));
 
@@ -298,7 +304,7 @@ class ProductVariantStoreStockWriteIntegrationTest extends AbstractPostgresInteg
         mockMvc.perform(put(STORE_STOCK_URL, UUID.randomUUID(), storeAId)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(body))
-                        .with(jwt().authorities(ROLE_LC_ADMIN)))
+                        .with(editorJwt()))
                 .andExpect(status().isNotFound());
 
         assertThat(productVariantStoreStockRepository.existsByProductVariantIdAndCompanyStoreId(
@@ -327,12 +333,13 @@ class ProductVariantStoreStockWriteIntegrationTest extends AbstractPostgresInteg
 
         // Two store writes, still two definitions: the write hangs rows off the definition
         // instead of duplicating it, which is the whole point of the split.
-        assertThat(productVariantRepository.findByProductId(productId)).hasSize(2);
+        assertThat(TenantFixtures.inTenant(companyId, () -> productVariantRepository.findByProductId(productId)))
+                .hasSize(2);
 
         // And the read the UI uses reports each store's own stock for the same definition.
         mockMvc.perform(get(VARIANTS_URL, companyId, productId)
                         .param("storeId", storeAId.toString())
-                        .with(jwt().authorities(ROLE_LC_ADMIN)))
+                        .with(editorJwt()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content.length()").value(1))
                 .andExpect(jsonPath("$.content[0].id").value(sharedVariantId.toString()))
@@ -341,7 +348,7 @@ class ProductVariantStoreStockWriteIntegrationTest extends AbstractPostgresInteg
 
         mockMvc.perform(get(VARIANTS_URL, companyId, productId)
                         .param("storeId", storeBId.toString())
-                        .with(jwt().authorities(ROLE_LC_ADMIN)))
+                        .with(editorJwt()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content.length()").value(1))
                 .andExpect(jsonPath("$.content[0].id").value(sharedVariantId.toString()))
@@ -358,7 +365,7 @@ class ProductVariantStoreStockWriteIntegrationTest extends AbstractPostgresInteg
         // row is what makes a definition operational in that store.
         mockMvc.perform(get(VARIANTS_URL, companyId, productId)
                         .param("storeId", storeBId.toString())
-                        .with(jwt().authorities(ROLE_LC_ADMIN)))
+                        .with(editorJwt()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content.length()").value(0))
                 .andExpect(jsonPath("$.totalElements").value(0));
@@ -457,13 +464,24 @@ class ProductVariantStoreStockWriteIntegrationTest extends AbstractPostgresInteg
             // 10 units land on the dock ("VSD") while the sales location (locationA) stays at zero.
             // The editor lowering the aggregate to 5 used to debit sales to -5 (F18); it must draw
             // the decrease from the dock instead.
-            var storeA = companyStoreRepository.findById(storeAId).orElseThrow();
+            var storeA = TenantFixtures.inTenant(
+                    companyId, () -> companyStoreRepository.findById(storeAId).orElseThrow());
             var dock = findOrCreateLocation(storeA, "VSD", "Variant Stock Write Dock A", 2);
 
             // The editor creates the per-store row (the receipt needs it) and leaves both at zero.
             writeStock(bareVariantId, storeAId, "0");
-            inventoryService.applyReceipt(
-                    bareVariantId, storeAId, dock.getId(), new BigDecimal("10"), "TEST_RECEIPT", null, "receiver");
+            // The service is called directly, so the fixture states the tenant its `company_stores` read
+            // needs — the same fact the write above states by naming the company in the path.
+            TenantFixtures.inTenant(
+                    companyId,
+                    () -> inventoryService.applyReceipt(
+                            bareVariantId,
+                            storeAId,
+                            dock.getId(),
+                            new BigDecimal("10"),
+                            "TEST_RECEIPT",
+                            null,
+                            "receiver"));
 
             writeStock(bareVariantId, storeAId, "5");
 
@@ -571,9 +589,19 @@ class ProductVariantStoreStockWriteIntegrationTest extends AbstractPostgresInteg
                 .andExpect(status().isOk());
     }
 
-    /** The editor's JWT: {@code lc-admin} plus the username the ledger records as {@code created_by}. */
+    /**
+     * The editor's JWT: {@code lc-admin}, the username the ledger records as {@code created_by}, and the
+     * company.
+     *
+     * <p>{@code /api/variants/{variantId}/stores/{storeId}} and the variant list name no company in their
+     * paths, so the request's tenant comes from the token's claims (T5b) and a token carrying none states
+     * none: the variant and the store are then invisible and every write answers 404. The claim is the
+     * fixture's, not the assertion's — this suite is about the balance invariant, and an administrator is
+     * admitted for its company either way.</p>
+     */
     private RequestPostProcessor editorJwt() {
-        return jwt().jwt(builder -> builder.claim("preferred_username", "stock-editor"))
+        return jwt().jwt(builder ->
+                        builder.claim("preferred_username", "stock-editor").claim("company_id", companyId.toString()))
                 .authorities(ROLE_LC_ADMIN);
     }
 
@@ -606,13 +634,15 @@ class ProductVariantStoreStockWriteIntegrationTest extends AbstractPostgresInteg
     }
 
     private UUID createVariant(String variantName) {
-        var saved = productVariantRepository.save(ProductVariant.builder()
-                .productId(productId)
-                .companyId(companyId)
-                .barCode("VS-BAR-" + UUID.randomUUID().toString().substring(0, 12))
-                .variantName(variantName)
-                .enabled(true)
-                .build());
+        var saved = TenantFixtures.inTenant(
+                companyId,
+                () -> productVariantRepository.save(ProductVariant.builder()
+                        .productId(productId)
+                        .companyId(companyId)
+                        .barCode("VS-BAR-" + UUID.randomUUID().toString().substring(0, 12))
+                        .variantName(variantName)
+                        .enabled(true)
+                        .build()));
         createdVariantIds.add(saved.getId());
         return saved.getId();
     }
@@ -628,39 +658,44 @@ class ProductVariantStoreStockWriteIntegrationTest extends AbstractPostgresInteg
                 companyRepository, "VARIANT-STOCK-WRITE-KEY", "Variant Stock Write Test Company", "VSWT010101ABC");
         companyId = company.getId();
 
-        var companyCountry = companyCountryRepository
-                .findByCompanyIdAndCountryId(company.getId(), country.getId())
-                .orElseGet(() -> companyCountryRepository.save(CompanyCountry.builder()
-                        .company(company)
-                        .country(country)
-                        .build()));
+        // One boundary states the company for the whole tree: each node, store and location is a row on
+        // (or referencing) a policy-armed table, so the find-or-create reads and the INSERTs need it.
+        TenantFixtures.inTenant(companyId, () -> {
+            var companyCountry = companyCountryRepository
+                    .findByCompanyIdAndCountryId(company.getId(), country.getId())
+                    .orElseGet(() -> companyCountryRepository.save(CompanyCountry.builder()
+                            .company(company)
+                            .country(country)
+                            .build()));
 
-        var region = companyRegionRepository.findByCompanyCountryIdOrderByRegionNameAsc(companyCountry.getId()).stream()
-                .findFirst()
-                .orElseGet(() -> companyRegionRepository.save(CompanyRegion.builder()
-                        .companyCountry(companyCountry)
-                        .regionCode("VS")
-                        .regionName("Variant Stock Write Region")
-                        .enabled(true)
-                        .build()));
+            var region =
+                    companyRegionRepository.findByCompanyCountryIdOrderByRegionNameAsc(companyCountry.getId()).stream()
+                            .findFirst()
+                            .orElseGet(() -> companyRegionRepository.save(CompanyRegion.builder()
+                                    .companyCountry(companyCountry)
+                                    .regionCode("VS")
+                                    .regionName("Variant Stock Write Region")
+                                    .enabled(true)
+                                    .build()));
 
-        var zone = companyZoneRepository.findByCompanyRegionIdOrderByZoneNameAsc(region.getId()).stream()
-                .findFirst()
-                .orElseGet(() -> companyZoneRepository.save(CompanyZone.builder()
-                        .companyRegion(region)
-                        .zoneCode("VS")
-                        .zoneName("Variant Stock Write Zone")
-                        .enabled(true)
-                        .build()));
+            var zone = companyZoneRepository.findByCompanyRegionIdOrderByZoneNameAsc(region.getId()).stream()
+                    .findFirst()
+                    .orElseGet(() -> companyZoneRepository.save(CompanyZone.builder()
+                            .companyRegion(region)
+                            .zoneCode("VS")
+                            .zoneName("Variant Stock Write Zone")
+                            .enabled(true)
+                            .build()));
 
-        var storeA = findOrCreateStore(zone, "Variant Stock Write Store A");
-        var storeB = findOrCreateStore(zone, "Variant Stock Write Store B");
-        storeAId = storeA.getId();
-        storeBId = storeB.getId();
-        locationA = findOrCreateLocation(storeA, "VSLA", "Variant Stock Write Sales A", 1)
-                .getId();
-        locationB = findOrCreateLocation(storeB, "VSLB", "Variant Stock Write Sales B", 1)
-                .getId();
+            var storeA = findOrCreateStore(zone, "Variant Stock Write Store A");
+            var storeB = findOrCreateStore(zone, "Variant Stock Write Store B");
+            storeAId = storeA.getId();
+            storeBId = storeB.getId();
+            locationA = findOrCreateLocation(storeA, "VSLA", "Variant Stock Write Sales A", 1)
+                    .getId();
+            locationB = findOrCreateLocation(storeB, "VSLB", "Variant Stock Write Sales B", 1)
+                    .getId();
+        });
     }
 
     private CompanyStore findOrCreateStore(CompanyZone zone, String storeName) {

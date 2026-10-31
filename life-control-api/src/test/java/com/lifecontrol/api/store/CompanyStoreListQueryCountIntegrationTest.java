@@ -96,38 +96,44 @@ class CompanyStoreListQueryCountIntegrationTest extends AbstractPostgresIntegrat
         var company = TenantFixtures.findOrCreate(
                 companyRepository, "STORE-QUERY-COUNT-KEY", "Store Query Count Test Company", "SQCT010101ABC");
 
-        var companyCountry = companyCountryRepository
-                .findByCompanyIdAndCountryId(company.getId(), country.getId())
-                .orElseGet(() -> companyCountryRepository.save(CompanyCountry.builder()
-                        .company(company)
-                        .country(country)
-                        .build()));
-
-        var region = companyRegionRepository.findByCompanyCountryIdOrderByRegionNameAsc(companyCountry.getId()).stream()
-                .findFirst()
-                .orElseGet(() -> companyRegionRepository.save(CompanyRegion.builder()
-                        .companyCountry(companyCountry)
-                        .regionCode("QC")
-                        .regionName("Store Query Count Region")
-                        .enabled(true)
-                        .build()));
-
         companyId = company.getId();
-        companyCountryId = companyCountry.getId();
-        regionId = region.getId();
+        TenantFixtures.inTenant(companyId, () -> {
+            var companyCountry = companyCountryRepository
+                    .findByCompanyIdAndCountryId(company.getId(), country.getId())
+                    .orElseGet(() -> companyCountryRepository.save(CompanyCountry.builder()
+                            .company(company)
+                            .country(country)
+                            .build()));
+
+            var region =
+                    companyRegionRepository.findByCompanyCountryIdOrderByRegionNameAsc(companyCountry.getId()).stream()
+                            .findFirst()
+                            .orElseGet(() -> companyRegionRepository.save(CompanyRegion.builder()
+                                    .companyCountry(companyCountry)
+                                    .regionCode("QC")
+                                    .regionName("Store Query Count Region")
+                                    .enabled(true)
+                                    .build()));
+
+            companyCountryId = companyCountry.getId();
+            regionId = region.getId();
+        });
     }
 
     @Test
     @DisplayName("should issue the same number of SQL statements for 1 store and for 4 stores")
     void listStatements_AreConstantRegardlessOfStoreCount() throws Exception {
-        // A dedicated zone keeps the measurement isolated from any other class's data.
-        var region = companyRegionRepository.findById(regionId).orElseThrow();
-        var zone = companyZoneRepository.save(CompanyZone.builder()
-                .companyRegion(region)
-                .zoneCode("QC" + UUID.randomUUID().toString().substring(0, 6))
-                .zoneName("Query Count Zone")
-                .enabled(true)
-                .build());
+        // A dedicated zone keeps the measurement isolated from any other class's data. It is read and
+        // written under the company's tenant, because `company_regions` and `company_zones` are armed.
+        var zone = TenantFixtures.inTenant(companyId, () -> {
+            var region = companyRegionRepository.findById(regionId).orElseThrow();
+            return companyZoneRepository.save(CompanyZone.builder()
+                    .companyRegion(region)
+                    .zoneCode("QC" + UUID.randomUUID().toString().substring(0, 6))
+                    .zoneName("Query Count Zone")
+                    .enabled(true)
+                    .build());
+        });
 
         createStoreWithAddress(zone, "Single Store");
         var oneStoreStatements = countListStatements(zone.getId(), 1);
@@ -168,11 +174,13 @@ class CompanyStoreListQueryCountIntegrationTest extends AbstractPostgresIntegrat
                 .enabled(true)
                 .build();
 
-        companyStoreRepository.save(CompanyStore.builder()
-                .companyZone(zone)
-                .storeName(storeName)
-                .address(address)
-                .enabled(true)
-                .build());
+        TenantFixtures.inTenant(
+                companyId,
+                () -> companyStoreRepository.save(CompanyStore.builder()
+                        .companyZone(zone)
+                        .storeName(storeName)
+                        .address(address)
+                        .enabled(true)
+                        .build()));
     }
 }

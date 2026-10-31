@@ -65,12 +65,16 @@ class PositionSelfReferenceIntegrationTest extends AbstractPostgresIntegrationTe
                         .build());
         companyId = company.getId();
 
-        var department = departmentRepository.save(Department.builder()
-                .company(company)
-                .departmentCode("OPS")
-                .departmentName("Operations")
-                .enabled(true)
-                .build());
+        // `departments` is policy-armed and references the company just persisted, so its INSERT states
+        // that company's tenant — the adapter the whole suite then reads under.
+        var department = TenantFixtures.inTenant(
+                companyId,
+                () -> departmentRepository.save(Department.builder()
+                        .company(company)
+                        .departmentCode("OPS")
+                        .departmentName("Operations")
+                        .enabled(true)
+                        .build()));
         departmentId = department.getId();
     }
 
@@ -85,7 +89,8 @@ class PositionSelfReferenceIntegrationTest extends AbstractPostgresIntegrationTe
         // walk A.reportsTo -> B -> C lazily inside its transaction and reject it.
         var request = new PositionRequest(departmentId, "C", "Chief", null, a.getId(), 1, true);
 
-        assertThatThrownBy(() -> positionService.updatePosition(companyId, c.getId(), request))
+        assertThatThrownBy(() -> TenantFixtures.inTenant(
+                        companyId, () -> positionService.updatePosition(companyId, c.getId(), request)))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("cannot report to itself or to one of its descendants");
 
@@ -99,7 +104,10 @@ class PositionSelfReferenceIntegrationTest extends AbstractPostgresIntegrationTe
         var parent = save("MGR", "Manager", null);
         var child = save("OP1", "Operator", parent);
 
-        var response = positionService.getPositionById(companyId, child.getId());
+        // The service is called directly, so no request states the tenant at its transaction boundary and
+        // its resolveCompany read of `companies` would answer not-found.
+        var response =
+                TenantFixtures.inTenant(companyId, () -> positionService.getPositionById(companyId, child.getId()));
 
         assertThat(response.reportsToPositionId()).isEqualTo(parent.getId());
         assertThat(response.companyId()).isEqualTo(companyId);
@@ -112,13 +120,15 @@ class PositionSelfReferenceIntegrationTest extends AbstractPostgresIntegrationTe
     }
 
     private Position save(String code, String name, Position reportsTo) {
-        var department = departmentRepository.findById(departmentId).orElseThrow();
-        return positionRepository.save(Position.builder()
-                .department(department)
-                .positionCode(code)
-                .positionName(name)
-                .reportsToPosition(reportsTo)
-                .enabled(true)
-                .build());
+        return TenantFixtures.inTenant(companyId, () -> {
+            var department = departmentRepository.findById(departmentId).orElseThrow();
+            return positionRepository.save(Position.builder()
+                    .department(department)
+                    .positionCode(code)
+                    .positionName(name)
+                    .reportsToPosition(reportsTo)
+                    .enabled(true)
+                    .build());
+        });
     }
 }

@@ -39,6 +39,7 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import tools.jackson.databind.ObjectMapper;
 
 /**
@@ -166,10 +167,12 @@ class ProductVariantStockCompanyScopeIntegrationTest extends AbstractPostgresInt
             var body = objectMapper.createObjectNode();
             body.put("listPrice", new BigDecimal("30.00"));
 
+            // The path names no company, so the tenant comes from the token's claims: without one the
+            // variant is invisible and this 404 would be the policy's, not the ownership rule's.
             mockMvc.perform(put(STORE_STOCK_URL, variantBId, storeAId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(body))
-                            .with(jwt().authorities(ROLE_LC_ADMIN)))
+                            .with(ownerPrincipal(companyBId)))
                     .andExpect(status().isNotFound());
 
             // Nothing persisted: no row for the pair, and no ledger row either.
@@ -190,7 +193,7 @@ class ProductVariantStockCompanyScopeIntegrationTest extends AbstractPostgresInt
             mockMvc.perform(put(STORE_STOCK_URL, variantBId, storeBId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(body))
-                            .with(jwt().authorities(ROLE_LC_ADMIN)))
+                            .with(ownerPrincipal(companyBId)))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.companyStoreId").value(storeBId.toString()));
 
@@ -230,74 +233,92 @@ class ProductVariantStockCompanyScopeIntegrationTest extends AbstractPostgresInt
             // The purchasing path: a line names a product and a variant, and the store supplies the
             // company. Company A's answer must not contain company B's variant even though the pair
             // (variant, product) is exactly right.
-            assertThat(productVariantRepository.findByIdAndProductIdAndCompanyIdAndEnabledTrue(
-                            variantBId, productBId, companyBId))
-                    .isPresent();
-            assertThat(productVariantRepository.findByIdAndProductIdAndCompanyIdAndEnabledTrue(
-                            variantBId, productBId, companyAId))
-                    .isEmpty();
-            assertThat(productVariantRepository.findByIdAndProductIdAndCompanyIdAndEnabledTrue(
-                            variantAId, productAId, companyAId))
-                    .isPresent();
+            assertThat(byProduct(variantBId, productBId, companyBId)).isPresent();
+            assertThat(byProduct(variantBId, productBId, companyAId)).isEmpty();
+            assertThat(byProduct(variantAId, productAId, companyAId)).isPresent();
         }
 
         @Test
         @DisplayName("should answer a bare (variant, company) existence question only for its owner")
         void salesLookup_IsCompanyScoped() {
-            assertThat(productVariantRepository.existsByIdAndCompanyIdAndEnabledTrue(variantBId, companyBId))
-                    .isTrue();
-            assertThat(productVariantRepository.existsByIdAndCompanyIdAndEnabledTrue(variantBId, companyAId))
-                    .isFalse();
+            assertThat(existsFor(variantBId, companyBId)).isTrue();
+            assertThat(existsFor(variantBId, companyAId)).isFalse();
         }
 
         @Test
         @DisplayName("should resolve a variant by (id, company) only inside its own company")
         void inventoryLookup_IsCompanyScoped() {
             // What the receipt and the sale deduction resolve before they take any lock.
-            assertThat(productVariantRepository.findByIdAndCompanyIdAndEnabledTrue(variantBId, companyBId))
-                    .isPresent();
-            assertThat(productVariantRepository.findByIdAndCompanyIdAndEnabledTrue(variantBId, companyAId))
-                    .isEmpty();
+            assertThat(byId(variantBId, companyBId)).isPresent();
+            assertThat(byId(variantBId, companyAId)).isEmpty();
         }
 
         @Test
         @DisplayName("should still refuse a soft-deleted variant in its own company")
         void scopedLookups_StillFilterDisabled() {
-            var variant = productVariantRepository.findById(variantAId).orElseThrow();
+            var variant = TenantFixtures.inTenant(
+                    companyAId,
+                    () -> productVariantRepository.findById(variantAId).orElseThrow());
             variant.setEnabled(false);
-            productVariantRepository.save(variant);
+            TenantFixtures.inTenant(companyAId, () -> productVariantRepository.save(variant));
 
-            assertThat(productVariantRepository.findByIdAndCompanyIdAndEnabledTrue(variantAId, companyAId))
-                    .isEmpty();
-            assertThat(productVariantRepository.existsByIdAndCompanyIdAndEnabledTrue(variantAId, companyAId))
-                    .isFalse();
-            assertThat(productVariantRepository.findByIdAndProductIdAndCompanyIdAndEnabledTrue(
-                            variantAId, productAId, companyAId))
-                    .isEmpty();
+            assertThat(byId(variantAId, companyAId)).isEmpty();
+            assertThat(existsFor(variantAId, companyAId)).isFalse();
+            assertThat(byProduct(variantAId, productAId, companyAId)).isEmpty();
+        }
+
+        // `product_variants` is policy-armed, so every one of these reads states the company its
+        // predicate already names — the fixture's job, not the finder's: the predicate is unchanged.
+
+        private java.util.Optional<com.lifecontrol.api.product.model.ProductVariant> byId(
+                UUID variantId, UUID companyId) {
+            return TenantFixtures.inTenant(
+                    companyId, () -> productVariantRepository.findByIdAndCompanyIdAndEnabledTrue(variantId, companyId));
+        }
+
+        private boolean existsFor(UUID variantId, UUID companyId) {
+            return TenantFixtures.inTenant(
+                    companyId,
+                    () -> productVariantRepository.existsByIdAndCompanyIdAndEnabledTrue(variantId, companyId));
+        }
+
+        private java.util.Optional<com.lifecontrol.api.product.model.ProductVariant> byProduct(
+                UUID variantId, UUID productId, UUID companyId) {
+            return TenantFixtures.inTenant(
+                    companyId,
+                    () -> productVariantRepository.findByIdAndProductIdAndCompanyIdAndEnabledTrue(
+                            variantId, productId, companyId));
         }
     }
 
     // ─── Fixture ─────────────────────────────────────────────────────────
 
+    /** A product of {@code ownerId}: the company read and the armed INSERT state that tenant. */
     private Product createProduct(UUID ownerId, String name) {
-        var product = productRepository.save(Product.builder()
-                .sku("PVCS-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase())
-                .name(PREFIX + " " + name)
-                .company(companyRepository.findById(ownerId).orElseThrow())
-                .enabled(true)
-                .build());
+        var product = TenantFixtures.inTenant(
+                ownerId,
+                () -> productRepository.save(Product.builder()
+                        .sku("PVCS-"
+                                + UUID.randomUUID().toString().substring(0, 8).toUpperCase())
+                        .name(PREFIX + " " + name)
+                        .company(companyRepository.findById(ownerId).orElseThrow())
+                        .enabled(true)
+                        .build()));
         createdProductIds.add(product.getId());
         return product;
     }
 
+    /** A variant of {@code ownerId}: {@code product_variants} is armed for the insert. */
     private UUID createVariant(UUID targetProductId, UUID ownerId, String variantName) {
-        var variant = productVariantRepository.save(ProductVariant.builder()
-                .productId(targetProductId)
-                .companyId(ownerId)
-                .barCode("PVCS-BAR-" + UUID.randomUUID().toString().substring(0, 12))
-                .variantName(PREFIX + " " + variantName)
-                .enabled(true)
-                .build());
+        var variant = TenantFixtures.inTenant(
+                ownerId,
+                () -> productVariantRepository.save(ProductVariant.builder()
+                        .productId(targetProductId)
+                        .companyId(ownerId)
+                        .barCode("PVCS-BAR-" + UUID.randomUUID().toString().substring(0, 12))
+                        .variantName(PREFIX + " " + variantName)
+                        .enabled(true)
+                        .build()));
         createdVariantIds.add(variant.getId());
         return variant.getId();
     }
@@ -314,41 +335,47 @@ class ProductVariantStockCompanyScopeIntegrationTest extends AbstractPostgresInt
 
         var company = TenantFixtures.findOrCreate(companyRepository, companyKey, companyName, rfc);
 
-        var companyCountry = companyCountryRepository
-                .findByCompanyIdAndCountryId(company.getId(), country.getId())
-                .orElseGet(() -> companyCountryRepository.save(CompanyCountry.builder()
-                        .company(company)
-                        .country(country)
-                        .build()));
+        // One boundary per tenant: every node and store is a row on a policy-armed table and references
+        // the detached Company, so the find-or-create reads and the INSERTs both need that tenant.
+        var storeId = TenantFixtures.inTenant(company.getId(), () -> {
+            var companyCountry = companyCountryRepository
+                    .findByCompanyIdAndCountryId(company.getId(), country.getId())
+                    .orElseGet(() -> companyCountryRepository.save(CompanyCountry.builder()
+                            .company(company)
+                            .country(country)
+                            .build()));
 
-        var region = companyRegionRepository.findByCompanyCountryIdOrderByRegionNameAsc(companyCountry.getId()).stream()
-                .findFirst()
-                .orElseGet(() -> companyRegionRepository.save(CompanyRegion.builder()
-                        .companyCountry(companyCountry)
-                        .regionCode("PV")
-                        .regionName("PVCS Region")
-                        .enabled(true)
-                        .build()));
+            var region =
+                    companyRegionRepository.findByCompanyCountryIdOrderByRegionNameAsc(companyCountry.getId()).stream()
+                            .findFirst()
+                            .orElseGet(() -> companyRegionRepository.save(CompanyRegion.builder()
+                                    .companyCountry(companyCountry)
+                                    .regionCode("PV")
+                                    .regionName("PVCS Region")
+                                    .enabled(true)
+                                    .build()));
 
-        var zone = companyZoneRepository.findByCompanyRegionIdOrderByZoneNameAsc(region.getId()).stream()
-                .findFirst()
-                .orElseGet(() -> companyZoneRepository.save(CompanyZone.builder()
-                        .companyRegion(region)
-                        .zoneCode("PV")
-                        .zoneName("PVCS Zone")
-                        .enabled(true)
-                        .build()));
+            var zone = companyZoneRepository.findByCompanyRegionIdOrderByZoneNameAsc(region.getId()).stream()
+                    .findFirst()
+                    .orElseGet(() -> companyZoneRepository.save(CompanyZone.builder()
+                            .companyRegion(region)
+                            .zoneCode("PV")
+                            .zoneName("PVCS Zone")
+                            .enabled(true)
+                            .build()));
 
-        var store = companyStoreRepository.findByCompanyZoneId(zone.getId()).stream()
-                .filter(candidate -> storeName.equals(candidate.getStoreName()))
-                .findFirst()
-                .orElseGet(() -> companyStoreRepository.save(CompanyStore.builder()
-                        .companyZone(zone)
-                        .storeName(storeName)
-                        .enabled(true)
-                        .build()));
+            return companyStoreRepository.findByCompanyZoneId(zone.getId()).stream()
+                    .filter(candidate -> storeName.equals(candidate.getStoreName()))
+                    .findFirst()
+                    .orElseGet(() -> companyStoreRepository.save(CompanyStore.builder()
+                            .companyZone(zone)
+                            .storeName(storeName)
+                            .enabled(true)
+                            .build()))
+                    .getId();
+        });
 
-        return new StoreFront(company.getId(), store.getId());
+        return new StoreFront(company.getId(), storeId);
     }
 
     private void cleanUp() {
@@ -366,9 +393,29 @@ class ProductVariantStockCompanyScopeIntegrationTest extends AbstractPostgresInt
         inventoryMovementRepository.deleteAll(inventoryMovementRepository.findAll().stream()
                 .filter(movement -> createdVariantIds.contains(movement.getProductVariantId()))
                 .toList());
-        productVariantRepository.deleteAllById(createdVariantIds);
+        // `products` and `product_variants` are armed, so the ids are deleted once per tenant: a delete
+        // under a tenant that does not own the id removes nothing, which is what makes two passes enough.
+        for (var tenant : java.util.stream.Stream.of(companyAId, companyBId)
+                .filter(java.util.Objects::nonNull)
+                .toList()) {
+            TenantFixtures.inTenant(tenant, () -> {
+                productVariantRepository.deleteAllById(createdVariantIds);
+                productRepository.deleteAllById(createdProductIds);
+            });
+        }
         createdVariantIds.clear();
-        productRepository.deleteAllById(createdProductIds);
         createdProductIds.clear();
+    }
+
+    /**
+     * An admin principal that states {@code companyId}.
+     *
+     * <p>{@code /api/variants/{variantId}/stores/{storeId}} names no company in its path, so the tenant of
+     * the request comes from the token's claims and a token carrying none states none: the variant and the
+     * store are then invisible and the answer is 404 whatever the ownership rule says.</p>
+     */
+    private RequestPostProcessor ownerPrincipal(UUID companyId) {
+        return jwt().authorities(ROLE_LC_ADMIN)
+                .jwt(builder -> builder.claim("preferred_username", "admin").claim("company_id", companyId.toString()));
     }
 }

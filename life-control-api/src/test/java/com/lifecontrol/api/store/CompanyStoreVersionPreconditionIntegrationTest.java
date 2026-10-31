@@ -103,44 +103,51 @@ class CompanyStoreVersionPreconditionIntegrationTest extends AbstractPostgresInt
         var company = TenantFixtures.findOrCreate(
                 companyRepository, "STORE-VERSION-KEY", "Store Version Test Company", "SVPR010101ABC");
 
-        var companyCountry = companyCountryRepository
-                .findByCompanyIdAndCountryId(company.getId(), country.getId())
-                .orElseGet(() -> companyCountryRepository.save(CompanyCountry.builder()
-                        .company(company)
-                        .country(country)
-                        .build()));
-
-        var region = companyRegionRepository.findByCompanyCountryIdOrderByRegionNameAsc(companyCountry.getId()).stream()
-                .findFirst()
-                .orElseGet(() -> companyRegionRepository.save(CompanyRegion.builder()
-                        .companyCountry(companyCountry)
-                        .regionCode("SVP")
-                        .regionName("Store Version Region")
-                        .enabled(true)
-                        .build()));
-
-        var zone = companyZoneRepository.findByCompanyRegionIdOrderByZoneNameAsc(region.getId()).stream()
-                .findFirst()
-                .orElseGet(() -> companyZoneRepository.save(CompanyZone.builder()
-                        .companyRegion(region)
-                        .zoneCode("SVP")
-                        .zoneName("Store Version Zone")
-                        .enabled(true)
-                        .build()));
-
-        var store = companyStoreRepository.findByCompanyZoneId(zone.getId()).stream()
-                .findFirst()
-                .orElseGet(() -> companyStoreRepository.save(CompanyStore.builder()
-                        .companyZone(zone)
-                        .storeName("Version Precondition Store")
-                        .enabled(true)
-                        .build()));
-
         companyId = company.getId();
-        companyCountryId = companyCountry.getId();
-        regionId = region.getId();
-        zoneId = zone.getId();
-        storeId = store.getId();
+        // One boundary states the company for the children below: each is a row on a
+        // policy-armed table and references the detached Company, so both the find-or-create reads
+        // and the flush's unsaved-value probe need that tenant installed.
+        TenantFixtures.inTenant(companyId, () -> {
+            var companyCountry = companyCountryRepository
+                    .findByCompanyIdAndCountryId(company.getId(), country.getId())
+                    .orElseGet(() -> companyCountryRepository.save(CompanyCountry.builder()
+                            .company(company)
+                            .country(country)
+                            .build()));
+
+            var region =
+                    companyRegionRepository.findByCompanyCountryIdOrderByRegionNameAsc(companyCountry.getId()).stream()
+                            .findFirst()
+                            .orElseGet(() -> companyRegionRepository.save(CompanyRegion.builder()
+                                    .companyCountry(companyCountry)
+                                    .regionCode("SVP")
+                                    .regionName("Store Version Region")
+                                    .enabled(true)
+                                    .build()));
+
+            var zone = companyZoneRepository.findByCompanyRegionIdOrderByZoneNameAsc(region.getId()).stream()
+                    .findFirst()
+                    .orElseGet(() -> companyZoneRepository.save(CompanyZone.builder()
+                            .companyRegion(region)
+                            .zoneCode("SVP")
+                            .zoneName("Store Version Zone")
+                            .enabled(true)
+                            .build()));
+
+            var store = companyStoreRepository.findByCompanyZoneId(zone.getId()).stream()
+                    .findFirst()
+                    .orElseGet(() -> companyStoreRepository.save(CompanyStore.builder()
+                            .companyZone(zone)
+                            .storeName("Version Precondition Store")
+                            .enabled(true)
+                            .build()));
+
+            companyId = company.getId();
+            companyCountryId = companyCountry.getId();
+            regionId = region.getId();
+            zoneId = zone.getId();
+            storeId = store.getId();
+        });
     }
 
     private ResultActions putStore(UpdateCompanyStoreRequest request) throws Exception {
@@ -160,14 +167,17 @@ class CompanyStoreVersionPreconditionIntegrationTest extends AbstractPostgresInt
     void staleVersionPutAnswers412AndWritesNothing() throws Exception {
         // The row outlives this method (singleton container, find-or-create seed), so read the
         // version it actually holds instead of assuming a fresh zero.
-        long versionBefore =
-                companyStoreRepository.findById(storeId).orElseThrow().getVersion();
+        long versionBefore = TenantFixtures.inTenant(
+                        companyId,
+                        () -> companyStoreRepository.findById(storeId).orElseThrow())
+                .getVersion();
 
         // First accepted update, no precondition: it advances the stored version by exactly one.
         putStore(new UpdateCompanyStoreRequest("Primer cambio", null, null, null))
                 .andExpect(status().isOk());
 
-        var accepted = companyStoreRepository.findById(storeId).orElseThrow();
+        var accepted = TenantFixtures.inTenant(
+                companyId, () -> companyStoreRepository.findById(storeId).orElseThrow());
         long acceptedVersion = accepted.getVersion();
         LocalDateTime acceptedUpdatedAt = accepted.getUpdatedAt();
         assertThat(acceptedVersion).isEqualTo(versionBefore + 1);
@@ -177,7 +187,8 @@ class CompanyStoreVersionPreconditionIntegrationTest extends AbstractPostgresInt
                 .andExpect(status().isPreconditionFailed())
                 .andExpect(jsonPath("$.status").value(412));
 
-        var after = companyStoreRepository.findById(storeId).orElseThrow();
+        var after = TenantFixtures.inTenant(
+                companyId, () -> companyStoreRepository.findById(storeId).orElseThrow());
         assertThat(after.getStoreName()).isEqualTo("Primer cambio");
         assertThat(after.getVersion()).isEqualTo(acceptedVersion);
         assertThat(after.getUpdatedAt()).isEqualTo(acceptedUpdatedAt);
@@ -209,7 +220,8 @@ class CompanyStoreVersionPreconditionIntegrationTest extends AbstractPostgresInt
         // D4: the flushed update also carries a genuinely newer timestamp.
         assertThat(LocalDateTime.parse(response.get("updatedAt").asText())).isAfter(updatedAtBefore);
 
-        var stored = companyStoreRepository.findById(storeId).orElseThrow();
+        var stored = TenantFixtures.inTenant(
+                companyId, () -> companyStoreRepository.findById(storeId).orElseThrow());
         assertThat(stored.getVersion()).isEqualTo(versionBefore + 1);
         assertThat(stored.getStoreName()).isEqualTo("Segundo cambio");
     }
@@ -222,7 +234,10 @@ class CompanyStoreVersionPreconditionIntegrationTest extends AbstractPostgresInt
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.storeName").value("Sin versión"));
 
-        assertThat(companyStoreRepository.findById(storeId).orElseThrow().getStoreName())
+        assertThat(TenantFixtures.inTenant(
+                                companyId,
+                                () -> companyStoreRepository.findById(storeId).orElseThrow())
+                        .getStoreName())
                 .isEqualTo("Sin versión");
     }
 
@@ -235,7 +250,8 @@ class CompanyStoreVersionPreconditionIntegrationTest extends AbstractPostgresInt
                         .with(jwt().authorities(ROLE_LC_ADMIN)))
                 .andExpect(status().isNoContent());
 
-        var disabled = companyStoreRepository.findById(storeId).orElseThrow();
+        var disabled = TenantFixtures.inTenant(
+                companyId, () -> companyStoreRepository.findById(storeId).orElseThrow());
         long versionBefore = disabled.getVersion();
         LocalDateTime updatedAtBefore = disabled.getUpdatedAt();
 
@@ -251,7 +267,8 @@ class CompanyStoreVersionPreconditionIntegrationTest extends AbstractPostgresInt
         assertThat(reenabled.get("version").asLong()).isEqualTo(versionBefore + 1);
         assertThat(LocalDateTime.parse(reenabled.get("updatedAt").asText())).isAfter(updatedAtBefore);
 
-        var stored = companyStoreRepository.findById(storeId).orElseThrow();
+        var stored = TenantFixtures.inTenant(
+                companyId, () -> companyStoreRepository.findById(storeId).orElseThrow());
         assertThat(stored.getEnabled()).isTrue();
         assertThat(stored.getVersion()).isEqualTo(versionBefore + 1);
     }

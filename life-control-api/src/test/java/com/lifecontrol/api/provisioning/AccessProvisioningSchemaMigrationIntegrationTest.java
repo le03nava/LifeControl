@@ -131,30 +131,35 @@ class AccessProvisioningSchemaMigrationIntegrationTest extends AbstractPostgresI
      * a later work unit left in these shared tables is never removed.
      */
     private void deleteProvisioningRows() {
-        jdbcTemplate.update("""
-                DELETE FROM access_provisioning_reviewed_roles WHERE task_id IN
-                    (SELECT t.id FROM access_provisioning_tasks t
-                     JOIN employees e ON e.id = t.employee_id
-                     JOIN companies c ON c.id = e.company_id
-                     WHERE c.company_key = ?)
-                """, COMPANY_KEY);
-        jdbcTemplate.update("""
-                DELETE FROM access_provisioning_applied_roles WHERE task_id IN
-                    (SELECT t.id FROM access_provisioning_tasks t
-                     JOIN employees e ON e.id = t.employee_id
-                     JOIN companies c ON c.id = e.company_id
-                     WHERE c.company_key = ?)
-                """, COMPANY_KEY);
-        jdbcTemplate.update("""
-                DELETE FROM access_provisioning_tasks WHERE employee_id IN
-                    (SELECT e.id FROM employees e
-                     JOIN companies c ON c.id = e.company_id
-                     WHERE c.company_key = ?)
-                """, COMPANY_KEY);
-        jdbcTemplate.update("""
-                DELETE FROM employees WHERE company_id IN
-                    (SELECT id FROM companies WHERE company_key = ?)
-                """, COMPANY_KEY);
+        // Stated under the key's own tenant, and the id is the one `TenantFixtures.findOrCreate` derives
+        // from it: each DELETE joins `employees` and `companies`, both policy-armed, so unscoped it
+        // matches zero rows — silently for the DELETE, and by hiding the company row the subquery needs.
+        TenantFixtures.inTenant(TenantFixtures.derivedId(COMPANY_KEY), () -> {
+            jdbcTemplate.update("""
+                    DELETE FROM access_provisioning_reviewed_roles WHERE task_id IN
+                        (SELECT t.id FROM access_provisioning_tasks t
+                         JOIN employees e ON e.id = t.employee_id
+                         JOIN companies c ON c.id = e.company_id
+                         WHERE c.company_key = ?)
+                    """, COMPANY_KEY);
+            jdbcTemplate.update("""
+                    DELETE FROM access_provisioning_applied_roles WHERE task_id IN
+                        (SELECT t.id FROM access_provisioning_tasks t
+                         JOIN employees e ON e.id = t.employee_id
+                         JOIN companies c ON c.id = e.company_id
+                         WHERE c.company_key = ?)
+                    """, COMPANY_KEY);
+            jdbcTemplate.update("""
+                    DELETE FROM access_provisioning_tasks WHERE employee_id IN
+                        (SELECT e.id FROM employees e
+                         JOIN companies c ON c.id = e.company_id
+                         WHERE c.company_key = ?)
+                    """, COMPANY_KEY);
+            jdbcTemplate.update("""
+                    DELETE FROM employees WHERE company_id IN
+                        (SELECT id FROM companies WHERE company_key = ?)
+                    """, COMPANY_KEY);
+        });
     }
 
     @Test
@@ -526,17 +531,19 @@ class AccessProvisioningSchemaMigrationIntegrationTest extends AbstractPostgresI
         var companyId = accessCompanyId();
         var statusId = activeEmployeeStatusId();
 
-        var employee = employeeRepository.saveAndFlush(Employee.builder()
-                .company(companyRepository.findById(companyId).orElseThrow())
-                .status(statusRepository.findById(statusId).orElseThrow())
-                .employeeNumber("EMP-PROV-RT")
-                .firstName("Ada")
-                .paternalLastName("Lovelace")
-                .email("prov.roundtrip@example.com")
-                .birthDate(LocalDate.of(1990, 1, 1))
-                .hireDate(LocalDate.of(2020, 1, 1))
-                .enabled(true)
-                .build());
+        var employee = TenantFixtures.inTenant(
+                companyId,
+                () -> employeeRepository.saveAndFlush(Employee.builder()
+                        .company(companyRepository.findById(companyId).orElseThrow())
+                        .status(statusRepository.findById(statusId).orElseThrow())
+                        .employeeNumber("EMP-PROV-RT")
+                        .firstName("Ada")
+                        .paternalLastName("Lovelace")
+                        .email("prov.roundtrip@example.com")
+                        .birthDate(LocalDate.of(1990, 1, 1))
+                        .hireDate(LocalDate.of(2020, 1, 1))
+                        .enabled(true)
+                        .build()));
 
         var saved = taskRepository.saveAndFlush(AccessProvisioningTask.builder()
                 .employee(employee)
@@ -674,12 +681,16 @@ class AccessProvisioningSchemaMigrationIntegrationTest extends AbstractPostgresI
         var statusId = activeEmployeeStatusId();
         var n = sequence.incrementAndGet();
         var id = UUID.randomUUID();
-        jdbcTemplate.update("""
-                INSERT INTO employees
-                    (id, company_id, employee_number, first_name, paternal_last_name, email,
-                     birth_date, hire_date, employment_status_id)
-                VALUES (?, ?, ?, 'Ada', 'Lovelace', ?, DATE '1990-01-01', DATE '2020-01-01', ?)
-                """, id, companyId, "EMP-PROV-" + n, "prov.employee" + n + "@example.com", statusId);
+        // `employees` is policy-armed, so the insert states the company that owns the row.
+        TenantFixtures.inTenant(
+                companyId,
+                () -> jdbcTemplate.update(
+                        """
+                        INSERT INTO employees
+                            (id, company_id, employee_number, first_name, paternal_last_name, email,
+                             birth_date, hire_date, employment_status_id)
+                        VALUES (?, ?, ?, 'Ada', 'Lovelace', ?, DATE '1990-01-01', DATE '2020-01-01', ?)
+                        """, id, companyId, "EMP-PROV-" + n, "prov.employee" + n + "@example.com", statusId));
         return id;
     }
 

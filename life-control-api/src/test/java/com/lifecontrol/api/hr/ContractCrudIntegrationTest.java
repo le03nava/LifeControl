@@ -121,63 +121,78 @@ class ContractCrudIntegrationTest extends AbstractPostgresIntegrationTest {
         // deleteAllEmployees then owns the employee leaf order — contracts and scope assignments
         // before the parent (issue #562).
         deleteAllAccessProvisioningRows(jdbcTemplate);
-        deleteAllEmployees(jdbcTemplate);
-        jdbcTemplate.update("DELETE FROM position_salary_bands");
-        jdbcTemplate.update("DELETE FROM position_roles");
-        jdbcTemplate.update("DELETE FROM positions");
-        jdbcTemplate.update("DELETE FROM departments");
-        jdbcTemplate.update("DELETE FROM seniority_levels");
 
         companyId = companyId(COMPANY_KEY, COMPANY_RFC, "Contract CRUD Test Company");
+        var otherCompanyId = companyId(OTHER_COMPANY_KEY, OTHER_COMPANY_RFC, "Contract CRUD Other Company");
+
+        // Both cleanups and both seeds state a tenant, one per company: `employees` and `departments` are
+        // policy-armed, so an unscoped DELETE removes nothing (and the next method then collides on the
+        // natural keys below) and an unscoped read of `companies` cannot answer the department's owner.
+        TenantFixtures.inTenant(companyId, () -> {
+            deleteAllEmployees(jdbcTemplate);
+            jdbcTemplate.update("DELETE FROM position_salary_bands");
+            jdbcTemplate.update("DELETE FROM position_roles");
+            jdbcTemplate.update("DELETE FROM positions");
+            jdbcTemplate.update("DELETE FROM departments");
+            jdbcTemplate.update("DELETE FROM seniority_levels");
+        });
+        TenantFixtures.inTenant(otherCompanyId, () -> {
+            jdbcTemplate.update("DELETE FROM positions");
+            jdbcTemplate.update("DELETE FROM departments");
+        });
+
         var activeStatus = employeeStatus("Active");
         var terminatedStatus = employeeStatus("Terminated");
 
-        var department = departmentRepository.save(Department.builder()
-                .company(companyRepository.findById(companyId).orElseThrow())
-                .departmentCode("OPS")
-                .departmentName("Operations")
-                .enabled(true)
-                .build());
-        position = positionRepository.save(Position.builder()
-                .department(department)
-                .positionCode("OP1")
-                .positionName("Operator")
-                .enabled(true)
-                .build());
-        seniorityLevel = seniorityLevelRepository.save(SeniorityLevel.builder()
-                .levelCode("J" + sequence.incrementAndGet())
-                .levelName("Junior")
-                .rank(1)
-                .enabled(true)
-                .build());
+        TenantFixtures.inTenant(companyId, () -> {
+            var department = departmentRepository.save(Department.builder()
+                    .company(companyRepository.findById(companyId).orElseThrow())
+                    .departmentCode("OPS")
+                    .departmentName("Operations")
+                    .enabled(true)
+                    .build());
+            position = positionRepository.save(Position.builder()
+                    .department(department)
+                    .positionCode("OP1")
+                    .positionName("Operator")
+                    .enabled(true)
+                    .build());
+            seniorityLevel = seniorityLevelRepository.save(SeniorityLevel.builder()
+                    .levelCode("J" + sequence.incrementAndGet())
+                    .levelName("Junior")
+                    .rank(1)
+                    .enabled(true)
+                    .build());
 
-        employeeId = employeeRepository
-                .save(employee(companyId, activeStatus, "EMP-C-001", "contract.employee@example.com", null))
-                .getId();
-        terminatedEmployeeId = employeeRepository
-                .save(employee(
-                        companyId,
-                        terminatedStatus,
-                        "EMP-C-002",
-                        "contract.terminated@example.com",
-                        LocalDate.of(2026, 1, 1)))
-                .getId();
+            employeeId = employeeRepository
+                    .save(employee(companyId, activeStatus, "EMP-C-001", "contract.employee@example.com", null))
+                    .getId();
+            terminatedEmployeeId = employeeRepository
+                    .save(employee(
+                            companyId,
+                            terminatedStatus,
+                            "EMP-C-002",
+                            "contract.terminated@example.com",
+                            LocalDate.of(2026, 1, 1)))
+                    .getId();
+        });
 
-        var otherCompanyId = companyId(OTHER_COMPANY_KEY, OTHER_COMPANY_RFC, "Contract CRUD Other Company");
-        var otherDepartment = departmentRepository.save(Department.builder()
-                .company(companyRepository.findById(otherCompanyId).orElseThrow())
-                .departmentCode("OTHER")
-                .departmentName("Other Operations")
-                .enabled(true)
-                .build());
-        foreignPositionId = positionRepository
-                .save(Position.builder()
-                        .department(otherDepartment)
-                        .positionCode("OPX")
-                        .positionName("Foreign Operator")
-                        .enabled(true)
-                        .build())
-                .getId();
+        foreignPositionId = TenantFixtures.inTenant(otherCompanyId, () -> {
+            var otherDepartment = departmentRepository.save(Department.builder()
+                    .company(companyRepository.findById(otherCompanyId).orElseThrow())
+                    .departmentCode("OTHER")
+                    .departmentName("Other Operations")
+                    .enabled(true)
+                    .build());
+            return positionRepository
+                    .save(Position.builder()
+                            .department(otherDepartment)
+                            .positionCode("OPX")
+                            .positionName("Foreign Operator")
+                            .enabled(true)
+                            .build())
+                    .getId();
+        });
     }
 
     private ResultActions postContract(UUID employee, ContractRequest request) throws Exception {
