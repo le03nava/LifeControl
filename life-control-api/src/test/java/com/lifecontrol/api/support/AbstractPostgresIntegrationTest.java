@@ -6,12 +6,15 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import org.flywaydb.core.api.MigrationVersion;
+import org.junit.jupiter.api.BeforeEach;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 /**
@@ -127,6 +130,42 @@ public abstract class AbstractPostgresIntegrationTest {
     /** The pool's password, paired with {@link #poolUsername()}. */
     private static String poolPassword() {
         return POOL_IS_THE_APPLICATION_ROLE ? APPLICATION_PASSWORD : POSTGRES.getPassword();
+    }
+
+    /**
+     * Hands the context's transaction manager to the fixtures, which open their raw writes on it (record
+     * T6b-2).
+     *
+     * <p>A field on the base class and not a parameter per fixture entry point: sixty-five test classes call
+     * {@code TenantFixtures}, and the manager is one fact for the whole run — the same one the application
+     * uses, which is the only manager whose {@code doBegin} installs the tenant scope.</p>
+     */
+    @Autowired
+    private PlatformTransactionManager tenantFixtureBoundary;
+
+    /**
+     * Re-states that binding before every test method.
+     *
+     * <p><b>Why per test and not once per context</b> (measured on T6b-2). The binding is a JVM-wide static
+     * and Spring <b>caches</b> a context across classes, so an autowired method runs when a context is
+     * created, not every time one is reused. A suite that clears the binding — {@code TenantFixturesTest}
+     * does, so a Mockito suite does not leave a recording manager behind for the next class — therefore
+     * unbound the fixtures of every later suite whose context Spring had already built, and those failed with
+     * “No transaction manager is bound to TenantFixtures” depending on execution order. Re-binding here costs
+     * one assignment per test and makes the fact true for the test that needs it instead of for the context
+     * that happened to be created first.</p>
+     *
+     * <p>A {@code @BeforeEach} on the base class runs before every subclass's own, which is exactly the order
+     * a fixture in a subclass's {@code @BeforeEach} needs.</p>
+     */
+    @BeforeEach
+    void bindTenantFixtureBoundary() {
+        // Guarded because two suites extend this class for its container and its helpers while booting no
+        // Spring context at all (the two that migrate their own scratch database): they have no manager to
+        // receive, and they bind their own in their setup. Binding null would erase that one.
+        if (tenantFixtureBoundary != null) {
+            TenantFixtures.bindTransactionManager(tenantFixtureBoundary);
+        }
     }
 
     /**

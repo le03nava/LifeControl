@@ -7,6 +7,9 @@ import jakarta.persistence.EntityManager;
 import java.nio.charset.StandardCharsets;
 import java.util.UUID;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * The one way a test fixture persists a {@code companies} row, stating its tenant the way production does.
@@ -28,6 +31,36 @@ import org.springframework.jdbc.core.JdbcTemplate;
  * those 537 carried no production stack frame</b>: production already did this right in
  * {@code CompanyService.createCompany}, and only the fixtures did not. This slice changes the fixtures,
  * not the production paths and not the call sites.</p>
+ *
+ * <p><b>The third rule: where a write has no transaction of its own, the fixture opens one.</b> A scope
+ * declared with no boundary installs nothing, and the T6b-2 baseline is what that costs: <b>545 of 4246</b>
+ * tests failed with the pool on {@code lifecontrol_app}, and 163 of them were statements that never passed a
+ * transaction boundary at all — a raw {@code JdbcTemplate} {@code INSERT} that drew its own pooled
+ * connection, or a per-class seed saving through a {@code JdbcTemplate} nobody had opened a transaction for.
+ * {@code set_config(..., true)} is {@code SET LOCAL}, so without a boundary there is nowhere to put it.</p>
+ *
+ * <p><b>Which entry points own the boundary, and which do not.</b> The distinction is measured, not
+ * stylistic. {@link #persist(CompanyRepository, Company)}, {@link #persistAndFlush(CompanyRepository, Company)}
+ * and the two {@code findOrCreate} shapes go through a Spring Data repository, and Spring Data's own
+ * {@code @Transactional} is already a boundary — a real one that runs
+ * {@link com.lifecontrol.api.common.tenant.TenantScopeJpaTransactionManager#doBegin} and therefore installs
+ * the scope this helper states before calling it. Opening a second, {@code REQUIRES_NEW} transaction around
+ * a repository call would change what the suite observes (the row would commit and survive a
+ * {@code @Transactional} suite's rollback) to achieve nothing. So those four stay as they are, and the
+ * javadoc says so rather than leaving it to be inferred.</p>
+ *
+ * <p>The {@code JdbcTemplate} entry points and {@link #inTenant(UUID, java.util.function.Supplier)} are the
+ * ones that <b>do</b> open their own boundary, because a raw statement has none: it borrows a pooled
+ * connection, opens no transaction, and {@code SET LOCAL} on it would be a locally-scoped no-op — exactly
+ * the "SET LOCAL on somebody else's connection" ADR-0005 forbids. Inside a transaction Spring owns, the
+ * {@code JdbcTemplate} reuses the transaction's connection instead, which is the only way the scope reaches
+ * the statement.</p>
+ *
+ * <p>An {@code @Transactional} suite whose own transaction began before its fixture stated a scope is a
+ * different defect with the same symptom (record L24, cause B: 26 failures), and it is T6b-3's: there the
+ * boundary exists and cannot be retro-fitted with a scope, so the fixture write has to move to its own
+ * transaction. This helper does not silently do that for it, because committing a fixture outside the
+ * suite's rollback is a change each of those suites has to observe.</p>
  *
  * <p><b>The pool is not switched yet.</b> Until T6b the container's Superuser still backs the pool, so a
  * stated scope is inert and the suite stays green; the point of adopting the helper now is that the
@@ -62,6 +95,91 @@ public final class TenantFixtures {
             "INSERT INTO companies (id, company_key, company_name, rfc) VALUES (?, ?, ?, ?)";
 
     private TenantFixtures() {}
+
+    /**
+     * The boundary every writing entry point opens, bound once by the PostgreSQL test base class.
+     *
+     * <p>A static binding for the same reason {@link TenantScope} is a static holder: the call sites are
+     * fixtures that receive a repository, an {@code EntityManager} or a {@code JdbcTemplate} from Spring and
+     * cannot receive a manager without every one of sixty-five classes growing a field for a fact that is
+     * constant for the whole run. {@code AbstractPostgresIntegrationTest} binds the context's own manager
+     * through an autowired method, so the boundary the fixtures open is the one the application itself uses
+     * — the manager that installs the scope — and not a second one with different semantics.</p>
+     */
+    private static PlatformTransactionManager transactionManager;
+
+    /**
+     * Binds the manager the writing entry points open their transactions on.
+     *
+     * <p>Called by {@code AbstractPostgresIntegrationTest} for every PostgreSQL suite; a Mockito suite binds
+     * its own recording manager so the boundary contract can be pinned without a database.</p>
+     *
+     * @param manager the context's transaction manager, which must be the one that installs the scope
+     */
+    public static void bindTransactionManager(PlatformTransactionManager manager) {
+        transactionManager = manager;
+    }
+
+    /**
+     * Removes the binding, so a suite that bound its own manager does not leave it on the JVM for the next
+     * class. Never called by a production path: the application has no use for this helper at all.
+     */
+    public static void unbindTransactionManager() {
+        transactionManager = null;
+    }
+
+    /**
+     * Runs {@code work} inside one new transaction whose boundary states {@code companyId}, restoring the
+     * thread's previous scope afterwards.
+     *
+     * <p>The order is the contract: the scope is stated first, the transaction begins second, the work runs
+     * third. {@code doBegin} reads the holder, so a boundary opened before the scope is stated installs the
+     * previous tenant or none, and the work then reads or writes another tenant's rows (or none, which is
+     * the fail-closed direction and the reason this bug was loud rather than dangerous).</p>
+     *
+     * <p>{@code REQUIRES_NEW} and not the default {@code REQUIRED}: this entry point exists for the raw
+     * statements that have no boundary, and a suite annotated {@code @Transactional} has already begun its
+     * transaction before {@code @BeforeEach} runs — so joining it would mean joining a boundary that never
+     * saw the scope, which is the shape that installs nothing. The consequence is declared rather than
+     * hidden: a row a fixture writes this way is committed and survives that suite's rollback.</p>
+     *
+     * @param companyId the tenant of the work, which the policies compare against
+     * @param work the statements to run inside that transaction
+     * @return whatever {@code work} returns
+     */
+    public static <T> T inTenant(UUID companyId, java.util.function.Supplier<T> work) {
+        var template = new TransactionTemplate(requireTransactionManager());
+        template.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        return TenantScope.with(companyId, () -> template.execute(status -> work.get()));
+    }
+
+    /**
+     * Same as {@link #inTenant(UUID, java.util.function.Supplier)} for the fixtures that only write.
+     */
+    public static void inTenant(UUID companyId, Runnable work) {
+        inTenant(companyId, () -> {
+            work.run();
+            return null;
+        });
+    }
+
+    /**
+     * The manager the writes open their transactions on, refusing when nothing was bound.
+     *
+     * <p>Refusing is deliberate. A fallback that ran the write with no transaction would look like it worked
+     * on the superuser pool and be refused by the policy on the application role, which turns a fixture
+     * mistake into a policy finding — the exact confusion T6b exists to end.</p>
+     */
+    private static PlatformTransactionManager requireTransactionManager() {
+        var manager = transactionManager;
+        if (manager == null) {
+            throw new IllegalStateException("No transaction manager is bound to TenantFixtures: a fixture write "
+                    + "needs the boundary its tenant is installed in. A PostgreSQL suite extends "
+                    + "AbstractPostgresIntegrationTest, which binds it; a Mockito suite binds its own with "
+                    + "TenantFixtures.bindTransactionManager(...).");
+        }
+        return manager;
+    }
 
     /**
      * Persists {@code company} through its repository, assigning the id first when the caller stated none
@@ -109,16 +227,10 @@ public final class TenantFixtures {
      * random id here would be a second creator of the key with a second identity, which is the bug this rule
      * exists to make impossible.</p>
      *
-     * <p><b>What this overload does and does not do yet.</b> It <i>states</i> the scope, so the call site
-     * reads like the other three and every fixture carries the rule. What it cannot do alone is make the
-     * statement reach the database with the scope installed: a plain {@code JdbcTemplate.update} draws its
-     * own pooled connection and opens no transaction, so
-     * {@code TenantScopeJpaTransactionManager.doBegin} never runs and {@code set_config} is never issued —
-     * exactly the "SET LOCAL on somebody else's connection" ADR-0005 forbids. In this slice that costs
-     * nothing, because the pool still connects as the container's superuser. T6b-2 routes these fixtures
-     * through a {@code TransactionTemplate} (which is what installs the scope and what makes the
-     * {@code JdbcTemplate} reuse that connection); until it does, this overload is inert by construction
-     * and the comment says so instead of implying otherwise.</p>
+     * <p><b>What this overload does now.</b> It states the scope <b>and</b> opens the boundary that installs
+     * it: a plain {@code JdbcTemplate.update} draws its own pooled connection and opens no transaction, so
+     * the statement only meets the scope inside a transaction Spring owns, where the {@code JdbcTemplate}
+     * reuses the transaction's connection instead of borrowing another one.</p>
      *
      * @return the id the row carries, so the caller can register it for cleanup or use it in the graph
      */
@@ -133,7 +245,7 @@ public final class TenantFixtures {
      */
     public static UUID insertCompany(
             JdbcTemplate jdbcTemplate, UUID id, String companyKey, String companyName, String rfc) {
-        TenantScope.with(id, () -> jdbcTemplate.update(INSERT_COMPANY, id, companyKey, companyName, rfc));
+        inTenant(id, () -> jdbcTemplate.update(INSERT_COMPANY, id, companyKey, companyName, rfc));
         return id;
     }
 
