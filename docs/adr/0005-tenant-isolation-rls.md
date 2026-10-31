@@ -346,7 +346,10 @@ stylistically — and they are corrected here, in the shape of the section above
 document says, not whether it binds; every later slice cites the items as they read now.
 
 1. **Decision item 3 was short one role, and the missing one is a maintenance credential.** `initdb`
-   creates exactly one superuser and it is `POSTGRES_USER` — the owner. Item 3 drops that flag, because
+   creates exactly one superuser and, as this item originally assumed, it would be `POSTGRES_USER` — the
+   owner (**corrected on 2026-10-31, and the correction is the entry at the end of this section**:
+   `POSTGRES_USER` is the maintenance role instead, because the role `initdb` creates can never be
+   demoted). Item 3 drops that flag, because
    a superuser bypasses RLS and the owner runs Flyway; from the **second** run onward the role script
    then has no role that can do what it does on the first. `ALTER ROLE lifecontrol_app ... PASSWORD`
    needs `CREATEROLE` or superuser, `ALTER ROLE lifecontrol_owner NOSUPERUSER` needs superuser, and
@@ -355,8 +358,8 @@ document says, not whether it binds; every later slice cites the items as they r
    database that has no superuser left in it at all. Item 3 is now three roles, three jobs, and the
    third is `lifecontrol_bootstrap`: `SUPERUSER LOGIN`, **no password** (the container's local socket is
    `trust`, and a role without a password cannot authenticate over TCP, where the image requires
-   `scram-sha-256`), no grant on any table, and never named by the API wrapper, the exporter or a
-   compose file. The rule that follows is the point of the correction: the bootstrap role is for the DDL
+   `scram-sha-256`), no grant on any table, and named by a compose file only as the role the database is
+   initialized with — never as a login. The rule that follows is the point of the correction: the bootstrap role is for the DDL
    PostgreSQL reserves to superuser — creating a role, moving a role's attributes, creating an
    extension — and **never** for a migration that touches tenant rows, because that connection bypasses
    every policy, which is exactly what invariant T5 exists to catch.
