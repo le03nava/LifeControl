@@ -3,7 +3,6 @@ package com.lifecontrol.api.product;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import com.lifecontrol.api.company.model.Company;
 import com.lifecontrol.api.company.repository.CompanyRepository;
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
 import com.lifecontrol.api.support.TenantFixtures;
@@ -375,31 +374,18 @@ class ProductCategorySchemaMigrationIntegrationTest extends AbstractPostgresInte
      * hand-writing an insert into {@code companies}.
      */
     private UUID categoryCompanyId() {
-        return companyRepository
-                .findByCompanyKey(CATEGORY_COMPANY_KEY)
-                .orElseGet(() -> TenantFixtures.persist(
+        return TenantFixtures.findOrCreate(
                         companyRepository,
-                        Company.builder()
-                                .companyKey(CATEGORY_COMPANY_KEY)
-                                .companyName("Product Category Schema Test Company")
-                                .rfc(CATEGORY_COMPANY_RFC)
-                                .enabled(true)
-                                .build()))
+                        CATEGORY_COMPANY_KEY,
+                        "Product Category Schema Test Company",
+                        CATEGORY_COMPANY_RFC)
                 .getId();
     }
 
     /** Second tenant, so a name or a parent can be proven unique <em>per company</em>. */
     private UUID otherCompanyId() {
-        return companyRepository
-                .findByCompanyKey(OTHER_COMPANY_KEY)
-                .orElseGet(() -> TenantFixtures.persist(
-                        companyRepository,
-                        Company.builder()
-                                .companyKey(OTHER_COMPANY_KEY)
-                                .companyName("Product Category Other Company")
-                                .rfc(OTHER_COMPANY_RFC)
-                                .enabled(true)
-                                .build()))
+        return TenantFixtures.findOrCreate(
+                        companyRepository, OTHER_COMPANY_KEY, "Product Category Other Company", OTHER_COMPANY_RFC)
                 .getId();
     }
 

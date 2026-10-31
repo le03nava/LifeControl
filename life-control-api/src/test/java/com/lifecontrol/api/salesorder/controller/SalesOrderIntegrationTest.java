@@ -10,7 +10,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.lifecontrol.api.company.model.Company;
 import com.lifecontrol.api.company.model.CompanyCountry;
 import com.lifecontrol.api.company.model.CompanyRegion;
 import com.lifecontrol.api.company.model.CompanyZone;
@@ -306,16 +305,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                         .enabled(true)
                         .build()));
 
-        var company = companyRepository
-                .findByCompanyKey("TEST-KEY")
-                .orElseGet(() -> TenantFixtures.persist(
-                        companyRepository,
-                        Company.builder()
-                                .companyKey("TEST-KEY")
-                                .companyName("Test Company")
-                                .rfc("TEST123456ABC")
-                                .enabled(true)
-                                .build()));
+        var company = TenantFixtures.findOrCreate(companyRepository, "TEST-KEY", "Test Company", "TEST123456ABC");
 
         var companyCountry = companyCountryRepository
                 .findByCompanyIdAndCountryId(company.getId(), country.getId())

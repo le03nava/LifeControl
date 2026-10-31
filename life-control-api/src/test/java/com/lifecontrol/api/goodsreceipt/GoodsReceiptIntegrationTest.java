@@ -268,16 +268,8 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
     private void seedCompanyHierarchy() {
         var country = countryRepository.findByCountryCode("MX").orElseThrow();
 
-        company = companyRepository
-                .findByCompanyKey("GOODS-RECEIPT-KEY")
-                .orElseGet(() -> TenantFixtures.persist(
-                        companyRepository,
-                        Company.builder()
-                                .companyKey("GOODS-RECEIPT-KEY")
-                                .companyName("Goods Receipt Test Company")
-                                .rfc("GRTS010101ABC")
-                                .enabled(true)
-                                .build()));
+        company = TenantFixtures.findOrCreate(
+                companyRepository, "GOODS-RECEIPT-KEY", "Goods Receipt Test Company", "GRTS010101ABC");
 
         var companyCountry = companyCountryRepository
                 .findByCompanyIdAndCountryId(company.getId(), country.getId())

@@ -3,7 +3,6 @@ package com.lifecontrol.api.provisioning;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import com.lifecontrol.api.company.model.Company;
 import com.lifecontrol.api.company.repository.CompanyRepository;
 import com.lifecontrol.api.hr.model.Employee;
 import com.lifecontrol.api.hr.repository.EmployeeRepository;
@@ -651,16 +650,8 @@ class AccessProvisioningSchemaMigrationIntegrationTest extends AbstractPostgresI
      * an insert into {@code companies}.
      */
     private UUID accessCompanyId() {
-        return companyRepository
-                .findByCompanyKey(COMPANY_KEY)
-                .orElseGet(() -> TenantFixtures.persist(
-                        companyRepository,
-                        Company.builder()
-                                .companyKey(COMPANY_KEY)
-                                .companyName("Access Provisioning Schema Test Company")
-                                .rfc(COMPANY_RFC)
-                                .enabled(true)
-                                .build()))
+        return TenantFixtures.findOrCreate(
+                        companyRepository, COMPANY_KEY, "Access Provisioning Schema Test Company", COMPANY_RFC)
                 .getId();
     }
 

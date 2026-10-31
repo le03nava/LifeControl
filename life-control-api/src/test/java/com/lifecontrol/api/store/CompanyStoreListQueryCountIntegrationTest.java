@@ -7,7 +7,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.lifecontrol.api.common.address.model.Address;
-import com.lifecontrol.api.company.model.Company;
 import com.lifecontrol.api.company.model.CompanyCountry;
 import com.lifecontrol.api.company.model.CompanyRegion;
 import com.lifecontrol.api.company.model.CompanyZone;
@@ -94,16 +93,8 @@ class CompanyStoreListQueryCountIntegrationTest extends AbstractPostgresIntegrat
         statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
         country = countryRepository.findByCountryCode("MX").orElseThrow();
 
-        var company = companyRepository
-                .findByCompanyKey("STORE-QUERY-COUNT-KEY")
-                .orElseGet(() -> TenantFixtures.persist(
-                        companyRepository,
-                        Company.builder()
-                                .companyKey("STORE-QUERY-COUNT-KEY")
-                                .companyName("Store Query Count Test Company")
-                                .rfc("SQCT010101ABC")
-                                .enabled(true)
-                                .build()));
+        var company = TenantFixtures.findOrCreate(
+                companyRepository, "STORE-QUERY-COUNT-KEY", "Store Query Count Test Company", "SQCT010101ABC");
 
         var companyCountry = companyCountryRepository
                 .findByCompanyIdAndCountryId(company.getId(), country.getId())

@@ -109,16 +109,8 @@ class ProductAttributeCatalogServiceTest extends AbstractPostgresIntegrationTest
 
     @BeforeEach
     void setUp() {
-        company = companyRepository
-                .findByCompanyKey(COMPANY_KEY)
-                .orElseGet(() -> TenantFixtures.persistAndFlush(
-                        companyRepository,
-                        Company.builder()
-                                .companyKey(COMPANY_KEY)
-                                .companyName("Product Attribute Catalog Test Company")
-                                .rfc(COMPANY_RFC)
-                                .enabled(true)
-                                .build()));
+        company = TenantFixtures.findOrCreateAndFlush(
+                companyRepository, COMPANY_KEY, "Product Attribute Catalog Test Company", COMPANY_RFC);
         companyId = company.getId();
 
         // A previous method of this class may have failed before its cleanup; the shared container is

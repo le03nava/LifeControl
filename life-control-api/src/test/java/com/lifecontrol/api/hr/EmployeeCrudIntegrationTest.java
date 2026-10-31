@@ -540,32 +540,26 @@ class EmployeeCrudIntegrationTest extends AbstractPostgresIntegrationTest {
     }
 
     private UUID employeeCompanyId() {
-        return companyRepository
-                .findByCompanyKey(COMPANY_KEY)
-                .orElseGet(() -> TenantFixtures.persist(
+        return TenantFixtures.findOrCreate(
                         companyRepository,
                         Company.builder()
                                 .companyKey(COMPANY_KEY)
                                 .companyName("Employee CRUD Test Company")
                                 .rfc(COMPANY_RFC)
                                 .emailDomain(COMPANY_DOMAIN)
-                                .enabled(true)
-                                .build()))
+                                .build())
                 .getId();
     }
 
     private UUID otherCompanyId() {
-        return companyRepository
-                .findByCompanyKey(OTHER_COMPANY_KEY)
-                .orElseGet(() -> TenantFixtures.persist(
+        return TenantFixtures.findOrCreate(
                         companyRepository,
                         Company.builder()
                                 .companyKey(OTHER_COMPANY_KEY)
                                 .companyName("Employee CRUD Other Company")
                                 .rfc(OTHER_COMPANY_RFC)
                                 .emailDomain(OTHER_COMPANY_DOMAIN)
-                                .enabled(true)
-                                .build()))
+                                .build())
                 .getId();
     }
 

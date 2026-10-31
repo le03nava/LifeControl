@@ -10,7 +10,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.lifecontrol.api.company.model.Company;
 import com.lifecontrol.api.company.model.CompanyCountry;
 import com.lifecontrol.api.company.model.CompanyRegion;
 import com.lifecontrol.api.company.model.CompanyZone;
@@ -168,16 +167,8 @@ class PurchaseOrderDetailVariantIntegrationTest extends AbstractPostgresIntegrat
     private void seedReferenceData() {
         var country = countryRepository.findByCountryCode("MX").orElseThrow();
 
-        var company = companyRepository
-                .findByCompanyKey("PO-RECEIPT-KEY")
-                .orElseGet(() -> TenantFixtures.persist(
-                        companyRepository,
-                        Company.builder()
-                                .companyKey("PO-RECEIPT-KEY")
-                                .companyName("PO Receipt Test Company")
-                                .rfc("PORC010101ABC")
-                                .enabled(true)
-                                .build()));
+        var company = TenantFixtures.findOrCreate(
+                companyRepository, "PO-RECEIPT-KEY", "PO Receipt Test Company", "PORC010101ABC");
 
         var companyCountry = companyCountryRepository
                 .findByCompanyIdAndCountryId(company.getId(), country.getId())

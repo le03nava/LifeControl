@@ -1039,3 +1039,114 @@ context's shutdown loses its tables. It is not this unit's to fix — the honest
 recorded here for two reasons: a gate that fails by ordering cannot measure four slices, and this slice exists
 to make the gate measurable. The numbers that belong to T6b-0 stand as observed: default **4 240 / 0**, app role
 **4 240 / 545**, with zero `OutOfMemoryError` after the heap bump.
+
+L25 — **T6b-1 lands the derived id, kills the 376 duplicate-key cause, and the suite count does not move: the 376
+were a mask, not the cause.** The rule is the maintainer's (L24, verbatim «Id determinístico desde la key»),
+implemented once in `support/TenantFixtures`: a seed that resolves a company by its natural key derives the
+company's id from that key, states that id as the tenant scope **before** the read, and inserts at the same id
+when the read finds nothing. `TenantFixtures.derivedId(companyKey)` is
+`UUID.nameUUIDFromBytes(companyKey.getBytes(UTF_8))` — name-based v3 (MD5), stable across JVMs and runs, pinned
+by a literal in `TenantFixturesTest` so that changing it is a visible change to every seeded id — and it is the
+only derivation: `findOrCreate(CompanyRepository, String, String, String)`, `findOrCreate(repository, Company
+prototype)` and `findOrCreateAndFlush(...)` all go through it, and the raw `insertCompany(jdbcTemplate, key, …)`
+overload now derives too instead of generating a random id. Production is untouched: `CompanyService#createCompany`
+keeps stating the identity of the company a real caller created, because nothing outside the tests needs two
+writers of one key to agree.
+
+**Why a derivation and not a convenience, said in the helper's javadoc.** A company's tenant is its own id, so the
+derived id can be stated before the read and the read then agrees with the policy that filters it. Two seeds agree
+only if **every** creator of that key derives it the same way; a class that wrote `TEST-COMPANY` with a random id
+and another that derives the id from `TEST-COMPANY` would still collide, with a different id — the same bug in a
+new message. That is why the derivation lives in one named method instead of at the call sites.
+
+**The agreement check, and it is the substance of the slice.** Four greps over `src/test/java`
+(`findByCompanyKey`, `findByCompanyKeyIgnoreCase`, `orElseGet`, `existsByCompanyKey`) found **50 find-or-create
+sites in 44 files** and **51 `findByCompanyKey` calls, one of which is a read-only cleanup** in
+`ProductAttributeControllerTest:106`; there are **zero** in `src/main`. All 50 were adopted: 48 mechanically
+rewritten to the `(key, name, rfc)` overload and 2 (`EmployeeCrudIntegrationTest`, which also sets
+`emailDomain`) to the prototype overload, so the `find()` in the helper is the only way any suite reads a company
+by key. Then a value-based audit (a throwaway script, not committed) resolved every key — literals, `static final
+String` constants, and the 8 keys that reach the helper through a parameterized `findOrCreateCompany(key, …)` /
+`companyId(key, …)` helper — to **42 distinct keys**, and listed every occurrence of each of those 42 keys in the
+whole test tree. Result: every write of every one of the 42 keys is inside a `TenantFixtures.findOrCreate*` call.
+The only writers left outside it are `ProductVariantServiceTest:215` and `SalesOrderServiceTest:168`, which build
+`Company.builder().id(UUID.randomUUID()).companyKey("TEST-KEY")` in memory under `@ExtendWith(MockitoExtension)`
+and never touch a database, plus `SupplierCompanyScopeHttpIntegrationTest#insertCompany`, which writes keys of its
+own. No migration, no `src/test/resources` fixture and no HTTP-body `companyKey` mentions any of the 42. That
+closes the agreement requirement **for the keys the suite seeds today**; the next key a suite adds is the next
+audit, which is why the rule is in the helper's javadoc rather than in a comment at the call site.
+
+**Evidence, as observed.** Tests first, with the one honest exception: the new `TenantFixturesTest` cases (6 new,
+`derivedId` purity + pinned value + null refusal, the scope stated at the read **and** at the save, reuse of the
+found row without a second insert, the prototype's columns kept while its random id is replaced, and the flushing
+overload) were written **after** the helper, so no RED run exists for them — the honest RED for this slice is the
+app-role suite itself, whose 376 duplicate-key failures I re-measured on the base commit before writing anything.
+`./gradlew test --tests '*TenantFixturesTest'` → `BUILD SUCCESSFUL`, 9 tests. `./gradlew spotlessApply
+spotlessCheck spotbugsMain` → exit 0, `BUILD SUCCESSFUL in 18s`.
+
+**The two measurements, and they are the deliverable.** Default (superuser pool): `./gradlew test` → **exit 0,
+4 246 tests in 1 022 classes, 0 failed, 0 skipped** (4 240 + the 6 new fixture tests). Application role:
+`TEST_POOL_APP_ROLE=true ./gradlew cleanTest test` → **exit 1, 4 246 tests, 545 failed** — the same 545 as the
+baseline, and the parent's expectation of ~169 is therefore **falsified by the run**. What did move is the
+composition, and to prove it I re-measured the baseline instead of trusting the brief: `git archive a36b14b2`,
+`TEST_POOL_APP_ROLE=true ./gradlew test` in that scratch tree → exit 1, **4 240 tests, 545 failed**, buckets
+`duplicate-key` **376**, `unsaved-transient` 32, `rls-42501` 66, raw `INSERT INTO companies` 46, other raw inserts
+13, machinery 8, other 4.
+
+| bucket | base `a36b14b2` | after T6b-1 |
+| --- | --- | --- |
+| `duplicate key … companies_company_key_key` | **376** | **5** |
+| Hibernate unsaved-transient probe on a detached parent | 32 | **321** |
+| `rls-42501` (JPA insert into `companies` with no scope) | 66 | 66 |
+| raw `INSERT INTO companies` (`TenantFixtures.insertCompany`) | 46 | 46 |
+| raw `INSERT INTO` employees / categories / departments / products / profiles | 13 | 62 |
+| unscoped read returned nothing (`NoSuchElementException`) | 2 | 21 |
+| unscoped company lookup inside a service (`CompanyNotFound`) | 1 | 15 |
+| machinery / assertion | 8 | 8 |
+| other | 4 | 1 |
+
+Test method by test method: **0 became green, 0 newly failed, and 371 changed bucket** — `duplicate-key` →
+`unsaved-transient` 289, → raw employees 21, → `NoSuchElement` 19, → `CompanyNotFound` 14, → raw categories 13,
+→ raw departments 10, → raw products 4, → raw profiles 1. **The five `duplicate-key` that remain are not
+find-or-create**: `AccessProvisioningWorkerApplyIntegrationTest`, `AccessProvisioningEnqueueRaceIntegrationTest`
+and `AccessProvisioningProducerTransactionIntegrationTest` insert unconditionally with `TenantFixtures.persist`
+and rely on a `deleteOwnFixtures()` cleanup whose `deleteAll()` runs with no scope stated, so the row survives the
+cleanup and the next method's insert collides.
+
+**Where the 376 came from, and why fixing them moved nothing.** They were the **first** failure of a chain, not a
+failure of their own: with the company seed refused, no suite ever reached the statement after it. Once the seed
+finds its row, every one of those 371 tests runs one statement further and meets the same missing-scope rule one
+level down — and the largest single form of it is Hibernate's own existence probe. `CompanyCountry.save(...)`
+(295 of 321), `ProductCategory` (21), `Department` (4) and `Employee` (1) reference a **detached** `Company`;
+Hibernate 7.4's `ForeignKeys.getEntityIdentifierIfNotUnsaved` → `AbstractEntityPersister.isTransient` finds no
+`unsaved-value` strategy able to answer for an application-assigned UUID and falls through to
+`getDatabaseSnapshot`, i.e. a `select … from companies where id = ?` issued **with no `app.company_id` stated**.
+`companies`' policy hides the row, Hibernate concludes "unsaved transient instance", and the child insert aborts
+with `TransientPropertyValueException`. The 32 transient failures the baseline already had are that same probe;
+the difference is that 289 more tests now reach it. Which is the useful finding of this slice: the child seeds
+need the scope as much as the company seed did, and no amount of care inside the company helper can state a scope
+on a statement the caller owns.
+
+**Deviations.** (1) The advertised number did not move — reported instead of chased, per the brief. (2) One adopted
+class is also group B: `StarterProductCategoryMigrationIntegrationTest` is `@Transactional`, so its derived read now
+runs inside Spring's test transaction, whose `doBegin` already happened before `@BeforeEach`; it stays red until
+T6b-3 and its adoption is correct but unobservable. (3) Beyond the letter of the brief, the raw
+`insertCompany(jdbcTemplate, key, companyName, rfc)` overload now derives the id too, because a raw fixture that
+inserted a key at a random id would be the second creator the agreement requirement forbids — the explicit-id
+overload the migration mirrors keep is untouched. (4) `TenantFixturesTest` grew from 3 to 9 tests, which is the
+whole of the 4 240 → 4 246 delta.
+
+**Handoff to T6b-2 — and its size is now measured, not estimated.** The next slice is the scope around the **child**
+seeds and their raw statements: 321 unsaved-transient failures across **92 classes** (the read of `companies` that
+the probe issues has to see the parent), 46 raw `INSERT INTO companies` where `TenantFixtures.insertCompany` states a
+scope on a connection that never installs it, 62 raw `INSERT INTO` employees/categories/departments/products/profiles,
+21 `NoSuchElementException` from unscoped reads and 15 `CompanyNotFoundException` from `EmployeeService#resolveCompany`
+reading `companies` with no scope. The cheapest shape, to be measured before it is trusted: wrap each
+`seedXHierarchy()` body in `TenantScope.with(company.getId(), …)` — or add the scoped child-save the raw helper
+documents it cannot do alone — and re-measure the 545, since the mask has now been removed and this slice's numbers
+are the real starting line. **T6b-3** is the 8 `@Transactional` top-level classes carrying 57 failures, whose fix is
+the `REQUIRES_NEW` fixture write L24 named. **T6b-4** is the 8 machinery/assertion failures
+(`TenantScopeBoundaryIntegrationTest`, `CompanyTenantScopeIntegrationTest`, `TenantScopeFunctionsIntegrationTest`,
+`TenantTaskResolverIntegrationTest`, `StarterProductCategoryCompanyCreationIntegrationTest`). **T6c** is unchanged.
+What T6b-1 does not claim: no test became green, the application role is still not the default, and the 42-key
+agreement holds for the keys that exist today.

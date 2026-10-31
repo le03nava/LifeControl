@@ -9,7 +9,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.lifecontrol.api.company.model.Company;
 import com.lifecontrol.api.company.model.CompanyCountry;
 import com.lifecontrol.api.company.model.CompanyRegion;
 import com.lifecontrol.api.company.model.CompanyZone;
@@ -506,16 +505,8 @@ class SchedulingAppointmentIntegrationTest extends AbstractPostgresIntegrationTe
     private void seedCompanyHierarchy() {
         var country = countryRepository.findByCountryCode("MX").orElseThrow();
 
-        var company = companyRepository
-                .findByCompanyKey("SCHEDULING-APPOINTMENT-KEY")
-                .orElseGet(() -> TenantFixtures.persist(
-                        companyRepository,
-                        Company.builder()
-                                .companyKey("SCHEDULING-APPOINTMENT-KEY")
-                                .companyName("Scheduling Appointment Test Company")
-                                .rfc("SAP010101ABC")
-                                .enabled(true)
-                                .build()));
+        var company = TenantFixtures.findOrCreate(
+                companyRepository, "SCHEDULING-APPOINTMENT-KEY", "Scheduling Appointment Test Company", "SAP010101ABC");
 
         var companyCountry = companyCountryRepository
                 .findByCompanyIdAndCountryId(company.getId(), country.getId())

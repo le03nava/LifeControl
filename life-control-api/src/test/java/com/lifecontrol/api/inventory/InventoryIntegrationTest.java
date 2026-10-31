@@ -6,7 +6,6 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.lifecontrol.api.company.model.Company;
 import com.lifecontrol.api.company.model.CompanyCountry;
 import com.lifecontrol.api.company.model.CompanyRegion;
 import com.lifecontrol.api.company.model.CompanyZone;
@@ -178,16 +177,8 @@ class InventoryIntegrationTest extends AbstractPostgresIntegrationTest {
     private void seedCompanyHierarchy() {
         var country = countryRepository.findByCountryCode("MX").orElseThrow();
 
-        var company = companyRepository
-                .findByCompanyKey("INVENTORY-KEY")
-                .orElseGet(() -> TenantFixtures.persist(
-                        companyRepository,
-                        Company.builder()
-                                .companyKey("INVENTORY-KEY")
-                                .companyName("Inventory Test Company")
-                                .rfc("INVT010101ABC")
-                                .enabled(true)
-                                .build()));
+        var company = TenantFixtures.findOrCreate(
+                companyRepository, "INVENTORY-KEY", "Inventory Test Company", "INVT010101ABC");
 
         var companyCountry = companyCountryRepository
                 .findByCompanyIdAndCountryId(company.getId(), country.getId())
@@ -693,16 +684,8 @@ class InventoryIntegrationTest extends AbstractPostgresIntegrationTest {
          * would be refused for the wrong reason.
          */
         private ProductVariant createForeignVariant(String stock) {
-            var foreignCompany = companyRepository
-                    .findByCompanyKey(FOREIGN_COMPANY_KEY)
-                    .orElseGet(() -> TenantFixtures.persist(
-                            companyRepository,
-                            Company.builder()
-                                    .companyKey(FOREIGN_COMPANY_KEY)
-                                    .companyName("Inventory Foreign Company")
-                                    .rfc("INVF010101ABC")
-                                    .enabled(true)
-                                    .build()));
+            var foreignCompany = TenantFixtures.findOrCreate(
+                    companyRepository, FOREIGN_COMPANY_KEY, "Inventory Foreign Company", "INVF010101ABC");
 
             var product = productRepository.save(Product.builder()
                     .sku("INV-FSKU-" + UUID.randomUUID().toString().substring(0, 8))

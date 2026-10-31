@@ -6,7 +6,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.lifecontrol.api.company.model.Company;
 import com.lifecontrol.api.company.model.CompanyCountry;
 import com.lifecontrol.api.company.model.CompanyRegion;
 import com.lifecontrol.api.company.model.CompanyZone;
@@ -313,16 +312,7 @@ class ProductVariantStockCompanyScopeIntegrationTest extends AbstractPostgresInt
     private StoreFront seedStoreFront(String companyKey, String companyName, String rfc, String storeName) {
         var country = countryRepository.findByCountryCode("MX").orElseThrow();
 
-        var company = companyRepository
-                .findByCompanyKey(companyKey)
-                .orElseGet(() -> TenantFixtures.persist(
-                        companyRepository,
-                        Company.builder()
-                                .companyKey(companyKey)
-                                .companyName(companyName)
-                                .rfc(rfc)
-                                .enabled(true)
-                                .build()));
+        var company = TenantFixtures.findOrCreate(companyRepository, companyKey, companyName, rfc);
 
         var companyCountry = companyCountryRepository
                 .findByCompanyIdAndCountryId(company.getId(), country.getId())

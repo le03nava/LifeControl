@@ -3,7 +3,6 @@ package com.lifecontrol.api.hr;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import com.lifecontrol.api.company.model.Company;
 import com.lifecontrol.api.company.model.CompanyCountry;
 import com.lifecontrol.api.company.model.CompanyRegion;
 import com.lifecontrol.api.company.model.CompanyZone;
@@ -643,16 +642,8 @@ class EmployeeScopeAssignmentSchemaMigrationIntegrationTest extends AbstractPost
     private Fixtures fixtures() {
         var country = countryRepository.findByCountryCode("MX").orElseThrow();
 
-        var company = companyRepository
-                .findByCompanyKey(COMPANY_KEY)
-                .orElseGet(() -> TenantFixtures.persist(
-                        companyRepository,
-                        Company.builder()
-                                .companyKey(COMPANY_KEY)
-                                .companyName("Employee Scope Assignment Schema Test Company")
-                                .rfc(COMPANY_RFC)
-                                .enabled(true)
-                                .build()));
+        var company = TenantFixtures.findOrCreate(
+                companyRepository, COMPANY_KEY, "Employee Scope Assignment Schema Test Company", COMPANY_RFC);
 
         var companyCountry = companyCountryRepository
                 .findByCompanyIdAndCountryId(company.getId(), country.getId())
