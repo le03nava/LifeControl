@@ -40,6 +40,7 @@ import com.lifecontrol.api.store.repository.CompanyStoreRepository;
 import com.lifecontrol.api.supplier.model.Supplier;
 import com.lifecontrol.api.supplier.repository.SupplierRepository;
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
+import com.lifecontrol.api.support.TenantFixtures;
 import java.math.BigDecimal;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -169,12 +170,14 @@ class PurchaseOrderDetailVariantIntegrationTest extends AbstractPostgresIntegrat
 
         var company = companyRepository
                 .findByCompanyKey("PO-RECEIPT-KEY")
-                .orElseGet(() -> companyRepository.save(Company.builder()
-                        .companyKey("PO-RECEIPT-KEY")
-                        .companyName("PO Receipt Test Company")
-                        .rfc("PORC010101ABC")
-                        .enabled(true)
-                        .build()));
+                .orElseGet(() -> TenantFixtures.persist(
+                        companyRepository,
+                        Company.builder()
+                                .companyKey("PO-RECEIPT-KEY")
+                                .companyName("PO Receipt Test Company")
+                                .rfc("PORC010101ABC")
+                                .enabled(true)
+                                .build()));
 
         var companyCountry = companyCountryRepository
                 .findByCompanyIdAndCountryId(company.getId(), country.getId())

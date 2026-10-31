@@ -24,6 +24,7 @@ import com.lifecontrol.api.store.dto.UpdateCompanyStoreRequest;
 import com.lifecontrol.api.store.model.CompanyStore;
 import com.lifecontrol.api.store.repository.CompanyStoreRepository;
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
+import com.lifecontrol.api.support.TenantFixtures;
 import java.time.LocalDateTime;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
@@ -102,12 +103,14 @@ class CompanyStoreVersionPreconditionIntegrationTest extends AbstractPostgresInt
 
         var company = companyRepository
                 .findByCompanyKey("STORE-VERSION-KEY")
-                .orElseGet(() -> companyRepository.save(Company.builder()
-                        .companyKey("STORE-VERSION-KEY")
-                        .companyName("Store Version Test Company")
-                        .rfc("SVPR010101ABC")
-                        .enabled(true)
-                        .build()));
+                .orElseGet(() -> TenantFixtures.persist(
+                        companyRepository,
+                        Company.builder()
+                                .companyKey("STORE-VERSION-KEY")
+                                .companyName("Store Version Test Company")
+                                .rfc("SVPR010101ABC")
+                                .enabled(true)
+                                .build()));
 
         var companyCountry = companyCountryRepository
                 .findByCompanyIdAndCountryId(company.getId(), country.getId())

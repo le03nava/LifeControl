@@ -24,6 +24,7 @@ import com.lifecontrol.api.product.repository.ProductVariantStoreStockRepository
 import com.lifecontrol.api.store.model.CompanyStore;
 import com.lifecontrol.api.store.repository.CompanyStoreRepository;
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
+import com.lifecontrol.api.support.TenantFixtures;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
@@ -314,12 +315,14 @@ class ProductVariantStockCompanyScopeIntegrationTest extends AbstractPostgresInt
 
         var company = companyRepository
                 .findByCompanyKey(companyKey)
-                .orElseGet(() -> companyRepository.save(Company.builder()
-                        .companyKey(companyKey)
-                        .companyName(companyName)
-                        .rfc(rfc)
-                        .enabled(true)
-                        .build()));
+                .orElseGet(() -> TenantFixtures.persist(
+                        companyRepository,
+                        Company.builder()
+                                .companyKey(companyKey)
+                                .companyName(companyName)
+                                .rfc(rfc)
+                                .enabled(true)
+                                .build()));
 
         var companyCountry = companyCountryRepository
                 .findByCompanyIdAndCountryId(company.getId(), country.getId())

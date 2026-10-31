@@ -25,6 +25,7 @@ import com.lifecontrol.api.store.repository.CompanyStoreRepository;
 import com.lifecontrol.api.supplier.model.Supplier;
 import com.lifecontrol.api.supplier.repository.SupplierRepository;
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
+import com.lifecontrol.api.support.TenantFixtures;
 import java.util.HashSet;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
@@ -143,12 +144,14 @@ class PurchaseOrderListNullSearchIntegrationTest extends AbstractPostgresIntegra
     private String seedOrder() {
         var company = companyRepository
                 .findByCompanyKey("PO-NULLSEARCH-A")
-                .orElseGet(() -> companyRepository.save(Company.builder()
-                        .companyKey("PO-NULLSEARCH-A")
-                        .companyName("PO Null Search Company")
-                        .rfc("PONSA01010ABC")
-                        .enabled(true)
-                        .build()));
+                .orElseGet(() -> TenantFixtures.persist(
+                        companyRepository,
+                        Company.builder()
+                                .companyKey("PO-NULLSEARCH-A")
+                                .companyName("PO Null Search Company")
+                                .rfc("PONSA01010ABC")
+                                .enabled(true)
+                                .build()));
         var country = countryRepository.findByCountryCode("MX").orElseThrow();
         var companyCountry = companyCountryRepository
                 .findByCompanyIdAndCountryId(company.getId(), country.getId())

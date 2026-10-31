@@ -26,6 +26,7 @@ import com.lifecontrol.api.store.model.StoreArea;
 import com.lifecontrol.api.store.repository.CompanyStoreRepository;
 import com.lifecontrol.api.store.repository.StoreAreaRepository;
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
+import com.lifecontrol.api.support.TenantFixtures;
 import java.time.LocalDateTime;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
@@ -110,12 +111,14 @@ class StoreAreaVersionPreconditionIntegrationTest extends AbstractPostgresIntegr
 
         var company = companyRepository
                 .findByCompanyKey("STORE-AREA-VERSION-KEY")
-                .orElseGet(() -> companyRepository.save(Company.builder()
-                        .companyKey("STORE-AREA-VERSION-KEY")
-                        .companyName("Store Area Version Test Company")
-                        .rfc("SAVR010101ABC")
-                        .enabled(true)
-                        .build()));
+                .orElseGet(() -> TenantFixtures.persist(
+                        companyRepository,
+                        Company.builder()
+                                .companyKey("STORE-AREA-VERSION-KEY")
+                                .companyName("Store Area Version Test Company")
+                                .rfc("SAVR010101ABC")
+                                .enabled(true)
+                                .build()));
 
         var companyCountry = companyCountryRepository
                 .findByCompanyIdAndCountryId(company.getId(), country.getId())

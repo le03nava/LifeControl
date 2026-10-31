@@ -23,6 +23,7 @@ import com.lifecontrol.api.hr.dto.ScopeAssignmentRequest;
 import com.lifecontrol.api.store.model.CompanyStore;
 import com.lifecontrol.api.store.repository.CompanyStoreRepository;
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
+import com.lifecontrol.api.support.TenantFixtures;
 import java.time.LocalDate;
 import java.util.Comparator;
 import java.util.UUID;
@@ -206,12 +207,14 @@ class EmployeeScopeAssignmentHttpIntegrationTest extends AbstractPostgresIntegra
     private Company findOrCreateCompany(String key, String rfc, String name) {
         return companyRepository
                 .findByCompanyKey(key)
-                .orElseGet(() -> companyRepository.save(Company.builder()
-                        .companyKey(key)
-                        .companyName(name)
-                        .rfc(rfc)
-                        .enabled(true)
-                        .build()));
+                .orElseGet(() -> TenantFixtures.persist(
+                        companyRepository,
+                        Company.builder()
+                                .companyKey(key)
+                                .companyName(name)
+                                .rfc(rfc)
+                                .enabled(true)
+                                .build()));
     }
 
     private SeededZone companyZone(

@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.lifecontrol.api.company.model.Company;
 import com.lifecontrol.api.company.repository.CompanyRepository;
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
+import com.lifecontrol.api.support.TenantFixtures;
 import java.util.UUID;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeEach;
@@ -376,12 +377,14 @@ class ProductCategorySchemaMigrationIntegrationTest extends AbstractPostgresInte
     private UUID categoryCompanyId() {
         return companyRepository
                 .findByCompanyKey(CATEGORY_COMPANY_KEY)
-                .orElseGet(() -> companyRepository.save(Company.builder()
-                        .companyKey(CATEGORY_COMPANY_KEY)
-                        .companyName("Product Category Schema Test Company")
-                        .rfc(CATEGORY_COMPANY_RFC)
-                        .enabled(true)
-                        .build()))
+                .orElseGet(() -> TenantFixtures.persist(
+                        companyRepository,
+                        Company.builder()
+                                .companyKey(CATEGORY_COMPANY_KEY)
+                                .companyName("Product Category Schema Test Company")
+                                .rfc(CATEGORY_COMPANY_RFC)
+                                .enabled(true)
+                                .build()))
                 .getId();
     }
 
@@ -389,12 +392,14 @@ class ProductCategorySchemaMigrationIntegrationTest extends AbstractPostgresInte
     private UUID otherCompanyId() {
         return companyRepository
                 .findByCompanyKey(OTHER_COMPANY_KEY)
-                .orElseGet(() -> companyRepository.save(Company.builder()
-                        .companyKey(OTHER_COMPANY_KEY)
-                        .companyName("Product Category Other Company")
-                        .rfc(OTHER_COMPANY_RFC)
-                        .enabled(true)
-                        .build()))
+                .orElseGet(() -> TenantFixtures.persist(
+                        companyRepository,
+                        Company.builder()
+                                .companyKey(OTHER_COMPANY_KEY)
+                                .companyName("Product Category Other Company")
+                                .rfc(OTHER_COMPANY_RFC)
+                                .enabled(true)
+                                .build()))
                 .getId();
     }
 

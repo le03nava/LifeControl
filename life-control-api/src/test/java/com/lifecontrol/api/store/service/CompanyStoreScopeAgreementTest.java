@@ -11,6 +11,7 @@ import com.lifecontrol.api.country.model.Country;
 import com.lifecontrol.api.store.model.CompanyStore;
 import com.lifecontrol.api.store.repository.CompanyStoreRepository;
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
+import com.lifecontrol.api.support.TenantFixtures;
 import jakarta.persistence.EntityManager;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -58,18 +59,20 @@ class CompanyStoreScopeAgreementTest extends AbstractPostgresIntegrationTest {
     void seed() {
         var country = Country.builder().countryCode("ZQ").countryName("Probe").build();
         em.persist(country);
-        var ca = Company.builder()
-                .companyKey("PB-A")
-                .companyName("A")
-                .rfc("XAXX010101003")
-                .build();
-        var cb = Company.builder()
-                .companyKey("PB-B")
-                .companyName("B")
-                .rfc("XAXX010101004")
-                .build();
-        em.persist(ca);
-        em.persist(cb);
+        var ca = TenantFixtures.persist(
+                em,
+                Company.builder()
+                        .companyKey("PB-A")
+                        .companyName("A")
+                        .rfc("XAXX010101003")
+                        .build());
+        var cb = TenantFixtures.persist(
+                em,
+                Company.builder()
+                        .companyKey("PB-B")
+                        .companyName("B")
+                        .rfc("XAXX010101004")
+                        .build());
         caId = ca.getId();
         cbId = cb.getId();
         var cca = CompanyCountry.builder().company(ca).country(country).build();

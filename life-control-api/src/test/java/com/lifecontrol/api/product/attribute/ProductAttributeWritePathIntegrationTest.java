@@ -9,6 +9,7 @@ import com.lifecontrol.api.product.dto.ProductVariantRequest;
 import com.lifecontrol.api.product.service.ProductService;
 import com.lifecontrol.api.product.service.ProductVariantService;
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
+import com.lifecontrol.api.support.TenantFixtures;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
@@ -55,13 +56,8 @@ class ProductAttributeWritePathIntegrationTest extends AbstractPostgresIntegrati
     @BeforeEach
     void setUp() {
         cleanUp();
-        companyId = UUID.randomUUID();
-        jdbc.update(
-                "INSERT INTO companies (id, company_key, company_name, rfc, enabled) VALUES (?, ?, ?, ?, true)",
-                companyId,
-                COMPANY_KEY,
-                "Attribute write probe company",
-                "PAWP010101AB1");
+        companyId = TenantFixtures.insertCompany(
+                jdbc, UUID.randomUUID(), COMPANY_KEY, "Attribute write probe company", "PAWP010101AB1");
         ferreteriaId = insertCategory("Ferretería");
         calzadoId = insertCategory("Calzado para Dama");
     }

@@ -8,6 +8,7 @@ import com.lifecontrol.api.company.model.Company;
 import com.lifecontrol.api.company.repository.CompanyRepository;
 import com.lifecontrol.api.company.service.CompanyService;
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
+import com.lifecontrol.api.support.TenantFixtures;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
@@ -91,12 +92,14 @@ class StarterProductCategoryCompanyCreationIntegrationTest extends AbstractPostg
     @Test
     @DisplayName("the event published with no transaction still seeds: the listener falls back")
     void publishingTheEventOutsideATransactionStillSeeds() {
-        var company = companyRepository.saveAndFlush(Company.builder()
-                .companyKey(PUBLISHED_COMPANY_KEY)
-                .companyName("Starter Catalog Published Company")
-                .rfc("SCEP010101ABC")
-                .enabled(true)
-                .build());
+        var company = TenantFixtures.persistAndFlush(
+                companyRepository,
+                Company.builder()
+                        .companyKey(PUBLISHED_COMPANY_KEY)
+                        .companyName("Starter Catalog Published Company")
+                        .rfc("SCEP010101ABC")
+                        .enabled(true)
+                        .build());
 
         eventPublisher.publishEvent(
                 new CompanyCreatedEvent(this, company.getId(), company.getCompanyKey(), company.getCompanyName()));

@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.lifecontrol.api.product.supplier.repository.ProductSupplierRepository;
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
+import com.lifecontrol.api.support.TenantFixtures;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -84,14 +85,7 @@ class ProductSupplierCompanyScopeIntegrationTest extends AbstractPostgresIntegra
     }
 
     private UUID insertCompany(String key, String name, String rfc) {
-        var id = UUID.randomUUID();
-        jdbc.update(
-                "INSERT INTO companies (id, company_key, company_name, rfc, enabled) VALUES (?, ?, ?, ?, true)",
-                id,
-                key,
-                name,
-                rfc);
-        return id;
+        return TenantFixtures.insertCompany(jdbc, key, name, rfc);
     }
 
     private UUID insertProduct(String name, UUID ownerId) {

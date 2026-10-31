@@ -34,6 +34,7 @@ import com.lifecontrol.api.status.repository.StatusRepository;
 import com.lifecontrol.api.store.model.CompanyStore;
 import com.lifecontrol.api.store.repository.CompanyStoreRepository;
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
+import com.lifecontrol.api.support.TenantFixtures;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
@@ -486,12 +487,14 @@ class SchedulingCalendarIntegrationTest extends AbstractPostgresIntegrationTest 
 
         var company = companyRepository
                 .findByCompanyKey("SCHEDULING-CALENDAR-KEY")
-                .orElseGet(() -> companyRepository.save(Company.builder()
-                        .companyKey("SCHEDULING-CALENDAR-KEY")
-                        .companyName("Scheduling Calendar Test Company")
-                        .rfc("SCA010101ABC")
-                        .enabled(true)
-                        .build()));
+                .orElseGet(() -> TenantFixtures.persist(
+                        companyRepository,
+                        Company.builder()
+                                .companyKey("SCHEDULING-CALENDAR-KEY")
+                                .companyName("Scheduling Calendar Test Company")
+                                .rfc("SCA010101ABC")
+                                .enabled(true)
+                                .build()));
 
         var companyCountry = companyCountryRepository
                 .findByCompanyIdAndCountryId(company.getId(), country.getId())

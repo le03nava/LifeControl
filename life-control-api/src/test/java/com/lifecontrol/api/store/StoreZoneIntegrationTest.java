@@ -24,6 +24,7 @@ import com.lifecontrol.api.store.repository.StoreAreaRepository;
 import com.lifecontrol.api.store.repository.StoreLocationRepository;
 import com.lifecontrol.api.store.repository.StoreZoneRepository;
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
+import com.lifecontrol.api.support.TenantFixtures;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -118,12 +119,14 @@ class StoreZoneIntegrationTest extends AbstractPostgresIntegrationTest {
 
         var company = companyRepository
                 .findByCompanyKey("STORE-ZONE-KEY")
-                .orElseGet(() -> companyRepository.save(Company.builder()
-                        .companyKey("STORE-ZONE-KEY")
-                        .companyName("Store Zone Test Company")
-                        .rfc("SZRK010101ABC")
-                        .enabled(true)
-                        .build()));
+                .orElseGet(() -> TenantFixtures.persist(
+                        companyRepository,
+                        Company.builder()
+                                .companyKey("STORE-ZONE-KEY")
+                                .companyName("Store Zone Test Company")
+                                .rfc("SZRK010101ABC")
+                                .enabled(true)
+                                .build()));
 
         var companyCountry = companyCountryRepository
                 .findByCompanyIdAndCountryId(company.getId(), country.getId())

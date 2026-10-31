@@ -23,6 +23,7 @@ import com.lifecontrol.api.product.attribute.repository.ProductAttributeValueRep
 import com.lifecontrol.api.product.category.model.ProductCategory;
 import com.lifecontrol.api.product.category.repository.ProductCategoryRepository;
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
+import com.lifecontrol.api.support.TenantFixtures;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -110,12 +111,14 @@ class ProductAttributeCatalogServiceTest extends AbstractPostgresIntegrationTest
     void setUp() {
         company = companyRepository
                 .findByCompanyKey(COMPANY_KEY)
-                .orElseGet(() -> companyRepository.saveAndFlush(Company.builder()
-                        .companyKey(COMPANY_KEY)
-                        .companyName("Product Attribute Catalog Test Company")
-                        .rfc(COMPANY_RFC)
-                        .enabled(true)
-                        .build()));
+                .orElseGet(() -> TenantFixtures.persistAndFlush(
+                        companyRepository,
+                        Company.builder()
+                                .companyKey(COMPANY_KEY)
+                                .companyName("Product Attribute Catalog Test Company")
+                                .rfc(COMPANY_RFC)
+                                .enabled(true)
+                                .build()));
         companyId = company.getId();
 
         // A previous method of this class may have failed before its cleanup; the shared container is

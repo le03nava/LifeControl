@@ -26,6 +26,7 @@ import com.lifecontrol.api.hr.repository.SeniorityLevelRepository;
 import com.lifecontrol.api.status.model.Status;
 import com.lifecontrol.api.status.repository.StatusRepository;
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
+import com.lifecontrol.api.support.TenantFixtures;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.UUID;
@@ -515,12 +516,14 @@ class ContractCrudIntegrationTest extends AbstractPostgresIntegrationTest {
     private UUID companyId(String key, String rfc, String name) {
         return companyRepository
                 .findByCompanyKey(key)
-                .orElseGet(() -> companyRepository.save(Company.builder()
-                        .companyKey(key)
-                        .companyName(name)
-                        .rfc(rfc)
-                        .enabled(true)
-                        .build()))
+                .orElseGet(() -> TenantFixtures.persist(
+                        companyRepository,
+                        Company.builder()
+                                .companyKey(key)
+                                .companyName(name)
+                                .rfc(rfc)
+                                .enabled(true)
+                                .build()))
                 .getId();
     }
 

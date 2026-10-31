@@ -24,6 +24,7 @@ import com.lifecontrol.api.provisioning.service.AccessProvisioningWorker;
 import com.lifecontrol.api.status.model.Status;
 import com.lifecontrol.api.status.repository.StatusRepository;
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
+import com.lifecontrol.api.support.TenantFixtures;
 import com.lifecontrol.api.usersadmin.identity.IdentityProvider;
 import com.lifecontrol.api.usersadmin.identity.InMemoryIdentityProvider;
 import java.math.BigDecimal;
@@ -164,13 +165,15 @@ class AccessProvisioningWorkerApplyIntegrationTest extends AbstractPostgresInteg
     void seedOneProvisionableEmployee() {
         deleteOwnFixtures();
 
-        var company = companyRepository.save(Company.builder()
-                .companyKey(COMPANY_KEY)
-                .companyName("Apply Test Company")
-                .rfc(COMPANY_RFC)
-                .emailDomain("apply.example")
-                .enabled(true)
-                .build());
+        var company = TenantFixtures.persist(
+                companyRepository,
+                Company.builder()
+                        .companyKey(COMPANY_KEY)
+                        .companyName("Apply Test Company")
+                        .rfc(COMPANY_RFC)
+                        .emailDomain("apply.example")
+                        .enabled(true)
+                        .build());
         companyId = company.getId();
         seededCompanyIds.add(companyId);
 
@@ -178,13 +181,15 @@ class AccessProvisioningWorkerApplyIntegrationTest extends AbstractPostgresInteg
 
         // A position of a *different* company, used by the retry scenario to fail after the account
         // half: the role convergence refuses a position outside the employee's company.
-        var otherCompany = companyRepository.save(Company.builder()
-                .companyKey(OTHER_COMPANY_KEY)
-                .companyName("Apply Test Other Company")
-                .rfc(OTHER_COMPANY_RFC)
-                .emailDomain("apply-other.example")
-                .enabled(true)
-                .build());
+        var otherCompany = TenantFixtures.persist(
+                companyRepository,
+                Company.builder()
+                        .companyKey(OTHER_COMPANY_KEY)
+                        .companyName("Apply Test Other Company")
+                        .rfc(OTHER_COMPANY_RFC)
+                        .emailDomain("apply-other.example")
+                        .enabled(true)
+                        .build());
         seededCompanyIds.add(otherCompany.getId());
         otherPositionId = seedPositionTree(otherCompany, "OTHER", "Other Operations", "OTHER-1", "Other Operator");
 

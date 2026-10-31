@@ -15,6 +15,7 @@ import com.lifecontrol.api.country.repository.CountryRepository;
 import com.lifecontrol.api.store.model.CompanyStore;
 import com.lifecontrol.api.store.repository.CompanyStoreRepository;
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
+import com.lifecontrol.api.support.TenantFixtures;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -73,12 +74,14 @@ class StoreOptimisticLockingIntegrationTest extends AbstractPostgresIntegrationT
 
         var company = companyRepository
                 .findByCompanyKey("STORE-LOCK-KEY")
-                .orElseGet(() -> companyRepository.save(Company.builder()
-                        .companyKey("STORE-LOCK-KEY")
-                        .companyName("Store Locking Test Company")
-                        .rfc("SLOK010101ABC")
-                        .enabled(true)
-                        .build()));
+                .orElseGet(() -> TenantFixtures.persist(
+                        companyRepository,
+                        Company.builder()
+                                .companyKey("STORE-LOCK-KEY")
+                                .companyName("Store Locking Test Company")
+                                .rfc("SLOK010101ABC")
+                                .enabled(true)
+                                .build()));
 
         var companyCountry = companyCountryRepository
                 .findByCompanyIdAndCountryId(company.getId(), country.getId())

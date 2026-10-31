@@ -10,6 +10,7 @@ import com.lifecontrol.api.company.model.Company;
 import com.lifecontrol.api.company.model.CompanyCountry;
 import com.lifecontrol.api.country.model.Country;
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
+import com.lifecontrol.api.support.TenantFixtures;
 import jakarta.persistence.EntityManager;
 import java.util.Arrays;
 import java.util.List;
@@ -75,18 +76,20 @@ class CompanyCountryScopedReadHttpIntegrationTest extends AbstractPostgresIntegr
         em.persist(claimedCountry);
         em.persist(siblingCountry);
 
-        var company = Company.builder()
-                .companyKey("COUNTRY-SCOPE-HTTP-KEY")
-                .companyName("Country Scope HTTP Company")
-                .rfc("CSHT010101AB")
-                .build();
-        var foreignCompany = Company.builder()
-                .companyKey("COUNTRY-SCOPE-HTTP-FOREIGN-KEY")
-                .companyName("Country Scope HTTP Foreign Company")
-                .rfc("CSHT020202CD")
-                .build();
-        em.persist(company);
-        em.persist(foreignCompany);
+        var company = TenantFixtures.persist(
+                em,
+                Company.builder()
+                        .companyKey("COUNTRY-SCOPE-HTTP-KEY")
+                        .companyName("Country Scope HTTP Company")
+                        .rfc("CSHT010101AB")
+                        .build());
+        var foreignCompany = TenantFixtures.persist(
+                em,
+                Company.builder()
+                        .companyKey("COUNTRY-SCOPE-HTTP-FOREIGN-KEY")
+                        .companyName("Country Scope HTTP Foreign Company")
+                        .rfc("CSHT020202CD")
+                        .build());
         companyId = company.getId();
         foreignCompanyId = foreignCompany.getId();
 

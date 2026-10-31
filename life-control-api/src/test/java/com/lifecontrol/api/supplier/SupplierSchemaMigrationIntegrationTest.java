@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
+import com.lifecontrol.api.support.TenantFixtures;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -378,11 +379,7 @@ class SupplierSchemaMigrationIntegrationTest extends AbstractPostgresIntegration
     }
 
     private UUID insertCompany(String key, String name, String rfc) {
-        var id = UUID.randomUUID();
-        jdbcTemplate.update("""
-                INSERT INTO companies (id, company_key, company_name, rfc, enabled)
-                VALUES (?, ?, ?, ?, true)
-                """, id, key, name, rfc);
+        var id = TenantFixtures.insertCompany(jdbcTemplate, key, name, rfc);
         insertedCompanies.add(id);
         return id;
     }

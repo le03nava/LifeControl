@@ -29,6 +29,7 @@ import com.lifecontrol.api.store.repository.StoreAreaRepository;
 import com.lifecontrol.api.store.repository.StoreLocationRepository;
 import com.lifecontrol.api.store.repository.StoreZoneRepository;
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
+import com.lifecontrol.api.support.TenantFixtures;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -150,12 +151,14 @@ class StoreInventorySettingsIntegrationTest extends AbstractPostgresIntegrationT
 
         var company = companyRepository
                 .findByCompanyKey("STORE-INV-SETTINGS-KEY")
-                .orElseGet(() -> companyRepository.save(Company.builder()
-                        .companyKey("STORE-INV-SETTINGS-KEY")
-                        .companyName("Store Inventory Settings Test Company")
-                        .rfc("SISG010101ABC")
-                        .enabled(true)
-                        .build()));
+                .orElseGet(() -> TenantFixtures.persist(
+                        companyRepository,
+                        Company.builder()
+                                .companyKey("STORE-INV-SETTINGS-KEY")
+                                .companyName("Store Inventory Settings Test Company")
+                                .rfc("SISG010101ABC")
+                                .enabled(true)
+                                .build()));
 
         var companyCountry = companyCountryRepository
                 .findByCompanyIdAndCountryId(company.getId(), country.getId())

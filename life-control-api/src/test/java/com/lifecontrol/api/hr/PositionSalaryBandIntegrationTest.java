@@ -18,6 +18,7 @@ import com.lifecontrol.api.hr.repository.PositionSalaryBandRepository;
 import com.lifecontrol.api.hr.repository.SeniorityLevelRepository;
 import com.lifecontrol.api.hr.service.PositionSalaryBandService;
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
+import com.lifecontrol.api.support.TenantFixtures;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.UUID;
@@ -72,12 +73,14 @@ class PositionSalaryBandIntegrationTest extends AbstractPostgresIntegrationTest 
 
     @BeforeEach
     void setUp() {
-        var company = companyRepository.save(Company.builder()
-                .companyKey("SAL-" + UUID.randomUUID())
-                .companyName("Salary Band Company")
-                .rfc(uniqueRfc())
-                .enabled(true)
-                .build());
+        var company = TenantFixtures.persist(
+                companyRepository,
+                Company.builder()
+                        .companyKey("SAL-" + UUID.randomUUID())
+                        .companyName("Salary Band Company")
+                        .rfc(uniqueRfc())
+                        .enabled(true)
+                        .build());
         companyId = company.getId();
 
         var department = departmentRepository.save(Department.builder()

@@ -3,6 +3,7 @@ package com.lifecontrol.api.product.attribute;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
+import com.lifecontrol.api.support.TenantFixtures;
 import java.util.UUID;
 import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.MigrationVersion;
@@ -54,13 +55,8 @@ class ProductAttributeUpgradeOnPopulatedDbIntegrationTest extends AbstractPostgr
         assertThat(toV36.migrate().migrationsExecuted).isEqualTo(36);
 
         var jdbc = new JdbcTemplate(new DriverManagerDataSource(url, user, password));
-        var companyId = UUID.randomUUID();
-        jdbc.update(
-                "INSERT INTO companies (id, company_key, company_name, rfc, enabled) VALUES (?,?,?,?,true)",
-                companyId,
-                "PROBE-NONEMPTY",
-                "Probe non-empty co",
-                "PNEM010101AB1");
+        var companyId = TenantFixtures.insertCompany(
+                jdbc, UUID.randomUUID(), "PROBE-NONEMPTY", "Probe non-empty co", "PNEM010101AB1");
         var ferreteria = UUID.randomUUID();
         jdbc.update(
                 "INSERT INTO product_categories (id, company_id, parent_category_id, category_name, display_order, enabled)"

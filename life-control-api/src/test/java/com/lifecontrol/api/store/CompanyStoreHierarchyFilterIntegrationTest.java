@@ -14,6 +14,7 @@ import com.lifecontrol.api.country.repository.CountryRepository;
 import com.lifecontrol.api.store.model.CompanyStore;
 import com.lifecontrol.api.store.repository.CompanyStoreRepository;
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
+import com.lifecontrol.api.support.TenantFixtures;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -155,12 +156,14 @@ class CompanyStoreHierarchyFilterIntegrationTest extends AbstractPostgresIntegra
     private Company findOrCreateCompany(String key, String name, String rfc) {
         return companyRepository
                 .findByCompanyKey(key)
-                .orElseGet(() -> companyRepository.save(Company.builder()
-                        .companyKey(key)
-                        .companyName(name)
-                        .rfc(rfc)
-                        .enabled(true)
-                        .build()));
+                .orElseGet(() -> TenantFixtures.persist(
+                        companyRepository,
+                        Company.builder()
+                                .companyKey(key)
+                                .companyName(name)
+                                .rfc(rfc)
+                                .enabled(true)
+                                .build()));
     }
 
     private CompanyCountry findOrCreateCompanyCountry(Company company) {
