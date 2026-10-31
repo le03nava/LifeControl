@@ -172,7 +172,10 @@ services:
       - "127.0.0.1:${POSTGRES_EXPORTER_PORT:-9287}:9187"
     environment:
       DATA_SOURCE_URI: "lifecontrol-postgres:5432/${LIFECONTROL_POSTGRES_DB:-lifecontrol}?sslmode=disable"
-      DATA_SOURCE_USER: ${LIFECONTROL_POSTGRES_USER:-lifecontrol_owner}
+      # The owner's login, because the secret this exporter reads (lifecontrol_postgres_password) is the
+      # owner's. Never the maintenance role ${LIFECONTROL_POSTGRES_USER} names: it has no password and
+      # cannot authenticate over TCP, and a superuser monitoring credential is what ADR-0005 forbids.
+      DATA_SOURCE_USER: lifecontrol_owner
       DATA_SOURCE_PASS_FILE: /run/secrets/lifecontrol_postgres_password
     volumes:
       - ./secrets/lifecontrol_postgres_password:/run/secrets/lifecontrol_postgres_password:ro
@@ -370,7 +373,10 @@ services:
       - "${LIFECONTROL_POSTGRES_PORT:-5445}:5432"
     environment:
       POSTGRES_DB: ${LIFECONTROL_POSTGRES_DB:-lifecontrol}
-      POSTGRES_USER: ${LIFECONTROL_POSTGRES_USER:-lifecontrol_owner}
+      # The role initdb creates, which is the maintenance superuser of ADR-0005 -- not the owner. The
+      # roles SQL creates lifecontrol_owner as NOSUPERUSER and moves the database to it; PostgreSQL
+      # refuses to demote the bootstrap role, so the two can never be the same row.
+      POSTGRES_USER: ${LIFECONTROL_POSTGRES_USER:-lifecontrol_bootstrap}
       LC_SECRET_NAME: lifecontrol_postgres_password
     volumes:
       - ./entrypoints/postgres-entrypoint.sh:/usr/local/bin/lc-postgres-entrypoint.sh:ro
@@ -397,7 +403,7 @@ services:
       test:
         [
           "CMD-SHELL",
-          "pg_isready -U ${LIFECONTROL_POSTGRES_USER:-lifecontrol_owner}",
+          "pg_isready -U ${LIFECONTROL_POSTGRES_USER:-lifecontrol_bootstrap}",
         ]
       interval: 30s
       timeout: 10s

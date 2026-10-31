@@ -10,8 +10,9 @@
 # so there is one body of SQL and one place where the roles are defined — no duplication between the
 # fresh-volume path and this one.
 #
-# Idempotent by construction: the SQL renames only an existing lifecontrol_user, restates every role
-# attribute and reads the end state back with a raise, so a second run is a no-op.
+# Idempotent by construction: the SQL renames only an existing lifecontrol_user, creates the owner and the
+# app role when they are missing, restates every role attribute and reads the end state back with a raise,
+# so a second run is a no-op.
 #
 # `deploy.sh <env> start` calls this between "postgres is up" and "the application starts", and aborts
 # the start when it fails: an application that connects without these roles cannot enforce a tenant.
@@ -38,10 +39,12 @@ WAIT_SECONDS=${DB_ROLES_WAIT_SECONDS:-5}
 # authentication error, or succeeding as the wrong login.
 OWNER_ROLE_NAME="lifecontrol_owner"
 APP_ROLE_NAME="lifecontrol_app"
+BOOTSTRAP_ROLE_NAME="lifecontrol_bootstrap"
 LEGACY_ROLE_NAME="lifecontrol_user"
-# `LIFECONTROL_POSTGRES_USER` is the role the database is initialized with and the one Flyway logs in as;
-# `LIFECONTROL_DATABASE_USERNAME` is the role the connection pool logs in as, and it must never be the
-# owner (ADR-0005, decision 3).
+# `LIFECONTROL_POSTGRES_USER` is the role the database is initialized with, which is the maintenance
+# superuser and NOT the owner: initdb creates one role and PostgreSQL refuses to take SUPERUSER away from
+# it, so the owner is created by the roles SQL under its own name. `LIFECONTROL_DATABASE_USERNAME` is the
+# role the connection pool logs in as, and it must never be the owner (ADR-0005, decision 3).
 ROLE_NAME_KEYS="LIFECONTROL_POSTGRES_USER LIFECONTROL_DATABASE_USERNAME"
 
 print_status "Applying database roles and grants for $ENV (ADR-0005)..."
@@ -65,6 +68,7 @@ wait_for_postgres() {
 expected_role_for_key() {
 	case "$1" in
 	LIFECONTROL_DATABASE_USERNAME) printf '%s' "$APP_ROLE_NAME" ;;
+	LIFECONTROL_POSTGRES_USER) printf '%s' "$BOOTSTRAP_ROLE_NAME" ;;
 	*) printf '%s' "$OWNER_ROLE_NAME" ;;
 	esac
 }
@@ -75,16 +79,16 @@ report_stale_role_names() {
 		value="$(get_env_var "$key")"
 		expected="$(expected_role_for_key "$key")"
 		[ "$value" = "$expected" ] && continue
-		# A custom role name is the operator's business; the three names this repository knows are
+		# A custom role name is the operator's business; the four names this repository knows are
 		# reported, because each of them is a known consumer pointed at the wrong login.
 		case "$value" in
-		"$LEGACY_ROLE_NAME" | "$OWNER_ROLE_NAME" | "$APP_ROLE_NAME") ;; *) continue ;; esac
+		"$LEGACY_ROLE_NAME" | "$OWNER_ROLE_NAME" | "$APP_ROLE_NAME" | "$BOOTSTRAP_ROLE_NAME") ;; *) continue ;; esac
 		print_warning "$key=$value is stale: that key must name $expected"
 		print_warning "  fix it with: sed -i 's/^$key=$value\$/$key=$expected/' $ENV_FILE"
 		reported=1
 	done
 	if [ "$reported" -eq 1 ]; then
-		print_warning "A consumer that logs in as a role other than the one its key names fails authentication, or succeeds as the wrong login: it is the postgres exporter (Prometheus target down) and, for LIFECONTROL_DATABASE_USERNAME, the API's pool, which must connect as $APP_ROLE_NAME or no policy applies to it."
+		print_warning "A key that names a role other than the one it must name fails authentication, or succeeds as the wrong login: $BOOTSTRAP_ROLE_NAME is the role initdb creates and the only superuser this file may be applied with, and $APP_ROLE_NAME is the pool, which must not be the owner or no policy applies to it."
 	fi
 }
 
@@ -103,7 +107,7 @@ main() {
 	fi
 
 	report_stale_role_names
-	print_success "Database roles applied: $OWNER_ROLE_NAME (NOSUPERUSER) owns, lifecontrol_app (NOBYPASSRLS) connects"
+	print_success "Database roles applied: $OWNER_ROLE_NAME (NOSUPERUSER) owns and migrates, lifecontrol_app (NOBYPASSRLS) connects, $BOOTSTRAP_ROLE_NAME (SUPERUSER, no password) maintains"
 	return 0
 }
 

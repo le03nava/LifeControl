@@ -321,16 +321,21 @@ while IFS='|' read -r svc image_var container_port host_var; do
 				if ! printf '%s\n' "$block" | grep -qE '^[[:space:]]*DATA_SOURCE_URI:'; then
 					fail "$file: '$svc' sets no DATA_SOURCE_URI, so the exporter has no database to measure"
 				fi
-				# This exporter is the second consumer of the same role and the same secret. It has to
-				# follow ${LIFECONTROL_POSTGRES_USER:-...} like the database and the API do, or a rename
-				# of that role leaves a green stack with `pg_up 0` on the LifeControl target.
+				# This exporter reads `lifecontrol_postgres_password`, which is the OWNER's credential, so it
+				# has to log in as the role that credential belongs to -- by name, because the role name is fixed
+				# by docker/postgres-init/lifecontrol-roles.sql and no longer by an env key. Following
+				# ${LIFECONTROL_POSTGRES_USER} would point it at the maintenance superuser: that role has no
+				# password at all (the roles SQL drops it), so `pg_up` would be 0 on every fresh volume, and a
+				# superuser monitoring credential is the thing ADR-0005 forbids.
 				data_source_user="$(printf '%s\n' "$block" | sed -n 's/^[[:space:]]*DATA_SOURCE_USER:[[:space:]]*\([^[:space:]]*\)[[:space:]]*$/\1/p' | head -1)"
 				if [ -z "$data_source_user" ]; then
-					fail "$file: '$svc' sets no DATA_SOURCE_USER, so it cannot follow a role rename"
-				elif printf '%s' "$data_source_user" | grep -qE '^\$\{[A-Za-z_][A-Za-z0-9_]*:-'; then
-					pass "$file: '$svc' connects as $data_source_user, so a role rename reaches it"
+					fail "$file: '$svc' sets no DATA_SOURCE_USER, so it cannot log in as the role its secret belongs to"
+				elif [ "$data_source_user" = "lifecontrol_bootstrap" ]; then
+					fail "$file: '$svc' logs in as lifecontrol_bootstrap, the maintenance superuser: it has no password, so the target would be down, and a superuser exporter is what the ADR forbids"
+				elif [ "$data_source_user" = "lifecontrol_owner" ] || printf '%s' "$data_source_user" | grep -qE '^\$\{[A-Za-z_][A-Za-z0-9_]*:-'; then
+					pass "$file: '$svc' connects as $data_source_user, the owner whose secret it reads"
 				else
-					fail "$file: '$svc' hardcodes its user as '$data_source_user' instead of following the template's \${KEY:-...} declaration"
+					fail "$file: '$svc' connects as '$data_source_user' instead of the owner its secret belongs to"
 				fi
 				;;
 			redis-exporter)

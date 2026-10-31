@@ -13,8 +13,13 @@
 --
 -- Which role does what: lifecontrol_owner owns every object and runs Flyway; lifecontrol_app owns
 -- nothing, may not bypass Row-Level Security and is the role the connection pool connects as (that
--- switch is the next slice). A superuser ALWAYS bypasses RLS, so dropping that attribute from the
--- owner is the whole reason this file exists.
+-- switch is the next slice); lifecontrol_bootstrap is the maintenance superuser, and it is the one role
+-- initdb creates (POSTGRES_USER). A superuser ALWAYS bypasses RLS, so dropping that attribute from the
+-- owner is the whole reason this file exists -- and PostgreSQL refuses to drop it from the role initdb
+-- created, which is why the owner is created here instead of being expected to already exist.
+--
+-- The arrangement in one line: POSTGRES_USER is the maintenance role, the owner is created by step 1, and
+-- the two are never the same row. Anything else fails step 3 on every database, fresh or existing.
 --
 -- Table, sequence and ALTER DEFAULT PRIVILEGES grants are deliberately absent: they belong to the
 -- migration that creates the policies (ADR-0005 `## Schema`), because on a fresh database the tables
@@ -24,9 +29,17 @@
 -- for the asynchronous path that has no request to take a tenant from, and its bypass comes from being
 -- owned by the maintenance superuser, which only this file can do.
 
--- ─── 1. the owner: rename the pre-ADR role instead of creating a new one ─────────────────────────
--- Renaming keeps ownership: the role keeps every object it already owns, so an existing volume does
--- not need a re-own of a single table. Guarded so a second run is a no-op, in either direction.
+-- ─── 1. the owner: rename the pre-ADR role, or create it — never require initdb to have made it ─────
+-- Renaming first keeps ownership: the pre-ADR role keeps every object it already owns, so an existing
+-- volume does not need a re-own of a single table. Guarded so a second run is a no-op, in either
+-- direction.
+--
+-- Creating it is the half that was missing, and its absence is what broke every install. POSTGRES_USER is
+-- lifecontrol_bootstrap (see docker/docker-compose.yml), because initdb creates exactly one role and
+-- PostgreSQL refuses to take SUPERUSER away from that role -- "The bootstrap superuser must have the
+-- SUPERUSER attribute". Requiring the owner to already exist here (a RAISE, which is what this step used
+-- to do) therefore made step 3 fail on a fresh volume exactly as on an old one, with "permission denied
+-- to alter role": the ADR needs two rows, and the arrangement left them as one.
 DO $$
 BEGIN
     IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'lifecontrol_user')
@@ -35,25 +48,54 @@ BEGIN
     END IF;
 
     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'lifecontrol_owner') THEN
-        RAISE EXCEPTION 'lifecontrol_owner does not exist: on a fresh volume POSTGRES_USER must be lifecontrol_owner (see docker/.env.template)';
+        CREATE ROLE lifecontrol_owner LOGIN NOSUPERUSER;
     END IF;
 END $$;
 
+-- Converged on every run, like the application role in step 4: Flyway logs in as this role over TCP,
+-- where the image requires scram-sha-256, so it needs a password -- and initdb no longer gives it one,
+-- because initdb's role is the maintenance one now. The value is read by psql's own shell escape from the
+-- mounted secret, so it never reaches an argv, an environment variable, a .env file or a compose file.
+-- 10-lifecontrol-roles.sh has already refused to get here when that file is missing, empty or still holds
+-- CHANGEME. The SUPERUSER flag is step 3's job and not this statement's: one place owns that transition.
+\set owner_password `cat /run/secrets/lifecontrol_postgres_password`
+ALTER ROLE lifecontrol_owner WITH LOGIN PASSWORD :'owner_password';
+
+-- The database, and through it the `public` schema, belongs to whoever initdb made: `pg_database_owner`
+-- resolves to POSTGRES_USER, and that is the maintenance role now. Without this statement the owner could
+-- not create its first table -- V1__baseline_schema.sql would fail with "permission denied for schema
+-- public" on every fresh volume -- so "the owner owns every object" would be true of nothing. On a
+-- volume that already ran this file the owner is already the database owner, and this is a no-op.
+DO $$
+BEGIN
+    EXECUTE format('ALTER DATABASE %I OWNER TO lifecontrol_owner', current_database());
+END $$;
+
 -- ─── 2. the maintenance superuser: this file needs superuser on every run, not only the first ─────
--- Dropping SUPERUSER from the owner (step 3) leaves this database with no superuser at all: initdb
--- creates exactly one, POSTGRES_USER, and there is no `postgres` role to fall back to. Every later run
--- of this file needs one — altering another role and dropping a superuser flag both require it — and so
--- does any future migration that creates an extension, a shape this tree already has
+-- Dropping SUPERUSER from the owner (step 3) leaves this database with no superuser at all unless a
+-- second one exists. initdb creates exactly one, POSTGRES_USER, and there is no `postgres` role to fall
+-- back to -- so on a fresh volume this role already exists and the CREATE below is a no-op, while on a
+-- volume initialized before this arrangement it is the only thing that creates it. Every later run of
+-- this file needs it — altering another role and dropping a superuser flag both require superuser — and
+-- so does any future migration that creates an extension, a shape this tree already has
 -- (V21__employee_contracts.sql:27). Without this role the second run cannot work at all.
--- It exists for nothing else: no password, because the container's local socket is `trust` and a role
--- without a password cannot authenticate over TCP, where the image requires scram-sha-256, and no grant
--- on any table. It must never appear in a compose file, in the API wrapper or as an exporter credential.
+-- It exists for nothing else: no password and no grant on any table. It must never appear in the API
+-- wrapper or as an exporter credential.
 DO $$
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'lifecontrol_bootstrap') THEN
         CREATE ROLE lifecontrol_bootstrap SUPERUSER LOGIN;
     END IF;
 END $$;
+
+-- And its password is dropped on every run, which is what keeps the ADR true now that initdb creates this
+-- role: the postgres image hands POSTGRES_USER the value of POSTGRES_PASSWORD, which is the OWNER's own
+-- secret, so without this line the maintenance superuser would be reachable over TCP with the credential
+-- Flyway uses -- a superuser login nobody asked for and no document declares. A role with no password
+-- cannot authenticate over TCP at all, where the image requires scram-sha-256; the container's local
+-- socket is `trust`, and that is this role's only way in. On a volume where the role was created by the
+-- CREATE above it already has no password and this is a no-op.
+ALTER ROLE lifecontrol_bootstrap PASSWORD NULL;
 
 -- ─── 3. the extension, BEFORE the superuser flag is dropped ─────────────────────────────────────
 -- V21__employee_contracts.sql:27 runs `CREATE EXTENSION IF NOT EXISTS btree_gist`, which needs

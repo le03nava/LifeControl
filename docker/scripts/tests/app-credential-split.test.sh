@@ -291,8 +291,13 @@ prod_api="$(service_block "$COMPOSE_PROD" lifecontrol-api)"
 
 assert_contains "the base compose gives the pool the application role" "$base_api" \
 	'DATABASE_USERNAME=${LIFECONTROL_DATABASE_USERNAME:-'"$APP_ROLE"'}'
+# Flyway's login is written out, not read from LIFECONTROL_POSTGRES_USER: that key names the role initdb
+# creates (the maintenance superuser), and a superuser running the migrations would own them and bypass
+# every policy. The owner's name is the one docker/postgres-init/lifecontrol-roles.sql creates it under.
 assert_contains "the base compose gives Flyway the owner role" "$base_api" \
-	'FLYWAY_USERNAME=${LIFECONTROL_POSTGRES_USER:-'"$OWNER_ROLE"'}'
+	"FLYWAY_USERNAME=$OWNER_ROLE"
+assert_absent "the base compose never points Flyway at the initdb role" "$base_api" \
+	"FLYWAY_USERNAME=\${LIFECONTROL_POSTGRES_USER"
 assert_contains "the base compose mounts the owner's credential" "$base_api" \
 	'./secrets/lifecontrol_postgres_password:/run/secrets/lifecontrol_postgres_password:ro'
 assert_contains "the base compose mounts the pool's credential" "$base_api" \
@@ -315,7 +320,7 @@ check_equal "compose and the application agree on the pool role" \
 	"$(printf '%s\n' "$base_api" | sed -n 's/^.*DATABASE_USERNAME=.*:-\([a-z_]*\)}$/\1/p')"
 check_equal "compose and the application agree on Flyway's role" \
 	"$(placeholder_default "$(property_value "$APP_PROPERTIES" spring.flyway.user)")" \
-	"$(printf '%s\n' "$base_api" | sed -n 's/^.*FLYWAY_USERNAME=.*:-\([a-z_]*\)}$/\1/p')"
+	"$(printf '%s\n' "$base_api" | sed -n 's/^.*FLYWAY_USERNAME=\([a-z_]*\)$/\1/p')"
 
 for compose in "$COMPOSE_BASE" "$COMPOSE_PROD"; do
 	file="$(basename "$compose")"
@@ -335,8 +340,16 @@ else
 		"LIFECONTROL_DATABASE_USERNAME=$APP_ROLE"
 	assert_file_absent "the template never puts the owner back into the pool" "$ENV_TEMPLATE" \
 		"LIFECONTROL_DATABASE_USERNAME=$OWNER_ROLE"
-	assert_file_contains "the template still declares the owner, which Flyway logs in as" "$ENV_TEMPLATE" \
-		"LIFECONTROL_POSTGRES_USER=$OWNER_ROLE"
+	# This key names the role initdb creates, which is the maintenance one; the owner is created by the roles
+	# SQL. The value it carries is the one-line edit issue #720 owes (`.env*` is outside this change's
+	# surface), so what is pinned here is the half that must never be true: the application role, or the
+	# pre-ADR name, in a key that decides which role the database is initialized with.
+	assert_file_contains "the template still declares the role initdb creates" "$ENV_TEMPLATE" \
+		"LIFECONTROL_POSTGRES_USER="
+	assert_file_absent "the template never initializes the database with the application role" "$ENV_TEMPLATE" \
+		"LIFECONTROL_POSTGRES_USER=$APP_ROLE"
+	assert_file_absent "the template never declares the pre-ADR role as initdb's" "$ENV_TEMPLATE" \
+		"LIFECONTROL_POSTGRES_USER=lifecontrol_user"
 	assert_file_absent "the template carries no app password" "$ENV_TEMPLATE" "lifecontrol_app_password="
 	assert_file_absent "the template carries no owner password" "$ENV_TEMPLATE" \
 		"lifecontrol_postgres_password="

@@ -52,7 +52,11 @@ services:
       - "${LIFECONTROL_POSTGRES_PORT:-5435}:5432"
     environment:
       POSTGRES_DB: ${LIFECONTROL_POSTGRES_DB:-lifecontrol}
-      POSTGRES_USER: ${LIFECONTROL_POSTGRES_USER:-lifecontrol_owner}
+      # initdb creates exactly one role, and PostgreSQL refuses to take SUPERUSER away from it ("The
+      # bootstrap superuser must have the SUPERUSER attribute"), so POSTGRES_USER is the maintenance role
+      # of ADR-0005 and NOT the owner: docker/postgres-init/lifecontrol-roles.sql creates
+      # lifecontrol_owner as NOSUPERUSER, moves the database to it, and drops this role's password.
+      POSTGRES_USER: ${LIFECONTROL_POSTGRES_USER:-lifecontrol_bootstrap}
       LC_SECRET_NAME: lifecontrol_postgres_password
     volumes:
       - ./entrypoints/postgres-entrypoint.sh:/usr/local/bin/lc-postgres-entrypoint.sh:ro
@@ -75,7 +79,7 @@ services:
       test:
         [
           "CMD-SHELL",
-          "pg_isready -U ${LIFECONTROL_POSTGRES_USER:-lifecontrol_owner}",
+          "pg_isready -U ${LIFECONTROL_POSTGRES_USER:-lifecontrol_bootstrap}",
         ]
       interval: 30s
       timeout: 10s
@@ -223,7 +227,13 @@ services:
       # `localhost:5432` would address its own container. sslmode=disable matches what the API
       # speaks on the in-network socket, which has no TLS.
       DATA_SOURCE_URI: "lifecontrol-postgres:5432/${LIFECONTROL_POSTGRES_DB:-lifecontrol}?sslmode=disable"
-      DATA_SOURCE_USER: ${LIFECONTROL_POSTGRES_USER:-lifecontrol_owner}
+      # The owner's login, written out: this exporter reads lifecontrol_postgres_password, which is the
+      # OWNER's credential, so it has to log in as the role that credential belongs to. It is deliberately
+      # not ${LIFECONTROL_POSTGRES_USER}, which names the maintenance superuser: that role has no password
+      # at all (lifecontrol-roles.sql drops it), so it cannot authenticate over TCP, and a superuser
+      # monitoring credential is the one thing ADR-0005 forbids. The role name is fixed by the SQL, not
+      # by an env key, which is why it is a literal here.
+      DATA_SOURCE_USER: lifecontrol_owner
       # *_FILE, never DATA_SOURCE_PASS: the password is the same secret the database and the API
       # read, mounted read-only. As an environment value it would surface in `docker inspect` and
       # in `docker compose config`, which is the one place a secret must never be readable.
@@ -512,10 +522,11 @@ services:
       # actually uses; Flyway runs inside this same process as the owner, which owns the objects and is
       # the only login allowed to run DDL. Both are role NAMES, never credentials: the passwords reach the
       # process only through the entrypoint wrapper below, which reads them from the secret files. The
-      # owner's name is the one postgres is initialized with, so it is read from the same key instead of
-      # being written a second time.
+      # owner's name is written out because the roles SQL creates it under that exact name; the key that
+      # used to carry it (LIFECONTROL_POSTGRES_USER) names the role initdb creates instead, which is the
+      # maintenance superuser and must never be the login Flyway uses.
       - DATABASE_USERNAME=${LIFECONTROL_DATABASE_USERNAME:-lifecontrol_app}
-      - FLYWAY_USERNAME=${LIFECONTROL_POSTGRES_USER:-lifecontrol_owner}
+      - FLYWAY_USERNAME=lifecontrol_owner
       - LOKI_URL=${LOKI_URL:-http://loki:3100/loki/api/v1/push}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - PROMETHEUS_ENABLED=${PROMETHEUS_ENABLED:-true}
