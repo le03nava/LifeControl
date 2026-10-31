@@ -78,8 +78,10 @@ open http://localhost:8082/swagger-ui.html
 |-----------------------------------|------------------------------------------------------|---------------------------------|
 | `SERVER_PORT`                     | `8082`                                               | Puerto HTTP                     |
 | `DATABASE_URL`                    | `jdbc:postgresql://localhost:5432/lifecontrol`       | JDBC URL                        |
-| `DATABASE_USERNAME`               | `lifecontrol_user`                                   | Usuario DB                      |
-| `DATABASE_PASSWORD`               | _(requerido)_                                        | Password DB                     |
+| `DATABASE_USERNAME`               | `lifecontrol_app`                                    | Rol del pool (ADR-0005)         |
+| `DATABASE_PASSWORD`               | _(requerido: secret `lifecontrol_app_password`)_     | Password del pool               |
+| `FLYWAY_USERNAME`                 | `lifecontrol_owner`                                  | Rol que corre las migraciones   |
+| `FLYWAY_PASSWORD`                 | _(requerido: secret `lifecontrol_postgres_password`)_ | Password de Flyway             |
 | `REDIS_HOST`                      | `localhost`                                          | Host Redis                      |
 | `REDIS_PORT`                      | `6379`                                               | Puerto Redis                    |
 | `KEYCLOAK_URI`                    | `http://localhost:8080/realms/life-control-realm`    | Keycloak realm URL              |

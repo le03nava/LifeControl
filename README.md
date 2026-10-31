@@ -186,8 +186,10 @@ Los puertos web aplicados por entorno se definen en `docker/.env.<env>`. `LifeCo
 |-----------------------------|------------------------------------------|--------------------------------|
 | `SERVER_PORT`               | `8082`                                   | Puerto HTTP life-control-api   |
 | `DATABASE_URL`              | `jdbc:postgresql://localhost:5432/lifecontrol` | JDBC URL                |
-| `DATABASE_USERNAME`         | `lifecontrol_user`                        | Usuario DB                     |
-| `DATABASE_PASSWORD`         | _(secreto, ver Secretos)_                 | Password DB                    |
+| `DATABASE_USERNAME`         | `lifecontrol_app`                        | Rol del pool (ADR-0005)         |
+| `DATABASE_PASSWORD`         | _(secreto: `lifecontrol_app_password`)_   | Password del pool               |
+| `FLYWAY_USERNAME`           | `lifecontrol_owner`                       | Rol que corre las migraciones   |
+| `FLYWAY_PASSWORD`           | _(secreto: `lifecontrol_postgres_password`)_ | Password de Flyway           |
 | `REDIS_HOST`                | `localhost`                               | Host Redis                     |
 | `KEYCLOAK_URI`              | `http://localhost:8080/realms/life-control-realm` | Keycloak realm URL    |
 | `KEYCLOAK_ADMIN_CLIENT_SECRET` | _(secreto, ver Secretos)_              | Client secret admin            |

@@ -1447,3 +1447,122 @@ tests, 0 failed**. Whole suite with no environment variable at all: **4 254 test
 acceptance. `spotlessApply spotlessCheck spotbugsMain` clean. The machinery suites on their own —
 `TenantPoliciesIntegrationTest`, `TenantScopeFunctionsIntegrationTest`, `TenantScopeBoundaryIntegrationTest` —
 green, each for the reason its javadoc now states.
+
+L30 — **T6c makes delivery match what the suite already proved: the pool connects as `lifecontrol_app` and
+only Flyway holds the owner.** Until this slice the split existed in three files that agreed with each other
+and disagreed with ADR-0005 decision 3. The test container gave the pool `lifecontrol_app` and Flyway the
+owner (`AbstractPostgresIntegrationTest:98-112`), while delivery exported both secrets under names that meant
+the same thing: `DATABASE_PASSWORD` carried the **owner's** password, and `DATABASE_APP_PASSWORD` had no
+reader in any file of the tree. Every policy the four S5 suites prove was therefore enforced in the container
+and nowhere a customer could see it, which is the failure mode this unit exists to remove rather than a
+cosmetic naming problem.
+
+**The split, as it now exists.** Four env vars, two secrets, two consumers, and no var that means both:
+
+| env var | value comes from | consumer |
+| --- | --- | --- |
+| `DATABASE_USERNAME` | compose, `${LIFECONTROL_DATABASE_USERNAME:-lifecontrol_app}` — a role **name**, never a credential | `spring.datasource` |
+| `DATABASE_PASSWORD` | `docker/secrets/lifecontrol_app_password`, read by the wrapper | `spring.datasource` |
+| `FLYWAY_USERNAME` | compose, `${LIFECONTROL_POSTGRES_USER:-lifecontrol_owner}` — the role postgres is initialized with | `spring.flyway` |
+| `FLYWAY_PASSWORD` | `docker/secrets/lifecontrol_postgres_password`, read by the wrapper | `spring.flyway` |
+
+**Why these names, and why no new `.env` key.** `DATABASE_PASSWORD` kept its name and changed its meaning,
+because `spring.datasource.password` already read it and a rename would have moved a working binding for a
+cosmetic reason; what it carries now is the pool's credential, which is the only thing that name should ever
+have meant. The owner's secret got a **new** name, `FLYWAY_PASSWORD`, because its job changed: it is not "the
+database password", it is Flyway's login, and the wrapper is the one place that decides which secret goes to
+which var. No password key was added to `.env.template` and none may be: role **names** are declared there,
+credentials never (the rule `AGENTS.md` already states). `FLYWAY_USERNAME` was deliberately bound to
+`LIFECONTROL_POSTGRES_USER` instead of a new template key — both name "the role that owns the schema", and a
+fifth knob would be a fifth thing to get stale for no gain.
+
+**Flyway needed a third property, not a second process.** `spring.flyway.user` alone would have left
+Boot building Flyway's connection with no url, so `spring.flyway.url` is set to the same `${DATABASE_URL:…}`
+expression the datasource uses, and the suite asserts the two agree. `spring.flyway.password` defaults to
+**empty** on purpose: outside the container Flyway is disabled (H2 test profile) or the caller supplies its own
+credential, while in delivery the wrapper refuses to start without the owner secret and an empty password
+cannot authenticate over `scram-sha-256` — so a lost split fails loudly instead of migrating as the wrong role.
+The shape is exactly the one the Testcontainers pool has used since L24, which is why "the Flyway split is also
+delivery's shape" is now a statement about code instead of an intention.
+
+**The wrapper's own paragraph is now the description of what it does.** The sentence that said which secret
+feeds which property "is the next slice, not this wrapper's decision" is gone, and so is the twin comment in
+`docker-compose.prod.yml`. What replaced them is the table above, in the two files where a reader looks for it.
+The three mount paths became overridable (`LIFECONTROL_OWNER_PASSWORD_FILE`, `LIFECONTROL_APP_PASSWORD_FILE`,
+`KEYCLOAK_ADMIN_CLIENT_SECRET_FILE`) with the real `/run/secrets/...` path as the default, following the same
+pattern `postgres-init/10-lifecontrol-roles.sh` already uses — that is what lets a POSIX-shell wrapper be
+*executed* by an offline suite instead of grepped. The cardinal rule is untouched and asserted: the wrapper
+carries no secret content, and every credential it exports is a `$(cat …)` of a file.
+
+**Files touched, and why.**
+
+| File | Change |
+| --- | --- |
+| `docker/entrypoints/lifecontrol-app-entrypoint.sh` | exports `DATABASE_PASSWORD` from the app secret and `FLYWAY_PASSWORD` from the owner's, refuses a missing file for either, drops `DATABASE_APP_PASSWORD`, documents the split |
+| `life-control-api/src/main/resources/application.properties` | `spring.datasource.username` defaults to `lifecontrol_app`; adds `spring.flyway.url/user/password` so Flyway logs in as the owner inside the same process |
+| `docker/docker-compose.yml` | `DATABASE_USERNAME` defaults to the application role, new `FLYWAY_USERNAME` from `LIFECONTROL_POSTGRES_USER`, both secret mounts documented |
+| `docker/docker-compose.prod.yml` | the stale "pool switch is the next slice" comment replaced by which credential is which; prod inherits both role names from the base file |
+| `docker/scripts/db-roles.sh` | the stale-name report is now **per key**: `LIFECONTROL_POSTGRES_USER` must name the owner and `LIFECONTROL_DATABASE_USERNAME` must name the app role, so the pre-split value `lifecontrol_owner` in the pool key is reported as stale too — it authenticates fine and silently disables every policy |
+| `docker/scripts/tests/app-credential-split.test.sh` | new gate, 56 assertions |
+| `docker/scripts/tests/db-roles.test.sh` | its pins moved with the wrapper and with the per-key report; the pool-key case and the pre-split-value case added |
+| `odd/tasks/tenant-isolation-rls.md` | this entry and the header |
+
+**The gate, and what it would catch.** `app-credential-split.test.sh` runs the wrapper against a throwaway
+secrets directory with a stub `java` that records the env it would have received, and asserts that
+`DATABASE_PASSWORD` is the **app** secret, `FLYWAY_PASSWORD` is the **owner's**, and the two differ. Swapping
+the two files back — the exact regression — fails there and nowhere else: the Java suite cannot see it (it
+configures its own pool) and every other shell suite greps. It also pins that the wrapper rewrites neither role
+name (a sentinel passes through untouched), that `DATABASE_APP_PASSWORD` is gone, that both missing-secret
+cases exit 1 without launching Java, that `application.properties` binds each pair and never names the other
+pair's variable, that compose and the properties agree on both role defaults (a container and a bare `bootRun`
+must not connect as different roles), that prod re-points neither role, and that `.env.template` declares the
+app role while carrying no credential.
+
+**Evidence, as observed.** The gate costs one differential run, and it was taken: the pre-change wrapper
+(`git show HEAD:…`, secret paths rewritten to a `mktemp -d` only so the old file could be driven at all — it
+has literals) received `DATABASE_PASSWORD=owner-secret-1`, `FLYWAY_PASSWORD=<unset>`,
+`DATABASE_APP_PASSWORD=app-secret-2`; the delivered one receives `DATABASE_PASSWORD=app-secret-2`,
+`FLYWAY_PASSWORD=owner-secret-1`. That is the RED the suite encodes, measured after the change rather than
+before it: the suite and the edit were written in the same pass, so no pre-implementation RED was observed and
+this entry claims none. GREEN: `./docker/scripts/tests/app-credential-split.test.sh` → **54 passed, 2 failed**,
+and the two failures are one item, named below. `./docker/scripts/tests/db-roles.test.sh` → **127 passed, 1
+failed**, the same item. Whole repository suites: `.github/scripts/tests/*.test.sh` → exit 0, **385 assertions,
+0 failed**; `docker/scripts/tests/*.test.sh` → **23 suites**, 21 exiting 0, **1 100 assertions** with the 3
+failures above. Backend: `cd life-control-api && ./gradlew test --no-daemon` → `BUILD SUCCESSFUL in 3m 40s`,
+**4 254 tests in 1 022 classes, 0 failed, 0 errors, 0 skipped, exit 0** (unchanged from L29, as expected: no
+test reads these files). Compose still parses in all three combinations (`docker compose config -q` over base,
+base+prod and base+override, exit 0 each) — read-only, no stack started. `validate-env.sh dev` → exit **1**,
+`[ERROR] …/docker/.env.dev not found!`: it needs a materialized env file and this worktree has none, which is
+the trap `AGENTS.md` documents, so none was created.
+
+**What still contradicts S4, named rather than glossed.** One delivery file could not be written by this
+session: `docker/.env.template:56` still reads `LIFECONTROL_DATABASE_USERNAME=lifecontrol_owner` (and the
+comment above it still describes the older split). The harness's safety policy refuses every tool access to a
+`.env*` path, so those two blocks are the only gap: a human applies the edit — `lifecontrol_owner` → the app
+role in that key, and the comment rewritten to say which secret feeds which consumer — and the three red
+assertions (`app-credential-split` ×2, `db-roles` ×1) go green with no code change. The consequence of
+shipping without it is concrete: `setup-env.sh` materializes a new env file from this template, the pool key
+would name the owner, the owner authenticates, and every policy silently stops applying to the application —
+with only `db-roles.sh`'s warning between that and production. Four documentation files also still describe
+the pre-split wiring and are outside this unit's edit surface: `AGENTS.md:296` and `:298` (the wrapper "exports
+both", `DATABASE_PASSWORD` "is still the owner's"), `README.md:189` and `life-control-api/README.md:81` /
+`life-control-api/AGENTS.md:1014` (`DATABASE_USERNAME` default listed as `lifecontrol_user`, a role that no
+longer exists). **Both gaps closed on 2026-10-31, once the parent extended the edit surface**: the maintainer
+applied the two `.env.template` blocks — `app-credential-split` **56 passed, 0 failed** and `db-roles` **128
+passed, 0 failed**, with no code change, which is the whole of what the three red assertions were — and those
+four documents now state the two jobs (pool on `DATABASE_PASSWORD`/`spring.datasource`, Flyway on
+`FLYWAY_PASSWORD`/`spring.flyway`), with `AGENTS.md`'s docker-glob row carrying the measured count, **23 suites**
+read from a run of the glob.
+
+**And the step this record does not claim.** The live smoke — `./docker/scripts/setup-env.sh dev`,
+`./docker/scripts/deploy.sh dev up`, `deploy.sh dev health` — was **not run**: it needs a docker stack, and
+this unit was scoped offline. So nothing here asserts that a real container logs in, that Flyway migrates as
+the owner on a filled volume, or that `version`/`health` come back green; those are the maintainer's. `shellcheck`
+is not installed in this environment (`command not found`, exit 127), so the repo's shell lint was also not
+run here; `bash -n`/`sh -n` over the four touched scripts passed, and the CI job that runs `shellcheck
+--severity=warning` over every shell file by glob remains the gate for it.
+
+**`Closes #696` now legitimately claims**: ADR-0005 decision 3 is wired end to end — the roles SQL, the two
+secret files, the wrapper, `spring.datasource` on the application role and `spring.flyway` on the owner — so
+the pool holds no credential that can bypass a policy and an offline suite fails if that ever regresses; what
+remains is one `.env.template` edit, the four documentation lines above, and the maintainer's live smoke.

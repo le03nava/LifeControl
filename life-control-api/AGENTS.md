@@ -1011,8 +1011,10 @@ cd docker
 |-----------------------------------|--------------------------|--------------------------------------------|
 | `SERVER_PORT`                     | HTTP port                | `8082`                                     |
 | `DATABASE_URL`                    | JDBC URL                 | `jdbc:postgresql://lifecontrol-postgres:5432/lifecontrol` |
-| `DATABASE_USERNAME`               | DB user                  | `lifecontrol_user`                         |
-| `DATABASE_PASSWORD`               | DB password              | (required)                                 |
+| `DATABASE_USERNAME`               | Pool role (ADR-0005): owns nothing, so every policy applies | `lifecontrol_app`                          |
+| `DATABASE_PASSWORD`               | Pool credential, from the `lifecontrol_app_password` secret | (required)                                 |
+| `FLYWAY_USERNAME`                 | Flyway's role (ADR-0005): owns every object | `lifecontrol_owner`                        |
+| `FLYWAY_PASSWORD`                 | Flyway's credential, from the `lifecontrol_postgres_password` secret; never reaches the pool | (required) |
 | `REDIS_HOST`                      | Redis host               | `localhost`                                |
 | `REDIS_PORT`                      | Redis port               | `6379`                                     |
 | `LOKI_URL`                        | Loki push URL            | `http://loki:3100/loki/api/v1/push`        |
