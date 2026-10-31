@@ -20,12 +20,14 @@ import com.lifecontrol.api.hr.model.PositionRole;
 import com.lifecontrol.api.hr.repository.ContractRepository;
 import com.lifecontrol.api.hr.repository.EmployeeRepository;
 import com.lifecontrol.api.hr.repository.EmployeeScopeAssignmentRepository;
+import com.lifecontrol.api.hr.repository.PositionRepository;
 import com.lifecontrol.api.hr.repository.PositionRoleRepository;
 import com.lifecontrol.api.hr.service.EmployeeStatuses;
 import com.lifecontrol.api.status.model.Status;
 import com.lifecontrol.api.usersadmin.identity.InMemoryIdentityProvider;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -56,6 +58,9 @@ class EmployeeDisableRevokesAccessCompositionTest {
     private PositionRoleRepository positionRoleRepository;
 
     @Mock
+    private PositionRepository positionRepository;
+
+    @Mock
     private EmployeeScopeAssignmentRepository scopeAssignmentRepository;
 
     private InMemoryIdentityProvider identityProvider;
@@ -73,7 +78,7 @@ class EmployeeDisableRevokesAccessCompositionTest {
         accountService =
                 new AccessProvisioningAccountService(identityProvider, employeeRepository, appClient, invitation);
         roleService = new AccessProvisioningRoleService(
-                identityProvider, appClient, contractRepository, positionRoleRepository);
+                identityProvider, appClient, contractRepository, positionRoleRepository, positionRepository);
         var membershipService = new AccessProvisioningMembershipService(identityProvider, scopeAssignmentRepository);
         handler = new AccessProvisioningWorkerHandler(accountService, roleService, membershipService);
         employeeId = UUID.randomUUID();
@@ -113,6 +118,12 @@ class EmployeeDisableRevokesAccessCompositionTest {
                 .department(department)
                 .positionName("Cashier")
                 .build();
+        // The ownership question is an id predicate over departments.company_id, not a traversal into the
+        // department: this is the finder the convergence asks it with. Lenient for the same reason the role
+        // read below is: a revoked employee returns before either is asked.
+        lenient()
+                .when(positionRepository.findByDepartmentCompanyIdAndId(company.getId(), position.getId()))
+                .thenReturn(Optional.of(position));
         when(contractRepository.findEnabledContractCoveringDate(eq(employeeId), any(LocalDate.class)))
                 .thenReturn(List.of(Contract.builder()
                         .position(position)
