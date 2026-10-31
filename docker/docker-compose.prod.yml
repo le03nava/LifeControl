@@ -408,15 +408,19 @@ services:
 # ============================================
   # Production LifeControl API - User Management API
   # ============================================
-  # Prod passwords are excluded from .env.prod (setup-env strips them). The
-  # entrypoint wrapper exports DATABASE_PASSWORD from the same secret the
-  # lifecontrol-postgres container uses, so both sides stay in sync.
+  # Prod passwords are excluded from .env.prod (setup-env strips them). Both database credentials are
+  # mounted, and the entrypoint wrapper is what decides which one goes where (ADR-0005 decision 3):
+  # lifecontrol_app_password becomes DATABASE_PASSWORD for the pool, and lifecontrol_postgres_password
+  # becomes FLYWAY_PASSWORD for the migrations that run as the owner. The two role names
+  # (DATABASE_USERNAME and FLYWAY_USERNAME) are environment, not credentials, and are inherited from the
+  # base compose file.
   lifecontrol-api:
     entrypoint: ["/usr/local/bin/lc-app-entrypoint.sh"]
     volumes:
       - ./entrypoints/lifecontrol-app-entrypoint.sh:/usr/local/bin/lc-app-entrypoint.sh:ro
+      # The owner's credential: Flyway's login, and nothing else's.
       - ./secrets/lifecontrol_postgres_password:/run/secrets/lifecontrol_postgres_password:ro
-      # The pool credential (ADR-0005): the wrapper exports it, the pool switch is the next slice.
+      # The pool's credential: the only role the application's own connections use.
       - ./secrets/lifecontrol_app_password:/run/secrets/lifecontrol_app_password:ro
       - ./secrets/keycloak_admin_client_secret:/run/secrets/keycloak_admin_client_secret:ro
     restart: always

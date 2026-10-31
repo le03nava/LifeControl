@@ -30,13 +30,18 @@ ROLE_SCRIPT="/docker-entrypoint-initdb.d/10-lifecontrol-roles.sh"
 WAIT_ATTEMPTS=${DB_ROLES_WAIT_ATTEMPTS:-60}
 WAIT_SECONDS=${DB_ROLES_WAIT_SECONDS:-5}
 
-# The old role name, and the keys of the env file that may still name it. The rename itself is done by
-# the SQL; what it cannot do is edit a materialized `.env.<env>`, which nothing reconciles
-# (`setup-env.sh` only creates the file when it is missing). A key still holding the old name points a
-# consumer at a role that no longer exists, so it is reported here instead of failing later as an
-# opaque authentication error.
+# The role each key of the env file must name, and the role names that are stale in it. The rename and the
+# pool switch are the SQL's and the API's job; what neither can do is edit a materialized `.env.<env>`,
+# which nothing reconciles (`setup-env.sh` only creates the file when it is missing). A key holding a role
+# name that no longer exists — or that puts the owner back into the pool, which silently disables every
+# policy the owner is not exempt from — is reported here instead of failing later as an opaque
+# authentication error, or succeeding as the wrong login.
 OWNER_ROLE_NAME="lifecontrol_owner"
+APP_ROLE_NAME="lifecontrol_app"
 LEGACY_ROLE_NAME="lifecontrol_user"
+# `LIFECONTROL_POSTGRES_USER` is the role the database is initialized with and the one Flyway logs in as;
+# `LIFECONTROL_DATABASE_USERNAME` is the role the connection pool logs in as, and it must never be the
+# owner (ADR-0005, decision 3).
 ROLE_NAME_KEYS="LIFECONTROL_POSTGRES_USER LIFECONTROL_DATABASE_USERNAME"
 
 print_status "Applying database roles and grants for $ENV (ADR-0005)..."
@@ -57,18 +62,29 @@ wait_for_postgres() {
 	return 1
 }
 
+expected_role_for_key() {
+	case "$1" in
+	LIFECONTROL_DATABASE_USERNAME) printf '%s' "$APP_ROLE_NAME" ;;
+	*) printf '%s' "$OWNER_ROLE_NAME" ;;
+	esac
+}
+
 report_stale_role_names() {
-	local key value reported=0
+	local key value expected reported=0
 	for key in $ROLE_NAME_KEYS; do
 		value="$(get_env_var "$key")"
-		if [ "$value" = "$LEGACY_ROLE_NAME" ]; then
-			print_warning "$key=$LEGACY_ROLE_NAME is stale: the role was renamed to $OWNER_ROLE_NAME"
-			print_warning "  fix it with: sed -i 's/^$key=$LEGACY_ROLE_NAME\$/$key=$OWNER_ROLE_NAME/' $ENV_FILE"
-			reported=1
-		fi
+		expected="$(expected_role_for_key "$key")"
+		[ "$value" = "$expected" ] && continue
+		# A custom role name is the operator's business; the three names this repository knows are
+		# reported, because each of them is a known consumer pointed at the wrong login.
+		case "$value" in
+		"$LEGACY_ROLE_NAME" | "$OWNER_ROLE_NAME" | "$APP_ROLE_NAME") ;; *) continue ;; esac
+		print_warning "$key=$value is stale: that key must name $expected"
+		print_warning "  fix it with: sed -i 's/^$key=$value\$/$key=$expected/' $ENV_FILE"
+		reported=1
 	done
 	if [ "$reported" -eq 1 ]; then
-		print_warning "A consumer still naming $LEGACY_ROLE_NAME fails authentication: it is the postgres exporter (Prometheus target down) and, until the pool switch lands, the API itself."
+		print_warning "A consumer that logs in as a role other than the one its key names fails authentication, or succeeds as the wrong login: it is the postgres exporter (Prometheus target down) and, for LIFECONTROL_DATABASE_USERNAME, the API's pool, which must connect as $APP_ROLE_NAME or no policy applies to it."
 	fi
 }
 
