@@ -236,9 +236,14 @@ openssl rand -base64 32
 > **Rotación**: `./docker/scripts/cleanup.sh secrets <env>` regenera los archivos desde los
 > templates (destructivo, pide confirmación). Luego reiniciar: `deploy.sh <env> restart`.
 >
-> **Primera migración**: al pasar de env vars a secretos, los volúmenes de postgres existentes
-> retienen la contraseña anterior. Para que la password nueva se aplique hay que recrear el
-> volumen (pérdida de datos del entorno local) — ver `cleanup.sh volumes`.
+> **Primera migración**: al pasar de env vars a secretos, el datadir de postgres existente retiene
+> la contraseña anterior. Para que la password nueva se aplique hay que recrearlo (pérdida de datos
+> del entorno local): en dev y staging ese datadir es un **bind mount** bajo `$VOLUMES_ROOT`, así que
+> lo borra `./docker/scripts/cleanup.sh local <env>` o `./docker/scripts/deploy.sh <env> clean --data`
+> — `cleanup.sh volumes` sólo poda volúmenes con nombre y no lo toca. Los dos apuntan al directorio
+> propio de ese entorno, `./volumes-<env>`, y sólo si es un directorio real (no un symlink); una ruta
+> absoluta, otra ruta o un symlink se reporta y el borrado queda para el operador. En prod el datadir
+> está fuera del checkout y el borrado es manual.
 
 ---
 
@@ -281,6 +286,8 @@ cd docker && ./scripts/validate-env.sh
 
 # Limpiar
 ./docker/scripts/cleanup.sh [stop|docker|volumes|local|builds|all]
+./docker/scripts/deploy.sh dev clean           # Baja el stack; los datos bajo VOLUMES_ROOT quedan
+./docker/scripts/deploy.sh dev clean --data    # Además borra ./volumes-dev, el directorio propio del entorno (2ª confirmación)
 ```
 
 ### Build antes de la imagen
