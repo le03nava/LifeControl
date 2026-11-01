@@ -66,6 +66,9 @@ SECRET_TEMPLATE="$DOCKER_DIR/secrets/lifecontrol_app_password.template"
 # every PostgreSQL suite in the tree depends on a function the fixture does not provide.
 TEST_ROLES_SQL="$(cd "$DOCKER_DIR/.." && pwd)/life-control-api/src/test/resources/test-container-roles.sql"
 TEST_PROFILE_PROPERTIES="$(cd "$DOCKER_DIR/.." && pwd)/life-control-api/src/test/resources/application-test.properties"
+# The delivered pair this script's resolver makes load-bearing: the function below lands in `public` in
+# every fresh volume, and the baseline version decides whether that costs V1 or records it as done.
+APP_PROPERTIES="$(cd "$DOCKER_DIR/.." && pwd)/life-control-api/src/main/resources/application.properties"
 
 PASS_COUNT=0
 FAIL_COUNT=0
@@ -316,7 +319,8 @@ else
 	# other does not, this is where it shows. The test script states no owner on purpose -- its owner is
 	# the container's own user, a superuser, which is the same attribute `lifecontrol_bootstrap` carries
 	# in delivery. The baseline line is the other half of the pair: a non-empty `public` before Flyway
-	# skips V1 unless the test profile baselines at 0.
+	# skips V1 unless the baseline version is 0 — and since issue #722 that is the delivered value too, not
+	# a test-profile exception.
 	assert_file_contains "the test container also creates the resolver" "$TEST_ROLES_SQL" \
 		"CREATE OR REPLACE FUNCTION task_employee_company(task uuid) RETURNS uuid"
 	assert_file_contains "the test container's resolver is the same joined body" "$TEST_ROLES_SQL" \
@@ -338,6 +342,19 @@ else
 		"$TEST_PROFILE_PROPERTIES" "spring.flyway.baseline-version=0"
 	assert_file_contains "the test profile records the symptom, not just the setting" \
 		"$TEST_PROFILE_PROPERTIES" "baselined schema with"
+
+	# And the delivered counterpart, because the same resolver is what the roles script creates in every
+	# fresh volume: at version 1 no new environment could ever initialize (issue #722). This is the text
+	# pin; `FlywayDeliveryBaselineIntegrationTest` proves the behaviour it buys.
+	assert_file_contains "the delivered profile baselines at 0 too, so a fresh volume runs V1" \
+		"$APP_PROPERTIES" "spring.flyway.baseline-version=0"
+	assert_file_absent "the delivered profile no longer declares the baseline that skipped V1" \
+		"$APP_PROPERTIES" "spring.flyway.baseline-version=1"
+	# The other half of the pair: with `baseline-on-migrate=false` a fresh volume is refused outright
+	# ("Found non-empty schema(s) but no schema history table") instead of initialized, so the version
+	# alone is not the fix — the pair is.
+	assert_file_contains "the delivered profile still initializes a non-empty schema instead of refusing it" \
+		"$APP_PROPERTIES" "spring.flyway.baseline-on-migrate=true"
 
 	# Ordering, measured rather than assumed: the function's owner and its grantee must exist when the
 	# CREATE runs, or the file fails on a fresh volume.
