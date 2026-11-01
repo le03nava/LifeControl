@@ -36,12 +36,15 @@ that settled the open questions.
 | [0001](0001-inventory-ledger-single-source.md) | Inventory is a single append-only ledger; balances are disposable projections. Costing and valuation are part of it. | proposed | 0005, 0006 | 0002 |
 | [0002](0002-money-first-class.md) | Money is a first-class value: currency, breakdown, payment rows, tax. | accepted | 0001, 0003, 0004, 0005, 0006 | — |
 | [0003](0003-document-identity-per-tenant.md) | Document numbers come from a per-tenant sequence, not from `max + 1` over a global `UNIQUE`. | proposed | 0005 | 0002 |
-| [0004](0004-typed-state-machine.md) | Document state is a typed machine with a history, not a string in a lookup table. | proposed | 0003, 0005 | — |
+| [0004](0004-typed-state-machine.md) | Document state is a typed machine with a history, not a string in a lookup table. | proposed | 0003, 0005 | 0002 |
 | [0005](0005-tenant-isolation-rls.md) | Tenant isolation is enforced by Row-Level Security, not by 150 call-site checks. | accepted | — | 0001, 0002, 0003, 0004 |
 | [0006](0006-catalog-identity.md) | Catalog identity: `variant_mode` on the product, a required measure unit, a barcode per mode, and `variant_listing` split from stock. | proposed | 0005 | 0001 |
 
 Read the dependency column literally: an ADR whose dependency is not accepted cannot be implemented,
-and an ADR that blocks another one changes that other ADR's schema.
+and an ADR that blocks another one changes that other ADR's schema. The `Blocks` column is the same edge
+read backwards: ADR-0004's row names 0002 because ADR-0002's `Depends on` line has named 0004 since
+2026-10-30, and a graph that states one direction only is how the order below came to implement money
+before the states it consumes.
 
 ## Adoption order
 
@@ -63,10 +66,25 @@ accepted on 2026-10-29 and ADR-0002 on 2026-10-30; the other four are still `pro
    problem and brings costing with it.
 4. **ADR-0003** (document identity) fourth: small, independent, and a prerequisite for payments that
    must be numbered per tenant.
-5. **ADR-0002** (money) fifth: it depends on a sale that books stock in the same transaction, so it
-   reads better once 0001 is in place.
-6. **ADR-0004** (typed states) sixth: it is orthogonal and can be done at any point, but it is the
-   cheapest place to end, because it touches every document and benefits from a settled shape.
+5. **ADR-0004** (typed states) fifth: it is an **input** of the money decision, not a consumer of it.
+   ADR-0002 validates its state guard (decision 7), stands an append-only row in for a void payment
+   where 0004 has the transition history (decision 5) and reads its `is_cash` flag (M4), so writing
+   the charge before the machine means writing `chargeSalesOrder` twice — the second time under a
+   different state mechanism, and with the window open precisely while the payment code is least
+   proven.
+6. **ADR-0002** (money) sixth, and last: it consumes the ledger (0001), the per-tenant number (0003)
+   and the guard (0004), which is why it is the one ADR that cannot be started early without paying
+   for the same code twice. It reads better once 0001 is in place, as the original order said; what
+   changed is that it also has to read after 0004.
+
+**Revised on 2026-11-01 by the maintainer:** steps 5 and 6 swapped, because the accepted dependency
+edge 0002 → 0004 (added 2026-10-30) contradicted the sequence this list carried — the document said
+money depends on states while the plan implemented money first. The evidence and the two rejected
+shapes are recorded as **D-e** in `odd/tasks/money-first-class.md`; splitting the charge rewrite so the
+payments could land against today's status flip was refused there, because the properties that make
+taking money safe (no `Completed` order uncovered by payments, change only on cash, no double charge on
+a retry) are exactly the guard being moved. This revision changes no ADR's status and no ADR's text:
+the edge was already written into ADR-0002's `Depends on` line, which is a fact; only the order was left.
 
 ## Writing a new one
 

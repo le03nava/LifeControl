@@ -5,8 +5,10 @@
 **Status**: blocked — this record, the evidence under `## Problem`, the ADR acceptance that travels with it
 and the slice order are the content; the code is not. One thing outside this record holds the work:
 T5–T7 consume `sales_orders.company_id`, the document state guard and the ledger booking, which ADR-0003,
-ADR-0004 and ADR-0001 own and which no migration in the tree provides. D-c is decided (`companies.currency`),
-and decision 2, the `## Schema` block and migration step 1 of the accepted ADR state it. T9 is closed
+ADR-0004 and ADR-0001 own and which no migration in the tree provides. Two decisions are taken: D-c
+(`companies.currency`), which decision 2, the `## Schema` block and migration step 1 of the accepted ADR
+state, and **D-e** (2026-11-01), which keeps the 0002 → 0004 edge and moves ADR-0004 ahead of T6 in
+`docs/adr/README.md`'s adoption order so the charge rewrite is written once, after the guard. T9 is closed
 (applied with the acceptance) and edits no decision.
 **Created**: 2026-10-30
 **Risk**: items 1 and 3 — item 1 because the migration rewrites stored totals on financial rows and a
@@ -263,14 +265,15 @@ set. (g) `SaleCharged` has no producer and no consumer in the tree. Both are edi
 decisions, and T5/T6 now say so. No schema, ADR or source line was touched.
 
 **2026-10-30 — the four open decisions, with the recommendation each one has.** Recorded as
-recommendations, not decisions: the maintainer has not answered them.
+recommendations, not decisions: the maintainer has not answered them. **D-e was answered on 2026-11-01**
+(see the table row and `## Log`); D-a, D-b and D-d are still open.
 
 | ID | Recommendation | Why not the alternative |
 | --- | --- | --- |
 | D-a | **Skip the order and report it — and measure before deciding.** T3's pre-flight emits the count and the ids; at zero the decision evaporates, at a non-zero count it is taken per row with the list in hand | A sentinel method lands in a **global** catalog with a full ABM (`PaymentMethodController` has POST/PUT/DELETE/PATCH, `PaymentMethodRequest` is name/short-name/enabled), visible in every tenant's POS. A missing payment row says "unknown", which is true; an invented one states how a sale was paid when the data never said |
 | D-b | **Backfill in the migration, by the seed's exact name (`Efectivo`, `V3:385`), with a `RAISE NOTICE` when it affects zero rows — and give the ABM an `isCash`.** `PaymentMethodRequest` carries no such field today, so a method created after the deploy can never be cash and M4 refuses its change forever with no UI path | An operator step in a comment fails at the counter, not at the deploy: the cashier discovers it when the customer asks for change. The notice is what makes a renamed catalog say so instead of passing silently |
 | D-d | **A platform `tax_code` catalog**, the same shape as `currency` (no `company_id`, no policy): `tax_rate` gets the FK, the line keeps the text snapshot that decision 4 requires | Free text cannot carry what the tax actually needs: CFDI separates Tasa 0% from Exento, and both have `rate = 0` — a string plus a rate cannot tell them apart, and the first typo taxes a line at zero without an error. If T4 slips, T2's `'NA'` with `tax_total = 0` stays valid |
-| D-e | **Add the 0002 → 0004 edge and move ADR-0004 ahead of T6. Do not split T6** | M3, M4 and M10 *are* the safety properties of taking money (no Completed sale uncovered by payments, change only on cash, no double charge on a retry). Splitting T6 writes `chargeSalesOrder` twice, the second time under a different state mechanism, and leaves that window open precisely while the payment code is least proven. `docs/adr/README.md` justifies 0004 last as "benefits from a settled shape" — backwards: its shape is an **input** of money |
+| D-e | **Decided 2026-11-01, by the maintainer: add the 0002 → 0004 edge and move ADR-0004 ahead of T6. Do not split T6.** | M3, M4 and M10 *are* the safety properties of taking money (no Completed sale uncovered by payments, change only on cash, no double charge on a retry). Splitting T6 writes `chargeSalesOrder` twice, the second time under a different state mechanism, and leaves that window open precisely while the payment code is least proven. `docs/adr/README.md` justifies 0004 last as "benefits from a settled shape" — backwards: its shape is an **input** of money |
 
 The order that follows: accept and implement ADR-0003, then T5 and ADR-0004 in parallel, then T6. Money's
 T1–T4 run alongside, because they read neither `sales_orders.company_id` nor the guard. Two items in this
@@ -344,3 +347,14 @@ company takes that one code» — is the fix, and it is three steps (add nullabl
 which is the shape T1's row already carries. It is a defect in the accepted ADR's own block, not one a
 push created, so it does not belong in the acceptance's diff: it is queued as a correction unit of its own,
 the way the four corrections under `## Reconciliation` were.
+
+**2026-11-01 — D-e is decided, and it is a decision about the order, not about an ADR.** The maintainer
+confirmed the recommendation: the 0002 → 0004 edge stands (it was written on 2026-10-30, because an edge
+is a fact) and **ADR-0004 moves ahead of ADR-0002** in `docs/adr/README.md`'s adoption order, which now
+reads 0005 → 0006 → 0001 → 0003 → 0004 → 0002. Splitting T6 was refused for the reason the table already
+states: M3, M4 and M10 are the safety properties of taking money, and writing `chargeSalesOrder` against
+today's status flip and again under the typed machine would leave the window open while the payment code
+is least proven. The revision changes no ADR's status, no ADR's decision and no task's content: T5 and T6
+keep their dependencies and only the sequence between 0004 and this unit moved. What it does change is
+what this record is blocked on — before this, the plan could have started T6 after 0001 and 0003 alone,
+which is the plan that writes the charge twice.
