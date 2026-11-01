@@ -17,6 +17,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.BadSqlGrammarException;
+import org.springframework.jdbc.UncategorizedSQLException;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
@@ -125,12 +126,25 @@ class ProductCatalogCompanyScopeSchemaMigrationIntegrationTest extends AbstractP
                         """, UUID.randomUUID(), productId));
 
         assertThat(refused)
-                .as("the barcode key is per company, so the row has to name its company: the policy refuses "
-                        + "it with SQLSTATE 42501 before NOT NULL can fire")
-                .isInstanceOf(BadSqlGrammarException.class)
+                .as("a variant nobody can attribute is refused before it is stored: V56's mode trigger reads "
+                        + "the product from the row's own tenant, and a row that names no company names none, "
+                        + "so it refuses instead of validating nothing — which is why the answer is that "
+                        + "trigger's and no longer the policy's (a BEFORE ROW trigger runs before the "
+                        + "policy's WITH CHECK)")
+                .isInstanceOf(UncategorizedSQLException.class)
                 .satisfies(thrown -> assertThat(deepestMessage(thrown))
-                        .contains("row-level security policy for table \"product_variants\"")
+                        .contains("could not be read")
                         .doesNotContain("not-null"));
+
+        // The column's own rule is still there, unchanged: the refusal above is not the only thing that
+        // keeps an unattributable variant out of the table.
+        assertThat(jdbcTemplate.queryForObject("""
+                        SELECT is_nullable FROM information_schema.columns
+                        WHERE table_schema = 'public' AND table_name = 'product_variants'
+                          AND column_name = 'company_id'
+                        """, String.class))
+                .as("company_id is NOT NULL on the variant too")
+                .isEqualTo("NO");
 
         assertThat(countVariants(companyId)).isZero();
     }
@@ -172,8 +186,11 @@ class ProductCatalogCompanyScopeSchemaMigrationIntegrationTest extends AbstractP
     void barCodeIsUniquePerCompany() {
         var companyId = catalogCompanyId();
         var otherCompanyId = otherCompanyId();
-        var productId = insertProduct(companyId, "PCS-BC-OWN", null);
-        var otherProductId = insertProduct(otherCompanyId, "PCS-BC-OTHER", null);
+        // MULTI on both sides: the two rows of this case share no product, and a SIMPLE product refuses a
+        // second variant of itself (ADR-0006 decision 4, V56) — so the rule under test here is the key and
+        // not the mode, which needs the article to be a family.
+        var productId = insertProduct(companyId, "PCS-BC-OWN", null, "MULTI");
+        var otherProductId = insertProduct(otherCompanyId, "PCS-BC-OTHER", null, "MULTI");
 
         insertVariant(companyId, productId, "PCS-BC-SHARED", "26");
         var inOtherCompany = TenantFixtures.inTenant(
@@ -189,7 +206,9 @@ class ProductCatalogCompanyScopeSchemaMigrationIntegrationTest extends AbstractP
 
         assertViolatesConstraint(
                 companyId,
-                "uq_product_variants_company_bar_code",
+                // V56 replaced V40's full constraint with this partial unique index, so the duplicate is
+                // still refused and still names the key — the index, not a constraint.
+                "uq_variant_bar_code",
                 """
                 INSERT INTO product_variants (id, company_id, product_id, bar_code, variant_name, measure_unit_id)
                 VALUES (?, ?, ?, 'PCS-BC-SHARED', '27', ?)
@@ -238,17 +257,29 @@ class ProductCatalogCompanyScopeSchemaMigrationIntegrationTest extends AbstractP
         var otherCompanyId = otherCompanyId();
         var productId = insertProduct(companyId, "PCS-VARIANT-OWNER", null);
 
-        assertViolatesConstraint(
+        // V56's mode trigger answers first — it reads the product from the row's own tenant, and a
+        // product of another company is invisible there — so what this case observes is the refusal, and
+        // the composite key that used to answer it is asserted below as still declared (writing the pair
+        // through it is unreachable on INSERT: the trigger only lets a row through when its company can
+        // see its product, which is exactly what the key requires).
+        var refused = catchThrowable(() -> TenantFixtures.inTenant(
                 otherCompanyId,
-                "fk_product_variants_product_same_company",
-                """
+                () -> jdbcTemplate.update("""
                 INSERT INTO product_variants (id, company_id, product_id, bar_code, variant_name, measure_unit_id)
                 VALUES (?, ?, ?, 'PCS-BC-CROSS', '26', ?)
-                """,
-                UUID.randomUUID(),
-                otherCompanyId,
-                productId,
-                pieceUnitId());
+                """, UUID.randomUUID(), otherCompanyId, productId, pieceUnitId())));
+
+        assertThat(refused)
+                .as("a variant of another company's product is refused before it is stored")
+                .isInstanceOf(UncategorizedSQLException.class)
+                .satisfies(thrown -> assertThat(deepestMessage(thrown)).contains("could not be read"));
+
+        assertThat(jdbcTemplate.queryForList("""
+                        SELECT constraint_name FROM information_schema.table_constraints
+                        WHERE table_schema = 'public' AND table_name = 'product_variants'
+                        """, String.class))
+                .as("the composite key is still the schema's tenancy guarantee for the pair")
+                .contains("fk_product_variants_product_same_company");
 
         assertThat(countVariants(companyId)).isZero();
     }
@@ -268,16 +299,23 @@ class ProductCatalogCompanyScopeSchemaMigrationIntegrationTest extends AbstractP
                         "uq_products_company_id",
                         "uq_product_variants_company_id",
                         "uq_products_company_sku",
-                        "uq_product_variants_company_bar_code",
                         "fk_products_category_same_company",
                         "fk_product_variants_product_same_company");
         assertThat(constraints)
-                .as("the global keys and the unscoped FKs they replaced")
+                .as("the global keys and the unscoped FKs they replaced, plus V40's full barcode key, "
+                        + "which V56 replaced with the partial uq_variant_bar_code")
                 .doesNotContain(
                         "products_sku_key",
                         "uq_product_variants_bar_code",
+                        "uq_product_variants_company_bar_code",
                         "fk_products_category",
                         "product_variants_product_id_fkey");
+        assertThat(jdbcTemplate.queryForList("""
+                        SELECT indexname FROM pg_indexes
+                        WHERE schemaname = 'public' AND tablename = 'product_variants'
+                        """, String.class))
+                .as("the replacement exists, and it is an index because a partial UNIQUE cannot be a constraint")
+                .contains("uq_variant_bar_code");
         assertThat(constraints)
                 .as("the per-product name key is untouched by this slice")
                 .contains("uq_product_variants_product_variant_name");
@@ -298,11 +336,22 @@ class ProductCatalogCompanyScopeSchemaMigrationIntegrationTest extends AbstractP
     }
 
     private UUID insertProduct(UUID companyId, String sku, UUID categoryId) {
+        return insertProduct(companyId, sku, categoryId, "SIMPLE");
+    }
+
+    /**
+     * A product with its mode stated. {@code SIMPLE} is the default of the column (V54) and the article
+     * every case that adds a single variant wants; a case that adds a second one has to say {@code MULTI},
+     * because V56's trigger refuses it on a SIMPLE article.
+     */
+    private UUID insertProduct(UUID companyId, String sku, UUID categoryId, String variantMode) {
         var id = UUID.randomUUID();
         TenantFixtures.inTenant(
-                companyId, () -> jdbcTemplate.update("""
-                INSERT INTO products (id, sku, name, company_id, category_id) VALUES (?, ?, ?, ?, ?)
-                """, id, sku, "Seed product " + sku, companyId, categoryId));
+                companyId,
+                () -> jdbcTemplate.update("""
+                INSERT INTO products (id, sku, name, company_id, category_id, variant_mode)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """, id, sku, "Seed product " + sku, companyId, categoryId, variantMode));
         return id;
     }
 

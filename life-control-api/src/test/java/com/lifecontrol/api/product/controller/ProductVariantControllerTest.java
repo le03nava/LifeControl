@@ -305,10 +305,13 @@ class ProductVariantControllerTest {
                     .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.status").value(400))
                     .andExpect(jsonPath("$.message").value("Validation failed"))
-                    .andExpect(jsonPath("$.errors.barCode").exists())
                     .andExpect(jsonPath("$.errors.variantName").exists())
                     // The unit is required too (ADR-0006 decision 3): the refusal names the field.
                     .andExpect(jsonPath("$.errors.measureUnitId").value("measureUnitId is required"))
+                    // The barcode is NOT a request-level error any more: ADR-0006 decision 4 makes it
+                    // depend on the product's mode, which a bean-validation annotation cannot read — the
+                    // service answers 400 naming the field when the product is MULTI.
+                    .andExpect(jsonPath("$.errors.barCode").doesNotExist())
                     .andExpect(jsonPath("$.timestamp").exists());
         }
 

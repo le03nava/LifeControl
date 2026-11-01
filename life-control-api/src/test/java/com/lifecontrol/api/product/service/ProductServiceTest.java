@@ -210,6 +210,37 @@ class ProductServiceTest {
 
             verify(productRepository, never()).save(any());
         }
+
+        /**
+         * ADR-0006 decision 1 / V54: the mode is a property of the article and it is stated at creation.
+         *
+         * <p>Two facts in one case, because either alone would pass for the wrong reason: a request that
+         * says {@code MULTI} has to reach the column, and one that says nothing has to be the single-variant
+         * article instead of a {@code NULL} the column refuses.</p>
+         */
+        @Test
+        @DisplayName("should store the variant mode the request states, and SIMPLE when it states none")
+        void shouldStoreTheVariantMode() {
+            var multi =
+                    new ProductRequest("SKU-MULTI", "Zapato", null, null, null, null, null, Product.VARIANT_MODE_MULTI);
+            when(productRepository.existsBySkuAndCompanyId("SKU-MULTI", companyId))
+                    .thenReturn(false);
+            when(productRepository.save(any(Product.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            productService.createProduct(companyId, multi);
+
+            verify(productRepository)
+                    .save(argThat(product -> Product.VARIANT_MODE_MULTI.equals(product.getVariantMode())));
+
+            var unstated = new ProductRequest("SKU-PLAIN", "Pan", null, null, null, null, null);
+            when(productRepository.existsBySkuAndCompanyId("SKU-PLAIN", companyId))
+                    .thenReturn(false);
+
+            productService.createProduct(companyId, unstated);
+
+            verify(productRepository)
+                    .save(argThat(product -> Product.VARIANT_MODE_SIMPLE.equals(product.getVariantMode())));
+        }
     }
 
     @Nested

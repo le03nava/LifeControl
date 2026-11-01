@@ -89,6 +89,29 @@ public class Product extends Auditable {
     @Column(columnDefinition = "jsonb")
     private Map<String, Object> attributes;
 
+    /**
+     * Whether this article is one sellable thing or a family of them (ADR-0006 decision 1, {@code V54}).
+     *
+     * <p>{@link #VARIANT_MODE_SIMPLE} means exactly one variant, written by the backend with the product;
+     * {@link #VARIANT_MODE_MULTI} means the variants are declared and at least one is required. The database
+     * states the same fact twice — {@code NOT NULL} with its own {@code DEFAULT 'SIMPLE'} and
+     * {@code ck_products_variant_mode}, which is the closed vocabulary — and the trigger
+     * {@code trg_variant_matches_mode} (V56) is what makes the mode decide what a variant may be.</p>
+     *
+     * <p>The Java default is {@link #VARIANT_MODE_SIMPLE} for the same reason the column's is: a product
+     * nobody classified is a single-variant article, so a builder path that does not state the mode still
+     * produces an insertable row instead of failing on a {@code NOT NULL} column. It is not a decision any
+     * caller may rely on for {@code MULTI} — the creation request states that one explicitly.</p>
+     */
+    @Column(name = "variant_mode", nullable = false, length = 6)
+    private String variantMode = VARIANT_MODE_SIMPLE;
+
+    /** The one-variant article: exactly one variant, and no barcode is required on it (decision 4). */
+    public static final String VARIANT_MODE_SIMPLE = "SIMPLE";
+
+    /** The family: its variants carry a barcode each (decision 4) and there is always at least one. */
+    public static final String VARIANT_MODE_MULTI = "MULTI";
+
     @Column(nullable = false)
     private Boolean enabled = true;
 
@@ -132,6 +155,10 @@ public class Product extends Auditable {
         return attributes;
     }
 
+    public String getVariantMode() {
+        return variantMode;
+    }
+
     public Boolean getEnabled() {
         return enabled;
     }
@@ -171,6 +198,10 @@ public class Product extends Auditable {
 
     public void setAttributes(Map<String, Object> attributes) {
         this.attributes = attributes;
+    }
+
+    public void setVariantMode(String variantMode) {
+        this.variantMode = variantMode;
     }
 
     public void setEnabled(Boolean enabled) {
@@ -227,6 +258,11 @@ public class Product extends Auditable {
 
         public Builder attributes(Map<String, Object> attributes) {
             product.attributes = attributes;
+            return this;
+        }
+
+        public Builder variantMode(String variantMode) {
+            product.variantMode = variantMode;
             return this;
         }
 

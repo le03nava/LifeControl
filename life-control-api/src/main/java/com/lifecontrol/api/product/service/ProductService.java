@@ -83,6 +83,11 @@ public class ProductService {
                 .attributes(request.attributes())
                 .category(category)
                 .company(company)
+                // ADR-0006 decision 1: the mode is a property of the article and it is stated at creation.
+                // An absent one is `SIMPLE` — the article this endpoint has always created, one product and
+                // no variant of its own — and stating it here is what keeps the column from depending on its
+                // default for a caller that does declare `MULTI`.
+                .variantMode(variantMode(request))
                 .enabled(true)
                 .build();
 
@@ -223,6 +228,19 @@ public class ProductService {
         return productRepository
                 .findByIdAndCompanyId(id, companyId)
                 .orElseThrow(() -> new ProductNotFoundException(id));
+    }
+
+    /**
+     * The mode a creation stores: the request's, or {@code SIMPLE} when it states none.
+     *
+     * <p>ADR-0006 decision 1 makes the mode a property of the article, set at creation. An absent one is
+     * not an error: every caller that predates the mode creates the single-variant article, and
+     * {@code SIMPLE} is what one product with no variant of its own is. {@code updateProduct} deliberately
+     * does not read it — a mode change is refused once a variant holds stock (migration step 6, which lands
+     * with ADR-0001's ledger), so this endpoint states the mode once and never silently rewrites it.</p>
+     */
+    private String variantMode(ProductRequest request) {
+        return request.variantMode() == null ? Product.VARIANT_MODE_SIMPLE : request.variantMode();
     }
 
     /**

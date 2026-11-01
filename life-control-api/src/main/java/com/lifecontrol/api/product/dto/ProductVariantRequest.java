@@ -15,6 +15,13 @@ import java.util.UUID;
  * {@link ProductVariantStoreStockRequest} on the store-scoped endpoint; the owning product is the
  * path variable, never the body.</p>
  *
+ * <p>{@code barCode} is <b>optional here</b> since ADR-0006 decision 4: whether it is required depends on
+ * the product's mode — required for {@code MULTI}, optional for {@code SIMPLE}, because "a single-variant
+ * article has no barcode to give" — and a bean-validation annotation cannot read the product. The rule is
+ * therefore the service's ({@code ProductVariantService}, which answers 400 with a message that names this
+ * field) and the database's ({@code trg_variant_matches_mode}, V56). This record keeps only the size the
+ * column has, so an oversized barcode is still a validation error instead of a constraint violation.</p>
+ *
  * <p>{@code measureUnitId} is <b>required</b> since ADR-0006 decision 3: a quantity without a unit is a
  * meaningless number, and the catalog it needs ({@code measure_units}) already ships. The service
  * resolves it against that catalog, so the request carries the id only — the label is resolved by the
@@ -31,7 +38,7 @@ import java.util.UUID;
  * leaves the stored set untouched, and {@code {}} clears it.</p>
  */
 public record ProductVariantRequest(
-        @NotBlank(message = "barCode is required") @Size(max = 100, message = "barCode must not exceed 100 characters")
+        @Size(max = 100, message = "barCode must not exceed 100 characters")
         String barCode,
 
         @NotBlank(message = "variantName is required")

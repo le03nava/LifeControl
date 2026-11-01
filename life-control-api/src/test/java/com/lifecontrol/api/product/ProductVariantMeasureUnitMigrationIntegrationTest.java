@@ -117,7 +117,10 @@ class ProductVariantMeasureUnitMigrationIntegrationTest extends AbstractPostgres
         migrateTo(PRE_UNIT_HEAD);
 
         var company = insertCompany();
-        var product = insertProduct(company, "V55-DECLARED", "A shoe");
+        // MULTI, because this product carries two variants: since ADR-0006 decision 4 and V56's trigger a
+        // SIMPLE product refuses the second one, and this case is about the unit column rather than the
+        // mode.
+        var product = insertProduct(company, "V55-DECLARED", "A shoe", "MULTI");
         var unit = seededUnitId();
         var first = insertVariantWithUnit(company, product, "7509999910001", "Talla 40", unit);
         var second = insertVariantWithUnit(company, product, "7509999910002", "Talla 41", unit);
@@ -175,11 +178,16 @@ class ProductVariantMeasureUnitMigrationIntegrationTest extends AbstractPostgres
     }
 
     private UUID insertProduct(UUID company, String sku, String name) throws SQLException {
+        return insertProduct(company, sku, name, "SIMPLE");
+    }
+
+    /** A product whose mode is stated: {@code V54} added the column, and {@code V56} makes it decisive. */
+    private UUID insertProduct(UUID company, String sku, String name, String variantMode) throws SQLException {
         var id = UUID.randomUUID();
         execute(
                 company,
-                "INSERT INTO products (id, sku, name, company_id) VALUES ('" + id + "', '" + sku + "', '" + name
-                        + "', '" + company + "')");
+                "INSERT INTO products (id, sku, name, company_id, variant_mode) VALUES ('" + id + "', '" + sku + "', '"
+                        + name + "', '" + company + "', '" + variantMode + "')");
         return id;
     }
 

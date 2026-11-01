@@ -13,6 +13,7 @@ import com.lifecontrol.api.product.dto.ProductVariantResponse;
 import com.lifecontrol.api.product.dto.ProductVariantSearchResponse;
 import com.lifecontrol.api.product.dto.ProductVariantStoreStockRequest;
 import com.lifecontrol.api.product.dto.ProductVariantStoreStockResponse;
+import com.lifecontrol.api.product.exception.BarcodeRequiredException;
 import com.lifecontrol.api.product.exception.DisabledMeasureUnitException;
 import com.lifecontrol.api.product.exception.DuplicateProductVariantException;
 import com.lifecontrol.api.product.exception.MeasureUnitChangeNotAllowedException;
@@ -185,10 +186,11 @@ public class ProductVariantService {
      * {@code (product_id, variant_name)} (D3).
      *
      * <p>The barcode gate is asked for <b>this company's</b> key, never for the table's: a barcode taken
-     * in another company is not a conflict, because two tenants are separate businesses. V40 replaced
-     * V14's global key with {@code uq_product_variants_company_bar_code}, so the service and the index
-     * answer the same question and this method is where the 409 gets a message instead of a constraint
-     * name.</p>
+     * in another company is not a conflict, because two tenants are separate businesses. V56 replaced
+     * V40's full key with the partial {@code uq_variant_bar_code}, so the service and the index answer the
+     * same question — a barcode that exists, in this company — and this method is where the 409 gets a
+     * message instead of an index name. Whether a barcode is required at all is a different question and
+     * it is the product's mode that answers it ({@link #validateBarcodeForMode}).</p>
      *
      * @throws ProductNotFoundException when the product does not exist
      * @throws DuplicateProductVariantException when the barcode or the (product, name) pair already
@@ -199,6 +201,8 @@ public class ProductVariantService {
      * @throws DisabledMeasureUnitException when the named measure unit is soft-deleted (400)
      * @throws MeasureUnitTypeMismatchException when the unit's type contradicts the product's other
      *     variants (400)
+     * @throws BarcodeRequiredException when the product is {@code MULTI} and the request names no
+     *     barcode (400) — ADR-0006 decision 4, asked of the product and not of an annotation
      */
     @Transactional
     public ProductVariantResponse createVariant(UUID companyId, UUID productId, ProductVariantRequest request) {
@@ -209,6 +213,8 @@ public class ProductVariantService {
                 productId,
                 request.barCode(),
                 request.variantName());
+
+        validateBarcodeForMode(product, request.barCode());
 
         if (productVariantRepository.existsByBarCodeAndCompanyId(request.barCode(), companyId)) {
             throw new DuplicateProductVariantException(
@@ -259,6 +265,8 @@ public class ProductVariantService {
      *     variants (400)
      * @throws MeasureUnitChangeNotAllowedException when the variant already holds stock or ledger
      *     movements and the unit would change (409)
+     * @throws BarcodeRequiredException when the product is {@code MULTI} and the write would leave the
+     *     variant without a barcode (400) — ADR-0006 decision 4
      */
     @Transactional
     public ProductVariantResponse updateVariant(
@@ -269,7 +277,11 @@ public class ProductVariantService {
 
         var variant = findVariantOfProduct(productId, variantId);
 
-        if (!variant.getBarCode().equals(request.barCode())
+        validateBarcodeForMode(product, request.barCode());
+
+        // `Objects.equals` and not `variant.getBarCode().equals(...)`: the stored barcode may be absent
+        // since ADR-0006 decision 4, and a `SIMPLE` product's variant legitimately has none.
+        if (!Objects.equals(variant.getBarCode(), request.barCode())
                 && productVariantRepository.existsByBarCodeAndCompanyIdAndIdNot(
                         request.barCode(), companyId, variantId)) {
             throw new DuplicateProductVariantException(
@@ -512,6 +524,26 @@ public class ProductVariantService {
                 .findById(variantId)
                 .filter(v -> v.getProductId().equals(productId))
                 .orElseThrow(() -> new ProductVariantNotFoundException(variantId));
+    }
+
+    /**
+     * ADR-0006 decision 4: the product's mode, not the request's annotation, decides whether a barcode is
+     * required — required for {@code MULTI}, optional for {@code SIMPLE}, because "a single-variant article
+     * has no barcode to give".
+     *
+     * <p>It runs on create <b>and</b> on update, over the state the write leaves behind: clearing the
+     * barcode of a {@code MULTI} variant is the same violation as creating one without it. A blank value
+     * counts as absent, because {@code @Size} is the only constraint the request keeps. The refusal names
+     * {@code barCode} ({@link BarcodeRequiredException}, a 400) so a client renders a field and not the
+     * message {@code trg_variant_matches_mode} raises, and the trigger stays the half no other writer can
+     * skip.</p>
+     */
+    private void validateBarcodeForMode(Product product, String barCode) {
+        if (barCode == null || barCode.isBlank()) {
+            if (Product.VARIANT_MODE_MULTI.equals(product.getVariantMode())) {
+                throw new BarcodeRequiredException(product.getId());
+            }
+        }
     }
 
     /**

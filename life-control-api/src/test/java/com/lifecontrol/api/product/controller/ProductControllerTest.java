@@ -144,6 +144,24 @@ class ProductControllerTest {
             verify(productService).createProduct(eq(companyId), any(ProductRequest.class));
         }
 
+        /**
+         * ADR-0006 decision 1: the mode's vocabulary is closed in the schema
+         * ({@code ck_products_variant_mode}, V54) and the request states the same two words, so a client
+         * gets a 400 that names the field instead of a constraint violation after the row was built.
+         */
+        @Test
+        @DisplayName("should return 400 when variantMode is outside SIMPLE|MULTI")
+        void createProduct_UnknownVariantMode_Returns400() throws Exception {
+            var body = objectMapper.writeValueAsString(testProductRequest);
+            var withFamily = body.substring(0, body.lastIndexOf('}')) + ",\"variantMode\":\"FAMILY\"}";
+
+            mockMvc.perform(post("/api/companies/{companyId}/products", companyId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(withFamily))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.errors.variantMode").exists());
+        }
+
         @Test
         @DisplayName("should return 201 when product created without attributes")
         void createProduct_WithoutAttributes_Returns201() throws Exception {

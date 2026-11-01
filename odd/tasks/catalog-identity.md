@@ -61,9 +61,9 @@ S7. **T1 does not change a single read path or write path.** `product_variant_st
 | --- | --- | --- | --- | --- |
 | T1 | S1, S5, S7 | `V54`: `products.variant_mode` (`SIMPLE`/`MULTI`, CHECK, derived backfill) plus the self-check that refuses a derivation which read nothing, inside the `NO FORCE` window ADR-0005's `FORCE` makes mandatory | — | inline; done |
 | T2 | S1, S6 | `V55`: `product_variants.measure_unit_id SET NOT NULL` behind the report that aborts, and the write path that agrees with it — `ProductVariant` maps the column as required, `ProductVariantRequest` demands it, and the suites that build a variant today declare a unit | T1 | inline; done |
-| T3 | S1, S3, S4 | `V56`: `bar_code DROP NOT NULL`, the partial `uq_variant_bar_code` replacing `uq_product_variants_company_bar_code`, and `trg_variant_matches_mode` — with the write path that states the mode, because the trigger is what makes a second variant on a `SIMPLE` product fail | T2 | inline |
+| T3 | S1, S3, S4 | `V56`: `bar_code DROP NOT NULL`, the partial `uq_variant_bar_code` replacing `uq_product_variants_company_bar_code`, and `trg_variant_matches_mode` — with the **minimum** write path that keeps the trigger truthful: `Product.variantMode` mapped, `POST /products` accepting it with `SIMPLE` as the creation default, and the barcode requirement decided by the product's mode in the service instead of `@NotBlank`. The response exposure, the `variants[]` list and the Angular form stay in T5 | T2 | inline |
 | T4 | S1, S6 | `variant_listing` and the price split out of `product_variant_store_stock` (decision 5, steps 4–5), armed in `tenant_table` in the migration that creates it | **blocked** — `currency` is ADR-0002's T1 and `tax_rate` its T4, which D-d still gates; step 5 also needs ADR-0001's position projection | — |
-| T5 | S1, S2 | Decision 2: `ProductRequest.variantMode` + `variants[]`, product and variants written in **one** transaction, C1's delete guard, and the Angular form split into "the article" and "its variants" | T3 | inline |
+| T5 | S1, S2 | Decision 2, the rest of it: `variants[]` on the creation request, product and variants written in **one** transaction, `variantMode` on the response, C1's delete guard, and the Angular form split into "the article" and "its variants" with the barcode required only for `MULTI` | T3 | inline |
 | T6 | S1, S6 | Decision 1's immutability: refuse a `variant_mode` change once a variant holds stock | **blocked** — ADR migration step 6 states this lands with ADR-0001's ledger, and today the only "movement" is the per-store row | — |
 
 ## Log
@@ -142,3 +142,28 @@ chained: the migration, the entity/DTO/service rule and the nine repaired fixtur
 three times, and either half alone is either red (the column refuses what the fixtures still write) or
 meaningless (a report with nothing to refuse). The slice after it, T3, is a separate pull request and
 starts from this one's head only once both are merged.
+
+**2026-11-01 — T3, and the defect the review caught: a trigger that widened the policy it ran under.**
+`V56__variant_barcode_optional.sql` lands decision 4 — `bar_code` nullable, the partial
+`uq_variant_bar_code` replacing `uq_product_variants_company_bar_code`, and `trg_variant_matches_mode`
+with the ADR's two messages verbatim — plus the minimum write path that keeps the trigger truthful:
+`Product.variantMode` mapped with a `SIMPLE` default, `ProductRequest.variantMode` closed to the two
+values, and the barcode requirement asked of the product's mode in the service (400 naming `barCode`,
+`BarcodeRequiredException`) instead of by `@NotBlank`.
+
+The delegated writer's first version of the trigger opened with `PERFORM set_tenant_scope(NEW.company_id)`
+so that a writer with no scope would still read the mode — the same instinct that makes `V54` and `V55`
+open their windows. Reviewed against the execution order it was a **tenant-isolation hole**: a BEFORE ROW
+trigger runs **before** the policy's `WITH CHECK`, and the check is evaluated against the row the trigger
+left behind, with the session setting the trigger had just changed. Setting the scope from `NEW.company_id`
+therefore makes the policy compare the row to its own claim, and an insert naming any tenant passes: the
+barrier ADR-0005 exists for answers "yes" to whatever the row says. Measured, not argued — the writer's own
+case showed the trigger firing before the tenancy refusal on a cross-company insert.
+
+The fix is subtraction: the trigger reads under whatever scope its writer has, and a mode that comes back
+NULL `RAISE`s instead of skipping the check — "the product could not be read, so the rules it must match
+are unknown; a variant was NOT written". That is the honest answer, and it is the same refusal the policy
+would produce one statement later. A migration that must insert variants uses the `NO FORCE` window `V54`
+and `V55` document; no third door was added. The case that used to pin the scope call now pins the refusal.
+Verification after the fix: **979 cases across 241 classes, 0 failures** over `product`, `goodsreceipt`,
+`inventory`, `salesorder` and `purchaseorder`.

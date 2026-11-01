@@ -165,6 +165,10 @@ class ProductVariantStoreStockWriteIntegrationTest extends AbstractPostgresInteg
                         .sku("VARSTOCK-" + UUID.randomUUID().toString().substring(0, 8))
                         .name("Variant Store Stock Product")
                         .company(companyRepository.findById(companyId).orElseThrow())
+                        // Two variants below, so the article is a family: since ADR-0006 decision 4 (V56)
+                        // a SIMPLE product refuses the second variant, and this suite is about the
+                        // per-store stock editor, not about the mode.
+                        .variantMode(Product.VARIANT_MODE_MULTI)
                         .enabled(true)
                         .build()));
         productId = product.getId();
