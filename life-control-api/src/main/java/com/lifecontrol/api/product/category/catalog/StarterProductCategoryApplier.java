@@ -1,5 +1,6 @@
 package com.lifecontrol.api.product.category.catalog;
 
+import com.lifecontrol.api.common.tenant.TenantScope;
 import com.lifecontrol.api.company.exception.CompanyNotFoundException;
 import com.lifecontrol.api.company.model.Company;
 import com.lifecontrol.api.company.repository.CompanyRepository;
@@ -12,8 +13,9 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Propagation;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * Applies {@link StarterProductCategoryCatalog} to one company: the same catalog
@@ -47,31 +49,69 @@ import org.springframework.transaction.annotation.Transactional;
  * combination (a test asserts it), but the row the applier <em>reuses</em> is the company's, not the
  * catalog's, so the composition happens at write time.</p>
  *
+ * <p><b>The tenant is stated here, inside the transaction this class owns.</b> That boundary is the only
+ * place the scope can be installed — {@code TenantScopeJpaTransactionManager#doBegin} reads the thread's
+ * {@link TenantScope} when the transaction begins — and it begins <b>before</b> anything the caller stated
+ * could matter. Three of the callers have no scope to hand over at all: an operator script, a bulk
+ * import, and the {@code @TransactionalEventListener(fallbackExecution = true)} path, which by definition
+ * runs with no transaction and no request scope. Relying on the caller therefore meant the read of
+ * {@code companies} and the writes to the armed {@code product_categories} answered zero rows for exactly
+ * those three, and the applier reported a company that plainly exists as
+ * {@link CompanyNotFoundException}. So the id the caller already knows is stated here, around the
+ * transaction, and a caller that states one too is unaffected: the inner scope replaces it for the call
+ * and the outer one is restored afterwards.</p>
+ *
  * <p>{@code REQUIRES_NEW}, because the only production caller is an
  * {@code @TransactionalEventListener(AFTER_COMMIT)}: at that point the company's transaction has already
  * committed and its connection is still bound to the thread, so a {@code REQUIRED} write would join a
  * completed transaction and never be committed. Suspending it and opening a fresh one is what makes the
- * seeded rows visible.</p>
+ * seeded rows visible. That is why the boundary is a {@link TransactionTemplate} here and not
+ * {@code @Transactional}: the propagation has to be chosen, and the scope has to be stated around the
+ * boundary, in that order — an annotation on the method cannot state it.</p>
  */
 @Service
 public class StarterProductCategoryApplier {
 
     private final CompanyRepository companyRepository;
     private final ProductCategoryRepository productCategoryRepository;
+    private final TransactionTemplate requiresNewTransaction;
 
     public StarterProductCategoryApplier(
-            CompanyRepository companyRepository, ProductCategoryRepository productCategoryRepository) {
+            CompanyRepository companyRepository,
+            ProductCategoryRepository productCategoryRepository,
+            PlatformTransactionManager transactionManager) {
         this.companyRepository = companyRepository;
         this.productCategoryRepository = productCategoryRepository;
+        this.requiresNewTransaction = new TransactionTemplate(transactionManager);
+        this.requiresNewTransaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
     }
 
     /**
      * Inserts the catalog rows the company does not have yet and returns how many were inserted.
      *
+     * <p>The order is the contract: the scope is stated first, the transaction begins second, the seed runs
+     * third. {@code doBegin} reads the holder, so a boundary opened before the scope is stated would install
+     * the previous tenant or none — and none is the fail-closed direction that made this defect loud
+     * instead of dangerous.</p>
+     *
      * @throws CompanyNotFoundException when the given id is not a company
      */
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public int applyTo(UUID companyId) {
+        return TenantScope.with(companyId, () -> seedInOwnTransaction(companyId));
+    }
+
+    /**
+     * One {@code REQUIRES_NEW} transaction whose boundary installs the scope stated around it.
+     *
+     * <p>{@code execute} is declared nullable because a callback may return {@code null}; this one always
+     * counts, and the guard keeps that fact out of an unboxing the compiler cannot check.</p>
+     */
+    private int seedInOwnTransaction(UUID companyId) {
+        var inserted = requiresNewTransaction.execute(status -> seed(companyId));
+        return inserted == null ? 0 : inserted;
+    }
+
+    private int seed(UUID companyId) {
         var company = companyRepository.findById(companyId).orElseThrow(() -> new CompanyNotFoundException(companyId));
 
         var existing = productCategoryRepository.findByCompanyIdOrderByDisplayOrderAscCategoryNameAsc(companyId);
