@@ -193,3 +193,27 @@ transaction instead of through an interaction — which is what makes "nothing i
 `variantMode` and `variants`, so the product form receives `400 variants is required` until it sends them, and
 the variant dialog still does not require a unit (`V55`) or relax the barcode for a `SIMPLE` product (`V56`).
 That is the next slice, and it is why this record does not call T5 done.
+
+**2026-11-01 — T5's Angular half: the form splits by mode, and T5 closes.** The delegated writer delivered
+the branch ADR-0006 decision 2 needs on the screen: `SIMPLE` collects its one variant inline — name, unit,
+optional barcode — as part of the article and never as a step; `MULTI` collects a list with add/remove and
+one required barcode each; the create call posts `variantMode` and `variants` and the update posts neither.
+The variant dialog requires a unit (the `400 measureUnitId is required` the screen received after `V55`) and
+requires a barcode only for a `MULTI` product, reading the mode from the product the dialog already loads —
+no new request. The response's new `variantMode` is respected in the models.
+
+Verification observed by the parent: **193 files, 4063 Angular cases, 0 failures**; lint and
+Prettier clean. The writer's RED was taken against a scratch copy of the base (`git archive`, outside the
+worktree, removed afterwards) so the four cases that state the new rules were observed failing on the old
+behaviour rather than asserted after the fact.
+
+**The contract wart this slice had to work around, named as the next unit.** The catalog endpoints' 400s for
+`variants`, `barCode` and `measureUnitId` carry **no `errors` map**: `GlobalExceptionHandler` maps a bare
+`IllegalArgumentException` to `{status, message, path, timestamp, correlationId}`, and `ProductRequest.variants`
+is not `@Valid`-cascaded, so only `variantMode`'s `@Pattern` and the variant endpoint's `@NotNull` produce a
+real field map. The form therefore attributes those refusals by the field name each message opens with
+(`models/product-field-errors.ts`), which is a coupling to backend wording and a documented one: the module
+says it is coupled, and the case fails loudly if a message is reworded. It is not fixed here because the fix
+is in shared code — every `IllegalArgumentException` in the API maps through that handler — and a change there
+is its own reviewed unit, not a rider on a UI slice. The fix is small and named: a common field-violation
+exception carrying its field, mapped to `errors: {field: message}`, plus `@Valid` on `variants`.

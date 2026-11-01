@@ -84,6 +84,7 @@ describe('ProductVariantDialog', () => {
       updatedAt: '',
       categoryId: null,
       companyId,
+      variantMode: 'SIMPLE',
       ...overrides,
     };
   }
@@ -202,6 +203,139 @@ describe('ProductVariantDialog', () => {
     });
   });
 
+  /**
+   * ADR-0006 decision 4: the barcode is required for a `MULTI` variant and optional for a `SIMPLE`
+   * one, and the mode is read from the product the dialog already loads for its attribute profile.
+   */
+  describe("the product's mode", () => {
+    function innerForm(): ProductVariantForm {
+      return fixture.debugElement.query(By.directive(ProductVariantForm))
+        .componentInstance as ProductVariantForm;
+    }
+
+    it('should learn the mode from the product it reads, not from a second call', () => {
+      setup({ product: { variantMode: 'MULTI' } });
+      fixture.detectChanges();
+
+      expect(component.productMode()).toBe('MULTI');
+      expect(component.barcodeRequired()).toBe(true);
+      expect(productServiceMock.getProductById).toHaveBeenCalledTimes(1);
+    });
+
+    it('should require the barcode of a MULTI variant', () => {
+      setup({ product: { variantMode: 'MULTI' } });
+      fixture.detectChanges();
+
+      const form = innerForm();
+      form.formGroup().patchValue({ variantName: 'Talla 40', measureUnitId: 'mu-pza' });
+      form.onSave();
+
+      expect(productVariantServiceMock.createVariant).not.toHaveBeenCalled();
+      expect(form.formGroup().controls.barCode.errors?.['required']).toBe(true);
+    });
+
+    it('should let a SIMPLE variant save without a barcode, and send it as null', () => {
+      setup({ product: { variantMode: 'SIMPLE' } });
+      fixture.detectChanges();
+
+      expect(component.barcodeRequired()).toBe(false);
+
+      const form = innerForm();
+      form.formGroup().patchValue({
+        barCode: '',
+        variantName: 'Unica',
+        measureUnitId: 'mu-pza',
+      });
+      form.onSave();
+
+      expect(productVariantServiceMock.createVariant).toHaveBeenCalledWith(companyId, productId, {
+        barCode: null,
+        variantName: 'Unica',
+        measureUnitId: 'mu-pza',
+        // The product is unclassified, so its profile is known to declare no variant attributes and
+        // the request says `{}` (the F1 rule this dialog already had).
+        attributes: {},
+      });
+      expect(innerForm().barcodeRequired()).toBe(false);
+    });
+
+    it('should keep the barcode optional while the mode is unknown and let the API decide', () => {
+      setup();
+      productServiceMock.getProductById.mockReturnValue(
+        throwError(() => new HttpErrorResponse({ status: 500 })),
+      );
+      fixture = TestBed.createComponent(ProductVariantDialog);
+      component = fixture.componentInstance;
+      fixture.detectChanges();
+
+      // The read that carries the mode failed: the dialog cannot ask for a barcode on the strength of
+      // an answer it never got, so the requirement is dropped and the server's refusal is attributed.
+      expect(component.productMode()).toBeNull();
+      expect(component.barcodeRequired()).toBe(false);
+    });
+
+    it("should put the API's barcode refusal on the barcode control, not in the banner", () => {
+      setup({ product: { variantMode: 'MULTI' } });
+      fixture.detectChanges();
+      productVariantServiceMock.createVariant.mockReturnValue(
+        throwError(
+          () =>
+            new HttpErrorResponse({
+              status: 400,
+              // The shape `BarcodeRequiredException` produces: a message, no `errors` map.
+              error: {
+                message:
+                  'barCode is required: the product 5f1c is MULTI and every one of its variants must carry one',
+              },
+            }),
+        ),
+      );
+
+      component.onSaveVariant({
+        barCode: 'BAR-1',
+        variantName: 'Talla 40',
+        measureUnitId: 'mu-pza',
+      });
+      fixture.detectChanges();
+
+      expect(component.generalError()).toBeNull();
+      expect(component.serverErrors()).toEqual({
+        barCode: 'Una variante de un producto con variantes necesita su código de barras.',
+      });
+      expect(component.definitionForm().controls.barCode.errors?.['serverError']).toBe(
+        'Una variante de un producto con variantes necesita su código de barras.',
+      );
+    });
+
+    it("should put the API's unit refusal on the unit control, not in the banner", () => {
+      setup();
+      fixture.detectChanges();
+      productVariantServiceMock.createVariant.mockReturnValue(
+        throwError(
+          () =>
+            new HttpErrorResponse({
+              status: 400,
+              error: {
+                message:
+                  'measureUnitId is required: a variant declares the unit its quantities are expressed in',
+              },
+            }),
+        ),
+      );
+
+      component.onSaveVariant({ barCode: 'BAR-1', variantName: 'Talla 40', measureUnitId: null });
+      fixture.detectChanges();
+
+      expect(component.generalError()).toBeNull();
+      expect(component.serverErrors()).toEqual({
+        measureUnitId: 'Elegí la unidad de medida de la variante.',
+      });
+      expect(component.definitionForm().controls.measureUnitId.errors?.['serverError']).toBe(
+        'Elegí la unidad de medida de la variante.',
+      );
+    });
+  });
+
   describe('rendered copy', () => {
     it('should render the create title exactly once', () => {
       setup();
@@ -299,17 +433,21 @@ describe('ProductVariantDialog', () => {
       );
     });
 
-    it('should send a null unit when none was chosen', () => {
+    it('should refuse to submit a variant with no unit (decision 3)', () => {
       setup();
       fixture.detectChanges();
 
-      component.onSaveVariant({ barCode: 'BAR-1', variantName: 'Talla 40', measureUnitId: null });
+      // The dialog's form is what gates the write: an empty unit never reaches `onSaveVariant`, which is
+      // why the API's `400 measureUnitId is required` is a rule no screen path can trigger.
+      const form = fixture.debugElement.query(By.directive(ProductVariantForm))
+        .componentInstance as ProductVariantForm;
+      form
+        .formGroup()
+        .patchValue({ barCode: 'BAR-1', variantName: 'Talla 40', measureUnitId: null });
+      form.onSave();
 
-      expect(productVariantServiceMock.createVariant).toHaveBeenCalledWith(companyId, productId, {
-        barCode: 'BAR-1',
-        variantName: 'Talla 40',
-        measureUnitId: null,
-      });
+      expect(productVariantServiceMock.createVariant).not.toHaveBeenCalled();
+      expect(form.formGroup().controls.measureUnitId.errors?.['required']).toBe(true);
     });
 
     it('should keep the dialog open and map a field error map onto the form', () => {
@@ -399,7 +537,7 @@ describe('ProductVariantDialog', () => {
       fixture.detectChanges();
       component
         .definitionForm()
-        .patchValue({ barCode: request.barCode, variantName: request.variantName });
+        .patchValue({ barCode: request.barCode ?? '', variantName: request.variantName });
       fixture.detectChanges();
       expect(component.formDirty()).toBe(true);
       expect(dialogRef.disableClose).toBe(true);
@@ -426,7 +564,7 @@ describe('ProductVariantDialog', () => {
       setup();
       fixture.detectChanges();
       component.definitionForm().patchValue({
-        barCode: request.barCode,
+        barCode: request.barCode ?? '',
         variantName: request.variantName,
         measureUnitId: 'mu-kg',
       });
@@ -677,7 +815,11 @@ describe('ProductVariantDialog', () => {
       fixture.detectChanges();
       fixture.detectChanges();
 
-      component.definitionForm().patchValue({ barCode: 'BAR-1', variantName: 'Talla 38' });
+      component.definitionForm().patchValue({
+        barCode: 'BAR-1',
+        variantName: 'Talla 38',
+        measureUnitId: 'mu-pza',
+      });
       component.attributeForm().get('color')?.setValue('negro');
 
       variantForm().onSave();
@@ -685,7 +827,7 @@ describe('ProductVariantDialog', () => {
       expect(productVariantServiceMock.createVariant).toHaveBeenCalledWith(companyId, productId, {
         barCode: 'BAR-1',
         variantName: 'Talla 38',
-        measureUnitId: null,
+        measureUnitId: 'mu-pza',
         attributes: { color: 'negro' },
       });
     });
@@ -721,14 +863,18 @@ describe('ProductVariantDialog', () => {
       fixture.detectChanges();
       fixture.detectChanges();
 
-      component.definitionForm().patchValue({ barCode: 'BAR-1', variantName: 'Talla 38' });
+      component.definitionForm().patchValue({
+        barCode: 'BAR-1',
+        variantName: 'Talla 38',
+        measureUnitId: 'mu-pza',
+      });
       variantForm().onSave();
 
       expect(productServiceMock.getAttributeProfile).not.toHaveBeenCalled();
       expect(productVariantServiceMock.createVariant).toHaveBeenCalledWith(companyId, productId, {
         barCode: 'BAR-1',
         variantName: 'Talla 38',
-        measureUnitId: null,
+        measureUnitId: 'mu-pza',
         attributes: {},
       });
     });

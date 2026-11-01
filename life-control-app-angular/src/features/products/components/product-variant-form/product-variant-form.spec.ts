@@ -52,7 +52,10 @@ describe('ProductVariantForm', () => {
         nonNullable: true,
         validators: [Validators.required, Validators.maxLength(255)],
       }),
-      measureUnitId: new FormControl<string | null>(null),
+      // Mirrors the dialog's group, which is the only place these validators live: the unit is
+      // required (ADR-0006 decision 3) and the barcode's requirement is the product's mode's
+      // (decision 4), applied by the dialog once the mode arrives — so it is absent here.
+      measureUnitId: new FormControl<string | null>(null, Validators.required),
     });
   }
 
@@ -109,7 +112,11 @@ describe('ProductVariantForm', () => {
     const spy = vi.fn();
     component.saveVariant.subscribe(spy);
 
-    component.formGroup().patchValue({ barCode: '7791234567890', variantName: 'Talla 38' });
+    component.formGroup().patchValue({
+      barCode: '7791234567890',
+      variantName: 'Talla 38',
+      measureUnitId: 'mu-kg',
+    });
     fixture.detectChanges();
 
     component.onSave();
@@ -119,7 +126,7 @@ describe('ProductVariantForm', () => {
     expect(emitted).toEqual({
       barCode: '7791234567890',
       variantName: 'Talla 38',
-      measureUnitId: null,
+      measureUnitId: 'mu-kg',
     });
   });
 
@@ -156,6 +163,18 @@ describe('ProductVariantForm', () => {
     expect(el.textContent).toContain('No podés superar los 100 caracteres');
   });
 
+  it('should say the barcode is optional only when the product does not require it', () => {
+    // Decision 4: the copy follows the product's mode, which the host resolved.
+    expect((fixture.nativeElement as HTMLElement).textContent).not.toContain('Opcional');
+
+    fixture.componentRef.setInput('barcodeRequired', false);
+    fixture.detectChanges();
+
+    expect((fixture.nativeElement as HTMLElement).textContent).toContain(
+      'Opcional: una variante de un producto simple puede no tener código de barras.',
+    );
+  });
+
   it('should emit cancelForm when cancelled', () => {
     const spy = vi.fn();
     component.cancelForm.subscribe(spy);
@@ -182,7 +201,11 @@ describe('ProductVariantForm', () => {
       component.saveVariantAndContinue.subscribe(spy);
       component.saveVariant.subscribe(saveSpy);
 
-      component.formGroup().patchValue({ barCode: '7791234567890', variantName: 'Talla 38' });
+      component.formGroup().patchValue({
+        barCode: '7791234567890',
+        variantName: 'Talla 38',
+        measureUnitId: 'mu-kg',
+      });
       fixture.detectChanges();
 
       component.onSaveAndContinue();
@@ -192,7 +215,7 @@ describe('ProductVariantForm', () => {
       expect(spy.mock.calls[0][0]).toEqual({
         barCode: '7791234567890',
         variantName: 'Talla 38',
-        measureUnitId: null,
+        measureUnitId: 'mu-kg',
       });
     });
 
@@ -247,7 +270,7 @@ describe('ProductVariantForm', () => {
       expect(fixture.nativeElement.textContent).toContain('Unidad de medida');
     });
 
-    it('should render the clearing option first, with a null value', () => {
+    it('should offer no "no unit" option: the unit is required (decision 3)', () => {
       fixture.componentRef.setInput('measureUnits', [kilogram, piece]);
       fixture.detectChanges();
 
@@ -255,9 +278,10 @@ describe('ProductVariantForm', () => {
       select.open();
       fixture.detectChanges();
 
-      expect(select.options.length).toBe(3);
-      expect(select.options.first.value).toBeNull();
-      expect((select.options.first.viewValue ?? '').trim()).toBe('Sin unidad');
+      // The catalog and nothing else: the old first option cleared the field to `null`, which the
+      // API now refuses, so an empty selection is the placeholder of an unfinished field.
+      expect(select.options.length).toBe(2);
+      expect(select.options.toArray().map((option) => option.value)).toEqual(['mu-kg', 'mu-pza']);
 
       select.close();
       fixture.detectChanges();
@@ -267,7 +291,7 @@ describe('ProductVariantForm', () => {
       fixture.componentRef.setInput('measureUnits', [kilogram, piece]);
       fixture.detectChanges();
 
-      expect(renderedOptionLabels()).toEqual(['Sin unidad', 'Kg — Kilogramo', 'Pza — Pieza']);
+      expect(renderedOptionLabels()).toEqual(['Kg — Kilogramo', 'Pza — Pieza']);
     });
 
     it('should offer every catalog unit, whatever its unitType', () => {
@@ -279,7 +303,6 @@ describe('ProductVariantForm', () => {
       fixture.detectChanges();
 
       expect(select.options.toArray().map((option) => option.value)).toEqual([
-        null,
         'mu-kg',
         'mu-service',
       ]);
@@ -288,8 +311,8 @@ describe('ProductVariantForm', () => {
       fixture.detectChanges();
     });
 
-    it('should render only the clearing option when the catalog is empty', () => {
-      expect(renderedOptionLabels()).toEqual(['Sin unidad']);
+    it('should render no option at all when the catalog is empty', () => {
+      expect(renderedOptionLabels()).toEqual([]);
     });
 
     it('should emit the chosen measureUnitId on save', () => {
@@ -336,7 +359,7 @@ describe('ProductVariantForm', () => {
       });
     });
 
-    it('should clear the selection back to null through the clearing option', () => {
+    it('should require the unit: an empty selection is not a saveable variant (decision 3)', () => {
       const spy = vi.fn();
       component.saveVariant.subscribe(spy);
 
@@ -345,44 +368,61 @@ describe('ProductVariantForm', () => {
       component.formGroup().patchValue({
         barCode: '7791234567890',
         variantName: 'Talla 38',
+        measureUnitId: null,
+      });
+      fixture.detectChanges();
+
+      component.onSave();
+      fixture.detectChanges();
+
+      // The refusal the API answers with `400 measureUnitId is required`, refused here first.
+      expect(spy).not.toHaveBeenCalled();
+      expect(component.formGroup().controls.measureUnitId.valid).toBe(false);
+      expect(fixture.nativeElement.querySelectorAll('mat-error').length).toBe(1);
+      expect((fixture.nativeElement as HTMLElement).textContent).toContain(
+        'Este campo es obligatorio.',
+      );
+    });
+
+    it('should send the barcode as null when the product does not require one (decision 4)', () => {
+      const spy = vi.fn();
+      component.saveVariant.subscribe(spy);
+
+      // The host owns the validators, so the optional barcode is stated by a group built without the
+      // `required` one — exactly what the dialog builds once it learns the product is `SIMPLE`.
+      fixture.componentRef.setInput(
+        'formGroup',
+        new FormGroup<ProductVariantControl>({
+          barCode: new FormControl('', {
+            nonNullable: true,
+            validators: [Validators.maxLength(100)],
+          }),
+          variantName: new FormControl('', {
+            nonNullable: true,
+            validators: [Validators.required, Validators.maxLength(255)],
+          }),
+          measureUnitId: new FormControl<string | null>(null, Validators.required),
+        }),
+      );
+      fixture.componentRef.setInput('measureUnits', [kilogram]);
+      fixture.componentRef.setInput('barcodeRequired', false);
+      fixture.detectChanges();
+      component.formGroup().patchValue({
+        barCode: '',
+        variantName: 'Unica',
         measureUnitId: 'mu-kg',
       });
       fixture.detectChanges();
 
-      const select = unitSelect();
-      select.open();
-      fixture.detectChanges();
-      const clearing = select.options.first;
-      clearing.select();
-      fixture.detectChanges();
-      select.close();
-      fixture.detectChanges();
-
-      expect(component.formGroup().controls.measureUnitId.value).toBeNull();
-
       component.onSave();
 
       expect(spy).toHaveBeenCalledTimes(1);
+      // `null`, never `''`: the API stores "no barcode" as the absence of one.
       expect(spy.mock.calls[0][0]).toEqual({
-        barCode: '7791234567890',
-        variantName: 'Talla 38',
-        measureUnitId: null,
+        barCode: null,
+        variantName: 'Unica',
+        measureUnitId: 'mu-kg',
       });
-    });
-
-    it('should stay valid with no unit selected: the field is optional', () => {
-      fixture.componentRef.setInput('measureUnits', [kilogram]);
-      fixture.detectChanges();
-      component.formGroup().patchValue({
-        barCode: '7791234567890',
-        variantName: 'Talla 38',
-        measureUnitId: null,
-      });
-      component.formGroup().markAllAsTouched();
-      fixture.detectChanges();
-
-      expect(component.formGroup().controls.measureUnitId.valid).toBe(true);
-      expect(fixture.nativeElement.querySelectorAll('mat-error').length).toBe(0);
     });
   });
 
@@ -408,6 +448,17 @@ describe('ProductVariantForm', () => {
       fixture.componentRef.setInput('serverErrors', {});
       fixture.detectChanges();
       expect(control.errors?.['serverError']).toBeUndefined();
+    });
+
+    it('should apply a measureUnitId server error to the unit control (decision 3)', () => {
+      fixture.componentRef.setInput('serverErrors', {
+        measureUnitId: 'Elegí la unidad de medida de la variante.',
+      });
+      fixture.detectChanges();
+
+      expect(component.formGroup().controls.measureUnitId.errors?.['serverError']).toBe(
+        'Elegí la unidad de medida de la variante.',
+      );
     });
 
     it('should warn on unmatched server error keys', () => {

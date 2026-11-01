@@ -17,8 +17,9 @@ import {
   convertToParamMap,
 } from '@angular/router';
 import { rxResource, takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
-import { Subscription, distinctUntilChanged, filter, map, startWith } from 'rxjs';
+import { Subscription, catchError, distinctUntilChanged, filter, map, of, startWith } from 'rxjs';
 import { ProductService } from '../../data/product.service';
+import { MeasureUnitService } from '../../data/measure-unit.service';
 import { productsCompanyId } from '../../data/products-company';
 import { ProductCategoryService } from '../../data/product-category.service';
 import { MAX_CATEGORY_DEPTH, ProductCategory } from '../../models/product-category.models';
@@ -31,7 +32,14 @@ import {
   ProductControl,
   ProductFormValue,
   ProductRequest,
+  ProductVariantMode,
+  ProductVariantRowControl,
 } from '../../models/product.models';
+import type { MeasureUnit } from '../../models/product-variant.models';
+import {
+  PRODUCT_FIELD_ERROR_MESSAGES,
+  productFieldFromMessage,
+} from '../../models/product-field-errors';
 import { NonNullableFormBuilder, FormGroup, Validators } from '@angular/forms';
 import { ProductsForm } from '../../components/products-form/products-form';
 import { ErrorBanner, PageHeader } from '@shared/ui';
@@ -82,6 +90,7 @@ class SpanishStepperIntl extends MatStepperIntl {
 export class ProductEdit implements OnInit, UnsavedChangesAware {
   private readonly route = inject(ActivatedRoute);
   private readonly productService = inject(ProductService);
+  private readonly measureUnitService = inject(MeasureUnitService);
   private readonly categoryService = inject(ProductCategoryService);
   private readonly companyService = inject(CompanyService);
   private readonly fb = inject(NonNullableFormBuilder);
@@ -165,6 +174,22 @@ export class ProductEdit implements OnInit, UnsavedChangesAware {
    * silently — the same defect the association dialogs closed on their own close.
    */
   readonly variantPanelDirty = signal(false);
+
+  /**
+   * The measure-unit catalog the form's inline variant rows offer.
+   *
+   * Read here and not by the form for the reason the variant dialog reads it itself: the form is
+   * presentational and owns no HTTP. A failed read leaves the catalog empty, and decision 3 keeps the
+   * unit required — the operator gets the field error instead of a variant saved without a unit.
+   */
+  readonly measureUnits = toSignal(
+    this.measureUnitService.getMeasureUnits().pipe(
+      // A catalog outage must not break the article's form: an empty picker keeps the unit required and
+      // shows the field error, which is the same answer the variant dialog gives for the same failure.
+      catchError(() => of([] as MeasureUnit[])),
+    ),
+    { initialValue: [] as MeasureUnit[] },
+  );
 
   /**
    * The companies whose category tree the form can read (S2).
@@ -427,6 +452,11 @@ export class ProductEdit implements OnInit, UnsavedChangesAware {
               categoryRootId: this.fb.control(''),
               subcategory1Id: this.fb.control(''),
               subcategory2Id: this.fb.control(''),
+              // The mode is seeded from the product and never moves: it is a creation fact (decision 1)
+              // and `PUT` does not read it. The rows stay empty — this screen does not edit variants,
+              // the `Variantes` tab does.
+              variantMode: this.fb.control<ProductVariantMode>(product.variantMode),
+              variants: this.fb.array<FormGroup<ProductVariantRowControl>>([]),
             }),
           );
         },
@@ -452,6 +482,11 @@ export class ProductEdit implements OnInit, UnsavedChangesAware {
       categoryRootId: this.fb.control(''),
       subcategory1Id: this.fb.control(''),
       subcategory2Id: this.fb.control(''),
+      // ADR-0006 decision 1: the article's shape, stated at creation. `SIMPLE` is the default the API
+      // itself applies to a request that omits it, so the form opens on the same answer. The rows are
+      // seeded by the form, because their validators depend on the mode it also owns.
+      variantMode: this.fb.control<ProductVariantMode>('SIMPLE'),
+      variants: this.fb.array<FormGroup<ProductVariantRowControl>>([]),
     });
   }
 
@@ -546,6 +581,14 @@ export class ProductEdit implements OnInit, UnsavedChangesAware {
       // S3: the deepest selected node, or an explicit `null` — which is how the field is cleared.
       categoryId: productData.categoryId ?? null,
     };
+
+    // ADR-0006 decision 2: the product and its variants are ONE creation, so both keys travel with the
+    // POST and neither with the PUT — `updateProduct` reads neither, the mode is a creation fact
+    // (decision 1) and a variant is managed through `/products/{id}/variants`.
+    if (productData.id === '') {
+      request.variantMode = productData.variantMode;
+      request.variants = productData.variants;
+    }
     if (productData.id === '') {
       this.productService
         .createProduct(companyId, request)
@@ -654,7 +697,21 @@ export class ProductEdit implements OnInit, UnsavedChangesAware {
     if (apiError?.errors && Object.keys(apiError.errors).length > 0) {
       this.serverErrors.set(apiError.errors);
       this.generalError.set(null);
-    } else if (this.isDuplicateSkuConflict(err, apiError)) {
+      return;
+    }
+
+    // ADR-0006's creation rules (`variants`, `variantMode`, `barCode`, `measureUnitId`) are refused with
+    // a `400` that carries **no** `errors` map: they are service rules, not bean validation, and the
+    // variant list is not cascaded. Each message opens with the field it names, so the refusal is put
+    // where the operator can act on it instead of in the banner — the fields have no other input.
+    const field = productFieldFromMessage(apiError?.message);
+    if (field) {
+      this.serverErrors.set({ [field]: PRODUCT_FIELD_ERROR_MESSAGES[field] });
+      this.generalError.set(null);
+      return;
+    }
+
+    if (this.isDuplicateSkuConflict(err, apiError)) {
       this.serverErrors.set({ sku: ProductEdit.DUPLICATE_SKU_MESSAGE });
       this.generalError.set(null);
     } else if (apiError?.message) {

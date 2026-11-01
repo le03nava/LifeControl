@@ -17,7 +17,15 @@ import { httpErrorMessage } from '@shared/data';
 import { ProductVariantService } from '../../data/product-variant.service';
 import { ProductService } from '../../data/product.service';
 import { MeasureUnitService } from '../../data/measure-unit.service';
-import { Product, ProductAttributeDefinition } from '../../models/product.models';
+import {
+  Product,
+  ProductAttributeDefinition,
+  ProductVariantMode,
+} from '../../models/product.models';
+import {
+  PRODUCT_FIELD_ERROR_MESSAGES,
+  productFieldFromMessage,
+} from '../../models/product-field-errors';
 import { createAttributeForm } from '../../models/product-attribute-form';
 import {
   MeasureUnit,
@@ -70,8 +78,14 @@ export interface ProductVariantDialogData {
  * The measure-unit catalog is read **once per dialog** here, not by the form and not by
  * the picker: the form is presentational, and reading it lower would multiply the
  * request by every place the form is reused. A failed read leaves the catalog empty, so
- * the picker offers only "Sin unidad" and the operator can still save — the unit is
- * optional (S1) — instead of losing a valid write to a catalog outage.
+ * the operator still sees the required unit (decision 3) but cannot pick one — the save is
+ * refused with the field error instead of a variant written without a unit.
+ *
+ * The **product is read for two facts**, not one: its category (for the variant-level
+ * attribute profile) and its `variantMode`, which is what decides whether this variant
+ * needs a barcode (decision 4: required for `MULTI`, optional for `SIMPLE`). Both come from
+ * the same call the dialog already made, so the screen learns the mode without a second
+ * request and without duplicating the rule the backend enforces.
  *
  * In create mode it also offers "Guardar y agregar otra": a successful write resets the
  * group in place and keeps the dialog open for the next variant (D32). The dialog
@@ -112,6 +126,26 @@ export class ProductVariantDialog {
   );
   /** The enabled unit catalog, offered whole: never narrowed by `unitType` (S4). */
   readonly measureUnits = signal<MeasureUnit[]>([]);
+
+  /**
+   * The owning product's mode, or `null` while it is unknown (the read is in flight or failed).
+   *
+   * It is read from the product this dialog already loads, never from a second source: the mode is a
+   * property of the article (decision 1), and asking the variant endpoint for it would make the rule
+   * depend on a request that has nothing to do with the variant being edited.
+   */
+  private readonly productModeState = signal<ProductVariantMode | null>(null);
+  readonly productMode = this.productModeState.asReadonly();
+
+  /**
+   * Whether the barcode input is required (decision 4), which is `true` only for a known `MULTI`.
+   *
+   * An **unknown** mode is deliberately not treated as `MULTI`: the dialog cannot ask for a barcode on
+   * the strength of a read that failed, so the client-side requirement is dropped and the server
+   * decides — it answers `400 barCode is required` for a `MULTI` product, and that message is attributed
+   * to this very control ({@link handleServerError}).
+   */
+  readonly barcodeRequired = computed(() => this.productModeState() === 'MULTI');
 
   /** The `VARIANT`-level definitions of the product's category profile; empty when it declares none. */
   private readonly variantDefinitionsState = signal<ProductAttributeDefinition[]>([]);
@@ -192,9 +226,24 @@ export class ProductVariantDialog {
       .getProductById(this.data.companyId, this.data.productId)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (product) => this.loadVariantDefinitions(product),
+        next: (product) => {
+          // Decision 4 needs the article's mode, and this is the product the dialog was already
+          // reading: one call serves the attribute profile and the barcode rule.
+          this.productModeState.set(product.variantMode ?? null);
+          this.loadVariantDefinitions(product);
+        },
         error: () => this.variantDefinitionsState.set([]),
       });
+
+    // The barcode requirement follows the mode (decision 4) and the mode arrives after the form was
+    // built, so the validator is (re)applied here: a `MULTI` variant without a barcode cannot be
+    // submitted at all, while a `SIMPLE` one is legal without it.
+    effect(() => {
+      const required = this.barcodeRequired();
+      const control = this.definitionForm().controls.barCode;
+      control.setValidators(ProductVariantDialog.barcodeValidators(required));
+      control.updateValueAndValidity({ emitEvent: false });
+    });
 
     // The field-set is rebuilt when the definitions arrive (once per dialog) and by the add-another
     // reset. Seeding reads the variant only here, so an edit shows the values the row already stores.
@@ -264,7 +313,9 @@ export class ProductVariantDialog {
     // `emitEvent: false` is load-bearing: a plain `reset()` emits `valueChanges`,
     // which would immediately re-arm `dirty` and therefore `disableClose`.
     // `measureUnitId` resets to `null` like the rest: the next variant starts with no
-    // unit declared, and the operator picks one only if it applies.
+    // unit chosen, and decision 3 makes it required, so the operator picks one before
+    // the next write. The barcode requirement of the product's mode is untouched: it is
+    // a validator of the control and survives the reset.
     this.definitionForm().reset(
       { barCode: '', variantName: '', measureUnitId: null },
       { emitEvent: false },
@@ -308,21 +359,37 @@ export class ProductVariantDialog {
 
   private buildFormFromVariant(variant: ProductVariant): FormGroup<ProductVariantControl> {
     return this.fb.group({
-      barCode: this.fb.control(variant.barCode, [Validators.required, Validators.maxLength(100)]),
+      // The barcode's `required` is applied by the mode effect above; only the size is fixed here,
+      // because the size is the column's and the requirement is the product's (decision 4).
+      //
+      // The `?? ''` is a runtime guard, not a type one: since V56 the column is nullable, and a
+      // `SIMPLE` variant legitimately stores no barcode. The read model keeps `barCode: string`
+      // because the purchase-order picker (outside this slice) labels its options with it, so this is
+      // where the null is absorbed rather than silently rendered as "null".
+      barCode: this.fb.control(variant.barCode ?? '', [Validators.maxLength(100)]),
       variantName: this.fb.control(variant.variantName, [
         Validators.required,
         Validators.maxLength(255),
       ]),
-      measureUnitId: this.fb.control<string | null>(variant.measureUnitId ?? null),
+      // Decision 3: the unit is required, and an existing row always has one (V55).
+      measureUnitId: this.fb.control<string | null>(variant.measureUnitId ?? null, [
+        Validators.required,
+      ]),
     });
   }
 
   private createForm(): FormGroup<ProductVariantControl> {
     return this.fb.group({
-      barCode: this.fb.control('', [Validators.required, Validators.maxLength(100)]),
+      barCode: this.fb.control('', [Validators.maxLength(100)]),
       variantName: this.fb.control('', [Validators.required, Validators.maxLength(255)]),
-      measureUnitId: this.fb.control<string | null>(null),
+      measureUnitId: this.fb.control<string | null>(null, [Validators.required]),
     });
+  }
+
+  private static barcodeValidators(required: boolean) {
+    return required
+      ? [Validators.required, Validators.maxLength(100)]
+      : [Validators.maxLength(100)];
   }
 
   /**
@@ -372,6 +439,17 @@ export class ProductVariantDialog {
     const apiError = err.error as ApiError | undefined;
     if (apiError?.errors && Object.keys(apiError.errors).length > 0) {
       this.serverErrors.set(apiError.errors);
+      this.generalError.set(null);
+      return;
+    }
+
+    // ADR-0006's variant rules are refused with a `400` that carries **no** `errors` map —
+    // `barCode is required` (decision 4) and `measureUnitId is required` (decision 3) both name their
+    // field in the message's first word. Putting that on the control is the difference between an
+    // operator who knows what to fix and a banner that names no input.
+    const field = productFieldFromMessage(apiError?.message);
+    if (field === 'barCode' || field === 'measureUnitId') {
+      this.serverErrors.set({ [field]: PRODUCT_FIELD_ERROR_MESSAGES[field] });
       this.generalError.set(null);
       return;
     }
