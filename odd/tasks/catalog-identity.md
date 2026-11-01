@@ -1,0 +1,117 @@
+# ODD feature: catalog-identity
+
+**Repository**: LifeControl — `life-control-api/` (migrations, product and variant modules), `life-control-app-angular/` (the product form and the variant dialog), `docs/adr/`, `odd/tasks/`
+**Branch**: `feat/catalog-identity` · **Worktree**: `~/workspace/LifeControl-worktrees/feat-catalog-identity`
+**Status**: implemented — T1 is the mode column of the accepted ADR-0006 (`V54`), with its two Postgres
+cases. T2 (the mandatory measure unit), T3 (the optional barcode and the mode trigger) and T5 (the single
+creation transaction and the Angular form) are the remainder this record still owes, in that order, each
+with the write-path change that keeps the branch green; T4 is **blocked** on ADR-0002 and is named as such
+in its own row.
+**Created**: 2026-11-01
+**Risk**: items 1, 3 and 6 — item 1 because `measure_unit_id SET NOT NULL` and the `variant_mode`
+backfill rewrite stored catalogue facts, item 3 because `POST /products` changes shape under an Angular
+form that already calls it, and item 6 because the mode trigger is the only thing standing between a
+`SIMPLE` product and a second variant no service path would catch.
+
+## Objective
+
+Implement accepted ADR-0006 (`docs/adr/0006-catalog-identity.md`) in `life-control-api` and the Angular
+product surface: a product is a family with at least one variant, a variant declares a unit, and price
+becomes a listing. This unit delivers the first two of those three.
+
+## Specs
+
+S1. `docs/adr/0006-catalog-identity.md`, **accepted 2026-11-01**, is the specification of this unit. Its
+    decisions 1–7, the `## Schema` block, invariants C1–C7 and `## Migration from the current tree`
+    steps 1–6 are authoritative, in that order.
+
+S2. **Decision 2, verbatim**: «**A product always has at least one variant, and creating one is one
+    transaction.** `SIMPLE` means exactly one, written by the backend with the product and never shown
+    as a step; `MULTI` means the variants are declared in the creation request and at least one is
+    required — none is refused.»
+
+S3. **Decision 4, verbatim**: «**`variant.bar_code` is required for `MULTI` and optional for
+    `SIMPLE`**, unique per tenant when present. A single-variant article has no barcode to give.» The
+    requirement therefore stops being a DTO annotation in T2: which mode the product is decides it, and
+    `@NotBlank` on `barCode` cannot ask that question.
+
+S4. **The trigger's two messages are quoted, not paraphrased**, because they are what an operator reads:
+    `'product % is SIMPLE and already has a variant'` and `'bar_code is required for a variant of MULTI
+    product %'`.
+
+S5. **Migration step 2, verbatim**: «The migration runs a report first, not a write: … It then **aborts**,
+    listing those rows, and guesses nothing.» The report is part of the migration, so a refused run is
+    atomic with it — a half-applied V54 would leave the next run colliding with a column it already added.
+
+S6. **What this unit does not deliver, and the dependency that holds it**: decision 5 and steps 4–5
+    (`variant_listing`, the `product_variant_store_stock` split, the read paths) cannot run yet, because
+    the accepted `## Schema` block declares `currency CHAR(3) NOT NULL REFERENCES currency (code)` and
+    `tax_rate_id UUID REFERENCES tax_rate (id)` and **no migration in the tree provides either table** —
+    they are ADR-0002's T1 and T4. Step 6 (mode immutability) is stated by the ADR as landing with
+    ADR-0001's ledger. Recorded at acceptance in the ADR's `Accepted:` line and in `docs/adr/README.md`.
+
+S7. **T1 does not change a single read path or write path.** `product_variant_store_stock` keeps holding price and
+    stock together until step 4, so the two store-scoped `INNER JOIN` queries
+    (`ProductVariantRepository.java:157` and `:181`) and every screen that reads them stay exactly as
+    they are: this unit adds a mode, a required unit and an optional barcode, and nothing else moves.
+
+## Tasks
+
+| ID | S# | Work | Depends on | Route |
+| --- | --- | --- | --- | --- |
+| T1 | S1, S5, S7 | `V54`: `products.variant_mode` (`SIMPLE`/`MULTI`, CHECK, derived backfill) plus the self-check that refuses a derivation which read nothing, inside the `NO FORCE` window ADR-0005's `FORCE` makes mandatory | — | inline; done |
+| T2 | S1, S6 | `V55`: `product_variants.measure_unit_id SET NOT NULL` behind the report that aborts, and the write path that agrees with it — `ProductVariant` maps the column as required, `ProductVariantRequest` demands it, and the suites that build a variant today declare a unit | T1 | inline |
+| T3 | S1, S3, S4 | `V56`: `bar_code DROP NOT NULL`, the partial `uq_variant_bar_code` replacing `uq_product_variants_company_bar_code`, and `trg_variant_matches_mode` — with the write path that states the mode, because the trigger is what makes a second variant on a `SIMPLE` product fail | T2 | inline |
+| T4 | S1, S6 | `variant_listing` and the price split out of `product_variant_store_stock` (decision 5, steps 4–5), armed in `tenant_table` in the migration that creates it | **blocked** — `currency` is ADR-0002's T1 and `tax_rate` its T4, which D-d still gates; step 5 also needs ADR-0001's position projection | — |
+| T5 | S1, S2 | Decision 2: `ProductRequest.variantMode` + `variants[]`, product and variants written in **one** transaction, C1's delete guard, and the Angular form split into "the article" and "its variants" | T3 | inline |
+| T6 | S1, S6 | Decision 1's immutability: refuse a `variant_mode` change once a variant holds stock | **blocked** — ADR migration step 6 states this lands with ADR-0001's ledger, and today the only "movement" is the per-store row | — |
+
+## Log
+
+**L1** — «que esta pendiente de los adr y con que conviene continuar»
+
+**L2** — «si acepto ADR-0006»
+
+**2026-11-01 — the acceptance, and where it was recorded.** The maintainer accepted ADR-0006 in this
+session. The status line, the `Accepted:` line and `docs/adr/README.md` carry it; the header of
+`odd/tasks/architecture-redesign-adrs.md` had its count of `proposed` ADRs repaired because accepting one
+made it false. The acceptance states the fact that this record's S6 repeats: the accepted `## Schema`
+block references two tables of ADR-0002, so the listing slice sequences after that catalog while the
+mode, unit and barcode slices do not.
+
+**2026-11-01 — the finding that shaped T1: ADR-0005's `FORCE` makes ADR-0006's migration step 2 blind.**
+`V52:154-155` calls `ENABLE` **and `FORCE`** on every table it arms and `V53:108-114` arms `products` and
+`product_variants`. `FORCE` applies the policy to the table **owner**, and the owner is the role Flyway
+runs as (`docker-compose.yml:529`), so from `V53` on a migration that reads or writes tenant rows matches
+**zero** of them unless it sets `app.company_id` first — the trap ADR-0005 recorded as its own correction
+3, met here for the first time. Two consequences, both in `V54`: the backfill and the report run inside an
+`ALTER TABLE … NO FORCE` window restored before the trigger is created, and the mode trigger sets the
+scope from `NEW.company_id` before it reads the product, because otherwise it would read no product, get
+a NULL mode and validate nothing in silence. The suite migrates a scratch database **as
+`lifecontrol_owner`** rather than under the container's superuser, which bypasses the policies and would
+report both mechanisms working while delivery's `NOSUPERUSER` owner saw nothing.
+
+**2026-11-01 — why T1 is the mode alone, and not the ADR's steps 1–3 in one migration.** The first draft
+was one `V54` carrying all three: the mode with its backfill, `measure_unit_id SET NOT NULL`, the optional
+barcode and the trigger. It ran green on its own two cases and would have reddened the tree on contact,
+measured rather than guessed: `measure_unit_id` becoming required refuses every suite that builds a
+`ProductVariant` without a unit (`ProductVariantStoreFilterIntegrationTest.java:255-266` is the shape, and
+nine other PostgreSQL suites build variants the same way), and the trigger refuses the second variant of a
+product whose mode nobody states yet — `ProductService.createProduct` writes no variant at all
+(`ProductService.java:65-91`), so every product a suite creates is `SIMPLE`. Three decisions that each
+need their own write-path change became three slices, in the order the ADR's own steps already have:
+schema-then-contract, once per decision. The ADR's steps are ordered, and splitting them across files
+changes no decision — it changes which review unit carries each consequence.
+
+**2026-11-01 — T1's evidence and the slice boundary.** `V54` and its suite are the branch's second
+commit; the first is the acceptance itself. Measured by the harness on `origin/main`: **499 authored
+lines across those two commits** (37 for the acceptance, the rest for the migration and its suite), which
+is past the ~400-line review budget, so this unit is delivered as **chained pull requests**: the
+acceptance alone first — it is documentation and can merge on its own — and `V54` with its suite second.
+The next slice (`V55`, the mandatory unit) starts from whichever of the two is the head by then and is
+not stacked on an unmerged branch. Verification observed on T1: `ProductVariantModeMigrationIntegrationTest`
+runs 2 cases green — the derivation with one, two and three-variant products and the `CHECK` refusing a
+third value, plus the premise case that the owner reads zero rows without the tenant scope — and
+`./gradlew test --tests 'com.lifecontrol.api.product.*'` ran **458 cases across 95 classes, 0 failures**, so
+the new column reddens nothing that already existed. `odd-status-headers.test.sh` audits 134 records with
+0 findings.
