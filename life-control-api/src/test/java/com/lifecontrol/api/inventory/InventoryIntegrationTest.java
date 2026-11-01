@@ -19,6 +19,7 @@ import com.lifecontrol.api.inventory.model.ProductVariantLocation;
 import com.lifecontrol.api.inventory.repository.InventoryMovementRepository;
 import com.lifecontrol.api.inventory.repository.ProductVariantLocationRepository;
 import com.lifecontrol.api.inventory.service.InventoryService;
+import com.lifecontrol.api.measureunit.repository.MeasureUnitRepository;
 import com.lifecontrol.api.product.exception.ProductVariantNotFoundException;
 import com.lifecontrol.api.product.model.Product;
 import com.lifecontrol.api.product.model.ProductVariant;
@@ -108,6 +109,9 @@ class InventoryIntegrationTest extends AbstractPostgresIntegrationTest {
 
     @Autowired
     private ProductVariantRepository productVariantRepository;
+
+    @Autowired
+    private MeasureUnitRepository measureUnitRepository;
 
     @Autowired
     private ProductVariantStoreStockRepository productVariantStoreStockRepository;
@@ -307,6 +311,15 @@ class InventoryIntegrationTest extends AbstractPostgresIntegrationTest {
                 .getId();
     }
 
+    /**
+     * A real {@code measure_units} row: {@code V3} seeds "Pieza" as {@code H87}. The unit is required
+     * since ADR-0006 decision 3 ({@code V55}), and a random uuid would be refused by the foreign key —
+     * which would make the fixture fail for a reason that says nothing about the rule under test.
+     */
+    private UUID pieceUnitId() {
+        return measureUnitRepository.findBySatCode("H87").orElseThrow().getId();
+    }
+
     private ProductVariant createVariant(String stock) {
         return TenantFixtures.inTenant(companyId, () -> {
             var product = productRepository.save(Product.builder()
@@ -319,6 +332,7 @@ class InventoryIntegrationTest extends AbstractPostgresIntegrationTest {
             var variant = productVariantRepository.save(ProductVariant.builder()
                     .productId(product.getId())
                     .companyId(companyId)
+                    .measureUnitId(pieceUnitId())
                     .barCode("INV-BAR-" + UUID.randomUUID().toString().substring(0, 12))
                     .variantName("Variant-" + UUID.randomUUID().toString().substring(0, 8))
                     .enabled(true)
@@ -735,6 +749,7 @@ class InventoryIntegrationTest extends AbstractPostgresIntegrationTest {
                 var variant = productVariantRepository.save(ProductVariant.builder()
                         .productId(product.getId())
                         .companyId(foreignCompany.getId())
+                        .measureUnitId(pieceUnitId())
                         .barCode("INV-FBAR-" + UUID.randomUUID().toString().substring(0, 8))
                         .variantName("Foreign-" + UUID.randomUUID().toString().substring(0, 8))
                         .enabled(true)

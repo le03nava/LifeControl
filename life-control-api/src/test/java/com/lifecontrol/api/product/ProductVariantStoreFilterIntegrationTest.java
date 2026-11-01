@@ -112,7 +112,7 @@ class ProductVariantStoreFilterIntegrationTest extends AbstractPostgresIntegrati
     private final List<UUID> createdVariantIds = new ArrayList<>();
     private final List<UUID> createdStoreStockIds = new ArrayList<>();
     private final List<UUID> createdMeasureUnitIds = new ArrayList<>();
-    private UUID createdProductId;
+    private final List<UUID> createdProductIds = new ArrayList<>();
 
     @BeforeEach
     void setUp() {
@@ -128,7 +128,7 @@ class ProductVariantStoreFilterIntegrationTest extends AbstractPostgresIntegrati
                         .enabled(true)
                         .build()));
         productId = product.getId();
-        createdProductId = productId;
+        createdProductIds.add(productId);
 
         variantAId = createVariant(productId, storeAId, "Talla A").getId();
         variantBId = createVariant(productId, storeBId, "Talla B").getId();
@@ -143,12 +143,12 @@ class ProductVariantStoreFilterIntegrationTest extends AbstractPostgresIntegrati
         // removed under this suite's tenant.
         TenantFixtures.inTenant(companyId, () -> {
             productVariantRepository.deleteAllById(createdVariantIds);
-            if (createdProductId != null) {
-                productRepository.deleteById(createdProductId);
+            if (!createdProductIds.isEmpty()) {
+                productRepository.deleteAllById(createdProductIds);
             }
         });
         createdVariantIds.clear();
-        createdProductId = null;
+        createdProductIds.clear();
 
         // The catalog rows go last: a variant may reference them until its own row is gone.
         measureUnitRepository.deleteAllById(createdMeasureUnitIds);
@@ -256,6 +256,9 @@ class ProductVariantStoreFilterIntegrationTest extends AbstractPostgresIntegrati
         var variant = ProductVariant.builder()
                 .productId(targetProductId)
                 .companyId(companyId)
+                // A real catalog row (V3 seeds "Pieza"): V55 makes the unit required and a random uuid
+                // would only be refused by the foreign key.
+                .measureUnitId(pieceUnitId())
                 .barCode("VF-BAR-" + UUID.randomUUID().toString().substring(0, 12))
                 .variantName(variantName)
                 .enabled(true)
@@ -438,23 +441,50 @@ class ProductVariantStoreFilterIntegrationTest extends AbstractPostgresIntegrati
         createdMeasureUnitIds.add(pieceUnit.getId());
         assignMeasureUnit(variantAId, pieceUnit.getId());
 
-        // Variant B still declares no unit, so the join drops it: the product uses exactly one type.
+        // Both variants declare a unit — V55 makes it required — so the product uses exactly one type.
         // `product_variants` is armed, so each read states this suite's tenant.
         assertThat(TenantFixtures.inTenant(
                         companyId, () -> productVariantRepository.findUsedMeasureUnitTypesByProductId(productId)))
                 .containsExactly(MeasureUnitType.PRODUCT);
-        // Excluding the only variant that declares a unit leaves no constraint at all.
+        // Excluding one variant leaves the type the other declares, which is what D4 compares against.
         assertThat(TenantFixtures.inTenant(
                         companyId,
                         () -> productVariantRepository.findUsedMeasureUnitTypesByProductIdExcludingVariantId(
                                 productId, variantAId)))
-                .isEmpty();
-        // Excluding the unitless variant keeps the one in use, which is what D4 compares against.
+                .containsExactly(MeasureUnitType.PRODUCT);
         assertThat(TenantFixtures.inTenant(
                         companyId,
                         () -> productVariantRepository.findUsedMeasureUnitTypesByProductIdExcludingVariantId(
                                 productId, variantBId)))
                 .containsExactly(MeasureUnitType.PRODUCT);
+
+        // "No constraint at all" is now only expressible by a product with a single variant, because
+        // every variant declares one: excluding the only variant of it leaves nothing to compare.
+        var single = TenantFixtures.inTenant(
+                companyId,
+                () -> productRepository.save(Product.builder()
+                        .sku("VARSTORE-ONE-" + UUID.randomUUID().toString().substring(0, 8))
+                        .name("Single variant product")
+                        .company(companyRepository.findById(companyId).orElseThrow())
+                        .enabled(true)
+                        .build()));
+        createdProductIds.add(single.getId());
+        var onlyVariant = createVariant(single.getId(), storeAId, "Unica");
+
+        assertThat(TenantFixtures.inTenant(
+                        companyId,
+                        () -> productVariantRepository.findUsedMeasureUnitTypesByProductIdExcludingVariantId(
+                                single.getId(), onlyVariant.getId())))
+                .isEmpty();
+    }
+
+    /**
+     * A real {@code measure_units} row: {@code V3} seeds "Pieza" as {@code H87}. The unit is required
+     * since ADR-0006 decision 3 ({@code V55}), and a random uuid would be refused by the foreign key —
+     * which would make the fixture fail for a reason that says nothing about the rule under test.
+     */
+    private UUID pieceUnitId() {
+        return measureUnitRepository.findBySatCode("H87").orElseThrow().getId();
     }
 
     /** `product_variants` is armed: the read and the merge both state this suite's tenant. */

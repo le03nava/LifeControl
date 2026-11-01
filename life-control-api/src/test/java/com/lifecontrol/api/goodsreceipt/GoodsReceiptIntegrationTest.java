@@ -35,6 +35,7 @@ import com.lifecontrol.api.inventory.model.StoreInventorySettings;
 import com.lifecontrol.api.inventory.repository.InventoryMovementRepository;
 import com.lifecontrol.api.inventory.repository.ProductVariantLocationRepository;
 import com.lifecontrol.api.inventory.repository.StoreInventorySettingsRepository;
+import com.lifecontrol.api.measureunit.repository.MeasureUnitRepository;
 import com.lifecontrol.api.paymentmethod.model.PaymentMethod;
 import com.lifecontrol.api.paymentmethod.repository.PaymentMethodRepository;
 import com.lifecontrol.api.product.model.Product;
@@ -132,6 +133,9 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
 
     @Autowired
     private ProductVariantRepository productVariantRepository;
+
+    @Autowired
+    private MeasureUnitRepository measureUnitRepository;
 
     @Autowired
     private ProductVariantStoreStockRepository productVariantStoreStockRepository;
@@ -418,6 +422,7 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
             var variant = productVariantRepository.save(ProductVariant.builder()
                     .productId(product.getId())
                     .companyId(company.getId())
+                    .measureUnitId(pieceUnitId())
                     .barCode("GR-BAR-" + UUID.randomUUID().toString().substring(0, 12))
                     .variantName("Variant-" + UUID.randomUUID().toString().substring(0, 8))
                     .enabled(true)
@@ -479,6 +484,15 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
     }
 
     /** Per-store row backing the variant: stock starts at zero, prices mirror the old fixture. */
+    /**
+     * A real {@code measure_units} row: {@code V3} seeds "Pieza" as {@code H87}. The unit is required
+     * since ADR-0006 decision 3 ({@code V55}), and a random uuid would be refused by the foreign key —
+     * which would make the fixture fail for a reason that says nothing about the rule under test.
+     */
+    private UUID pieceUnitId() {
+        return measureUnitRepository.findBySatCode("H87").orElseThrow().getId();
+    }
+
     private void saveStoreStock(UUID variantId) {
         productVariantStoreStockRepository.save(ProductVariantStoreStock.builder()
                 .productVariantId(variantId)
@@ -534,6 +548,7 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
             var variant = productVariantRepository.save(ProductVariant.builder()
                     .productId(product.getId())
                     .companyId(company.getId())
+                    .measureUnitId(pieceUnitId())
                     .barCode("GR-BAR-" + UUID.randomUUID().toString().substring(0, 12))
                     .variantName("Variant-" + UUID.randomUUID().toString().substring(0, 8))
                     .enabled(true)

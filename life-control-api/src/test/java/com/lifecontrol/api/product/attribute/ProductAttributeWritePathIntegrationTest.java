@@ -41,6 +41,9 @@ class ProductAttributeWritePathIntegrationTest extends AbstractPostgresIntegrati
     private static final String PREFIX = "pawp";
     private static final String COMPANY_KEY = "PAWP-ATTRIBUTE-WRITE-KEY";
 
+    /** The {@code PRODUCT} unit {@code V3} seeds as "Pieza"; V55 makes a variant's unit required. */
+    private static final String PIECE_UNIT_SAT_CODE = "H87";
+
     @Autowired
     private ProductService productService;
 
@@ -94,6 +97,15 @@ class ProductAttributeWritePathIntegrationTest extends AbstractPostgresIntegrati
                         companyId,
                         name));
         return id;
+    }
+
+    /**
+     * A real {@code measure_units} row, read from the catalog rather than invented: since ADR-0006
+     * decision 3 ({@code V55}) a variant declares a unit, and a random uuid would be refused by the
+     * foreign key instead of exercising the rule under test.
+     */
+    private UUID pieceUnitId() {
+        return jdbc.queryForObject("SELECT id FROM measure_units WHERE sat_code = ?", UUID.class, PIECE_UNIT_SAT_CODE);
     }
 
     private static Map<String, Object> map(Object... kv) {
@@ -192,7 +204,7 @@ class ProductAttributeWritePathIntegrationTest extends AbstractPostgresIntegrati
                         companyId,
                         product.id(),
                         new ProductVariantRequest(
-                                PREFIX + "-LVL-BC1", "26", null, map("material_externo", "piel_vacuno")))))
+                                PREFIX + "-LVL-BC1", "26", pieceUnitId(), map("material_externo", "piel_vacuno")))))
                 .isInstanceOf(ProductAttributeValidationException.class)
                 .hasMessageContaining("material_externo")
                 .hasMessageContaining("VARIANT-level");
@@ -200,7 +212,7 @@ class ProductAttributeWritePathIntegrationTest extends AbstractPostgresIntegrati
         var variantAttributes = asCompany(() -> productVariantService.createVariant(
                         companyId,
                         product.id(),
-                        new ProductVariantRequest(PREFIX + "-LVL-BC2", "26", null, map("color", "negro"))))
+                        new ProductVariantRequest(PREFIX + "-LVL-BC2", "26", pieceUnitId(), map("color", "negro"))))
                 .attributes();
 
         assertThat(variantAttributes).containsEntry("color", "negro");
@@ -213,7 +225,9 @@ class ProductAttributeWritePathIntegrationTest extends AbstractPostgresIntegrati
                 productService.createProduct(companyId, productRequest(PREFIX + "-VREQ", calzadoSet(), calzadoId)));
 
         assertThatThrownBy(() -> asCompany(() -> productVariantService.createVariant(
-                        companyId, product.id(), new ProductVariantRequest(PREFIX + "-VREQ-BC", "26", null, null))))
+                        companyId,
+                        product.id(),
+                        new ProductVariantRequest(PREFIX + "-VREQ-BC", "26", pieceUnitId(), null))))
                 .isInstanceOf(ProductAttributeValidationException.class)
                 .hasMessageContaining("color")
                 .hasMessageContaining("required");
@@ -281,7 +295,7 @@ class ProductAttributeWritePathIntegrationTest extends AbstractPostgresIntegrati
         var variant = asCompany(() -> productVariantService.createVariant(
                 companyId,
                 product.id(),
-                new ProductVariantRequest(PREFIX + "-DRIFT-BC", "26", null, map("color", "negro"))));
+                new ProductVariantRequest(PREFIX + "-DRIFT-BC", "26", pieceUnitId(), map("color", "negro"))));
 
         asCompany(() -> productService.updateProduct(
                 companyId, product.id(), productRequest(PREFIX + "-DRIFT", map("material", "pvc"), ferreteriaId)));
@@ -293,7 +307,7 @@ class ProductAttributeWritePathIntegrationTest extends AbstractPostgresIntegrati
                         companyId,
                         product.id(),
                         variant.id(),
-                        new ProductVariantRequest(PREFIX + "-DRIFT-BC", "27", null, null))))
+                        new ProductVariantRequest(PREFIX + "-DRIFT-BC", "27", pieceUnitId(), null))))
                 .isInstanceOf(ProductAttributeValidationException.class)
                 .hasMessageContaining("color");
     }

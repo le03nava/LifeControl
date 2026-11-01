@@ -35,9 +35,10 @@ import org.hibernate.type.SqlTypes;
  * <p>{@code measureUnitId} is the unit every quantity of this variant is expressed in (V29). It
  * lives here and not on {@link Product} because the same article is legitimately sold in pieces and
  * in kilograms, and only the variant — the sellable thing that owns the barcode and the per-store
- * price row — can carry one unit. It is nullable: a variant whose unit was never declared keeps
- * {@code null}, which is the behavior every variant had before the column existed. It is a plain
- * UUID, like the other foreign keys of the model, and the service refuses to change it once the
+ * price row — can carry one unit. It is <b>required</b> since {@code V55}: ADR-0006 decision 3 makes
+ * the column {@code NOT NULL}, because a quantity without a unit is a meaningless number, and the
+ * catalog it needs is seeded by {@code V3}. It is a plain UUID, like the other foreign keys of the
+ * model, and the service refuses to change it once the
  * variant holds stock or ledger movements: the stored numbers carry no unit of their own, so
  * reinterpreting them silently is the one thing this column must never allow.</p>
  *
@@ -71,7 +72,7 @@ public class ProductVariant extends Auditable {
     @Column(name = "company_id", nullable = false)
     private UUID companyId;
 
-    @Column(name = "measure_unit_id")
+    @Column(name = "measure_unit_id", nullable = false)
     private UUID measureUnitId;
 
     @JdbcTypeCode(SqlTypes.JSON)

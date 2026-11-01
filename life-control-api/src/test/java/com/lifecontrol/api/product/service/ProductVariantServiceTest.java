@@ -29,6 +29,7 @@ import com.lifecontrol.api.product.dto.ProductVariantStoreStockRequest;
 import com.lifecontrol.api.product.dto.ProductVariantStoreStockResponse;
 import com.lifecontrol.api.product.exception.DuplicateProductVariantException;
 import com.lifecontrol.api.product.exception.MeasureUnitChangeNotAllowedException;
+import com.lifecontrol.api.product.exception.MeasureUnitRequiredException;
 import com.lifecontrol.api.product.exception.MeasureUnitTypeMismatchException;
 import com.lifecontrol.api.product.exception.ProductNotFoundException;
 import com.lifecontrol.api.product.exception.ProductVariantNotFoundException;
@@ -149,8 +150,6 @@ class ProductVariantServiceTest {
                 .updatedAt(now)
                 .build();
 
-        testVariantRequest = new ProductVariantRequest("7501234567890", "Talla M", null);
-
         // The catalog: two PRODUCT units (so a same-type unit -> unit transition is expressible) and
         // one SERVICE unit (the only one the D4 guard can contradict at the type level).
         pieceUnitId = UUID.randomUUID();
@@ -184,6 +183,10 @@ class ProductVariantServiceTest {
         companyCountryId = UUID.randomUUID();
         regionId = UUID.randomUUID();
         zoneId = UUID.randomUUID();
+
+        // Declared after the catalog, because since ADR-0006 decision 3 a variant request names a unit:
+        // the shared request the cases below reuse carries a real one.
+        testVariantRequest = new ProductVariantRequest("7501234567890", "Talla M", pieceUnitId);
 
         // The store guard derives company -> country -> region -> zone -> store from the store
         // itself, because the endpoint path carries only the store id, so the fixture must carry
@@ -601,6 +604,7 @@ class ProductVariantServiceTest {
             when(productVariantRepository.existsByProductIdAndVariantName(productId, "Talla M"))
                     .thenReturn(false);
             when(productVariantRepository.save(any(ProductVariant.class))).thenReturn(testVariant);
+            when(measureUnitRepository.findById(pieceUnitId)).thenReturn(Optional.of(pieceUnit));
 
             ProductVariantResponse result =
                     productVariantService.createVariant(companyId, productId, testVariantRequest);
@@ -627,6 +631,7 @@ class ProductVariantServiceTest {
             when(productVariantRepository.existsByProductIdAndVariantName(productId, "Talla M"))
                     .thenReturn(false);
             when(productVariantRepository.save(any(ProductVariant.class))).thenAnswer(inv -> inv.getArgument(0));
+            when(measureUnitRepository.findById(pieceUnitId)).thenReturn(Optional.of(pieceUnit));
 
             productVariantService.createVariant(companyId, productId, testVariantRequest);
 
@@ -684,6 +689,7 @@ class ProductVariantServiceTest {
             when(productVariantRepository.existsByProductIdAndVariantName(productId, "Talla M"))
                     .thenReturn(false);
             when(productVariantRepository.save(any(ProductVariant.class))).thenAnswer(inv -> inv.getArgument(0));
+            when(measureUnitRepository.findById(pieceUnitId)).thenReturn(Optional.of(pieceUnit));
 
             productVariantService.createVariant(otherCompanyId, productId, testVariantRequest);
 
@@ -717,10 +723,11 @@ class ProductVariantServiceTest {
         @Test
         @DisplayName("should update the definition and return the response")
         void updateVariant_Success() {
-            var updateRequest = new ProductVariantRequest("7509876543210", "Talla L", null);
+            var updateRequest = new ProductVariantRequest("7509876543210", "Talla L", pieceUnitId);
 
             when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
             when(productVariantRepository.findById(variantId)).thenReturn(Optional.of(testVariant));
+            when(measureUnitRepository.findById(pieceUnitId)).thenReturn(Optional.of(pieceUnit));
             when(productVariantRepository.existsByBarCodeAndCompanyIdAndIdNot("7509876543210", companyId, variantId))
                     .thenReturn(false);
             when(productVariantRepository.existsByProductIdAndVariantNameAndIdNot(productId, "Talla L", variantId))
@@ -815,9 +822,13 @@ class ProductVariantServiceTest {
             when(productVariantRepository.existsByProductIdAndVariantNameAndIdNot(productId, "Talla L", variantId))
                     .thenReturn(false);
             when(productVariantRepository.save(any(ProductVariant.class))).thenAnswer(inv -> inv.getArgument(0));
+            when(measureUnitRepository.findById(pieceUnitId)).thenReturn(Optional.of(pieceUnit));
 
             productVariantService.updateVariant(
-                    companyId, productId, variantId, new ProductVariantRequest("7501234567890", "Talla L", null));
+                    companyId,
+                    productId,
+                    variantId,
+                    new ProductVariantRequest("7501234567890", "Talla L", pieceUnitId));
 
             verify(productVariantRepository, never()).existsByBarCodeAndCompanyIdAndIdNot(any(), any(), any());
         }
@@ -825,10 +836,11 @@ class ProductVariantServiceTest {
         @Test
         @DisplayName("should key the barCode gate by the company on update too")
         void updateVariant_BarCodeGateIsPerCompany() {
-            var updateRequest = new ProductVariantRequest("7509876543210", "Talla L", null);
+            var updateRequest = new ProductVariantRequest("7509876543210", "Talla L", pieceUnitId);
 
             when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
             when(productVariantRepository.findById(variantId)).thenReturn(Optional.of(testVariant));
+            when(measureUnitRepository.findById(pieceUnitId)).thenReturn(Optional.of(pieceUnit));
             when(productVariantRepository.existsByBarCodeAndCompanyIdAndIdNot("7509876543210", companyId, variantId))
                     .thenReturn(false);
             when(productVariantRepository.existsByProductIdAndVariantNameAndIdNot(productId, "Talla L", variantId))
@@ -1334,17 +1346,24 @@ class ProductVariantServiceTest {
         }
 
         @Test
-        @DisplayName("should keep the variant unitless when the request omits the unit")
-        void createVariant_WithoutUnit_KeepsPreviousBehavior() {
-            stubCreateGates();
+        @DisplayName("should refuse an absent unit with a 400 that names the field and write nothing")
+        void createVariant_WithoutUnit_IsRefusedNamingTheField() {
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
+            when(productVariantRepository.existsByBarCodeAndCompanyId("7501234567890", companyId))
+                    .thenReturn(false);
+            when(productVariantRepository.existsByProductIdAndVariantName(productId, "Talla M"))
+                    .thenReturn(false);
 
-            var result = productVariantService.createVariant(
-                    companyId, productId, new ProductVariantRequest("7501234567890", "Talla M", null));
+            assertThatThrownBy(() -> productVariantService.createVariant(
+                            companyId, productId, new ProductVariantRequest("7501234567890", "Talla M", null)))
+                    .isInstanceOf(MeasureUnitRequiredException.class)
+                    .hasMessageContaining("measureUnitId")
+                    .hasMessageContaining("required");
 
-            assertThat(result.measureUnitId()).isNull();
-            // No unit was named, so neither the catalog nor the D4 query is read (S7).
+            // The refusal happens before anything is written and before the catalog is read: the column
+            // is NOT NULL (V55), so a variant that reached the database unitless would be a 500 instead.
+            verify(productVariantRepository, never()).save(any(ProductVariant.class));
             verify(measureUnitRepository, never()).findById(any());
-            verify(productVariantRepository, never()).findUsedMeasureUnitTypesByProductId(any());
         }
 
         @Test
@@ -1502,24 +1521,26 @@ class ProductVariantServiceTest {
         }
 
         @Test
-        @DisplayName("should reject unit -> null while a store holds stock")
-        void updateVariant_ClearUnitWithStock_IsRejected() {
+        @DisplayName("should refuse an omitted unit with a 400 before probing any quantity meaning")
+        void updateVariant_OmittedUnit_IsRefusedNamingTheField() {
             testVariant.setMeasureUnitId(pieceUnitId);
             when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
             when(productVariantRepository.findById(variantId)).thenReturn(Optional.of(testVariant));
-            when(productVariantStoreStockRepository.existsByProductVariantIdAndStockNot(variantId, BigDecimal.ZERO))
-                    .thenReturn(true);
 
             assertThatThrownBy(() -> productVariantService.updateVariant(
                             companyId,
                             productId,
                             variantId,
                             new ProductVariantRequest("7501234567890", "Talla M", null)))
-                    .isInstanceOf(MeasureUnitChangeNotAllowedException.class)
-                    .hasMessageContaining("cannot be changed");
+                    .isInstanceOf(MeasureUnitRequiredException.class)
+                    .hasMessageContaining("measureUnitId")
+                    .hasMessageContaining("required");
 
+            // `unit -> null` is not a state change the write path can reach any more: the request is
+            // refused before the 409 probe, and V55's NOT NULL is the same rule in the schema.
             assertThat(testVariant.getMeasureUnitId()).isEqualTo(pieceUnitId);
             verify(measureUnitRepository, never()).findById(any());
+            verify(productVariantStoreStockRepository, never()).existsByProductVariantIdAndStockNot(any(), any());
             verify(productVariantRepository, never()).save(any(ProductVariant.class));
         }
 

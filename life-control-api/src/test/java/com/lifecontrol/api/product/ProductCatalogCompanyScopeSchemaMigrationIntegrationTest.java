@@ -177,20 +177,27 @@ class ProductCatalogCompanyScopeSchemaMigrationIntegrationTest extends AbstractP
 
         insertVariant(companyId, productId, "PCS-BC-SHARED", "26");
         var inOtherCompany = TenantFixtures.inTenant(
-                otherCompanyId, () -> jdbcTemplate.update("""
-                INSERT INTO product_variants (id, company_id, product_id, bar_code, variant_name)
-                VALUES (?, ?, ?, 'PCS-BC-SHARED', '26')
-                """, UUID.randomUUID(), otherCompanyId, otherProductId));
+                otherCompanyId,
+                () -> jdbcTemplate.update("""
+                INSERT INTO product_variants (id, company_id, product_id, bar_code, variant_name, measure_unit_id)
+                VALUES (?, ?, ?, 'PCS-BC-SHARED', '26', ?)
+                """, UUID.randomUUID(), otherCompanyId, otherProductId, pieceUnitId()));
 
         assertThat(inOtherCompany)
                 .as("the same physical product in two businesses is two catalogs")
                 .isEqualTo(1);
 
         assertViolatesConstraint(
-                companyId, "uq_product_variants_company_bar_code", """
-                INSERT INTO product_variants (id, company_id, product_id, bar_code, variant_name)
-                VALUES (?, ?, ?, 'PCS-BC-SHARED', '27')
-                """, UUID.randomUUID(), companyId, productId);
+                companyId,
+                "uq_product_variants_company_bar_code",
+                """
+                INSERT INTO product_variants (id, company_id, product_id, bar_code, variant_name, measure_unit_id)
+                VALUES (?, ?, ?, 'PCS-BC-SHARED', '27', ?)
+                """,
+                UUID.randomUUID(),
+                companyId,
+                productId,
+                pieceUnitId());
 
         assertThat(countVariants(companyId, otherCompanyId)).isEqualTo(2);
     }
@@ -235,12 +242,13 @@ class ProductCatalogCompanyScopeSchemaMigrationIntegrationTest extends AbstractP
                 otherCompanyId,
                 "fk_product_variants_product_same_company",
                 """
-                INSERT INTO product_variants (id, company_id, product_id, bar_code, variant_name)
-                VALUES (?, ?, ?, 'PCS-BC-CROSS', '26')
+                INSERT INTO product_variants (id, company_id, product_id, bar_code, variant_name, measure_unit_id)
+                VALUES (?, ?, ?, 'PCS-BC-CROSS', '26', ?)
                 """,
                 UUID.randomUUID(),
                 otherCompanyId,
-                productId);
+                productId,
+                pieceUnitId());
 
         assertThat(countVariants(companyId)).isZero();
     }
@@ -301,11 +309,22 @@ class ProductCatalogCompanyScopeSchemaMigrationIntegrationTest extends AbstractP
     private UUID insertVariant(UUID companyId, UUID productId, String barCode, String variantName) {
         var id = UUID.randomUUID();
         TenantFixtures.inTenant(
-                companyId, () -> jdbcTemplate.update("""
-                INSERT INTO product_variants (id, company_id, product_id, bar_code, variant_name)
-                VALUES (?, ?, ?, ?, ?)
-                """, id, companyId, productId, barCode, variantName));
+                companyId,
+                () -> jdbcTemplate.update("""
+                INSERT INTO product_variants (id, company_id, product_id, bar_code, variant_name, measure_unit_id)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """, id, companyId, productId, barCode, variantName, pieceUnitId()));
         return id;
+    }
+
+    /**
+     * A real {@code measure_units} row: {@code V3} seeds "Pieza" as {@code H87}. The unit is required
+     * since ADR-0006 decision 3 ({@code V55}), and a random uuid would be refused by the foreign key —
+     * which would make these fixtures fail for a reason that says nothing about the constraint each
+     * case is about.
+     */
+    private UUID pieceUnitId() {
+        return jdbcTemplate.queryForObject("SELECT id FROM measure_units WHERE sat_code = 'H87'", UUID.class);
     }
 
     private UUID insertCategory(UUID companyId, String name) {

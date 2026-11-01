@@ -112,13 +112,15 @@ class ProductVariantModeMigrationIntegrationTest extends AbstractPostgresIntegra
         // relying on — asserted because a later slice flipping it to MULTI would remove the only thing
         // that keeps a one-variant article from needing a decision.
         var afterMigration = UUID.randomUUID();
-        execute(company, "INSERT INTO products (id, sku, name, company_id) VALUES ('" + afterMigration + "', 'V54-DEFAULT', 'A new loaf', '"
-                + company + "')");
+        execute(
+                company,
+                "INSERT INTO products (id, sku, name, company_id) VALUES ('" + afterMigration
+                        + "', 'V54-DEFAULT', 'A new loaf', '" + company + "')");
         assertThat(variantMode(company, afterMigration)).isEqualTo("SIMPLE");
 
         // And there are exactly two legal values: a third one is refused by the schema, not by a caller.
-        assertThatThrownBy(() -> execute(company, "UPDATE products SET variant_mode = 'FAMILY' WHERE id = '"
-                        + single + "'"))
+        assertThatThrownBy(() ->
+                        execute(company, "UPDATE products SET variant_mode = 'FAMILY' WHERE id = '" + single + "'"))
                 .hasStackTraceContaining("ck_products_variant_mode");
     }
 
@@ -168,8 +170,10 @@ class ProductVariantModeMigrationIntegrationTest extends AbstractPostgresIntegra
 
     private UUID insertCompany() throws SQLException {
         var id = UUID.randomUUID();
-        execute(id, "INSERT INTO companies (id, company_key, company_name, rfc) VALUES ('" + id + "', 'V54-"
-                + id.toString().substring(0, 8) + "', 'V54 Company', 'V5401010AB1')");
+        execute(
+                id,
+                "INSERT INTO companies (id, company_key, company_name, rfc) VALUES ('" + id + "', 'V54-"
+                        + id.toString().substring(0, 8) + "', 'V54 Company', 'V5401010AB1')");
         return id;
     }
 
@@ -179,16 +183,35 @@ class ProductVariantModeMigrationIntegrationTest extends AbstractPostgresIntegra
      */
     private UUID insertProduct(UUID company, String sku, String name) throws SQLException {
         var id = UUID.randomUUID();
-        execute(company, "INSERT INTO products (id, sku, name, company_id) VALUES ('" + id + "', '" + sku + "', '"
-                + name + "', '" + company + "')");
+        execute(
+                company,
+                "INSERT INTO products (id, sku, name, company_id) VALUES ('" + id + "', '" + sku + "', '" + name
+                        + "', '" + company + "')");
         return id;
     }
 
     /** A barcode is mandatory on every variant at {@code V53}, so the fixture always states one. */
     private void insertVariant(UUID company, UUID product, String barCode, String variantName) throws SQLException {
-        execute(company, "INSERT INTO product_variants (id, company_id, product_id, bar_code, variant_name) VALUES ('"
-                + UUID.randomUUID() + "', '" + company + "', '" + product + "', '" + barCode + "', '" + variantName
-                + "')");
+        execute(
+                company,
+                "INSERT INTO product_variants (id, company_id, product_id, bar_code, variant_name, measure_unit_id)"
+                        + " VALUES ('" + UUID.randomUUID() + "', '" + company + "', '" + product + "', '" + barCode
+                        + "', '"
+                        + variantName + "', '" + seededUnitId() + "')");
+    }
+
+    /**
+     * The {@code measure_units} row {@code V3} seeds as "Pieza". The unit is required from {@code V55}
+     * on, so a fixture that migrates to head has to declare a real one — and it is read, never invented:
+     * a random uuid would be refused by the foreign key.
+     */
+    private UUID seededUnitId() throws SQLException {
+        try (Connection connection = DriverManager.getConnection(jdbcUrl, OWNER, OWNER_PASSWORD);
+                Statement statement = connection.createStatement();
+                var resultSet = statement.executeQuery("SELECT id FROM measure_units WHERE sat_code = 'H87'")) {
+            resultSet.next();
+            return resultSet.getObject(1, UUID.class);
+        }
     }
 
     /**

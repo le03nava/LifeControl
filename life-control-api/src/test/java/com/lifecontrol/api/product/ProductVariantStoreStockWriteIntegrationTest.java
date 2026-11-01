@@ -23,6 +23,7 @@ import com.lifecontrol.api.inventory.repository.InventoryMovementRepository;
 import com.lifecontrol.api.inventory.repository.ProductVariantLocationRepository;
 import com.lifecontrol.api.inventory.repository.StoreInventorySettingsRepository;
 import com.lifecontrol.api.inventory.service.InventoryService;
+import com.lifecontrol.api.measureunit.repository.MeasureUnitRepository;
 import com.lifecontrol.api.product.model.Product;
 import com.lifecontrol.api.product.model.ProductVariant;
 import com.lifecontrol.api.product.repository.ProductRepository;
@@ -84,6 +85,9 @@ class ProductVariantStoreStockWriteIntegrationTest extends AbstractPostgresInteg
 
     @Autowired
     private ProductVariantRepository productVariantRepository;
+
+    @Autowired
+    private MeasureUnitRepository measureUnitRepository;
 
     @Autowired
     private ProductVariantStoreStockRepository productVariantStoreStockRepository;
@@ -549,7 +553,8 @@ class ProductVariantStoreStockWriteIntegrationTest extends AbstractPostgresInteg
         @Test
         @DisplayName("D3: the probes see the stock floor and the ledger row a stock edit produces")
         void measureUnitProbesSeeTheStockFloorAndTheLedger() throws Exception {
-            // A variant nobody wrote to has neither: its first unit declaration stays allowed.
+            // A variant nobody wrote to has neither, so a unit change would still be allowed on it.
+            // (The unit itself is declared — V55 makes it required — which is a different fact.)
             assertThat(productVariantStoreStockRepository.existsByProductVariantIdAndStockNot(
                             sharedVariantId, BigDecimal.ZERO))
                     .isFalse();
@@ -633,12 +638,22 @@ class ProductVariantStoreStockWriteIntegrationTest extends AbstractPostgresInteg
         assertThat(aggregate).isEqualByComparingTo(locationSum);
     }
 
+    /**
+     * A real {@code measure_units} row: {@code V3} seeds "Pieza" as {@code H87}. The unit is required
+     * since ADR-0006 decision 3 ({@code V55}), and a random uuid would be refused by the foreign key —
+     * which would make the fixture fail for a reason that says nothing about the rule under test.
+     */
+    private UUID pieceUnitId() {
+        return measureUnitRepository.findBySatCode("H87").orElseThrow().getId();
+    }
+
     private UUID createVariant(String variantName) {
         var saved = TenantFixtures.inTenant(
                 companyId,
                 () -> productVariantRepository.save(ProductVariant.builder()
                         .productId(productId)
                         .companyId(companyId)
+                        .measureUnitId(pieceUnitId())
                         .barCode("VS-BAR-" + UUID.randomUUID().toString().substring(0, 12))
                         .variantName(variantName)
                         .enabled(true)

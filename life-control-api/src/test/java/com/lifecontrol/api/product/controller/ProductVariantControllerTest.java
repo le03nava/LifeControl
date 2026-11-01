@@ -79,6 +79,7 @@ class ProductVariantControllerTest {
     private UUID productId;
     private UUID variantId;
     private UUID storeId;
+    private UUID measureUnitId;
     private ProductVariantResponse testVariantResponse;
     private ProductVariantRequest testVariantRequest;
     private ProductVariantSearchResponse testSearchResponse;
@@ -103,6 +104,7 @@ class ProductVariantControllerTest {
         productId = UUID.randomUUID();
         variantId = UUID.randomUUID();
         storeId = UUID.randomUUID();
+        measureUnitId = UUID.randomUUID();
         var now = LocalDateTime.now();
 
         testVariantResponse = new ProductVariantResponse(
@@ -120,7 +122,7 @@ class ProductVariantControllerTest {
                 now,
                 null);
 
-        testVariantRequest = new ProductVariantRequest("7501234567890", "Talla M", null);
+        testVariantRequest = new ProductVariantRequest("7501234567890", "Talla M", measureUnitId);
 
         testSearchResponse = new ProductVariantSearchResponse(
                 UUID.randomUUID(),
@@ -305,6 +307,8 @@ class ProductVariantControllerTest {
                     .andExpect(jsonPath("$.message").value("Validation failed"))
                     .andExpect(jsonPath("$.errors.barCode").exists())
                     .andExpect(jsonPath("$.errors.variantName").exists())
+                    // The unit is required too (ADR-0006 decision 3): the refusal names the field.
+                    .andExpect(jsonPath("$.errors.measureUnitId").value("measureUnitId is required"))
                     .andExpect(jsonPath("$.timestamp").exists());
         }
 

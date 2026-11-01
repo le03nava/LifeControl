@@ -2,11 +2,11 @@
 
 **Repository**: LifeControl — `life-control-api/` (migrations, product and variant modules), `life-control-app-angular/` (the product form and the variant dialog), `docs/adr/`, `odd/tasks/`
 **Branch**: `feat/catalog-identity` · **Worktree**: `~/workspace/LifeControl-worktrees/feat-catalog-identity`
-**Status**: implemented — T1 is the mode column of the accepted ADR-0006 (`V54`), with its two Postgres
-cases. T2 (the mandatory measure unit), T3 (the optional barcode and the mode trigger) and T5 (the single
-creation transaction and the Angular form) are the remainder this record still owes, in that order, each
-with the write-path change that keeps the branch green; T4 is **blocked** on ADR-0002 and is named as such
-in its own row.
+**Status**: implemented — T1 is the mode column of the accepted ADR-0006 (`V54`) and T2 is the mandatory
+measure unit (`V55`) with the write path that states it. T3 (the optional barcode and the mode trigger) and
+T5 (the single creation transaction and the Angular form) are the remainder this record still owes, in that
+order, each with the write-path change that keeps the branch green; T4 is **blocked** on ADR-0002 and is
+named as such in its own row.
 **Created**: 2026-11-01
 **Risk**: items 1, 3 and 6 — item 1 because `measure_unit_id SET NOT NULL` and the `variant_mode`
 backfill rewrite stored catalogue facts, item 3 because `POST /products` changes shape under an Angular
@@ -60,7 +60,7 @@ S7. **T1 does not change a single read path or write path.** `product_variant_st
 | ID | S# | Work | Depends on | Route |
 | --- | --- | --- | --- | --- |
 | T1 | S1, S5, S7 | `V54`: `products.variant_mode` (`SIMPLE`/`MULTI`, CHECK, derived backfill) plus the self-check that refuses a derivation which read nothing, inside the `NO FORCE` window ADR-0005's `FORCE` makes mandatory | — | inline; done |
-| T2 | S1, S6 | `V55`: `product_variants.measure_unit_id SET NOT NULL` behind the report that aborts, and the write path that agrees with it — `ProductVariant` maps the column as required, `ProductVariantRequest` demands it, and the suites that build a variant today declare a unit | T1 | inline |
+| T2 | S1, S6 | `V55`: `product_variants.measure_unit_id SET NOT NULL` behind the report that aborts, and the write path that agrees with it — `ProductVariant` maps the column as required, `ProductVariantRequest` demands it, and the suites that build a variant today declare a unit | T1 | inline; done |
 | T3 | S1, S3, S4 | `V56`: `bar_code DROP NOT NULL`, the partial `uq_variant_bar_code` replacing `uq_product_variants_company_bar_code`, and `trg_variant_matches_mode` — with the write path that states the mode, because the trigger is what makes a second variant on a `SIMPLE` product fail | T2 | inline |
 | T4 | S1, S6 | `variant_listing` and the price split out of `product_variant_store_stock` (decision 5, steps 4–5), armed in `tenant_table` in the migration that creates it | **blocked** — `currency` is ADR-0002's T1 and `tax_rate` its T4, which D-d still gates; step 5 also needs ADR-0001's position projection | — |
 | T5 | S1, S2 | Decision 2: `ProductRequest.variantMode` + `variants[]`, product and variants written in **one** transaction, C1's delete guard, and the Angular form split into "the article" and "its variants" | T3 | inline |
@@ -115,3 +115,30 @@ third value, plus the premise case that the owner reads zero rows without the te
 `./gradlew test --tests 'com.lifecontrol.api.product.*'` ran **458 cases across 95 classes, 0 failures**, so
 the new column reddens nothing that already existed. `odd-status-headers.test.sh` audits 134 records with
 0 findings.
+
+**2026-11-01 — T2, delegated to a writer, and what it changed.** `V55__variant_measure_unit_required.sql`
+opens the same `NO FORCE` window `V54` needed, runs ADR-0006 step 2 as a report that aborts naming every
+unitless variant as `<sku> / <variant_name> (variant <id>)`, then applies `SET NOT NULL`, closes the window
+and refuses to finish if either table is not `ENABLE`+`FORCE` again. The write path moved with it: a
+missing unit is now a 400 that names `measureUnitId` (`MeasureUnitRequiredException`) and it is thrown
+before the catalog is read, so no caller reaches the column; `verifyMeasureUnitChangeAllowed`'s
+first-declaration allowance is untouched, and it is now the only way a row the report names becomes valid.
+Nine PostgreSQL suites that build a `ProductVariant` directly declare a real catalog unit (`H87`, "Pieza"),
+and the service case that asserted a variant could carry no unit became the refusal it now is.
+`ProductVariantStoreFilterIntegrationTest`'s `usedMeasureUnitTypes_ReadRealSql` kept every assertion it
+had and re-expressed "no constraint at all" with a single-variant product, which is the only shape that can
+still produce it — checked by the parent, because a rewritten assertion is where a slice goes quiet.
+
+**2026-11-01 — the consequence T2 does not fix, recorded where the next slice reads it.** The Angular
+variant dialog still initialises `measureUnitId` to `null` and does not require it
+(`product-variant-dialog.ts:324`), so the form now receives `400 measureUnitId is required` for a variant
+created without a unit. That is the intended refusal — a silent bad row is worse — and the form's own
+requirement belongs to the Angular slice, which is T5. Nothing in `life-control-app-angular` was changed or
+run by T2.
+
+**2026-11-01 — T2's size, and why it is one pull request and not two.** Measured on the branch: **~726
+authored lines across 17 modified and 3 new files**, past the ~400-line budget. It is deliberately not
+chained: the migration, the entity/DTO/service rule and the nine repaired fixtures are one fact stated
+three times, and either half alone is either red (the column refuses what the fixtures still write) or
+meaningless (a report with nothing to refuse). The slice after it, T3, is a separate pull request and
+starts from this one's head only once both are merged.

@@ -110,8 +110,8 @@ public interface ProductVariantRepository extends JpaRepository<ProductVariant, 
      * The distinct {@code unit_type}s already in use by the measure units of a product's variants,
      * used by the coherence guard of decision D4: a product cannot mix {@code PRODUCT} and {@code
      * SERVICE} units across its variants. Variants without a unit contribute nothing, because the
-     * join onto {@code measure_units} drops a {@code NULL} foreign key — a catalog that is entirely
-     * undeclared (the whole pre-V29 state) therefore constrains nothing.
+     * join onto {@code measure_units} drops a {@code NULL} foreign key — the query is unchanged by
+     * {@code V55}, which simply leaves no row in that state once its report has been paid off.
      */
     @Query("""
             SELECT DISTINCT mu.unitType
