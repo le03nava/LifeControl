@@ -131,7 +131,9 @@ LifeControl/
 
 ### 2. Base de datos
 
-PostgreSQL (`lifecontrol-postgres`) se levanta junto con el resto de servicios vía `deploy.sh start`. El schema y los datos se gestionan con **Flyway**, la única fuente de verdad de la base de datos. Las migraciones versionadas viven en `life-control-api/src/main/resources/db/migration/` y se aplican automáticamente al arrancar la API. Para DBs ya existentes se usa `baseline-on-migrate` (baseline en v1), por lo que no se recrea nada.
+PostgreSQL (`lifecontrol-postgres`) se levanta junto con el resto de servicios vía `deploy.sh start`. El schema y los datos se gestionan con **Flyway**, la única fuente de verdad de la base de datos. Las migraciones versionadas viven en `life-control-api/src/main/resources/db/migration/` y se aplican automáticamente al arrancar la API.
+
+**Una base nueva se migra entera, desde `V1`; una base que ya tiene historia no se toca.** El baseline de Flyway está en la versión **0** a propósito: un volumen recién creado **no está vacío** cuando Flyway llega, porque `docker/postgres-init/lifecontrol-roles.sql` ya creó `task_employee_company(uuid)` en `public`, y con baseline en 1 Flyway daba `V1` por aplicada sin ejecutarla (issue #722). El baseline no crea ni recrea nada en los entornos existentes: sólo se dispara cuando no hay tabla de historia. Si alguna vez hay que migrar una base sembrada **antes** de que existiera Flyway —el único caso para el que servía la versión 1—, eso es una acción explícita del operador, una sola vez: `flyway baseline -baselineVersion=1`.
 
 ### 3. Backend — LifeControl API
 
