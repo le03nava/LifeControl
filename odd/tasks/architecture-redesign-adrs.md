@@ -5,8 +5,9 @@
 **Worktree**: `~/workspace/LifeControl-worktrees/docs-architecture-redesign-adrs`, then
 `~/workspace/LifeControl-worktrees/docs-adr-0005-accepted` for the acceptance
 **Status**: implemented — the six ADRs, their index and this record are the set's content. The
-redesign they describe is not implemented. ADR-0005 is `accepted` (2026-10-29); the other five are
-`proposed` and each needs its own decision. This record makes no delivery claim. Nothing is deferred.
+redesign they describe is not implemented. ADR-0005 is `accepted` (2026-10-29) and ADR-0002
+(2026-10-30); the other four are `proposed` and each needs its own decision. This record makes no
+delivery claim. Nothing is deferred.
 **Created**: 2026-10-29
 **Risk**: none — documentation only. No code, no schema, no runtime surface.
 
@@ -142,3 +143,12 @@ failed at runtime; and `FORCE` filters the owner, which is the role that runs Fl
 not applied at table level. The decision is unchanged; the document now says what it meant, and the
 corrections are recorded in the ADR itself, not only here. `docs/adr/README.md` carries the status and
 the other five ADRs stay `proposed`. The SQL was not executed: no runner was authorized.
+
+**2026-10-30 — ADR-0002 is accepted, and this header's count was repaired in the same edit.** The
+maintainer accepted `docs/adr/0002-money-first-class.md`; `docs/adr/README.md` carries the status and the
+`Accepted:` line. Two of the header's words became false the moment it was accepted ("the other five are
+`proposed`"), so the sentence now names the two accepted ADRs — the only change to this line, and only
+because rule 5 of `references/feature-records.md` repairs a claim that is false *now*. Nothing else in this
+record was touched. The acceptance also carries three evidence citations corrected against the tree
+(`purchase_order_details`, `V1:477`, `V1:496`) and names the three implementation decisions it does not
+settle, which live in `odd/tasks/money-first-class.md`.

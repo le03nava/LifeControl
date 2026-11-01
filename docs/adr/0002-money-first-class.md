@@ -1,12 +1,21 @@
 # ADR 0002 — Money is a first-class value
 
-- **Status**: proposed
+- **Status**: accepted
 - **Date**: 2026-10-29
+- **Accepted**: 2026-10-30, by the maintainer, after three evidence citations were corrected against the
+  tree: the out-of-scope table is `purchase_order_details` (`V1:341`), `sales_orders.total_amount` is at
+  `V1:477`, and `sales_order_items` opens at `V1:496`. Four questions this ADR raises and does not settle —
+  the backfill of a `Completed` order with no payment method (D-a), the `payment_methods.is_cash` backfill
+  (D-b), the `tax_code` vocabulary (D-d) and the order the 0002 → 0004 edge implies (D-e) — are owned by
+  `odd/tasks/money-first-class.md`. The currency's owner is settled and written below: the maintainer chose
+  `companies.currency` on 2026-10-30, and decision 2, `## Schema` and migration step 1 carry it.
 - **Decision id**: D2 of `odd/tasks/architecture-redesign-adrs.md`
 - **Depends on**: ADR-0001 (stock and money book in one transaction), ADR-0003 (it puts
   `sales_orders.company_id` on the document, which the tenant key of these payments references — a
-  payment is not a numbered document), ADR-0005 (a tenant row carries a policy; `currency` is a
-  platform catalog with none)
+  payment is not a numbered document), ADR-0004 (the state guard this charge validates, the transition
+  history a void row stands in for, and the `is_cash` reader of M4), ADR-0005 (a tenant row carries a
+  policy; `currency` is a platform catalog with none), ADR-0006 (`variant_listing` is the price half of a
+  sale, and without it the four decimals of decision 1 have no source to carry)
 - **Replaces**: the `payment_method_id` shape of `V1__baseline_schema.sql:468-482`
 
 ## Context
@@ -31,7 +40,7 @@ measured in the tree:
 | Scale | `12,2` cannot hold a unit price such as 0,0375 per gram, nor a quantity such as 0,375 g, so the rounding lands on the line instead of the document |
 
 `promotions` (V1:424-437) stores a `discount_type`/`discount_value`, and `sales_order_items` stores
-`list_price`, `discount_applied` and `final_price` (`V1:499-509`). Those two facts are the good half:
+`list_price`, `discount_applied` and `final_price` (`V1:496-509`). Those two facts are the good half:
 the line already snapshots its price. What is missing is the layer above and below it.
 
 The money that exists outside a sales document is measured here and scoped out, because this ADR is
@@ -41,7 +50,7 @@ one decision and not five:
 | --- | --- |
 | `purchase_cost` | `products` (`V1:208`) |
 | `list_price`, `cost_price` | `product_variants` (`V1:407-408`) |
-| `unit_price`, `total` | `purchase_order_items` (`V1:346-347`) |
+| `unit_price`, `total` | `purchase_order_details` (`V1:346-347`) |
 | `discount_value` | `promotions` (`V1:428`) |
 
 `purchase_orders` already carries `company_id` and pins it to its store with
@@ -60,7 +69,11 @@ own breakdown, every payment is a row with a direction, and every void is an app
    line, which is how a total stops matching the paper.
 2. **A currency is a row, not a string.** `currency` holds the ISO code and the number of minor units
    used to round and print. It is a platform catalog: no `company_id`, no policy, the same treatment
-   ADR-0005 gives it. A second currency is a row plus a rate — and the rate table is **not** part of
+   ADR-0005 gives it. **The operating currency is a tenant fact and it lives on `companies.currency`**: a
+   `CHAR(3) NOT NULL` reference to this catalog, backfilled to the single code the seed declares and
+   stated by the operator when a company is created — with **no `DEFAULT`**, because a default would
+   write one country's currency onto another's sales and never say so. A second currency is a row plus a
+   rate — and the rate table is **not** part of
    this ADR, because a document cannot be in a currency other than the company's operating currency
    until a rate exists to convert it, so shipping the rate now would ship a table with no writer.
 3. **A document states its parts.** `subtotal`, `discount_total`, `tax_total`, `rounding_adjustment`
@@ -99,6 +112,12 @@ CREATE TABLE currency (
     symbol       VARCHAR(6),
     enabled      BOOLEAN NOT NULL DEFAULT true);
 
+-- the owner decision 2 names, and the reason `sales_orders.currency` has a value to inherit: a tenant
+-- fact, stated per company instead of assumed by the platform. Backfilled to the seed's single code; no
+-- DEFAULT, so every company created afterwards states it and a missing value is a refusal, not a guess.
+ALTER TABLE companies
+    ADD COLUMN currency CHAR(3) NOT NULL REFERENCES currency (code);
+
 CREATE TABLE tax_rate (
     id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     company_id     UUID NOT NULL REFERENCES companies (id),
@@ -118,7 +137,7 @@ ALTER TABLE sales_orders
     ADD COLUMN discount_total NUMERIC(19,4) NOT NULL DEFAULT 0,
     ADD COLUMN tax_total      NUMERIC(19,4) NOT NULL DEFAULT 0,
     ADD COLUMN rounding_adjustment NUMERIC(19,4) NOT NULL DEFAULT 0,
-    ALTER COLUMN total_amount TYPE NUMERIC(19,4),   -- it exists: DECIMAL(12,2) at V1:478
+    ALTER COLUMN total_amount TYPE NUMERIC(19,4),   -- it exists: DECIMAL(12,2) at V1:477
     ALTER COLUMN total_amount SET NOT NULL,
     ADD CONSTRAINT uq_sales_orders_company_id UNIQUE (company_id, id),
     ADD CONSTRAINT fk_sales_orders_store_same_company
@@ -197,8 +216,20 @@ CREATE TABLE sale_payment_void (
     CONSTRAINT ck_void_replacement_differs
         CHECK (replacement_payment_id IS DISTINCT FROM payment_id));
 
--- append-only twice, exactly as ADR-0004 does it: this trigger, and a grant of INSERT, SELECT only
--- to the application role
+-- append-only on **both** tables, and the pair is not the one ADR-0004 describes: `V52:187` and
+-- `V52:196-197` grant SELECT, INSERT, UPDATE, DELETE to the application role on every table, present and
+-- future, so the restrictive half is a REVOKE written per table — the absence of a grant would leave
+-- UPDATE and DELETE inherited. A payment row is written once: its only transition is a new row in
+-- `sale_payment_void`, which is why it carries the trigger too. Without the trigger on `sale_payment`,
+-- M5's "never an UPDATE, never a DELETE" is a sentence and not a fact.
+CREATE FUNCTION sale_payment_append_only() RETURNS trigger AS $$
+BEGIN RAISE EXCEPTION 'sale_payment is append-only: a void is a new row in sale_payment_void'; END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_sale_payment_append_only
+    BEFORE UPDATE OR DELETE ON sale_payment
+    FOR EACH ROW EXECUTE FUNCTION sale_payment_append_only();
+
 CREATE FUNCTION sale_payment_void_append_only() RETURNS trigger AS $$
 BEGIN RAISE EXCEPTION 'sale_payment_void is append-only'; END;
 $$ LANGUAGE plpgsql;
@@ -206,6 +237,9 @@ $$ LANGUAGE plpgsql;
 CREATE TRIGGER trg_sale_payment_void_append_only
     BEFORE UPDATE OR DELETE ON sale_payment_void
     FOR EACH ROW EXECUTE FUNCTION sale_payment_void_append_only();
+
+REVOKE UPDATE, DELETE ON sale_payment      FROM lifecontrol_app;
+REVOKE UPDATE, DELETE ON sale_payment_void FROM lifecontrol_app;
 
 ALTER TABLE payment_methods ADD COLUMN is_cash BOOLEAN NOT NULL DEFAULT false;
 ```
@@ -233,9 +267,10 @@ the amount, so a card payment cannot carry a change value even by mistake.
 
 ## Migration from the current tree
 
-1. **Seed `currency`** with the company's operating currency and the codes the product intends to
-   support. Every existing money column gets that currency; there is exactly one, so the backfill is a
-   constant.
+1. **Seed `currency`** with the codes the product intends to support, and add `companies.currency` in the
+   same migration: every existing company takes that one code, and every existing money column inherits it.
+   There is exactly one, so the backfill is a constant — and from then on the value is **read from the
+   company** instead of assumed by the platform.
 2. **Pre-flight, before any constraint.** Report every order whose `total_amount` disagrees with its
    line sum, because those are the rows `ck_order_total` will refuse:
 
@@ -309,7 +344,7 @@ must be on its policy list from their first row.
   a drawer report is a join today. The session-level reconciliation — opening float, counted cash,
   variance — is its own decision and gets its own ADR.
 - **The four money columns listed in the Context** (`products`, `product_variants`,
-  `purchase_order_items`, `promotions`). They need the same currency and scale treatment and they are
+  `purchase_order_details`, `promotions`). They need the same currency and scale treatment and they are
   a separate slice with its own migration.
 
 ## Consequences
