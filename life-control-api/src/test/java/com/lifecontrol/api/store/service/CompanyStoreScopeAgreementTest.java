@@ -140,6 +140,8 @@ class CompanyStoreScopeAgreementTest extends AbstractPostgresIntegrationTest {
                 .companyKey(companyKey)
                 .companyName(companyName)
                 .rfc(rfc)
+                // Required since V57; this suite is about the store hierarchy, so it states the seeded code.
+                .currency(TenantFixtures.SEED_CURRENCY)
                 .build();
         useTenant(company.getId());
         em.persist(company);

@@ -280,6 +280,9 @@ class TenantScopeFilterIntegrationTest extends AbstractPostgresIntegrationTest {
                 .companyName("Tenant Scope " + companyKey)
                 .rfc(rfc)
                 .enabled(true)
+                // Required since V57: a company states its operating currency, and this suite states the
+                // seeded one.
+                .currency(TenantFixtures.SEED_CURRENCY)
                 .build();
         entityManager.flush();
         TenantFixtures.stateTenantWithinTheOpenTransaction(company.getId(), jdbcTemplate);

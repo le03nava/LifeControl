@@ -5,6 +5,8 @@ import com.lifecontrol.api.common.model.Auditable;
 import jakarta.persistence.*;
 import java.time.LocalDateTime;
 import java.util.UUID;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 @Entity
 @Table(name = "companies")
@@ -47,6 +49,21 @@ public class Company extends Auditable {
 
     @Column(nullable = false)
     private Boolean enabled = true;
+
+    /**
+     * The company's operating currency: a reference to the platform catalog (ADR-0002 decision 2, D-c).
+     *
+     * <p>Required by {@code V57__company_currency.sql} and deliberately without a default — a default
+     * would write one country's currency onto another's sales and never say so, which is the failure
+     * class the decision names. A caller states it; the service resolves it against the catalog before
+     * the insert, so a code that does not exist, or is disabled, never reaches this row.</p>
+     *
+     * <p>{@link JdbcTypeCode} states the column's real type: it is {@code CHAR(3)}, and a {@code String}
+     * mapped by default expects {@code varchar(3)}, which fails {@code ddl-auto: validate} at boot.</p>
+     */
+    @JdbcTypeCode(SqlTypes.CHAR)
+    @Column(name = "currency", length = 3, nullable = false)
+    private String currency;
 
     @Column(name = "street")
     private String street;
@@ -137,6 +154,10 @@ public class Company extends Auditable {
         return enabled;
     }
 
+    public String getCurrency() {
+        return currency;
+    }
+
     public String getStreet() {
         return street;
     }
@@ -212,6 +233,10 @@ public class Company extends Auditable {
 
     public void setEnabled(Boolean enabled) {
         this.enabled = enabled;
+    }
+
+    public void setCurrency(String currency) {
+        this.currency = currency;
     }
 
     public void setStreet(String street) {
@@ -305,6 +330,11 @@ public class Company extends Auditable {
 
         public Builder enabled(Boolean enabled) {
             company.enabled = enabled;
+            return this;
+        }
+
+        public Builder currency(String currency) {
+            company.currency = currency;
             return this;
         }
 

@@ -82,7 +82,8 @@ class CompanyControllerTest {
                 true,
                 now,
                 now,
-                null);
+                null,
+                "MXN");
 
         testCompanyRequest = new CompanyRequest(
                 "1",
@@ -94,7 +95,8 @@ class CompanyControllerTest {
                 "updated@company.com",
                 null,
                 false,
-                null);
+                null,
+                "MXN");
     }
 
     @Nested
@@ -213,7 +215,8 @@ class CompanyControllerTest {
                     true,
                     LocalDateTime.now(),
                     LocalDateTime.now(),
-                    null);
+                    null,
+                    "MXN");
             when(companyService.updateCompany(eq(testCompanyId), any(CompanyRequest.class)))
                     .thenReturn(responseWithDomain);
 
@@ -227,7 +230,8 @@ class CompanyControllerTest {
                     "updated@company.com",
                     "acme.com",
                     false,
-                    null);
+                    null,
+                    "MXN");
 
             // Arrange - the request wire name matters as much as the response one: a renamed
             // component would be dropped by the server, and `CompanyService.updateCompany` sets the
@@ -291,7 +295,8 @@ class CompanyControllerTest {
                     null,
                     null,
                     null,
-                    null);
+                    null,
+                    "MXN");
 
             // Act & Assert
             mockMvc.perform(put("/api/companies/{id}", testCompanyId)

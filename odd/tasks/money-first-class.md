@@ -2,8 +2,10 @@
 
 **Repository**: LifeControl — `life-control-api` (migrations, `salesorder`, `paymentmethod`), `life-control-app-angular` (the POS money surface), `odd/tasks/`
 **Branch (planned)**: `feat/money-first-class`
-**Status**: blocked — this record, the evidence under `## Problem`, the ADR acceptance that travels with it
-and the slice order are the content; the code is not. One thing outside this record holds the work:
+**Status**: implemented — T1 is the currency catalog and `companies.currency`, and the rest of the code is
+not the content yet; the record, the evidence under `## Problem`, the ADR acceptance that travels with it and
+the slice order are. Nothing else is dropped or deferred silently: T4 waits on **D-d**, T5 on ADR-0003 and T6
+on ADR-0001 and ADR-0004, each named in its own `Tasks` row. One thing outside this record holds the work:
 T5–T7 consume `sales_orders.company_id`, the document state guard and the ledger booking, which ADR-0003,
 ADR-0004 and ADR-0001 own and which no migration in the tree provides. Two decisions are taken: D-c
 (`companies.currency`), which decision 2, the `## Schema` block and migration step 1 of the accepted ADR
@@ -82,7 +84,7 @@ every cash report by date wrong from that minute on».
 
 | ID | S# | Work | Depends on | Route |
 | --- | --- | --- | --- | --- |
-| T1 | S1, S2 | Migration: the `currency` catalog (`code CHAR(3)`, `minor_units` bounded 0–4, `symbol`, `enabled`), its seed, and `companies.currency CHAR(3) NOT NULL REFERENCES currency (code)` with its backfill and the now-required field on the company create path — **D-c**, decided 2026-10-30: no `DEFAULT`, because a silent `MXN` is the default-that-hides failure class. Its one-sentence amendment to decision 2 precedes it | — | inline |
+| T1 | S1, S2 | **(done, 2026-11-01)** Migration: the `currency` catalog (`code CHAR(3)`, `minor_units` bounded 0–4, `symbol`, `enabled`), its seed, and `companies.currency CHAR(3) NOT NULL REFERENCES currency (code)` with its backfill and the now-required field on the company create path — **D-c**, decided 2026-10-30: no `DEFAULT`, because a silent `MXN` is the default-that-hides failure class. Its one-sentence amendment to decision 2 precedes it | — | inline |
 | T2 | S1, S2, S3, S7 | Migration: the breakdown and the scale on both sales tables — `sales_orders` (`currency`, `subtotal`, `discount_total`, `tax_total`, `rounding_adjustment`, `total_amount` → `19,4` and `NOT NULL`, `ck_order_total`, `ck_order_parts_not_negative`, `ck_order_rounding_bounded`) and `sales_order_items` (four widened columns, `subtotal`, `tax_code`, `tax_rate`, `tax_amount`, the three name/attribute snapshots, `ck_item_subtotal`, `ck_item_tax`, `ck_item_total`), plus `discount_applied`'s `NULL` → 0 and `total_amount`'s `NULL` → 0 before the `NOT NULL`s. Additive, backfill, then constrain — never the reverse | T1 | inline; two commits, one per table |
 | T3 | S1, S7 | The pre-flight report of migration step 2 as a runnable script, emitting the drift per order and naming the two verdicts (≤ one minor unit → `rounding_adjustment`; larger → a manual decision, not the migration's) | — | inline |
 | T4 | S1 | Migration: `tax_rate` (`company_id`, `tax_code`, `rate`, `effective_from`, `enabled`, the unique key) and the server-side resolution of the latest rate with `effective_from ≤` the document date, copied onto the line at write time. The `tax_code` vocabulary is **D-d** | T1, D-d | inline |
@@ -358,3 +360,40 @@ is least proven. The revision changes no ADR's status, no ADR's decision and no 
 keep their dependencies and only the sequence between 0004 and this unit moved. What it does change is
 what this record is blocked on — before this, the plan could have started T6 after 0001 and 0003 alone,
 which is the plan that writes the charge twice.
+
+**2026-11-01 — T1 is pulled forward and landed, on the maintainer's decision, and it is the only part of
+this record that does not wait for another ADR.** The reason it was pulled: `variant_listing` (ADR-0006
+decision 5) declares `currency CHAR(3) NOT NULL REFERENCES currency (code)`, so without this catalog the
+catalog-identity unit cannot finish, and ADR-0001 — whose price half is that listing — waits behind it. T1
+is additive, has no dependency (D-c was decided on 2026-10-30) and touches nothing of this record's risk:
+it rewrites no stored amount.
+
+What landed, in `feat/company-currency` (stacked on `feat/catalog-identity`, so its migration is **V57**
+behind `V54`–`V56`): the `currency` catalog exactly as the ADR's `## Schema` block states it, seeded with
+the one code the product names anywhere (`life-control-app-angular/src/app/app.config.ts:33`), and
+`companies.currency CHAR(3) NOT NULL REFERENCES currency (code)` in **three steps** — add nullable,
+backfill every existing company, `SET NOT NULL`. The ADR's one-shot `ADD COLUMN … NOT NULL` cannot execute
+over a table with rows and a `DEFAULT` is what D-c forbids, so the three steps are the plan and not a style.
+The backfill runs inside a `NO FORCE` window on `companies` (ADR-0005 correction 3, the same trap `V54` and
+`V55` document) with two self-checks: one refuses a window that did not open, the other refuses a backfill
+that reached no row. `currency` is a platform catalog and is armed by nothing.
+
+The write path states the value instead of assuming one: `CompanyRequest.currency` is required (no default),
+absent is a 400 naming `currency`, an unknown code is a 404 and a disabled one is a 400.
+`CompanyResponse` returns it, and `CompanyRequest` being one record for both endpoints means
+`PUT /api/companies/{id}` now requires it too — named here rather than discovered later.
+
+Verification observed by the parent, after the writer's own runs: **1603 cases across 333 classes, 0
+failures** over `company`, `product`, `tenant`, `store` and `supplier` — the five surfaces the new required
+field reaches. The writer also produced a real RED by removing the `@NotBlank` and observing the three cases
+that state the rule fail (`28 tests, 3 failed`), then restoring it; and a measured fact worth keeping: the
+policy's `WITH CHECK` answers **before** the `NOT NULL` and the foreign key, so a refused insert has to
+state its own id as the scope to be refused by the rule it is testing.
+
+**The consequence this record does not fix, recorded where the next slice reads it.** The Angular company
+form is the same component for create and edit
+(`life-control-app-angular/src/features/companies/companies/pages/company-edit/company-edit.ts:176` and
+`:188`, body built at `:209` from `company.models.ts`, which has no `currency`). Both calls now receive
+`400 {"errors":{"currency":"currency is required"}}` until that form states the value. It is the same shape
+as the variant-dialog consequence T2 of the catalog-identity unit carries, and it belongs to the form
+slice, not to this one.

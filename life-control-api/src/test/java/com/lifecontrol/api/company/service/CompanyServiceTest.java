@@ -23,6 +23,10 @@ import com.lifecontrol.api.company.model.Company;
 import com.lifecontrol.api.company.repository.CompanyRepository;
 import com.lifecontrol.api.country.model.Country;
 import com.lifecontrol.api.country.repository.CountryRepository;
+import com.lifecontrol.api.currency.exception.CurrencyNotFoundException;
+import com.lifecontrol.api.currency.exception.DisabledCurrencyException;
+import com.lifecontrol.api.currency.model.Currency;
+import com.lifecontrol.api.currency.repository.CurrencyRepository;
 import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.LinkedHashSet;
@@ -63,6 +67,14 @@ class CompanyServiceTest {
     private CountryRepository countryRepository;
 
     /**
+     * The platform currency catalog a company's operating currency is resolved against (ADR-0002
+     * decision 2, D-c). A company states a code and the service refuses one the catalog does not carry
+     * or has disabled, so every create/update case below runs with {@code MXN} resolvable.
+     */
+    @Mock
+    private CurrencyRepository currencyRepository;
+
+    /**
      * The transaction the service drives itself, because the tenant scope has to be stated before the
      * boundary hook reads it (ADR-0005, record L16). Running the callback instead of returning null keeps
      * every case below about the service's behaviour rather than about the manager's.
@@ -77,6 +89,7 @@ class CompanyServiceTest {
     private CompanyRequest testCompanyRequest;
     private CompanyRequest testCompanyRequestWithAddress;
     private Address testAddress;
+    private Currency testCurrency;
     private UUID testCompanyId;
     private UUID testCountryId;
 
@@ -92,6 +105,9 @@ class CompanyServiceTest {
         testCompanyId = UUID.randomUUID();
         testCountryId = UUID.randomUUID();
         lenient().when(currentUserContext.getCompanyIds()).thenReturn(new LinkedHashSet<>(List.of(testCompanyId)));
+
+        testCurrency = new Currency("MXN", (short) 2, "$", true);
+        lenient().when(currencyRepository.findById("MXN")).thenReturn(Optional.of(testCurrency));
 
         testAddress = Address.builder()
                 .street("Main St")
@@ -114,6 +130,7 @@ class CompanyServiceTest {
                 .phone("+1234567890")
                 .email("test@company.com")
                 .enabled(true)
+                .currency("MXN")
                 .street("Main St")
                 .streetNumber("123")
                 .internalNumber("A")
@@ -136,7 +153,8 @@ class CompanyServiceTest {
                 "test@company.com",
                 null,
                 true,
-                null);
+                null,
+                "MXN");
 
         testCompanyRequestWithAddress = new CompanyRequest(
                 "2",
@@ -149,7 +167,8 @@ class CompanyServiceTest {
                 null,
                 true,
                 new AddressRequest(
-                        "Av. Reforma", "456", "B", "Juarez", "67890", "Guadalajara", "Jalisco", testCountryId));
+                        "Av. Reforma", "456", "B", "Juarez", "67890", "Guadalajara", "Jalisco", testCountryId),
+                "MXN");
     }
 
     @Nested
@@ -523,7 +542,8 @@ class CompanyServiceTest {
                     "updated@company.com",
                     null,
                     false,
-                    null);
+                    null,
+                    "MXN");
 
             when(companyRepository.findById(testCompanyId)).thenReturn(Optional.of(testCompany));
             when(companyRepository.existsByRfcAndIdNot(updateRequest.rfc(), testCompanyId))
@@ -563,7 +583,8 @@ class CompanyServiceTest {
                     null,
                     null,
                     new AddressRequest(
-                            "Calle Nueva", "999", "1", "Col Nueva", "54321", "Monterrey", "Nuevo Leon", testCountryId));
+                            "Calle Nueva", "999", "1", "Col Nueva", "54321", "Monterrey", "Nuevo Leon", testCountryId),
+                    "MXN");
 
             var country = Country.builder()
                     .id(testCountryId)
@@ -612,8 +633,8 @@ class CompanyServiceTest {
         @DisplayName("updateCompany - should throw DuplicateCompanyException when RFC is duplicate")
         void updateCompany_DuplicateRfc_ThrowsException() {
             // Arrange
-            CompanyRequest duplicateRfcRequest =
-                    new CompanyRequest("1", "Test Company", null, null, "DUPLICATE_RFC", null, null, null, null, null);
+            CompanyRequest duplicateRfcRequest = new CompanyRequest(
+                    "1", "Test Company", null, null, "DUPLICATE_RFC", null, null, null, null, null, "MXN");
 
             when(companyRepository.findById(testCompanyId)).thenReturn(Optional.of(testCompany));
             when(companyRepository.existsByRfcAndIdNot("DUPLICATE_RFC", testCompanyId))
@@ -639,7 +660,8 @@ class CompanyServiceTest {
                     null,
                     null,
                     null,
-                    null);
+                    null,
+                    "MXN");
 
             when(companyRepository.findById(testCompanyId)).thenReturn(Optional.of(testCompany));
             when(companyRepository.existsByRfcAndIdNot(updateRequest.rfc(), testCompanyId))
@@ -670,7 +692,8 @@ class CompanyServiceTest {
                     null,
                     null,
                     null,
-                    null);
+                    null,
+                    "MXN");
 
             when(companyRepository.findById(testCompanyId)).thenReturn(Optional.of(testCompany));
             when(companyRepository.existsByRfcAndIdNot("XAXX010101000", testCompanyId))
@@ -697,7 +720,8 @@ class CompanyServiceTest {
                     "test@company.com",
                     "ACME.com",
                     true,
-                    null);
+                    null,
+                    "MXN");
 
             when(companyRepository.findById(testCompanyId)).thenReturn(Optional.of(testCompany));
             when(companyRepository.existsByRfcAndIdNot(any(), eq(testCompanyId)))
@@ -732,7 +756,8 @@ class CompanyServiceTest {
                     "test@company.com",
                     "   ",
                     true,
-                    null);
+                    null,
+                    "MXN");
 
             when(companyRepository.findById(testCompanyId)).thenReturn(Optional.of(testCompany));
             when(companyRepository.existsByRfcAndIdNot(any(), eq(testCompanyId)))
@@ -762,7 +787,8 @@ class CompanyServiceTest {
                     "test@company.com",
                     null,
                     true,
-                    null);
+                    null,
+                    "MXN");
 
             when(companyRepository.findById(testCompanyId)).thenReturn(Optional.of(testCompany));
             when(companyRepository.existsByRfcAndIdNot(any(), eq(testCompanyId)))
@@ -864,7 +890,8 @@ class CompanyServiceTest {
                     "addr@company.com",
                     null,
                     true,
-                    new AddressRequest("Av. Reforma", "456", "B", "Juarez", "67890", "Guadalajara", "Jalisco", null));
+                    new AddressRequest("Av. Reforma", "456", "B", "Juarez", "67890", "Guadalajara", "Jalisco", null),
+                    "MXN");
 
             when(companyRepository.existsByCompanyKey(any())).thenReturn(false);
             when(companyRepository.existsByRfc(any())).thenReturn(false);
@@ -914,7 +941,8 @@ class CompanyServiceTest {
                     "noaddr@company.com",
                     null,
                     true,
-                    null);
+                    null,
+                    "MXN");
 
             when(companyRepository.existsByCompanyKey(any())).thenReturn(false);
             when(companyRepository.existsByRfc(any())).thenReturn(false);
@@ -942,7 +970,8 @@ class CompanyServiceTest {
                     "test@company.com",
                     "  Acme.COM  ",
                     true,
-                    null);
+                    null,
+                    "MXN");
 
             when(companyRepository.existsByCompanyKey(any())).thenReturn(false);
             when(companyRepository.existsByRfc(any())).thenReturn(false);
@@ -956,6 +985,94 @@ class CompanyServiceTest {
             var captor = ArgumentCaptor.forClass(Company.class);
             verify(companyRepository).save(captor.capture());
             assertThat(captor.getValue().getEmailDomain()).isEqualTo("acme.com");
+        }
+
+        @Test
+        @DisplayName("createCompany - should store and return the currency the caller stated")
+        void createCompany_StoresTheStatedCurrency() {
+            // Arrange
+            when(companyRepository.existsByCompanyKey(any())).thenReturn(false);
+            when(companyRepository.existsByRfc(any())).thenReturn(false);
+            when(companyRepository.save(any(Company.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            // Act
+            CompanyResponse result = companyService.createCompany(testCompanyRequest);
+
+            // Assert
+            assertThat(result.currency())
+                    .as("the response returns the company's operating currency, so no money screen has "
+                            + "to guess it the way the POS does today")
+                    .isEqualTo("MXN");
+            var captor = ArgumentCaptor.forClass(Company.class);
+            verify(companyRepository).save(captor.capture());
+            assertThat(captor.getValue().getCurrency()).isEqualTo("MXN");
+        }
+
+        @Test
+        @DisplayName("createCompany - should refuse a code the catalog does not carry")
+        void createCompany_RefusesAnUnknownCurrency() {
+            // Arrange
+            when(companyRepository.existsByCompanyKey(any())).thenReturn(false);
+            when(companyRepository.existsByRfc(any())).thenReturn(false);
+            when(currencyRepository.findById("ZZZ")).thenReturn(Optional.empty());
+
+            var request = requestWithCurrency("ZZZ");
+
+            // Act / Assert
+            assertThatThrownBy(() -> companyService.createCompany(request))
+                    .isInstanceOf(CurrencyNotFoundException.class)
+                    .hasMessageContaining("ZZZ");
+            verify(companyRepository, never()).save(any(Company.class));
+        }
+
+        @Test
+        @DisplayName("createCompany - should refuse a currency the catalog has disabled")
+        void createCompany_RefusesADisabledCurrency() {
+            // Arrange
+            var disabled = new Currency("XXX", (short) 2, null, false);
+            when(companyRepository.existsByCompanyKey(any())).thenReturn(false);
+            when(companyRepository.existsByRfc(any())).thenReturn(false);
+            when(currencyRepository.findById("XXX")).thenReturn(Optional.of(disabled));
+
+            var request = requestWithCurrency("XXX");
+
+            // Act / Assert
+            assertThatThrownBy(() -> companyService.createCompany(request))
+                    .isInstanceOf(DisabledCurrencyException.class)
+                    .hasMessageContaining("XXX");
+            verify(companyRepository, never()).save(any(Company.class));
+        }
+
+        @Test
+        @DisplayName("createCompany - should refuse a request that states no currency at all")
+        void createCompany_RefusesAMissingCurrency() {
+            // Arrange
+            when(companyRepository.existsByCompanyKey(any())).thenReturn(false);
+            when(companyRepository.existsByRfc(any())).thenReturn(false);
+
+            var request = requestWithCurrency(null);
+
+            // Act / Assert
+            assertThatThrownBy(() -> companyService.createCompany(request))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("currency is required");
+            verify(companyRepository, never()).save(any(Company.class));
+        }
+
+        /** The create request with a different currency code, every other field unchanged. */
+        private CompanyRequest requestWithCurrency(String currency) {
+            return new CompanyRequest(
+                    "1",
+                    "Test Company",
+                    1,
+                    "Razon Social Test SA de CV",
+                    "XAXX010101000",
+                    "+1234567890",
+                    "test@company.com",
+                    null,
+                    true,
+                    null,
+                    currency);
         }
     }
 }

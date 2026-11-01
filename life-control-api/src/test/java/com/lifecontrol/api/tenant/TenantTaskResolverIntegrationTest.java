@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.catchThrowable;
 import com.lifecontrol.api.common.tenant.TenantScope;
 import com.lifecontrol.api.provisioning.repository.AccessProvisioningTaskRepository;
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
+import com.lifecontrol.api.support.TenantFixtures;
 import jakarta.persistence.EntityManagerFactory;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -214,11 +215,14 @@ class TenantTaskResolverIntegrationTest extends AbstractPostgresIntegrationTest 
     private static void insertFixtures(Connection connection) throws SQLException {
         exec(
                 connection,
-                "INSERT INTO companies (id, company_key, company_name, rfc) VALUES (?::uuid, ?, ?, ?)",
+                // `currency` is required since V57; the case is about the resolver, so it states the
+                // seeded code.
+                "INSERT INTO companies (id, company_key, company_name, rfc, currency) VALUES (?::uuid, ?, ?, ?, ?)",
                 COMPANY_A,
                 "TASK-RESOLVER-KEY",
                 "Task Resolver Company",
-                "TRES010101AA");
+                "TRES010101AA",
+                TenantFixtures.SEED_CURRENCY);
         exec(connection, """
                 INSERT INTO employees (id, company_id, employee_number, first_name, paternal_last_name,
                                        email, birth_date, hire_date, employment_status_id)

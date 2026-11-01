@@ -96,9 +96,39 @@ import org.springframework.transaction.support.TransactionTemplate;
  */
 public final class TenantFixtures {
 
-    /** The four columns every raw fixture needs; {@code enabled} keeps its schema default of {@code true}. */
+    /**
+     * The currency every fixture company is stated in when its case does not choose one.
+     *
+     * <p>{@code V57__company_currency.sql} made {@code companies.currency} {@code NOT NULL} with no
+     * {@code DEFAULT} — deliberately, because a default would write one country's currency onto another's
+     * sales and never say so (ADR-0002 decision 2, D-c). The fixtures therefore have to state the value, and
+     * they state the one row the migration seeds: the only currency the product names today
+     * ({@code life-control-app-angular/src/app/app.config.ts:33}).</p>
+     *
+     * <p><b>This is a fixture default and not a product one.</b> The create path
+     * ({@code CompanyRequest.currency}) is required and refuses an absent value with a 400; nothing in
+     * {@code src/main} falls back to this. A fixture whose case is about a different currency states it
+     * explicitly and this constant is never consulted.</p>
+     */
+    public static final String SEED_CURRENCY = "MXN";
+
+    /**
+     * The four columns a raw fixture needs against a database that <b>predates</b> {@code V57}:
+     * {@code enabled} keeps its schema default of {@code true}, and {@code companies.currency} does not exist
+     * yet.
+     *
+     * <p>Only a suite that holds a scratch database at an earlier head may use this shape — the migration
+     * suites that seed a company before the column exists and then migrate. A fixture against the shared
+     * container (or any database at head) states the currency through
+     * {@link #insertCompany(JdbcTemplate, String, String, String, String)}, because there it is
+     * {@code NOT NULL}.</p>
+     */
     private static final String INSERT_COMPANY =
             "INSERT INTO companies (id, company_key, company_name, rfc) VALUES (?, ?, ?, ?)";
+
+    /** The same insert for a database at head, where {@code V57} made the currency required. */
+    private static final String INSERT_COMPANY_WITH_CURRENCY =
+            "INSERT INTO companies (id, company_key, company_name, rfc, currency) VALUES (?, ?, ?, ?, ?)";
 
     private TenantFixtures() {}
 
@@ -265,7 +295,7 @@ public final class TenantFixtures {
      */
     public static Company persist(CompanyRepository repository, Company company) {
         var id = assignId(company);
-        return TenantScope.with(id, () -> repository.save(company));
+        return TenantScope.with(id, () -> repository.save(statingTheSeedCurrency(company)));
     }
 
     /**
@@ -274,7 +304,7 @@ public final class TenantFixtures {
      */
     public static Company persistAndFlush(CompanyRepository repository, Company company) {
         var id = assignId(company);
-        return TenantScope.with(id, () -> repository.saveAndFlush(company));
+        return TenantScope.with(id, () -> repository.saveAndFlush(statingTheSeedCurrency(company)));
     }
 
     /**
@@ -284,10 +314,27 @@ public final class TenantFixtures {
      */
     public static Company persist(EntityManager entityManager, Company company) {
         var id = assignId(company);
+        statingTheSeedCurrency(company);
         return TenantScope.with(id, () -> {
             entityManager.persist(company);
             return company;
         });
+    }
+
+    /**
+     * States {@link #SEED_CURRENCY} on a fixture company whose case did not choose one.
+     *
+     * <p>{@code V57} made {@code companies.currency} required, and every one of the sixty-odd classes that
+     * seed a company through this helper would otherwise have to name a currency it is not testing. The
+     * case that <b>is</b> about a currency sets {@code .currency(...)} on the builder and this method leaves
+     * it alone — so the helper never overwrites a stated value, and no assertion about the currency is
+     * weakened by the default.</p>
+     */
+    private static Company statingTheSeedCurrency(Company company) {
+        if (company.getCurrency() == null) {
+            company.setCurrency(SEED_CURRENCY);
+        }
+        return company;
     }
 
     /**
@@ -320,6 +367,33 @@ public final class TenantFixtures {
     public static UUID insertCompany(
             JdbcTemplate jdbcTemplate, UUID id, String companyKey, String companyName, String rfc) {
         inTenant(id, () -> jdbcTemplate.update(INSERT_COMPANY, id, companyKey, companyName, rfc));
+        return id;
+    }
+
+    /**
+     * The same raw insert for a database <b>at head</b>, where {@code V57} made the currency required.
+     *
+     * <p>The currency is a parameter and not {@link #SEED_CURRENCY} read inside, so a case that needs a second
+     * currency states it instead of copying the literal. The catalog carries only the seeded code, so a case
+     * that names another one inserts that row first — the same thing a migration would do.</p>
+     *
+     * @return the id the row carries, so the caller can register it for cleanup or use it in the graph
+     */
+    public static UUID insertCompany(
+            JdbcTemplate jdbcTemplate, String companyKey, String companyName, String rfc, String currency) {
+        return insertCompany(jdbcTemplate, derivedId(companyKey), companyKey, companyName, rfc, currency);
+    }
+
+    /**
+     * The same raw insert for the fixtures that mirror a migration and need to choose the id themselves.
+     *
+     * @return {@code id}, unchanged, so the two overloads read the same at the call site
+     */
+    public static UUID insertCompany(
+            JdbcTemplate jdbcTemplate, UUID id, String companyKey, String companyName, String rfc, String currency) {
+        inTenant(
+                id,
+                () -> jdbcTemplate.update(INSERT_COMPANY_WITH_CURRENCY, id, companyKey, companyName, rfc, currency));
         return id;
     }
 

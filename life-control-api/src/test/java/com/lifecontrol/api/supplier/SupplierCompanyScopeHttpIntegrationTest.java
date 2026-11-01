@@ -227,6 +227,8 @@ class SupplierCompanyScopeHttpIntegrationTest extends AbstractPostgresIntegratio
                 .companyKey(key)
                 .companyName(name)
                 .rfc(rfc)
+                // Required since V57; this suite is about the supplier scope, so it states the seeded code.
+                .currency(TenantFixtures.SEED_CURRENCY)
                 .build();
         // A company's tenant is its own id, so the id is chosen in memory and stated before the insert.
         useTenant(company.getId());

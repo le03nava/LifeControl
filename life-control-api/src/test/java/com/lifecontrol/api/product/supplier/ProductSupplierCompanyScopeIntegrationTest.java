@@ -97,7 +97,7 @@ class ProductSupplierCompanyScopeIntegrationTest extends AbstractPostgresIntegra
     }
 
     private UUID insertCompany(String key, String name, String rfc) {
-        return TenantFixtures.insertCompany(jdbc, key, name, rfc);
+        return TenantFixtures.insertCompany(jdbc, key, name, rfc, TenantFixtures.SEED_CURRENCY);
     }
 
     private UUID insertProduct(String name, UUID ownerId) {
