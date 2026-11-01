@@ -22,6 +22,7 @@ import com.lifecontrol.api.product.dto.ProductVariantStoreStockRequest;
 import com.lifecontrol.api.product.dto.ProductVariantStoreStockResponse;
 import com.lifecontrol.api.product.exception.DuplicateProductVariantException;
 import com.lifecontrol.api.product.exception.ProductVariantNotFoundException;
+import com.lifecontrol.api.product.exception.VariantRemovalWouldEmptyProductException;
 import com.lifecontrol.api.product.service.ProductService;
 import com.lifecontrol.api.product.service.ProductVariantService;
 import com.lifecontrol.api.product.supplier.service.ProductSupplierService;
@@ -458,6 +459,28 @@ class ProductVariantControllerTest {
                     .andExpect(jsonPath("$.status").value(404))
                     .andExpect(jsonPath("$.message").value("Product variant not found with id: " + variantId))
                     .andExpect(jsonPath("$.timestamp").exists());
+        }
+
+        /**
+         * C1 over the wire: a product never loses its last variant, and the refusal is a <b>409</b> — the
+         * request is valid and the stored state is what refuses it, the same shape
+         * {@code MeasureUnitChangeNotAllowedException} uses.
+         */
+        @Test
+        @DisplayName("should return 409 when the variant is the product's last one")
+        void deleteVariant_LastVariant_Returns409() throws Exception {
+            doThrow(new VariantRemovalWouldEmptyProductException(productId))
+                    .when(productVariantService)
+                    .deleteVariant(companyId, productId, variantId);
+
+            mockMvc.perform(delete(
+                            "/api/companies/{companyId}/products/{productId}/variants/{variantId}",
+                            companyId,
+                            productId,
+                            variantId))
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.status").value(409))
+                    .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString(productId.toString())));
         }
     }
 

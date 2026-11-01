@@ -18,6 +18,9 @@ import com.lifecontrol.api.product.dto.ProductRequest;
 import com.lifecontrol.api.product.dto.ProductResponse;
 import com.lifecontrol.api.product.exception.DuplicateProductException;
 import com.lifecontrol.api.product.exception.ProductNotFoundException;
+import com.lifecontrol.api.product.exception.VariantModeMismatchException;
+import com.lifecontrol.api.product.exception.VariantsRequiredException;
+import com.lifecontrol.api.product.model.Product;
 import com.lifecontrol.api.product.service.ProductService;
 import com.lifecontrol.api.product.supplier.dto.SupplierProductResponse;
 import com.lifecontrol.api.product.supplier.service.ProductSupplierService;
@@ -90,7 +93,8 @@ class ProductControllerTest {
                 now,
                 null,
                 null,
-                companyId);
+                companyId,
+                Product.VARIANT_MODE_SIMPLE);
 
         testProductRequest = new ProductRequest(
                 "SKU-001", "Test Product", "Test", "SAT-001", "SERVICE", Map.of("color", "red"), null);
@@ -137,6 +141,7 @@ class ProductControllerTest {
                     .andExpect(jsonPath("$.attributes.color").value("red"))
                     .andExpect(jsonPath("$.enabled").value(true))
                     .andExpect(jsonPath("$.companyId").value(companyId.toString()))
+                    .andExpect(jsonPath("$.variantMode").value(Product.VARIANT_MODE_SIMPLE))
                     .andExpect(jsonPath("$.createdAt").exists())
                     .andExpect(jsonPath("$.updatedAt").exists());
 
@@ -179,7 +184,8 @@ class ProductControllerTest {
                     now,
                     null,
                     null,
-                    companyId);
+                    companyId,
+                    Product.VARIANT_MODE_SIMPLE);
             when(productService.createProduct(eq(companyId), any(ProductRequest.class)))
                     .thenReturn(response);
 
@@ -220,6 +226,49 @@ class ProductControllerTest {
                     .andExpect(jsonPath("$.errors.sku").exists())
                     .andExpect(jsonPath("$.errors.name").exists())
                     .andExpect(jsonPath("$.timestamp").exists());
+        }
+
+        /**
+         * ADR-0006 decision 2 / C1 over the wire: a creation that names no variant is a <b>400</b> whose
+         * message names the field, never a product written with none.
+         *
+         * <p>The service is the one that refuses (the request shape is creation-only, so the same record
+         * still carries the update payload without a list); this case pins the status and the envelope a
+         * client renders, which is the controller half of that contract.</p>
+         */
+        @Test
+        @DisplayName("should return 400 naming variants when the creation declares none")
+        void createProduct_NoVariants_Returns400() throws Exception {
+            when(productService.createProduct(eq(companyId), any(ProductRequest.class)))
+                    .thenThrow(new VariantsRequiredException());
+
+            mockMvc.perform(post("/api/companies/{companyId}/products", companyId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(testProductRequest)))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.status").value(400))
+                    .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("variants")))
+                    .andExpect(jsonPath("$.timestamp").exists());
+        }
+
+        /**
+         * {@code SIMPLE} means exactly one, so two variants is a 400 that names the <b>mode</b> — not the
+         * message {@code trg_variant_matches_mode} raises, which is what a client would get if the refusal
+         * were left to the database.
+         */
+        @Test
+        @DisplayName("should return 400 naming the mode when a SIMPLE product declares two variants")
+        void createProduct_SimpleWithTwoVariants_Returns400() throws Exception {
+            when(productService.createProduct(eq(companyId), any(ProductRequest.class)))
+                    .thenThrow(new VariantModeMismatchException(Product.VARIANT_MODE_SIMPLE, 2));
+
+            mockMvc.perform(post("/api/companies/{companyId}/products", companyId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(testProductRequest)))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.status").value(400))
+                    .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("variantMode")))
+                    .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("SIMPLE")));
         }
     }
 
@@ -402,7 +451,8 @@ class ProductControllerTest {
                             now,
                             categoryId,
                             categoryCompanyId,
-                            companyId));
+                            companyId,
+                            Product.VARIANT_MODE_SIMPLE));
 
             mockMvc.perform(get("/api/companies/{companyId}/products/{id}", companyId, productId))
                     .andExpect(status().isOk())
@@ -468,7 +518,8 @@ class ProductControllerTest {
                     now,
                     null,
                     null,
-                    companyId);
+                    companyId,
+                    Product.VARIANT_MODE_SIMPLE);
             when(productService.updateProduct(eq(companyId), eq(productId), any(ProductRequest.class)))
                     .thenReturn(updatedResponse);
 
@@ -500,7 +551,8 @@ class ProductControllerTest {
                     now,
                     null,
                     null,
-                    companyId);
+                    companyId,
+                    Product.VARIANT_MODE_SIMPLE);
             when(productService.updateProduct(eq(companyId), eq(productId), any(ProductRequest.class)))
                     .thenReturn(mergedResponse);
 

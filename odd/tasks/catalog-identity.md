@@ -167,3 +167,29 @@ would produce one statement later. A migration that must insert variants uses th
 and `V55` document; no third door was added. The case that used to pin the scope call now pins the refusal.
 Verification after the fix: **979 cases across 241 classes, 0 failures** over `product`, `goodsreceipt`,
 `inventory`, `salesorder` and `purchaseorder`.
+
+**2026-11-01 — T5's backend half: the creation transaction, and the reading of decision 2 it forced.** The
+delegated writer delivered `ProductRequest.variants` (required, non-empty), `ProductService.createProduct`
+writing the product and every variant in one transaction through the existing
+`ProductVariantService.createVariant` — so the unit rule, the barcode-by-mode rule and the duplicate keys are
+the ones `V55` and the trigger already prove, not a second copy — `variantMode` on the response, and C1's
+guard: deleting the last live variant of a product is a 409, and `ProductRepository.countProductsWithoutVariants`
+is the query the ADR's own C1 row asks for.
+
+The ADR's «`SIMPLE` means exactly one, written by the backend with the product» can be read two ways, and the
+tree settles it: `product_variants.variant_name` is `NOT NULL`, so nothing may invent a variant the caller did
+not name. The reading taken is therefore the **count**: the request always declares its variants, `SIMPLE`
+accepts exactly one and refuses two with a 400 naming the mode (not the trigger's message), and zero is
+refused for both modes with a 400 naming `variants`. The other reading would have needed a value the schema
+forbids. Recorded here because it is the one place this slice decided rather than transcribed.
+
+Verification observed by the parent: **994 cases across 242 classes, 0 failures** over `product`,
+`goodsreceipt`, `inventory`, `salesorder` and `purchaseorder`. The writer's own RED was 12 failing cases over
+the three suites it wrote, all behavioural (`WantedButNotInvoked`, no exception where the rule demands one,
+rows written that must not exist), and its integration suite observes the rollbacks through a separate
+transaction instead of through an interaction — which is what makes "nothing is written" a measurement.
+
+**2026-11-01 — what the Angular half still owes, named before it starts.** `POST /products` now requires
+`variantMode` and `variants`, so the product form receives `400 variants is required` until it sends them, and
+the variant dialog still does not require a unit (`V55`) or relax the barcode for a `SIMPLE` product (`V56`).
+That is the next slice, and it is why this record does not call T5 done.

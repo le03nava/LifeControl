@@ -6,11 +6,13 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.lifecontrol.api.product.attribute.exception.ProductAttributeValidationException;
 import com.lifecontrol.api.product.dto.ProductRequest;
 import com.lifecontrol.api.product.dto.ProductVariantRequest;
+import com.lifecontrol.api.product.model.Product;
 import com.lifecontrol.api.product.service.ProductService;
 import com.lifecontrol.api.product.service.ProductVariantService;
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
 import com.lifecontrol.api.support.TenantFixtures;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.function.Supplier;
@@ -120,6 +122,33 @@ class ProductAttributeWritePathIntegrationTest extends AbstractPostgresIntegrati
         return new ProductRequest(sku, "Probe " + sku, null, null, "GOODS", attributes, categoryId);
     }
 
+    /**
+     * A <b>creation</b> request: ADR-0006 decision 2 makes the variant list part of it, so every product this
+     * suite creates declares its family instead of being written empty and given a variant afterwards.
+     *
+     * <p>{@code MULTI} and not {@code SIMPLE} because these cases add a second variant through the standalone
+     * endpoint ({@code POST …/variants}), which is still reachable and still what most of them exercise — a
+     * {@code SIMPLE} product would be refused by {@code trg_variant_matches_mode} on that second insert, and
+     * this suite is about the attribute profile, not about the mode.</p>
+     *
+     * <p>The created variant declares the VARIANT-level entries the category requires, which is why the last
+     * parameter exists: a shoe's {@code color} is required on the variant, and a creation that named none
+     * would be refused by the same rule these cases are testing around.</p>
+     */
+    private ProductRequest creationRequest(
+            String sku, Map<String, Object> attributes, UUID categoryId, Map<String, Object> variantAttributes) {
+        return new ProductRequest(
+                sku,
+                "Probe " + sku,
+                null,
+                null,
+                "GOODS",
+                attributes,
+                categoryId,
+                Product.VARIANT_MODE_MULTI,
+                List.of(new ProductVariantRequest(sku + "-CREATED", "CREADO", pieceUnitId(), variantAttributes)));
+    }
+
     private Map<String, Object> calzadoSet() {
         return map("material_externo", "piel_vacuno", "tipo_ajuste", "agujeta", "genero", "dama");
     }
@@ -140,8 +169,8 @@ class ProductAttributeWritePathIntegrationTest extends AbstractPostgresIntegrati
     @Test
     @DisplayName("S8: a required attribute cannot be skipped by omitting the map on a profiled category")
     void requiredAttributeCannotBeSkipped() {
-        assertThatThrownBy(() -> asCompany(() ->
-                        productService.createProduct(companyId, productRequest(PREFIX + "-REQ", map(), ferreteriaId))))
+        assertThatThrownBy(() -> asCompany(() -> productService.createProduct(
+                        companyId, creationRequest(PREFIX + "-REQ", map(), ferreteriaId, null))))
                 .isInstanceOf(ProductAttributeValidationException.class)
                 .hasMessageContaining("material")
                 .hasMessageContaining("required");
@@ -151,7 +180,7 @@ class ProductAttributeWritePathIntegrationTest extends AbstractPostgresIntegrati
     @DisplayName("S8: a stored NULL set is validated on update — a null map is not a bypass")
     void storedNullSetIsValidatedOnUpdate() {
         var created = asCompany(() -> productService.createProduct(
-                companyId, productRequest(PREFIX + "-NULL", map("material", "pvc"), ferreteriaId)));
+                companyId, creationRequest(PREFIX + "-NULL", map("material", "pvc"), ferreteriaId, null)));
         TenantFixtures.inTenant(
                 companyId, () -> jdbc.update("UPDATE products SET attributes = NULL WHERE id = ?", created.id()));
         assertThatThrownBy(() -> asCompany(() -> productService.updateProduct(
@@ -165,7 +194,7 @@ class ProductAttributeWritePathIntegrationTest extends AbstractPostgresIntegrati
     @DisplayName("S8: a valid stored set survives an update that sends no attributes")
     void validStoredSetSurvivesNullUpdate() {
         var created = asCompany(() -> productService.createProduct(
-                companyId, productRequest(PREFIX + "-KEEP", map("material", "pvc"), ferreteriaId)));
+                companyId, creationRequest(PREFIX + "-KEEP", map("material", "pvc"), ferreteriaId, null)));
 
         assertThat(asCompany(() -> productService.updateProduct(
                                 companyId, created.id(), productRequest(PREFIX + "-KEEP", null, ferreteriaId)))
@@ -177,7 +206,8 @@ class ProductAttributeWritePathIntegrationTest extends AbstractPostgresIntegrati
     @DisplayName("L4: the request replaces the set; an omitted optional key is gone")
     void requestReplacesTheSet() {
         var created = asCompany(() -> productService.createProduct(
-                companyId, productRequest(PREFIX + "-REPLACE", map("material", "pvc", "marca", "ACME"), ferreteriaId)));
+                companyId,
+                creationRequest(PREFIX + "-REPLACE", map("material", "pvc", "marca", "ACME"), ferreteriaId, null)));
 
         assertThat(asCompany(() -> productService.updateProduct(
                                 companyId,
@@ -193,13 +223,13 @@ class ProductAttributeWritePathIntegrationTest extends AbstractPostgresIntegrati
         var withColor = calzadoSet();
         withColor.put("color", "negro");
         assertThatThrownBy(() -> asCompany(() -> productService.createProduct(
-                        companyId, productRequest(PREFIX + "-LVL-P", withColor, calzadoId))))
+                        companyId, creationRequest(PREFIX + "-LVL-P", withColor, calzadoId, map("color", "negro")))))
                 .isInstanceOf(ProductAttributeValidationException.class)
                 .hasMessageContaining("color")
                 .hasMessageContaining("PRODUCT-level");
 
-        var product = asCompany(() ->
-                productService.createProduct(companyId, productRequest(PREFIX + "-LVL", calzadoSet(), calzadoId)));
+        var product = asCompany(() -> productService.createProduct(
+                companyId, creationRequest(PREFIX + "-LVL", calzadoSet(), calzadoId, map("color", "negro"))));
         assertThatThrownBy(() -> asCompany(() -> productVariantService.createVariant(
                         companyId,
                         product.id(),
@@ -221,8 +251,8 @@ class ProductAttributeWritePathIntegrationTest extends AbstractPostgresIntegrati
     @Test
     @DisplayName("S6/S8: a variant of a category that requires color cannot be created without it")
     void variantRequiresTheColorOfItsCategory() {
-        var product = asCompany(() ->
-                productService.createProduct(companyId, productRequest(PREFIX + "-VREQ", calzadoSet(), calzadoId)));
+        var product = asCompany(() -> productService.createProduct(
+                companyId, creationRequest(PREFIX + "-VREQ", calzadoSet(), calzadoId, map("color", "negro"))));
 
         assertThatThrownBy(() -> asCompany(() -> productVariantService.createVariant(
                         companyId,
@@ -237,7 +267,7 @@ class ProductAttributeWritePathIntegrationTest extends AbstractPostgresIntegrati
     @DisplayName("reclassifying with a null map is refused and leaves the row untouched")
     void reclassifyWithNullMapIsRefusedAndAtomic() {
         var created = asCompany(() -> productService.createProduct(
-                companyId, productRequest(PREFIX + "-MOVE", map("material", "pvc"), ferreteriaId)));
+                companyId, creationRequest(PREFIX + "-MOVE", map("material", "pvc"), ferreteriaId, null)));
 
         assertThatThrownBy(() -> asCompany(() -> productService.updateProduct(
                         companyId, created.id(), productRequest(PREFIX + "-MOVE", null, calzadoId))))
@@ -257,7 +287,7 @@ class ProductAttributeWritePathIntegrationTest extends AbstractPostgresIntegrati
     void unprofiledBranchFollowsTheSameRule() {
         var unprofiled = insertCategory("Accesorios y Cuidado");
         var created = asCompany(() -> productService.createProduct(
-                companyId, productRequest(PREFIX + "-NOP", map("material", "pvc"), ferreteriaId)));
+                companyId, creationRequest(PREFIX + "-NOP", map("material", "pvc"), ferreteriaId, null)));
 
         assertThatThrownBy(() -> asCompany(() -> productService.updateProduct(
                         companyId, created.id(), productRequest(PREFIX + "-NOP", null, unprofiled))))
@@ -274,7 +304,7 @@ class ProductAttributeWritePathIntegrationTest extends AbstractPostgresIntegrati
     @DisplayName("clearing the classification with a null map is refused, with {} it clears")
     void clearingTheClassification() {
         var created = asCompany(() -> productService.createProduct(
-                companyId, productRequest(PREFIX + "-NONE", map("material", "pvc"), ferreteriaId)));
+                companyId, creationRequest(PREFIX + "-NONE", map("material", "pvc"), ferreteriaId, null)));
 
         assertThatThrownBy(() -> asCompany(() -> productService.updateProduct(
                         companyId, created.id(), productRequest(PREFIX + "-NONE", null, null))))
@@ -290,8 +320,8 @@ class ProductAttributeWritePathIntegrationTest extends AbstractPostgresIntegrati
     @Test
     @DisplayName("a reclassified product's variants keep the old branch's codes and then refuse edits that omit them")
     void variantsDriftAfterReclassification() {
-        var product = asCompany(() ->
-                productService.createProduct(companyId, productRequest(PREFIX + "-DRIFT", calzadoSet(), calzadoId)));
+        var product = asCompany(() -> productService.createProduct(
+                companyId, creationRequest(PREFIX + "-DRIFT", calzadoSet(), calzadoId, map("color", "negro"))));
         var variant = asCompany(() -> productVariantService.createVariant(
                 companyId,
                 product.id(),

@@ -34,6 +34,7 @@ import com.lifecontrol.api.product.exception.MeasureUnitRequiredException;
 import com.lifecontrol.api.product.exception.MeasureUnitTypeMismatchException;
 import com.lifecontrol.api.product.exception.ProductNotFoundException;
 import com.lifecontrol.api.product.exception.ProductVariantNotFoundException;
+import com.lifecontrol.api.product.exception.VariantRemovalWouldEmptyProductException;
 import com.lifecontrol.api.product.model.Product;
 import com.lifecontrol.api.product.model.ProductVariant;
 import com.lifecontrol.api.product.model.ProductVariantStoreStock;
@@ -985,6 +986,8 @@ class ProductVariantServiceTest {
         void deleteVariant_Success() {
             when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
             when(productVariantRepository.findById(variantId)).thenReturn(Optional.of(testVariant));
+            when(productVariantRepository.countByProductIdAndEnabledTrue(productId))
+                    .thenReturn(2L);
             when(productVariantRepository.save(any(ProductVariant.class))).thenAnswer(inv -> inv.getArgument(0));
 
             productVariantService.deleteVariant(companyId, productId, variantId);
@@ -992,6 +995,31 @@ class ProductVariantServiceTest {
             assertThat(testVariant.getEnabled()).isFalse();
             verify(productVariantRepository).findById(variantId);
             verify(productVariantRepository).save(any(ProductVariant.class));
+        }
+
+        /**
+         * C1: "a product has at least one variant", and the write path is what refuses to break it.
+         *
+         * <p>The variant definition is soft-deleted ({@code enabled = false}), not removed, so what would
+         * become empty is the product's <b>live</b> variant set — the one a sale, a receipt or a POS listing
+         * can reach. The refusal is a 409 that names the product, and it leaves the row enabled: the count it
+         * reads is the same query the invariant is audited with, not a second way of asking.</p>
+         */
+        @Test
+        @DisplayName("should refuse to delete the only variant of a product")
+        void deleteVariant_LastVariant_IsRefused() {
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
+            when(productVariantRepository.findById(variantId)).thenReturn(Optional.of(testVariant));
+            when(productVariantRepository.countByProductIdAndEnabledTrue(productId))
+                    .thenReturn(1L);
+
+            assertThatThrownBy(() -> productVariantService.deleteVariant(companyId, productId, variantId))
+                    .isInstanceOf(VariantRemovalWouldEmptyProductException.class)
+                    .hasMessageContaining(productId.toString())
+                    .hasMessageContaining("at least one variant");
+
+            assertThat(testVariant.getEnabled()).isTrue();
+            verify(productVariantRepository, never()).save(any(ProductVariant.class));
         }
 
         @Test

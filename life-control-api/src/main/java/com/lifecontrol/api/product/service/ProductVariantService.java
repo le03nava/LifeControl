@@ -21,6 +21,7 @@ import com.lifecontrol.api.product.exception.MeasureUnitRequiredException;
 import com.lifecontrol.api.product.exception.MeasureUnitTypeMismatchException;
 import com.lifecontrol.api.product.exception.ProductNotFoundException;
 import com.lifecontrol.api.product.exception.ProductVariantNotFoundException;
+import com.lifecontrol.api.product.exception.VariantRemovalWouldEmptyProductException;
 import com.lifecontrol.api.product.model.Product;
 import com.lifecontrol.api.product.model.ProductVariant;
 import com.lifecontrol.api.product.model.ProductVariantStoreStock;
@@ -318,7 +319,20 @@ public class ProductVariantService {
         return toResponse(updated, product.getSku());
     }
 
-    /** Soft delete of the definition ({@code enabled = false}); the store rows are left intact. */
+    /**
+     * Soft delete of the definition ({@code enabled = false}); the store rows are left intact.
+     *
+     * <p>ADR-0006 invariant C1 — "a product has at least one variant" — is refused here: removing the last
+     * <b>live</b> variant of a product would leave a catalog entry nothing can sell, receive or price, which is
+     * the state the single creation transaction exists to remove. The count is asked of
+     * {@link ProductVariantRepository#countByProductIdAndEnabledTrue(UUID)} and of nothing else, so the number
+     * this refuses on is the number the invariant is audited with. A variant that is already disabled is not
+     * the last live one, so removing it changes nothing the guard protects and it is allowed.</p>
+     *
+     * @throws ProductNotFoundException when the product does not exist
+     * @throws ProductVariantNotFoundException when the variant does not exist for that product
+     * @throws VariantRemovalWouldEmptyProductException when the variant is the product's only live one (409)
+     */
     @Transactional
     public void deleteVariant(UUID companyId, UUID productId, UUID variantId) {
         validateProductExists(companyId, productId);
@@ -326,6 +340,12 @@ public class ProductVariantService {
         logger.info("Soft-deleting product variant: variantId={}, productId={}", variantId, productId);
 
         var variant = findVariantOfProduct(productId, variantId);
+
+        if (Boolean.TRUE.equals(variant.getEnabled())
+                && productVariantRepository.countByProductIdAndEnabledTrue(productId) <= 1) {
+            throw new VariantRemovalWouldEmptyProductException(productId);
+        }
+
         variant.setEnabled(false);
         productVariantRepository.save(variant);
         logger.info("Product variant soft-deleted: id={}", variantId);

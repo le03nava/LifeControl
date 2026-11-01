@@ -14,8 +14,12 @@ import com.lifecontrol.api.product.category.exception.ProductCategoryNotFoundExc
 import com.lifecontrol.api.product.category.model.ProductCategory;
 import com.lifecontrol.api.product.category.repository.ProductCategoryRepository;
 import com.lifecontrol.api.product.dto.ProductRequest;
+import com.lifecontrol.api.product.dto.ProductVariantRequest;
+import com.lifecontrol.api.product.exception.BarcodeRequiredException;
 import com.lifecontrol.api.product.exception.DuplicateProductException;
 import com.lifecontrol.api.product.exception.ProductNotFoundException;
+import com.lifecontrol.api.product.exception.VariantModeMismatchException;
+import com.lifecontrol.api.product.exception.VariantsRequiredException;
 import com.lifecontrol.api.product.model.Product;
 import com.lifecontrol.api.product.repository.ProductRepository;
 import java.time.LocalDateTime;
@@ -56,6 +60,9 @@ class ProductServiceTest {
     @Mock
     private CurrentUserContext currentUserContext;
 
+    @Mock
+    private ProductVariantService productVariantService;
+
     @InjectMocks
     private ProductService productService;
 
@@ -88,6 +95,38 @@ class ProductServiceTest {
         testRequest = new ProductRequest("SKU-001", "Test Product", "Test", "SAT-001", "SERVICE", null, null);
     }
 
+    /**
+     * The one variant a creation declares: ADR-0006 decision 2 makes the variant list part of the
+     * creation request, so no case in this suite may create a product without one.
+     *
+     * <p>The unit is a random id on purpose — {@link ProductVariantService} is a mock here, so the unit
+     * catalog is not read; the rule that a unit exists is proven where it lives, in the PostgreSQL suite.</p>
+     */
+    private ProductVariantRequest creationVariant(String variantName) {
+        return new ProductVariantRequest(null, variantName, UUID.randomUUID(), null);
+    }
+
+    /** A creation request that declares exactly one variant and no mode, i.e. a {@code SIMPLE} article. */
+    private ProductRequest creationRequest(
+            String sku,
+            String name,
+            String shortName,
+            String satCode,
+            String productType,
+            Map<String, Object> attributes,
+            UUID categoryId) {
+        return new ProductRequest(
+                sku,
+                name,
+                shortName,
+                satCode,
+                productType,
+                attributes,
+                categoryId,
+                null,
+                List.of(creationVariant("Unica")));
+    }
+
     @Nested
     @DisplayName("createProduct")
     class CreateProductTests {
@@ -95,7 +134,7 @@ class ProductServiceTest {
         @Test
         @DisplayName("should create product with all fields and return response")
         void shouldCreateProduct_WithAllFields() {
-            var request = new ProductRequest(
+            var request = creationRequest(
                     "SKU-NEW", "New Product", "NP", "SAT-NEW", "GOODS", Map.of("color", "red", "weight", "2kg"), null);
             when(productRepository.existsBySkuAndCompanyId("SKU-NEW", companyId))
                     .thenReturn(false);
@@ -124,7 +163,7 @@ class ProductServiceTest {
         @Test
         @DisplayName("should create product without attributes")
         void shouldCreateProduct_WithoutAttributes() {
-            var request = new ProductRequest("SKU-SIMPLE", "Simple Product", null, null, null, null, null);
+            var request = creationRequest("SKU-SIMPLE", "Simple Product", null, null, null, null, null);
             when(productRepository.existsBySkuAndCompanyId("SKU-SIMPLE", companyId))
                     .thenReturn(false);
             when(productRepository.save(any(Product.class))).thenAnswer(inv -> {
@@ -151,7 +190,7 @@ class ProductServiceTest {
                     .company(company)
                     .categoryName("Calzado")
                     .build();
-            var request = new ProductRequest("SKU-CAT", "Zapato", null, null, null, null, categoryId);
+            var request = creationRequest("SKU-CAT", "Zapato", null, null, null, null, categoryId);
 
             when(productRepository.existsBySkuAndCompanyId("SKU-CAT", companyId))
                     .thenReturn(false);
@@ -169,7 +208,7 @@ class ProductServiceTest {
         @Test
         @DisplayName("should store the company named by the path when the request carries no category")
         void shouldStoreTheCompanyWithoutCategory() {
-            var request = new ProductRequest("SKU-ORPHAN", "Sin clasificar", null, null, null, null, null);
+            var request = creationRequest("SKU-ORPHAN", "Sin clasificar", null, null, null, null, null);
 
             when(productRepository.existsBySkuAndCompanyId("SKU-ORPHAN", companyId))
                     .thenReturn(false);
@@ -187,7 +226,7 @@ class ProductServiceTest {
         @Test
         @DisplayName("should verify the caller's access to the company before writing anything")
         void shouldVerifyCompanyAccess() {
-            var request = new ProductRequest("SKU-GUARD", "Guardado", null, null, null, null, null);
+            var request = creationRequest("SKU-GUARD", "Guardado", null, null, null, null, null);
             when(productRepository.existsBySkuAndCompanyId("SKU-GUARD", companyId))
                     .thenReturn(false);
             when(productRepository.save(any(Product.class))).thenAnswer(inv -> inv.getArgument(0));
@@ -200,7 +239,7 @@ class ProductServiceTest {
         @Test
         @DisplayName("should throw DuplicateProductException when SKU already exists")
         void shouldThrowDuplicateProductException_WhenSkuExists() {
-            var request = new ProductRequest("SKU-DUP", "Dup Product", null, null, null, null, null);
+            var request = creationRequest("SKU-DUP", "Dup Product", null, null, null, null, null);
             when(productRepository.existsBySkuAndCompanyId("SKU-DUP", companyId))
                     .thenReturn(true);
 
@@ -221,8 +260,16 @@ class ProductServiceTest {
         @Test
         @DisplayName("should store the variant mode the request states, and SIMPLE when it states none")
         void shouldStoreTheVariantMode() {
-            var multi =
-                    new ProductRequest("SKU-MULTI", "Zapato", null, null, null, null, null, Product.VARIANT_MODE_MULTI);
+            var multi = new ProductRequest(
+                    "SKU-MULTI",
+                    "Zapato",
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    Product.VARIANT_MODE_MULTI,
+                    List.of(creationVariant("Talla 26")));
             when(productRepository.existsBySkuAndCompanyId("SKU-MULTI", companyId))
                     .thenReturn(false);
             when(productRepository.save(any(Product.class))).thenAnswer(inv -> inv.getArgument(0));
@@ -232,7 +279,7 @@ class ProductServiceTest {
             verify(productRepository)
                     .save(argThat(product -> Product.VARIANT_MODE_MULTI.equals(product.getVariantMode())));
 
-            var unstated = new ProductRequest("SKU-PLAIN", "Pan", null, null, null, null, null);
+            var unstated = creationRequest("SKU-PLAIN", "Pan", null, null, null, null, null);
             when(productRepository.existsBySkuAndCompanyId("SKU-PLAIN", companyId))
                     .thenReturn(false);
 
@@ -240,6 +287,153 @@ class ProductServiceTest {
 
             verify(productRepository)
                     .save(argThat(product -> Product.VARIANT_MODE_SIMPLE.equals(product.getVariantMode())));
+        }
+
+        /**
+         * ADR-0006 decision 2 / C1: a {@code SIMPLE} product is created <b>with</b> its one variant.
+         *
+         * <p>The variant is written through {@code ProductVariantService.createVariant}, not by a second copy
+         * of the rules: the unit, the barcode-by-mode rule and the duplicate keys are the ones that path
+         * already proves, and the id the variant hangs off is the product this same call just wrote.</p>
+         */
+        @Test
+        @DisplayName("should create the SIMPLE product with its one variant, through the variant service")
+        void shouldCreateTheProductAndItsSingleVariant() {
+            var variant = creationVariant("Unica");
+            var request =
+                    new ProductRequest("SKU-SIMPLE-V", "Pan", null, null, null, null, null, null, List.of(variant));
+            when(productRepository.existsBySkuAndCompanyId("SKU-SIMPLE-V", companyId))
+                    .thenReturn(false);
+            when(productRepository.save(any(Product.class))).thenAnswer(inv -> {
+                var p = (Product) inv.getArgument(0);
+                p.setId(productId);
+                return p;
+            });
+
+            var result = productService.createProduct(companyId, request);
+
+            verify(productVariantService).createVariant(companyId, productId, variant);
+            assertThat(result.variantMode()).isEqualTo(Product.VARIANT_MODE_SIMPLE);
+        }
+
+        /** A {@code MULTI} product declares its family in the creation request and every member is written. */
+        @Test
+        @DisplayName("should create the MULTI product and every variant the request declares")
+        void shouldCreateTheMultiProductAndEveryVariant() {
+            var first = creationVariant("Talla 26");
+            var second = creationVariant("Talla 27");
+            var request = new ProductRequest(
+                    "SKU-MULTI-V",
+                    "Zapato",
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    Product.VARIANT_MODE_MULTI,
+                    List.of(first, second));
+            when(productRepository.existsBySkuAndCompanyId("SKU-MULTI-V", companyId))
+                    .thenReturn(false);
+            when(productRepository.save(any(Product.class))).thenAnswer(inv -> {
+                var p = (Product) inv.getArgument(0);
+                p.setId(productId);
+                return p;
+            });
+
+            var result = productService.createProduct(companyId, request);
+
+            verify(productVariantService).createVariant(companyId, productId, first);
+            verify(productVariantService).createVariant(companyId, productId, second);
+            assertThat(result.variantMode()).isEqualTo(Product.VARIANT_MODE_MULTI);
+        }
+
+        /**
+         * {@code SIMPLE} means <b>exactly</b> one: two is refused, and the refusal names the mode instead of
+         * letting {@code trg_variant_matches_mode} answer with SQL nobody can render.
+         */
+        @Test
+        @DisplayName("should refuse a SIMPLE product that declares two variants, naming the mode")
+        void shouldRefuseSimpleWithTwoVariants() {
+            var request = new ProductRequest(
+                    "SKU-TWO",
+                    "Pan",
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    Product.VARIANT_MODE_SIMPLE,
+                    List.of(creationVariant("Chico"), creationVariant("Grande")));
+
+            assertThatThrownBy(() -> productService.createProduct(companyId, request))
+                    .isInstanceOf(VariantModeMismatchException.class)
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("variantMode")
+                    .hasMessageContaining(Product.VARIANT_MODE_SIMPLE)
+                    .hasMessageContaining("exactly one");
+
+            verify(productRepository, never()).save(any());
+            verify(productVariantService, never()).createVariant(any(), any(), any());
+        }
+
+        /**
+         * C1 / decision 2: none is refused. The absent list and the empty list are the same answer, because
+         * both leave the product without the variant the invariant requires.
+         */
+        @Test
+        @DisplayName("should refuse a creation request that declares no variant, naming variants")
+        void shouldRefuseACreationWithoutVariants() {
+            var absent = new ProductRequest("SKU-NONE", "Hueco", null, null, null, null, null, null, null);
+            var empty = new ProductRequest(
+                    "SKU-NONE", "Hueco", null, null, null, null, null, Product.VARIANT_MODE_MULTI, List.of());
+
+            for (var request : List.of(absent, empty)) {
+                assertThatThrownBy(() -> productService.createProduct(companyId, request))
+                        .isInstanceOf(VariantsRequiredException.class)
+                        .isInstanceOf(IllegalArgumentException.class)
+                        .hasMessageContaining("variants");
+            }
+
+            verify(productRepository, never()).save(any());
+            verify(productVariantService, never()).createVariant(any(), any(), any());
+        }
+
+        /**
+         * The whole point of "creating one is one transaction": a variant the variant service refuses must
+         * not be swallowed here.
+         *
+         * <p>The exception leaves this method, so the {@code @Transactional} boundary rolls the product row
+         * back. That the rollback actually happens is asserted where it can be observed, in
+         * {@code ProductCreationTransactionIntegrationTest}; this case pins the half a unit test can: the
+         * creation never answers as if it had succeeded.</p>
+         */
+        @Test
+        @DisplayName("should propagate a variant refusal instead of answering with a product")
+        void shouldPropagateAVariantRefusal() {
+            var variant = creationVariant("Sin codigo");
+            var request = new ProductRequest(
+                    "SKU-ROLLBACK",
+                    "Zapato",
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    Product.VARIANT_MODE_MULTI,
+                    List.of(variant));
+            when(productRepository.existsBySkuAndCompanyId("SKU-ROLLBACK", companyId))
+                    .thenReturn(false);
+            when(productRepository.save(any(Product.class))).thenAnswer(inv -> {
+                var p = (Product) inv.getArgument(0);
+                p.setId(productId);
+                return p;
+            });
+            when(productVariantService.createVariant(companyId, productId, variant))
+                    .thenThrow(new BarcodeRequiredException(productId));
+
+            assertThatThrownBy(() -> productService.createProduct(companyId, request))
+                    .isInstanceOf(BarcodeRequiredException.class)
+                    .hasMessageContaining("barCode");
         }
     }
 
@@ -649,7 +843,7 @@ class ProductServiceTest {
                             .build())
                     .categoryName("Calzado")
                     .build();
-            var request = new ProductRequest("SKU-FOREIGN", "Ajeno", null, null, null, null, categoryId);
+            var request = creationRequest("SKU-FOREIGN", "Ajeno", null, null, null, null, categoryId);
 
             when(productRepository.existsBySkuAndCompanyId("SKU-FOREIGN", companyId))
                     .thenReturn(false);
@@ -705,7 +899,7 @@ class ProductServiceTest {
         @DisplayName("should accept the same SKU in another company")
         void shouldAcceptTheSameSkuInAnotherCompany() {
             // The row this SKU collides with lives in another company, so the company-scoped key is free.
-            var request = new ProductRequest("SKU-SHARED", "Compartido", null, null, null, null, null);
+            var request = creationRequest("SKU-SHARED", "Compartido", null, null, null, null, null);
             when(productRepository.existsBySkuAndCompanyId("SKU-SHARED", companyId))
                     .thenReturn(false);
             when(productRepository.save(any(Product.class))).thenAnswer(inv -> inv.getArgument(0));
@@ -722,7 +916,7 @@ class ProductServiceTest {
         @Test
         @DisplayName("should refuse a repeated SKU inside one company")
         void shouldRefuseARepeatedSkuInsideOneCompany() {
-            var request = new ProductRequest("SKU-DUP", "Repetido", null, null, null, null, null);
+            var request = creationRequest("SKU-DUP", "Repetido", null, null, null, null, null);
             when(productRepository.existsBySkuAndCompanyId("SKU-DUP", companyId))
                     .thenReturn(true);
 
@@ -781,7 +975,7 @@ class ProductServiceTest {
         @DisplayName("should store the resolved category and report its company on create")
         void shouldStoreCategory_WhenCreateReceivesAnId() {
             var category = aCategory(categoryId, categoryCompanyId);
-            var request = new ProductRequest("SKU-CAT", "Classified", null, null, null, null, categoryId);
+            var request = creationRequest("SKU-CAT", "Classified", null, null, null, null, categoryId);
             when(productRepository.existsBySkuAndCompanyId("SKU-CAT", companyId))
                     .thenReturn(false);
             when(productCategoryRepository.findById(categoryId)).thenReturn(Optional.of(category));
@@ -804,7 +998,7 @@ class ProductServiceTest {
         @Test
         @DisplayName("should leave the product unclassified and report two nulls when no id is sent")
         void shouldLeaveCategoryNull_WhenCreateReceivesNoId() {
-            var request = new ProductRequest("SKU-PLAIN", "Plain", null, null, null, null, null);
+            var request = creationRequest("SKU-PLAIN", "Plain", null, null, null, null, null);
             when(productRepository.existsBySkuAndCompanyId("SKU-PLAIN", companyId))
                     .thenReturn(false);
             when(productRepository.save(any(Product.class))).thenAnswer(inv -> {
@@ -825,7 +1019,7 @@ class ProductServiceTest {
         @DisplayName("should throw the category 404 instead of an FK violation when the id does not exist")
         void shouldRejectUnknownCategory_WhenCreateReceivesAnUnknownId() {
             var unknown = UUID.randomUUID();
-            var request = new ProductRequest("SKU-BAD", "Bad", null, null, null, null, unknown);
+            var request = creationRequest("SKU-BAD", "Bad", null, null, null, null, unknown);
             when(productRepository.existsBySkuAndCompanyId("SKU-BAD", companyId))
                     .thenReturn(false);
             when(productCategoryRepository.findById(unknown)).thenReturn(Optional.empty());

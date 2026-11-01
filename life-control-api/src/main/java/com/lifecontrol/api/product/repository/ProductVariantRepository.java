@@ -85,6 +85,16 @@ public interface ProductVariantRepository extends JpaRepository<ProductVariant, 
     boolean existsByProductIdAndVariantNameAndIdNot(UUID productId, String variantName, UUID id);
 
     /**
+     * How many <b>live</b> variants a product has, which is the count C1's delete guard reads.
+     *
+     * <p>{@code enabled = true} and not "every row": a variant is soft-deleted, so the disabled rows still
+     * exist and counting them would let a product end up with zero sellable variants while the guard reported
+     * a non-empty family. The guard ({@code ProductVariantService#deleteVariant}) asks this question and no
+     * other, so the number it refuses on and the number the invariant is audited with have one shape.</p>
+     */
+    long countByProductIdAndEnabledTrue(UUID productId);
+
+    /**
      * Whether the definition exists, is still sellable <b>and</b> belongs to {@code companyId}.
      *
      * <p>The sales path must use this rather than {@code existsById}: the split removed
