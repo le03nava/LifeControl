@@ -2,6 +2,7 @@ package com.lifecontrol.api.product.category.catalog;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.lifecontrol.api.common.tenant.TenantScope;
 import com.lifecontrol.api.company.exception.CompanyNotFoundException;
 import com.lifecontrol.api.company.repository.CompanyRepository;
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
@@ -186,15 +187,23 @@ class StarterProductCategoryApplierIntegrationTest extends AbstractPostgresInteg
     }
 
     /**
-     * The applier run the way production runs it: the <b>caller</b> states the tenant.
+     * The applier run the way its <b>weakest</b> production caller runs it: no tenant stated on the thread.
      *
-     * <p>{@link StarterProductCategoryApplier#applyTo(UUID)} is {@code REQUIRES_NEW} and states no scope
-     * of its own — its production caller is a company creation, which is already inside the new company's
-     * scope. So the fixture is the caller and states the same fact, and the applier's own transaction
-     * boundary is what installs it.</p>
+     * <p>This is the pin, and it is a pin about the caller on purpose. Three of the applier's callers have
+     * no scope to hand it — an operator script, a bulk import, and the
+     * {@code @TransactionalEventListener(fallbackExecution = true)} path, which by definition runs with no
+     * transaction and no request scope. A version of this fixture that wrapped the call in
+     * {@code TenantFixtures.inTenant} hid exactly that: it passed with a scope its callers cannot supply.
+     * So every case below calls the applier with <b>nothing</b> stated, and the applier is what states the
+     * company id it was given, inside the transaction it owns. Delete that statement from the applier and
+     * all of them fail with {@link CompanyNotFoundException}: the read of {@code companies} and the writes
+     * to the armed {@code product_categories} answer zero rows with no scope installed.</p>
      */
     private int applyTo(UUID companyId) {
-        return TenantFixtures.inTenant(companyId, () -> applier.applyTo(companyId));
+        assertThat(TenantScope.current())
+                .as("this suite runs the applier the way a caller with no scope runs it")
+                .isEmpty();
+        return applier.applyTo(companyId);
     }
 
     private int countCategories(UUID companyId) {

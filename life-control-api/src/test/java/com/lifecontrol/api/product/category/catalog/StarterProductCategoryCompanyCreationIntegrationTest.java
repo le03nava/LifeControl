@@ -115,20 +115,16 @@ class StarterProductCategoryCompanyCreationIntegrationTest extends AbstractPostg
                         .build());
         createdCompanyIds.add(company.getId());
 
-        // The tenant the event is about, stated around the publish: the applier opens its own
-        // REQUIRES_NEW transaction and its boundary reads the holder, while `product_categories` is armed
-        // by V53 — so without a scope the seed cannot see the company it was told to seed. That is the
-        // state a publisher inside `CompanyService.createCompany` already gives it, because the service
-        // states the new company's own id around its transaction and the AFTER_COMMIT listener runs inside
-        // that block. What this case keeps pinning is the listener's `fallbackExecution`: no transaction is
-        // active here, so nothing else would reach it. A publisher with no scope at all — an operator
-        // script, a bulk import — still gets a logged ERROR instead of a seed, and that gap is the
-        // applier's to close (reported, not patched here: it is a `src/main` change outside this slice).
-        TenantScope.with(company.getId(), () -> {
-            eventPublisher.publishEvent(
-                    new CompanyCreatedEvent(this, company.getId(), company.getCompanyKey(), company.getCompanyName()));
-            return null;
-        });
+        // No transaction and no tenant scope, which is the whole point: the event carries the company, the
+        // listener reaches the applier with `fallbackExecution`, and the applier states the id it was given
+        // inside the transaction it owns. Before #724 this case had to state the scope around the publish to
+        // get a seed at all, and a publisher that could not (an operator script, a bulk import) got a logged
+        // ERROR instead. Now nothing here states a tenant, and the seed still lands.
+        assertThat(TenantScope.current())
+                .as("the applier is what states the tenant, not this publisher")
+                .isEmpty();
+        eventPublisher.publishEvent(
+                new CompanyCreatedEvent(this, company.getId(), company.getCompanyKey(), company.getCompanyName()));
 
         assertThat(countCategories(company.getId()))
                 .as("no transaction is active here, so only fallbackExecution can reach the listener")
