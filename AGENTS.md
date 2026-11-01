@@ -209,8 +209,23 @@ Script principal de despliegue. Build y start de servicios.
 ./docker/scripts/deploy.sh dev status    # Estado de servicios
 ./docker/scripts/deploy.sh dev version   # Qué código corre cada imagen de app, contra HEAD
 ./docker/scripts/deploy.sh dev health     # Health check
-./docker/scripts/deploy.sh dev clean      # Remove volumes
+./docker/scripts/deploy.sh dev clean      # Baja el stack: contenedores, red y volúmenes con nombre
+./docker/scripts/deploy.sh dev clean --data  # Además borra ./volumes-<env>, el directorio de datos propio del entorno
 ```
+
+> **`clean` no borra los datos de este stack: los deja, y ahora lo dice.** Cada directorio con estado es un
+> **bind mount** bajo `$VOLUMES_ROOT` (`postgres/lifecontrol/data`, `keycloak-postgres/data`,
+> `keycloak/realms`, `redis/data`, `loki/data`, `prometheus/*`, `tempo/*`, `grafana/*`), y
+> `docker compose down -v` borra **volúmenes con nombre**, nunca un bind mount. En el compose base no hay
+> ningún volumen con nombre, así que en dev y staging `clean` no toca un solo byte de datos: el comando
+> imprime la ruta que sobrevivió y los directorios que están adentro, y el próximo `start` los reusa.
+> `clean --data` es el único camino que los borra, y sólo borra el directorio propio de **este** entorno,
+> `./volumes-<env>`: un directorio real, no un symlink. Lo hace detrás de una **segunda** confirmación que
+> nombra la ruta exacta. Cualquier otra cosa —`VOLUMES_ROOT` absoluto (prod), otra ruta, o un symlink— se
+> reporta y queda para el operador, porque ese borrado es manual a propósito, igual que en
+> `cleanup.sh local`. En prod, además, keycloak-postgres, loki, prometheus, tempo y grafana **sí** usan
+> volúmenes con nombre: ahí `clean` sí borra esos datos, y el primer aviso es el que lo dice.
+> `clean-bind-mounts.test.sh` fija los dos veredictos.
 
 > `health` ya no se conforma con `docker ps`: también falla si un target de Prometheus no está
 > `up` o si Tempo no puede leer un trace ya flusheado, y avisa —sin fallar— cuando el store de
@@ -280,8 +295,8 @@ Limpia recursos de Docker y archivos locales.
 # Opciones:
 # stop    - Detener contenedores (conserva volúmenes, imágenes, redes)
 # docker  - Limpia contenedores, imágenes y redes de Docker (conserva volúmenes)
-# volumes - Limpia SOLO volúmenes de Docker (DESTRUCTIVO - borra todos los datos)
-# local   - Limpia directorios locales (./data, ./volume-data)
+# volumes - Limpia SOLO volúmenes con nombre (no toca los bind mounts de $VOLUMES_ROOT)
+# local   - Borra ./volumes-<env>, el directorio de datos del propio entorno (un directorio real, no un symlink; nunca uno absoluto ni el de otro entorno)
 # builds  - Limpia artifacts de build (./api-gateway/build)
 # secrets - Rota los archivos de docker/secrets/* desde sus templates
 # all     - Limpieza completa (requiere confirmación)

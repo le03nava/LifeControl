@@ -50,7 +50,7 @@ usage() {
 	echo "  logs              - Show logs"
 	echo "  status            - Show status"
 	echo "  version           - Show the revision each running application image was built from (exits non-zero when one is not HEAD)"
-	echo "  clean             - Stop and remove volumes"
+	echo "  clean [--data]     - Stop and remove the containers, the network and the named volumes (--data also deletes this environment's own ./volumes-<env> data directory)"
 	echo "  health            - Check service health"
 	echo ""
 	echo "Environment Variables:"
@@ -256,14 +256,101 @@ show_logs() {
 }
 
 clean_services() {
-	print_warning "This will remove all volumes and data!"
-	read -p "Are you sure? (y/n): " -n 1 -r
-	echo
-	if [[ $REPLY =~ ^[Yy]$ ]]; then
-		compose_run down -v
-		print_success "Services and volumes cleaned!"
-	else
+	local option="${1:-}"
+	if [ -n "$option" ] && [ "$option" != "--data" ]; then
+		print_error "Unknown clean option: $option"
+		print_status "Accepted: clean [--data]"
+		exit 1
+	fi
+
+	# `down -v` removes containers, the network and NAMED volumes. Every directory this stack keeps
+	# state in is a bind mount from ${VOLUMES_ROOT}, and a bind mount is a host directory: compose
+	# never touches it. Reporting "volumes cleaned" over a database that is still there is the defect
+	# this command was reported for (#723), so the message names what survived, and `--data` is the
+	# only path that deletes it.
+	local vol_root remove_data=0 data_note=""
+	vol_root="$(volumes_root_host_path)"
+	if [ "$option" = "--data" ]; then
+		if [ -z "$vol_root" ]; then
+			data_note="--data: VOLUMES_ROOT is not set in $ENV_FILE, so there is no bind-mounted data directory to delete."
+		elif [ ! -d "$vol_root" ]; then
+			data_note="--data: $vol_root does not exist, so there is nothing to delete."
+		elif volumes_root_is_outside_repo; then
+			data_note="--data ignored: VOLUMES_ROOT=$vol_root is outside the checkout, so it is not this command's to delete. Delete it by hand if that is what you want."
+		elif ! volumes_root_is_deletable "$vol_root"; then
+			data_note="--data ignored: $vol_root is not this environment's data directory ($DOCKER_DIR/$(volumes_root_env_dir_name)), so it is not a path this command deletes. Delete it by hand if that is what you want."
+		else
+			remove_data=1
+		fi
+		[ -z "$data_note" ] || print_warning "$data_note"
+	fi
+
+	local project_name
+	project_name="$(get_env_var COMPOSE_PROJECT_NAME)"
+	[ -n "$project_name" ] || project_name="(COMPOSE_PROJECT_NAME is not set in $ENV_FILE)"
+	print_warning "This will remove the containers, the network and the named volumes of project '$project_name'."
+	if [ "$remove_data" -eq 1 ]; then
+		print_warning "It will ALSO delete the bind-mounted data directory $vol_root and everything under it."
+	elif [ -n "$vol_root" ]; then
+		print_warning "It does NOT remove the bind-mounted data under $vol_root: this stack keeps its state in host directories, not in named volumes, and the next start reuses it."
+	fi
+
+	# A prompt answered with EOF (Ctrl-D, a closed stdin) is a cancel, not a reason to abort under
+	# `set -e` with no message.
+	if ! read -p "Are you sure? (y/n): " -n 1 -r; then
+		echo
 		print_status "Cancelled"
+		return 0
+	fi
+	echo
+	if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+		print_status "Cancelled"
+		return 0
+	fi
+
+	compose_run down -v
+	print_success "Containers, network and named volumes removed."
+
+	if [ -z "$vol_root" ] || [ ! -d "$vol_root" ]; then
+		return 0
+	fi
+
+	if [ "$remove_data" -eq 1 ]; then
+		local entries
+		entries="$(volumes_root_entries "$vol_root" | paste -sd ', ' -)"
+		if [ -n "$entries" ]; then
+			print_warning "Delete $vol_root and everything under it ($entries) for good?"
+		else
+			print_warning "Delete $vol_root and everything under it for good?"
+		fi
+		if ! read -p "This cannot be undone. Are you sure? (y/n): " -n 1 -r; then
+			echo
+			print_status "Cancelled"
+			return 0
+		fi
+		echo
+		if [[ $REPLY =~ ^[Yy]$ ]]; then
+			rm -rf -- "$vol_root"
+			print_success "Removed $vol_root"
+			print_warning "Run ./docker/scripts/setup-env.sh $ENV before the next start: it recreates these directories with the ownership the images expect."
+		else
+			print_warning "Kept $vol_root: the next start reuses whatever is there."
+		fi
+		return 0
+	fi
+
+	print_warning "Bind-mounted data survived at $vol_root: these are host directories, not Docker volumes."
+	local entry
+	while IFS= read -r entry; do
+		[ -n "$entry" ] || continue
+		printf '%s\n' "  - $vol_root/$entry"
+	done <<<"$(volumes_root_entries "$vol_root")"
+	if volumes_root_is_outside_repo; then
+		print_warning "The next start reuses whatever is there. It is outside the checkout, so it has to be deleted by hand."
+	elif ! volumes_root_is_deletable "$vol_root"; then
+		print_warning "The next start reuses whatever is there. It is not this environment's data directory ($DOCKER_DIR/$(volumes_root_env_dir_name)), so --data will not delete it."
+	else
+		print_warning "The next start reuses whatever is there. Add --data to delete it."
 	fi
 }
 
@@ -415,7 +502,7 @@ version)
 	show_version
 	;;
 clean)
-	clean_services
+	clean_services "${3:-}"
 	;;
 health)
 	health_check

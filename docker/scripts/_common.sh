@@ -90,6 +90,75 @@ get_env_var() {
 }
 
 # ------------------------------------------
+# Bind-mounted state (${VOLUMES_ROOT})
+# ------------------------------------------
+# The containers' state is NOT in Docker volumes: compose mounts host directories under
+# ${VOLUMES_ROOT} into postgres, keycloak (the realm copies), redis, loki, prometheus, tempo and
+# grafana, and `docker compose down -v` removes NAMED volumes only -- a bind mount is a host
+# directory and compose never touches it. Any command or report that says it cleaned "the volumes"
+# therefore has to answer for these paths explicitly, and exactly one function resolves the root so
+# that every script answers with the same path.
+
+# Absolute host path of this environment's bind-mount root. Prints nothing when the env file does not
+# declare VOLUMES_ROOT; compose then refuses to start, which is a different and louder failure.
+volumes_root_host_path() {
+	local vol_root
+	vol_root="$(get_env_var VOLUMES_ROOT)"
+	[ -n "$vol_root" ] || return 0
+	case "$vol_root" in
+	/*) printf '%s' "$vol_root" ;;
+	*) printf '%s' "$DOCKER_DIR/${vol_root#./}" ;;
+	esac
+}
+
+# True (0) when VOLUMES_ROOT points outside the checkout. prod sets it to
+# /var/lib/lifecontrol/volumes, and the state of a production host is not something a convenience
+# command deletes: the scripts name the path and leave the deletion to the operator.
+volumes_root_is_outside_repo() {
+	case "$(get_env_var VOLUMES_ROOT)" in
+	/*) return 0 ;;
+	*) return 1 ;;
+	esac
+}
+
+# The directories that exist directly under the root, one name per line, sorted: the bind mounts that
+# survive `down -v`. setup-env.sh creates exactly one directory per service under this root, so the
+# answer needs no second list to maintain.
+volumes_root_entries() {
+	local root="${1:-}"
+	local entry
+	if [ -z "$root" ] || [ ! -d "$root" ]; then
+		return 0
+	fi
+	for entry in "$root"/*/; do
+		[ -d "$entry" ] || continue
+		basename "$entry"
+	done | sort
+}
+
+# The relative directory this environment owns, as setup-env.sh writes it (./volumes-<env>). The
+# deletion path and its refusal both name it, so the name cannot drift from the value they compare.
+volumes_root_env_dir_name() {
+	printf 'volumes-%s' "$ENV"
+}
+
+# True (0) when `--data` may delete this root: it is this environment's own data directory, that is,
+# a real directory (not a symlink) that resolves to $DOCKER_DIR/volumes-<env>.
+#
+# A strict-descendant test is not enough. `VOLUMES_ROOT=.` resolves to docker/ itself, `./secrets`
+# resolves to the credential files, and `./volumes-dev/../volumes-staging` resolves to another
+# environment's live database: each is one typo in an env file away, and this deletion is
+# irreversible. Anything that is not exactly this environment's directory is left to the operator.
+volumes_root_is_deletable() {
+	local root="${1:-}"
+	local resolved expected
+	[ -n "$root" ] && [ -d "$root" ] && [ ! -L "$root" ] || return 1
+	resolved="$(cd -- "$root" && pwd -P)" || return 1
+	expected="$(cd -- "$DOCKER_DIR" && pwd -P)/$(volumes_root_env_dir_name)"
+	[ "$resolved" = "$expected" ]
+}
+
+# ------------------------------------------
 # Declared-key report (read-only)
 # ------------------------------------------
 
