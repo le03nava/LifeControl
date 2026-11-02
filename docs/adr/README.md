@@ -33,7 +33,7 @@ that settled the open questions.
 
 | ADR | Decision | Status | Depends on | Blocks |
 | --- | --- | --- | --- | --- |
-| [0001](0001-inventory-ledger-single-source.md) | Inventory is a single append-only ledger; balances are disposable projections. Costing and valuation are part of it. | proposed | 0005, 0006 | 0002 |
+| [0001](0001-inventory-ledger-single-source.md) | Inventory is a single append-only ledger; balances are disposable projections. Costing and valuation are part of it. | accepted | 0005, 0006 | 0002 |
 | [0002](0002-money-first-class.md) | Money is a first-class value: currency, breakdown, payment rows, tax. | accepted | 0001, 0003, 0004, 0005, 0006 | — |
 | [0003](0003-document-identity-per-tenant.md) | Document numbers come from a per-tenant sequence, not from `max + 1` over a global `UNIQUE`. | proposed | 0005 | 0002 |
 | [0004](0004-typed-state-machine.md) | Document state is a typed machine with a history, not a string in a lookup table. | proposed | 0003, 0005 | 0002 |
@@ -56,13 +56,17 @@ therefore the agreed plan for what gets implemented first, not a suggestion: a s
 different order has to say why, because the reason the order exists is that doing it in the other
 direction writes the same work twice. Accepting the order accepts no ADR: the status column above is the
 only authority on which ones have been accepted, and each ADR still needs its own decision. ADR-0005 was
-accepted on 2026-10-29, ADR-0002 on 2026-10-30 and ADR-0006 on 2026-11-01; the other three are still
-`proposed`.
+accepted on 2026-10-29, ADR-0002 on 2026-10-30, ADR-0006 on 2026-11-01 and ADR-0001 on 2026-11-02;
+`0003` and `0004` are the two still `proposed`.
 
 One edge is missing from the table above and is stated here instead, because the column mirrors each
 ADR's own `Depends on` line: ADR-0006's `## Schema` references `currency (code)` and `tax_rate (id)`,
-which ADR-0002 creates, so the listing slice of 0006 cannot run before ADR-0002's T1 and T4 even though
-0006 is accepted. The `variant_mode`, measure-unit and barcode slices carry no such constraint.
+which ADR-0002 creates. The `currency` half is **satisfied** — `V57` created the catalog and
+`companies.currency`, and `V58` created `variant_listing` reading it. The `tax_rate` half is **not**: no
+migration in the tree creates that table, ADR-0002's T4 still owes it, and `V58` names the departure it
+took instead of inventing one (`V58__variant_listing.sql:26-31`) — so adding `variant_listing.tax_rate_id`
+is an `ALTER` in the slice that creates `tax_rate`. The `variant_mode`, measure-unit and barcode slices
+carry no such constraint.
 
 1. **ADR-0005** (tenant isolation) first, because it touches every table and every policy, and doing
    it after the new tables exist means writing the policies twice.
