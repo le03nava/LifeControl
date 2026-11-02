@@ -48,12 +48,14 @@ import org.springframework.jdbc.core.JdbcTemplate;
  * superuser is not the table's owner in any way this suite relies on — the trigger is a user trigger and
  * fires for every role that reaches it.</p>
  *
- * <p><b>Why the cleanup lifts the very rule it tests.</b> The two ledger tables are append-only, so this
- * suite cannot {@code DELETE} its own movements with the rule in place — the trigger refuses the cleanup
- * exactly as it refuses a caller. The {@code @AfterEach} below therefore disables the user triggers for
- * the two statements it needs and re-enables them in the same breath, as the container's superuser because
- * {@code ALTER TABLE} is owner DDL and the application role owns nothing. Nothing else in this suite
- * touches a trigger's state, and no other suite in the container writes either table.</p>
+ * <p><b>Why the cleanup has to escape the very rule it tests, and how.</b> The two ledger tables are
+ * append-only, so this suite cannot {@code DELETE} its own movements with the rule in place — the trigger
+ * refuses the cleanup exactly as it refuses a caller. The {@code @AfterEach} therefore goes through
+ * {@link com.lifecontrol.api.support.AbstractPostgresIntegrationTest#deleteStockLedger}, which suppresses
+ * the trigger for <b>one session and one transaction</b> with
+ * {@code SET LOCAL session_replication_role = replica} instead of changing the table's catalog entry: an
+ * {@code ALTER TABLE … DISABLE TRIGGER USER} would switch the rule off for every other suite sharing this
+ * container for as long as it lasted, and this suite is the one that asserts the rule holds.</p>
  *
  * <p>Written the way its sibling {@code StoreLocationTreeStoreScopeSchemaMigrationIntegrationTest} is: one
  * case per rule, every refusal asserted <b>by the name of the constraint or trigger that refused it</b> —
@@ -466,28 +468,19 @@ class StockLedgerSchemaMigrationIntegrationTest extends AbstractPostgresIntegrat
     }
 
     /**
-     * Deletes the movements this suite wrote — with the append-only triggers lifted, because the rule this
-     * suite proves is the rule that refuses its own cleanup.
+     * Deletes the movements and projections this suite wrote, through the shared helper — the cleanup cannot
+     * delete from an append-only table any other way, and this suite proves that rule rather than working
+     * around it. The helper's session-scoped suppression (no catalog change) is stated where it lives.
      *
-     * <p>Only the two user triggers are disabled, only for the two statements below, and they are
-     * re-enabled in the {@code finally} so a failed case cannot leave the shared container with a ledger
-     * any writer can rewrite. The statements run as the container's superuser because {@code ALTER TABLE}
-     * is owner DDL, and they name this suite's company so a row another future suite writes is never
-     * touched.</p>
+     * <p>It names this suite's company, so a row another suite writes is never touched, and it clears the
+     * projections too: the trigger derives them from the movements, so a suite that cleaned only the ledger
+     * would leave a projection that no longer replays.</p>
      */
     private void deleteMovements() {
         if (insertedMovements.isEmpty()) {
             return;
         }
-        UNRESTRICTED.execute("ALTER TABLE stock_allocation DISABLE TRIGGER USER");
-        UNRESTRICTED.execute("ALTER TABLE stock_movement DISABLE TRIGGER USER");
-        try {
-            UNRESTRICTED.update("DELETE FROM stock_allocation WHERE company_id = ?", companyId);
-            UNRESTRICTED.update("DELETE FROM stock_movement WHERE company_id = ?", companyId);
-        } finally {
-            UNRESTRICTED.execute("ALTER TABLE stock_movement ENABLE TRIGGER USER");
-            UNRESTRICTED.execute("ALTER TABLE stock_allocation ENABLE TRIGGER USER");
-        }
+        deleteStockLedger(jdbcTemplate, companyId);
         insertedMovements.clear();
     }
 

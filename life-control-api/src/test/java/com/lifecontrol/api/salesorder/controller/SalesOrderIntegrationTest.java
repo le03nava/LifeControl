@@ -21,6 +21,7 @@ import com.lifecontrol.api.country.model.Country;
 import com.lifecontrol.api.country.repository.CountryRepository;
 import com.lifecontrol.api.customer.model.Customer;
 import com.lifecontrol.api.customer.repository.CustomerRepository;
+import com.lifecontrol.api.inventory.ledger.StockLedgerWriter;
 import com.lifecontrol.api.inventory.model.InventoryMovement;
 import com.lifecontrol.api.inventory.model.MovementType;
 import com.lifecontrol.api.inventory.model.ProductVariantLocation;
@@ -81,6 +82,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
@@ -93,6 +95,14 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
 
     @Autowired
     private MockMvc mockMvc;
+
+    /** The handle the shared ledger cleanup deletes the projections through (see the base class). */
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
+    /** The production writer the ledger opening goes through, so the fixture books what production books. */
+    @Autowired
+    private StockLedgerWriter stockLedgerWriter;
 
     @Autowired
     private ObjectMapper objectMapper;
@@ -183,6 +193,18 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
 
     private static final SimpleGrantedAuthority ROLE_LC_SALES = new SimpleGrantedAuthority("ROLE_lc-sales");
 
+    /**
+     * The ledger source of stock this fixture seeds.
+     *
+     * <p>A discriminator that can never be mistaken for a real one: a receipt, a sale or a hand edit writes the
+     * movement's source as the {@code inventory_movements} row it mirrors, and this stock has no legacy movement
+     * at all — it is the state {@code V62}'s Path A replay exists for, applied to one key instead of the whole
+     * tree ({@code source_type = 'MIGRATION'} there). The legacy columns stay beside it during the transition
+     * because they are still the authority the API reads, and the ledger's job in this window is to describe the
+     * same balance.</p>
+     */
+    private static final String FIXTURE_OPENING = "FIXTURE_OPENING";
+
     @BeforeEach
     void setUp() {
         // Clean up mutable data in reverse FK dependency order. inventory_movements and
@@ -203,6 +225,14 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
 
     @AfterEach
     void tearDown() {
+        // The orders this suite places also book the stock ledger (T5a of odd/tasks/inventory-ledger.md),
+        // and those rows reference product_variants and store_locations with no cascade while the ledger is
+        // append-only: the deletes below would fail on fk_movement_variant, and the rows would keep blocking
+        // every other class in this shared JVM. They are removed first, through the shared helper.
+        if (companyId != null) {
+            deleteStockLedger(jdbcTemplate, companyId);
+        }
+
         // Leave no inventory rows behind: this JVM shares its PostgreSQL container with the other
         // integration classes, and a leftover movement or balance would block their product deletes.
         inventoryMovementRepository.deleteAll();
@@ -540,6 +570,42 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                 .storeLocationId(salesLocationId)
                 .stock(stock)
                 .build());
+        // …and the same balance in the ledger, as the opening that explains it. Without this the ledger's
+        // position for the key is zero and the projection trigger's I8 refuses every sale of stock the
+        // fixture seeded, which is exactly the state a pre-ledger balance is in.
+        bookLedgerOpening(variantId, salesLocationId, stock, costPrice);
+    }
+
+    /**
+     * Books one location's ledger opening through {@link StockLedgerWriter}: an {@code ADJUSTMENT_IN} of the
+     * balance this fixture just wrote into the legacy columns, sourced by the {@code product_variant_locations}
+     * row that states it.
+     *
+     * <p>Why the location row and not the store row: {@code uq_movement_source} keys
+     * {@code (source_type, source_id, movement_type)}, and a store with two seeded locations books two
+     * {@code ADJUSTMENT_IN} rows — a shared store-row id would be refused on the second. It is also what the
+     * balance is a balance <em>of</em>, and the same choice {@code V62} made for the identical job.</p>
+     *
+     * <p>Runs inside the caller's tenant transaction: the writer refuses to book outside one, and the ledger's
+     * tables are armed, so the fixture states its tenant the way every other writer call in this suite does.</p>
+     */
+    private void bookLedgerOpening(UUID variantId, UUID storeLocationId, BigDecimal quantity, BigDecimal recordedCost) {
+        if (quantity == null || quantity.signum() == 0) {
+            return;
+        }
+        var sourceRowId = productVariantLocationRepository
+                .findByProductVariantIdAndStoreLocationId(variantId, storeLocationId)
+                .orElseThrow(() -> new IllegalStateException("The ledger opening needs the balance row that "
+                        + "states it, and variant " + variantId + " has none at location " + storeLocationId))
+                .getId();
+        stockLedgerWriter.bookAdjustmentIn(
+                new StockLedgerWriter.Booking(
+                        companyId, companyStoreId, storeLocationId, variantId, "fixture", FIXTURE_OPENING, sourceRowId),
+                quantity,
+                recordedCost,
+                stockLedgerWriter.operatingCurrency(companyId),
+                "stock this fixture seeded predates the stock ledger: the same fact V62's Path A replay opens "
+                        + "for the whole tree");
     }
 
     /** Reads the per-store stock row, the only place the aggregate lives after the variant split. */
@@ -569,16 +635,47 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
      * deduction larger than the priority balance has to spill over. The aggregate keeps the sum.
      */
     private void seedSplitBalances(UUID variantId, BigDecimal salesLocationStock, BigDecimal secondaryStock) {
-        var priority = productVariantLocationRepository
-                .findByProductVariantIdAndStoreLocationId(variantId, salesLocationId)
-                .orElseThrow();
-        priority.setStock(salesLocationStock);
-        productVariantLocationRepository.save(priority);
-        productVariantLocationRepository.save(ProductVariantLocation.builder()
-                .productVariantId(variantId)
-                .storeLocationId(secondaryLocationId)
-                .stock(secondaryStock)
-                .build());
+        TenantFixtures.inTenant(companyId, () -> {
+            var aggregate = storeStockOf(variantId).getStock();
+            if (salesLocationStock.add(secondaryStock).compareTo(aggregate) != 0) {
+                throw new IllegalStateException("The fixture seeds " + aggregate + " for variant " + variantId
+                        + " and this split describes " + salesLocationStock.add(secondaryStock)
+                        + ", so the ledger's per-location balances could not end where the legacy rows do");
+            }
+            var priority = productVariantLocationRepository
+                    .findByProductVariantIdAndStoreLocationId(variantId, salesLocationId)
+                    .orElseThrow();
+            priority.setStock(salesLocationStock);
+            productVariantLocationRepository.save(priority);
+            productVariantLocationRepository.save(ProductVariantLocation.builder()
+                    .productVariantId(variantId)
+                    .storeLocationId(secondaryLocationId)
+                    .stock(secondaryStock)
+                    .build());
+
+            // The ledger's opening is already at the priority location (saveStoreStock booked it); a split is
+            // that opening being placed on two shelves, so it is booked as the relocation it is: quantity out
+            // of the priority location and the same into the second one. Both rows are sourced by the balance
+            // row whose quantity each one changes, so the pair needs no legacy movement and adds none.
+            var relocated = aggregate.subtract(salesLocationStock);
+            if (relocated.signum() > 0) {
+                stockLedgerWriter.bookAdjustmentOut(
+                        new StockLedgerWriter.Booking(
+                                companyId,
+                                companyStoreId,
+                                salesLocationId,
+                                variantId,
+                                "fixture",
+                                FIXTURE_OPENING,
+                                priority.getId()),
+                        relocated);
+            }
+            bookLedgerOpening(
+                    variantId,
+                    secondaryLocationId,
+                    secondaryStock,
+                    storeStockOf(variantId).getCostPrice());
+        });
     }
 
     /**

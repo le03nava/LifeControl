@@ -347,3 +347,41 @@ constant stays.
    `SET LOCAL session_replication_role = replica` on the container-superuser connection, which is
    session-scoped and invisible to anyone else, and the helper is itself tested — book, clean, assert empty —
    rather than trusted.
+
+**2026-11-02 — T5a landed: the four writers book the ledger, and the fixture problem was the interesting
+half.** `StockLedgerWriter` books one `stock_movement` per legacy movement and its allocations for every
+outbound row, in the same transaction as the untouched legacy update; the four public methods and their four
+callers are unchanged. `Booking` now carries a **required** `sourceType` — no default, no overload — and the five
+production call sites state `MIRRORED_SOURCE_TYPE` explicitly, so the transition shape is visible where it is
+decided rather than hidden in the writer. That parameter is not a test accommodation: T5c's finding says the
+mirror dies with T6, and this is the seam that replaces it, built once where the fixture forced it.
+
+Three interactions were needed to get here, and each one was a stop rather than a guess:
+
+1. **The first attempt to fix the fixtures was measured and refused.** Authorized to seed
+   `SalesOrderIntegrationTest` through `applyReceipt`, the writer measured that it changes the legacy
+   `inventory_movements` counts **19 of 40** cases read — and that `seedSplitBalances` has **no writer at all**,
+   because `InventoryService` has no transfer between locations. My authorization was wrong and it said so with
+   the measurement instead of applying it.
+2. **Then two of my own conditions were mutually unsatisfiable**, and it said so instead of choosing: booking
+   through the writer and labelling the row `FIXTURE_OPENING` cannot both hold while the writer hard-codes
+   `source_type`. The resolution opened the required parameter above.
+3. **The split is booked as a relocation, not a sale.** A split between two locations has no writer of its own,
+   so the fixture books `ADJUSTMENT_OUT` of the difference at the priority location plus the secondary
+   location's opening — each sourced by the location balance row it changes, which is V62's own shape — rather
+   than a `SALE`+`RECEIPT` pair, which would have recorded a sale that never happened. The helper refuses a split
+   that does not sum to the seeded aggregate, so a per-location disagreement cannot be seeded silently.
+
+The fixture state this names is a real one: **stock that predates the ledger**. It is labelled
+`FIXTURE_OPENING`, it is booked through the production writer rather than raw SQL, and it dies with the suite.
+A fixture that inserts a ledger row the writers cannot produce would prove nothing.
+
+Two facts that are written here rather than left to be inferred from green tests: the schema suite's two I1
+cases run with the append-only trigger **on** — they assert that a direct `UPDATE` and a direct `DELETE` raise,
+which is why that suite keeps the container superuser handle — and **no executable catalog-level trigger lift
+remains in the module**: the two hits on `DISABLE TRIGGER` are javadoc explaining why the mechanism is not used,
+and the one executable suppression is the shared helper's session-scoped
+`SET LOCAL session_replication_role = replica`.
+
+Verification: module **4359 cases, 0 failures**, from a forced `cleanTest` re-run rather than an `up-to-date`
+reuse; `spotlessCheck` and `spotbugsMain` clean.

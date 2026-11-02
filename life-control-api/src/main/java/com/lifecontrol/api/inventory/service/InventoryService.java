@@ -1,6 +1,7 @@
 package com.lifecontrol.api.inventory.service;
 
 import com.lifecontrol.api.inventory.exception.StoreInventorySettingsNotFoundException;
+import com.lifecontrol.api.inventory.ledger.StockLedgerWriter;
 import com.lifecontrol.api.inventory.model.InventoryMovement;
 import com.lifecontrol.api.inventory.model.MovementType;
 import com.lifecontrol.api.inventory.model.ProductVariantLocation;
@@ -70,6 +71,36 @@ import org.springframework.transaction.annotation.Transactional;
  * {@code SUM(product_variant_locations.stock)}: if a writer ever leaves the two sides disagreeing,
  * that derivation silently resurrects stock a sale already sold instead of surfacing the
  * divergence. The receipt explains its own delta; it does not repair another writer's balances.</p>
+ *
+ * <h2>The ledger is booked beside the legacy write (T5a of {@code odd/tasks/inventory-ledger.md})</h2>
+ * <p>ADR-0001's step 4 cannot run before step 6 (the ADR records why), so the executable order is
+ * <em>write, read, stop writing, drop</em>: this class keeps writing the legacy balances exactly as it did
+ * and, in the same transaction, books the same fact into {@code stock_movement} through
+ * {@link StockLedgerWriter}. Nothing else moves — no reader changes here, no legacy write is deleted, and the
+ * four public methods keep their signatures, so {@code GoodsReceiptService}, {@code SalesOrderService} and
+ * {@code ProductVariantService} are untouched. The point of the duplication is that the two copies can be
+ * seen to agree, which is the only moment a defect in either one is visible;
+ * {@code InventoryLedgerBookingIntegrationTest} is the witness.</p>
+ *
+ * <p><b>The order, and why.</b> The ledger row is written <em>after</em> the legacy write it mirrors, inside
+ * the same loop iteration, in the same transaction. Three reasons, and each is load-bearing:</p>
+ * <ol>
+ *   <li>The legacy availability checks ({@code storeStock} aggregate, then the location sum) are the
+ *       documented sale contract — {@link InsufficientStockException}, a 409 — and they run before any write.
+ *       Booking the ledger first would let the projection trigger's invariant I8 preempt that contract with a
+ *       database error the API never promised.</li>
+ *   <li>I8 stays an <em>independent</em> second gate at store grain, exactly as {@code V61} built it: it reads
+ *       the ledger's own position, so a ledger that is behind the legacy balance refuses the movement rather
+ *       than agreeing with a divergence. Because both writes share one transaction, a refusal there rolls the
+ *       legacy write back too.</li>
+ *   <li>A reversal has to name the {@code SALE} row it reverses ({@code reverses_movement_id}), and that row
+ *       is written by the same iteration that writes the legacy row.</li>
+ * </ol>
+ *
+ * <p><b>What the ledger consumes.</b> Every outbound row ({@code SALE}, {@code ADJUSTMENT_OUT}) is followed
+ * by {@code allocate_stock_movement}, so the consumption is recorded rather than recomputed (decision 3) and
+ * invariant I6 holds from the first row this class books. A {@code SALE_REVERSAL} names the row it reverses
+ * and allocates nothing: the rows it frees are the ones that row consumed.</p>
  */
 @Service
 @Transactional
@@ -84,6 +115,15 @@ public class InventoryService {
      */
     private static final String MANUAL_STOCK_EDIT_REFERENCE_TYPE = "MANUAL_STOCK_EDIT";
 
+    /**
+     * Why an inbound movement can be booked at zero cost: {@code ck_movement_inbound_cost} demands a cost and
+     * a currency on every row that adds quantity, and {@code product_variant_store_stock.cost_price} is the
+     * only cost this deployment records. A row with no recorded cost is booked at zero with the reason stated
+     * on the row, exactly as {@code V62}'s backfill decided for the same fact.
+     */
+    private static final String UNRECORDED_COST_REASON =
+            "no cost is recorded for this variant in this store, so the inbound movement is booked at 0";
+
     private final ProductVariantRepository productVariantRepository;
     private final ProductVariantStoreStockRepository productVariantStoreStockRepository;
     private final ProductVariantLocationRepository productVariantLocationRepository;
@@ -91,6 +131,7 @@ public class InventoryService {
     private final StoreInventorySettingsRepository storeInventorySettingsRepository;
     private final CompanyStoreRepository companyStoreRepository;
     private final CompanyStoreOwnerResolver companyStoreOwnerResolver;
+    private final StockLedgerWriter stockLedgerWriter;
 
     public InventoryService(
             ProductVariantRepository productVariantRepository,
@@ -99,7 +140,8 @@ public class InventoryService {
             InventoryMovementRepository inventoryMovementRepository,
             StoreInventorySettingsRepository storeInventorySettingsRepository,
             CompanyStoreRepository companyStoreRepository,
-            CompanyStoreOwnerResolver companyStoreOwnerResolver) {
+            CompanyStoreOwnerResolver companyStoreOwnerResolver,
+            StockLedgerWriter stockLedgerWriter) {
         this.productVariantRepository = productVariantRepository;
         this.productVariantStoreStockRepository = productVariantStoreStockRepository;
         this.productVariantLocationRepository = productVariantLocationRepository;
@@ -107,6 +149,7 @@ public class InventoryService {
         this.storeInventorySettingsRepository = storeInventorySettingsRepository;
         this.companyStoreRepository = companyStoreRepository;
         this.companyStoreOwnerResolver = companyStoreOwnerResolver;
+        this.stockLedgerWriter = stockLedgerWriter;
     }
 
     /**
@@ -152,6 +195,12 @@ public class InventoryService {
             throw new ProductVariantNotFoundException(productVariantId);
         }
 
+        // 2b. The tenant every booked movement carries, derived once from the store that owns it. The
+        //     ledger's tables are armed on tenant_table (V60), so the transaction this method runs in
+        //     must already carry that company's scope; a movement for another company is refused by the
+        //     policy rather than written, which is the loud half of ADR-0005.
+        var companyId = companyIdOf(companyStoreId);
+
         // 3. Lock the per-store stock row. This is the FIRST lock of the transaction and the
         //    serialization point of the whole write: two receipts for the same variant in the same
         //    store queue here, and two receipts for the same variant in DIFFERENT stores do not
@@ -184,6 +233,23 @@ public class InventoryService {
                 .createdBy(createdBy)
                 .build();
         inventoryMovementRepository.save(movement);
+
+        // 5b. THE SAME FACT, IN THE LEDGER, BESIDE IT. One RECEIPT row that adds the quantity this line
+        //     received, at the cost this store records for the variant and in the company's operating
+        //     currency — ck_movement_inbound_cost (V60) requires both on every row that adds quantity.
+        //     The projection trigger derives stock_balance, stock_position and stock_valuation from it,
+        //     so from this row on the ledger's numbers are the legacy numbers.
+        bookLedgerInbound(
+                StockLedgerWriter.MIRRORED_SOURCE_TYPE,
+                companyId,
+                companyStoreId,
+                storeLocationId,
+                productVariantId,
+                quantity,
+                storeStock.getCostPrice(),
+                movement.getId(),
+                createdBy,
+                true);
 
         // 6. ADDITIVE, NEVER A RECOMPUTE. The location balance and the store's sellable stock are
         //    both incremented here, by the same quantity, so this is correct by construction
@@ -266,6 +332,10 @@ public class InventoryService {
             throw new ProductVariantNotFoundException(productVariantId);
         }
 
+        // 2b. The tenant every booked movement carries, derived once from the store that owns it (see
+        //     applyReceipt step 2b).
+        var companyId = companyIdOf(companyStoreId);
+
         // 3. FIRST lock: the per-store stock row, the serialization point of every stock mover. A
         //    store that does not stock the variant has ZERO sellable stock, so the sale fails
         //    closed with the same InsufficientStockException (409) a zero aggregate produces. This
@@ -324,7 +394,7 @@ public class InventoryService {
             }
             location.setStock(stock.subtract(taken));
             productVariantLocationRepository.save(location);
-            inventoryMovementRepository.save(newMovement(
+            var saleMovement = newMovement(
                     productVariantId,
                     companyStoreId,
                     location.getStoreLocationId(),
@@ -332,7 +402,22 @@ public class InventoryService {
                     taken,
                     referenceType,
                     referenceId,
-                    createdBy));
+                    createdBy);
+            inventoryMovementRepository.save(saleMovement);
+            // 9b. The ledger books the same deduction, and the allocation writer records which inbound
+            //     rows it consumed (decision 3). Legacy first, ledger after: the availability contract
+            //     above is the gate a caller meets, and I8 in the projection trigger stays the ledger's
+            //     own independent gate — it reads the ledger's position, never these numbers.
+            stockLedgerWriter.bookSale(
+                    booking(
+                            StockLedgerWriter.MIRRORED_SOURCE_TYPE,
+                            companyId,
+                            companyStoreId,
+                            location.getStoreLocationId(),
+                            productVariantId,
+                            createdBy,
+                            saleMovement.getId()),
+                    taken);
             remaining = remaining.subtract(taken);
         }
 
@@ -378,7 +463,10 @@ public class InventoryService {
         }
 
         // 2. Group per (variant, store) in a deterministic order, then reverse each scope with the
-        //    documented lock order storeStock -> locationBalance.
+        //    documented lock order storeStock -> locationBalance. The ledger needs one more fact per scope:
+        //    which of the sale's ledger rows are still open, because a reversal names the row it reverses
+        //    and never re-derives a remainder (decision 3).
+        var openSales = openLedgerSales(referenceType, referenceId);
         var keys = new ArrayList<>(uncovered.keySet());
         keys.sort(Comparator.comparing(SaleBalanceKey::productVariantId)
                 .thenComparing(SaleBalanceKey::companyStoreId)
@@ -398,6 +486,7 @@ public class InventoryService {
                     scope.productVariantId(),
                     scope.companyStoreId(),
                     locationAmounts,
+                    openSales,
                     referenceType,
                     referenceId,
                     createdBy);
@@ -591,7 +680,7 @@ public class InventoryService {
             location.setStock(orZero(location.getStock()).add(delta));
             productVariantLocationRepository.save(location);
 
-            inventoryMovementRepository.save(newMovement(
+            var increaseMovement = newMovement(
                     productVariantId,
                     companyStoreId,
                     destinationLocationId,
@@ -599,7 +688,23 @@ public class InventoryService {
                     delta,
                     MANUAL_STOCK_EDIT_REFERENCE_TYPE,
                     null,
-                    createdBy));
+                    createdBy);
+            inventoryMovementRepository.save(increaseMovement);
+            // 5b. The ledger books the increase beside the legacy row: ADJUSTMENT_IN adds quantity, so
+            //     it states a cost and a currency (ck_movement_inbound_cost), and the operator's cost is
+            //     the one this store records — the signature carries none and inventing one would be a
+            //     number nobody wrote down.
+            bookLedgerInbound(
+                    StockLedgerWriter.MIRRORED_SOURCE_TYPE,
+                    companyIdOf(companyStoreId),
+                    companyStoreId,
+                    destinationLocationId,
+                    productVariantId,
+                    delta,
+                    storeStock.getCostPrice(),
+                    increaseMovement.getId(),
+                    createdBy,
+                    false);
         } else if (delta.signum() < 0) {
             applyAdjustmentDecrease(productVariantId, companyStoreId, destinationLocationId, delta.negate(), createdBy);
         }
@@ -646,6 +751,7 @@ public class InventoryService {
         }
 
         var remaining = amount;
+        var companyId = companyIdOf(companyStoreId);
         for (var location : orderForDeduction(lockedBalances.values(), priorityLocationId)) {
             if (remaining.signum() == 0) {
                 break;
@@ -657,7 +763,7 @@ public class InventoryService {
             }
             location.setStock(stock.subtract(taken));
             productVariantLocationRepository.save(location);
-            inventoryMovementRepository.save(newMovement(
+            var decreaseMovement = newMovement(
                     productVariantId,
                     companyStoreId,
                     location.getStoreLocationId(),
@@ -665,7 +771,21 @@ public class InventoryService {
                     taken,
                     MANUAL_STOCK_EDIT_REFERENCE_TYPE,
                     null,
-                    createdBy));
+                    createdBy);
+            inventoryMovementRepository.save(decreaseMovement);
+            // One ADJUSTMENT_OUT per location drawn from, each with its allocations: an outbound row that
+            // is not allocated violates I6, and the allocation writer is the only consumption path
+            // (decision 3).
+            stockLedgerWriter.bookAdjustmentOut(
+                    booking(
+                            StockLedgerWriter.MIRRORED_SOURCE_TYPE,
+                            companyId,
+                            companyStoreId,
+                            location.getStoreLocationId(),
+                            productVariantId,
+                            createdBy,
+                            decreaseMovement.getId()),
+                    taken);
             remaining = remaining.subtract(taken);
         }
     }
@@ -707,11 +827,27 @@ public class InventoryService {
      * Credits one {@code (variant, store)} scope back to the locations of its remainder and to the
      * store's aggregate. The balance rows are locked in {@code store_location_id} order, after the
      * per-store stock row.
+     *
+     * <p>Each location's ledger reversal is written after the legacy row it mirrors, and there can be more
+     * ledger reversals than legacy rows at one location: the legacy engine writes <b>one</b>
+     * {@code SALE_REVERSAL} per location for the whole remaining amount, while the ledger has to name every
+     * {@code SALE} row it gives back, and a line that was sold twice — a grown quantity sells the difference
+     * under the same reference — has two open rows there. That is legal in the ledger by construction:
+     * {@code uq_movement_source} is partial on {@code reverses_movement_id IS NULL}, so a reversal row is not
+     * in it, and {@code uq_movement_one_reversal} is what bounds the set instead — at most one reversal per
+     * reversed row.</p>
+     *
+     * <p>The one case the ledger cannot express is refused loudly rather than repaired:
+     * {@code V61}'s shape rule demands that a reversal move <em>exactly</em> the quantity of the row it
+     * names, so a legacy remainder that is a strict part of an open sale row (a partial reversal) has no shape
+     * in the ledger. Raising there is the point: a silent partial reversal would free a fraction of the rows
+     * the original consumed, which is the remainder arithmetic decision 3 removes.</p>
      */
     private void reverseScope(
             UUID productVariantId,
             UUID companyStoreId,
             NavigableMap<UUID, BigDecimal> locationAmounts,
+            Map<SaleBalanceKey, List<OpenSale>> openSales,
             String referenceType,
             UUID referenceId,
             String createdBy) {
@@ -721,13 +857,17 @@ public class InventoryService {
                 .orElseThrow(() -> new IllegalArgumentException(
                         "Product variant " + productVariantId + " has no stock row in store " + companyStoreId));
 
+        var companyId = companyIdOf(companyStoreId);
         var total = BigDecimal.ZERO;
         for (var entry : locationAmounts.entrySet()) {
             var location = lockBalance(productVariantId, entry.getKey());
             var amount = entry.getValue();
+            var open = openSales.getOrDefault(
+                    new SaleBalanceKey(productVariantId, companyStoreId, entry.getKey()), List.of());
+            requireTheWholeRemainderIsOpen(productVariantId, companyStoreId, entry.getKey(), amount, open);
             location.setStock(orZero(location.getStock()).add(amount));
             productVariantLocationRepository.save(location);
-            inventoryMovementRepository.save(newMovement(
+            var reversalMovement = newMovement(
                     productVariantId,
                     companyStoreId,
                     entry.getKey(),
@@ -735,7 +875,21 @@ public class InventoryService {
                     amount,
                     referenceType,
                     referenceId,
-                    createdBy));
+                    createdBy);
+            inventoryMovementRepository.save(reversalMovement);
+            for (var sale : open) {
+                stockLedgerWriter.bookSaleReversal(
+                        booking(
+                                StockLedgerWriter.MIRRORED_SOURCE_TYPE,
+                                companyId,
+                                companyStoreId,
+                                entry.getKey(),
+                                productVariantId,
+                                createdBy,
+                                reversalMovement.getId()),
+                        sale.quantity(),
+                        sale.ledgerMovementId());
+            }
             total = total.add(amount);
         }
 
@@ -777,6 +931,132 @@ public class InventoryService {
 
     /** The ledger identity a reversal balances per location: one row per variant, store and location. */
     private record SaleBalanceKey(UUID productVariantId, UUID companyStoreId, UUID storeLocationId) {}
+
+    /**
+     * One remainder the ledger still holds open: a {@code SALE} row no reversal names yet, and the quantity
+     * it moved. It is what a reversal has to name to free exactly the rows the sale consumed.
+     */
+    private record OpenSale(UUID ledgerMovementId, BigDecimal quantity) {}
+
+    /**
+     * The key every ledger row needs, plus the identity of the row that states the fact.
+     *
+     * <p>{@code sourceType} is required, and every call site in this class states
+     * {@link StockLedgerWriter#MIRRORED_SOURCE_TYPE} explicitly: the dual-write window's transition shape is
+     * visible where each fact is booked instead of being implied by the writer (see
+     * {@link StockLedgerWriter#MIRRORED_SOURCE_TYPE} and the re-cut entry of
+     * {@code odd/tasks/inventory-ledger.md} that defines T5a/T5b/T5c, where T5c stops the legacy writes and
+     * {@code inventory_movements} drops in T6).</p>
+     */
+    private static StockLedgerWriter.Booking booking(
+            String sourceType,
+            UUID companyId,
+            UUID companyStoreId,
+            UUID storeLocationId,
+            UUID productVariantId,
+            String createdBy,
+            UUID sourceId) {
+        return new StockLedgerWriter.Booking(
+                companyId, companyStoreId, storeLocationId, productVariantId, createdBy, sourceType, sourceId);
+    }
+
+    /**
+     * Books an inbound movement (a receipt or the increase side of a manual edit) beside the legacy row that
+     * states the same fact.
+     *
+     * <p>The cost is what {@code product_variant_store_stock.cost_price} records for this variant in this
+     * store — the only cost this deployment keeps, and the same source {@code V62}'s backfill used. A missing
+     * value is booked as zero with the reason stated on the row, never refused: a migration that cannot run
+     * gets edited under pressure, and a receipt of stock that has no recorded cost is still a receipt.</p>
+     *
+     * @param receipt whether the row is a {@code RECEIPT} rather than an {@code ADJUSTMENT_IN}; the two differ
+     *     only in the movement type and in what explains them
+     */
+    private void bookLedgerInbound(
+            String sourceType,
+            UUID companyId,
+            UUID companyStoreId,
+            UUID storeLocationId,
+            UUID productVariantId,
+            BigDecimal quantity,
+            BigDecimal recordedCost,
+            UUID sourceId,
+            String createdBy,
+            boolean receipt) {
+        var booking =
+                booking(sourceType, companyId, companyStoreId, storeLocationId, productVariantId, createdBy, sourceId);
+        var unitCost = orZero(recordedCost);
+        var currency = stockLedgerWriter.operatingCurrency(companyId);
+        var reason = recordedCost == null ? UNRECORDED_COST_REASON : null;
+        if (receipt) {
+            stockLedgerWriter.bookReceipt(booking, quantity, unitCost, currency, reason);
+        } else {
+            stockLedgerWriter.bookAdjustmentIn(booking, quantity, unitCost, currency, reason);
+        }
+    }
+
+    /**
+     * The sale movements of one reference that the ledger still holds open, grouped by the key a reversal
+     * balances, oldest first.
+     *
+     * <p>Read from the legacy rows the reversal already reads, each resolved to the ledger row that mirrors it
+     * — that is what makes the reversal name the exact rows instead of re-deriving a remainder. A legacy sale
+     * that has no ledger twin predates this slice's writers (the deploy window), and it is refused rather than
+     * guessed at: the ledger holds no movement to reverse, and inventing one would record a fact nobody
+     * observed.</p>
+     */
+    private Map<SaleBalanceKey, List<OpenSale>> openLedgerSales(String referenceType, UUID referenceId) {
+        var sales = new ArrayList<InventoryMovement>();
+        for (var movement : inventoryMovementRepository.findByReferenceTypeAndReferenceId(referenceType, referenceId)) {
+            if (movement.getMovementType() == MovementType.SALE) {
+                sales.add(movement);
+            }
+        }
+        sales.sort(
+                Comparator.comparing(InventoryMovement::getOccurredAt, Comparator.nullsFirst(Comparator.naturalOrder()))
+                        .thenComparing(InventoryMovement::getId, Comparator.nullsFirst(Comparator.naturalOrder())));
+
+        var open = new LinkedHashMap<SaleBalanceKey, List<OpenSale>>();
+        for (var sale : sales) {
+            var ledgerMovementId = stockLedgerWriter
+                    .mirroredMovementId(sale.getId(), StockLedgerWriter.SALE)
+                    .orElseThrow(() -> new IllegalStateException("The legacy ledger holds SALE movement " + sale.getId()
+                            + " of reference " + referenceType + "/" + referenceId + " and the stock ledger holds no"
+                            + " movement that mirrors it, so it cannot be reversed: a sale booked before this"
+                            + " slice's writers existed has no ledger row to name (ADR-0001 decision 3)"));
+            if (stockLedgerWriter.isReversed(ledgerMovementId)) {
+                continue;
+            }
+            open.computeIfAbsent(
+                            new SaleBalanceKey(
+                                    sale.getProductVariantId(), sale.getCompanyStoreId(), sale.getStoreLocationId()),
+                            key -> new ArrayList<>())
+                    .add(new OpenSale(ledgerMovementId, orZero(sale.getQuantity())));
+        }
+        return open;
+    }
+
+    /**
+     * Refuses a remainder the ledger cannot express as a set of whole reversals.
+     *
+     * <p>{@code V61} allows a reversal to move exactly the quantity of the row it names, and no more than one
+     * reversal per row. If the legacy remainder at one location is not the sum of the sale rows still open
+     * there, the legacy path is reversing a part of a sale — the remainder arithmetic decision 3 removes — and
+     * the ledger has no shape for it. The message says so instead of booking a reversal that frees the wrong
+     * rows.</p>
+     */
+    private static void requireTheWholeRemainderIsOpen(
+            UUID productVariantId, UUID companyStoreId, UUID storeLocationId, BigDecimal amount, List<OpenSale> open) {
+        var openTotal = open.stream().map(OpenSale::quantity).reduce(BigDecimal.ZERO, BigDecimal::add);
+        if (openTotal.compareTo(amount) != 0) {
+            throw new IllegalStateException("The legacy ledger holds a remainder of " + amount + " for variant "
+                    + productVariantId + " in store " + companyStoreId + " at location " + storeLocationId
+                    + ", and the stock ledger holds " + openTotal
+                    + " of sale rows no reversal names there. A reversal must move exactly the quantity of the row"
+                    + " it names and may happen once per row (V61), so a partial remainder has no ledger shape: a"
+                    + " partial correction is a new movement, not a reversal (ADR-0001 decision 3)");
+        }
+    }
 
     private static InventoryMovement newMovement(
             UUID productVariantId,

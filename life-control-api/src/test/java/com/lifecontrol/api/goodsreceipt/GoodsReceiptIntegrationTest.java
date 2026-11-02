@@ -254,6 +254,13 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
 
     @AfterEach
     void tearDown() {
+        // The receipts this suite applies also book the stock ledger (T5a of odd/tasks/inventory-ledger.md),
+        // and those rows reference product_variants and store_locations with no cascade while the ledger is
+        // append-only. Deleting them here is what keeps the next suite in this shared JVM able to delete the
+        // variant, the location or the store they name.
+        if (company != null) {
+            deleteStockLedger(jdbcTemplate, company.getId());
+        }
         inventoryMovementRepository.deleteAll();
         productVariantLocationRepository.deleteAll();
         productVariantStoreStockRepository.deleteAll();
