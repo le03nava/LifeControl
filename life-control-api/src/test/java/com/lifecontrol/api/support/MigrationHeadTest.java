@@ -3,8 +3,12 @@ package com.lifecontrol.api.support;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 /**
  * Pins the two rules {@link AbstractPostgresIntegrationTest#latestMigrationVersion(String)} has to
@@ -21,17 +25,42 @@ import org.junit.jupiter.api.Test;
  * tree's first migration of that kind (ADR-0003 renders the document number with the renderer the API
  * ships, so the writer and the history share one implementation), and the scan used to read {@code *.sql}
  * only — which reported {@code 64} for a database at {@code 65} and failed nine schema suites on the one
- * migration that adds no SQL. {@code migration-order-fixture-java} holds one SQL and one {@code .class}
- * file for exactly that question.</p>
+ * migration that adds no SQL.</p>
+ *
+ * <p><b>Why that fixture is written per test and not committed.</b> This repository ignores
+ * {@code *.class} (build output), so a committed fixture {@code .class} is invisible to everyone who does
+ * not happen to have it on disk: the case passed locally and failed in CI with the same two assertions —
+ * a test that agrees with the author's working tree is exactly the failure mode it exists to prevent. The
+ * bytes are irrelevant, the <b>name</b> is the fixture, so the two files are written into a temporary
+ * directory whose {@code file:} location the helper is handed.</p>
  */
 @DisplayName("Latest migration version resolution")
 class MigrationHeadTest {
 
     private static final String ORDER_FIXTURE = "classpath*:migration-order-fixture/V*__*.sql";
 
-    private static final String BOTH_HALVES_FIXTURE = "classpath*:migration-order-fixture-java/V*__*.*";
+    @TempDir
+    Path javaHalfFixture;
 
-    private static final String JAVA_HALF_FIXTURE = "classpath*:migration-order-fixture-java/V*__*.class";
+    /** One SQL migration and one Java migration, side by side, in a directory that is never committed. */
+    private void writeBothHalves() throws IOException {
+        Files.writeString(javaHalfFixture.resolve("V9__sql_half.sql"), "-- fixture: the SQL half\n");
+        // The content is never parsed — the version comes from the name — so an empty file is the honest
+        // fixture for "a .class exists in this location".
+        Files.write(javaHalfFixture.resolve("V11__java_half.class"), new byte[0]);
+    }
+
+    private String sqlHalf() {
+        return javaHalfFixture.toUri() + "V*__*.sql";
+    }
+
+    private String javaHalf() {
+        return javaHalfFixture.toUri() + "V*__*.class";
+    }
+
+    private String bothHalves() {
+        return javaHalfFixture.toUri() + "V*__*.*";
+    }
 
     @Test
     @DisplayName("orders by migration version, so V10 is newer than V9 and V2")
@@ -51,24 +80,29 @@ class MigrationHeadTest {
 
     @Test
     @DisplayName("reads a Java migration's head, so a .class file is not the one kind of migration it misses")
-    void countsAJavaMigrationAsHead() {
-        // The same directory, twice: the SQL half alone answers 9, and the answer for the directory is the
-        // Java half's 11. A scan of *.sql only is what reported 64 for a database at 65.
-        assertThat(AbstractPostgresIntegrationTest.latestMigrationVersion(
-                        "classpath*:migration-order-fixture-java/V*__*.sql"))
+    void countsAJavaMigrationAsHead() throws IOException {
+        writeBothHalves();
+
+        // The same directory, three reads: the SQL half alone answers 9, the Java half alone answers 11, and
+        // the directory answers 11. A scan of *.sql only is what reported 64 for a database at 65.
+        assertThat(AbstractPostgresIntegrationTest.latestMigrationVersion(sqlHalf()))
                 .isEqualTo("9");
-        assertThat(AbstractPostgresIntegrationTest.latestMigrationVersion(JAVA_HALF_FIXTURE))
+        assertThat(AbstractPostgresIntegrationTest.latestMigrationVersion(javaHalf()))
                 .isEqualTo("11");
-        assertThat(AbstractPostgresIntegrationTest.latestMigrationVersion(BOTH_HALVES_FIXTURE))
+        assertThat(AbstractPostgresIntegrationTest.latestMigrationVersion(bothHalves()))
                 .isEqualTo("11");
     }
 
     @Test
     @DisplayName("takes the newest across all patterns, so the SQL and Java halves are one answer")
-    void ordersAcrossPatterns() {
-        assertThat(AbstractPostgresIntegrationTest.latestMigrationVersion(ORDER_FIXTURE, JAVA_HALF_FIXTURE))
+    void ordersAcrossPatterns() throws IOException {
+        writeBothHalves();
+
+        // Order of the patterns must not decide the answer, which is why the helper collects first and
+        // compares second.
+        assertThat(AbstractPostgresIntegrationTest.latestMigrationVersion(ORDER_FIXTURE, javaHalf()))
                 .isEqualTo("11");
-        assertThat(AbstractPostgresIntegrationTest.latestMigrationVersion(JAVA_HALF_FIXTURE, ORDER_FIXTURE))
+        assertThat(AbstractPostgresIntegrationTest.latestMigrationVersion(javaHalf(), ORDER_FIXTURE))
                 .isEqualTo("11");
     }
 

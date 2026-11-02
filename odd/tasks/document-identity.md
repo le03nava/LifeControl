@@ -217,3 +217,20 @@ refuses every insert the un-moved writers make), so the migrations and the write
 and the review budget loses to that constraint on purpose. The order is slice 1 then slice 2; the issue
 stays open until slice 2 lands. Evidence of record: `./gradlew cleanTest test` → **4396 cases, 0 failures**;
 `spotlessCheck` green; `.github/scripts/tests/odd-status-headers.test.sh` → 137 records, 0 findings.
+
+**2026-11-03 — two reds that only CI could see, and both were the same lesson in a new place.** The first
+push of slice 2 failed `Static analysis` (`spotlessCheck spotbugsMain`) on `V65`'s arming call, which built
+`apply_tenant_isolation('<table>')` by concatenation — the local run had only ever executed
+`spotlessCheck`, so SpotBugs had never been part of my evidence. The fix binds the name
+(`cast(? as regclass)`), and the first attempt at that failed the same gate for dropping the `ResultSet`,
+which is now drained and closed. `./gradlew spotlessCheck spotbugsMain` is the local equivalent of that job
+and is what the record should have quoted from the start.
+
+The second red was worse and is the interesting one: two cases of `MigrationHeadTest` **passed locally and
+failed in CI**, because their fixture directory contained a `V11__java_half.class` and this repository
+ignores `*.class`. The file existed on my disk and in nobody else's, so the test agreed with the working
+tree that wrote it — the exact failure mode the test exists to prevent, reproduced inside the test. The
+fixture is now written per run into a temporary directory (`@TempDir`, a `file:` location), because the
+bytes never mattered: the **name** is the fixture. Lesson, stated for the next author: a fixture whose file
+extension is in `.gitignore` is a fixture that only exists on the machine that created it, and
+`git status --short` says nothing about it.
