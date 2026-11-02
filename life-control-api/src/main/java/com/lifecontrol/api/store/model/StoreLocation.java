@@ -23,6 +23,21 @@ public class StoreLocation extends Auditable {
     @JoinColumn(name = "store_zone_id", nullable = false)
     private StoreZone storeZone;
 
+    /**
+     * The store this location belongs to. <b>The database derives and owns this column</b>: {@code V59}'s
+     * {@code trg_store_locations_derive_store} trigger fills it from the zone's stored store when a row
+     * arrives without one, which is why the mapping is {@code insertable = false, updatable = false} and
+     * why the application never writes it.
+     *
+     * <p>It is the fact ADR-0001 needs to stop a movement from naming two different stores: a stock movement
+     * carries {@code (company_store_id, store_location_id)} as one composite foreign key, so the store of a
+     * movement and the store of its location cannot disagree. The refusal itself is
+     * {@code fk_store_locations_zone_same_store} and {@code fk_movement_location}, not this class.</p>
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "company_store_id", nullable = false, insertable = false, updatable = false)
+    private CompanyStore companyStore;
+
     @Column(name = "location_code", nullable = false, length = 10)
     private String locationCode;
 
@@ -52,6 +67,10 @@ public class StoreLocation extends Auditable {
 
     public StoreZone getStoreZone() {
         return storeZone;
+    }
+
+    public CompanyStore getCompanyStore() {
+        return companyStore;
     }
 
     public String getLocationCode() {
