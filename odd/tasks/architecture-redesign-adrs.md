@@ -5,9 +5,10 @@
 **Worktree**: `~/workspace/LifeControl-worktrees/docs-architecture-redesign-adrs`, then
 `~/workspace/LifeControl-worktrees/docs-adr-0005-accepted` for the acceptance
 **Status**: implemented — the six ADRs, their index and this record are the set's content. The
-redesign ADR-0001 and ADR-0002 describe is not implemented. ADR-0005 is `accepted` (2026-10-29),
-ADR-0002 (2026-10-30), ADR-0006 (2026-11-01) and ADR-0001 (2026-11-02); the other two are `proposed` and
-each needs its own decision. This record makes no delivery claim. Nothing is deferred.
+redesign ADR-0001, ADR-0002 and ADR-0003 describe is not implemented. ADR-0005 is `accepted`
+(2026-10-29), ADR-0002 (2026-10-30), ADR-0006 (2026-11-01), and ADR-0001 and ADR-0003 (2026-11-02);
+ADR-0004 is the one still `proposed` and needs its own decision. This record makes no delivery claim.
+Nothing is deferred.
 **Created**: 2026-10-29
 **Risk**: none — documentation only. No code, no schema, no runtime surface.
 
@@ -190,3 +191,47 @@ ADR-0002's T1 and T4 — T1 has landed (`V57`) and the listing has landed (`V58`
 0005 and 0006, so it now names the two ADRs it does describe: 0001 and 0002. The third acceptance-count
 repair is the header's "the other three are `proposed`", now two. `0003` and `0004` remain `proposed`,
 and each still needs its own decision.
+
+**2026-11-02 — ADR-0003 was read against the tree and four defects came out; the document was corrected
+before any acceptance decision.** The decision itself is untouched and still unfixed: `SalesOrderService:922`
+and `PurchaseOrderService:816` still build `max + 1` over a global counter, and `GoodsReceiptService:527`
+still derives a receipt's number from its parent's. What was wrong was the plan, and each defect is a kind
+this set has already paid for once. **(1)** The `## Schema` block carried `-- V53. The next free version`
+and step 4 named `V54` for the Java render migration; both numbers are spent
+(`V53__tenant_isolation_policies.sql`, `V54__product_variant_mode.sql`) and the head is `V63`, so the plan
+now takes `V64` and `V65` — the same collision ADR-0001's acceptance found in `V52`–`V55`. **(2)** The ADR
+was written before ADR-0005's machinery existed and named RLS once, in its `Depends on` line; its steps 1
+and 3 read and rewrote every document row, and `V53:126` arms `purchase_orders` while `V52` sets
+`FORCE ROW LEVEL SECURITY`, which filters the owner — the role Flyway runs as. So the pre-flight report
+would have reported zero defects and the backfill would have numbered nothing, both green, for the reason
+`V54:26` already records. The plan now opens a `NO FORCE` window as step 0 with `V57:85`'s two self-checks,
+closes it with a re-check as step 5, and gives `V65` its own window because a window that spans two files
+is one a crash can leave open (`V55:100`). **(3)** N9 claimed the counter was "registered in ADR-0005's
+policy list, whose startup assertion fails if a `company_id` table is not listed", and the `## Schema`
+block never called `apply_tenant_isolation` for any of the three tables — a claim of enforcement the
+schema did not deliver, which is the defect class #706/#707/#708 corrected. It matters more than it reads:
+`unprotected_tenant_tables()` keys on the **column's existence**, so adding a nullable `company_id` in
+step 2 and arming later is a deployment that refuses to boot, and the arming is now step 6 of the same
+delivery. **(4)** Decision 4 named the period's source as "( `order_date`, `order_date` )" and decision 7
+pinned `doc_type` to `status_transition.document_type` of ADR-0004 — a table that does not exist, in an ADR
+that is still `proposed`. It is now stated as a spelling contract this ADR fixes first, not a schema
+dependency, so accepting 0003 neither waits for 0004 nor accepts it. One consequence the first draft did
+not name is now recorded as a cost: `sales_orders` and `goods_receipts` become tenant tables for the first
+time, so arming them changes **who can read them** — `/api/sales-orders` and `/api/goods-receipts` have no
+`{companyId}` segment, and `TenantScopeFilter` resolves their tenant from a single `company_id` claim. The
+header is unchanged: `0003` is still `proposed` and the decision is the maintainer's.
+
+**2026-11-02 — ADR-0003 is accepted, on the corrected document, and two headers were repaired because
+they said otherwise.** The maintainer chose acceptance in the same PR that carries the corrections, the
+way ADR-0005 was accepted. `docs/adr/0003-document-identity-per-tenant.md` flips to `accepted` with an
+`Accepted:` line pointing at its new *Corrections applied before acceptance* section, and
+`docs/adr/README.md` carries the status in its column and the date in the adoption-order paragraph, whose
+last sentence said "`0003` and `0004` are the two still `proposed`" — one word made false by this
+decision, repaired here rather than left to rot. This record's own header carried the same falsehood in
+two places and both were repaired in this edit: the acceptance list gains "and ADR-0003 (2026-11-02)"
+and "the other two are `proposed`" becomes "ADR-0004 is the one still `proposed`", and the sentence naming
+which ADRs describe a redesign that is not implemented now names three — 0001, 0002 and 0003 — because
+accepting an ADR is not implementing it. The earlier log entry above ends by saying `0003` is still
+`proposed` and that the decision is the maintainer's; that was true when it was written and it is not
+true now, and the honest repair is this entry, not an edit to a statement that was accurate at its time.
+Nothing in the ADR's decision changed after the corrections. `0004` is the only ADR left `proposed`.

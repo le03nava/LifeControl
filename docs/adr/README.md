@@ -35,7 +35,7 @@ that settled the open questions.
 | --- | --- | --- | --- | --- |
 | [0001](0001-inventory-ledger-single-source.md) | Inventory is a single append-only ledger; balances are disposable projections. Costing and valuation are part of it. | accepted | 0005, 0006 | 0002 |
 | [0002](0002-money-first-class.md) | Money is a first-class value: currency, breakdown, payment rows, tax. | accepted | 0001, 0003, 0004, 0005, 0006 | — |
-| [0003](0003-document-identity-per-tenant.md) | Document numbers come from a per-tenant sequence, not from `max + 1` over a global `UNIQUE`. | proposed | 0005 | 0002 |
+| [0003](0003-document-identity-per-tenant.md) | Document numbers come from a per-tenant sequence, not from `max + 1` over a global `UNIQUE`. | accepted | 0005 | 0002 |
 | [0004](0004-typed-state-machine.md) | Document state is a typed machine with a history, not a string in a lookup table. | proposed | 0003, 0005 | 0002 |
 | [0005](0005-tenant-isolation-rls.md) | Tenant isolation is enforced by Row-Level Security, not by 150 call-site checks. | accepted | — | 0001, 0002, 0003, 0004 |
 | [0006](0006-catalog-identity.md) | Catalog identity: `variant_mode` on the product, a required measure unit, a barcode per mode, and `variant_listing` split from stock. | accepted | 0005 | 0001 |
@@ -56,8 +56,8 @@ therefore the agreed plan for what gets implemented first, not a suggestion: a s
 different order has to say why, because the reason the order exists is that doing it in the other
 direction writes the same work twice. Accepting the order accepts no ADR: the status column above is the
 only authority on which ones have been accepted, and each ADR still needs its own decision. ADR-0005 was
-accepted on 2026-10-29, ADR-0002 on 2026-10-30, ADR-0006 on 2026-11-01 and ADR-0001 on 2026-11-02;
-`0003` and `0004` are the two still `proposed`.
+accepted on 2026-10-29, ADR-0002 on 2026-10-30, ADR-0006 on 2026-11-01, and ADR-0001 and ADR-0003 on
+2026-11-02; `0004` is the one still `proposed`.
 
 One edge is missing from the table above and is stated here instead, because the column mirrors each
 ADR's own `Depends on` line: ADR-0006's `## Schema` references `currency (code)` and `tax_rate (id)`,
