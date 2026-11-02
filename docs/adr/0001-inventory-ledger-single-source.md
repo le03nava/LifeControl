@@ -1,7 +1,9 @@
 # ADR 0001 — Inventory is a single append-only ledger
 
-- **Status**: proposed
+- **Status**: accepted
 - **Date**: 2026-10-29
+- **Accepted**: 2026-11-02, by the maintainer, after the three corrections recorded under
+  *Corrections applied before acceptance*
 - **Decision id**: D1 (+ D1.a) of `odd/tasks/architecture-redesign-adrs.md`
 - **Depends on**: ADR-0005 (tenant isolation), ADR-0006 (catalog identity)
 - **Blocks**: ADR-0002 (a sale books stock and money in one transaction)
@@ -83,7 +85,7 @@ CREATE TABLE stock_movement (
     movement_type        VARCHAR(24) NOT NULL,
     quantity             NUMERIC(19,4) NOT NULL,
     unit_cost            NUMERIC(19,4),
-    currency             CHAR(3),
+    currency             CHAR(3) REFERENCES currency (code),
     occurred_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
     actor                VARCHAR(255),
     source_type          VARCHAR(32) NOT NULL,
@@ -159,6 +161,7 @@ CREATE TABLE stock_valuation (           -- cost of what is on hand, per store
     company_store_id   UUID NOT NULL,
     product_variant_id UUID NOT NULL,
     quantity           NUMERIC(19,4) NOT NULL,
+    currency           CHAR(3) NOT NULL REFERENCES currency (code),
     total_value        NUMERIC(19,4) NOT NULL,
     avg_unit_cost      NUMERIC(19,4),
     PRIMARY KEY (company_store_id, product_variant_id));
@@ -187,7 +190,10 @@ gives the application role `INSERT, SELECT` only on `stock_movement` and `stock_
 
 - **Inbound** rows record `unit_cost` and `currency`: a receipt takes the purchase line's unit cost, an
   adjustment takes the operator's, a transfer takes the cost of the allocations it consumed (so value
-  is conserved across stores).
+  is conserved across stores). The currency is the company's operating currency — `companies.currency`
+  (`V57`), which ADR-0002 decision 2 makes the only currency a document can be in — so a movement's
+  `currency` is a row of the `currency` catalog and `stock_valuation` states its own, instead of leaving
+  two amounts denominated in a unit nobody wrote down.
 - **Outbound** rows carry no cost of their own. The cost applied to the units is in
   `stock_allocation.unit_cost`, resolved by the company's `costing_method` at the moment of consumption
   and frozen there.
@@ -217,17 +223,27 @@ ledger's sum then equals today's balances by construction, `product_variant_stor
 **Path B — discard the operational chain**, as `V14` and `V40` already did. Legal while the system is
 not productive; it is why this ADR should land before it is.
 
-In either path, the order is:
+In either path, the order is below. Each step takes the **next free migration number when it lands**, and
+not the one this plan was written against: the `V52`–`V55` it used to name are all occupied now — by
+ADR-0005 (`V52`, `V53`) and by ADR-0006 (`V54`–`V56`, `V58`) — and a plan that pins a number across three
+accepted decisions collides the moment the first of them lands. `V59` is the first free slot today.
 
-1. `V52`: create the four tables, the trigger and the two partial indexes; add `costing_method`.
-2. `V53`: backfill by replay (Path A) and run the rebuild function; assert `I2` and `I6` before commit.
-3. `V54`: move readers — POS search joins `variant_listing` and `stock_position`; every read of
-   `.stock` is answered by the projection.
-4. `V55`: drop `product_variant_locations.stock`, `product_variant_store_stock.stock`, and the
+1. **The location hierarchy carries its store (D1.a), first.** `store_zones` and `store_locations` gain
+   `company_store_id`, backfilled through their parent, with `UNIQUE (company_store_id, id)`. It runs
+   **before** the ledger tables rather than beside them: `fk_movement_location` above references
+   `store_locations (company_store_id, id)`, which does not exist without this step, and a composite key
+   added afterwards would rewrite the very table the ledger already points at.
+2. **The four tables, the trigger and the two partial indexes, plus `companies.costing_method`.** The
+   ledger tables are armed on `tenant_table` **in the file that creates them**, the way `V58` armed the
+   listing, so ADR-0005's policy set is not reopened as a second slice that can be forgotten.
+3. **Backfill by replay** (Path A) and run the rebuild function; assert `I2` and `I6` before commit.
+4. **Move the readers** — POS search joins `variant_listing` and `stock_position`; every read of `.stock`
+   is answered by the projection.
+5. **Drop** `product_variant_locations.stock`, `product_variant_store_stock.stock`, and the
    `inventory_movements` table after its rows are migrated.
-5. The service `InventoryService` is deleted. Its four callers talk to the new module's API, and
-   `InsufficientStockException` moves from `salesorder.exception` to `inventory.exception`, which is
-   what breaks the package cycle (`InventoryService.java:13` imports it from today's location).
+6. **Delete `InventoryService`.** Its four callers talk to the new module's API, and
+   `InsufficientStockException` moves from `salesorder.exception` to `inventory.exception`, which is what
+   breaks the package cycle (`InventoryService.java:13` imports it from today's location).
 
 ## Rejected alternatives
 
@@ -253,3 +269,30 @@ In either path, the order is:
   explained fact. That is the point, and it is a visible API change.
 - **Cost**: a new operational duty exists — the verification job. It is small, and it is the reason
   the projection is trustworthy.
+
+## Corrections applied before acceptance
+
+Read in full for the acceptance decision, against the tree as it stands on 2026-11-02, and three defects
+were found. The decision is unchanged; the document now says what it meant.
+
+1. **The migration numbers were already spent.** The plan named `V52`–`V55`, and every one of those slots
+   belongs to an ADR this one depends on: `V52`–`V53` are ADR-0005's policies and `V54`–`V56` and `V58`
+   are ADR-0006's catalog slices. A plan that pins a number across three accepted decisions is wrong the
+   moment the first of them lands, and the wrongness is invisible — it reads as a plan until someone tries
+   to run it. The steps are now named by what they do, and each takes the next free slot when it lands.
+2. **`stock_valuation` carried two amounts and no currency.** `total_value` and `avg_unit_cost` are money,
+   and the projection that sums them stated no unit while the ledger below it recorded `currency` on every
+   inbound row. The `currency` catalog and `companies.currency` now exist (`V57`), and ADR-0002 decision 2
+   makes the operating currency the only one a document can be in, so the valuation states its own currency
+   and both currency columns reference the catalog instead of holding a free string.
+3. **D1.a was written as a detail and it is the first migration.** `fk_movement_location` references
+   `store_locations (company_store_id, id)`, and `store_locations` (`V7`) has no `company_store_id` at all —
+   `store_zones` (`V6`) does not have it either, so there is no parent to carry it from and no unique key
+   for the reference to resolve against. As written, the `## Schema` block did not compile, and the order it
+   appeared in invited discovering that inside the slice that creates the ledger. It now opens the migration.
+
+What this acceptance does **not** settle, because it is implementation shape rather than decision: whether
+`stock_valuation` is maintained by the trigger or only by the rebuild — for `FIFO` an outbound row's value
+depends on allocations written after it — and where the `I2`/`I6` verification job lives, in CI, in a
+nightly task, or in both. Both are owned by `odd/tasks/inventory-ledger.md`, which cites this ADR as its
+authority.
