@@ -14,9 +14,15 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -456,6 +462,223 @@ class InventoryLedgerBookingIntegrationTest extends AbstractPostgresIntegrationT
         assertThat(storeStockOf(variantId)).isEqualByComparingTo("20");
         assertThat(locationStockOf(variantId, salesLocationId))
                 .hasValueSatisfying(stock -> assertThat(stock).isEqualByComparingTo("20"));
+    }
+
+    // ──────────────────────────────────────
+    // the position gate takes the projection row's own lock (T5c)
+    // ──────────────────────────────────────
+
+    /**
+     * T5c: {@code applySaleDeduction}'s step 4b reads {@code stock_position} <b>under the row's lock</b>, so the
+     * gate serializes on the row it decides about instead of relying on the legacy store row locked earlier in
+     * the same method.
+     *
+     * <p><b>Why the case has to be a race and not an assertion about a query.</b> While the legacy store row's
+     * lock is taken first ({@code InventoryService:383-390}), it alone serializes two deductions of one key, so
+     * a case that only asserts a refusal cannot tell a locking read from a plain one. The case therefore holds
+     * the {@code stock_position} row from a second transaction, on a key whose legacy copies cover the sale and
+     * whose position does not — the divergence {@code raiseTheLegacyBalancesByHand} creates — and observes what the
+     * deduction does <b>while that lock is held</b>.</p>
+     *
+     * <p><b>What distinguishes the two behaviours, exactly.</b> The holder raises the row lock <em>before</em> the
+     * deduction starts, so a locking read cannot return the pre-update quantity at all: it waits, and under
+     * {@code READ COMMITTED} it then reads what the holder committed. A plain read does not wait — MVCC hands it
+     * the last committed version, which is the quantity that still passes the gate — so the deduction proceeds,
+     * writes its legacy rows, and is refused later by {@code V61}'s trigger as a {@code DataAccessException}. The
+     * assertion below is therefore the exception <b>type and number</b>, and neither outcome can be reached by
+     * timing: with the lock the gate always reads the committed {@code 8}, without it the gate always reads
+     * {@code 10}.</p>
+     */
+    @Nested
+    @DisplayName("the position gate serializes on the row it decides about")
+    class PositionGateLockTests {
+
+        /** The lock the concurrent transaction holds: the same row, and the same statement a gate would run. */
+        private static final String LOCK_THE_POSITION_ROW = """
+                SELECT quantity FROM stock_position
+                 WHERE company_store_id = ? AND product_variant_id = ?
+                   FOR UPDATE
+                """;
+
+        /**
+         * Text matching the statements that wait on this row: the gate's {@code select … for update} (the code
+         * under test) and the projection trigger's identical one (the gate's own second line, and what a plain
+         * read would fall through to).
+         */
+        private static final String WAITING_ON_THE_POSITION_ROW = """
+                SELECT count(*) FROM pg_stat_activity
+                 WHERE pid <> pg_backend_pid()
+                   AND datname = current_database()
+                   AND usename = current_user
+                   AND wait_event_type = 'Lock'
+                """;
+
+        /** What the other sessions of this test looked like, so a timeout says why instead of just failing. */
+        private static final String OTHER_SESSIONS = """
+                SELECT format('%s state=%s waiting=%s/%s query=%s', pid, state, wait_event_type, wait_event,
+                              left(coalesce(query, '<hidden>'), 80))
+                  FROM pg_stat_activity
+                 WHERE pid <> pg_backend_pid()
+                   AND datname = current_database()
+                """;
+
+        @Test
+        @DisplayName("a deduction waits for the position row and refuses with the quantity committed under it")
+        void aDeductionWaitsForThePositionRowAndRefusesWithTheQuantityCommittedUnderIt() throws Exception {
+            // The ledger holds 10 in this store and the legacy copies are raised to 20 by hand, so the two legacy
+            // gates pass for 9 and only the position can refuse it.
+            applyReceipt(variantId, salesLocationId, "10", UUID.randomUUID());
+            raiseTheLegacyBalancesByHand("20");
+
+            var theLockIsHeld = new CountDownLatch(1);
+            ExecutorService pool = Executors.newFixedThreadPool(2);
+            try {
+                // The concurrent transaction: take the row's lock, lower the position below what the sale needs,
+                // and hold everything open until the deduction is observed waiting on that very row.
+                var holder = CompletableFuture.runAsync(
+                        () -> TenantFixtures.inTenant(companyId, () -> {
+                            jdbcTemplate.queryForObject(LOCK_THE_POSITION_ROW, BigDecimal.class, storeId, variantId);
+                            jdbcTemplate.update(
+                                    "UPDATE stock_position SET quantity = ? "
+                                            + "WHERE company_store_id = ? AND product_variant_id = ?",
+                                    new BigDecimal("8"),
+                                    storeId,
+                                    variantId);
+                            theLockIsHeld.countDown();
+                            awaitAnotherTransactionWaitingOnThePositionRow();
+                            return null;
+                        }),
+                        pool);
+
+                assertThat(theLockIsHeld.await(20, TimeUnit.SECONDS))
+                        .as("the concurrent transaction holds the stock_position row's lock before the sale starts")
+                        .isTrue();
+
+                var deduction = CompletableFuture.<RuntimeException>supplyAsync(
+                        () -> {
+                            try {
+                                sell(variantId, "9", UUID.randomUUID());
+                                return null;
+                            } catch (RuntimeException refused) {
+                                return refused;
+                            }
+                        },
+                        pool);
+
+                // The holder commits only once the deduction is waiting on the row, which is what makes the
+                // quantity the gate reads the quantity committed under the lock.
+                holder.get(60, TimeUnit.SECONDS);
+
+                assertThat(deduction.get(60, TimeUnit.SECONDS))
+                        .as("the gate serialized on the row it decides about: it waited for the concurrent "
+                                + "transaction's lock and refused with the quantity that transaction committed "
+                                + "(8), which is the documented sale contract. A plain read would not wait — MVCC "
+                                + "would hand it the last committed 10, the gate would pass, and the refusal would "
+                                + "come from V61's trigger as a database error instead")
+                        .isInstanceOf(InsufficientStockException.class)
+                        .hasMessageContaining("requested 9")
+                        .hasMessageContaining("available 8");
+
+                assertThat(positionOf(variantId))
+                        .as("the refused deduction moved nothing: the position is still what the holder committed")
+                        .isEqualByComparingTo("8");
+                assertThat(ledgerMovementsOf(variantId, StockLedgerWriter.SALE))
+                        .as("a refused sale is not a fact, so the ledger holds no SALE row")
+                        .isEmpty();
+                assertThat(legacyMovementsOf(variantId, "SALE"))
+                        .as("and no legacy row either: the gate refuses before the first write of the loop")
+                        .isEmpty();
+                assertThat(storeStockOf(variantId)).isEqualByComparingTo("20");
+                assertThat(locationStockOf(variantId, salesLocationId))
+                        .as("neither legacy copy moved, so the refusal did not need a rollback to keep the "
+                                + "legacy balances intact")
+                        .hasValueSatisfying(stock -> assertThat(stock).isEqualByComparingTo("20"));
+            } finally {
+                pool.shutdownNow();
+            }
+        }
+
+        @Test
+        @DisplayName("a key the ledger never moved is refused: a row that does not exist cannot be locked")
+        void aKeyTheLedgerNeverMovedIsRefused() {
+            // Both legacy copies state 10 and the ledger holds no movement for the key at all, so there is no
+            // stock_position row to lock. Written by hand because no writer produces this state: a receipt would
+            // book the movement the position is derived from.
+            jdbcTemplate.update(
+                    "UPDATE product_variant_store_stock SET stock = ? "
+                            + "WHERE product_variant_id = ? AND company_store_id = ?",
+                    new BigDecimal("10"),
+                    variantId,
+                    storeId);
+            jdbcTemplate.update(
+                    "INSERT INTO product_variant_locations (product_variant_id, store_location_id, stock) "
+                            + "VALUES (?, ?, ?)",
+                    variantId,
+                    salesLocationId,
+                    new BigDecimal("10"));
+
+            assertThat(countPositionRows())
+                    .as("the ledger never moved this key, which is the state this case is about")
+                    .isZero();
+
+            assertThatThrownBy(() -> sell(variantId, "5", UUID.randomUUID()))
+                    .as("a locking read cannot lock a row that does not exist, and the gate must not read that as "
+                            + "permission: an empty position is used as zero and the sale is refused, the same "
+                            + "answer the legacy aggregate gives for a variant this store does not stock. Reading "
+                            + "it optimistically — \"no row, therefore nothing to check\" — would authorize a "
+                            + "deduction the ledger cannot explain")
+                    .isInstanceOf(InsufficientStockException.class)
+                    .hasMessageContaining("requested 5")
+                    .hasMessageContaining("available 0");
+
+            assertThat(ledgerMovementsOf(variantId, StockLedgerWriter.SALE))
+                    .as("and it stored nothing: no movement, no allocation, no position")
+                    .isEmpty();
+            assertThat(countPositionRows()).isZero();
+            assertThat(storeStockOf(variantId))
+                    .as("the legacy copies are untouched, so the refusal did not need a rollback")
+                    .isEqualByComparingTo("10");
+        }
+
+        /** How many position rows exist for the fixture's key: zero is a state, not an error. */
+        private int countPositionRows() {
+            return TenantFixtures.inTenant(
+                    companyId,
+                    () -> jdbcTemplate.queryForObject(
+                            "SELECT COUNT(*) FROM stock_position "
+                                    + "WHERE company_store_id = ? AND product_variant_id = ?",
+                            Integer.class,
+                            storeId,
+                            variantId));
+        }
+
+        /**
+         * Blocks until another session is waiting for a lock on this row, or fails the case.
+         *
+         * <p>This is the barrier the case needs and the reason it is not a sleep: the holder must not commit
+         * while the deduction could still be reading a snapshot, or a plain read could read the committed value
+         * and the case would pass for the wrong reason. {@code pg_stat_activity} is the database's own report of
+         * the wait, and both sessions belong to the pool's role, which is what makes another session's row
+         * readable ({@code has_privs_of_role}).</p>
+         */
+        private void awaitAnotherTransactionWaitingOnThePositionRow() {
+            var deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(20);
+            while (System.nanoTime() < deadline) {
+                var waiting = jdbcTemplate.queryForObject(WAITING_ON_THE_POSITION_ROW, Integer.class);
+                if (waiting != null && waiting > 0) {
+                    return;
+                }
+                try {
+                    Thread.sleep(20);
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException("the holder was interrupted while waiting", interrupted);
+                }
+            }
+            throw new IllegalStateException("no other transaction was waiting on the stock_position row within 20 "
+                    + "seconds, so the deduction never reached the row's lock — the gate is not taking it. Other "
+                    + "sessions: " + jdbcTemplate.queryForList(OTHER_SESSIONS, String.class));
+        }
     }
 
     // ──────────────────────────────────────

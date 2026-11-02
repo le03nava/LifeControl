@@ -21,15 +21,18 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
  * the legacy engine has just decided and records the same fact in the ledger, in the same transaction.</p>
  *
  * <h2>Where a movement's {@code source_id} comes from, per writer — the decision this class exists to state</h2>
- * <p>The ledger's unique index is {@code uq_movement_source (source_type, source_id, movement_type)} and
- * {@code V60}'s own comment reads "one movement per source document line and direction". Measured against the
- * call sites, that comment cannot be satisfied by the document's or the line's id, in three shapes the tree
- * already has:</p>
+ * <p>The ledger's unique index is {@code uq_movement_source}, which {@code V60} declared as
+ * {@code (source_type, source_id, movement_type)} and {@code V63} widened with {@code store_location_id} (see
+ * shape 1 below). Measured against the call sites, the document's or the line's id still cannot satisfy it in
+ * three shapes this tree writes — and the first of them is now permitted by the key itself, which is why the
+ * mirror below rests on the other two:</p>
  * <ol>
  *   <li><b>A sale line that spans locations books more than one movement.</b>
  *       {@code InventoryService.applySaleDeduction} writes one {@code SALE} row per location it drains
  *       (priority location first, then FIFO), and a {@code stock_movement} names exactly one
- *       {@code store_location_id}. Two rows of one line therefore share the line id.</li>
+ *       {@code store_location_id}. Two rows of one line therefore share the line id — and since {@code V63} the
+ *       index permits exactly that: one movement per source, direction <b>and location</b>. This shape is the
+ *       reason {@code V63} exists, and it is no longer a reason for the mirror below.</li>
  *   <li><b>A line books more than one {@code SALE} over its life.</b> {@code SalesOrderService} raises a
  *       line's quantity by selling the difference and lowers it by reversing and re-selling
  *       ({@code SalesOrderService:989}, {@code :991-992}), always under the same {@code SALES_ORDER_ITEM}
@@ -48,11 +51,15 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
  * row's own id rather than a document's.</p>
  * <p><b>What that costs, stated rather than hidden.</b> The document identity ({@code reference_type} /
  * {@code reference_id}) stays on the legacy row, so the ledger alone cannot yet answer "which document line
- * caused this". Closing that needs a migration this slice may not write: {@code uq_movement_source} has to
- * gain {@code store_location_id} (shape 1) and the source identity has to become the <em>transition</em>
- * rather than the line (shape 2), after which {@code source_type}/{@code source_id} can carry the document
- * line and a per-transition key. Until then the mirror is the honest answer, and
- * {@code InventoryLedgerBookingIntegrationTest} pins both colliding shapes so the gap is measured instead of
+ * caused this". And the cost is now two shapes, not three: {@code V63} took {@code store_location_id} into
+ * {@code uq_movement_source}, so a line that spans locations no longer needs the mirror — what still does is the
+ * <em>identity</em> of a transition. A line books more than one {@code SALE} over its life (shape 2) and a
+ * receipt hands its writer the document id once per line (shape 3), and neither can be keyed by an id the
+ * service does not have: a line id repeats, a document id repeats, and only a per-transition identity would
+ * distinguish them. That is ADR-0004's state guard, which is why the record's last {@code ## Log} entry stops this
+ * unit before the drops and defers them; until it lands, {@code source_type}/{@code source_id} cannot carry the
+ * document line and the mirror is the honest answer.
+ * {@code InventoryLedgerBookingIntegrationTest} pins both surviving shapes so the gap is measured instead of
  * discovered.</p>
  *
  * <h2>The order chosen: the legacy write first, the ledger row immediately after it</h2>
@@ -96,14 +103,16 @@ public class StockLedgerWriter {
      * <p><b>This is a transition shape and it dies with the legacy ledger.</b> During the dual-write window
      * defined by the re-cut entry of {@code odd/tasks/inventory-ledger.md} (the one that splits T5 into T5a,
      * T5b and T5c) the source identity of a movement is the legacy row it mirrors, because neither the document
-     * id nor the line id can satisfy {@code uq_movement_source} in the shapes the tree already writes: a sale
-     * line that spans locations books one row per location, a line sold again after its reversal books a second
-     * {@code SALE} under the same reference, and a receipt hands its writer the document id once per line. It is
-     * also V62's own precedent — the backfill's movements carry {@code source_type = 'MIGRATION'} and the id of
-     * the row that stated the balance. T5c stops the legacy writes and {@code inventory_movements} drops with
-     * T6, at which point {@code source_type}/{@code source_id} must carry the per-transition document identity
-     * instead; that is why the source type is a {@link Booking} component the caller states rather than a
-     * constant baked into every insert here.</p>
+     * id nor the line id can satisfy {@code uq_movement_source} in the shapes the tree still writes: a line sold
+     * again after its reversal books a second {@code SALE} under the same reference, and a receipt hands its
+     * writer the document id once per line. {@code V63} took the location into the key, so a line that spans
+     * locations — the third shape, and the one that used to collide at the same source — is no longer a reason
+     * for this constant; the other two are, and closing them needs ADR-0004's per-transition identity. It is also
+     * V62's own precedent — the backfill's movements carry {@code source_type = 'MIGRATION'} and the id of the
+     * row that stated the balance. The legacy writes stop and {@code inventory_movements} drops in T6, which the
+     * record's last {@code ## Log} entry defers to ADR-0004; at that point {@code source_type}/{@code source_id}
+     * must carry the per-transition document identity instead, which is why the source type is a
+     * {@link Booking} component the caller states rather than a constant baked into every insert here.</p>
      */
     public static final String MIRRORED_SOURCE_TYPE = "INVENTORY_MOVEMENT";
 

@@ -5,6 +5,7 @@ import com.lifecontrol.api.inventory.ledger.StockLedgerWriter;
 import com.lifecontrol.api.inventory.model.InventoryMovement;
 import com.lifecontrol.api.inventory.model.MovementType;
 import com.lifecontrol.api.inventory.model.ProductVariantLocation;
+import com.lifecontrol.api.inventory.model.StockPosition;
 import com.lifecontrol.api.inventory.repository.InventoryMovementRepository;
 import com.lifecontrol.api.inventory.repository.ProductVariantLocationRepository;
 import com.lifecontrol.api.inventory.repository.StockPositionRepository;
@@ -113,6 +114,20 @@ import org.springframework.transaction.annotation.Transactional;
  * outbound movement, which was the ledger saying the same thing in a language no client had agreed to. The
  * legacy writes stay exactly where they were — this slice moves no write — and the ledger's I8 remains its own
  * independent gate and lock.</p>
+ *
+ * <h2>T5c: the gate takes the projection row's lock</h2>
+ * <p>The gate above read {@code stock_position} with a plain read, so what actually serialized two concurrent
+ * deductions of one key was the legacy {@code product_variant_store_stock} lock taken in step 3 — a lock T5b's
+ * readers already stopped needing and that the deferred T5d would remove, which would have left the gate deciding
+ * on a number another transaction is free to change. T5c makes step 4b a locking read
+ * ({@code StockPositionRepository#findByCompanyStoreIdAndProductVariantIdForUpdate}), so the gate serializes on
+ * the row it decides about and reads the quantity under that lock. A key with no position row takes no lock and is
+ * refused rather than authorized: the ledger never moved it, and an empty read is used as zero on purpose. The
+ * lock order grows one level — {@code storeStock -> stockPosition -> locationBalance} — and stays cycle-free,
+ * because no path anywhere takes the position before the store row of the same key. {@code V61}'s trigger keeps
+ * its own {@code FOR UPDATE} on the same row as the ledger's last gate for every writer that reaches the table:
+ * the two are not the same lock and neither is redundant — this one turns the refusal into the API's 409 before a
+ * write, and that one holds in the database whether or not this gate ran.</p>
  */
 @Service
 @Transactional
@@ -308,11 +323,22 @@ public class InventoryService {
      * {@code V61}'s invariant I8 raises. The two copies agree while both writers run, so in a consistent tree
      * the position gate can only agree with the two legacy ones; where they disagree — the state {@code V62}
      * reports and a legacy column edited by hand produces — the position wins and the operator sees the 409 the
-     * sale contract documents. I8 remains the ledger's own independent gate and the lock that serializes two
-     * deductions of one key.</p>
+     * sale contract documents.</p>
      *
-     * <p>Lock order is unchanged: the definition is read without a lock, then
-     * {@code storeStock -> locationBalance}. The shared {@code storeStock} row is the first lock every
+     * <p><b>And, from T5c, that gate holds the row's own lock.</b> Step 4b reads {@code stock_position}
+     * {@code FOR UPDATE}, so two deductions of one key serialize on the row the decision is about instead of on
+     * the legacy store row locked in step 3. That matters because the store row's lock is an accident of the
+     * dual-write window — T5b's readers already stopped needing it and T5d is the slice that would remove it —
+     * and a gate that is only correct while an unrelated lock is held is a gate that fails silently when that
+     * lock goes. The absent-row case is fail-closed rather than optimistic: no lock can be taken on a row that
+     * does not exist, and a key the ledger never moved has no quantity to sell, so the empty read is used as zero
+     * and refuses. {@code V61}'s I8 keeps its own {@code FOR UPDATE} on the same row as the ledger's last gate for
+     * every writer that can reach the table; two locks inside one transaction are one lock on the database, and
+     * what is not duplicated is the audience — this one answers the API's documented 409 before anything is
+     * written, and that one holds whether or not this gate ran.</p>
+     *
+     * <p>Lock order grows one level: the definition is read without a lock, then
+     * {@code storeStock -> stockPosition -> locationBalance}. The shared {@code storeStock} row is the first lock every
      * mover of this variant and store takes, so two movers are serialized before either of them reaches a
      * balance row, and the balance rows they can then contend for all belong to that same
      * {@code (variant, store)} pair. The order in which balances are taken therefore cannot invert between
@@ -385,12 +411,28 @@ public class InventoryService {
         //     UncategorizedSQLException — measured, and the shape this gate exists to replace. Reading the
         //     projection here gives the same refusal a shape the API documents: InsufficientStockException, 409,
         //     same message, and the number the position states.
-        // It runs AFTER the store-row lock, so it is serialized with every other mover of this key (they all
-        // take that lock first) and reads the position the previous writer's trigger left. I8 stays the
-        // ledger's own independent gate: it reads stock_position in the database and locks it, so a tree whose
-        // copies disagree is refused by the ledger even if this read were skipped.
+        //
+        // T5c: AND THE READ TAKES THE ROW'S LOCK. Until this slice the only reason two concurrent deductions
+        // could not both pass this gate was the legacy store-stock row locked in step 3 — a lock T5b's readers
+        // already outgrew and that the deferred T5d would remove, which would have left this gate deciding on a
+        // number another transaction is free to change. A locking read serializes on the row the decision is
+        // about, so a second deduction waits here, re-reads under READ COMMITTED, and refuses with the quantity
+        // the first one committed. The store-stock lock is still taken first (step 3), so the documented lock
+        // order is now storeStock -> stockPosition -> locationBalance and it is cycle-free: no path anywhere
+        // takes stockPosition before the store row of the same key.
+        // An absent row means the ledger never moved this key, and no lock can be taken on a row that does not
+        // exist. That is fail-closed on purpose: the empty read is used as zero below, so a key with no position
+        // can never authorize a sale — the same refusal the legacy aggregate produces for a variant this store
+        // does not stock, and the only defensible reading of "the ledger holds nothing".
+        // I8 stays the ledger's OWN gate and its OWN lock, and neither is redundant: V61's trigger takes
+        // stock_position FOR UPDATE again (V61:365-369) for every writer that reaches the table — including one
+        // that never walks this method — and refuses the movement if the row it locks cannot cover it. Two locks
+        // on one row inside one transaction are one lock on the database; what is not duplicated is the audience.
+        // This one turns the refusal into the API's 409 before any write happens; that one holds for every
+        // caller, in the database, whether or not this slice's gate ran.
         var position = orZero(stockPositionRepository
-                .findQuantity(companyStoreId, productVariantId)
+                .findByCompanyStoreIdAndProductVariantIdForUpdate(companyStoreId, productVariantId)
+                .map(StockPosition::getQuantity)
                 .orElse(null));
         if (position.compareTo(quantity) < 0) {
             throw new InsufficientStockException(productVariantId, quantity, position);
