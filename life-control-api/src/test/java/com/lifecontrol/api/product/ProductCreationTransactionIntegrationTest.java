@@ -76,7 +76,10 @@ class ProductCreationTransactionIntegrationTest extends AbstractPostgresIntegrat
         cleanUp();
         // The id comes from the natural key (`TenantFixtures`' one derivation), so the cleanup can state the
         // tenant before the row exists: `companies` is filtered by its own id.
-        companyId = TenantFixtures.insertCompany(jdbc, COMPANY_KEY, "Creation transaction probe", "PCT010101AB1");
+        // The database is at head, where `V57` made `companies.currency` required: the four-column
+        // overload belongs to the suites that hold a scratch database before that column exists.
+        companyId = TenantFixtures.insertCompany(
+                jdbc, COMPANY_KEY, "Creation transaction probe", "PCT010101AB1", TenantFixtures.SEED_CURRENCY);
     }
 
     @AfterEach
