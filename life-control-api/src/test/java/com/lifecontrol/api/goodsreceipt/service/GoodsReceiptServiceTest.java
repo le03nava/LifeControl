@@ -142,6 +142,9 @@ class GoodsReceiptServiceTest {
     private StoreLocation location;
     private Status registeredStatus;
 
+    /** The receipt the service asked to persist, so a case can assert the columns it carries. */
+    private GoodsReceipt savedReceipt;
+
     @BeforeEach
     void setUp() {
         service = new GoodsReceiptService(
@@ -183,7 +186,13 @@ class GoodsReceiptServiceTest {
 
         purchaseOrder = PurchaseOrder.builder()
                 .id(PO_ID)
+                // Kept distinct from doc_number on purpose: the receipt derives from the frozen
+                // doc_number (ADR-0003 decision 6) and not from the legacy order_number column, and a
+                // fixture where both read the same cannot tell the two apart.
                 .orderNumber("PO-20260603-00001")
+                .docType("PURCHASE_ORDER")
+                .docNumber("PO-202606-00001")
+                .company(company)
                 .companyStore(store)
                 .enabled(true)
                 .build();
@@ -251,6 +260,7 @@ class GoodsReceiptServiceTest {
         when(goodsReceiptRepository.save(any(GoodsReceipt.class))).thenAnswer(invocation -> {
             GoodsReceipt saved = invocation.getArgument(0);
             saved.setId(RECEIPT_ID);
+            savedReceipt = saved;
             return saved;
         });
     }
@@ -280,7 +290,7 @@ class GoodsReceiptServiceTest {
             var response = service.createReceipt(requestWith(null, line(DETAIL_ID, "3")));
 
             assertThat(response.id()).isEqualTo(RECEIPT_ID);
-            assertThat(response.receiptNumber()).isEqualTo("GR-PO-20260603-00001-01");
+            assertThat(response.receiptNumber()).isEqualTo("GR-PO-202606-00001-01");
             assertThat(response.purchaseOrderId()).isEqualTo(PO_ID);
             assertThat(response.orderNumber()).isEqualTo("PO-20260603-00001");
             assertThat(response.companyStoreId()).isEqualTo(STORE_ID);
@@ -294,6 +304,13 @@ class GoodsReceiptServiceTest {
             assertThat(response.lines().getFirst().purchaseOrderDetailId()).isEqualTo(DETAIL_ID);
             assertThat(response.lines().getFirst().productVariantId()).isEqualTo(VARIANT_ID);
             assertThat(response.lines().getFirst().quantityReceived()).isEqualByComparingTo("3");
+
+            // ADR-0003 decision 6: the receipt stores its tenant, its closed-vocabulary doc_type and
+            // the rendered number, written once.
+            assertThat(savedReceipt.getCompanyId()).isEqualTo(COMPANY_ID);
+            assertThat(savedReceipt.getDocType()).isEqualTo("GOODS_RECEIPT");
+            assertThat(savedReceipt.getDocNumber()).isEqualTo("GR-PO-202606-00001-01");
+            assertThat(savedReceipt.getReceiptNumber()).isEqualTo(savedReceipt.getDocNumber());
 
             verify(inventoryService)
                     .applyReceipt(
@@ -692,32 +709,32 @@ class GoodsReceiptServiceTest {
     class ReceiptNumberTests {
 
         @Test
-        @DisplayName("should number the first receipt GR-<order>-01")
+        @DisplayName("should number the first receipt GR-<parent doc_number>-01")
         void firstReceiptNumber() {
             stubHappyPath();
             when(goodsReceiptRepository.countByPurchaseOrderId(PO_ID)).thenReturn(0L);
 
             var response = service.createReceipt(requestWith(LOCATION_ID, line(DETAIL_ID, "1")));
 
-            assertThat(response.receiptNumber()).isEqualTo("GR-PO-20260603-00001-01");
+            assertThat(response.receiptNumber()).isEqualTo("GR-PO-202606-00001-01");
         }
 
         @Test
-        @DisplayName("should number the second receipt GR-<order>-02")
+        @DisplayName("should number the second receipt GR-<parent doc_number>-02")
         void secondReceiptNumber() {
             stubHappyPath();
             when(goodsReceiptRepository.countByPurchaseOrderId(PO_ID)).thenReturn(1L);
 
             var response = service.createReceipt(requestWith(LOCATION_ID, line(DETAIL_ID, "1")));
 
-            assertThat(response.receiptNumber()).isEqualTo("GR-PO-20260603-00001-02");
+            assertThat(response.receiptNumber()).isEqualTo("GR-PO-202606-00001-02");
         }
 
         @Test
         @DisplayName("should fail closed instead of truncating a number over 30 characters")
         void receiptNumberTooLongFailsClosed() {
             stubHappyPath();
-            purchaseOrder.setOrderNumber("PO-20260603-00001-ABCDEFGHI");
+            purchaseOrder.setDocNumber("PO-20260603-00001-ABCDEFGHI");
 
             assertThatThrownBy(() -> service.createReceipt(requestWith(LOCATION_ID, line(DETAIL_ID, "1"))))
                     .isInstanceOf(ReceiptNumberTooLongException.class)

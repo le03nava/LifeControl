@@ -33,8 +33,27 @@ public class GoodsReceipt extends Auditable {
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
-    @Column(name = "receipt_number", length = 30, nullable = false, unique = true)
+    /**
+     * The printed number, kept for one more release (ADR-0003 migration step 9 drops it).
+     *
+     * <p>It is no longer globally unique: {@code V64} drops that constraint, and the number is derived
+     * from the parent order's frozen {@code doc_number}, which two tenants may print identically. The
+     * rendered value is also stored in {@link #docNumber}, which is the column readers will use.</p>
+     */
+    @Column(name = "receipt_number", length = 30, nullable = false)
     private String receiptNumber;
+
+    /** The tenant that owns the receipt, derived from its purchase order (ADR-0003 invariant N9). */
+    @Column(name = "company_id", nullable = false)
+    private UUID companyId;
+
+    /** The closed document-type vocabulary of ADR-0003 decision 7: always {@code GOODS_RECEIPT} here. */
+    @Column(name = "doc_type", length = 24, nullable = false)
+    private String docType;
+
+    /** The rendered {@code GR-{parent.doc_number}-{NN}}, written once (ADR-0003 decision 6). */
+    @Column(name = "doc_number", length = 40, nullable = false)
+    private String docNumber;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "purchase_order_id", nullable = false)
@@ -97,6 +116,18 @@ public class GoodsReceipt extends Auditable {
         return receiptNumber;
     }
 
+    public UUID getCompanyId() {
+        return companyId;
+    }
+
+    public String getDocType() {
+        return docType;
+    }
+
+    public String getDocNumber() {
+        return docNumber;
+    }
+
     public PurchaseOrder getPurchaseOrder() {
         return purchaseOrder;
     }
@@ -140,6 +171,18 @@ public class GoodsReceipt extends Auditable {
 
     public void setReceiptNumber(String receiptNumber) {
         this.receiptNumber = receiptNumber;
+    }
+
+    public void setCompanyId(UUID companyId) {
+        this.companyId = companyId;
+    }
+
+    public void setDocType(String docType) {
+        this.docType = docType;
+    }
+
+    public void setDocNumber(String docNumber) {
+        this.docNumber = docNumber;
     }
 
     public void setPurchaseOrder(PurchaseOrder purchaseOrder) {
@@ -193,6 +236,21 @@ public class GoodsReceipt extends Auditable {
 
         public Builder receiptNumber(String receiptNumber) {
             receipt.receiptNumber = receiptNumber;
+            return this;
+        }
+
+        public Builder companyId(UUID companyId) {
+            receipt.companyId = companyId;
+            return this;
+        }
+
+        public Builder docType(String docType) {
+            receipt.docType = docType;
+            return this;
+        }
+
+        public Builder docNumber(String docNumber) {
+            receipt.docNumber = docNumber;
             return this;
         }
 

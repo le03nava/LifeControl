@@ -284,3 +284,15 @@ the ADR itself now say so: it releases no ledger debt. T5d was closed as blocked
 "per-transition identity", which the ADR does not supply and cannot, and the decision that would — the
 ledger's per-write identity, three shapes recorded in `odd/tasks/inventory-ledger.md` — is still the
 maintainer's. ADR-0004's decision itself is unchanged by the acceptance and is still unimplemented.
+
+**2026-11-03 — implementing ADR-0003 found a fifth defect in it, and it is the same family as the four the
+acceptance fixed.** Decision 4 names the period's source as «`sales_orders.order_date`,
+`purchase_orders.order_date`». `purchase_orders` **has no `order_date` column**: `V1:313-325` declares the
+table with `created_at`/`updated_at` among its dates and no order date, and no later migration adds one. The
+sentences therefore read as authoritative while naming a column the tree never had — the acceptance's own
+D4 class, caught one step later because it is inside a decision rather than inside the migration plan.
+`odd/tasks/document-identity.md` records the resolution: `V64` and the purchase-order writer derive the period
+from `created_at`, which is the document's own frozen timestamp and therefore the property decision 4 is
+about, and no column was invented to make the sentence true. The ADR stays `accepted` and unchanged; this is
+the sixth false statement of the set found after acceptance, and the second found by implementing rather than
+by reading.

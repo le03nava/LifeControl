@@ -1,6 +1,9 @@
 package com.lifecontrol.api.salesorder.service;
 
 import com.lifecontrol.api.common.auth.CurrentUserContext;
+import com.lifecontrol.api.common.document.DocumentNumberRenderer;
+import com.lifecontrol.api.common.document.DocumentSequenceAllocator;
+import com.lifecontrol.api.common.document.DocumentType;
 import com.lifecontrol.api.customer.exception.CustomerNotFoundException;
 import com.lifecontrol.api.customer.repository.CustomerRepository;
 import com.lifecontrol.api.inventory.service.InventoryService;
@@ -38,9 +41,7 @@ import com.lifecontrol.api.store.model.CompanyStore;
 import com.lifecontrol.api.store.repository.CompanyStoreRepository;
 import com.lifecontrol.api.store.service.CompanyStoreOwnerResolver;
 import java.math.BigDecimal;
-import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -84,8 +85,6 @@ public class SalesOrderService {
      */
     private static final String SALE_REFERENCE_TYPE = "SALES_ORDER_ITEM";
 
-    private static final DateTimeFormatter DATE_FORMAT = DateTimeFormatter.ofPattern("yyyyMMdd");
-
     private final SalesOrderRepository salesOrderRepository;
     private final SalesOrderItemRepository itemRepository;
     private final CustomerRepository customerRepository;
@@ -97,6 +96,7 @@ public class SalesOrderService {
     private final StatusRepository statusRepository;
     private final PaymentMethodRepository paymentMethodRepository;
     private final CurrentUserContext currentUserContext;
+    private final DocumentSequenceAllocator documentSequenceAllocator;
 
     public SalesOrderService(
             SalesOrderRepository salesOrderRepository,
@@ -109,7 +109,8 @@ public class SalesOrderService {
             InventoryService inventoryService,
             StatusRepository statusRepository,
             PaymentMethodRepository paymentMethodRepository,
-            CurrentUserContext currentUserContext) {
+            CurrentUserContext currentUserContext,
+            DocumentSequenceAllocator documentSequenceAllocator) {
         this.salesOrderRepository = salesOrderRepository;
         this.itemRepository = itemRepository;
         this.customerRepository = customerRepository;
@@ -121,6 +122,7 @@ public class SalesOrderService {
         this.statusRepository = statusRepository;
         this.paymentMethodRepository = paymentMethodRepository;
         this.currentUserContext = currentUserContext;
+        this.documentSequenceAllocator = documentSequenceAllocator;
     }
 
     // ─── Sales Order CRUD ────────────────────────────────────────────────
@@ -152,7 +154,10 @@ public class SalesOrderService {
                 request.companyStoreId());
 
         validateCustomerExists(request.customerId());
-        validateCompanyStoreExists(request.companyStoreId());
+        // The store is resolved once and kept: it authorizes the caller AND it is the only thing that
+        // answers which tenant owns the number this order needs, so a second lookup could only disagree
+        // with the guard that already passed.
+        var store = validateCompanyStoreExists(request.companyStoreId());
         if (request.shiftId() != null) {
             validateShiftOpen(request.shiftId());
         }
@@ -162,15 +167,35 @@ public class SalesOrderService {
                 .orElseThrow(
                         () -> new StatusNotFoundException("Default status 'Draft' not found for SALES_ORDER type"));
 
-        var orderNumber = generateOrderNumber();
+        var companyId = companyStoreOwnerResolver.companyIdOf(store);
+
+        // ADR-0003 decision 4: the document date is read ONCE and the period comes from that value, so a
+        // sale created at 23:59 on the last day of a month cannot land in the next period depending on
+        // when its transaction reaches the allocator. The same `orderDate` is what the row stores.
+        var orderDate = LocalDateTime.now();
+        var period = DocumentNumberRenderer.periodOf(orderDate.toLocalDate());
+
+        // The allocation is the last write before the row is created, not the last write before commit:
+        // `sales_orders` needs its number at INSERT time, so "allocate as the last write before commit" is
+        // unattainable on this path. The sequence row's lock is therefore held while the lines and their
+        // stock work run, which is the cost the ADR records rather than one this code can avoid.
+        var seqValue = documentSequenceAllocator.allocate(companyId, DocumentType.SALES_ORDER, period);
+        var docNumber = DocumentNumberRenderer.renderPeriodNumber(DocumentType.SALES_ORDER, period, seqValue);
 
         var so = SalesOrder.builder()
-                .orderNumber(orderNumber)
+                // `V64` dropped the global key on `order_number`: it carries the same string as
+                // `doc_number` for one more release, and two tenants may legally print the same number.
+                .orderNumber(docNumber)
+                .companyId(companyId)
+                .docType(DocumentType.SALES_ORDER.code())
+                .seqPeriod(period)
+                .seqValue(seqValue)
+                .docNumber(docNumber)
                 .customerId(request.customerId())
-                .companyStoreId(request.companyStoreId())
+                .companyStoreId(store.getId())
                 .shiftId(request.shiftId())
                 .userId(request.userId())
-                .orderDate(LocalDateTime.now())
+                .orderDate(orderDate)
                 .statusId(status.getId())
                 .totalAmount(BigDecimal.ZERO)
                 .enabled(true)
@@ -827,9 +852,10 @@ public class SalesOrderService {
      * @throws org.springframework.security.access.AccessDeniedException when the caller holds no
      *     grant for the store's scope (403)
      */
-    private void validateCompanyStoreExists(UUID id) {
+    private CompanyStore validateCompanyStoreExists(UUID id) {
         var store = companyStoreRepository.findById(id).orElseThrow(() -> new CompanyStoreNotFoundException(id));
         verifyStoreAccess(store);
+        return store;
     }
 
     /**
@@ -915,29 +941,6 @@ public class SalesOrderService {
         if (allowed == null || !allowed.contains(targetName)) {
             throw new InvalidStatusTransitionException(currentName, targetName);
         }
-    }
-
-    // ─── Order Number Generation ────────────────────────────────────────
-
-    private String generateOrderNumber() {
-        var today = LocalDate.now();
-        var dateStr = today.format(DATE_FORMAT);
-        var prefix = "SO-" + dateStr + "-";
-
-        var maxOrder = salesOrderRepository.findTopByOrderNumberStartingWithOrderByOrderNumberDesc(prefix);
-
-        var nextSeq = 1;
-        if (maxOrder.isPresent()) {
-            var lastOrderNumber = maxOrder.get().getOrderNumber();
-            var seqPart = lastOrderNumber.substring(prefix.length());
-            try {
-                nextSeq = Integer.parseInt(seqPart) + 1;
-            } catch (NumberFormatException e) {
-                logger.warn("Failed to parse sequence from order number: {}", lastOrderNumber);
-            }
-        }
-
-        return prefix + String.format("%05d", nextSeq);
     }
 
     // ─── Stock Movement Through the Inventory Engine ───────────────────

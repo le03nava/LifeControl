@@ -10,6 +10,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.lifecontrol.api.common.tenant.TenantScope;
 import com.lifecontrol.api.company.model.CompanyCountry;
 import com.lifecontrol.api.company.model.CompanyRegion;
 import com.lifecontrol.api.company.model.CompanyZone;
@@ -207,6 +208,15 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
 
     @BeforeEach
     void setUp() {
+        // ADR-0003 made `sales_orders` a tenant table, so the cleanup below needs the scope the
+        // application's filter installs per request. Without it every deleteAll() deletes NOTHING — RLS
+        // answers zero rows and reports success — so the orders this suite places survive into the next
+        // class and pin the shifts it deletes (measured as `fk` failures on `shifts` in a full run, none in
+        // an isolated one). The company is the deterministic one this suite already finds-or-creates.
+        companyId = TenantFixtures.findOrCreate(companyRepository, "TEST-KEY", "Test Company", "TEST123456ABC")
+                .getId();
+        TenantScope.set(companyId, null);
+
         // Clean up mutable data in reverse FK dependency order. inventory_movements and
         // product_variant_locations reference product_variants with no cascade, so they must go
         // before the variants (and before the products) or the delete fails on the FK.
@@ -245,6 +255,11 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                     .findById(companyStoreId)
                     .ifPresent(storeInventorySettingsRepository::delete);
         }
+
+        // The scope is cleared last: it is installed for the whole test so the deletes above match rows
+        // instead of silently matching none, and leaving it on the thread would leak into whatever suite
+        // runs next on this one.
+        TenantScope.clear();
     }
 
     /**
@@ -1532,9 +1547,12 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                     .andExpect(jsonPath("$.id").exists())
                     .andExpect(jsonPath("$.quantity").value(3.00));
 
-            // Verify order is now Active (status updated in DB)
-            var orderAfterFirstItem =
-                    salesOrderRepository.findById(UUID.fromString(orderId)).orElseThrow();
+            // Verify order is now Active (status updated in DB). The read states this class's company
+            // because `TenantScopeFilter` clears the thread's scope in its `finally`: the scope
+            // `@BeforeEach` set is gone after the first `mockMvc.perform`, and `sales_orders` has been armed
+            // since `V65`, so a bare `findById` answers no row for an order the request just committed.
+            var orderAfterFirstItem = inTransaction(() ->
+                    salesOrderRepository.findById(UUID.fromString(orderId)).orElseThrow());
             var statusAfterFirstItem =
                     statusRepository.findById(orderAfterFirstItem.getStatusId()).orElseThrow();
             assertThat(statusAfterFirstItem.getStatusName()).isEqualTo("Active");
@@ -1557,8 +1575,8 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                     .andExpect(jsonPath("$.quantity").value(2.00));
 
             // Verify order is still Active (not re-transitioned)
-            var orderAfterSecondItem =
-                    salesOrderRepository.findById(UUID.fromString(orderId)).orElseThrow();
+            var orderAfterSecondItem = inTransaction(() ->
+                    salesOrderRepository.findById(UUID.fromString(orderId)).orElseThrow());
             var statusAfterSecondItem = statusRepository
                     .findById(orderAfterSecondItem.getStatusId())
                     .orElseThrow();
@@ -1588,8 +1606,8 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                     .andExpect(jsonPath("$.paymentMethodId").value(paymentMethodId.toString()));
 
             // Verify final order status is Completed
-            var finalOrder =
-                    salesOrderRepository.findById(UUID.fromString(orderId)).orElseThrow();
+            var finalOrder = inTransaction(() ->
+                    salesOrderRepository.findById(UUID.fromString(orderId)).orElseThrow());
             var finalStatus =
                     statusRepository.findById(finalOrder.getStatusId()).orElseThrow();
             assertThat(finalStatus.getStatusName()).isEqualTo("Completed");
@@ -2449,10 +2467,10 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
 
             mockMvc.perform(delete("/api/sales-orders/{id}", placed.orderId()).with(scopedSalesJwt()))
                     .andExpect(status().isNoContent());
-            assertThat(salesOrderRepository
+            assertThat(inTransaction(() -> salesOrderRepository
                             .findById(placed.orderId())
                             .orElseThrow()
-                            .getEnabled())
+                            .getEnabled()))
                     .isFalse();
             assertThat(storeStockOf(variant.getId()).getStock()).isEqualByComparingTo(new BigDecimal("100.00"));
 
@@ -2653,6 +2671,11 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
      * Reads inside a transaction that states this class's company: the store chain is LAZY and the service
      * commits its own transaction, so reading it on a detached entity would throw — and {@code company_stores}
      * is policy-armed, so a read with no tenant stated finds no row at all.
+     *
+     * <p>It is also the only way this class reads {@code sales_orders}, armed since {@code V65}, on the test
+     * thread after a request: {@code TenantScopeFilter} clears the thread's scope in its {@code finally}, so
+     * the scope {@code @BeforeEach} states is gone after the first {@code mockMvc.perform} of a test and a
+     * bare {@code findById} then answers no row for an order the request just committed.</p>
      */
     private <T> T inTransaction(Supplier<T> reader) {
         return TenantFixtures.inTenant(companyId, reader);

@@ -1,6 +1,8 @@
 package com.lifecontrol.api.goodsreceipt.service;
 
 import com.lifecontrol.api.common.auth.CurrentUserContext;
+import com.lifecontrol.api.common.document.DocumentNumberRenderer;
+import com.lifecontrol.api.common.document.DocumentType;
 import com.lifecontrol.api.goodsreceipt.dto.GoodsReceiptFilter;
 import com.lifecontrol.api.goodsreceipt.dto.GoodsReceiptLineRequest;
 import com.lifecontrol.api.goodsreceipt.dto.GoodsReceiptLineResponse;
@@ -239,6 +241,11 @@ public class GoodsReceiptService {
 
         var receipt = GoodsReceipt.builder()
                 .receiptNumber(receiptNumber)
+                // ADR-0003 invariant N9: the receipt's tenant is its order's, and the composite foreign key
+                // `fk_goods_receipts_order_same_company` refuses a pair that says otherwise.
+                .companyId(purchaseOrder.getCompany().getId())
+                .docType(DocumentType.GOODS_RECEIPT.code())
+                .docNumber(receiptNumber)
                 .purchaseOrder(purchaseOrder)
                 .companyStore(companyStore)
                 .receivingLocation(receivingLocation)
@@ -523,12 +530,24 @@ public class GoodsReceiptService {
         return resolved;
     }
 
-    /** {@code GR-{orderNumber}-{NN}}, failing closed when it would not fit the column. */
+    /**
+     * {@code GR-{parent.doc_number}-{NN}}, failing closed when it would not fit the column.
+     *
+     * <p>The parent half is its <b>frozen</b> {@code doc_number}, not its {@code order_number}: ADR-0003
+     * decision 6 makes a receipt name the number its order was printed with, and the legacy column records
+     * how a number was allocated under the old scheme. The ordinal still comes from the per-order count
+     * taken under the order's {@code PESSIMISTIC_WRITE} lock, so the counter and its serialization are the
+     * ones that already existed.</p>
+     *
+     * <p>The rendered value goes into {@code receipt_number} (VARCHAR(30)) and {@code doc_number}
+     * (VARCHAR(40)), so the guard has to keep protecting the narrower column.</p>
+     */
     private String generateReceiptNumber(PurchaseOrder purchaseOrder, long receiptCount) {
-        var receiptNumber = "GR-" + purchaseOrder.getOrderNumber() + "-" + String.format("%02d", receiptCount + 1);
+        var parentDocNumber = purchaseOrder.getDocNumber();
+        var receiptNumber = DocumentNumberRenderer.renderDerivedNumber(
+                DocumentType.GOODS_RECEIPT, parentDocNumber, receiptCount + 1);
         if (receiptNumber.length() > RECEIPT_NUMBER_MAX_LENGTH) {
-            throw new ReceiptNumberTooLongException(
-                    receiptNumber, purchaseOrder.getOrderNumber(), RECEIPT_NUMBER_MAX_LENGTH);
+            throw new ReceiptNumberTooLongException(receiptNumber, parentDocNumber, RECEIPT_NUMBER_MAX_LENGTH);
         }
         return receiptNumber;
     }

@@ -263,6 +263,51 @@ public abstract class AbstractPostgresIntegrationTest {
     }
 
     /**
+     * Deletes every goods receipt, leaf-first, for the suites whose own cleanup cannot reach the ones they
+     * wrote for another tenant.
+     *
+     * <p><b>Why this is not just a scoped {@code deleteAll()}.</b> Since ADR-0003 made
+     * {@code goods_receipts} a tenant table, a scoped delete reaches one tenant's rows and nothing else —
+     * which is correct for the application and useless for a teardown: the receipt suites deliberately create
+     * receipts for a <em>second</em> company (the scoping cases), and those rows reference
+     * {@code store_locations}, {@code purchase_orders} and {@code product_variants} with no cascade. A
+     * leftover receipt is enough for the next class in this shared JVM to fail its own cleanup, measured as
+     * {@code fk} failures on {@code store_locations} that no isolated run reproduces.</p>
+     *
+     * <p><b>Why the superuser and a suppressed FK role.</b> {@code lifecontrol_app} cannot see another
+     * tenant's row and cannot delete one through a policy, so the cleanup runs on the container's own login —
+     * the same credential and the same one-transaction
+     * {@code SET LOCAL session_replication_role = replica} that {@link #deleteStockLedger} documents: the
+     * setting dies at {@code COMMIT}, so no sibling suite can observe a weaker rule, and a failure half-way
+     * leaves nothing switched off.</p>
+     *
+     * <p>Only a suite that already deletes every receipt it wrote is entitled to call this.</p>
+     */
+    protected static void deleteAllGoodsReceipts() {
+        try (var connection = STOCK_LEDGER_CLEANUP.getConnection()) {
+            connection.setAutoCommit(false);
+            try {
+                try (var statement = connection.createStatement()) {
+                    statement.execute("SET LOCAL session_replication_role = replica");
+                }
+                for (var sql : List.of("DELETE FROM goods_receipt_items", "DELETE FROM goods_receipts")) {
+                    try (var statement = connection.prepareStatement(sql)) {
+                        statement.executeUpdate();
+                    }
+                }
+                connection.commit();
+            } catch (SQLException e) {
+                connection.rollback();
+                throw new IllegalStateException("could not delete the goods receipts of the shared container", e);
+            } finally {
+                connection.setAutoCommit(true);
+            }
+        } catch (SQLException e) {
+            throw new IllegalStateException("could not reach the container to delete the goods receipts", e);
+        }
+    }
+
+    /**
      * Deletes every access-provisioning row, leaf-first, for the suites whose own cleanup is an
      * <b>unscoped</b> {@code DELETE FROM employees}.
      *
@@ -306,8 +351,20 @@ public abstract class AbstractPostgresIntegrationTest {
         jdbcTemplate.update("DELETE FROM employees");
     }
 
-    /** The classpath location of every versioned migration this API ships. */
-    private static final String MIGRATION_LOCATION = "classpath*:db/migration/V*__*.sql";
+    /**
+     * The classpath locations of every versioned migration this API ships: the SQL half, and the Java half
+     * that directory also carries.
+     *
+     * <p><b>Why two patterns and not one.</b> {@code V65__Document_identity_render} is the tree's first Java
+     * migration (ADR-0003 renders {@code doc_number} with the renderer the API already ships, so the number
+     * the writer prints and the number the history receives are one implementation). A Java migration lives
+     * in the same {@code db/migration} package and carries its version in its file name exactly like a SQL
+     * one, but its file ends in {@code .class} — so a scan of {@code *.sql} alone reports {@code 64} while the
+     * database is at {@code 65}, and every suite that derives its head from this helper fails on the migration
+     * that adds no SQL at all.</p>
+     */
+    private static final List<String> MIGRATION_LOCATIONS =
+            List.of("classpath*:db/migration/V*__*.sql", "classpath*:db/migration/V*__*.class");
 
     /**
      * Returns the newest versioned migration in the API's own {@code db/migration} directory.
@@ -322,42 +379,48 @@ public abstract class AbstractPostgresIntegrationTest {
      * from {@code flyway.info()}: comparing Flyway's own report against Flyway's own scan would be a
      * tautology. A migration file whose name Flyway does not recognize (a missing {@code __}, a
      * lower-case {@code v}) is present in the directory and absent from the report, so this source
-     * catches it while the report alone cannot — which is strictly more than the literal checked.</p>
+     * catches it while the report alone cannot — which is strictly more than the literal checked. Both
+     * halves of the directory are read ({@link #MIGRATION_LOCATIONS}), so a Java migration is not the one
+     * kind of migration this source would miss.</p>
      *
      * @return the newest version, as Flyway renders it ({@code "35"})
      * @throws IllegalStateException when the location resolves to no migration at all, so a wrong
      *     location fails loudly instead of silently comparing against nothing
      */
     protected static String latestMigrationVersion() {
-        return latestMigrationVersion(MIGRATION_LOCATION);
+        return latestMigrationVersion(MIGRATION_LOCATIONS.toArray(String[]::new));
     }
 
     /**
-     * Same as {@link #latestMigrationVersion()}, for an explicit location pattern. Package-visible so
-     * the ordering rule can be pinned against a fixture directory instead of the real migrations.
+     * Same as {@link #latestMigrationVersion()}, for explicit location patterns; the newest version across
+     * all of them is the answer, so the SQL and Java halves of one directory are one fact instead of two that
+     * can disagree about which migration is the head. Package-visible so the two rules can be pinned against a
+     * fixture directory instead of the real migrations.
      */
-    protected static String latestMigrationVersion(String locationPattern) {
+    protected static String latestMigrationVersion(String... locationPatterns) {
         var resolver = new PathMatchingResourcePatternResolver();
         List<MigrationVersion> versions = new ArrayList<>();
-        try {
-            for (Resource resource : resolver.getResources(locationPattern)) {
-                String filename = resource.getFilename();
-                if (filename == null) {
-                    continue;
+        for (String locationPattern : locationPatterns) {
+            try {
+                for (Resource resource : resolver.getResources(locationPattern)) {
+                    String filename = resource.getFilename();
+                    if (filename == null) {
+                        continue;
+                    }
+                    int end = filename.indexOf("__");
+                    if (end > 1 && filename.startsWith("V")) {
+                        // Flyway's own version type, so "V10" orders after "V9": a comparison over the raw
+                        // names reports the oldest two-digit migration as the newest, which is the defect
+                        // MigrationHeadTest pins.
+                        versions.add(MigrationVersion.fromVersion(filename.substring(1, end)));
+                    }
                 }
-                int end = filename.indexOf("__");
-                if (end > 1 && filename.startsWith("V")) {
-                    // Flyway's own version type, so "V10" orders after "V9": a comparison over the raw
-                    // names reports the oldest two-digit migration as the newest, which is the defect
-                    // MigrationHeadTest pins.
-                    versions.add(MigrationVersion.fromVersion(filename.substring(1, end)));
-                }
+            } catch (IOException e) {
+                throw new UncheckedIOException("could not read the migrations at " + locationPattern, e);
             }
-        } catch (IOException e) {
-            throw new UncheckedIOException("could not read the migrations at " + locationPattern, e);
         }
         if (versions.isEmpty()) {
-            throw new IllegalStateException("no migration matched " + locationPattern);
+            throw new IllegalStateException("no migration matched " + String.join(", ", locationPatterns));
         }
         return versions.stream().max(Comparator.naturalOrder()).orElseThrow().getVersion();
     }

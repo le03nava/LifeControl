@@ -43,8 +43,37 @@ public class PurchaseOrder extends Auditable {
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
-    @Column(name = "order_number", length = 30, nullable = false, unique = true)
+    /**
+     * The printed number, kept for one more release (ADR-0003 migration step 9 drops it).
+     *
+     * <p>It is no longer globally unique: {@code V64} drops that constraint, because a number is
+     * allocated per tenant and the second tenant's {@code PO-202610-00001} is legal. The identity the
+     * database enforces is the parts below, and {@link #docNumber} is the same string written once.</p>
+     */
+    @Column(name = "order_number", length = 30, nullable = false)
     private String orderNumber;
+
+    /** The closed document-type vocabulary of ADR-0003 decision 7: always {@code PURCHASE_ORDER} here. */
+    @Column(name = "doc_type", length = 24, nullable = false)
+    private String docType;
+
+    /**
+     * The period the number was allocated in (ADR-0003 decision 4).
+     *
+     * <p>The period comes from the document's own date and this table carries no {@code order_date}
+     * column, so {@code PurchaseOrderService} freezes one date and derives the period from it; see the
+     * deviation recorded in that method.</p>
+     */
+    @Column(name = "seq_period", length = 8, nullable = false)
+    private String seqPeriod;
+
+    /** The value the allocator handed out for {@code (companyId, docType, seqPeriod)}. */
+    @Column(name = "seq_value", nullable = false)
+    private Long seqValue;
+
+    /** The rendered number, written once and never re-rendered on read (ADR-0003 decision 5). */
+    @Column(name = "doc_number", length = 40, nullable = false)
+    private String docNumber;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "supplier_id", nullable = false)
@@ -104,6 +133,22 @@ public class PurchaseOrder extends Auditable {
         return orderNumber;
     }
 
+    public String getDocType() {
+        return docType;
+    }
+
+    public String getSeqPeriod() {
+        return seqPeriod;
+    }
+
+    public Long getSeqValue() {
+        return seqValue;
+    }
+
+    public String getDocNumber() {
+        return docNumber;
+    }
+
     public Supplier getSupplier() {
         return supplier;
     }
@@ -143,6 +188,22 @@ public class PurchaseOrder extends Auditable {
 
     public void setOrderNumber(String orderNumber) {
         this.orderNumber = orderNumber;
+    }
+
+    public void setDocType(String docType) {
+        this.docType = docType;
+    }
+
+    public void setSeqPeriod(String seqPeriod) {
+        this.seqPeriod = seqPeriod;
+    }
+
+    public void setSeqValue(Long seqValue) {
+        this.seqValue = seqValue;
+    }
+
+    public void setDocNumber(String docNumber) {
+        this.docNumber = docNumber;
     }
 
     public void setSupplier(Supplier supplier) {
@@ -192,6 +253,26 @@ public class PurchaseOrder extends Auditable {
 
         public Builder orderNumber(String orderNumber) {
             purchaseOrder.orderNumber = orderNumber;
+            return this;
+        }
+
+        public Builder docType(String docType) {
+            purchaseOrder.docType = docType;
+            return this;
+        }
+
+        public Builder seqPeriod(String seqPeriod) {
+            purchaseOrder.seqPeriod = seqPeriod;
+            return this;
+        }
+
+        public Builder seqValue(Long seqValue) {
+            purchaseOrder.seqValue = seqValue;
+            return this;
+        }
+
+        public Builder docNumber(String docNumber) {
+            purchaseOrder.docNumber = docNumber;
             return this;
         }
 

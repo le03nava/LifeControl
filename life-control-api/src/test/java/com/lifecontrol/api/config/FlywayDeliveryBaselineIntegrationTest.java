@@ -9,11 +9,9 @@ import java.io.UncheckedIOException;
 import java.sql.DriverManager;
 import java.util.Arrays;
 import java.util.Comparator;
-import java.util.Objects;
 import java.util.Properties;
 import java.util.UUID;
 import org.flywaydb.core.Flyway;
-import org.flywaydb.core.api.CoreMigrationType;
 import org.flywaydb.core.api.MigrationInfo;
 import org.flywaydb.core.api.MigrationVersion;
 import org.junit.jupiter.api.AfterEach;
@@ -234,11 +232,25 @@ class FlywayDeliveryBaselineIntegrationTest extends AbstractPostgresIntegrationT
                 : current.getVersion().getVersion();
     }
 
+    /**
+     * The newest versioned migration the location carries — <b>SQL or Java</b>.
+     *
+     * <p>{@code V65__Document_identity_render} is the tree's first Java migration (ADR-0003 renders
+     * {@code doc_number} with the renderer the API ships, so the writer and the history cannot disagree), and
+     * it lives in the same {@code db/migration} package with its version in its file name like any other. A
+     * head read of {@code SQL} rows alone therefore answered {@code 64} for a database that was at
+     * {@code 65}.</p>
+     *
+     * <p>The filter is therefore “carries a version and is not synthetic”, not “is {@code SQL}”: Flyway gives
+     * a Java migration its own type ({@code CUSTOM}); the synthetic ones — the baseline row this suite's
+     * scratch database records, the schema and delete markers — are the rows that are not a migration of the
+     * chain.</p>
+     */
     private static String headVersion(Flyway flyway) {
         return Arrays.stream(flyway.info().all())
-                .filter(info -> info.getType() == CoreMigrationType.SQL)
+                .filter(info -> info.getVersion() != null)
+                .filter(info -> !info.getType().isSynthetic())
                 .map(MigrationInfo::getVersion)
-                .filter(Objects::nonNull)
                 .max(Comparator.naturalOrder())
                 .map(MigrationVersion::getVersion)
                 .orElseThrow(() -> new IllegalStateException("no versioned migration resolves from db/migration"));
