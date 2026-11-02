@@ -160,3 +160,17 @@ it is not this slice's to make silently.
   shape as a default that hides a feature being off. The comparison is an integration test (rebuild into a
   scratch table inside a rolled-back transaction, compare, fail loudly) plus the rebuild function any
   operator can call; if a scheduler ever exists, it calls the same function and the test keeps proving it.
+
+**2026-11-02 — a third decision, taken before T3 starts: the ledger's writers are SQL functions.** The ADR
+says what must be true — allocations recorded, projections derived, a rebuild — and not where that lives.
+It lives in the database, and the reason is the one decision 3 exists for: under `FIFO` the consumption is
+the oldest inbound rows of a `(company_id, company_store_id, product_variant_id)`, which is a set
+operation over rows the ledger already holds. A Java implementation would read the ledger back into memory
+and reproduce exactly the remainder arithmetic `SalesOrderService` performs today, which is the structure
+the ADR removes. The Java module calls these functions from T5 on, and gains the entity mapping then;
+T3 proves the engine through the functions themselves.
+
+The consequence that has to be stated with it: the functions run as the calling role, so they meet ADR-0005's
+policies. A transaction must already carry the tenant scope, and a backfill that writes across tenants —
+T4's — needs the `NO FORCE` window `V58:122-123` establishes. `SECURITY DEFINER` would dodge both and
+bypass the policy the previous slice armed, so it is refused rather than used.
