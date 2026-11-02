@@ -7,6 +7,7 @@ import com.lifecontrol.api.inventory.model.MovementType;
 import com.lifecontrol.api.inventory.model.ProductVariantLocation;
 import com.lifecontrol.api.inventory.repository.InventoryMovementRepository;
 import com.lifecontrol.api.inventory.repository.ProductVariantLocationRepository;
+import com.lifecontrol.api.inventory.repository.StockPositionRepository;
 import com.lifecontrol.api.inventory.repository.StoreInventorySettingsRepository;
 import com.lifecontrol.api.product.exception.ProductVariantNotFoundException;
 import com.lifecontrol.api.product.repository.ProductVariantRepository;
@@ -101,6 +102,17 @@ import org.springframework.transaction.annotation.Transactional;
  * by {@code allocate_stock_movement}, so the consumption is recorded rather than recomputed (decision 3) and
  * invariant I6 holds from the first row this class books. A {@code SALE_REVERSAL} names the row it reverses
  * and allocates nothing: the rows it frees are the ones that row consumed.</p>
+ *
+ * <h2>T5b: the position is the authority a sale is refused by</h2>
+ * <p>The readers moved onto {@code stock_position} in T5b — the store-scoped list, the POS search and the
+ * store-stock response all answer the projection — and a sale is the one caller for which "the readers" and
+ * "the gate" are the same question. {@link #applySaleDeduction} therefore reads the position as a third
+ * fail-closed check, after the two legacy ones and before any write, and answers its refusal as
+ * {@link InsufficientStockException}: the contract the Angular POS already handles, with the message shape it
+ * already reads. What it replaces is the 500 the API produced when {@code V61}'s invariant I8 refused an
+ * outbound movement, which was the ledger saying the same thing in a language no client had agreed to. The
+ * legacy writes stay exactly where they were — this slice moves no write — and the ledger's I8 remains its own
+ * independent gate and lock.</p>
  */
 @Service
 @Transactional
@@ -132,6 +144,7 @@ public class InventoryService {
     private final CompanyStoreRepository companyStoreRepository;
     private final CompanyStoreOwnerResolver companyStoreOwnerResolver;
     private final StockLedgerWriter stockLedgerWriter;
+    private final StockPositionRepository stockPositionRepository;
 
     public InventoryService(
             ProductVariantRepository productVariantRepository,
@@ -141,7 +154,8 @@ public class InventoryService {
             StoreInventorySettingsRepository storeInventorySettingsRepository,
             CompanyStoreRepository companyStoreRepository,
             CompanyStoreOwnerResolver companyStoreOwnerResolver,
-            StockLedgerWriter stockLedgerWriter) {
+            StockLedgerWriter stockLedgerWriter,
+            StockPositionRepository stockPositionRepository) {
         this.productVariantRepository = productVariantRepository;
         this.productVariantStoreStockRepository = productVariantStoreStockRepository;
         this.productVariantLocationRepository = productVariantLocationRepository;
@@ -150,6 +164,7 @@ public class InventoryService {
         this.companyStoreRepository = companyStoreRepository;
         this.companyStoreOwnerResolver = companyStoreOwnerResolver;
         this.stockLedgerWriter = stockLedgerWriter;
+        this.stockPositionRepository = stockPositionRepository;
     }
 
     /**
@@ -287,6 +302,15 @@ public class InventoryService {
      * reaches the locks: the absent row is zero sellable stock and raises the same exception, while
      * {@link #applyReceipt} keeps rejecting that same absent row — see the asymmetry at step 3.</p>
      *
+     * <p><b>And it is closed a third time, by the ledger's position (T5b).</b> ADR-0001 decision 1 makes
+     * {@code stock_position} the only authority on quantity, so a sale is refused by the position — and that
+     * refusal is the same {@link InsufficientStockException} with the same message, not the database error
+     * {@code V61}'s invariant I8 raises. The two copies agree while both writers run, so in a consistent tree
+     * the position gate can only agree with the two legacy ones; where they disagree — the state {@code V62}
+     * reports and a legacy column edited by hand produces — the position wins and the operator sees the 409 the
+     * sale contract documents. I8 remains the ledger's own independent gate and the lock that serializes two
+     * deductions of one key.</p>
+     *
      * <p>Lock order is unchanged: the definition is read without a lock, then
      * {@code storeStock -> locationBalance}. The shared {@code storeStock} row is the first lock every
      * mover of this variant and store takes, so two movers are serialized before either of them reaches a
@@ -302,7 +326,8 @@ public class InventoryService {
      * @throws IllegalArgumentException when {@code quantity} is not greater than zero
      * @throws InsufficientStockException when the store cannot cover {@code quantity} — including
      *     when the store does not stock the variant at all, which is zero sellable stock — first
-     *     against the aggregate and then against the sum of the store's location balances
+     *     against the aggregate, then against the sum of the store's location balances, and from T5b also
+     *     against the ledger's position, which is the authority ADR-0001 decision 1 makes
      * @throws ProductVariantNotFoundException when the variant does not exist, is disabled, or
      *     belongs to a company other than the one that owns {@code companyStoreId}
      * @throws CompanyStoreNotFoundException when the store does not exist, so no company can be
@@ -352,6 +377,23 @@ public class InventoryService {
         var available = orZero(storeStock.getStock());
         if (available.compareTo(quantity) < 0) {
             throw new InsufficientStockException(productVariantId, quantity, available);
+        }
+
+        // 4b. The position is the AUTHORITY from T5b on, and this is where its refusal becomes the documented
+        //     socket of the sale contract instead of a 500. V61's I8 refuses an outbound movement the ledger's
+        //     position cannot cover by RAISEing inside the projection trigger, which reaches the caller as an
+        //     UncategorizedSQLException — measured, and the shape this gate exists to replace. Reading the
+        //     projection here gives the same refusal a shape the API documents: InsufficientStockException, 409,
+        //     same message, and the number the position states.
+        // It runs AFTER the store-row lock, so it is serialized with every other mover of this key (they all
+        // take that lock first) and reads the position the previous writer's trigger left. I8 stays the
+        // ledger's own independent gate: it reads stock_position in the database and locks it, so a tree whose
+        // copies disagree is refused by the ledger even if this read were skipped.
+        var position = orZero(stockPositionRepository
+                .findQuantity(companyStoreId, productVariantId)
+                .orElse(null));
+        if (position.compareTo(quantity) < 0) {
+            throw new InsufficientStockException(productVariantId, quantity, position);
         }
 
         // 5. The priority location comes from the store's settings. A missing row is a FIFO

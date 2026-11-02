@@ -16,10 +16,12 @@ import java.util.UUID;
  *   <li>{@code id}, {@code productId}, {@code barCode}, {@code variantName}, {@code enabled},
  *       {@code createdAt}, {@code updatedAt} come from the global definition
  *       ({@code product_variants}).</li>
- *   <li>{@code companyStoreId}, {@code listPrice}, {@code costPrice}, {@code stock} come from the
- *       per-store row ({@code product_variant_store_stock}). They are <strong>{@code null} whenever
- *       the read is not narrowed to a store</strong> (no {@code storeId} query parameter), because
- *       there is no single store whose values could be reported.</li>
+ *   <li>{@code companyStoreId}, {@code listPrice}, {@code costPrice}, {@code stock} are the store-scoped
+ *       values, and since ADR-0006 decision 6 / ADR-0001 decision 2 they come from <b>three different
+ *       sources</b>: the store row ({@code product_variant_store_stock}) for the cost, the listing
+ *       ({@code variant_listing}) for the price, and the ledger's projection ({@code stock_position}) for the
+ *       quantity. They are <strong>{@code null} whenever the read is not narrowed to a store</strong> (no
+ *       {@code storeId} query parameter), because there is no single store whose values could be reported.</li>
  *   <li>{@code sku} now carries the <strong>PRODUCT</strong> sku ({@code products.sku}). The variant
  *       sku was deleted by decision D2, so this field is not a leftover: it is the product sku by
  *       contract.</li>
@@ -49,6 +51,24 @@ import java.util.UUID;
  * after the table it is read from, so a client reading {@code listed: false, stock: 4} renders "stock
  * without price" instead of the "listed, nothing to sell" or "not carried here" the other rows mean. {@code true} with {@code stock = null} is
  * "listed, nothing to sell", and the only sellable row has both.</p>
+ *
+ * <p><b>{@code stock} is the ledger's position since T5b, and its {@code null} means exactly one thing.</b>
+ * The quantity is read from {@code stock_position} (ADR-0001 decision 2's projection), not from
+ * {@code product_variant_store_stock.stock}, so <b>within a store-scoped read</b>:</p>
+ * <ul>
+ *   <li>{@code stock = null} = the ledger holds no movement for this variant in this store, so the quantity was
+ *       never observed — the same meaning {@code listPrice = null} has for the price, and never a zero nobody
+ *       stated. It used to mean "no per-store row", which was the store-membership row and is not a
+ *       quantity fact;</li>
+ *   <li>{@code stock = 0} = the ledger moved this key and the position is now zero: stock existed and was sold
+ *       or adjusted away, which is a fact and not an absence;</li>
+ *   <li>{@code stock = 4, listed = false} = the store holds four and cannot sell them yet because it states no
+ *       price — the state decision 6 exists to make visible.</li>
+ * </ul>
+ * <p>For an unscoped read the whole store-scoped group is {@code null} for the reason it always was: there is
+ * no one store to report. A variant is a row of the answer when <b>any</b> of the three sources has one — a
+ * listing, a store row, or a position — so a receipt into a store that never stocked the variant is reportable
+ * (ADR-0001 decision 5).</p>
  *
  * <p>{@code listed} is <b>appended last</b> like every field before it, and it is {@code null} exactly when
  * the read is not narrowed to a store — the same rule as {@code companyStoreId}, {@code listPrice} and

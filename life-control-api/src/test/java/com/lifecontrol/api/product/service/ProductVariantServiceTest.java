@@ -16,6 +16,7 @@ import com.lifecontrol.api.company.model.CompanyRegion;
 import com.lifecontrol.api.company.model.CompanyZone;
 import com.lifecontrol.api.inventory.exception.StoreInventorySettingsNotFoundException;
 import com.lifecontrol.api.inventory.repository.InventoryMovementRepository;
+import com.lifecontrol.api.inventory.repository.StockPositionRepository;
 import com.lifecontrol.api.inventory.service.InventoryService;
 import com.lifecontrol.api.measureunit.exception.MeasureUnitNotFoundException;
 import com.lifecontrol.api.measureunit.model.MeasureUnit;
@@ -99,6 +100,14 @@ class ProductVariantServiceTest {
 
     @Mock
     private ProductAttributeCatalogService productAttributeCatalogService;
+
+    /**
+     * The ledger's projection, which is where the store-stock response's {@code stock} comes from since T5b of
+     * {@code odd/tasks/inventory-ledger.md}. Mocked like every other repository here; the two cases that report
+     * a stored stock state the projection's number so the assertion keeps naming the value it always named.
+     */
+    @Mock
+    private StockPositionRepository stockPositionRepository;
 
     private UUID companyId;
     private UUID companyCountryId;
@@ -211,7 +220,8 @@ class ProductVariantServiceTest {
                 inventoryService,
                 measureUnitRepository,
                 inventoryMovementRepository,
-                productAttributeCatalogService);
+                productAttributeCatalogService,
+                stockPositionRepository);
     }
 
     /**
@@ -1155,6 +1165,10 @@ class ProductVariantServiceTest {
                     .thenReturn(1);
             when(variantListingRepository.findByProductVariantIdAndCompanyStoreId(variantId, companyStoreId))
                     .thenReturn(Optional.of(listingOf("199.99")));
+            // The response's stock is the ledger's position since T5b, so the projection states the number the
+            // engine just set: the assertion below keeps naming the same value it always did.
+            when(stockPositionRepository.findQuantity(companyStoreId, variantId))
+                    .thenReturn(Optional.of(new BigDecimal("50.00")));
 
             ProductVariantStoreStockResponse result =
                     productVariantService.upsertStoreStock(variantId, companyStoreId, request);
@@ -1198,6 +1212,10 @@ class ProductVariantServiceTest {
                     .thenReturn(1);
             when(variantListingRepository.findByProductVariantIdAndCompanyStoreId(variantId, companyStoreId))
                     .thenReturn(Optional.of(listingOf("249.99")));
+            // No stock was sent, so nothing moved: the position still holds the 50 the row was seeded with,
+            // and the response reads it from there instead of from the store row.
+            when(stockPositionRepository.findQuantity(companyStoreId, variantId))
+                    .thenReturn(Optional.of(new BigDecimal("50.00")));
 
             ProductVariantStoreStockResponse result =
                     productVariantService.upsertStoreStock(variantId, companyStoreId, request);

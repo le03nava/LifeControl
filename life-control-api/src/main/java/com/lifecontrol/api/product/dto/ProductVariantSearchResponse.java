@@ -13,8 +13,11 @@ import java.util.UUID;
  * <ul>
  *   <li>{@code id}, {@code productId}, {@code barCode}, {@code variantName}, {@code enabled},
  *       {@code createdAt}, {@code updatedAt} come from the global definition.</li>
- *   <li>{@code companyStoreId}, {@code listPrice}, {@code costPrice}, {@code stock} come from the
- *       per-store row for the searched store.</li>
+ *   <li>{@code companyStoreId}, {@code listPrice}, {@code costPrice}, {@code stock} are the store-scoped
+ *       values of the searched store, and since ADR-0006 decision 6 / ADR-0001 decision 2 they come from three
+ *       sources: the store row for the cost, {@code variant_listing} for the price and
+ *       {@code stock_position} — the ledger's projection — for the quantity. See
+ *       {@link ProductVariantResponse#listed()} for what a {@code null} {@code stock} means there.</li>
  *   <li>{@code sku} carries the <strong>PRODUCT</strong> sku ({@code products.sku}); the variant sku
  *       no longer exists (D2). {@code productSku} keeps carrying the same product sku, so both
  *       fields report it.</li>

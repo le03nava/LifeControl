@@ -21,6 +21,7 @@ import com.lifecontrol.api.inventory.model.MovementType;
 import com.lifecontrol.api.inventory.model.ProductVariantLocation;
 import com.lifecontrol.api.inventory.repository.InventoryMovementRepository;
 import com.lifecontrol.api.inventory.repository.ProductVariantLocationRepository;
+import com.lifecontrol.api.inventory.repository.StockPositionRepository;
 import com.lifecontrol.api.inventory.repository.StoreInventorySettingsRepository;
 import com.lifecontrol.api.inventory.service.InventoryService;
 import com.lifecontrol.api.product.exception.ProductVariantNotFoundException;
@@ -84,6 +85,13 @@ class InventoryServiceTest {
     @Mock
     private StockLedgerWriter stockLedgerWriter;
 
+    /**
+     * The ledger's position. A collaborator like the writer above: this suite exercises receipts, whose path
+     * never reads it — the position gate is a sale's, since T5b of {@code odd/tasks/inventory-ledger.md}.
+     */
+    @Mock
+    private StockPositionRepository stockPositionRepository;
+
     @Captor
     private ArgumentCaptor<InventoryMovement> movementCaptor;
 
@@ -139,7 +147,8 @@ class InventoryServiceTest {
                 storeInventorySettingsRepository,
                 companyStoreRepository,
                 new CompanyStoreOwnerResolver(),
-                stockLedgerWriter);
+                stockLedgerWriter,
+                stockPositionRepository);
 
         // The ledger is a collaborator of this suite, not its subject: the legacy arithmetic is. A
         // healthy ledger answers the two questions the reversal path asks it (which ledger row mirrors a

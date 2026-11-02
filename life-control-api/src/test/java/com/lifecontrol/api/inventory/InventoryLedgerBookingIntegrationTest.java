@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.lifecontrol.api.inventory.ledger.StockLedgerWriter;
 import com.lifecontrol.api.inventory.service.InventoryService;
+import com.lifecontrol.api.salesorder.exception.InsufficientStockException;
 import com.lifecontrol.api.store.exception.CompanyStoreNotFoundException;
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
 import com.lifecontrol.api.support.TenantFixtures;
@@ -414,6 +415,50 @@ class InventoryLedgerBookingIntegrationTest extends AbstractPostgresIntegrationT
     }
 
     // ──────────────────────────────────────
+    // the position is the authority a sale is refused by
+    // ──────────────────────────────────────
+
+    /**
+     * The refusal is the documented sale contract, and this is the state where it has to come from the ledger:
+     * a key whose legacy copies cover the sale and whose <b>position</b> does not.
+     *
+     * <p>Why the fixture has to create that state. While the two copies agree, the legacy gates and the
+     * ledger's projection agree too, so no case could tell which one refused and the case would prove nothing.
+     * Both legacy copies are therefore raised by hand — the aggregate and the location balance, so the
+     * aggregate gate and the location-sum gate both pass — and no movement explains either, which is exactly
+     * the tree record T5a finding 2 describes and {@code V62} reports. Sell 15 of the 10 the ledger holds:
+     * before this slice that reached {@code V61}'s invariant I8 in the projection trigger and surfaced as a
+     * database error, i.e. a 500 for a contract that documents a 409.</p>
+     */
+    @Test
+    @DisplayName("a sale the position cannot cover answers the 409 contract, not the trigger's database error")
+    void aSaleThePositionCannotCoverAnswersTheSaleContract() {
+        applyReceipt(variantId, salesLocationId, "10", UUID.randomUUID());
+        raiseTheLegacyBalancesByHand("20");
+
+        assertThatThrownBy(() -> sell(variantId, "15", UUID.randomUUID()))
+                .as("from this slice on the position is the authority a sale is refused by, and its refusal is "
+                        + "the exception the sale contract has always documented — not a DataAccessException "
+                        + "from the trigger")
+                .isInstanceOf(InsufficientStockException.class)
+                .hasMessageContaining("Insufficient stock for variant " + variantId)
+                .hasMessageContaining("requested 15")
+                .hasMessageContaining("available 10");
+
+        assertThat(positionOf(variantId)).isEqualByComparingTo("10");
+        assertThat(ledgerMovementsOf(variantId, StockLedgerWriter.SALE))
+                .as("the refusal stored no movement: a refused sale is not a fact")
+                .isEmpty();
+        assertThat(legacyMovementsOf(variantId, "SALE"))
+                .as("and no legacy row either: the refusal happens before the first write, so the transaction "
+                        + "does not have to be rolled back to keep the ledger empty")
+                .isEmpty();
+        assertThat(storeStockOf(variantId)).isEqualByComparingTo("20");
+        assertThat(locationStockOf(variantId, salesLocationId))
+                .hasValueSatisfying(stock -> assertThat(stock).isEqualByComparingTo("20"));
+    }
+
+    // ──────────────────────────────────────
     // the tenant scope ADR-0005 requires, in both directions
     // ──────────────────────────────────────
 
@@ -500,6 +545,28 @@ class InventoryLedgerBookingIntegrationTest extends AbstractPostgresIntegrationT
                 companyId,
                 () -> inventoryService.applyStockAdjustment(
                         variant, storeId, new BigDecimal(absoluteStock), "operator"));
+    }
+
+    /**
+     * Raises the two legacy balances of the variant without booking any movement — the divergence the ledger
+     * exists to report, and the only state in which the position and the legacy engine can refuse different
+     * quantities.
+     *
+     * <p>Both halves move: the aggregate gate reads {@code product_variant_store_stock.stock} and the second
+     * gate reads the sum of {@code product_variant_locations.stock}, so raising one and not the other would be
+     * refused by the legacy engine and would prove nothing about the ledger.</p>
+     */
+    private void raiseTheLegacyBalancesByHand(String stock) {
+        jdbcTemplate.update(
+                "UPDATE product_variant_store_stock SET stock = ? WHERE product_variant_id = ? AND company_store_id = ?",
+                new BigDecimal(stock),
+                variantId,
+                storeId);
+        jdbcTemplate.update(
+                "UPDATE product_variant_locations SET stock = ? WHERE product_variant_id = ? AND store_location_id = ?",
+                new BigDecimal(stock),
+                variantId,
+                salesLocationId);
     }
 
     // ──────────────────────────────────────

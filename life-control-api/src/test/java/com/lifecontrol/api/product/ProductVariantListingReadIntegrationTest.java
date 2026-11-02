@@ -14,6 +14,9 @@ import com.lifecontrol.api.company.repository.CompanyRegionRepository;
 import com.lifecontrol.api.company.repository.CompanyRepository;
 import com.lifecontrol.api.company.repository.CompanyZoneRepository;
 import com.lifecontrol.api.country.repository.CountryRepository;
+import com.lifecontrol.api.inventory.repository.InventoryMovementRepository;
+import com.lifecontrol.api.inventory.repository.ProductVariantLocationRepository;
+import com.lifecontrol.api.inventory.service.InventoryService;
 import com.lifecontrol.api.measureunit.repository.MeasureUnitRepository;
 import com.lifecontrol.api.product.model.Product;
 import com.lifecontrol.api.product.model.ProductVariant;
@@ -24,7 +27,13 @@ import com.lifecontrol.api.product.repository.ProductVariantRepository;
 import com.lifecontrol.api.product.repository.ProductVariantStoreStockRepository;
 import com.lifecontrol.api.product.repository.VariantListingRepository;
 import com.lifecontrol.api.store.model.CompanyStore;
+import com.lifecontrol.api.store.model.StoreArea;
+import com.lifecontrol.api.store.model.StoreLocation;
+import com.lifecontrol.api.store.model.StoreZone;
 import com.lifecontrol.api.store.repository.CompanyStoreRepository;
+import com.lifecontrol.api.store.repository.StoreAreaRepository;
+import com.lifecontrol.api.store.repository.StoreLocationRepository;
+import com.lifecontrol.api.store.repository.StoreZoneRepository;
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
 import com.lifecontrol.api.support.TenantFixtures;
 import java.math.BigDecimal;
@@ -41,6 +50,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
@@ -116,8 +126,45 @@ class ProductVariantListingReadIntegrationTest extends AbstractPostgresIntegrati
     @Autowired
     private CompanyStoreRepository companyStoreRepository;
 
+    @Autowired
+    private StoreAreaRepository storeAreaRepository;
+
+    @Autowired
+    private StoreZoneRepository storeZoneRepository;
+
+    @Autowired
+    private StoreLocationRepository storeLocationRepository;
+
+    /**
+     * The engine, and the only writer this fixture is allowed to seed stock with.
+     *
+     * <p>Since T5b of {@code odd/tasks/inventory-ledger.md} the stock these reads answer with is
+     * {@code stock_position}, so a fixture that wrote {@code product_variant_store_stock.stock} by hand would
+     * author the aggregate ADR-0001 retires and then assert a read that answers the ledger — a fixture
+     * disagreeing with its own subject. Every quantity below is therefore received through the same public
+     * writer {@code GoodsReceiptService} calls, which moves both copies, so the numbers and the assertions are
+     * exactly the ones this suite stated before the swap.</p>
+     */
+    @Autowired
+    private InventoryService inventoryService;
+
+    /** The handle the shared ledger cleanup deletes the projections through (see the base class). */
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
+    /** The two legacy tables a receipt also writes, which reference the variants with no cascade. */
+    @Autowired
+    private ProductVariantLocationRepository productVariantLocationRepository;
+
+    @Autowired
+    private InventoryMovementRepository inventoryMovementRepository;
+
     private UUID companyId;
     private UUID productId;
+
+    /** The location every seeded receipt lands at; the store's tree has one because a movement names one. */
+    private UUID salesLocationId;
+
     private UUID storeId;
 
     /** Listing and stock: the only complete state, and the one the till sells. */
@@ -154,6 +201,14 @@ class ProductVariantListingReadIntegrationTest extends AbstractPostgresIntegrati
 
     @AfterEach
     void tearDown() {
+        // The receipts below book the stock ledger, and `stock_movement` is append-only with foreign keys to
+        // `product_variants` and `store_locations` and no cascade: the ledger rows go first, or the variant
+        // deletes at the end of this method fail on fk_movement_variant for a row no application role can
+        // delete. `deleteStockLedger` is the one helper that removes them (see AbstractPostgresIntegrationTest).
+        if (companyId != null) {
+            deleteStockLedger(jdbcTemplate, companyId);
+        }
+
         // `variant_listing` is armed on company_id (V58), so its rows are removed under this suite's tenant;
         // an unscoped delete would remove nothing and leave rows for the next test.
         if (!createdListingIds.isEmpty()) {
@@ -161,6 +216,17 @@ class ProductVariantListingReadIntegrationTest extends AbstractPostgresIntegrati
         }
         createdListingIds.clear();
         if (!createdStoreStockIds.isEmpty()) {
+            // The receipts also wrote a balance row per location and a legacy movement per receipt, and both
+            // reference the variant with no cascade: they go before the store row and the variant do.
+            var variantIds = new java.util.HashSet<>(createdVariantIds);
+            if (!variantIds.isEmpty()) {
+                inventoryMovementRepository.deleteAll(inventoryMovementRepository.findAll().stream()
+                        .filter(movement -> variantIds.contains(movement.getProductVariantId()))
+                        .toList());
+                productVariantLocationRepository.deleteAll(productVariantLocationRepository.findAll().stream()
+                        .filter(balance -> variantIds.contains(balance.getProductVariantId()))
+                        .toList());
+            }
             productVariantStoreStockRepository.deleteAllById(createdStoreStockIds);
         }
         createdStoreStockIds.clear();
@@ -294,6 +360,52 @@ class ProductVariantListingReadIntegrationTest extends AbstractPostgresIntegrati
                 .isNull();
     }
 
+    // ─── the source of the number ────────────────
+
+    /**
+     * The number a store read answers with is the ledger's position, and this is the only state that proves
+     * it: a key whose two copies disagree.
+     *
+     * <p>While both copies exist the read can answer with either and every other case passes, which is what
+     * makes this one the evidence. The fixture seeds the agreement first — 4 units received through the engine,
+     * so {@code product_variant_store_stock.stock} and {@code stock_position.quantity} are both 4 — and then
+     * raises <b>only</b> the legacy column, the divergence {@code V62} reports and an operator decides about
+     * (record T5a, finding 2). A reader still on the legacy table answers 99; a reader on the projection answers
+     * 4, and 4 is the number a sale would be gated by.</p>
+     *
+     * <p>Both reads are asserted: the query level, because it is the one the list uses, and the search endpoint,
+     * because it is the POS read and the one that carries the client's contract.</p>
+     */
+    @Test
+    @DisplayName("a store read answers the ledger's position, not the legacy store row, where the two disagree")
+    void theStoreReadsAnswerTheLedgerPositionAndNotTheLegacyColumns() throws Exception {
+        var divergentId = createVariant("Divergent position");
+        storeRow(divergentId, "4", "5.00");
+        setTheLegacyStockByHand(divergentId, "99");
+
+        var page = TenantFixtures.inTenant(
+                companyId,
+                () -> productVariantRepository.findStoreScopedByProductIdAndStoreId(
+                        companyId, productId, storeId, PageRequest.of(0, 20)));
+        var listed = page.getContent().stream()
+                .filter(response -> response.id().equals(divergentId))
+                .findFirst()
+                .orElseThrow();
+        assertThat(listed.stock())
+                .as("the store-scoped variant read answers the projection, and the legacy column it disagrees "
+                        + "with is not the number")
+                .isEqualByComparingTo("4");
+
+        mockMvc.perform(get(SEARCH_URL)
+                        .param("q", "Divergent position")
+                        .param("storeId", storeId.toString())
+                        .with(adminJwt()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content.length()").value(1))
+                .andExpect(jsonPath("$.content[0].id").value(divergentId.toString()))
+                .andExpect(jsonPath("$.content[0].stock").value(4));
+    }
+
     // ─── the row V58 backfilled ───────────────────────────────────────────
 
     @Test
@@ -408,7 +520,13 @@ class ProductVariantListingReadIntegrationTest extends AbstractPostgresIntegrati
         return saved.getId();
     }
 
-    /** A per-store position row with no price, which is what a receipt leaves behind. */
+    /**
+     * A per-store row with no price and {@code stock} units of stock, seeded the way a receipt leaves it.
+     *
+     * <p>The row is created with the column default and the quantity arrives through
+     * {@link InventoryService#applyReceipt} — the public writer — so the legacy aggregate and the ledger's
+     * position both hold {@code stock} and this fixture cannot disagree with the read it feeds.</p>
+     */
     private UUID storeRow(UUID variantId, String stock, String costPrice) {
         return storeRowWithPrice(variantId, stock, null, costPrice);
     }
@@ -417,12 +535,31 @@ class ProductVariantListingReadIntegrationTest extends AbstractPostgresIntegrati
         var row = productVariantStoreStockRepository.save(ProductVariantStoreStock.builder()
                 .productVariantId(variantId)
                 .companyStoreId(storeId)
-                .stock(new BigDecimal(stock))
+                .stock(BigDecimal.ZERO)
                 .listPrice(listPrice == null ? null : new BigDecimal(listPrice))
                 .costPrice(costPrice == null ? null : new BigDecimal(costPrice))
                 .build());
         createdStoreStockIds.add(row.getId());
+
+        var quantity = new BigDecimal(stock);
+        if (quantity.signum() > 0) {
+            TenantFixtures.inTenant(
+                    companyId,
+                    () -> inventoryService.applyReceipt(
+                            variantId, storeId, salesLocationId, quantity, "FIXTURE_OPENING", null, "fixture"));
+        }
         return row.getId();
+    }
+
+    /** The legacy column of one store row, read and rewritten by hand — only the divergence case needs it. */
+    private void setTheLegacyStockByHand(UUID variantId, String stock) {
+        var row = TenantFixtures.inTenant(
+                companyId,
+                () -> productVariantStoreStockRepository
+                        .findByProductVariantIdAndCompanyStoreId(variantId, storeId)
+                        .orElseThrow());
+        row.setStock(new BigDecimal(stock));
+        productVariantStoreStockRepository.save(row);
     }
 
     /**
@@ -468,15 +605,55 @@ class ProductVariantListingReadIntegrationTest extends AbstractPostgresIntegrati
                             .enabled(true)
                             .build()));
 
-            storeId = companyStoreRepository.findByCompanyZoneId(zone.getId()).stream()
+            var store = companyStoreRepository.findByCompanyZoneId(zone.getId()).stream()
                     .filter(candidate -> "Variant Listing Read Store".equals(candidate.getStoreName()))
                     .findFirst()
                     .orElseGet(() -> companyStoreRepository.save(CompanyStore.builder()
                             .companyZone(zone)
                             .storeName("Variant Listing Read Store")
                             .enabled(true)
-                            .build()))
-                    .getId();
+                            .build()));
+            storeId = store.getId();
+
+            // A movement names one store location, so the store needs its tree: without a location there is no
+            // ledger row and no projection, and the receipts below would have nowhere to land.
+            var area = storeAreaRepository.findByCompanyStoreIdOrderByDisplayOrderAscAreaCodeAsc(storeId).stream()
+                    .filter(candidate -> "VLR-AREA".equals(candidate.getAreaCode()))
+                    .findFirst()
+                    .orElseGet(() -> storeAreaRepository.save(StoreArea.builder()
+                            .companyStore(store)
+                            .areaCode("VLR-AREA")
+                            .areaName("Variant Listing Read Area")
+                            .displayOrder(1)
+                            .enabled(true)
+                            .build()));
+
+            var storeZone =
+                    storeZoneRepository.findByStoreAreaIdOrderByDisplayOrderAscZoneCodeAsc(area.getId()).stream()
+                            .filter(candidate -> "VLR-ZONE".equals(candidate.getZoneCode()))
+                            .findFirst()
+                            .orElseGet(() -> storeZoneRepository.save(StoreZone.builder()
+                                    .storeArea(area)
+                                    .zoneCode("VLR-ZONE")
+                                    .zoneName("Variant Listing Read Zone")
+                                    .displayOrder(1)
+                                    .enabled(true)
+                                    .build()));
+
+            salesLocationId =
+                    storeLocationRepository
+                            .findByStoreZoneIdOrderByDisplayOrderAscLocationCodeAsc(storeZone.getId())
+                            .stream()
+                            .filter(candidate -> "VLR-01".equals(candidate.getLocationCode()))
+                            .findFirst()
+                            .orElseGet(() -> storeLocationRepository.save(StoreLocation.builder()
+                                    .storeZone(storeZone)
+                                    .locationCode("VLR-01")
+                                    .locationName("Variant Listing Read Shelf")
+                                    .displayOrder(1)
+                                    .enabled(true)
+                                    .build()))
+                            .getId();
         });
     }
 }

@@ -19,9 +19,10 @@ import org.springframework.stereotype.Repository;
  *
  * <p>Every store-scoped concern moved to {@code ProductVariantStoreStockRepository}: this interface
  * no longer carries {@code company_store_id}, so the derived finders that filtered by store were
- * replaced by explicit {@code @Query} joins onto {@code product_variant_store_stock} (the position) and
- * {@code variant_listing} (the price), each attached independently so a variant that has one and not the
- * other is still a row of the answer (ADR-0006 decision 6). The
+ * replaced by explicit {@code @Query} joins onto {@code product_variant_store_stock} (the cost price),
+ * {@code variant_listing} (the price) and — since T5b of {@code odd/tasks/inventory-ledger.md} —
+ * {@code stock_position} (the quantity, ADR-0001 decision 2's projection), each attached independently so a
+ * variant that has one and not the others is still a row of the answer (ADR-0006 decision 6). The
  * pessimistic lock on a variant also moved, because the serialization point for stock and pricing is
  * now the per-store row ({@code ProductVariantStoreStockRepository#findByProductVariantIdAndCompanyStoreIdForUpdate}).</p>
  */
@@ -183,6 +184,16 @@ public interface ProductVariantRepository extends JpaRepository<ProductVariant, 
      * its listing does — and a response that reported {@code companyStoreId = null} for a store-scoped
      * read would be the one field a client could not tell apart from "not scoped to a store".</p>
      *
+     * <p><b>{@code stock} is the ledger's projection since T5b</b> ({@code stock_position}, ADR-0001 decision 2):
+     * the third {@code LEFT JOIN} attaches it independently of the other two, so the four states are read from
+     * three independent sources instead of one row that had to hold them all. {@code costPrice} stays on the
+     * store row — cost is not quantity, and ADR-0001 retires only the {@code stock} column. The consequence for
+     * the response is stated where a client reads it, on {@code ProductVariantResponse#stock()}: {@code null}
+     * now means "the ledger holds no position for this variant in this store". A position alone also makes the
+     * row visible ({@code sp.quantity IS NOT NULL} in the predicate below), which is decision 5's shape — a
+     * receipt into a store that never stocked the variant creates the projection — and is what keeps the row
+     * answerable once the legacy membership row stops being written (T5c).
+     *
      * <p>{@code enabled} is <b>not</b> read from the listing: {@code variant_listing.enabled} has no writer
      * in the tree yet, and a predicate over a column nothing can set would be a rule no test could
      * exercise. The flag this projection carries is {@code case when l.id is null then false else true},
@@ -191,7 +202,7 @@ public interface ProductVariantRepository extends JpaRepository<ProductVariant, 
     @Query("""
             SELECT new com.lifecontrol.api.product.dto.ProductVariantResponse(
                 pv.id, pv.productId, COALESCE(pvss.companyStoreId, l.companyStoreId), pv.barCode, p.sku,
-                pv.variantName, l.listPrice, pvss.costPrice, pvss.stock, pv.enabled,
+                pv.variantName, l.listPrice, pvss.costPrice, sp.quantity, pv.enabled,
                 pv.createdAt, pv.updatedAt, pv.measureUnitId, pv.attributes,
                 CASE WHEN l.id IS NULL THEN FALSE ELSE TRUE END)
             FROM ProductVariant pv
@@ -200,10 +211,12 @@ public interface ProductVariantRepository extends JpaRepository<ProductVariant, 
                    ON pvss.productVariantId = pv.id AND pvss.companyStoreId = :storeId
             LEFT JOIN VariantListing l
                    ON l.productVariantId = pv.id AND l.companyStoreId = :storeId
+            LEFT JOIN StockPosition sp
+                   ON sp.productVariantId = pv.id AND sp.companyStoreId = :storeId
             WHERE pv.productId = :productId
               AND p.company.id = :companyId
               AND pv.enabled = true
-              AND (pvss.id IS NOT NULL OR l.id IS NOT NULL)
+              AND (pvss.id IS NOT NULL OR l.id IS NOT NULL OR sp.quantity IS NOT NULL)
             ORDER BY pv.createdAt DESC
             """)
     Page<ProductVariantResponse> findStoreScopedByProductIdAndStoreId(
@@ -228,12 +241,14 @@ public interface ProductVariantRepository extends JpaRepository<ProductVariant, 
      * that holds stock and no listing <b>returned and flagged</b> rather than indistinguishable, and a
      * listing with no position returned at all instead of dropped by the {@code INNER JOIN}. The structure,
      * the {@code COALESCE} on the store and the reason {@code enabled} is not consulted are documented on
-     * {@link #findStoreScopedByProductIdAndStoreId(UUID, UUID, UUID, Pageable)}.</p>
+     * {@link #findStoreScopedByProductIdAndStoreId(UUID, UUID, UUID, Pageable)} — including the third
+     * {@code LEFT JOIN} since T5b, which is the one that makes {@code stock} the ledger's projection
+     * ({@code stock_position}) instead of the store row's retired column.</p>
      */
     @Query("""
             SELECT new com.lifecontrol.api.product.dto.ProductVariantSearchResponse(
                 pv.id, pv.productId, COALESCE(pvss.companyStoreId, l.companyStoreId), pv.barCode, p.sku,
-                pv.variantName, l.listPrice, pvss.costPrice, pvss.stock, pv.enabled,
+                pv.variantName, l.listPrice, pvss.costPrice, sp.quantity, pv.enabled,
                 p.name, p.sku, pv.createdAt, pv.updatedAt,
                 CASE WHEN l.id IS NULL THEN FALSE ELSE TRUE END)
             FROM ProductVariant pv
@@ -242,6 +257,8 @@ public interface ProductVariantRepository extends JpaRepository<ProductVariant, 
                    ON pvss.productVariantId = pv.id AND pvss.companyStoreId = :storeId
             LEFT JOIN VariantListing l
                    ON l.productVariantId = pv.id AND l.companyStoreId = :storeId
+            LEFT JOIN StockPosition sp
+                   ON sp.productVariantId = pv.id AND sp.companyStoreId = :storeId
             WHERE (pv.barCode = :query
                OR p.sku = :query
                OR LOWER(pv.variantName) LIKE LOWER(CONCAT('%', :query, '%'))
@@ -250,7 +267,7 @@ public interface ProductVariantRepository extends JpaRepository<ProductVariant, 
                OR LOWER(COALESCE(p.sku, '')) LIKE LOWER(CONCAT('%', :query, '%')))
             AND p.company.id = :companyId
             AND pv.enabled = true
-            AND (pvss.id IS NOT NULL OR l.id IS NOT NULL)
+            AND (pvss.id IS NOT NULL OR l.id IS NOT NULL OR sp.quantity IS NOT NULL)
             ORDER BY pv.variantName
             """)
     Page<ProductVariantSearchResponse> searchByQuery(

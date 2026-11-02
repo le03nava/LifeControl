@@ -623,6 +623,26 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                 .getStock();
     }
 
+    /**
+     * Raises the two legacy balances of a variant without booking any movement.
+     *
+     * <p>Used by exactly one case, and on purpose: it creates the divergence {@code V62} reports — legacy
+     * copies ahead of the ledger — so that a sale can be covered by the legacy gates and refused by the
+     * position. Both halves move, because the legacy engine refuses on the aggregate first and on the sum of
+     * the locations second.</p>
+     */
+    private void raiseTheLegacyBalancesByHand(UUID variantId, BigDecimal stock) {
+        var row = storeStockOf(variantId);
+        row.setStock(stock);
+        productVariantStoreStockRepository.save(row);
+
+        var balance = productVariantLocationRepository
+                .findByProductVariantIdAndStoreLocationId(variantId, salesLocationId)
+                .orElseThrow();
+        balance.setStock(stock);
+        productVariantLocationRepository.save(balance);
+    }
+
     /** The ledger rows of one variant, oldest first, read through the append-only repository. */
     private List<InventoryMovement> movementsOf(UUID variantId) {
         return inventoryMovementRepository.findAll().stream()
@@ -858,6 +878,45 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             assertThat(storeStockOf(variant.getId()).getStock()).isEqualByComparingTo(new BigDecimal("5.00"));
             assertThat(locationStockOf(variant.getId(), salesLocationId)).isEqualByComparingTo(new BigDecimal("5.00"));
             assertThat(movementsOf(variant.getId())).isEmpty();
+        }
+
+        @Test
+        @DisplayName("should return 409, not 500, when the ledger's position cannot cover the line")
+        void createOrder_PositionCannotCoverTheLine_Returns409() throws Exception {
+            // The variant starts at 10 on all three copies: the legacy aggregate, the location balance and
+            // the ledger's position, seeded through the engine by createTestVariant.
+            var variant = createTestVariant(new BigDecimal("10.00"));
+            // Then only the two legacy copies are raised, by hand and with no movement behind them — the
+            // divergence V62 reports and an operator decides about. Both are raised so the legacy gates (the
+            // aggregate and the location sum) pass and only the ledger's position can refuse.
+            raiseTheLegacyBalancesByHand(variant.getId(), new BigDecimal("20.00"));
+
+            var itemRequest = new SalesOrderItemRequest(
+                    null, variant.getId(), new BigDecimal("15.00"), new BigDecimal("100.00"), BigDecimal.ZERO, null);
+            var request = new SalesOrderRequest(customerId, companyStoreId, shiftId, "user123", List.of(itemRequest));
+
+            mockMvc.perform(post("/api/sales-orders")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request))
+                            .with(scopedSalesJwt()))
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.status").value(409))
+                    // The documented sale contract, with its own shape and its own numbers: the position is the
+                    // authority from T5b on, and its refusal is not the trigger's database error.
+                    .andExpect(jsonPath("$.message")
+                            .value(org.hamcrest.Matchers.containsString(
+                                    "Insufficient stock for variant " + variant.getId())))
+                    .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("requested 15")))
+                    .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("available 10")));
+
+            assertThat(salesOrderRepository.findAll())
+                    .as("the refused sale created no order")
+                    .isEmpty();
+            assertThat(movementsOf(variant.getId()))
+                    .as("and no movement on either ledger: the refusal happens before the first write")
+                    .isEmpty();
+            assertThat(storeStockOf(variant.getId()).getStock()).isEqualByComparingTo(new BigDecimal("20.00"));
+            assertThat(locationStockOf(variant.getId(), salesLocationId)).isEqualByComparingTo(new BigDecimal("20.00"));
         }
 
         @Test
