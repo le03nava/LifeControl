@@ -207,3 +207,13 @@ column — the offset in `hasSize` moved with it.
 **2026-11-03 — the final evidence.** Full API suite: **4396 cases, 0 failures** (`./gradlew cleanTest test`),
 `spotlessCheck` green, and the ODD record audit green over 137 records. The new coverage of this unit is 13
 cases: 9 for the two migrations and 4 for the allocation contract.
+
+**2026-11-03 — the commits, and the chain the review budget forces.** The unit is delivered as **two
+slices**, both pushed: `430c0d01` (T1, 420 authored lines — the numbering contract, no behavior change) on
+branch `feat/document-identity-numbering`, and `d3da99a4` (T2–T5 plus the suite repairs, 2392 lines) on
+`feat/document-identity`, which is based on the first. The second slice cannot be split further: `V64` adds
+`company_id` to two tables (a boot refusal without `V65`'s arming) and makes the parts `NOT NULL` (which
+refuses every insert the un-moved writers make), so the migrations and the writers are one deployable unit,
+and the review budget loses to that constraint on purpose. The order is slice 1 then slice 2; the issue
+stays open until slice 2 lands. Evidence of record: `./gradlew cleanTest test` → **4396 cases, 0 failures**;
+`spotlessCheck` green; `.github/scripts/tests/odd-status-headers.test.sh` → 137 records, 0 findings.
