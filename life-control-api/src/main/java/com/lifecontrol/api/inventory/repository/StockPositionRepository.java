@@ -1,9 +1,11 @@
 package com.lifecontrol.api.inventory.repository;
 
 import com.lifecontrol.api.inventory.model.StockPosition;
+import jakarta.persistence.LockModeType;
 import java.math.BigDecimal;
 import java.util.Optional;
 import java.util.UUID;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -51,5 +53,40 @@ public interface StockPositionRepository
               AND p.productVariantId = :productVariantId
             """)
     Optional<BigDecimal> findQuantity(
+            @Param("companyStoreId") UUID companyStoreId, @Param("productVariantId") UUID productVariantId);
+
+    /**
+     * The same row as {@link #findQuantity}, read under a pessimistic write lock ({@code SELECT … FOR UPDATE}),
+     * which is what a caller that <b>decides</b> about the quantity needs (T5c of
+     * {@code odd/tasks/inventory-ledger.md}).
+     *
+     * <p><b>Why the gate needs the lock and not just the number.</b> A sale's availability gate reads this row
+     * and then writes a movement whose projection trigger updates it, so the decision and the write must be
+     * serialized on the same row. Until T5c the only thing serializing two deductions of one key was the legacy
+     * {@code product_variant_store_stock} lock taken earlier in {@code InventoryService.applySaleDeduction} — a
+     * lock T5b's readers already stopped needing and that the deferred T5d would remove — so the gate was correct
+     * by accident of an unrelated lock. Locking the row it decides about makes it correct on its own, and a
+     * caller can no longer pass the gate on a quantity another transaction is changing.</p>
+     *
+     * <p><b>An absent row is not a quantity of zero and takes no lock.</b> The ledger holds no position row for a
+     * {@code (store, variant)} nothing has ever moved, and {@code SELECT … FOR UPDATE} cannot lock a row that does
+     * not exist. The {@code Optional} is therefore silent about which of the two it means: a caller that
+     * <b>authorizes</b> anything from this read has to decide, and the sale gate treats empty as zero and refuses
+     * (fail-closed) rather than treating "the ledger never moved this key" as permission to sell it.</p>
+     *
+     * <p><b>How it behaves with a row it already read.</b> Hibernate resolves the lock by statement, so the row
+     * lock is always taken on the database; whether the returned <em>quantity</em> is the value read under that
+     * lock depends on this being the transaction's first read of the row, because a managed instance is not
+     * refreshed. Every caller must therefore take it before reading the projection by any other means.</p>
+     *
+     * @see #findQuantity(UUID, UUID) for the non-locking read every display path uses
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            SELECT p FROM StockPosition p
+            WHERE p.companyStoreId = :companyStoreId
+              AND p.productVariantId = :productVariantId
+            """)
+    Optional<StockPosition> findByCompanyStoreIdAndProductVariantIdForUpdate(
             @Param("companyStoreId") UUID companyStoreId, @Param("productVariantId") UUID productVariantId);
 }

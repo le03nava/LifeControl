@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
 import com.lifecontrol.api.support.TenantFixtures;
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -13,6 +14,7 @@ import javax.sql.DataSource;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -56,6 +58,13 @@ import org.springframework.jdbc.core.JdbcTemplate;
  * {@code SET LOCAL session_replication_role = replica} instead of changing the table's catalog entry: an
  * {@code ALTER TABLE … DISABLE TRIGGER USER} would switch the rule off for every other suite sharing this
  * container for as long as it lasted, and this suite is the one that asserts the rule holds.</p>
+ *
+ * <p><b>One nested class is not {@code V60}'s: {@code V63}.</b> {@code uq_movement_source} is the one index this
+ * file declares that a later migration has to re-create, and {@link SourceIndexWidenedWithTheLocationTests}
+ * lives here rather than in a suite of its own because the tree a movement needs — company, region, zone,
+ * store, area, store zone, location, variant — is the fixture below. It asserts the two halves of {@code V63}:
+ * one source line spanning two locations now books one movement per location, and the same source, direction
+ * and location is still refused.</p>
  *
  * <p>Written the way its sibling {@code StoreLocationTreeStoreScopeSchemaMigrationIntegrationTest} is: one
  * case per rule, every refusal asserted <b>by the name of the constraint or trigger that refused it</b> —
@@ -415,6 +424,128 @@ class StockLedgerSchemaMigrationIntegrationTest extends AbstractPostgresIntegrat
         assertThat(countMovements())
                 .as("and the ledger is still exactly what it was")
                 .isEqualTo(before);
+    }
+
+    // ──────────────────────────────────────
+    // V63 — uq_movement_source gains the location, so one line can span two of them
+    // ──────────────────────────────────────
+
+    /**
+     * {@code V63__stock_ledger_movement_source_location.sql} re-creates the one index {@code V60} declares that
+     * a document line can outgrow: {@code uq_movement_source} is
+     * {@code (source_type, source_id, movement_type) WHERE reverses_movement_id IS NULL}, and a line that draws
+     * stock from two locations books one movement per location under one line's source — so the second row it
+     * needs was refused.
+     *
+     * <p>Measured, not supposed: {@code InventoryService.applySaleDeduction} writes one legacy {@code SALE} row
+     * per location it drains ({@code InventoryService:474-500}), a {@code stock_movement} names exactly one
+     * {@code store_location_id} ({@code V60:120}), and {@code StockLedgerWriter}'s javadoc records the collision
+     * as the first of the three shapes the index cannot satisfy. The legacy table had no such rule —
+     * {@code inventory_movements} ({@code V10:30-38}) carries no unique key over its reference at all.</p>
+     *
+     * <p>Both cases are about the index and about nothing else, so both insert rows directly: a writer that
+     * allocated or reversed would make the case's outcome depend on {@code V61} instead of on the key.</p>
+     */
+    @Nested
+    @DisplayName("V63: uq_movement_source keys the location")
+    class SourceIndexWidenedWithTheLocationTests {
+
+        @Test
+        @DisplayName("one source line spanning two locations books one movement per location")
+        void oneSourceLineSpanningTwoLocationsBooksOneMovementPerLocation() {
+            var secondLocationId = insertLocation(insertZone(insertArea(storeId), storeId), storeId);
+            var sourceId = UUID.randomUUID();
+
+            var atFirstLocation = bookAt(locationId, sourceId, "RECEIPT");
+            var atSecondLocation = bookAt(secondLocationId, sourceId, "RECEIPT");
+
+            assertThat(List.of(countMovement(atFirstLocation), countMovement(atSecondLocation)))
+                    .as("ADR-0001 decision 1 (:48-50) makes one movement name one location, so a line that draws "
+                            + "stock from two locations is two facts. The widened key is what lets them carry the "
+                            + "same source: before V63 the second insert was refused by uq_movement_source, which "
+                            + "is the whole reason this file exists")
+                    .containsExactly(1, 1);
+            assertThat(locationOf(atSecondLocation))
+                    .as("the row that used to collide is the one at the second location")
+                    .isEqualTo(secondLocationId);
+            assertThat(countMovementsOfSource(sourceId))
+                    .as("and the source line holds both of them, one per location")
+                    .isEqualTo(2);
+            assertThat(balanceAt(secondLocationId))
+                    .as("the projection followed each row to its own location: stock_balance is keyed by "
+                            + "(store_location_id, product_variant_id) and the trigger wrote both")
+                    .isEqualByComparingTo("1.0000");
+            assertThat(balanceAt(locationId)).isEqualByComparingTo("1.0000");
+            assertThat(positionQuantity())
+                    .as("and the store's position is the sum of what the two rows moved")
+                    .isEqualByComparingTo("2.0000");
+        }
+
+        @Test
+        @DisplayName("a retried booking of the same source, direction and location is still refused")
+        void aRetryOfTheSameSourceDirectionAndLocationIsStillRefused() {
+            var secondLocationId = insertLocation(insertZone(insertArea(storeId), storeId), storeId);
+            var sourceId = UUID.randomUUID();
+            bookAt(locationId, sourceId, "RECEIPT");
+            bookAt(secondLocationId, sourceId, "RECEIPT");
+
+            var retriedId = UUID.randomUUID();
+
+            assertThatThrownBy(() -> insertMovement(retriedId, storeId, locationId, "RECEIPT", sourceId, null))
+                    .as("I5 (:184) is one movement per source and direction <b>per location</b>, and the part "
+                            + "that survives V63 is what makes a retried request a no-op instead of a second "
+                            + "deduction: the location is in the key, so a retry at the location that already "
+                            + "booked is refused")
+                    .isInstanceOf(DataIntegrityViolationException.class)
+                    .hasMessageContaining("uq_movement_source");
+
+            assertThat(countMovement(retriedId))
+                    .as("the refusal stored nothing")
+                    .isZero();
+            assertThat(countMovementsOfSource(sourceId))
+                    .as("and the source line still holds exactly the two movements, one per location")
+                    .isEqualTo(2);
+            assertThat(balanceAt(locationId))
+                    .as("the refused row moved no balance either: the trigger never saw it")
+                    .isEqualByComparingTo("1.0000");
+            assertThat(positionQuantity()).isEqualByComparingTo("2.0000");
+        }
+
+        /** One movement at {@code location} under {@code sourceId}, registered for cleanup. */
+        private UUID bookAt(UUID location, UUID sourceId, String movementType) {
+            var id = UUID.randomUUID();
+            insertMovement(id, storeId, location, movementType, sourceId, null);
+            insertedMovements.add(new InsertedRow(companyId, id));
+            return id;
+        }
+
+        private UUID locationOf(UUID movementId) {
+            return TenantFixtures.inTenant(
+                    companyId,
+                    () -> jdbcTemplate.queryForObject(
+                            "SELECT store_location_id FROM stock_movement WHERE id = ?", UUID.class, movementId));
+        }
+
+        /** The ledger's per-location projection, which is what a second row at a new location creates. */
+        private BigDecimal balanceAt(UUID location) {
+            return TenantFixtures.inTenant(
+                    companyId,
+                    () -> jdbcTemplate.queryForObject(
+                            "SELECT quantity FROM stock_balance WHERE store_location_id = ? AND product_variant_id = ?",
+                            BigDecimal.class,
+                            location,
+                            variantId));
+        }
+
+        private BigDecimal positionQuantity() {
+            return TenantFixtures.inTenant(
+                    companyId,
+                    () -> jdbcTemplate.queryForObject(
+                            "SELECT quantity FROM stock_position WHERE company_store_id = ? AND product_variant_id = ?",
+                            BigDecimal.class,
+                            storeId,
+                            variantId));
+        }
     }
 
     // ──────────────────────────────────────

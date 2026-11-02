@@ -3,9 +3,14 @@
 **Repository**: LifeControl — `life-control-api` (migrations, `inventory`, `salesorder`, `purchaseorder`,
 `goodsreceipt`, `product`), `docker/`, `odd/tasks/`
 **Branch**: `feat/inventory-ledger` · **Worktree**: `~/workspace/LifeControl-worktrees/feat-inventory-ledger`
-**Status**: implemented — T1 (D1.a, `V59`) and T2 (the ledger's schema, `V60`) are in the tree with their
-suites; T3–T6 are the remainder this record still owes, each named in its own row. The slice boundary is one
-pull request per task: PR 1 is T1 (`7d004b24`), PR 2 is T2.
+**Status**: implemented — T1–T5c are in `main`: the location hierarchy carries its store (`V59`), the ledger
+exists with its engine (`V60`, `V61`), today's balances were replayed into it (`V62`), the five write paths
+book it beside the legacy update, the readers answer from its position, and its source key includes the
+location (`V63`). **T5d is blocked on ADR-0004**, which is a dependency and not a convenience: without the
+state machine's per-transition identity, the `source_id` mirror cannot outlive `inventory_movements`, so the
+drops, the deletion of `InventoryService` and the move of `InsufficientStockException` stay open. The debt
+that leaves — one stock fact still stored three times, and the `inventory` ↔ `salesorder` package cycle — is
+named here rather than closed quietly.
 **Created**: 2026-11-02
 **Risk**: items 1, 2, 3 and 6 — item 1 because the backfill rewrites stored quantities and the drops
 delete the only copy of two balances, item 2 because the ledger decides who may write stock and a missing
@@ -424,3 +429,85 @@ point, and the gate has to move with it.
 
 Verification: module **4362 cases across 1038 classes, 0 failures**, from a forced `cleanTest` re-run;
 `spotlessCheck` and `spotbugsMain` clean.
+
+**2026-11-02 — the identity of a movement cannot outlive `inventory_movements`, and the maintainer decided
+where that stops this unit.** Verified in the code before asking, not inferred: `SalesOrderService:988-992`
+raises a line's quantity by deducting the **delta under the same `sales_order_items` id**, and lowers it by
+reversing and re-deducting the whole new quantity **under that same id**. So a document line cannot be a
+movement's key while the document is editable, and the only fact that identifies a transition today is the
+legacy `inventory_movements` row — the mirror. When that table drops, I5's "a retried request is a no-op" has
+nothing left to be derived from, and a per-transition identity is exactly what ADR-0004's state guard would
+provide.
+
+Three shapes were put to the maintainer, with their costs stated: derive the key from the document state
+(requires ADR-0004, and the service cannot supply the sequence today), let the ledger generate its own key
+(possible without 0004, but I5 stops being a property of the ledger and becomes a hope about the order's
+guard), or **stop before the drops**. The maintainer chose the third, and this entry is the authority for it:
+**ADR-0001 closes without T5d.** The drop of `product_variant_locations.stock`,
+`product_variant_store_stock.stock` and `inventory_movements`, and the deletion of `InventoryService` with the
+`InsufficientStockException` move that breaks the package cycle, wait on ADR-0004. The three representations
+and the package cycle therefore survive this unit, named as debt rather than quietly closed.
+
+What still lands, because neither depends on the identity: **T5c widens `uq_movement_source` with
+`store_location_id`** — one document line genuinely spans two locations, and today the index would refuse the
+second row it needs — **and the position gate takes the projection row's lock**, because until now the only
+serialization point was the legacy store row's lock, which T5b's readers already outgrew and T5d would remove
+entirely.
+
+**2026-11-02 — T5c landed (`V63`), and it closed exactly one thing while naming the rest.** The index now
+permits the one case the narrow key refused — the same source, direction and location pair at **two
+locations**, which is one document line drawing from two places, a legal line the ledger was refusing. It still
+refuses the same source, direction **and** location, so a retried booking is still refused (I5 read at its own
+grain: a movement names exactly one location, `V60:120`). And it states its own limit rather than implying
+otherwise: **reversing a movement does not free its key**, because the reversed row keeps
+`reverses_movement_id IS NULL` — so re-booking the same source after a reversal is refused, and that is
+precisely the gap ADR-0004's per-transition identity fills. Two facts the widening rests on, both checked: the
+partial predicate is kept verbatim, and `store_location_id` is `NOT NULL` — a nullable column is distinct from
+every other `NULL` in a B-tree unique index, so the key would have refused nothing at all.
+
+**The gate now serializes on the row it decides about.** `applySaleDeduction` step 4b takes
+`@Lock(PESSIMISTIC_WRITE)` on `stock_position`, so a second deduction waits on that row, re-reads under
+`READ COMMITTED` and refuses with the quantity the first committed — instead of depending on the legacy store
+row's lock taken three steps earlier. An absent projection row takes no lock and is read as **zero, refused**:
+fail-closed, never "no row, so nothing to check". `V61`'s trigger keeps its own `FOR UPDATE` and it is not
+redundant: that one faces **every** writer that reaches the table, including one that never walks this method;
+the gate's lock exists so the refusal is the API's documented 409 before anything is written. Lock order grows
+one level to `storeStock -> stockPosition -> locationBalance`, and no path takes the position before the store
+row of the same key, so it stays cycle-free.
+
+RED was real for all three: two index cases failed with `DuplicateKeyException` on the legitimate second
+location (and the refusal case failed on its own *precondition*, which is why it was unreachable before), and
+the gate case failed exactly as predicted — the plain read got the previously committed `10`, passed, and the
+trigger refused later with the 500 the gate exists to replace. The concurrency case's barrier is
+`pg_stat_activity`'s lock wait rather than `pg_locks` (a blocked row lock is a `transactionid` wait, so a filter
+on the relation would never see it), and its assertion is the exception type and number, never timing.
+
+One thing the gate change broke and it is worth recording as a pattern: twelve existing unit cases mocked
+`findQuantity`, which the gate no longer calls, so the mock answered empty and every one of them saw
+`available 0`. The fix was to move the stub to the new method; no assertion was touched. A mock is a claim
+about **which** method is called, and changing the caller silently invalidates it — the tests were right to
+fail.
+
+Verification: module **4366 cases across 1040 classes, 0 failures**, from a forced `cleanTest` re-run;
+`spotlessCheck` and `spotbugsMain` clean.
+
+**2026-11-02 — the unit closes; delivery evidence, and the debt it leaves.** Six slices reached `main` as
+chained pull requests on #739: T1 `V59` (#741, merge `98f43a05`), T2 `V60` (#742, `6661b360`), T3 `V61` (#743,
+`bce2dc04`), T4 `V62` (#744, `211c2958`), T5a (#745, `9dac365e`), T5b (#746, `ac41052c`) and T5c `V63`
+(#747). Each merged with the four required checks green, and each slice's tests were re-run by the parent with
+`cleanTest` rather than trusted from the writer's run — twice catching that an `up-to-date` build reports
+success without executing anything.
+
+What `main` now enforces that it did not before this unit: a stock change is one append-only row and nothing
+else can write quantity; the projections are derived, rebuildable and checked against a replay by
+`verify_stock_projections`; a movement's store is its location's store (`fk_movement_location`, made
+expressible by `V59`); today's balances were replayed rather than truncated (`V62`, with the `NO FORCE` window
+proven open before it relied on it); the sale's availability answer and its 409 come from the ledger's
+position, not from a column somebody typed; and the ledger's source key is per location, so a line that draws
+from two places is no longer refused.
+
+What is **not** true, and a reader of this record must not conclude otherwise: `product_variant_store_stock.stock`,
+`product_variant_locations.stock` and `inventory_movements` still exist and are still written by
+`InventoryService`; the two copies are kept in agreement by the dual-write rather than by having one; and the
+`inventory` ↔ `salesorder` package cycle is intact, because the exception that breaks it has not moved. That is
+T5d, and T5d needs ADR-0004 first.

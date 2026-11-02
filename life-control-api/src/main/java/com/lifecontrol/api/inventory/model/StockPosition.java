@@ -38,8 +38,9 @@ import org.hibernate.annotations.Immutable;
  *
  * <p>{@code stock_balance} — the per-location projection — deliberately has no entity: no read in this tree
  * answers "how much is in this location". The one place that grain is read is the write path
- * ({@code InventoryService}), which reads and moves {@code product_variant_locations} until T5c stops that
- * write. Mapping a second projection with no reader would be an unused mapping, not a slice.</p>
+ * ({@code InventoryService}), which reads and moves {@code product_variant_locations}; stopping that write is
+ * T6, and the record's last {@code ## Log} entry defers it to ADR-0004, so the grain stays read there for now.
+ * Mapping a second projection with no reader would be an unused mapping, not a slice.</p>
  */
 @Entity
 @Table(name = "stock_position")

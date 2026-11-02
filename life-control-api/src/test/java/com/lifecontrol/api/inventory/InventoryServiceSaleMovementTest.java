@@ -10,6 +10,7 @@ import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -28,6 +29,7 @@ import com.lifecontrol.api.inventory.ledger.StockLedgerWriter;
 import com.lifecontrol.api.inventory.model.InventoryMovement;
 import com.lifecontrol.api.inventory.model.MovementType;
 import com.lifecontrol.api.inventory.model.ProductVariantLocation;
+import com.lifecontrol.api.inventory.model.StockPosition;
 import com.lifecontrol.api.inventory.model.StoreInventorySettings;
 import com.lifecontrol.api.inventory.repository.InventoryMovementRepository;
 import com.lifecontrol.api.inventory.repository.ProductVariantLocationRepository;
@@ -236,13 +238,21 @@ class InventoryServiceSaleMovementTest {
      * the aggregate the same fixture states, because the two copies agree in production; {@code null} means the
      * legacy column was never set, which counts as no position.
      *
+     * <p>It stubs the <b>locking</b> read, which is the one a deduction takes since T5c of
+     * {@code odd/tasks/inventory-ledger.md}: the gate reads the projection row {@code FOR UPDATE} so it
+     * serializes on the row it decides about, and a fixture that stubbed the plain read would leave the gate
+     * answering zero. The row is mocked rather than built because {@link StockPosition} is a projection with no
+     * constructor for one, which is itself the design: nothing in this application authors it.</p>
+     *
      * <p>Lenient because some cases are refused before this read — a stubbing nobody exercised must not fail a
      * case whose subject is a different gate.</p>
      */
     private void givenThePosition(UUID variantId, String quantity) {
+        var position = mock(StockPosition.class);
+        lenient().when(position.getQuantity()).thenReturn(quantity == null ? null : new BigDecimal(quantity));
         lenient()
-                .when(stockPositionRepository.findQuantity(STORE_ID, variantId))
-                .thenReturn(quantity == null ? Optional.empty() : Optional.of(new BigDecimal(quantity)));
+                .when(stockPositionRepository.findByCompanyStoreIdAndProductVariantIdForUpdate(STORE_ID, variantId))
+                .thenReturn(quantity == null ? Optional.empty() : Optional.of(position));
     }
 
     private void givenSalesLocation(UUID locationId) {
