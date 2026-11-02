@@ -279,3 +279,39 @@ Two observations that are not defects and are worth knowing: the notices are vis
 the migration and are **not persisted**, so a later requirement for a queryable audit is a new decision; and
 `FIFO` ordering over the migration's rows rests on their insertion instant, which is older than anything T5
 will write — true, and worth remembering when consumption lands on top of it.
+
+**2026-11-02 — T5 is re-cut into T5a and T5b, before either starts.** The ADR's step 4 ("move the
+readers") carries two changes that only share a package, not a behaviour: **T5a** moves the POS search, the
+store-scoped variant reads and the stock search onto `variant_listing` ⨝ the projection, with no request
+shape changing at all; **T5b** turns `PUT /api/variants/{id}/stores/{storeId}` from "overwrite the number"
+into "append a movement with a `reason`", which the ADR's `## Consequences` names as a **visible API
+change**. One is a read-path swap whose whole risk is a join or a scope; the other changes a contract a
+screen already calls. Putting them in one slice would make the reviewer hold two different failure modes at
+once, and would bury the contract change inside a diff about joins. T5b therefore sequences after T5a, and
+neither is a smaller decision than the other.
+
+**2026-11-02 — T5 is re-cut a second time, because the ADR's step 4 is not executable before step 6.**
+Found while scoping the reader move, and recorded rather than worked around: the ADR's migration says "4.
+move readers … every read of `.stock` is answered by the projection", and only in "6. `InventoryService` is
+deleted. Its four callers talk to the new module's API". Between those two steps the sale path still writes
+`product_variant_store_stock.stock` and `product_variant_locations.stock` and nothing else, so a reader moved
+onto `stock_position` in step 4 would answer with the number the **backfill** left there — and every sale
+after that would be invisible on the POS while the legacy row kept moving. The order cannot be
+read → drop → write; it has to be write → read → stop writing → drop.
+
+The executable order, and the three slices it makes:
+
+- **T5a — the four writers book the ledger.** `InventoryService`'s entry points (`applyReceipt`,
+  `applySaleBatch`, `applySaleReversal`, `applyStockAdjustment`) write `stock_movement` and, for an outbound
+  row, its allocations **in the same transaction as the legacy update**, so a moved reader and a moved
+  writer cannot disagree and nothing regresses while both exist. The public methods keep their signatures,
+  so the four callers are untouched.
+- **T5b — the readers move** onto `variant_listing` ⨝ `stock_position` / `stock_balance`, with the legacy
+  writes still in place, so the drop is left with no reader.
+- **T5c — the legacy writes stop**, `InventoryService`'s arithmetic is deleted, and T6's drops and the
+  package-cycle break follow.
+
+Why dual-writing is the right shape rather than a shortcut: the ledger and the legacy tables hold the same
+fact for one transition, and the slice that introduces the second copy is the only one where a defect can
+be *seen* rather than inferred — the test pins that after a sale the two agree. Deleting the legacy write in
+the same slice that introduces the ledger's would remove the only witness.
