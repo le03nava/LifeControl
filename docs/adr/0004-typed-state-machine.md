@@ -1,10 +1,12 @@
 # ADR 0004 — Document state is a typed machine with a history
 
-- **Status**: proposed
+- **Status**: accepted
 - **Date**: 2026-10-29
+- **Accepted**: 2026-11-02, after the seven defects recorded under *Corrections applied before acceptance* — six corrected in this document and one, the ledger's per-write identity, declared open because it is not this ADR's to decide
 - **Decision id**: D4 of `odd/tasks/architecture-redesign-adrs.md`
-- **Depends on**: ADR-0005 (`status_transition` is a tenant table and carries a policy), ADR-0003
-  (`sales_orders.company_id`, which the transition's tenant pin reads)
+- **Depends on**: ADR-0005 (`status_transition` is a tenant table, and this ADR arms it — naming the policy
+  does not create it), ADR-0003 (`sales_orders.company_id` **and** `goods_receipts.company_id`, both of
+  which `document_tenant_and_state` reads)
 - **Replaces**: the `statuses` lookup as the authority and the transition maps in both services
 
 ## Context
@@ -70,9 +72,10 @@ declared once, every change appends a row, and the database refuses a state that
    a wrong `company_id` is not rejected but **hidden**, because ADR-0005's policy filters the row
    instead of failing the write.
 7. **The lookup survives as a presentation catalog.** `statuses`/`status_types` keep their rows, gain
-   a `code` (the enum constant) and stop being the authority: a label is translation, and renaming one
-   changes what the screen says. Two tests keep the three copies honest — enum ↔ catalog, and
-   `CHECK` ↔ enum.
+   a `code` (the enum constant) **for the five families that have one** — the other two keep their rows,
+   without a code, because a code with no constant behind it is the lie T5 exists to catch — and stop
+   being the authority: a label is translation, and renaming one changes what the screen says. Two tests
+   keep the three copies honest — enum ↔ catalog, and `CHECK` ↔ enum.
 8. **A payment is not a document with a state.** ADR-0002 gives `sale_payment` no state column and
    makes its `sale_payment_void` row the transition. Nothing in this ADR applies to it, and a reader
    should not expect a `status_transition` row per void.
@@ -97,8 +100,13 @@ ALTER TABLE purchase_orders
 
 ALTER TABLE purchase_order_details
     ADD COLUMN status VARCHAR(24),
+    -- SEVEN states, and they are the ones `PurchaseOrderService`'s DETAIL_TRANSITIONS declares and
+    -- `V3:187-229` seeds. This is NOT the item set: the detail machine has its own tail (In Process,
+    -- Partial Received), and copying the item set here — as an earlier draft of this ADR did, while
+    -- claiming in a comment that it had not — both omits five real states and admits 'ADDED', which no
+    -- purchase-order detail has ever been able to hold.
     ADD CONSTRAINT ck_purchase_order_details_status CHECK (status IN (
-        'PENDING', 'ADDED', 'CANCELLED'));   -- its own enum, not a copy of the item one
+        'PENDING', 'IN_PROCESS', 'IN_TRANSIT', 'PARTIAL_RECEIVED', 'RECEIVED', 'REJECTED', 'CANCELLED'));
 
 -- the commerce document the first draft missed: `V12:58-64` seeds exactly one state, and this ADR
 -- types it without inventing a cancellation the product has not asked for
@@ -108,9 +116,16 @@ ALTER TABLE goods_receipts
 
 -- the catalog stops being an authority and becomes the label of a code
 ALTER TABLE statuses
-    -- NOT NULL because a UNIQUE over a nullable column admits any number of NULL rows, and a row
-    -- without a code escapes the parity test's join. The backfill and this constraint land together.
-    ADD COLUMN code VARCHAR(24) NOT NULL,
+    -- NULLABLE, and that is the correction of a defect rather than a weakening. `statuses` is one
+    -- catalog for seven families and this ADR puts two of them out of scope by decision: `APPOINTMENT`
+    -- (`V18:59-86`, five rows) and employment (`V20:60-78`, four). Those rows have no domain enum, so a
+    -- code for them would be a constant that does not exist, and T5 — which asserts that a row without a
+    -- constant fails — would then fail on them. `NOT NULL` here and "out of scope" there cannot both be
+    -- true. What replaces it is scope, in two places: T5 joins only the five in-scope families, and step
+    -- 4 asserts in the migration that every row of those five has a code.
+    ADD COLUMN code VARCHAR(24),
+    -- `UNIQUE` rather than the table's habit of a plain constraint: NULLs are distinct in a B-tree, so
+    -- the out-of-scope rows cost nothing and the in-scope pairs are still one-to-one.
     ADD CONSTRAINT uq_statuses_type_code UNIQUE (status_type_id, code);
 
 CREATE TABLE status_transition (
@@ -149,8 +164,14 @@ CREATE UNIQUE INDEX uq_status_transition_creation
 CREATE UNIQUE INDEX uq_status_transition_once_per_move
     ON status_transition (company_id, document_type, document_id, from_status, to_status, occurred_at);
 
--- append-only twice: this trigger, and the INSERT/SELECT-only grant that ADR-0005 owns for the
--- application role. The grant is named here so the trigger is not mistaken for the whole enforcement
+-- append-only twice: this trigger, and the REVOKE below. The comment an earlier draft carried here
+-- credited ADR-0005 with an "INSERT/SELECT-only grant" that does not exist to inherit: `V52:190-197`
+-- GRANTs SELECT/INSERT/UPDATE/DELETE to `lifecontrol_app` on every table **and** records the same
+-- ALTER DEFAULT PRIVILEGES for tables created later, so this one arrives with UPDATE and DELETE in
+-- hand. `V60:286-290` states the rule, and it belongs to ADR-0001's ledger: REVOKE is the only
+-- statement that takes the privileges away, and the explicit GRANT after it is deliberate rather than
+-- implied — it states the complete set the role is meant to hold, so a later `REVOKE ALL` elsewhere
+-- cannot leave the table write-only by accident.
 CREATE FUNCTION status_transition_append_only() RETURNS trigger AS $$
 BEGIN RAISE EXCEPTION 'status_transition is append-only'; END;
 $$ LANGUAGE plpgsql;
@@ -158,6 +179,9 @@ $$ LANGUAGE plpgsql;
 CREATE TRIGGER trg_status_transition_append_only
     BEFORE UPDATE OR DELETE ON status_transition
     FOR EACH ROW EXECUTE FUNCTION status_transition_append_only();
+
+REVOKE UPDATE, DELETE ON status_transition FROM lifecontrol_app;
+GRANT SELECT, INSERT ON status_transition TO lifecontrol_app;
 
 -- ─── one place resolves a polymorphic document to its tenant and its state ───────────────────────
 -- A new document type adds one branch here. A forgotten one fails CLOSED: the function returns no
@@ -296,6 +320,18 @@ BEGIN
         RAISE EXCEPTION 'document table(s) without the deferred transition trigger: %', missing;
     END IF;
 END $$;
+
+-- ─── the new tenant table joins ADR-0005's list, and that is not optional ────────────────────────
+-- `status_transition` carries `company_id`, which makes it a tenant table, and ADR-0005's machinery
+-- decides what one with no policy means: `unprotected_tenant_tables()` (`V52`) returns every table that
+-- carries a `company_id` column and has no `tenant_table` row, and `TenantIsolationStartupCheck`
+-- refuses to boot on a non-empty answer. The `Depends on` line said the table "carries a policy"; that
+-- was a claim about a statement nobody wrote, which is the defect ADR-0003's N9 had and the same repair.
+--
+-- The call is the LAST statement of the delivery on purpose: arming before step 5's seed would refuse
+-- the seed's own INSERTs, because a policy's `WITH CHECK` applies to whoever writes and does not spare
+-- the owner once the policy is FORCEd.
+SELECT apply_tenant_isolation('status_transition');
 ```
 
 ## Invariants (each one testable)
@@ -304,13 +340,36 @@ END $$;
 | --- | --- | --- |
 | T1 | A stored state is always one the enum has | the `CHECK`; a test inserts every value the enum does not have and each one is refused |
 | T2 | `canTransition` is the only place that decides | every write path calls it; a state change that skips it is a review finding, and a forbidden transition returns 409 and leaves the row untouched. The database cannot reach the Java enum, so this one is discipline with a named owner, not a constraint |
-| T3 | Every state change appends a transition row, a move is recorded once, and history is immutable | the deferred trigger of decision 5 side A (the commit fails without the row), `uq_status_transition_creation` (at most one creation row), `uq_status_transition_once_per_move` (no duplicate write of the same move in the same instant), and the append-only trigger (`UPDATE`/`DELETE` raise) plus ADR-0005's grant |
+| T3 | Every state change appends a transition row, a move is recorded once, and history is immutable | the deferred trigger of decision 5 side A (the commit fails without the row), `uq_status_transition_creation` (at most one creation row), `uq_status_transition_once_per_move` (no duplicate write of the same move in the same instant), and the append-only trigger (`UPDATE`/`DELETE` raise) plus the `REVOKE`/`GRANT` pair of the schema block — which is this file's statement and not ADR-0005's, whose `V52:190-197` is what granted the privileges in the first place |
 | T4 | A document's `status` equals the `to_status` of its latest transition, in both directions | decision 5's two deferred triggers, evaluated at commit: side A refuses a state change with no row, side B refuses a row whose `to_status` is not the document's final state. The nightly query stays as a **detector** for rows written before the triggers existed, not as the enforcement |
-| T5 | The enum and the catalog agree in both directions | the parity test; a constant without a catalog row fails it, and so does a row without a constant. `statuses.code` is `NOT NULL`, so a catalog row cannot slip past the join |
+| T5 | The enum and the catalog agree in both directions, **inside the scope this ADR claims** | the parity test, scoped to the five families that have a domain enum — `SALES_ORDER`, `SALES_ORDER_ITEM`, `PURCHASE_ORDER`, `PURCHASE_ORDER_DETAIL`, `GOODS_RECEIPT`; a constant without a catalog row fails it, and so does an in-scope row without a constant. The two out-of-scope families (`APPOINTMENT` in `V18:59-86`, employment in `V20:60-78`, nine rows) carry no code and are excluded by construction. What stops an in-scope row slipping past the join is step 4's assertion in the migration, not a `NOT NULL` — see the `## Schema` block for why that column cannot be `NOT NULL` |
 | T6 | The `CHECK` and the enum agree in both directions | a second parity test reads the `CHECK` definition from `pg_constraint` and compares it with `Enum.values()`. Without it the set has three copies and only two are coupled — the pattern is the one `KeycloakClaimMapperCoverageTest` already uses for the mapper script |
-| T7 | A transition names a document of its own tenant | the `BEFORE INSERT` trigger of decision 6; a transition for another tenant's document is refused, not hidden by the policy |
+| T7 | A transition names a document of its own tenant | the `BEFORE INSERT` trigger of decision 6; a transition for another tenant's document is refused, not hidden by the policy. The table is also armed by the schema block: without that call the application does not start at all, because `unprotected_tenant_tables()` is non-empty and `TenantIsolationStartupCheck` refuses |
 
 ## Migration from the current tree
+
+0. **Open the `NO FORCE` window on the three tenant document tables, before the first read, and check
+   that it took.** `purchase_orders` is armed today (`V53:126`) and `sales_orders` and `goods_receipts`
+   become armed when ADR-0003 lands; `V52`'s `apply_tenant_isolation` sets
+   `FORCE ROW LEVEL SECURITY`, which filters the table's **owner**, and the owner is the role Flyway
+   runs as. `V54:26` records the consequence: a statement over such a table matches **zero rows and
+   reports success**.
+
+   Here that bites three times, and the third is the one an earlier draft of this plan would not have
+   survived: the `UPDATE` of step 2 numbers nothing; the "no `status` is null" assertion of step 3
+   **also reads nothing**, so it cannot be the guardrail it is treated as; and step 6's seed queues
+   deferred triggers whose own `SELECT`s read the documents, which fail closed with a null state and
+   abort. `NO FORCE` is the only door a `NOSUPERUSER` owner has, and `V57:85` is the same window with the
+   same two self-checks — that the window took, and that a statement inside it reached a row.
+
+   ```sql
+   ALTER TABLE purchase_orders     NO FORCE ROW LEVEL SECURITY;
+   ALTER TABLE sales_orders        NO FORCE ROW LEVEL SECURITY;
+   ALTER TABLE goods_receipts      NO FORCE ROW LEVEL SECURITY;
+   ```
+
+   Step 7 closes the window and re-checks it, before step 8 arms the new table — the order matters: a
+   window left open weakens the table for everything that runs after it (`V55:100`).
 
 1. **Add `status` nullable** to the five tables, `purchase_order_details` and `goods_receipts`
    included. Nothing reads it yet.
@@ -332,10 +391,49 @@ END $$;
    only place that correspondence is written down.
 3. **Assert no `status` is null**, then add the `CHECK` constraints and `NOT NULL`: a constraint
    added before the backfill would refuse the rows it must accept.
-4. **Add `statuses.code`**, backfill it from the same mapping, `SET NOT NULL`, and land both parity
-   tests (T5 and T6). `NOT NULL` is not cosmetic: a `UNIQUE` over a nullable column admits any number
-   of `NULL` rows, so without it a catalog row escapes the join and T5 passes over it.
-5. **Seed `status_transition` with one row per existing document AND per existing item**:
+4. **Add `statuses.code` and backfill it inside the scope this ADR claims.** The column is nullable, so
+   only the five families that have a domain enum get one:
+
+   ```sql
+   -- the mapping is step 2's, from the other side: a catalog row of an in-scope family and its constant
+   UPDATE statuses s SET code = m.enum_value
+   FROM status_types st, (VALUES ('SALES_ORDER', 'Draft', 'DRAFT'), /* … one row per constant … */)
+        AS m (type_name, catalog_name, enum_value)
+   WHERE st.id = s.status_type_id AND st.status_type_name = m.type_name
+     AND s.status_name = m.catalog_name;
+
+   -- the assertion, and it is the one that replaces NOT NULL: every row of the five in-scope families
+   -- has a code. An out-of-scope row is allowed to have none, by the scope decision above.
+   DO $$
+   DECLARE uncoded TEXT;
+   BEGIN
+       SELECT string_agg(s.status_name, ', ' ORDER BY s.status_name) INTO uncoded
+       FROM statuses s JOIN status_types st ON st.id = s.status_type_id
+       WHERE st.status_type_name IN ('SALES_ORDER', 'SALES_ORDER_ITEM', 'PURCHASE_ORDER',
+                                     'PURCHASE_ORDER_DETAIL', 'GOODS_RECEIPT')
+         AND s.code IS NULL;
+       IF uncoded IS NOT NULL THEN
+           RAISE EXCEPTION 'statuses.code did not reach: %', uncoded;
+       END IF;
+   END $$;
+   ```
+
+   Then land both parity tests (T5 and T6), with T5's join restricted to those five families — the line
+   the first draft got wrong by declaring the two other families out of scope **and** requiring a code
+   from every row of the table at the same time.
+5. **Create the triggers and the append-only grant, then verify them.** `uq_status_transition_creation`,
+   `uq_status_transition_once_per_move`, decision 6's `BEFORE INSERT` trigger and the five deferred
+   triggers are what turn T3, T4 and T7 from a convention into a constraint; the `REVOKE`/`GRANT` pair
+   is what makes append-only a property of the table instead of a property of one trigger. The `DO` block
+   at the end of the schema is the assertion that every document table carries its pair — the same shape
+   ADR-0005 uses for its policy list, and the reason "the same pair for the other four" cannot stay a
+   comment.
+
+   This step comes **before** the seed on purpose. Decision 6's trigger then validates the migration's
+   own rows, so the tenant derivation of the backfill is checked by the same function that will check
+   every writer after it — a seed written after the trigger would be the one write in the delivery that
+   nobody validated.
+6. **Seed `status_transition` with one row per existing document AND per existing item**:
    `from_status` null, `to_status` its backfilled status, `occurred_at` its `created_at`,
    `actor = 'unknown:migration'`, `reason = 'MIGRATION'`. The history before this migration is one
    initial row, not a reconstruction; inventing transitions would fabricate evidence. The actor is a
@@ -343,15 +441,21 @@ END $$;
    The document and its row go in **one transaction**: the trigger is deferred to commit, so a
    document inserted on its own is refused — which is the constraint working, not an obstacle to work
    around.
-6. **Create the triggers, then verify them.** `uq_status_transition_creation`,
-   `uq_status_transition_once_per_move` and the three deferred triggers are what turn T3 and T4 from a
-   convention into a constraint. The `DO` block at the end of the schema is the assertion that every
-   document table carries its pair — the same shape ADR-0005 uses for its policy list, and the reason
-   "the same pair for the other four" cannot stay a comment.
-7. **Drop `status_id`** and its indexes (`V1:334`, `:488`, `:514`, `V12:36`) once every reader uses
+7. **Close step 0's window and re-check it.** `ALTER TABLE … FORCE ROW LEVEL SECURITY` on the three
+   tables, then assert `relforcerowsecurity` is true on each and that no document row is left without a
+   status. A file that backfilled nothing and a file that backfilled everything print the same green,
+   and only "did a row arrive" separates them.
+8. **Arm `status_transition`, last.** `SELECT apply_tenant_isolation('status_transition')`, then assert
+   that `unprotected_tenant_tables()` returns no row — the same query `TenantIsolationStartupCheck` runs
+   at every boot. It is last because a policy's `WITH CHECK` applies to whoever writes and does not
+   spare the owner once it is FORCEd, so arming before step 6 would refuse the seed the delivery depends
+   on.
+9. **Drop `status_id`** and its indexes (`V1:334`, `:488`, `:514`, `V12:36`) once every reader uses
    the new column, and delete the maps at `SalesOrderService.java:66-76` and
    `PurchaseOrderService.java:73-81`. The catalog rows stay: they are the labels the screens render,
-   and the 32 name comparisons become enum references.
+   and the 32 name comparisons become enum references. `status_id`'s `NOT NULL` goes with the column,
+   and the two out-of-scope tables — `scheduling_appointments`, `employees` — keep their `status_id`
+   untouched, which is what makes the scope decision visible in the schema instead of only in prose.
 
 ## Rejected alternatives
 
@@ -386,3 +490,39 @@ END $$;
   `WHEN`.
 - **Cost**: the deferred triggers make the two writes atomic in a way a reader of the service code
   cannot see. That is the point, and it is why the trigger names carry the invariant number.
+
+## What this ADR does not unblock
+
+`odd/tasks/inventory-ledger.md` closed ADR-0001 without its drops and recorded why: T5d "is blocked on
+ADR-0004, which is a dependency and not a convenience: without the state machine's per-transition
+identity, the `source_id` mirror cannot outlive `inventory_movements`". **That expectation is wrong about
+this ADR, and reading the two documents together is what shows it.** This section exists so the error is
+corrected here instead of being discovered by the slice that tries to spend it.
+
+`status_transition` is the identity of a *state move*: one row per document (or document item) per move,
+with `uq_status_transition_once_per_move` over the pair. What T5d needs is an identity per **write**, and
+those are not the same event. The ledger books a sale deduction from
+`SalesOrderService:985-989`:
+
+```java
+var delta = newQuantity.subtract(oldQuantity);
+if (delta.signum() > 0) {
+    operations.add(deduct(companyStoreId, newVariantId, delta, itemId));
+}
+```
+
+Raising a line's quantity books **another SALE movement under the same `itemId`**, and the key that has
+to tell the two apart is `(source_type, source_id, movement_type, store_location_id)` — widened with the
+location by `V63` because one line genuinely spans two. A quantity edit is not a status change: the item
+stays `ADDED`, no transition row is written, and `status_transition` therefore offers nothing to
+distinguish the second booking from a retry of the first. A ledger that took the transition as its source
+would refuse a legal edit, or accept a duplicate — which is exactly the defect `uq_movement_source`
+exists to prevent.
+
+So: **accepting this ADR leaves T5d exactly where it is.** The open decision is the ledger's per-write
+identity, and the three shapes were already put to the maintainer in
+`odd/tasks/inventory-ledger.md` (2026-11-02): derive the key from the document state — which needs a
+sequence the service cannot supply today — let the ledger generate its own key, which costs invariant I5
+its status, or stop before the drops. None of the three is a state machine, and this ADR does not choose
+among them. It is recorded here because a reader of the adoption order would otherwise conclude that
+accepting 0004 releases ADR-0001's debt, and it does not.

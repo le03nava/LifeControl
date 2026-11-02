@@ -6,8 +6,12 @@
 **Status**: implemented — T1–T5c are in `main`: the location hierarchy carries its store (`V59`), the ledger
 exists with its engine (`V60`, `V61`), today's balances were replayed into it (`V62`), the five write paths
 book it beside the legacy update, the readers answer from its position, and its source key includes the
-location (`V63`). **T5d is blocked on ADR-0004**, which is a dependency and not a convenience: without the
-state machine's per-transition identity, the `source_id` mirror cannot outlive `inventory_movements`, so the
+location (`V63`). **T5d is blocked on the ledger's per-write identity, and no ADR supplies it.** The
+earlier statement of this header said it was blocked on ADR-0004's "per-transition identity"; reading that
+ADR against this tree shows it does not and cannot supply one — its `status_transition` records **state
+moves**, and raising a line's quantity books a second `SALE` movement under the same `itemId` with no
+state move at all (`SalesOrderService:985-989`). So the `source_id` mirror still cannot outlive
+`inventory_movements`, and the
 drops, the deletion of `InventoryService` and the move of `InsufficientStockException` stay open. The debt
 that leaves — one stock fact still stored three times, and the `inventory` ↔ `salesorder` package cycle — is
 named here rather than closed quietly.
@@ -511,3 +515,20 @@ What is **not** true, and a reader of this record must not conclude otherwise: `
 `InventoryService`; the two copies are kept in agreement by the dual-write rather than by having one; and the
 `inventory` ↔ `salesorder` package cycle is intact, because the exception that breaks it has not moved. That is
 T5d, and T5d needs ADR-0004 first.
+
+**2026-11-02 — the header's reason for T5d was wrong, and reading ADR-0004 is what proved it.** The unit
+closed with T5d "blocked on ADR-0004", on the reading that the state machine's per-transition identity
+would replace the `source_id` mirror. ADR-0004 was `proposed` then and was read in full on this date, for
+its own acceptance review; it says nothing about inventory, and its `status_transition` cannot carry what
+T5d needs. The measurement: `SalesOrderService:985-989` raises a line's quantity with
+`deduct(companyStoreId, newVariantId, delta, itemId)`, so the same `itemId` books a **second** `SALE`
+movement, while the item's state stays `ADDED` and no transition row is written. `status_transition` is
+per state move and `uq_status_transition_once_per_move` is over that pair, so it cannot distinguish the
+second booking from a retry of the first — which is the one thing `uq_movement_source` (widened by `V63`
+with `store_location_id`) exists to do. The three shapes this record's earlier entry put to the
+maintainer still stand and none of them is a state machine: derive the key from the document state (needs a
+sequence the service cannot supply today), let the ledger generate its own key (costs I5 its status), or
+stop before the drops. What changed is only the reason: T5d is blocked on the **ledger's per-write
+identity**, which no accepted ADR supplies, not on ADR-0004's acceptance. ADR-0004 now carries a `## What
+this ADR does not unblock` section saying so, so a reader of the adoption order does not conclude that
+accepting it releases this debt. The earlier entries are not rewritten; they were accurate when written.
