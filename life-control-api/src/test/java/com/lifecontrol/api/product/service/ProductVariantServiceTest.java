@@ -38,9 +38,11 @@ import com.lifecontrol.api.product.exception.VariantRemovalWouldEmptyProductExce
 import com.lifecontrol.api.product.model.Product;
 import com.lifecontrol.api.product.model.ProductVariant;
 import com.lifecontrol.api.product.model.ProductVariantStoreStock;
+import com.lifecontrol.api.product.model.VariantListing;
 import com.lifecontrol.api.product.repository.ProductRepository;
 import com.lifecontrol.api.product.repository.ProductVariantRepository;
 import com.lifecontrol.api.product.repository.ProductVariantStoreStockRepository;
+import com.lifecontrol.api.product.repository.VariantListingRepository;
 import com.lifecontrol.api.store.exception.CompanyStoreNotFoundException;
 import com.lifecontrol.api.store.model.CompanyStore;
 import com.lifecontrol.api.store.repository.CompanyStoreRepository;
@@ -73,6 +75,9 @@ class ProductVariantServiceTest {
 
     @Mock
     private ProductVariantStoreStockRepository productVariantStoreStockRepository;
+
+    @Mock
+    private VariantListingRepository variantListingRepository;
 
     @Mock
     private ProductRepository productRepository;
@@ -198,6 +203,7 @@ class ProductVariantServiceTest {
         productVariantService = new ProductVariantService(
                 productVariantRepository,
                 productVariantStoreStockRepository,
+                variantListingRepository,
                 productRepository,
                 companyStoreRepository,
                 companyStoreOwnerResolver,
@@ -206,6 +212,20 @@ class ProductVariantServiceTest {
                 measureUnitRepository,
                 inventoryMovementRepository,
                 productAttributeCatalogService);
+    }
+
+    /**
+     * A listing holding one price, which is the only thing the service reads from it on this path: the
+     * response reports the listing's price, so a client that writes one and reads it back is not told the
+     * price it just set is absent.
+     */
+    private static VariantListing listingOf(String listPrice) {
+        return VariantListing.builder()
+                .id(UUID.randomUUID())
+                .listPrice(new BigDecimal(listPrice))
+                .currency("MXN")
+                .enabled(true)
+                .build();
     }
 
     /**
@@ -1110,12 +1130,13 @@ class ProductVariantServiceTest {
         void upsertStoreStock_Create() {
             var request = new ProductVariantStoreStockRequest(
                     new BigDecimal("199.99"), new BigDecimal("120.00"), new BigDecimal("50.00"));
+            // No `listPrice` in the fixture: since ADR-0006 decision 6 this row is the position and holds
+            // no price, so a fixture that carried one could not tell a write from a leftover.
             var row = ProductVariantStoreStock.builder()
                     .id(UUID.randomUUID())
                     .productVariantId(variantId)
                     .companyStoreId(companyStoreId)
                     .stock(new BigDecimal("50.00"))
-                    .listPrice(new BigDecimal("199.99"))
                     .costPrice(new BigDecimal("120.00"))
                     .build();
 
@@ -1129,6 +1150,11 @@ class ProductVariantServiceTest {
             when(currentUserContext.getUsername()).thenReturn("tester");
             when(inventoryService.applyStockAdjustment(variantId, companyStoreId, new BigDecimal("50.00"), "tester"))
                     .thenReturn(new BigDecimal("50.00"));
+            // The price is a listing since ADR-0006 decision 6, so the response reports the listing's.
+            when(variantListingRepository.upsertListPrice(variantId, companyStoreId, new BigDecimal("199.99")))
+                    .thenReturn(1);
+            when(variantListingRepository.findByProductVariantIdAndCompanyStoreId(variantId, companyStoreId))
+                    .thenReturn(Optional.of(listingOf("199.99")));
 
             ProductVariantStoreStockResponse result =
                     productVariantService.upsertStoreStock(variantId, companyStoreId, request);
@@ -1138,6 +1164,11 @@ class ProductVariantServiceTest {
             assertThat(result.costPrice()).isEqualByComparingTo(new BigDecimal("120.00"));
             assertThat(result.stock()).isEqualByComparingTo(new BigDecimal("50.00"));
             verify(productVariantStoreStockRepository).insertStoreStockIfAbsent(variantId, companyStoreId);
+            // The price half goes to the listing and NOT to the store row: one price, one writer.
+            verify(variantListingRepository).upsertListPrice(variantId, companyStoreId, new BigDecimal("199.99"));
+            assertThat(row.getListPrice())
+                    .as("`product_variant_store_stock.list_price` is no longer written by this endpoint")
+                    .isNull();
             // The stock half is delegated to the engine, never written here (W3-D14).
             verify(inventoryService).applyStockAdjustment(variantId, companyStoreId, new BigDecimal("50.00"), "tester");
         }
@@ -1146,12 +1177,13 @@ class ProductVariantServiceTest {
         @DisplayName("should update the existing store row in place")
         void upsertStoreStock_Update() {
             var request = new ProductVariantStoreStockRequest(new BigDecimal("249.99"), null, null);
+            // No `listPrice` in the fixture: since ADR-0006 decision 6 this row is the position and holds
+            // no price, so a fixture that carried one could not tell a write from a leftover.
             var row = ProductVariantStoreStock.builder()
                     .id(UUID.randomUUID())
                     .productVariantId(variantId)
                     .companyStoreId(companyStoreId)
                     .stock(new BigDecimal("50.00"))
-                    .listPrice(new BigDecimal("199.99"))
                     .costPrice(new BigDecimal("120.00"))
                     .build();
 
@@ -1162,6 +1194,10 @@ class ProductVariantServiceTest {
                     .thenReturn(Optional.of(row));
             when(productVariantStoreStockRepository.save(any(ProductVariantStoreStock.class)))
                     .thenAnswer(inv -> inv.getArgument(0));
+            when(variantListingRepository.upsertListPrice(variantId, companyStoreId, new BigDecimal("249.99")))
+                    .thenReturn(1);
+            when(variantListingRepository.findByProductVariantIdAndCompanyStoreId(variantId, companyStoreId))
+                    .thenReturn(Optional.of(listingOf("249.99")));
 
             ProductVariantStoreStockResponse result =
                     productVariantService.upsertStoreStock(variantId, companyStoreId, request);
@@ -1172,6 +1208,39 @@ class ProductVariantServiceTest {
             assertThat(result.stock()).isEqualByComparingTo(new BigDecimal("50.00"));
             // No stock was sent, so the engine is never asked to move it.
             verify(inventoryService, never()).applyStockAdjustment(any(), any(), any(), any());
+        }
+
+        @Test
+        @DisplayName("a write that names no price neither creates a listing nor wipes the one that exists")
+        void upsertStoreStock_NoPriceLeavesTheListingAlone() {
+            var request = new ProductVariantStoreStockRequest(null, null, new BigDecimal("5.00"));
+            var row = ProductVariantStoreStock.builder()
+                    .id(UUID.randomUUID())
+                    .productVariantId(variantId)
+                    .companyStoreId(companyStoreId)
+                    .stock(BigDecimal.ZERO)
+                    .build();
+
+            when(productVariantRepository.findById(variantId)).thenReturn(Optional.of(testVariant));
+            when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
+            when(productVariantStoreStockRepository.findByProductVariantIdAndCompanyStoreIdForUpdate(
+                            variantId, companyStoreId))
+                    .thenReturn(Optional.of(row));
+            when(productVariantStoreStockRepository.save(any(ProductVariantStoreStock.class)))
+                    .thenAnswer(inv -> inv.getArgument(0));
+            when(currentUserContext.getUsername()).thenReturn("tester");
+            when(inventoryService.applyStockAdjustment(variantId, companyStoreId, new BigDecimal("5.00"), "tester"))
+                    .thenReturn(new BigDecimal("5.00"));
+            // The listing this suite cannot see is the one that must survive: the response reports it.
+            when(variantListingRepository.findByProductVariantIdAndCompanyStoreId(variantId, companyStoreId))
+                    .thenReturn(Optional.of(listingOf("42.00")));
+
+            var result = productVariantService.upsertStoreStock(variantId, companyStoreId, request);
+
+            assertThat(result.listPrice())
+                    .as("an absent price is \"leave it alone\", never \"clear it\"")
+                    .isEqualByComparingTo("42.00");
+            verify(variantListingRepository, never()).upsertListPrice(any(), any(), any());
         }
 
         @Test

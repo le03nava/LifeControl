@@ -21,6 +21,7 @@ import com.lifecontrol.api.product.model.ProductVariant;
 import com.lifecontrol.api.product.repository.ProductRepository;
 import com.lifecontrol.api.product.repository.ProductVariantRepository;
 import com.lifecontrol.api.product.repository.ProductVariantStoreStockRepository;
+import com.lifecontrol.api.product.repository.VariantListingRepository;
 import com.lifecontrol.api.store.model.CompanyStore;
 import com.lifecontrol.api.store.repository.CompanyStoreRepository;
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
@@ -99,6 +100,9 @@ class ProductVariantStockCompanyScopeIntegrationTest extends AbstractPostgresInt
 
     @Autowired
     private ProductVariantStoreStockRepository productVariantStoreStockRepository;
+
+    @Autowired
+    private VariantListingRepository variantListingRepository;
 
     @Autowired
     private InventoryMovementRepository inventoryMovementRepository;
@@ -204,7 +208,16 @@ class ProductVariantStockCompanyScopeIntegrationTest extends AbstractPostgresInt
             var row = productVariantStoreStockRepository
                     .findByProductVariantIdAndCompanyStoreId(variantBId, storeBId)
                     .orElseThrow();
-            assertThat(row.getListPrice()).isEqualByComparingTo("30.00");
+            // The price is a listing since ADR-0006 decision 6: the store row is the position and carries
+            // no price of its own any more, so this assertion names the listing it now lives in.
+            assertThat(row.getListPrice()).isNull();
+            assertThat(TenantFixtures.inTenant(
+                            companyBId,
+                            () -> variantListingRepository
+                                    .findByProductVariantIdAndCompanyStoreId(variantBId, storeBId)
+                                    .orElseThrow()
+                                    .getListPrice()))
+                    .isEqualByComparingTo("30.00");
         }
 
         @Test
@@ -393,6 +406,24 @@ class ProductVariantStockCompanyScopeIntegrationTest extends AbstractPostgresInt
     }
 
     private void cleanUp() {
+        // Listings first: `variant_listing` references the variant (C6) with no cascade, so a listing left
+        // behind would refuse the variant's delete. The table is armed, so each tenant's rows are removed
+        // under that tenant — a delete with no scope stated removes nothing.
+        for (var tenant : java.util.stream.Stream.of(companyAId, companyBId)
+                .filter(java.util.Objects::nonNull)
+                .toList()) {
+            TenantFixtures.inTenant(tenant, () -> {
+                for (var variantId : createdVariantIds) {
+                    for (var storeId : java.util.stream.Stream.of(storeAId, storeBId)
+                            .filter(java.util.Objects::nonNull)
+                            .toList()) {
+                        variantListingRepository
+                                .findByProductVariantIdAndCompanyStoreId(variantId, storeId)
+                                .ifPresent(listing -> variantListingRepository.deleteById(listing.getId()));
+                    }
+                }
+            });
+        }
         // Leaf first: the per-store rows reference the variant, the variant references the product.
         for (var variantId : createdVariantIds) {
             for (var storeId : List.of(storeAId, storeBId)) {

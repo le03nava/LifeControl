@@ -26,9 +26,11 @@ import com.lifecontrol.api.inventory.service.InventoryService;
 import com.lifecontrol.api.measureunit.repository.MeasureUnitRepository;
 import com.lifecontrol.api.product.model.Product;
 import com.lifecontrol.api.product.model.ProductVariant;
+import com.lifecontrol.api.product.model.VariantListing;
 import com.lifecontrol.api.product.repository.ProductRepository;
 import com.lifecontrol.api.product.repository.ProductVariantRepository;
 import com.lifecontrol.api.product.repository.ProductVariantStoreStockRepository;
+import com.lifecontrol.api.product.repository.VariantListingRepository;
 import com.lifecontrol.api.store.model.CompanyStore;
 import com.lifecontrol.api.store.model.StoreArea;
 import com.lifecontrol.api.store.model.StoreLocation;
@@ -43,6 +45,7 @@ import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -91,6 +94,9 @@ class ProductVariantStoreStockWriteIntegrationTest extends AbstractPostgresInteg
 
     @Autowired
     private ProductVariantStoreStockRepository productVariantStoreStockRepository;
+
+    @Autowired
+    private VariantListingRepository variantListingRepository;
 
     @Autowired
     private ProductRepository productRepository;
@@ -185,6 +191,20 @@ class ProductVariantStoreStockWriteIntegrationTest extends AbstractPostgresInteg
 
     @AfterEach
     void tearDown() {
+        // Listings before the variants: `variant_listing` references the variant (C6) with no cascade, and
+        // the table is armed, so each pair is removed under this suite's tenant.
+        if (companyId != null && storeAId != null && storeBId != null) {
+            TenantFixtures.inTenant(companyId, () -> {
+                for (var variantId : List.copyOf(createdVariantIds)) {
+                    for (var storeId : List.of(storeAId, storeBId)) {
+                        variantListingRepository
+                                .findByProductVariantIdAndCompanyStoreId(variantId, storeId)
+                                .ifPresent(listing -> variantListingRepository.deleteById(listing.getId()));
+                    }
+                }
+            });
+        }
+
         // The balance rows and the ledger now reference this test's variants (the editor writes all
         // three sides), and neither has a cascade, so they must go before the variants do.
         var variantIds = new HashSet<>(createdVariantIds);
@@ -255,7 +275,9 @@ class ProductVariantStoreStockWriteIntegrationTest extends AbstractPostgresInteg
         var inserted = productVariantStoreStockRepository
                 .findByProductVariantIdAndCompanyStoreId(bareVariantId, storeAId)
                 .orElseThrow();
-        assertThat(inserted.getListPrice()).isEqualByComparingTo("25.50");
+        // The price is a listing since ADR-0006 decision 6, so it is NOT on the store row any more.
+        assertThat(inserted.getListPrice()).isNull();
+        assertThat(listingPriceOf(bareVariantId, storeAId)).isEqualByComparingTo("25.50");
         assertThat(inserted.getCostPrice()).isEqualByComparingTo("12.00");
         assertThat(inserted.getStock()).isEqualByComparingTo("7");
 
@@ -280,8 +302,67 @@ class ProductVariantStoreStockWriteIntegrationTest extends AbstractPostgresInteg
         // Same row: the conflict did nothing, it did not create a second one.
         assertThat(updated.getId()).isEqualTo(inserted.getId());
         assertThat(updated.getStock()).isEqualByComparingTo("11");
-        assertThat(updated.getListPrice()).isEqualByComparingTo("25.50");
         assertThat(updated.getCostPrice()).isEqualByComparingTo("12.00");
+        // A write that names no price leaves the listing alone: "absent" has never meant "clear".
+        assertThat(listingPriceOf(bareVariantId, storeAId)).isEqualByComparingTo("25.50");
+    }
+
+    // ─────────────────────────── ADR-0006 decision 6: price is a listing ───────────────────────────
+
+    @Test
+    @DisplayName("a price written through the endpoint lands in variant_listing, not in the store row")
+    void priceLandsInTheListingAndNotInTheStoreRow() throws Exception {
+        writePrice(bareVariantId, storeAId, "25.50");
+
+        var listing = listingOf(bareVariantId, storeAId).orElseThrow();
+        assertThat(listing.getListPrice()).isEqualByComparingTo("25.50");
+        assertThat(listing.getCompanyId())
+                .as("the listing states the tenant its variant and its store share (C6)")
+                .isEqualTo(companyId);
+        assertThat(listing.getCurrency())
+                .as("the currency is read from the company (V57), never invented at the write")
+                .isEqualTo(TenantFixtures.inTenant(
+                        companyId,
+                        () -> companyRepository
+                                .findById(companyId)
+                                .orElseThrow()
+                                .getCurrency()));
+
+        // The transitional copy is NOT kept up to date: `product_variant_store_stock.list_price` is the
+        // column ADR-0001 retires, and two writers of one price is the defect this slice removes.
+        assertThat(productVariantStoreStockRepository
+                        .findByProductVariantIdAndCompanyStoreId(bareVariantId, storeAId)
+                        .orElseThrow()
+                        .getListPrice())
+                .isNull();
+
+        // A second price updates the same listing instead of stacking a second row.
+        writePrice(bareVariantId, storeAId, "30.00");
+        assertThat(listingPriceOf(bareVariantId, storeAId)).isEqualByComparingTo("30.00");
+        assertThat(listingOf(bareVariantId, storeAId).orElseThrow().getId())
+                .as("one listing per (variant, store): the upsert updates, it does not insert a second")
+                .isEqualTo(listing.getId());
+    }
+
+    @Test
+    @DisplayName("a write that names no price neither creates a listing nor wipes the one that exists")
+    void aWriteThatNamesNoPriceKeepsTheListing() throws Exception {
+        // Stock only, on a variant nobody priced: the store row is created and no listing is.
+        writeStock(sharedVariantId, storeBId, "2");
+        assertThat(listingOf(sharedVariantId, storeBId))
+                .as("a stock write does not invent a price")
+                .isEmpty();
+
+        // Then a price, then a stock write again: the price survives the second write.
+        writePrice(sharedVariantId, storeBId, "18.75");
+        writeStock(sharedVariantId, storeBId, "6");
+
+        assertThat(listingPriceOf(sharedVariantId, storeBId)).isEqualByComparingTo("18.75");
+        assertThat(productVariantStoreStockRepository
+                        .findByProductVariantIdAndCompanyStoreId(sharedVariantId, storeBId)
+                        .orElseThrow()
+                        .getStock())
+                .isEqualByComparingTo("6");
     }
 
     @Test
@@ -301,6 +382,9 @@ class ProductVariantStoreStockWriteIntegrationTest extends AbstractPostgresInteg
         assertThat(row.getStock()).isEqualByComparingTo("0");
         assertThat(row.getListPrice()).isNull();
         assertThat(row.getCostPrice()).isNull();
+        // And no listing: `variant_listing.list_price` is NOT NULL, so there is no such thing as a
+        // price-less listing to create here.
+        assertThat(listingOf(bareVariantId, storeAId)).isEmpty();
     }
 
     @Test
@@ -596,6 +680,38 @@ class ProductVariantStoreStockWriteIntegrationTest extends AbstractPostgresInteg
                         .content(objectMapper.writeValueAsString(body))
                         .with(editorJwt()))
                 .andExpect(status().isOk());
+    }
+
+    private void writePrice(UUID variantId, UUID storeId, String listPrice) throws Exception {
+        var body = objectMapper.createObjectNode();
+        body.put("listPrice", new BigDecimal(listPrice));
+
+        mockMvc.perform(put(STORE_STOCK_URL, variantId, storeId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(body))
+                        .with(editorJwt()))
+                .andExpect(status().isOk())
+                // The response reports the listing's price, so a client that writes a price and reads it
+                // back is not told the price it just set is absent.
+                .andExpect(jsonPath("$.listPrice").value(Double.parseDouble(listPrice)));
+    }
+
+    /**
+     * The listing of one pair, read under this suite's tenant: {@code variant_listing} is armed on
+     * {@code company_id} (V58), so an unscoped read answers no row — and an {@code isEmpty()} on such a
+     * read would pass without proving anything.
+     */
+    private Optional<VariantListing> listingOf(UUID variantId, UUID storeId) {
+        return TenantFixtures.inTenant(
+                companyId, () -> variantListingRepository.findByProductVariantIdAndCompanyStoreId(variantId, storeId));
+    }
+
+    /**
+     * The listing's price, or {@code null} when the store has no listing — which is the state the response
+     * reports for a variant it does not sell.
+     */
+    private BigDecimal listingPriceOf(UUID variantId, UUID storeId) {
+        return listingOf(variantId, storeId).map(VariantListing::getListPrice).orElse(null);
     }
 
     /**

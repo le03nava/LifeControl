@@ -18,6 +18,12 @@ import java.util.UUID;
  *   <li>{@code sku} carries the <strong>PRODUCT</strong> sku ({@code products.sku}); the variant sku
  *       no longer exists (D2). {@code productSku} keeps carrying the same product sku, so both
  *       fields report it.</li>
+ *   <li>{@code listed} says whether this store sells the variant at all (ADR-0006 decision 6):
+ *       {@code true} when the store has a listing for it, {@code false} when it holds stock without a
+ *       price. It is the field that lets a client tell "stock without price" from "not carried here" and
+ *       from "listed, nothing to sell", and it is named after that fact and not after
+ *       {@code variant_listing} — see {@link ProductVariantResponse#listed()} for the four states.
+ *       Appended last, like every field before it.</li>
  * </ul>
  */
 public record ProductVariantSearchResponse(
@@ -34,4 +40,40 @@ public record ProductVariantSearchResponse(
         String productName,
         String productSku,
         LocalDateTime createdAt,
-        LocalDateTime updatedAt) {}
+        LocalDateTime updatedAt,
+        Boolean listed) {
+
+    /** The pre-listing shape: a caller that does not read the four states states {@code listed = null}. */
+    public ProductVariantSearchResponse(
+            UUID id,
+            UUID productId,
+            UUID companyStoreId,
+            String barCode,
+            String sku,
+            String variantName,
+            BigDecimal listPrice,
+            BigDecimal costPrice,
+            BigDecimal stock,
+            Boolean enabled,
+            String productName,
+            String productSku,
+            LocalDateTime createdAt,
+            LocalDateTime updatedAt) {
+        this(
+                id,
+                productId,
+                companyStoreId,
+                barCode,
+                sku,
+                variantName,
+                listPrice,
+                costPrice,
+                stock,
+                enabled,
+                productName,
+                productSku,
+                createdAt,
+                updatedAt,
+                null);
+    }
+}

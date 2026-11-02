@@ -265,3 +265,28 @@ relaxed**: the entries added, the counts moved to seventeen (including the one a
 method name), and every assertion left byte-identical, so the new table runs through the existing checks instead
 of beside them. Verification observed by the parent: **551 cases across 109 classes, 0 failures** over `product`
 and `tenant`.
+
+**2026-11-02 — T4b: the reads stop hiding "stock without price", and ADR-0006 closes.** The two
+store-scoped variant reads take the price from `variant_listing` and the position from
+`product_variant_store_stock` through **independent `LEFT JOIN`s**, so the ADR's four states are all
+representable — and the one this unit exists for is the third: a variant with stock and no listing is now
+**returned and flagged** instead of vanishing from the store. Both response records carry a `listed`
+field, named after the fact it reports and not after the table: `listed` with no stock is deliberately not
+sellable, so `sellable` would have been a lie, and the values alone cannot be decoded (`stock = null` means
+"no position here" on one row and "not store-scoped" on another). The price write of
+`PUT /api/variants/{variantId}/stores/{storeId}` now writes the listing — created on first price, with the
+currency read from the company `V57` gave one, in one `INSERT … ON CONFLICT` that cannot race on
+`uq_listing_variant_store` — while cost and stock keep their path through the inventory engine.
+
+Two things it deliberately leaves, both named. `product_variant_store_stock.list_price` is now **stale**
+for anything priced after this slice: nothing writes it and nothing reads it, and it dies with the table
+in ADR-0001. And `variant_listing.enabled` exists with no writer, so "listed" is read as "has a listing
+row"; the day an availability toggle lands, `listed` and `enabled` become two questions and the projection
+must choose one explicitly. Migration step 5's second join is the store row and not "the position
+projection", because no projection exists yet — that is ADR-0001's, which is also why step 4's drop is not
+reachable here.
+
+Verification observed by the parent: **504 cases** in `product` and **506** across
+`salesorder`/`inventory`/`purchaseorder`/`goodsreceipt`, all green; `spotlessCheck` and `spotbugsMain`
+clean. The writer's RED was 11 failing cases, and it re-measured the search one deliberately after
+discovering its first attempt was contaminated by a fixture 404 rather than by the rule.

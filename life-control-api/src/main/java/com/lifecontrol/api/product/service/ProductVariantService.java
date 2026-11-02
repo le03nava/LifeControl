@@ -28,6 +28,7 @@ import com.lifecontrol.api.product.model.ProductVariantStoreStock;
 import com.lifecontrol.api.product.repository.ProductRepository;
 import com.lifecontrol.api.product.repository.ProductVariantRepository;
 import com.lifecontrol.api.product.repository.ProductVariantStoreStockRepository;
+import com.lifecontrol.api.product.repository.VariantListingRepository;
 import com.lifecontrol.api.store.exception.CompanyStoreNotFoundException;
 import com.lifecontrol.api.store.model.CompanyStore;
 import com.lifecontrol.api.store.repository.CompanyStoreRepository;
@@ -44,12 +45,15 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Variant definition CRUD plus the upsert of the per-store stock/pricing row.
+ * Variant definition CRUD plus the upsert of the per-store position and its listing.
  *
  * <p>The definition is GLOBAL: creating or updating a variant never takes a store. Stock and prices
- * live per store in {@code product_variant_store_stock} and are written through
+ * live per store and are written through
  * {@link #upsertStoreStock(UUID, UUID, ProductVariantStoreStockRequest)}, the second write endpoint
- * of decision D6(b).</p>
+ * of decision D6(b). Since ADR-0006 decision 6 that endpoint writes two rows, not one: the position
+ * stays in {@code product_variant_store_stock} and the price is a listing in
+ * {@code variant_listing}, because "sellable in this store" and "there is stock here" are different
+ * facts with different owners.</p>
  *
  * <p>Both write paths also carry the variant's measure unit (V29), which is <b>mandatory</b> since
  * ADR-0006 decision 3: the request must name a unit id, this
@@ -77,6 +81,7 @@ public class ProductVariantService {
 
     private final ProductVariantRepository productVariantRepository;
     private final ProductVariantStoreStockRepository productVariantStoreStockRepository;
+    private final VariantListingRepository variantListingRepository;
     private final ProductRepository productRepository;
     private final CompanyStoreRepository companyStoreRepository;
     private final CompanyStoreOwnerResolver companyStoreOwnerResolver;
@@ -89,6 +94,7 @@ public class ProductVariantService {
     public ProductVariantService(
             ProductVariantRepository productVariantRepository,
             ProductVariantStoreStockRepository productVariantStoreStockRepository,
+            VariantListingRepository variantListingRepository,
             ProductRepository productRepository,
             CompanyStoreRepository companyStoreRepository,
             CompanyStoreOwnerResolver companyStoreOwnerResolver,
@@ -99,6 +105,7 @@ public class ProductVariantService {
             ProductAttributeCatalogService productAttributeCatalogService) {
         this.productVariantRepository = productVariantRepository;
         this.productVariantStoreStockRepository = productVariantStoreStockRepository;
+        this.variantListingRepository = variantListingRepository;
         this.productRepository = productRepository;
         this.companyStoreRepository = companyStoreRepository;
         this.companyStoreOwnerResolver = companyStoreOwnerResolver;
@@ -132,8 +139,10 @@ public class ProductVariantService {
      * its previous behavior) and, when {@code true}, lists them too so a soft-deleted definition can
      * be re-enabled with {@code PATCH .../enable}.</p>
      *
-     * <p>When {@code companyStoreId} is present the store row is joined and those fields are
-     * populated from it, so the caller must hold a grant covering that store: the store id comes from
+     * <p>When {@code companyStoreId} is present the store's listing and position are joined —
+     * independently, so a variant with one and not the other is still returned (ADR-0006 decision 6) —
+     * and the store-scoped fields are populated from them, so the caller must hold a grant covering that
+     * store: the store id comes from
      * the query string, so {@code @PreAuthorize} alone only proves the caller holds some variant role.
      * The company &rarr; country &rarr; region &rarr; zone &rarr; store chain is derived from the
      * store and verified with {@link #verifyStoreAccess} before the query, exactly like
@@ -378,17 +387,32 @@ public class ProductVariantService {
     }
 
     /**
-     * Upserts the PER-STORE row of a variant: stock and prices for one store. The row is created
-     * with its column defaults when it does not exist yet, then updated in place.
+     * Upserts the PER-STORE row of a variant and the store's price of it. Stock is the row
+     * ({@code product_variant_store_stock}); the price is the listing ({@code variant_listing}).
      *
-     * <p>The row is created with the conflict-tolerant insert before the pessimistic lock, mirroring
-     * {@code ProductVariantLocationRepository#insertBalanceIfAbsent}: an {@code ON CONFLICT DO
-     * NOTHING} avoids the unique violation that would abort the transaction, so the lock that follows
-     * is always held over an existing row.</p>
+     * <p><b>The price is written to the listing, from ADR-0006 decision 6</b>
+     * (<code>docs/adr/0006-catalog-identity.md:60-64</code>). "Sellable in this store" is a listing,
+     * "there is stock here" is the position, and this endpoint is the pair's editor — so it writes its
+     * two halves where they belong instead of writing a price and a quantity into one row. The listing is
+     * created on the first price with the currency the variant's company states ({@code V57}), through
+     * {@link VariantListingRepository#upsertListPrice}, and a request that names no price never reaches it:
+     * <b>an absent {@code listPrice} leaves the stored price exactly as it is</b>, which is the same rule
+     * every other omitted field of this request follows and the opposite of "clear it".</p>
      *
-     * <p>Prices are per-store profile and are written here. Stock is not: every stock move belongs to
-     * the engine, so this method delegates a stock edit to
-     * {@link InventoryService#applyStockAdjustment} (W3-D14). Writing
+     * <p>{@code product_variant_store_stock.list_price} is deliberately <b>not</b> written any more. The
+     * column survives until ADR-0001 retires the store row, but two writers of one price is precisely the
+     * defect decision 5 removes, and a transitional copy that the same endpoint keeps refreshing would keep
+     * the two representations indistinguishable forever.</p>
+     *
+     * <p>The row itself is still created here, with its conflict-tolerant insert before the pessimistic
+     * lock, mirroring {@code ProductVariantLocationRepository#insertBalanceIfAbsent}: an {@code ON CONFLICT
+     * DO NOTHING} avoids the unique violation that would abort the transaction, so the lock that follows
+     * is always held over an existing row. The listing has no equivalent step because it cannot exist
+     * without a price ({@code list_price} is {@code NOT NULL}), so its own statement inserts or updates in
+     * one go.</p>
+     *
+     * <p>Stock is not written here at all: every stock move belongs to the engine, so this method delegates
+     * a stock edit to {@link InventoryService#applyStockAdjustment} (W3-D14). Writing
      * {@code product_variant_store_stock.stock} here directly is the F16 defect — the aggregate moved
      * while no location row and no movement did — so the arithmetic stays in the engine, and a store
      * without a settings row is refused by it rather than guessed here.</p>
@@ -403,7 +427,10 @@ public class ProductVariantService {
      * catalog already uses for a pair that is not addressable — {@link
      * ProductVariantNotFoundException}, which is a 404: the same answer the purchase-order path gives
      * for a variant that cannot be reached from the document's store. A variant of another company is
-     * indistinguishable from one that does not exist, so no new status is invented for it.</p>
+     * indistinguishable from one that does not exist, so no new status is invented for it. The same
+     * check is what makes the listing's own tenant safe: {@code variant_listing.company_id} is the
+     * variant's company and {@code fk_listing_store} (invariant C6) requires the store to be that same
+     * company, so a cross-tenant pair is refused here and in the schema.</p>
      *
      * <p>The pair check runs <b>after</b> {@link #verifyStoreAccess}, so a caller with no grant still
      * receives the 403 that says so before anything about tenants is disclosed.</p>
@@ -434,15 +461,24 @@ public class ProductVariantService {
 
         logger.info("Upserting variant store stock: variantId={}, companyStoreId={}", variantId, companyStoreId);
 
+        // The price half: the listing, and never the store row (ADR-0006 decision 6).
+        if (request.listPrice() != null) {
+            var written = variantListingRepository.upsertListPrice(variantId, companyStoreId, request.listPrice());
+            if (written == 0) {
+                // The variant was loaded above, so a statement that wrote nothing read a different
+                // catalogue than the one it was asked about. Reporting it is the difference between a
+                // price that failed and a price that silently did not land.
+                throw new IllegalStateException("Writing the listing price of variant " + variantId + " at store "
+                        + companyStoreId + " wrote no row, though the variant exists in this transaction");
+            }
+        }
+
         productVariantStoreStockRepository.insertStoreStockIfAbsent(variantId, companyStoreId);
         var row = productVariantStoreStockRepository
                 .findByProductVariantIdAndCompanyStoreIdForUpdate(variantId, companyStoreId)
                 .orElseThrow(() -> new IllegalStateException("Product variant store stock row not found for variant "
                         + variantId + " and store " + companyStoreId + " after it was locked or created"));
 
-        if (request.listPrice() != null) {
-            row.setListPrice(request.listPrice());
-        }
         if (request.costPrice() != null) {
             row.setCostPrice(request.costPrice());
         }
@@ -455,12 +491,22 @@ public class ProductVariantService {
                         variantId, companyStoreId, request.stock(), currentUserContext.getUsername())
                 : row.getStock();
 
-        return toStoreResponse(row, stock);
+        // The response reports the price that is stored <b>now</b>, read back from the listing rather than
+        // echoed from the request: a write that named no price must answer with the price it kept, not
+        // with the null it did not send.
+        var listPrice = variantListingRepository
+                .findByProductVariantIdAndCompanyStoreId(variantId, companyStoreId)
+                .map(listing -> listing.getListPrice())
+                .orElse(null);
+
+        return toStoreResponse(row, listPrice, stock);
     }
 
     /**
-     * Searches the per-store rows of the variant table: stock and list and cost prices are read for
-     * the store named by {@code storeId}, so the caller must hold a grant covering that store.
+     * Searches the variants of one store: the listing's price and the position's stock are read for the
+     * store named by {@code storeId}, each from its own row and independently (ADR-0006 decision 6), so an
+     * article that holds stock and no listing is returned and flagged instead of missing. The caller must
+     * hold a grant covering that store.
      *
      * <p>The store id comes from the query string, so {@code @PreAuthorize} alone only proves the
      * caller holds some variant role; the company &rarr; country &rarr; region &rarr; zone &rarr;
@@ -693,8 +739,8 @@ public class ProductVariantService {
         productAttributeCatalogService.validate(companyId, categoryId, attributes, ProductAttributeLevel.VARIANT);
     }
 
-    private ProductVariantStoreStockResponse toStoreResponse(ProductVariantStoreStock row, BigDecimal stock) {
-        return new ProductVariantStoreStockResponse(
-                row.getCompanyStoreId(), row.getListPrice(), row.getCostPrice(), stock);
+    private ProductVariantStoreStockResponse toStoreResponse(
+            ProductVariantStoreStock row, BigDecimal listPrice, BigDecimal stock) {
+        return new ProductVariantStoreStockResponse(row.getCompanyStoreId(), listPrice, row.getCostPrice(), stock);
     }
 }
