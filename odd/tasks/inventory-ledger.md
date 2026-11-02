@@ -385,3 +385,42 @@ and the one executable suppression is the shared helper's session-scoped
 
 Verification: module **4359 cases, 0 failures**, from a forced `cleanTest` re-run rather than an `up-to-date`
 reuse; `spotlessCheck` and `spotbugsMain` clean.
+
+**2026-11-02 — T5b landed: the readers answer from the projections, and the 409 came back.** Four readers
+moved onto `stock_position`, joined as a **third independent `LEFT JOIN`** the way `V58` established for the
+price: the store-scoped variant list (`GET …/products/{id}/variants?storeId=`), the POS and stock-search read,
+the per-store editor's response, and the sale's availability gate. The visibility predicate widened to
+`(pvss.id IS NOT NULL OR l.id IS NOT NULL OR sp.quantity IS NOT NULL)`, so a position alone keeps a variant
+answerable — which is decision 5's "a receipt creates availability" surviving into the read.
+
+Four things the slice deliberately did **not** move, each with its reason rather than by omission:
+`InventoryService`'s internal reads are the legacy **write** path and stopping them is T5d; the reversal's
+identity reads (`uncoveredRemainder`, `openLedgerSales`) still read `inventory_movements` because reversal
+identity is T5c's; the measure-unit history guard is split across two clocks and moving half of it would
+refuse on the wrong one; and **`stock_balance` has no reader in the API at all** — no endpoint answers "how
+much in this location", so mapping a second projection would have been an unused mapping. That last one is a
+finding, not a shortcut: the task asked for two projections and the tree only reads one.
+
+**The 409 is preserved, and by a Java gate rather than by parsing a database error.** `V61`'s I8 raises a
+plpgsql exception, which the API was surfacing as a **500**; from this slice the position is the authority a
+sale is refused by, so `applySaleDeduction` gains a fail-closed check against `stock_position` that raises the
+documented `InsufficientStockException` with the position's own number. RED was observed for it in three
+places, at three levels: the read answering the legacy column (`expected 4 but was 99.00`), the service
+raising `UncategorizedSQLException` instead of the contract, and the HTTP case answering **500 instead of
+409**. `InsufficientStockException` did **not** move to `inventory.exception`: that is T5d's, with the
+package-cycle break.
+
+Two API-visible changes that have to be recorded here because a DTO javadoc is not where an operator looks:
+`stock = null` on a store-scoped read now means "the ledger holds no position for this variant in this store"
+— it used to mean "no per-store row" — and the per-store editor's response can answer `null` where it used to
+answer `0` for a key nothing ever moved. `0` now means drained, and the four states are otherwise intact.
+
+Two risks carried forward, both for T5c: the manual **decrease** path has no position gate, so on a divergent
+tree it can still surface I8 as a 500 — symmetric with the bug this slice fixed, and not widened because that
+path's arithmetic is what T5c deletes; and **the serialization point is still the legacy store row's lock**.
+Every mover of a key takes it first, which is the only reason the gate is safe under concurrency. After T5c
+that lock is gone, so the projection row's own lock — the one `V61` takes — becomes the only serialization
+point, and the gate has to move with it.
+
+Verification: module **4362 cases across 1038 classes, 0 failures**, from a forced `cleanTest` re-run;
+`spotlessCheck` and `spotbugsMain` clean.

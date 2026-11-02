@@ -2,6 +2,7 @@ package com.lifecontrol.api.product.service;
 
 import com.lifecontrol.api.common.auth.CurrentUserContext;
 import com.lifecontrol.api.inventory.repository.InventoryMovementRepository;
+import com.lifecontrol.api.inventory.repository.StockPositionRepository;
 import com.lifecontrol.api.inventory.service.InventoryService;
 import com.lifecontrol.api.measureunit.exception.MeasureUnitNotFoundException;
 import com.lifecontrol.api.measureunit.model.MeasureUnit;
@@ -90,6 +91,7 @@ public class ProductVariantService {
     private final MeasureUnitRepository measureUnitRepository;
     private final InventoryMovementRepository inventoryMovementRepository;
     private final ProductAttributeCatalogService productAttributeCatalogService;
+    private final StockPositionRepository stockPositionRepository;
 
     public ProductVariantService(
             ProductVariantRepository productVariantRepository,
@@ -102,7 +104,8 @@ public class ProductVariantService {
             InventoryService inventoryService,
             MeasureUnitRepository measureUnitRepository,
             InventoryMovementRepository inventoryMovementRepository,
-            ProductAttributeCatalogService productAttributeCatalogService) {
+            ProductAttributeCatalogService productAttributeCatalogService,
+            StockPositionRepository stockPositionRepository) {
         this.productVariantRepository = productVariantRepository;
         this.productVariantStoreStockRepository = productVariantStoreStockRepository;
         this.variantListingRepository = variantListingRepository;
@@ -114,6 +117,7 @@ public class ProductVariantService {
         this.measureUnitRepository = measureUnitRepository;
         this.inventoryMovementRepository = inventoryMovementRepository;
         this.productAttributeCatalogService = productAttributeCatalogService;
+        this.stockPositionRepository = stockPositionRepository;
     }
 
     @Transactional(readOnly = true)
@@ -417,6 +421,12 @@ public class ProductVariantService {
      * while no location row and no movement did — so the arithmetic stays in the engine, and a store
      * without a settings row is refused by it rather than guessed here.</p>
      *
+     * <p><b>The response's {@code stock} is the ledger's position, not the store row (T5b).</b> The number is
+     * read back from {@code stock_position} after the write, so this endpoint answers the same number the
+     * store-scoped list and the POS search answer. That is a deliberate change of source with no change of
+     * field: while both copies exist the two agree, and once T5c stops the legacy write the projection is the
+     * only one that keeps moving.</p>
+     *
      * <p>The row pairs one company's variant with one company's store, and nothing in the schema
      * forbids the two being different: {@code product_variant_store_stock} has no company of its
      * own, its unique key is {@code (product_variant_id, company_store_id)}, and the composite
@@ -484,12 +494,13 @@ public class ProductVariantService {
         }
         productVariantStoreStockRepository.save(row);
 
-        // Stock is the engine's invariant, not this service's state: delegate the mutation and use
-        // the value it returns. A null stock means "leave stock untouched", as before.
-        var stock = request.stock() != null
-                ? inventoryService.applyStockAdjustment(
-                        variantId, companyStoreId, request.stock(), currentUserContext.getUsername())
-                : row.getStock();
+        // Stock is the engine's invariant, not this service's state: delegate the mutation and ignore what it
+        // returns, because the number this response reports is read back from the ledger's projection below. A
+        // null stock means "leave stock untouched", as before.
+        if (request.stock() != null) {
+            inventoryService.applyStockAdjustment(
+                    variantId, companyStoreId, request.stock(), currentUserContext.getUsername());
+        }
 
         // The response reports the price that is stored <b>now</b>, read back from the listing rather than
         // echoed from the request: a write that named no price must answer with the price it kept, not
@@ -498,6 +509,14 @@ public class ProductVariantService {
                 .findByProductVariantIdAndCompanyStoreId(variantId, companyStoreId)
                 .map(listing -> listing.getListPrice())
                 .orElse(null);
+
+        // …and the stock is the ledger's position, for the same reason and by the same rule as the store-scoped
+        // list and search: since T5b the projection is the authority, so an editor that echoed
+        // `product_variant_store_stock.stock` would report a column no writer maintains once T5c stops the
+        // legacy write. Empty is reported as null, which is the meaning this field already carries elsewhere —
+        // "the ledger holds no position for this variant in this store" — and never as a zero nobody stated.
+        var stock =
+                stockPositionRepository.findQuantity(companyStoreId, variantId).orElse(null);
 
         return toStoreResponse(row, listPrice, stock);
     }
@@ -683,6 +702,16 @@ public class ProductVariantService {
      *
      * <p>{@code unit -> null} is no longer reachable from here: the request itself refuses an absent
      * unit ({@link #validateMeasureUnit}) and {@code V55} makes the column reject it.</p>
+     *
+     * <p><b>Why the stock floor still reads {@code product_variant_store_stock} after T5b.</b> The two
+     * store-scoped <b>reads</b> and this response answer from {@code stock_position}, because they answer "how
+     * much". This guard answers a different question — "is there a stored quantity a unit change would
+     * reinterpret" — and it is half of a write-path refusal whose other half already reads the legacy
+     * {@code inventory_movements} table. It therefore moves with that write path in T5c, when the legacy
+     * ledger stops and its readers are the last thing pointing at it, instead of being split across two
+     * slices: a guard with one foot on the projection and one on {@code inventory_movements} would refuse on
+     * two different clocks. Recorded as a deliberate leave on {@code odd/tasks/inventory-ledger.md}, not as an
+     * omission.</p>
      */
     private void verifyMeasureUnitChangeAllowed(ProductVariant variant, UUID newMeasureUnitId) {
         var currentMeasureUnitId = variant.getMeasureUnitId();

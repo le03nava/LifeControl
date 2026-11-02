@@ -31,6 +31,7 @@ import com.lifecontrol.api.inventory.model.ProductVariantLocation;
 import com.lifecontrol.api.inventory.model.StoreInventorySettings;
 import com.lifecontrol.api.inventory.repository.InventoryMovementRepository;
 import com.lifecontrol.api.inventory.repository.ProductVariantLocationRepository;
+import com.lifecontrol.api.inventory.repository.StockPositionRepository;
 import com.lifecontrol.api.inventory.repository.StoreInventorySettingsRepository;
 import com.lifecontrol.api.inventory.service.InventoryService;
 import com.lifecontrol.api.inventory.service.InventoryService.SaleChange;
@@ -108,6 +109,15 @@ class InventoryServiceSaleMovementTest {
     @Mock
     private StockLedgerWriter stockLedgerWriter;
 
+    /**
+     * The ledger's position, which is the authority a sale is refused by since T5b of
+     * {@code odd/tasks/inventory-ledger.md}. Every fixture that states a legacy aggregate states the same
+     * number here: the two copies agree in production, and stating one without the other would make the
+     * fixture refuse a sale the case expects to succeed.
+     */
+    @Mock
+    private StockPositionRepository stockPositionRepository;
+
     private InventoryService inventoryService;
 
     private final Map<UUID, ProductVariantLocation> balances = new LinkedHashMap<>();
@@ -166,7 +176,8 @@ class InventoryServiceSaleMovementTest {
                 storeInventorySettingsRepository,
                 companyStoreRepository,
                 new CompanyStoreOwnerResolver(),
-                stockLedgerWriter);
+                stockLedgerWriter,
+                stockPositionRepository);
 
         // The ledger is a collaborator of this suite, not its subject: the legacy arithmetic is. A
         // healthy ledger answers the two questions the reversal path asks it (which ledger row mirrors a
@@ -217,6 +228,21 @@ class InventoryServiceSaleMovementTest {
                         .companyStoreId(STORE_ID)
                         .stock(stock != null ? new BigDecimal(stock) : null)
                         .build()));
+        givenThePosition(VARIANT_ID, stock);
+    }
+
+    /**
+     * States the ledger's position of one key, which is the number a sale is refused by since T5b. It mirrors
+     * the aggregate the same fixture states, because the two copies agree in production; {@code null} means the
+     * legacy column was never set, which counts as no position.
+     *
+     * <p>Lenient because some cases are refused before this read — a stubbing nobody exercised must not fail a
+     * case whose subject is a different gate.</p>
+     */
+    private void givenThePosition(UUID variantId, String quantity) {
+        lenient()
+                .when(stockPositionRepository.findQuantity(STORE_ID, variantId))
+                .thenReturn(quantity == null ? Optional.empty() : Optional.of(new BigDecimal(quantity)));
     }
 
     private void givenSalesLocation(UUID locationId) {
@@ -868,6 +894,7 @@ class InventoryServiceSaleMovementTest {
             when(productVariantLocationRepository.findByProductVariantIdAndStoreLocationIdForUpdate(
                             SECOND_VARIANT_ID, LOCATION_A))
                     .thenReturn(Optional.of(secondBalance));
+            givenThePosition(SECOND_VARIANT_ID, "10.00");
         }
 
         /** Only what a reversal of the second key reads: the store row and the location it credits. */

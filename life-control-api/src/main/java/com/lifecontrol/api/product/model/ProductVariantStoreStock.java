@@ -25,6 +25,16 @@ import java.util.UUID;
  * <p>Shape mirrors {@link com.lifecontrol.api.inventory.model.ProductVariantLocation}: plain UUID
  * foreign keys instead of JPA relations, and no {@code @Version} — concurrency is handled by
  * explicit pessimistic locks at the call sites, as documented there.</p>
+ *
+ * <p><b>{@code stock} is a legacy mirror since T5b, and no read answers with it.</b> ADR-0001 decision 1 makes
+ * {@code stock_movement} the only authority on quantity, and {@code stock_position} — its projection — is what
+ * the store-scoped list, the POS search and the store-stock response now report, and what a sale is refused by.
+ * The column still moves because T5a booked the ledger beside the legacy write and T5c is the slice that stops
+ * it; until then it is the second copy whose agreement with the projection is the evidence those slices exist
+ * for. The <b>only</b> reader left on it deliberately is the measure-unit guard
+ * ({@code ProductVariantService#verifyMeasureUnitChangeAllowed}), which asks whether a stored quantity would
+ * be reinterpreted and moves with the write path. It is also the last remaining user of this table's
+ * pessimistic lock, which stands in for the projection row's row lock.</p>
  */
 @Entity
 @Table(name = "product_variant_store_stock")
