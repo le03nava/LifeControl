@@ -1,9 +1,12 @@
 package com.lifecontrol.api.product.controller;
 
+import static org.hamcrest.Matchers.hasKey;
+import static org.hamcrest.Matchers.not;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -16,6 +19,7 @@ import com.lifecontrol.api.exception.GlobalExceptionHandler;
 import com.lifecontrol.api.product.category.exception.ProductCategoryNotFoundException;
 import com.lifecontrol.api.product.dto.ProductRequest;
 import com.lifecontrol.api.product.dto.ProductResponse;
+import com.lifecontrol.api.product.dto.ProductVariantRequest;
 import com.lifecontrol.api.product.exception.DuplicateProductException;
 import com.lifecontrol.api.product.exception.ProductNotFoundException;
 import com.lifecontrol.api.product.exception.VariantModeMismatchException;
@@ -248,6 +252,9 @@ class ProductControllerTest {
                     .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.status").value(400))
                     .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("variants")))
+                    // The sentence stays, and the field map says WHICH control it is about, so no
+                    // client has to read the prose to find it.
+                    .andExpect(jsonPath("$.errors.variants").value(org.hamcrest.Matchers.containsString("variants")))
                     .andExpect(jsonPath("$.timestamp").exists());
         }
 
@@ -268,7 +275,97 @@ class ProductControllerTest {
                     .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.status").value(400))
                     .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("variantMode")))
-                    .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("SIMPLE")));
+                    .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("SIMPLE")))
+                    .andExpect(jsonPath("$.errors.variantMode")
+                            .value(org.hamcrest.Matchers.containsString("variantMode")));
+        }
+
+        /**
+         * ADR-0006 decision 3 for a variant that travels <b>inside</b> the creation: the list is
+         * {@code @Valid}-cascaded, so a nested violation is refused at the boundary and its key is the
+         * bean-validation path, {@code variants[<index>].<field>} — one row's control, not the list's.
+         *
+         * <p>Before the cascade the request reached the service, which is why the field map had no key
+         * to offer and the screen could only guess the row from the sentence.</p>
+         */
+        @Test
+        @DisplayName("should refuse a nested variant violation at the boundary with a variants[<i>].<field> key")
+        void createProduct_NestedVariantViolation_KeysTheRowAndField() throws Exception {
+            var request = new ProductRequest(
+                    "SKU-001",
+                    "Test Product",
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    Product.VARIANT_MODE_SIMPLE,
+                    List.of(new ProductVariantRequest(null, "Unica", null)));
+
+            mockMvc.perform(post("/api/companies/{companyId}/products", companyId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request)))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.status").value(400))
+                    .andExpect(jsonPath("$.errors").value(hasKey("variants[0].measureUnitId")))
+                    // `variantName` was sent, so the map names only the field that was refused.
+                    .andExpect(jsonPath("$.errors").value(not(hasKey("variants[0].variantName"))))
+                    .andExpect(jsonPath("$.errors['variants[0].measureUnitId']").value("measureUnitId is required"))
+                    // Refused at the boundary: the service never sees a request it would have to refuse.
+                    .andExpect(jsonPath("$.message").value("Validation failed"));
+
+            verifyNoInteractions(productService);
+        }
+
+        /**
+         * A first-level key and a nested one are different keys in the same map: the outer {@code sku}
+         * violation and the inner {@code variants[0].*} one must both survive, so neither attribution can
+         * swallow the other.
+         */
+        @Test
+        @DisplayName("should keep a first-level key and a nested key in the same field map")
+        void createProduct_FirstLevelAndNestedViolations_KeepBothKeys() throws Exception {
+            var request = new ProductRequest(
+                    "",
+                    "Test Product",
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    Product.VARIANT_MODE_SIMPLE,
+                    List.of(new ProductVariantRequest(null, "Unica", null)));
+
+            mockMvc.perform(post("/api/companies/{companyId}/products", companyId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request)))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.errors").value(hasKey("sku")))
+                    .andExpect(jsonPath("$.errors").value(hasKey("variants[0].measureUnitId")));
+        }
+
+        /**
+         * The other ~105 {@code IllegalArgumentException} sites are <b>not</b> field violations, so the
+         * 400 they answer keeps the message-only envelope: the field map is only for an exception that
+         * genuinely names a control, and inventing a key here would put a sentence on a control nobody
+         * typed in.
+         */
+        @Test
+        @DisplayName("should keep the message-only 400 for a bad request that names no field")
+        void createProduct_NonFieldRefusal_KeepsMessageOnlyEnvelope() throws Exception {
+            when(productService.createProduct(eq(companyId), any(ProductRequest.class)))
+                    .thenThrow(new IllegalArgumentException(
+                            "Measure unit is disabled and cannot be assigned to a product variant: PZA"));
+
+            mockMvc.perform(post("/api/companies/{companyId}/products", companyId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(testProductRequest)))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.status").value(400))
+                    .andExpect(jsonPath("$.message")
+                            .value("Measure unit is disabled and cannot be assigned to a product variant: PZA"))
+                    .andExpect(jsonPath("$.errors").doesNotExist())
+                    .andExpect(jsonPath("$.timestamp").exists());
         }
     }
 

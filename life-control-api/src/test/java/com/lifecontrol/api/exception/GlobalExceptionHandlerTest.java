@@ -1,6 +1,7 @@
 package com.lifecontrol.api.exception;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -11,6 +12,7 @@ import com.lifecontrol.api.company.exception.DuplicateCompanyCountryException;
 import com.lifecontrol.api.company.model.Company;
 import com.lifecontrol.api.country.exception.CountryNotFoundException;
 import com.lifecontrol.api.country.exception.DuplicateCountryException;
+import com.lifecontrol.api.product.exception.VariantsRequiredException;
 import com.lifecontrol.api.purchaseorder.exception.InvalidStatusTransitionException;
 import com.lifecontrol.api.usersadmin.identity.IdentityProviderConflictException;
 import com.lifecontrol.api.usersadmin.identity.IdentityProviderConnectionException;
@@ -261,6 +263,16 @@ class GlobalExceptionHandlerTest {
             void throwPlainDataAccess() {
                 throw new DataAccessResourceFailureException("database unavailable");
             }
+
+            @GetMapping("/test/field-violation")
+            void throwFieldViolation() {
+                throw new VariantsRequiredException();
+            }
+
+            @GetMapping("/test/plain-bad-request")
+            void throwPlainBadRequest() {
+                throw new IllegalArgumentException("Invalid argument");
+            }
         }
 
         private MockMvc mockMvc;
@@ -289,6 +301,66 @@ class GlobalExceptionHandlerTest {
             mockMvc.perform(get("/test/data-access"))
                     .andExpect(status().isInternalServerError())
                     .andExpect(jsonPath("$.status").value(500));
+        }
+
+        /**
+         * The two 400 handlers are told apart by <b>type</b>, not by a branch inside the shared one: a
+         * {@code FieldViolationException} subclasses {@link IllegalArgumentException}, so both handlers
+         * match it and Spring resolves the more specific one. This case is the proof that the resolution
+         * happens — with the map — and not that the shared handler grew a condition.
+         */
+        @Test
+        @DisplayName("serves a field violation with the field map")
+        void fieldViolationIsServedWithTheFieldMap() throws Exception {
+            mockMvc.perform(get("/test/field-violation"))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.status").value(400))
+                    .andExpect(jsonPath("$.errors.variants")
+                            .value(org.hamcrest.Matchers.containsString("variants is required")))
+                    // The sentence a human reads is the same one, not a rewritten "Validation failed".
+                    .andExpect(
+                            jsonPath("$.message").value(org.hamcrest.Matchers.containsString("variants is required")));
+        }
+
+        @Test
+        @DisplayName("keeps the message-only envelope for a bare IllegalArgumentException")
+        void plainIllegalArgumentExceptionKeepsTheMessageOnlyEnvelope() throws Exception {
+            mockMvc.perform(get("/test/plain-bad-request"))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.status").value(400))
+                    .andExpect(jsonPath("$.message").value("Invalid argument"))
+                    // No field is named, so no key is invented for the control nobody typed in.
+                    .andExpect(jsonPath("$.errors").doesNotExist());
+        }
+    }
+
+    @Nested
+    @DisplayName("handleFieldViolation")
+    class HandleFieldViolationTests {
+
+        @Test
+        @DisplayName("carries the field and the same sentence in errors")
+        void handleFieldViolation_Returns400WithFieldKeyedMessage() {
+            var exception = new VariantsRequiredException();
+
+            ResponseEntity<GlobalExceptionHandler.ValidationErrorResponse> response =
+                    globalExceptionHandler.handleFieldViolation(exception);
+
+            assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+            assertThat(response.getBody()).isNotNull();
+            assertThat(response.getBody().status()).isEqualTo(400);
+            assertThat(response.getBody().message()).isEqualTo(exception.getMessage());
+            assertThat(response.getBody().errors()).containsOnlyKeys("variants");
+            assertThat(response.getBody().errors().get("variants")).isEqualTo(exception.getMessage());
+            assertThat(response.getBody().timestamp()).isNotNull();
+        }
+
+        @Test
+        @DisplayName("refuses a field violation that names no field")
+        void fieldViolationWithoutFieldIsRejected() {
+            assertThatThrownBy(() -> new FieldViolationException(" ", "message") {})
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("must name the field");
         }
     }
 

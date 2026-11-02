@@ -351,7 +351,9 @@ export class ProductsForm {
    *
    * `variants`, `barCode` and `measureUnitId` are about the family, not about one labeled input of the
    * article, and `variantMode` already has its own control: routing the first three here is what keeps
-   * them out of the generic banner without inventing which row the server meant.
+   * them out of the generic banner without inventing which row the server meant. A refusal that DOES name
+   * a row arrives keyed `variants[N].<field>` (`ProductRequest` cascades {@code @Valid} into the list), and
+   * that key is not one of these: the routing below resolves it to that row's control instead.
    */
   readonly variantBlockError = computed<string | null>(() => {
     const problem = this.variantCountProblem();

@@ -1164,6 +1164,32 @@ describe('ProductsForm', () => {
       warnSpy.mockRestore();
     });
 
+    it('should put a nested variants[N] server error on that row control, not on the list', () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      component.onVariantModeChange('MULTI');
+      component.onAddVariant();
+      fixture.detectChanges();
+
+      fixture.componentRef.setInput('serverErrors', {
+        'variants.1.measureUnitId': 'Elegí la unidad de medida de la variante.',
+      });
+      fixture.detectChanges();
+
+      const rows = component.variantRows();
+      expect(rows.length).toBe(2);
+      // The API pointed at row 1, so row 0 keeps whatever it had and row 1 carries the sentence.
+      expect(rows[0].controls.measureUnitId.errors?.['serverError']).toBeUndefined();
+      expect(rows[1].controls.measureUnitId.errors?.['serverError']).toBe(
+        'Elegí la unidad de medida de la variante.',
+      );
+      // It is a row's control, so the block (which speaks for the whole list) stays silent.
+      expect(component.variantBlockError()).toBeNull();
+      expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining('variants.1.measureUnitId'));
+
+      warnSpy.mockRestore();
+    });
+
     it('should put a variantMode server error on the mode control', () => {
       fixture.componentRef.setInput('serverErrors', {
         variantMode: 'El modo elegido no coincide con las variantes cargadas.',

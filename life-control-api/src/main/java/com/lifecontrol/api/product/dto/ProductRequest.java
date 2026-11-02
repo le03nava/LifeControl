@@ -1,5 +1,6 @@
 package com.lifecontrol.api.product.dto;
 
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
@@ -37,6 +38,12 @@ import java.util.UUID;
  *
  * <p>{@code variants} is <b>appended last</b>, after {@code variantMode}, so the seven- and eight-argument
  * shapes every existing caller uses keep compiling.</p>
+ *
+ * <p>It is <b>{@code @Valid}-cascaded</b> so a violation inside a variant is refused at the boundary, with the
+ * key bean validation gives a list element — {@code variants[<index>].<field>} — instead of travelling to the
+ * service, which could only answer about the list as a whole. That key is the one a client needs to mark the
+ * offending row's control, and it cannot collide with a first-level key such as {@code sku}: the response map
+ * holds both, because their paths differ.</p>
  */
 public record ProductRequest(
         @NotBlank(message = "sku is required") @Size(max = 50, message = "sku must not exceed 50 characters")
@@ -61,7 +68,7 @@ public record ProductRequest(
         @Pattern(regexp = "SIMPLE|MULTI", message = "variantMode must be SIMPLE or MULTI")
         String variantMode,
 
-        List<ProductVariantRequest> variants) {
+        @Valid List<ProductVariantRequest> variants) {
 
     /**
      * The pre-mode shape, kept so every caller that predates {@code variant_mode} keeps compiling and

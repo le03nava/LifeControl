@@ -1524,6 +1524,64 @@ describe('ProductEdit', () => {
       expect(component.generalError()).toBeNull();
     });
 
+    it('should read the field map instead of the wording and show the screen copy', () => {
+      setup();
+      // A field violation served by the API: `errors` names the control, and the sentence is only what a
+      // human reads. The wording below is deliberately not the `… is required` shape the module used to
+      // match on, so a screen that reads the message cannot pass this case.
+      const httpError = createApiError({
+        message: 'The article needs a mode that matches its variants.',
+        errors: { variantMode: 'The article needs a mode that matches its variants.' },
+      });
+      productServiceMock.createProduct = vi.fn().mockReturnValue(throwError(() => httpError));
+
+      component.onSaveProduct(createFormValue());
+
+      expect(component.serverErrors()).toEqual({
+        variantMode:
+          'El modo elegido no coincide con las variantes cargadas: un producto simple tiene exactamente una.',
+      });
+      expect(component.generalError()).toBeNull();
+    });
+
+    it('should translate a nested variants[N] key into the control path of that row', () => {
+      setup();
+      const httpError = createApiError({
+        message: 'Validation failed',
+        errors: { 'variants[1].measureUnitId': 'measureUnitId is required' },
+      });
+      productServiceMock.createProduct = vi.fn().mockReturnValue(throwError(() => httpError));
+
+      component.onSaveProduct(createFormValue());
+
+      // Angular's `get()` speaks dot paths, so the bean-validation key travels translated — and the row is
+      // the one the API pointed at, never the list as a whole. A bean-validation message is not the rule
+      // refusal, so it keeps the API's wording instead of borrowing the rule's screen copy.
+      expect(component.serverErrors()).toEqual({
+        'variants.1.measureUnitId': 'measureUnitId is required',
+      });
+      expect(component.generalError()).toBeNull();
+    });
+
+    it('should still attribute a message-only refusal, the body that carries no field map', () => {
+      setup();
+      const httpError = createApiError({
+        errors: undefined,
+        message:
+          'variants is required: a product is created with at least one variant — SIMPLE means exactly one and MULTI declares its family in the same request (ADR-0006 decision 2)',
+      });
+      productServiceMock.createProduct = vi.fn().mockReturnValue(throwError(() => httpError));
+
+      component.onSaveProduct(createFormValue());
+
+      // The fallback keeps an older API's refusal out of the banner: the wording is still the only field
+      // attribution such a body has.
+      expect(component.serverErrors()).toEqual({
+        variants: 'Un producto se crea con al menos una variante.',
+      });
+      expect(component.generalError()).toBeNull();
+    });
+
     it('should set generalError signal when apiError has no field-level errors but has message', () => {
       setup();
       const httpError = createApiError({
