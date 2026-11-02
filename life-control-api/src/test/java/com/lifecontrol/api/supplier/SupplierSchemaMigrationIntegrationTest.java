@@ -418,7 +418,7 @@ class SupplierSchemaMigrationIntegrationTest extends AbstractPostgresIntegration
     }
 
     private UUID insertCompany(String key, String name, String rfc) {
-        var id = TenantFixtures.insertCompany(jdbcTemplate, key, name, rfc);
+        var id = TenantFixtures.insertCompany(jdbcTemplate, key, name, rfc, TenantFixtures.SEED_CURRENCY);
         insertedCompanies.add(new InsertedRow(id, id));
         return id;
     }

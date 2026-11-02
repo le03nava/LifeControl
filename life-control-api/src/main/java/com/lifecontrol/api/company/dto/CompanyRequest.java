@@ -45,7 +45,21 @@ public record CompanyRequest(
         String emailDomain,
 
         Boolean enabled,
-        AddressRequest address) {
+        AddressRequest address,
+
+        /**
+         * The company's operating currency (ADR-0002 decision 2, D-c), named by ISO 4217 code.
+         *
+         * <p><b>Required, with no default.</b> A missing value is a 400 that names this field, because a
+         * silent {@code MXN} is the failure class the decision refuses: it would write one country's
+         * currency onto another's sales and never say so. The code is resolved against the platform
+         * catalog by {@code CompanyService}, so a code the catalog does not carry is a 404 and a
+         * disabled one is a 400 — neither of them reaches the row.</p>
+         *
+         * <p>Declared last so the components a caller passes positionally keep their order and the new
+         * required field cannot be silently confused with an optional one.</p>
+         */
+        @NotBlank(message = "currency is required") String currency) {
     public CompanyRequest {
         if (enabled == null) {
             enabled = true;

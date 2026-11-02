@@ -65,7 +65,8 @@ class ProductAttributeWritePathIntegrationTest extends AbstractPostgresIntegrati
         // The id comes from the natural key (`TenantFixtures`' derivation) so the cleanup below can state
         // the tenant before the row exists — with a random id the leftover company of a previous method
         // would be unreachable, because `companies` is filtered by its own id.
-        companyId = TenantFixtures.insertCompany(jdbc, COMPANY_KEY, "Attribute write probe company", "PAWP010101AB1");
+        companyId = TenantFixtures.insertCompany(
+                jdbc, COMPANY_KEY, "Attribute write probe company", "PAWP010101AB1", TenantFixtures.SEED_CURRENCY);
         ferreteriaId = insertCategory("Ferretería");
         calzadoId = insertCategory("Calzado para Dama");
     }

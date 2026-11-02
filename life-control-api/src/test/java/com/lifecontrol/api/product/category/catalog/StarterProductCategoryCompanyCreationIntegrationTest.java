@@ -94,7 +94,10 @@ class StarterProductCategoryCompanyCreationIntegrationTest extends AbstractPostg
                 null,
                 null,
                 true,
-                null));
+                null,
+                // Required since V57 and stated here, not defaulted: this case is about the starter
+                // catalog, so it picks the one currency the seed declares.
+                TenantFixtures.SEED_CURRENCY));
         createdCompanyIds.add(created.id());
 
         assertThat(countCategories(created.id()))
@@ -112,6 +115,7 @@ class StarterProductCategoryCompanyCreationIntegrationTest extends AbstractPostg
                         .companyName("Starter Catalog Published Company")
                         .rfc("SCEP010101ABC")
                         .enabled(true)
+                        .currency(TenantFixtures.SEED_CURRENCY)
                         .build());
         createdCompanyIds.add(company.getId());
 

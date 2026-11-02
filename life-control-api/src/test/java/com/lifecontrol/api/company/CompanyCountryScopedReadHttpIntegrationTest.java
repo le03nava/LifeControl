@@ -130,6 +130,9 @@ class CompanyCountryScopedReadHttpIntegrationTest extends AbstractPostgresIntegr
                 .companyKey(companyKey)
                 .companyName(companyName)
                 .rfc(rfc)
+                // Required since V57: a company states its operating currency, and this fixture states the
+                // one the catalog seeds.
+                .currency(TenantFixtures.SEED_CURRENCY)
                 .build();
         useTenant(company.getId());
         em.persist(company);

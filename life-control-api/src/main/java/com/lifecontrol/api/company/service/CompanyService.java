@@ -16,6 +16,10 @@ import com.lifecontrol.api.company.repository.CompanyRepository;
 import com.lifecontrol.api.country.exception.CountryNotFoundException;
 import com.lifecontrol.api.country.model.Country;
 import com.lifecontrol.api.country.repository.CountryRepository;
+import com.lifecontrol.api.currency.exception.CurrencyNotFoundException;
+import com.lifecontrol.api.currency.exception.DisabledCurrencyException;
+import com.lifecontrol.api.currency.model.Currency;
+import com.lifecontrol.api.currency.repository.CurrencyRepository;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -43,6 +47,7 @@ public class CompanyService {
     private final ApplicationEventPublisher eventPublisher;
     private final CurrentUserContext currentUserContext;
     private final CountryRepository countryRepository;
+    private final CurrencyRepository currencyRepository;
     private final TransactionTemplate transactionTemplate;
 
     public CompanyService(
@@ -50,11 +55,13 @@ public class CompanyService {
             ApplicationEventPublisher eventPublisher,
             CurrentUserContext currentUserContext,
             CountryRepository countryRepository,
+            CurrencyRepository currencyRepository,
             TransactionTemplate transactionTemplate) {
         this.companyRepository = companyRepository;
         this.eventPublisher = eventPublisher;
         this.currentUserContext = currentUserContext;
         this.countryRepository = countryRepository;
+        this.currencyRepository = currencyRepository;
         this.transactionTemplate = transactionTemplate;
     }
 
@@ -216,6 +223,7 @@ public class CompanyService {
                 .email(request.email())
                 .emailDomain(normalizeEmailDomain(request.emailDomain()))
                 .enabled(request.enabled() != null ? request.enabled() : true)
+                .currency(resolveCurrency(request.currency()).getCode())
                 .address(buildAddress(request.address()))
                 .build();
 
@@ -253,6 +261,10 @@ public class CompanyService {
         company.setEmail(request.email());
         company.setEmailDomain(normalizeEmailDomain(request.emailDomain()));
         company.setEnabled(request.enabled() != null ? request.enabled() : true);
+        // The request replaces the stored value, the same way it replaces every other field: the record
+        // carries `currency` as required, so ignoring it here would accept a value and silently keep
+        // another — the shape this contract exists to refuse.
+        company.setCurrency(resolveCurrency(request.currency()).getCode());
         // Update address (dual-path: update existing Address entity or create new one)
         if (request.address() != null) {
             if (company.getAddress() != null) {
@@ -297,7 +309,8 @@ public class CompanyService {
                 company.getEnabled(),
                 company.getCreatedAt(),
                 company.getUpdatedAt(),
-                buildAddressResponse(company));
+                buildAddressResponse(company),
+                company.getCurrency());
     }
 
     /**
@@ -309,6 +322,35 @@ public class CompanyService {
      */
     private CompanySelectorResponse toSelectorResponse(Company company) {
         return new CompanySelectorResponse(company.getId(), company.getCompanyKey(), company.getCompanyName());
+    }
+
+    /**
+     * Resolves the currency a company states, against the platform catalog (ADR-0002 decision 2, D-c).
+     *
+     * <p>Two refusals, and both are the point of not having a {@code DEFAULT} on the column: a code the
+     * catalog does not carry is a name that does not exist (404, the shape
+     * {@code MeasureUnitNotFoundException} copies), and a code the catalog carries but has retired is a
+     * stale selection on the caller's side (400, the shape {@code DisabledMeasureUnitException} copies).
+     * Neither can reach the row, so {@code companies.currency} only ever holds a live catalog code.</p>
+     *
+     * <p>The resolution runs inside the transaction the create path already drives, and it reads a table
+     * with no tenant column: a catalog shared by every company, so no scope is involved.</p>
+     */
+    private Currency resolveCurrency(String code) {
+        // The request's own `@NotBlank` refuses this over HTTP, and this statement is what refuses it for
+        // every other caller of the service: a company states its operating currency, and there is
+        // deliberately no value to fall back on (ADR-0002 decision 2, D-c). Without it the omission would
+        // surface as a null-id lookup, which names nothing a caller could act on.
+        if (code == null || code.isBlank()) {
+            throw new IllegalArgumentException(
+                    "currency is required: a company states its operating currency and there is deliberately "
+                            + "no default (ADR-0002 decision 2)");
+        }
+        var currency = currencyRepository.findById(code).orElseThrow(() -> new CurrencyNotFoundException(code));
+        if (!Boolean.TRUE.equals(currency.getEnabled())) {
+            throw new DisabledCurrencyException(currency);
+        }
+        return currency;
     }
 
     /**

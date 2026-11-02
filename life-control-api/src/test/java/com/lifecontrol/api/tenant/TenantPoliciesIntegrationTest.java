@@ -3,6 +3,7 @@ package com.lifecontrol.api.tenant;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
+import com.lifecontrol.api.support.TenantFixtures;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
@@ -257,10 +258,11 @@ class TenantPoliciesIntegrationTest extends AbstractPostgresIntegrationTest {
                         + "the scope — which is what makes the create path able to state a tenant at all")
                 .containsExactly(companyA.toString());
 
-        var refusal = refusalInSavepoint(connection, """
-                INSERT INTO companies (id, company_key, company_name, rfc)
-                VALUES ('%s', '%s', 'Root Of Another Tenant', '%s')
-                """.formatted(companyB, keyOf("ROOT-C"), rfcOf()));
+        var refusal = refusalInSavepoint(
+                connection, """
+                INSERT INTO companies (id, company_key, company_name, rfc, currency)
+                VALUES ('%s', '%s', 'Root Of Another Tenant', '%s', '%s')
+                """.formatted(companyB, keyOf("ROOT-C"), rfcOf(), TenantFixtures.SEED_CURRENCY));
 
         assertThat(refusal.getSQLState())
                 .as("a row whose id is another tenant is refused: the same predicate is USING and WITH "
@@ -522,11 +524,14 @@ class TenantPoliciesIntegrationTest extends AbstractPostgresIntegrationTest {
         var id = UUID.randomUUID();
         exec(
                 connection,
-                "INSERT INTO companies (id, company_key, company_name, rfc) VALUES (?::uuid, ?, ?, ?)",
+                // `currency` is required since V57; this suite is about the policies, so it states the code
+                // the catalog seeds.
+                "INSERT INTO companies (id, company_key, company_name, rfc, currency) VALUES (?::uuid, ?, ?, ?, ?)",
                 id,
                 keyOf(tag),
                 "Company " + tag,
-                rfcOf());
+                rfcOf(),
+                TenantFixtures.SEED_CURRENCY);
         return id;
     }
 

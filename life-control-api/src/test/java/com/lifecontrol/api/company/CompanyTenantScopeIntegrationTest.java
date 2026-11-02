@@ -140,11 +140,14 @@ class CompanyTenantScopeIntegrationTest extends AbstractPostgresIntegrationTest 
         exec(connection, "SELECT set_tenant_scope(?::uuid)", COMPANY_A);
         exec(
                 connection,
-                "INSERT INTO companies (id, company_key, company_name, rfc) VALUES (?::uuid, ?, ?, ?)",
+                "INSERT INTO companies (id, company_key, company_name, rfc, currency) VALUES (?::uuid, ?, ?, ?, ?)",
                 COMPANY_A,
                 "TENANT-SCOPE-A",
                 "Tenant Scope A",
-                "TSCO010101AB");
+                "TSCO010101AB",
+                // Required since V57, and stated here so this insert measures the policy's refusal and not a
+                // not-null violation of a column the case is not about.
+                TenantFixtures.SEED_CURRENCY);
 
         assertThat(ids(connection, "SELECT id FROM companies WHERE id = ?::uuid", COMPANY_A))
                 .as("the creating tenant reads the row it just wrote: its own id is the row's tenant, "
@@ -161,8 +164,8 @@ class CompanyTenantScopeIntegrationTest extends AbstractPostgresIntegrationTest 
         // refused by the same predicate as WITH CHECK.
         var refusal = refusalInSavepoint(
                 connection,
-                "INSERT INTO companies (id, company_key, company_name, rfc) VALUES ('%s', 'TENANT-SCOPE-C', 'Tenant Scope C', 'TSCO010101CC')"
-                        .formatted(COMPANY_C));
+                "INSERT INTO companies (id, company_key, company_name, rfc, currency) VALUES ('%s', 'TENANT-SCOPE-C', 'Tenant Scope C', 'TSCO010101CC', '%s')"
+                        .formatted(COMPANY_C, TenantFixtures.SEED_CURRENCY));
 
         assertThat(refusal.getSQLState())
                 .as("SQLSTATE 42501: a cross-tenant insert is refused by the policy and not merely hidden")
@@ -192,7 +195,8 @@ class CompanyTenantScopeIntegrationTest extends AbstractPostgresIntegrationTest 
                 null,
                 null,
                 true,
-                null));
+                null,
+                "MXN"));
         createdCompanyId = created.id();
 
         assertThat(scopeAtTheTransaction.get())
