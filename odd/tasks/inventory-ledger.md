@@ -315,3 +315,35 @@ Why dual-writing is the right shape rather than a shortcut: the ledger and the l
 fact for one transition, and the slice that introduces the second copy is the only one where a defect can
 be *seen* rather than inferred — the test pins that after a sale the two agree. Deleting the legacy write in
 the same slice that introduces the ledger's would remove the only witness.
+
+**2026-11-02 — T5a: the dual-write landed, and it found three things worth more than the code.** The four
+writers book the ledger beside the untouched legacy update through a `StockLedgerWriter` that holds no
+arithmetic; the V61 trigger and functions own projections, consumption and valuation. Consent to change four
+fixture files was given (option A) for one reason: a fixture that writes `product_variant_store_stock.stock`
+or `product_variant_locations.stock` by hand authors the aggregate the ADR retires, so it now seeds a state
+the ledger never observed and I8 refuses the sale. The fixtures move to seeding **through**
+`inventoryService.applyReceipt`, which is more faithful than what they did, and every assertion and stock
+constant stays.
+
+1. **`source_id` is a mirror, and the mirror is temporary.** The writer identifies every ledger row by
+   `source_type = 'INVENTORY_MOVEMENT'` and `source_id = ` the id of the legacy `inventory_movements` row it
+   mirrors — the same shape V62 used for the backfill. That is honest for the transition and **dies with
+   T6**, which drops `inventory_movements`: the ledger's source would dangle and document provenance would be
+   gone. Worse, the document line cannot be the source today, measured three ways: a sale line that spans two
+   locations needs two movements under one line id; `SalesOrderService` raises a quantity by selling the
+   difference under the **same** `sales_order_items` row (`:989`, `:991-992`), so a second `SALE` under that
+   line id is refused by `uq_movement_source`; and `GoodsReceiptService:269` passes the `goods_receipts` id
+   once per line. So the ledger needs a key per **transition**, not per line, and `uq_movement_source` needs
+   `store_location_id` beside it. That is T5c, and it must land before the drops.
+2. **After this slice the position is the authority for availability, and one class of tree changes
+   behaviour.** In a tree where `product_variant_store_stock.stock` exceeds the sum of its locations, V62
+   reports the pair and follows the locations; from T5a on, a sale is gated by `stock_position`, so such a
+   store will refuse a sale the legacy engine would have allowed. That is the ADR's decision 1 arriving: one
+   authority, and the number the operator reads changes. V62's report is what tells the operator which pairs
+   those are, which is why it was a report and not a silent choice.
+3. **Two mechanisms that only looked equivalent are not.** The suite cleanup of an append-only table cannot
+   use `ALTER TABLE … DISABLE TRIGGER USER`: it is a catalog change on a table the whole container shares, so
+   a sibling suite's `UPDATE` would pass the append-only rule for as long as it is off. It uses
+   `SET LOCAL session_replication_role = replica` on the container-superuser connection, which is
+   session-scoped and invisible to anyone else, and the helper is itself tested — book, clean, assert empty —
+   rather than trusted.
