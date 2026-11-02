@@ -24,6 +24,21 @@ public class StoreZone extends Auditable {
     @JoinColumn(name = "store_area_id", nullable = false)
     private StoreArea storeArea;
 
+    /**
+     * The store this zone belongs to. <b>The database derives and owns this column</b>: {@code V59}'s
+     * {@code trg_store_zones_derive_store} trigger fills it from the area's stored store when a row arrives
+     * without one, which is why the mapping is {@code insertable = false, updatable = false} and why the
+     * application never writes it.
+     *
+     * <p>It exists because ADR-0001's {@code stock_movement} holds
+     * {@code (company_store_id, store_location_id)} as one composite foreign key, and that pair has no
+     * target to reference until every level of the tree stores the store it belongs to. The refusal of a
+     * zone that names another store is {@code fk_store_zones_area_same_store}, not this class.</p>
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "company_store_id", nullable = false, insertable = false, updatable = false)
+    private CompanyStore companyStore;
+
     @Column(name = "zone_code", nullable = false, length = 10)
     private String zoneCode;
 
@@ -53,6 +68,10 @@ public class StoreZone extends Auditable {
 
     public StoreArea getStoreArea() {
         return storeArea;
+    }
+
+    public CompanyStore getCompanyStore() {
+        return companyStore;
     }
 
     public String getZoneCode() {
