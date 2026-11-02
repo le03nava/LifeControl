@@ -19,7 +19,9 @@ import org.springframework.stereotype.Repository;
  *
  * <p>Every store-scoped concern moved to {@code ProductVariantStoreStockRepository}: this interface
  * no longer carries {@code company_store_id}, so the derived finders that filtered by store were
- * replaced by explicit {@code @Query} joins onto {@code product_variant_store_stock}. The
+ * replaced by explicit {@code @Query} joins onto {@code product_variant_store_stock} (the position) and
+ * {@code variant_listing} (the price), each attached independently so a variant that has one and not the
+ * other is still a row of the answer (ADR-0006 decision 6). The
  * pessimistic lock on a variant also moved, because the serialization point for stock and pricing is
  * now the per-store row ({@code ProductVariantStoreStockRepository#findByProductVariantIdAndCompanyStoreIdForUpdate}).</p>
  */
@@ -161,19 +163,47 @@ public interface ProductVariantRepository extends JpaRepository<ProductVariant, 
      * to have checked: the store in the query string is only authorizing, and the rows the store join
      * reaches are rows of whatever tenant wrote them. The company passed here is the one the store
      * itself belongs to, so a store of another tenant cannot be used to read this product's variants.</p>
+     *
+     * <p><b>Two independent {@code LEFT JOIN}s, and that is the whole of ADR-0006 migration step 5</b>
+     * (<code>docs/adr/0006-catalog-identity.md:153-156</code>). Until this slice both reads
+     * {@code INNER JOIN}ed {@code product_variant_store_stock}, one row holding the price <em>and</em> the
+     * position, and the two states decision 6's table separates were lost in different ways: a
+     * <b>price with no position</b> had no store row at all and was therefore invisible, and a
+     * <b>position with no price</b> was returned but with nothing in the projection to tell it apart from a
+     * row nobody had priced yet. The join now attaches the listing (the price, decision 5) and the store row
+     * (the position, which stays here until ADR-0001's ledger) separately, so all four rows of that table are
+     * representable: neither join finding a row is the exclusion below (the store carries the variant with
+     * no unit at all), listing with no position is a priced row with a {@code null} {@code stock}, position
+     * with no listing is the <b>stock without price</b> row — returned, and now <b>flagged</b> — and both is
+     * the sellable one. Measured on this slice's own suite: with the pre-slice query the listing-only
+     * variant was absent from both the page and the search, and the stock-only one came back with
+     * {@code listed = null}.</p>
+     *
+     * <p>{@code COALESCE} and not {@code pvss.companyStoreId}: a listing-only row still names the store —
+     * its listing does — and a response that reported {@code companyStoreId = null} for a store-scoped
+     * read would be the one field a client could not tell apart from "not scoped to a store".</p>
+     *
+     * <p>{@code enabled} is <b>not</b> read from the listing: {@code variant_listing.enabled} has no writer
+     * in the tree yet, and a predicate over a column nothing can set would be a rule no test could
+     * exercise. The flag this projection carries is {@code case when l.id is null then false else true},
+     * which is "is there a listing here" — the question decision 6 asks.</p>
      */
     @Query("""
             SELECT new com.lifecontrol.api.product.dto.ProductVariantResponse(
-                pv.id, pv.productId, pvss.companyStoreId, pv.barCode, p.sku,
-                pv.variantName, pvss.listPrice, pvss.costPrice, pvss.stock, pv.enabled,
-                pv.createdAt, pv.updatedAt, pv.measureUnitId, pv.attributes)
-            FROM ProductVariantStoreStock pvss
-            JOIN ProductVariant pv ON pv.id = pvss.productVariantId
+                pv.id, pv.productId, COALESCE(pvss.companyStoreId, l.companyStoreId), pv.barCode, p.sku,
+                pv.variantName, l.listPrice, pvss.costPrice, pvss.stock, pv.enabled,
+                pv.createdAt, pv.updatedAt, pv.measureUnitId, pv.attributes,
+                CASE WHEN l.id IS NULL THEN FALSE ELSE TRUE END)
+            FROM ProductVariant pv
             JOIN Product p ON p.id = pv.productId
+            LEFT JOIN ProductVariantStoreStock pvss
+                   ON pvss.productVariantId = pv.id AND pvss.companyStoreId = :storeId
+            LEFT JOIN VariantListing l
+                   ON l.productVariantId = pv.id AND l.companyStoreId = :storeId
             WHERE pv.productId = :productId
-              AND pvss.companyStoreId = :storeId
               AND p.company.id = :companyId
               AND pv.enabled = true
+              AND (pvss.id IS NOT NULL OR l.id IS NOT NULL)
             ORDER BY pv.createdAt DESC
             """)
     Page<ProductVariantResponse> findStoreScopedByProductIdAndStoreId(
@@ -191,24 +221,36 @@ public interface ProductVariantRepository extends JpaRepository<ProductVariant, 
      * grant answers who may read the store, never which tenant the rows joined onto it belong to, and
      * the store join reaches whichever variant a per-store row names. A post-filter would be the same
      * rule written where the leak already happened, so it is written here, in the query.</p>
+     *
+     * <p>The two independent {@code LEFT JOIN}s are the same change as the list's and the same
+     * requirement (ADR-0006 migration step 5, <code>docs/adr/0006-catalog-identity.md:153-156</code>): the
+     * search is where the POS finds an article, so the two states have to be readable here too — a variant
+     * that holds stock and no listing <b>returned and flagged</b> rather than indistinguishable, and a
+     * listing with no position returned at all instead of dropped by the {@code INNER JOIN}. The structure,
+     * the {@code COALESCE} on the store and the reason {@code enabled} is not consulted are documented on
+     * {@link #findStoreScopedByProductIdAndStoreId(UUID, UUID, UUID, Pageable)}.</p>
      */
     @Query("""
             SELECT new com.lifecontrol.api.product.dto.ProductVariantSearchResponse(
-                pv.id, pv.productId, pvss.companyStoreId, pv.barCode, p.sku,
-                pv.variantName, pvss.listPrice, pvss.costPrice, pvss.stock, pv.enabled,
-                p.name, p.sku, pv.createdAt, pv.updatedAt)
-            FROM ProductVariantStoreStock pvss
-            JOIN ProductVariant pv ON pv.id = pvss.productVariantId
+                pv.id, pv.productId, COALESCE(pvss.companyStoreId, l.companyStoreId), pv.barCode, p.sku,
+                pv.variantName, l.listPrice, pvss.costPrice, pvss.stock, pv.enabled,
+                p.name, p.sku, pv.createdAt, pv.updatedAt,
+                CASE WHEN l.id IS NULL THEN FALSE ELSE TRUE END)
+            FROM ProductVariant pv
             JOIN Product p ON p.id = pv.productId
+            LEFT JOIN ProductVariantStoreStock pvss
+                   ON pvss.productVariantId = pv.id AND pvss.companyStoreId = :storeId
+            LEFT JOIN VariantListing l
+                   ON l.productVariantId = pv.id AND l.companyStoreId = :storeId
             WHERE (pv.barCode = :query
                OR p.sku = :query
                OR LOWER(pv.variantName) LIKE LOWER(CONCAT('%', :query, '%'))
                OR LOWER(p.name) LIKE LOWER(CONCAT('%', :query, '%'))
                OR LOWER(COALESCE(pv.barCode, '')) LIKE LOWER(CONCAT('%', :query, '%'))
                OR LOWER(COALESCE(p.sku, '')) LIKE LOWER(CONCAT('%', :query, '%')))
-            AND pvss.companyStoreId = :storeId
             AND p.company.id = :companyId
             AND pv.enabled = true
+            AND (pvss.id IS NOT NULL OR l.id IS NOT NULL)
             ORDER BY pv.variantName
             """)
     Page<ProductVariantSearchResponse> searchByQuery(

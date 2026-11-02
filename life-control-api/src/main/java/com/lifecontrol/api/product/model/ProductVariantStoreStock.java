@@ -6,17 +6,21 @@ import java.math.BigDecimal;
 import java.util.UUID;
 
 /**
- * Stock and pricing of one product variant in one company store.
+ * Stock and cost of one product variant in one company store: the <b>position</b>.
  *
  * <p>Exactly one row per {@code (product_variant_id, company_store_id)} pair, enforced by
  * {@code UNIQUE(product_variant_id, company_store_id)}. This is the store-scoped half of the
  * variant model: {@link ProductVariant} holds the global sellable definition (product, variant
- * name, barcode) while this row holds what differs per store — the sellable {@code stock} and the
- * prices.</p>
+ * name, barcode) while this row holds what differs per store — the units held there and their cost.</p>
  *
- * <p>The split exists because the previous single-table shape could not represent the same
- * physical variant in two stores: the barcode of a given product in a given size is identical in
- * every branch, yet it sat on a store-scoped row under a global unique index.</p>
+ * <p><b>{@code listPrice} is a leftover, and nothing writes it any more.</b> ADR-0006 decision 5 made the
+ * price a {@link VariantListing} — {@code (variant, store)} with a price, a currency and no stock and no
+ * cost — because price and quantity have different owners: a receipt may create stock in a store that
+ * never priced the article (decision 6), and that state has to be representable. Since the price write
+ * moved, {@code list_price} here holds only what {@code V58} copied out of it, and the column survives
+ * because dropping it waits for ADR-0001's ledger: it is the same slice that turns {@code stock} into
+ * movements ({@code docs/adr/0006-catalog-identity.md:150-152}), and this table drops with it. A reader
+ * that needs a price reads the listing; a reader that reads this column is reading history.</p>
  *
  * <p>Shape mirrors {@link com.lifecontrol.api.inventory.model.ProductVariantLocation}: plain UUID
  * foreign keys instead of JPA relations, and no {@code @Version} — concurrency is handled by

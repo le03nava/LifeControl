@@ -38,6 +38,22 @@ import java.util.UUID;
  * that applies to the product's category, with the values it validated. It is <b>appended last</b> for
  * the same reason {@code measureUnitId} was — the field set is additive, so a client that predates the
  * attribute catalog keeps reading what it knew and simply ignores the new field.</p>
+ *
+ * <p><b>{@code listed} and why the name is that one (ADR-0006 decision 6).</b> Since
+ * {@code variant_listing} exists, a store-scoped row is in one of four states and a client cannot tell
+ * them apart from the values alone:
+ * {@code stock = null} means "no position" for one store and "the read is not narrowed to a store" for
+ * another, and {@code listPrice = null} means "unpriced" for one row and "not sold here" for another.
+ * The flag answers the question decision 6 asks — <em>is this variant sellable in this store</em> — and it
+ * is named after the fact it reports (<b>listed</b>: this store carries it and states a price) rather than
+ * after the table it is read from, so a client reading {@code listed: false, stock: 4} renders "stock
+ * without price" instead of the "listed, nothing to sell" or "not carried here" the other rows mean. {@code true} with {@code stock = null} is
+ * "listed, nothing to sell", and the only sellable row has both.</p>
+ *
+ * <p>{@code listed} is <b>appended last</b> like every field before it, and it is {@code null} exactly when
+ * the read is not narrowed to a store — the same rule as {@code companyStoreId}, {@code listPrice} and
+ * {@code stock}. A client that only reads {@code listPrice} keeps working: it now carries the listing's
+ * price, which is the same number the backfill copied.</p>
  */
 public record ProductVariantResponse(
         UUID id,
@@ -53,7 +69,45 @@ public record ProductVariantResponse(
         LocalDateTime createdAt,
         LocalDateTime updatedAt,
         UUID measureUnitId,
-        Map<String, Object> attributes) {
+        Map<String, Object> attributes,
+        Boolean listed) {
+
+    /**
+     * The pre-listing shape: a caller that does not know the four states states {@code listed = null},
+     * which is exactly what an unscoped read means.
+     */
+    public ProductVariantResponse(
+            UUID id,
+            UUID productId,
+            UUID companyStoreId,
+            String barCode,
+            String sku,
+            String variantName,
+            BigDecimal listPrice,
+            BigDecimal costPrice,
+            BigDecimal stock,
+            Boolean enabled,
+            LocalDateTime createdAt,
+            LocalDateTime updatedAt,
+            UUID measureUnitId,
+            Map<String, Object> attributes) {
+        this(
+                id,
+                productId,
+                companyStoreId,
+                barCode,
+                sku,
+                variantName,
+                listPrice,
+                costPrice,
+                stock,
+                enabled,
+                createdAt,
+                updatedAt,
+                measureUnitId,
+                attributes,
+                null);
+    }
 
     /**
      * The pre-attributes shape, kept so a caller that predates the variant attribute catalog keeps
@@ -87,6 +141,7 @@ public record ProductVariantResponse(
                 createdAt,
                 updatedAt,
                 measureUnitId,
+                null,
                 null);
     }
 }
