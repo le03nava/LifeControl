@@ -60,9 +60,8 @@ transaction and never states the company it was given\n #724»
   private `seed(UUID)` unchanged. Tests: `StarterProductCategoryApplierIntegrationTest` calls the applier with
   nothing stated on the thread (the `TenantFixtures.inTenant` wrapper is gone and the fixture asserts the thread
   is unscoped), and `StarterProductCategoryCompanyCreationIntegrationTest` stops stating a scope around the
-  published event, which its own comment had recorded as a gap. Route: inline. Commit: the one carrying the two
-  source files plus their tests.
-- **T2** (S1) — this record. Route: inline. Commit: the one that adds this file.
+  published event, which its own comment had recorded as a gap. Route: inline. Commit: `52fa72e7`.
+- **T2** (S1) — this record. Route: inline, docs-only. Commit: the one that carries this record.
 
 Out of scope, recorded so the next session does not re-open it: `ProductService.createProduct` and the other
 services whose caller still has to state the scope (T6b-2's note) — they are `@Transactional` request paths
@@ -99,3 +98,11 @@ behind `TenantScopeFilter`, not a boundary a system hook owns, and nothing in th
   SUCCESSFUL in 4m 10s`, and the result XMLs report **4 256 tests in 1 023 classes, 0 failed, 0 errors, 0
   skipped**. Reported, not inferred: the count comes from `build/test-results/test/TEST-*.xml`, not from the
   console tail.
+- **L7** — Evidence, delivery: PR **#730** (`fix/starter-catalog-applier-tenant-scope` → `main`, `Closes #724`,
+  `type:bug`). Checks on the branch's first head, `b0f253f0`: `PR Label Guard` **pass** (`A linked, approved
+  issue` 4s, `Exactly one type:* label` 20s) and `API CI` **pass** (`Static analysis` 1m0s, `Test` 4m34s).
+- **L8** — the branch was rebased onto `origin/main` (`2b5a0936`) after 21 commits landed on `main` since it was
+  cut, which renumbered the commits this record names: the source commit is now `52fa72e7`, unchanged in
+  content, and this record travels in the docs-only commit that carries it. `L7` keeps the SHA it measured,
+  because a measurement is not rewritten after the fact; the rebased head is checked again by the same pull
+  request, and that result lives in its own check list rather than in a claim written here.
