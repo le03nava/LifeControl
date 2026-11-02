@@ -160,3 +160,73 @@ it is not this slice's to make silently.
   shape as a default that hides a feature being off. The comparison is an integration test (rebuild into a
   scratch table inside a rolled-back transaction, compare, fail loudly) plus the rebuild function any
   operator can call; if a scheduler ever exists, it calls the same function and the test keeps proving it.
+
+**2026-11-02 — a third decision, taken before T3 starts: the ledger's writers are SQL functions.** The ADR
+says what must be true — allocations recorded, projections derived, a rebuild — and not where that lives.
+It lives in the database, and the reason is the one decision 3 exists for: under `FIFO` the consumption is
+the oldest inbound rows of a `(company_id, company_store_id, product_variant_id)`, which is a set
+operation over rows the ledger already holds. A Java implementation would read the ledger back into memory
+and reproduce exactly the remainder arithmetic `SalesOrderService` performs today, which is the structure
+the ADR removes. The Java module calls these functions from T5 on, and gains the entity mapping then;
+T3 proves the engine through the functions themselves.
+
+The consequence that has to be stated with it: the functions run as the calling role, so they meet ADR-0005's
+policies. A transaction must already carry the tenant scope, and a backfill that writes across tenants —
+T4's — needs the `NO FORCE` window `V58:122-123` establishes. `SECURITY DEFINER` would dodge both and
+bypass the policy the previous slice armed, so it is refused rather than used.
+
+**2026-11-02 — T3 landed (`V61`), delegated and verified by the parent.** The ledger's engine, in SQL: the
+direction in one function, the pool one inbound row still holds, the valuation as **one expression**, the
+`AFTER INSERT` projection trigger, the allocation writer (`FIFO` oldest-first and `AVERAGE` at the moving
+average in force), the full replay, the rebuild, and the two checks — `verify_stock_projections` for I2 over
+all three projections and `unallocated_stock_movements` for I6.
+
+RED first: the new suite failed **11/11**, in four distinct shapes — six `BadSqlGrammarException` on the
+missing writer, one on the missing rebuild, two `EmptyResultDataAccessException` reading projections that no
+trigger wrote, two `AssertionError` where a guard should have raised. Worth recording what happened next,
+because it is what the suite is for: **the same suite then caught three real defects in the first draft** —
+an ambiguous `projection` reference in the check, `AVERAGE` applying `20.0000` instead of `15`, and a
+reversal restoring `280.0000` instead of `140` — and a fourth defect in the suite itself (an assertion that
+compared only quantities, so a valuation row with the right quantity passed). GREEN: the slice's 11 cases,
+then **186 cases across 45 classes** for `inventory`+`tenant`, then the module.
+
+Decisions taken here, all recorded rather than left implicit:
+1. **The valuation is one expression, not a per-row delta.** σ(inbound qty × cost) − σ(allocations of
+   outbounds that have no reversal) − σ(receipt reversals at the reversed row's cost). The trigger, the
+   rebuild and the check read the same function, so the fast path and the reference cannot disagree — which
+   is stronger than the ADR asked for, since it admitted an `AVERAGE` last-decimal gap. The cost is stated in
+   the file: a refresh re-reads that key's own history.
+2. **The moving average in force is a quotient, not the stored column.** Between an outbound insert and its
+   allocations the projection's `quantity` has already dropped while `total_value` has not, so the stored
+   `avg_unit_cost` is transient — measured as cost `20.0000` instead of `15` in the draft. The writer divides
+   `total_value` by `quantity + this movement's quantity`.
+3. **I8 lives in the projection trigger, at store grain, `>= 0` for every store**, because no store setting
+   allows a negative balance: `store_inventory_settings` (`V11:19-26`) has two locations, a version and two
+   timestamps, and no allow-negative column exists anywhere in `db/migration/**`. The guard reads the position
+   `FOR UPDATE`, and the lock is the point as much as the check: without it two concurrent deductions read the
+   same balance and commit a negative one. The grain is the store — I8's own grain, and what
+   `InventoryService.applySaleDeduction` compares against zero today — so a location may hold a deficit the
+   store covers.
+4. **A reversal must be an exact inverse**: same store and variant, same quantity, and no reversal of a
+   reversal. Neither document states it, and it is the decision most likely to be argued: freeing is a read
+   rule over append-only rows, which is exact only for a full reversal, and a partial one would reintroduce
+   the remainder arithmetic decision 3 removes. A partial correction stays available as
+   `ADJUSTMENT_IN`/`ADJUSTMENT_OUT`.
+5. **`stock_valuation.currency` is `companies.currency`** — the operating currency ADR-0002 decision 2 makes
+   the only one a document can be in — so it is never NULL even when nothing is on hand.
+6. **Two indexes land here**, and their reason is a measurement rather than a guess:
+   `idx_movement_store_variant (company_store_id, product_variant_id, occurred_at)` and
+   `idx_allocation_in_movement (in_movement_id)`, because `uq_allocation_pair` is keyed out-first and its
+   prefix answers the opposite question, so every pool lookup would otherwise scan the whole allocation table.
+7. **The functions are `SECURITY INVOKER` and the self-check refuses a `SECURITY DEFINER` one**: the ledger's
+   writers meet ADR-0005's policies, as the decision above requires, and a definer function would bypass the
+   policy the schema slice armed.
+
+Three gaps this slice leaves, named rather than faked: the allocation writer's own pool refusal has **no
+test** because it is unreachable through the public interface while the ledger is consistent (the position
+gate fires first, and reaching it needs a hand-written allocation); the `FOR UPDATE` serialization cannot be
+proven in a single-session integration test, so it is a stated argument; and the O(key-history) valuation
+refresh has no benchmark in this module, so its cost is a design argument to watch before T5 puts it on the
+sale path. One tidiness item is also recorded: T2's suite cleanup predates the trigger and therefore leaves
+the projection rows it creates. No current assertion is affected; a company-wide I2 check on that fixture key
+would see them.
