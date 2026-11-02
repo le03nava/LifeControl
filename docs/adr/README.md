@@ -36,7 +36,7 @@ that settled the open questions.
 | [0001](0001-inventory-ledger-single-source.md) | Inventory is a single append-only ledger; balances are disposable projections. Costing and valuation are part of it. | accepted | 0005, 0006 | 0002 |
 | [0002](0002-money-first-class.md) | Money is a first-class value: currency, breakdown, payment rows, tax. | accepted | 0001, 0003, 0004, 0005, 0006 | — |
 | [0003](0003-document-identity-per-tenant.md) | Document numbers come from a per-tenant sequence, not from `max + 1` over a global `UNIQUE`. | accepted | 0005 | 0002 |
-| [0004](0004-typed-state-machine.md) | Document state is a typed machine with a history, not a string in a lookup table. | proposed | 0003, 0005 | 0002 |
+| [0004](0004-typed-state-machine.md) | Document state is a typed machine with a history, not a string in a lookup table. | accepted | 0003, 0005 | 0002 |
 | [0005](0005-tenant-isolation-rls.md) | Tenant isolation is enforced by Row-Level Security, not by 150 call-site checks. | accepted | — | 0001, 0002, 0003, 0004 |
 | [0006](0006-catalog-identity.md) | Catalog identity: `variant_mode` on the product, a required measure unit, a barcode per mode, and `variant_listing` split from stock. | accepted | 0005 | 0001 |
 
@@ -56,8 +56,9 @@ therefore the agreed plan for what gets implemented first, not a suggestion: a s
 different order has to say why, because the reason the order exists is that doing it in the other
 direction writes the same work twice. Accepting the order accepts no ADR: the status column above is the
 only authority on which ones have been accepted, and each ADR still needs its own decision. ADR-0005 was
-accepted on 2026-10-29, ADR-0002 on 2026-10-30, ADR-0006 on 2026-11-01, and ADR-0001 and ADR-0003 on
-2026-11-02; `0004` is the one still `proposed`.
+accepted on 2026-10-29, ADR-0002 on 2026-10-30, ADR-0006 on 2026-11-01, and ADR-0001, ADR-0003 and
+ADR-0004 on 2026-11-02. **All six are accepted**, and accepting the order accepted none of them — which is
+why each needed its own decision, and why the count in this paragraph has now been wrong six times.
 
 One edge is missing from the table above and is stated here instead, because the column mirrors each
 ADR's own `Depends on` line: ADR-0006's `## Schema` references `currency (code)` and `tax_rate (id)`,
@@ -67,6 +68,14 @@ migration in the tree creates that table, ADR-0002's T4 still owes it, and `V58`
 took instead of inventing one (`V58__variant_listing.sql:26-31`) — so adding `variant_listing.tax_rate_id`
 is an `ALTER` in the slice that creates `tax_rate`. The `variant_mode`, measure-unit and barcode slices
 carry no such constraint.
+
+One expectation is recorded here because it was written down as settled and is not: ADR-0001's T5d was
+closed as blocked on ADR-0004, on the reading that the state machine's per-transition identity would
+replace the ledger's `source_id` mirror. ADR-0004 supplies no such identity and cannot — a quantity edit
+books a second movement under the same item id with no state move at all, which is its `## What this ADR
+does not unblock` section. **Accepting 0004 releases no ledger debt.** T5d waits on a decision about the
+ledger's per-write identity, whose three shapes are recorded in `odd/tasks/inventory-ledger.md`; none of
+them is a state machine.
 
 1. **ADR-0005** (tenant isolation) first, because it touches every table and every policy, and doing
    it after the new tables exist means writing the policies twice.

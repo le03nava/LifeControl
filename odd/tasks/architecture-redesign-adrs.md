@@ -4,11 +4,11 @@
 **Branch**: `docs/architecture-redesign-adrs`, then `docs/adr-0005-accepted` for the acceptance
 **Worktree**: `~/workspace/LifeControl-worktrees/docs-architecture-redesign-adrs`, then
 `~/workspace/LifeControl-worktrees/docs-adr-0005-accepted` for the acceptance
-**Status**: implemented — the six ADRs, their index and this record are the set's content. The
-redesign ADR-0001, ADR-0002 and ADR-0003 describe is not implemented. ADR-0005 is `accepted`
-(2026-10-29), ADR-0002 (2026-10-30), ADR-0006 (2026-11-01), and ADR-0001 and ADR-0003 (2026-11-02);
-ADR-0004 is the one still `proposed` and needs its own decision. This record makes no delivery claim.
-Nothing is deferred.
+**Status**: implemented — the six ADRs, their index and this record are the set's content. The redesign
+ADR-0002, ADR-0003 and ADR-0004 describe is not implemented, and ADR-0001's is partly (T1–T5c are in
+`main`, T5d is open on the ledger's per-write identity, which no ADR supplies). **All six are accepted**:
+ADR-0005 (2026-10-29), ADR-0002 (2026-10-30), ADR-0006 (2026-11-01), and ADR-0001, ADR-0003 and ADR-0004
+(2026-11-02). This record makes no delivery claim. Nothing is deferred.
 **Created**: 2026-10-29
 **Risk**: none — documentation only. No code, no schema, no runtime surface.
 
@@ -235,3 +235,52 @@ accepting an ADR is not implementing it. The earlier log entry above ends by say
 `proposed` and that the decision is the maintainer's; that was true when it was written and it is not
 true now, and the honest repair is this entry, not an edit to a statement that was accurate at its time.
 Nothing in the ADR's decision changed after the corrections. `0004` is the only ADR left `proposed`.
+
+**2026-11-02 — ADR-0004 was read against the tree and seven defects came out; six were corrected and the
+seventh is a decision that is not this ADR's to make.** Its decision is untouched and still unimplemented:
+both services still hold their maps as `Map<String, Set<String>>`, the `"Draft"|"Active"|"Cancelled"|
+"Completed"` count is still exactly **32**, and `status_id` is still the authority. Every cited
+`path:line` still resolves, which is worth saying because a two-week-old ADR in this tree usually has
+drifted lines; it did not. **(1)** `ck_purchase_order_details_status` admitted three values that were the
+**item** set — `PENDING`, `ADDED`, `CANCELLED` — under a comment claiming "its own enum, not a copy of the
+item one". The detail machine has seven states (`PurchaseOrderService:83-90`) and `V3:187-229` seeds all
+seven, so the CHECK omitted five real ones and admitted `ADDED`, which no detail can hold. **(2)**
+`statuses.code VARCHAR(24) NOT NULL` contradicted the scope paragraph four pages above it: the catalog is
+one table for seven families, this ADR puts `APPOINTMENT` and employment out of scope by decision, and
+those nine rows (`V18:59-86`, `V20:60-78`) have no constant to carry. T5 made it a second contradiction by
+requiring a code from every row. The column is now nullable, T5 is scoped to the five families with an
+enum, and step 4 asserts in the migration that those five are fully coded — the assertion, not a `NOT
+NULL`, is what stops a row slipping past the join. **(3)** `status_transition` carries `company_id` and was
+never armed, while the `Depends on` line claimed it "carries a policy" — the same claim-of-enforcement gap
+ADR-0003's N9 had, one day after it was corrected there. The `apply_tenant_isolation` call is now in the
+schema block, step 8 runs it last (arming before the seed would refuse the seed), and T7 cites it. **(4)**
+The plan had no `NO FORCE` window, and it needed three: `purchase_orders` is armed today (`V53:126`) and
+`sales_orders`/`goods_receipts` become armed with ADR-0003. The third failure is the one that would have
+been hardest to read: step 6's seed queues deferred triggers whose own `SELECT`s read the documents, so
+they fail closed with a null state and abort. Step 0 opens the window with `V57:85`'s two self-checks and
+step 7 closes it. **(5)** The append-only grant was credited to ADR-0005 and never written; `V52:190-197`
+grants `lifecontrol_app` UPDATE and DELETE on every table **and** the default privileges that reach tables
+created later, so `V60:286-290`'s rule applies: the `REVOKE`/`GRANT` pair belongs in this file, and it is
+there now. **(6)** `Depends on` named only `sales_orders.company_id` while `document_tenant_and_state` also
+reads `goods_receipts.company_id`; both arrive with ADR-0003. Two smaller repairs came with them: the plan
+said "the three deferred triggers" where there are five, and the seed now runs **after** the triggers so
+decision 6 validates the migration's own rows instead of being the one write nobody checked. **(7)** The
+seventh is not a plan defect and is not corrected by rewriting: ADR-0001's T5d was closed as "blocked on
+ADR-0004's per-transition identity", and this ADR does not supply one — it cannot, since a quantity edit
+books a second movement under the same `itemId` with no state move at all. ADR-0004 now carries a `## What
+this ADR does not unblock` section, and `odd/tasks/inventory-ledger.md`'s header and a new log entry say
+the same thing. The acceptance decision is still the maintainer's: `0004` remains `proposed`.
+
+**2026-11-02 — ADR-0004 is accepted on the corrected document, and the set has no `proposed` ADR left.**
+The maintainer chose acceptance in the same PR as the corrections again, the ADR-0005 and ADR-0003
+precedent. `docs/adr/0004-typed-state-machine.md` flips to `accepted` with an `Accepted:` line pointing at
+its *Corrections applied before acceptance* section, and three statements that said `proposed` were
+repaired in the same edit: the README status column, the README adoption-order paragraph whose count has
+now been wrong six times — it says so, because the sentence that keeps being falsified is the one worth
+marking — and this record's header, which now names which redesign is unimplemented instead of counting
+the accepted ones. The header also stops implying that ADR-0001 is wholly unimplemented: T1–T5c are in
+`main` and only T5d is open. One thing the acceptance does **not** do, and both `docs/adr/README.md` and
+the ADR itself now say so: it releases no ledger debt. T5d was closed as blocked on ADR-0004's
+"per-transition identity", which the ADR does not supply and cannot, and the decision that would — the
+ledger's per-write identity, three shapes recorded in `odd/tasks/inventory-ledger.md` — is still the
+maintainer's. ADR-0004's decision itself is unchanged by the acceptance and is still unimplemented.
