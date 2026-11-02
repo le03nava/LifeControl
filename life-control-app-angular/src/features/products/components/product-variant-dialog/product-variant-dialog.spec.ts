@@ -307,6 +307,44 @@ describe('ProductVariantDialog', () => {
       );
     });
 
+    it("should read the API's field map instead of the wording", () => {
+      setup();
+      fixture.detectChanges();
+      productVariantServiceMock.createVariant.mockReturnValue(
+        throwError(
+          () =>
+            new HttpErrorResponse({
+              status: 400,
+              // The shape the catalog now serves: the sentence may be reworded at will, and the map is what
+              // says which control is meant. The wording here matches no prefix the module could guess.
+              error: {
+                status: 400,
+                message: 'Esta variante necesita su código de barras.',
+                errors: { barCode: 'Esta variante necesita su código de barras.' },
+                path: '/api/companies/c/products/p/variants',
+                timestamp: '2026-06-01T20:00:00Z',
+                correlationId: 'abc-123',
+              },
+            }),
+        ),
+      );
+
+      component.onSaveVariant({
+        barCode: 'BAR-1',
+        variantName: 'Talla 40',
+        measureUnitId: 'mu-pza',
+      });
+      fixture.detectChanges();
+
+      expect(component.generalError()).toBeNull();
+      expect(component.serverErrors()).toEqual({
+        barCode: 'Una variante de un producto con variantes necesita su código de barras.',
+      });
+      expect(component.definitionForm().controls.barCode.errors?.['serverError']).toBe(
+        'Una variante de un producto con variantes necesita su código de barras.',
+      );
+    });
+
     it("should put the API's unit refusal on the unit control, not in the banner", () => {
       setup();
       fixture.detectChanges();

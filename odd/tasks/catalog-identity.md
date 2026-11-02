@@ -217,3 +217,28 @@ says it is coupled, and the case fails loudly if a message is reworded. It is no
 is in shared code — every `IllegalArgumentException` in the API maps through that handler — and a change there
 is its own reviewed unit, not a rider on a UI slice. The fix is small and named: a common field-violation
 exception carrying its field, mapped to `errors: {field: message}`, plus `@Valid` on `variants`.
+
+**2026-11-02 — the field-error contract is fixed, on its own branch.** The wart T5 worked around is gone:
+an abstract `FieldViolationException` carries the field it is about and gets its own `@ExceptionHandler`, so
+the four catalog refusals answer `400` with `errors: {<field>: <sentence>}` next to the body they already
+served — `variants`, `variantMode`, `barCode`, `measureUnitId` — while the ~105 other
+`IllegalArgumentException` sites keep the message-only envelope **by type** and not by a condition a later
+edit can forget. `ProductRequest.variants` is validated in cascade, so a nested violation is refused at the
+boundary under bean validation's key (`variants[0].measureUnitId`), and a first-level key and a nested one
+cannot lose each other. The client reads the map first, translates the bracket key to the control path
+Angular's `get()` resolves, and keeps the wording match only for a body with no map; the screen copy is
+selected structurally, so a duplicate-barcode `409` under the same key keeps its own sentence.
+
+The mechanism is the part worth keeping: the advice now serves **two** 400 envelopes (`ErrorResponse` and
+`ValidationErrorResponse`), and resolution by handler specificity is what keeps them apart. A branch inside
+the shared `handleBadRequest` would have left every other refusal one `instanceof` away from a map it must
+never have. Evidence: a differential probe over the base commit and the change, seven probes, differs in
+exactly one line — the catalog refusal gained its `errors` entry. Product suite `493` cases green, company
+`416` green, Angular `4076` green, lint and Prettier clean.
+
+**2026-11-02 — the seam the chained branches opened, found and fixed before the slice committed.** The T5
+integration suite was written before `V57` made `companies.currency` required, and it seeds its company
+through the four-column insert that belongs to the suites holding a scratch database before that column
+exists: six cases failed on `NOT NULL` the moment the two branches met. Measured on the unmodified base
+first — it was already red there — and fixed in its own commit so the review sees the seam and not a
+mystery inside the error-contract diff.

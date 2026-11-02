@@ -36,10 +36,7 @@ import {
   ProductVariantRowControl,
 } from '../../models/product.models';
 import type { MeasureUnit } from '../../models/product-variant.models';
-import {
-  PRODUCT_FIELD_ERROR_MESSAGES,
-  productFieldFromMessage,
-} from '../../models/product-field-errors';
+import { productFieldErrors } from '../../models/product-field-errors';
 import { NonNullableFormBuilder, FormGroup, Validators } from '@angular/forms';
 import { ProductsForm } from '../../components/products-form/products-form';
 import { ErrorBanner, PageHeader } from '@shared/ui';
@@ -694,19 +691,13 @@ export class ProductEdit implements OnInit, UnsavedChangesAware {
 
   private handleServerError(err: HttpErrorResponse): void {
     const apiError = err.error as ApiError | undefined;
-    if (apiError?.errors && Object.keys(apiError.errors).length > 0) {
-      this.serverErrors.set(apiError.errors);
-      this.generalError.set(null);
-      return;
-    }
 
-    // ADR-0006's creation rules (`variants`, `variantMode`, `barCode`, `measureUnitId`) are refused with
-    // a `400` that carries **no** `errors` map: they are service rules, not bean validation, and the
-    // variant list is not cascaded. Each message opens with the field it names, so the refusal is put
-    // where the operator can act on it instead of in the banner — the fields have no other input.
-    const field = productFieldFromMessage(apiError?.message);
-    if (field) {
-      this.serverErrors.set({ [field]: PRODUCT_FIELD_ERROR_MESSAGES[field] });
+    // ADR-0006's creation rules (`variants`, `variantMode`, `barCode`, `measureUnitId`) and bean
+    // validation both arrive as a field map, and the map is the attribution: the sentence is not read.
+    // A nested `variants[N].<field>` key is translated to the row's control path, so it marks that row.
+    const fieldErrors = productFieldErrors(apiError);
+    if (Object.keys(fieldErrors).length > 0) {
+      this.serverErrors.set(fieldErrors);
       this.generalError.set(null);
       return;
     }

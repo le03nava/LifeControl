@@ -1,5 +1,7 @@
 package com.lifecontrol.api.product.exception;
 
+import com.lifecontrol.api.exception.FieldViolationException;
+
 /**
  * Thrown when a creation request declares no variant.
  *
@@ -9,15 +11,18 @@ package com.lifecontrol.api.product.exception;
  * {@code NOT NULL} and nothing may invent one, so a product nobody declared a variant for is an incomplete
  * creation, not a catalog entry.</p>
  *
- * <p>It is a 400 that <b>names the field</b>, thrown before any row is written, so the caller receives
- * {@code variants is required} instead of a product that the next read has to report as broken. Thin
- * subclass of {@link IllegalArgumentException}: the {@code GlobalExceptionHandler} already maps that class
- * to 400 and needs no method of its own for this type.</p>
+ * <p>Subclass of {@link FieldViolationException}: the 400 carries {@code errors: {variants: <message>}}
+ * next to the same sentence in {@code message}, so the client marks the variant block instead of reading the
+ * prose. The key is the <b>list</b> and not a row, because a request that declares no variant has no row to
+ * point at. It is thrown before any row is written, so no product the next read has to report as broken is
+ * left behind.</p>
  */
-public class VariantsRequiredException extends IllegalArgumentException {
+public class VariantsRequiredException extends FieldViolationException {
 
     public VariantsRequiredException() {
-        super("variants is required: a product is created with at least one variant — SIMPLE means exactly "
-                + "one and MULTI declares its family in the same request (ADR-0006 decision 2)");
+        super(
+                "variants",
+                "variants is required: a product is created with at least one variant — SIMPLE means exactly "
+                        + "one and MULTI declares its family in the same request (ADR-0006 decision 2)");
     }
 }

@@ -112,6 +112,34 @@ public class GlobalExceptionHandler {
     }
 
     /**
+     * Serves a refusal that names a field: the sentence stays in {@code message} — it is what a human
+     * reads — and the same sentence is keyed by the field in {@code errors}, so a client marks the
+     * control instead of parsing the prose. {@link ValidationErrorResponse} is that envelope precisely:
+     * the body {@link ErrorResponse} already serves, plus the map.
+     *
+     * <p>It has its own method and does not branch inside {@link #handleBadRequest}: Spring resolves the
+     * most specific {@code @ExceptionHandler}, so the other {@code IllegalArgumentException} sites —
+     * {@code DisabledMeasureUnitException}, {@code MeasureUnitTypeMismatchException}, an invalid state
+     * transition — keep the message-only envelope by <b>type</b>, not by a check this method could
+     * forget to make. A conflict is not a field violation either, so it keeps its 409 and no map.</p>
+     */
+    @ExceptionHandler(FieldViolationException.class)
+    public ResponseEntity<ValidationErrorResponse> handleFieldViolation(FieldViolationException ex) {
+        Map<String, String> errors = new HashMap<>();
+        errors.put(ex.getField(), ex.getMessage());
+
+        ValidationErrorResponse errorResponse = new ValidationErrorResponse(
+                HttpStatus.BAD_REQUEST.value(),
+                ex.getMessage(),
+                errors,
+                getCurrentPath(),
+                LocalDateTime.now(),
+                getCorrelationId());
+
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(errorResponse);
+    }
+
+    /**
      * Handles invalid query/path parameters that cannot be converted to the expected
      * type (e.g. a malformed UUID in a path variable).
      */

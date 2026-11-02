@@ -22,10 +22,7 @@ import {
   ProductAttributeDefinition,
   ProductVariantMode,
 } from '../../models/product.models';
-import {
-  PRODUCT_FIELD_ERROR_MESSAGES,
-  productFieldFromMessage,
-} from '../../models/product-field-errors';
+import { productFieldErrors } from '../../models/product-field-errors';
 import { createAttributeForm } from '../../models/product-attribute-form';
 import {
   MeasureUnit,
@@ -142,8 +139,8 @@ export class ProductVariantDialog {
    *
    * An **unknown** mode is deliberately not treated as `MULTI`: the dialog cannot ask for a barcode on
    * the strength of a read that failed, so the client-side requirement is dropped and the server
-   * decides — it answers `400 barCode is required` for a `MULTI` product, and that message is attributed
-   * to this very control ({@link handleServerError}).
+   * decides — it answers `400` with `errors: {barCode: …}` for a `MULTI` product, and that key is
+   * attributed to this very control ({@link handleServerError}).
    */
   readonly barcodeRequired = computed(() => this.productModeState() === 'MULTI');
 
@@ -185,6 +182,17 @@ export class ProductVariantDialog {
   readonly attributeForm = this.attributeFormState.asReadonly();
 
   readonly serverErrors = signal<Record<string, string>>({});
+
+  /**
+   * The controls this dialog can put a server-copy on.
+   *
+   * The write is one variant through `/products/{id}/variants`, so the API can only refuse `barCode`
+   * (decision 4) or `measureUnitId` (decision 3) about a field this form renders. Any other key belongs
+   * to a screen that owns it; dropping it here is what keeps a field error from becoming a banner in a
+   * dialog with no control to mark.
+   */
+  private static readonly RENDERABLE_FIELDS = ['barCode', 'measureUnitId'];
+
   /** Write failures shown in the banner; the dialog stays open. */
   readonly generalError = signal<string | null>(null);
 
@@ -437,19 +445,17 @@ export class ProductVariantDialog {
 
   private handleServerError(err: HttpErrorResponse): void {
     const apiError = err.error as ApiError | undefined;
-    if (apiError?.errors && Object.keys(apiError.errors).length > 0) {
-      this.serverErrors.set(apiError.errors);
-      this.generalError.set(null);
-      return;
-    }
 
-    // ADR-0006's variant rules are refused with a `400` that carries **no** `errors` map —
-    // `barCode is required` (decision 4) and `measureUnitId is required` (decision 3) both name their
-    // field in the message's first word. Putting that on the control is the difference between an
-    // operator who knows what to fix and a banner that names no input.
-    const field = productFieldFromMessage(apiError?.message);
-    if (field === 'barCode' || field === 'measureUnitId') {
-      this.serverErrors.set({ [field]: PRODUCT_FIELD_ERROR_MESSAGES[field] });
+    // The catalog serves a field map for its rule refusals now, and the dialog reads that instead of the
+    // wording: `barCode` (decision 4) and `measureUnitId` (decision 3) are the only controls this dialog
+    // owns, so keys about anything else stay out of a form that could not render them.
+    const fieldErrors = Object.fromEntries(
+      Object.entries(productFieldErrors(apiError)).filter(([field]) =>
+        ProductVariantDialog.RENDERABLE_FIELDS.includes(field),
+      ),
+    );
+    if (Object.keys(fieldErrors).length > 0) {
+      this.serverErrors.set(fieldErrors);
       this.generalError.set(null);
       return;
     }

@@ -20,7 +20,9 @@ import com.lifecontrol.api.product.dto.ProductVariantResponse;
 import com.lifecontrol.api.product.dto.ProductVariantSearchResponse;
 import com.lifecontrol.api.product.dto.ProductVariantStoreStockRequest;
 import com.lifecontrol.api.product.dto.ProductVariantStoreStockResponse;
+import com.lifecontrol.api.product.exception.BarcodeRequiredException;
 import com.lifecontrol.api.product.exception.DuplicateProductVariantException;
+import com.lifecontrol.api.product.exception.MeasureUnitRequiredException;
 import com.lifecontrol.api.product.exception.ProductVariantNotFoundException;
 import com.lifecontrol.api.product.exception.VariantRemovalWouldEmptyProductException;
 import com.lifecontrol.api.product.service.ProductService;
@@ -316,6 +318,47 @@ class ProductVariantControllerTest {
                     .andExpect(jsonPath("$.timestamp").exists());
         }
 
+        /**
+         * ADR-0006 decision 4 over the wire: the barcode rule belongs to the product's mode, so it cannot
+         * be a request annotation and the service refuses it. The refusal names {@code barCode} in the
+         * field map, so the client marks that control instead of reading the sentence.
+         */
+        @Test
+        @DisplayName("should key the MULTI barcode refusal as errors.barCode")
+        void createVariant_MultiWithoutBarcode_KeysBarCode() throws Exception {
+            when(productVariantService.createVariant(eq(companyId), eq(productId), any(ProductVariantRequest.class)))
+                    .thenThrow(new BarcodeRequiredException(productId));
+
+            mockMvc.perform(post("/api/companies/{companyId}/products/{productId}/variants", companyId, productId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(testVariantRequest)))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.status").value(400))
+                    .andExpect(jsonPath("$.errors.barCode").value(org.hamcrest.Matchers.containsString("barCode")))
+                    // The sentence a human reads is unchanged: the map is added, not substituted.
+                    .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString(productId.toString())));
+        }
+
+        /**
+         * ADR-0006 decision 3 over the wire: {@code MeasureUnitRequiredException} names the unit in the
+         * field map as well as in the sentence.
+         */
+        @Test
+        @DisplayName("should key the missing measure unit refusal as errors.measureUnitId")
+        void createVariant_MissingMeasureUnit_KeysMeasureUnitId() throws Exception {
+            when(productVariantService.createVariant(eq(companyId), eq(productId), any(ProductVariantRequest.class)))
+                    .thenThrow(new MeasureUnitRequiredException());
+
+            mockMvc.perform(post("/api/companies/{companyId}/products/{productId}/variants", companyId, productId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(testVariantRequest)))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.status").value(400))
+                    .andExpect(jsonPath("$.errors.measureUnitId")
+                            .value(org.hamcrest.Matchers.containsString("measureUnitId")))
+                    .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("measureUnitId")));
+        }
+
         @Test
         @DisplayName("should return 409 when the barCode is duplicated")
         void createVariant_DuplicateBarCode_Returns409() throws Exception {
@@ -480,7 +523,9 @@ class ProductVariantControllerTest {
                             variantId))
                     .andExpect(status().isConflict())
                     .andExpect(jsonPath("$.status").value(409))
-                    .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString(productId.toString())));
+                    .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString(productId.toString())))
+                    // A conflict is not a field violation: it names no control, so it carries no map.
+                    .andExpect(jsonPath("$.errors").doesNotExist());
         }
     }
 

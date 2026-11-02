@@ -30,4 +30,21 @@
         <Method name="createUser"/>
         <Bug pattern="DMI_RANDOM_USED_ONLY_ONCE"/>
     </Match>
+
+    <!--
+      `FieldViolationException` is the abstract base of the four catalog refusals, and its constructor
+      refuses a blank field name — the guard that makes "only a refusal that genuinely names a field
+      produces an errors map" true by construction rather than by convention.
+
+      SpotBugs reads a throwing constructor as the finalizer-attack pattern, which is real for an
+      extendable class whose instances can be left partially initialized and reachable by a subclass
+      finalizer. It does not apply here: the class is abstract, so no instance of it is ever created on
+      its own; its four subclasses are final in fact (none declares a finalizer, and the codebase
+      declares none anywhere), and the exception holds two strings and no resource. The alternative, moving the guard into the handler, would trade a construction-time refusal for a silently
+      unmapped refusal, which is the failure this exception exists to prevent.
+    -->
+    <Match>
+        <Class name="com.lifecontrol.api.exception.FieldViolationException"/>
+        <Bug pattern="CT_CONSTRUCTOR_THROW"/>
+    </Match>
 </FindBugsFilter>
