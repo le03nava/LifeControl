@@ -152,3 +152,12 @@ because rule 5 of `references/feature-records.md` repairs a claim that is false 
 record was touched. The acceptance also carries three evidence citations corrected against the tree
 (`purchase_order_details`, `V1:477`, `V1:496`) and names the three implementation decisions it does not
 settle, which live in `odd/tasks/money-first-class.md`.
+
+**2026-11-01 — the adoption order's steps 5 and 6 swapped, on the maintainer's decision.** `docs/adr/README.md`
+listed ADR-0002 fifth and ADR-0004 sixth, while ADR-0002's own `Depends on` line had carried the 0002 → 0004
+edge since 2026-10-30 — so the document said money consumes states and the plan implemented money first. The
+evidence and the two rejected shapes are **D-e** of `odd/tasks/money-first-class.md`, and that record carries
+the decision. The order now reads 0005 → 0006 → 0001 → 0003 → 0004 → 0002. No ADR changed status, no ADR's
+decision changed, and no task changed its dependencies: only the sequence between 0004 and the money unit
+moved, and the reason the original order gave for 0004 last ("it benefits from a settled shape") was the one
+sentence of it that was backwards.
