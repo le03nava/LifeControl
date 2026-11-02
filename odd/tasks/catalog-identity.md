@@ -242,3 +242,26 @@ through the four-column insert that belongs to the suites holding a scratch data
 exists: six cases failed on `NOT NULL` the moment the two branches met. Measured on the unmodified base
 first — it was already red there — and fixed in its own commit so the review sees the seam and not a
 mystery inside the error-contract diff.
+
+**2026-11-02 — T4's schema half: `variant_listing` exists, and the price is copied rather than moved.** `V58`
+creates the table in decision 5's shape, copies every `product_variant_store_stock` row that carries a
+`list_price` into it with the currency read from the company (`V57`), and arms it with
+`apply_tenant_isolation('variant_listing')` **in the file that creates it** — which is what the startup check
+requires and what makes the table the seventeenth armed tenant table. Two departures from the ADR's schema block
+are deliberate and documented in the migration header: `tax_rate_id` is not created, because `tax_rate` is
+ADR-0002's T4 and D-d still gates it — a column cannot reference a table that does not exist, so it arrives by
+`ALTER` in the slice that creates that table; and `product_variant_store_stock` keeps `stock` and `cost_price`,
+because the `ADJUSTMENT_IN` movement of step 4 needs ADR-0001. That makes the price a **transitional
+two-representation state**, retired by the next slice for the reads and by ADR-0001 for the position.
+
+The order inside the file is the substance: create, open the `NO FORCE` window on the two armed tables the copy
+reads, copy, self-check the count still inside the window, close it, and arm last — an armed table refuses an
+insert from its owner with no tenant scope, and the copy spans every tenant.
+
+Arming a seventeenth table broke the armed-set pin in two suites, and the review of that break is its own
+finding: `TenantPoliciesIntegrationTest` and `TenantScopeFunctionsIntegrationTest` freeze the same set in two
+complementary shapes — an exhaustive list versus a per-table policy/kind/key check — so both were **grown, not
+relaxed**: the entries added, the counts moved to seventeen (including the one a spot check found still in a
+method name), and every assertion left byte-identical, so the new table runs through the existing checks instead
+of beside them. Verification observed by the parent: **551 cases across 109 classes, 0 failures** over `product`
+and `tenant`.
