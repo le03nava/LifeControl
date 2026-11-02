@@ -1,10 +1,13 @@
 # ADR 0003 — Document numbers are allocated per tenant
 
-- **Status**: proposed
+- **Status**: accepted
 - **Date**: 2026-10-29
+- **Accepted**: 2026-11-02, after the four corrections recorded under *Corrections applied before acceptance*
 - **Decision id**: D3 of `odd/tasks/architecture-redesign-adrs.md`
-- **Depends on**: ADR-0005 (the tenant machinery `document_sequence` is registered in, and the policy it
-  carries). ADR-0002 consumes the `company_id` this ADR puts on `sales_orders`
+- **Depends on**: ADR-0005 (the tenant machinery `document_sequence` is registered in, the policy it
+  carries, and the startup assertion that refuses a `company_id` table nobody armed — so arming the three
+  tables below is a step of this ADR, not a follow-up). ADR-0002 consumes the `company_id` this ADR puts
+  on `sales_orders`
 - **Replaces**: the global `UNIQUE` on every document number and the `max + 1` generator
 
 ## Context
@@ -58,10 +61,10 @@ that the database enforces is the parts, never the rendered string.**
    allocates them in a fixed order (`doc_type` ascending, then `period`) so two such transactions
    cannot deadlock on two sequence rows.
 4. **The period comes from the document's own date, frozen before allocation.** `period` is derived
-   from the document's date (`order_date`, `order_date`), which is set once before the allocator runs;
-   the same value is used for the render. It is never read from the wall clock at allocation time,
-   because a sale created at 23:59 on the last day of a month would otherwise land in the next period
-   depending on when its transaction happens to reach the allocator.
+   from the document's own date (`sales_orders.order_date`, `purchase_orders.order_date`), which is set
+   once before the allocator runs, and the same value is used for the render. It is never read from the
+   wall clock at allocation time, because a sale created at 23:59 on the last day of a month would
+   otherwise land in the next period depending on when its transaction happens to reach the allocator.
 5. **The document carries its identity in parts, and the parts are what is unique.**
    `doc_type`, `seq_period`, `seq_value` and a rendered `doc_number`; the database key is
    `(company_id, doc_type, seq_period, seq_value)`. `doc_number` is presentation — rendered once,
@@ -76,12 +79,15 @@ that the database enforces is the parts, never the rendered string.**
    forcing it into a period sequence would destroy the "receipt N of order M" reading that makes the
    number useful. A receipt is re-rendered **only** together with its parent, in the same migration,
    and never afterwards.
-7. **`doc_type` is a closed vocabulary, shared with ADR-0004, and each table holds exactly its own
-   value.** The strings are spelled the same as `status_transition.document_type` (`0004:83`), so
-   `'SALES_ORDER'` means one thing in both tables; `ck_*_doc_type` pins each document table to its own
-   constant, and `document_sequence` admits only the period-numbered types, so a derived document
-   cannot open a counter. A free-text `doc_type` is a silent second counter: one trailing space is a
-   new number space and nothing fails.
+7. **`doc_type` is a closed vocabulary, and this ADR fixes its spelling first.**
+   `ck_*_doc_type` pins each document table to its own constant, and `document_sequence` admits only the
+   period-numbered types, so a derived document cannot open a counter. A free-text `doc_type` is a
+   silent second counter: one trailing space is a new number space and nothing fails. The strings are
+   the ones ADR-0004's `status_transition.document_type` (`0004:83`) **must reuse** when it lands, so
+   `'SALES_ORDER'` means one thing in both tables — but that is a spelling contract, not a schema
+   dependency: `status_transition` does not exist yet and ADR-0004 is still `proposed`, so this ADR does
+   not wait for it and accepting it does not accept 0004. Writing the vocabulary down here is what makes
+   a later mismatch ADR-0004's defect instead of a second number space in this one.
 8. **A gapless sequence is a different contract and is out of scope here.** It requires serializing
    allocation against the document's commit, forbidding reservation ahead of time, and a rule for what
    a void does to the counter; fiscal numbering under a tax authority is where that belongs.
@@ -89,7 +95,8 @@ that the database enforces is the parts, never the rendered string.**
 ## Schema
 
 ```sql
--- V53. The next free version: V52 is the tenant machinery this table is registered in.
+-- V64. V52 and V53 are the tenant machinery this table is registered in, and V54–V63 are spent (ADR-0006's
+-- catalog identity, ADR-0001's stock ledger), so the number this ADR first carried is dead.
 CREATE TABLE document_sequence (
     company_id  UUID        NOT NULL,
     doc_type    VARCHAR(24) NOT NULL,
@@ -164,6 +171,17 @@ ALTER TABLE goods_receipts
 CREATE UNIQUE INDEX uq_goods_receipts_doc_number
     ON goods_receipts (company_id, doc_type, doc_number) WHERE doc_number IS NOT NULL;
 
+-- ─── the three tables join ADR-0005's list, and that is not optional ─────────────────────────────
+-- `company_id` on these three tables is what makes them tenant tables, and ADR-0005's machinery decides
+-- what a tenant table with no policy means: `unprotected_tenant_tables()` (V52) returns every table that
+-- carries a `company_id` column and has no `tenant_table` row, and `TenantIsolationStartupCheck` refuses
+-- to boot on a non-empty answer. It keys on the **column's existence**, not on its `NOT NULL`, so there
+-- is no version of this plan where the columns land now and the policies land later — the arming is part
+-- of the same delivery (step 7) and the ADR claims it here or not at all.
+SELECT apply_tenant_isolation('document_sequence');
+SELECT apply_tenant_isolation('sales_orders');
+SELECT apply_tenant_isolation('goods_receipts');
+
 -- ─── the global keys go, last ────────────────────────────────────────────────────────────────────
 -- `order_number` and `receipt_number` are dropped in a later release, once every reader renders from
 -- `doc_number`: until then they record how a number was allocated under the old scheme.
@@ -181,12 +199,34 @@ CREATE UNIQUE INDEX uq_goods_receipts_doc_number
 | N6 | A **rolled-back** allocation reuses its value, and a **committed** allocation whose document never lands is a gap that is never reassigned | two tests, one per direction: a transaction that allocates and rolls back leaves `next_value` untouched and the next allocation returns the same value; a transaction that allocates and commits without writing its document leaves a gap the next allocation skips |
 | N7 | A receipt's number names its parent's frozen `doc_number`, and is re-rendered only with it | `GR-{parent.doc_number}-{NN}` is built from the stored parent column, never from a fresh read of the catalog; the migration re-renders both in one step |
 | N8 | `doc_type` is one of the closed set, and each table holds only its own | `ck_*_doc_type` pins one value per document table and `ck_document_sequence_type` admits only the period-numbered types; a typo is refused instead of opening a parallel counter |
-| N9 | The counter row belongs to its tenant, and so does every numbered document | `company_id NOT NULL` plus `fk_document_sequence_company`, `fk_goods_receipts_order_same_company`; the counter table is registered in ADR-0005's policy list, whose startup assertion fails if a `company_id` table is not listed. `NOT NULL` is what makes the tenant part of the key: a unique index over a nullable `company_id` does not enforce N1 for those rows |
+| N9 | The counter row belongs to its tenant, and so does every numbered document | `company_id NOT NULL` plus `fk_document_sequence_company`, `fk_goods_receipts_order_same_company`, and the three `apply_tenant_isolation` calls of the `## Schema` block. `V52`'s `unprotected_tenant_tables()` is the query, `TenantIsolationStartupCheck` the refusal that runs at every boot, and it keys on the column's existence — which is why the arming cannot be deferred. `NOT NULL` is what makes the tenant part of the key: a unique index over a nullable `company_id` does not enforce N1 for those rows |
 
 ## Migration from the current tree
 
-The next free schema version is **V53** (`V52__tenant_isolation_machinery.sql` already exists), plus
-**V54**, a Java migration, for the render.
+The next free schema version is **V64** (`V52__tenant_isolation_machinery.sql` and
+`V53__tenant_isolation_policies.sql` already exist, and V54–V63 are spent by ADR-0006's catalog identity
+and ADR-0001's stock ledger), plus **V65**, a Java migration, for the render. The two files ship
+together; step 2 says why neither is deployable alone.
+
+0. **Open the `NO FORCE` window on `purchase_orders`, before the first read, and check that it took.**
+   `V53:126` arms `purchase_orders`, and `V52`'s `apply_tenant_isolation` sets
+   `FORCE ROW LEVEL SECURITY`, which filters the table's **owner** — the role Flyway runs as.
+   `V54:26` records the consequence in the tree's own words: on such a table a statement matches
+   **zero rows and reports success**. Without this window the report in step 1 reads nothing and is
+   indistinguishable from a clean tree, the backfill in step 3 numbers nothing, and step 4's
+   `SET NOT NULL` succeeds over a column of nulls. `NO FORCE` is the only door a `NOSUPERUSER` owner
+   has, and `V57:85` is the same window carrying the same two self-checks — one that the window took,
+   one that the statement inside it reached a row — because a window that failed to open fails
+   silently by construction.
+
+   ```sql
+   ALTER TABLE purchase_orders NO FORCE ROW LEVEL SECURITY;
+   ```
+
+   The window does not span the two files: `V64` opens and closes its own, and `V65` opens and closes
+   another. `V55:100` exists because a file that leaves the window open on a table weakens that table
+   for everything that runs after it, and a crash between two migrations would leave it open with
+   nobody to close it.
 
 1. **Pre-flight, before any write.** Report the blast radius, so the renumbering is a decision and not
    a surprise:
@@ -209,12 +249,22 @@ The next free schema version is **V53** (`V52__tenant_isolation_machinery.sql` a
    ```
 
    A row here is renumbered by the migration, not refused: the report exists so the count per tenant is
-   known before the deploy.
+   known before the deploy. It runs **after** step 0 on purpose: over a forced table, "no unparseable
+   number" and "not one row visible" are the same empty output, and a report that cannot tell them apart
+   is worse than no report.
 2. **Add the columns nullable** and create `document_sequence`; nothing reads them yet. The `## Schema`
-   block above is the target shape, so its `NOT NULL`s land in step 5, not here. Derive each
+   block above is the target shape, so its `NOT NULL`s land in steps 4 and 6, not here. Derive each
    document's company: `sales_orders.company_id` from `company_stores.company_id`,
    `goods_receipts.company_id` from its `purchase_orders.company_id`, and `purchase_orders` keeps the
    one V43/V51 already own.
+
+   **This step is what ties the two files together.** `unprotected_tenant_tables()` (`V52`) returns
+   every table that carries a `company_id` column and no policy, and `TenantIsolationStartupCheck`
+   refuses to boot on a non-empty answer — keyed on the **column**, not on its `NOT NULL`. The moment
+   this step runs, `sales_orders` and `goods_receipts` are unprotected tables, and the only reason the
+   application still boots is that the arming in step 7 lands in the same Flyway run. Shipping `V64`
+   without `V65` is a deployment that refuses to start: the correct failure, named here so it is not
+   discovered in staging.
 3. **Backfill the parts per tenant and period with a window function**, ordered by `created_at` so the
    rebuilt sequence follows the order documents were written, with the printed number as a tiebreak:
 
@@ -231,28 +281,62 @@ The next free schema version is **V53** (`V52__tenant_isolation_machinery.sql` a
    WHERE so.id = n.id;
    ```
 
-4. **Render `doc_number` with the application renderer, from a Java migration (V54).** A Flyway SQL
+   It runs inside step 0's window. On `purchase_orders` this statement is invisible to its own owner
+   otherwise — the `UPDATE` would report `UPDATE 0` and the migration would continue happily.
+
+4. **Seed the counters and set the parts `NOT NULL`.** `max(seq_value) + 1` per
+   `(company, type, period)`, run once, single-threaded, inside the migration. Then set `company_id` and
+   `seq_value` to `NOT NULL`, and add the two `uq_*_doc_identity` indexes: an index over a nullable
+   `company_id` admits duplicate parts, so creating it before the `NOT NULL` would leave a window in
+   which N1 is not enforced.
+
+   **`doc_number` is not in this step, and that is an ordering fact, not an omission.** The identity
+   `CHECK` the `## Schema` block declares makes the three columns all-set or all-null together, and the
+   renderer runs in `V65` from a Java migration; setting `doc_number NOT NULL` here would either fail at
+   once or, worse, succeed over the empty string of an `UPDATE` that reached no row. Its `NOT NULL`, its
+   `CHECK` and its unique index land in step 6, after the value exists. This is the same order defect
+   ADR-0001's acceptance found in its own plan — write, read, stop writing, drop — caught here while it
+   is still prose.
+5. **Close step 0's window and re-check it, before `V64` ends.** `ALTER TABLE purchase_orders FORCE ROW
+   LEVEL SECURITY`, then assert `relforcerowsecurity` is true again and that no row of the backfilled
+   tables is left without its parts. The assertion is not ceremony: a file that backfilled nothing and a
+   file that backfilled everything print the same green, and only "did a row arrive" separates them.
+6. **Render `doc_number` with the application renderer, from a Java migration (V65).** A Flyway SQL
    migration cannot call the renderer, and this repository has only SQL migrations today, so this step
    introduces the Java-migration mechanism — that is its cost, and it is cheaper than two renderers
    that disagree. The render is `{prefix}-{period}-{seq_value zero-padded to 5, widened when it needs
    more}`, so `SO-202610-00001`; the receipts are re-rendered in the **same** migration, from the new
-   parent `doc_number` and their ordinal, in the order: sales, purchase orders, receipts. Then assert
-   that no row holds a partial identity.
-5. **Seed the counters** with `max(seq_value) + 1` per `(company, type, period)`: the last `max + 1` in
-   the tree, run once, single-threaded, inside the migration. Then set `company_id` on the three
-   tables, plus `seq_value` and `doc_number`, to `NOT NULL`, and only then add the unique indexes of the
-   schema above: an index over a nullable `company_id` admits duplicate parts, so creating it before
-   the `NOT NULL` would leave a window in which N1 is not enforced.
-6. **Move the writers.** `generateOrderNumber()` leaves `SalesOrderService` (`:922-941`) and
+   parent `doc_number` and their ordinal, in the order: sales, purchase orders, receipts. Then set
+   `doc_number NOT NULL`, add `ck_*_doc_identity` and the `uq_*_doc_number` indexes, and assert that no
+   row holds a partial identity.
+
+   It opens its own `NO FORCE` window on `purchase_orders`, because step 5 re-forced it and the render
+   has to reach its rows like any other statement; it checks the window took, renders, closes it and
+   re-checks it — the same two checks as step 0, for the same reason.
+7. **Arm the three tables, last.** This is the step the ADR's first draft claimed without writing it
+   (see the `## Schema` block),
+
+   ```sql
+   SELECT apply_tenant_isolation('document_sequence');
+   SELECT apply_tenant_isolation('sales_orders');
+   SELECT apply_tenant_isolation('goods_receipts');
+   ```
+
+   and it is what makes step 2's temporary state legal: after these three calls
+   `unprotected_tenant_tables()` — the query `TenantIsolationStartupCheck` runs at every boot — returns
+   no row, so the assertion N9 leans on stops being a claim and becomes a check that somebody else's
+   deployment runs. It comes after the render on purpose: arming before a cross-tenant `UPDATE` is the
+   zero-row trap with extra steps.
+8. **Move the writers.** `generateOrderNumber()` leaves `SalesOrderService` (`:922-941`) and
    `PurchaseOrderService` (`:816-835`); one allocator owns the statement of decision 2, and both
    `findTopByOrderNumberStartingWithOrderByOrderNumberDesc` declarations
    (`SalesOrderRepository.java:35`, `PurchaseOrderRepository.java:115`) go with it.
    `GoodsReceiptService.generateReceiptNumber` (`:526-534`) keeps its per-order count and stops reading
    `purchaseOrder.getOrderNumber()`, reading the frozen `doc_number` instead.
-7. **Drop `order_number` and `receipt_number` last**, once every reader renders from `doc_number`. Until
+9. **Drop `order_number` and `receipt_number` last**, once every reader renders from `doc_number`. Until
    then they record how a number was allocated under the old scheme: `SO-20261029-00007` was the seventh
    document of that day across every tenant; after the backfill it is the seventh of that tenant in that
-   month. Step 7 is a second release.
+   month. Step 9 is a second release.
 
 ## Rejected alternatives
 
@@ -280,9 +364,58 @@ The next free schema version is **V53** (`V52__tenant_isolation_machinery.sql` a
   their tests use, `SalesOrderService` loses its private `generateOrderNumber` — also the only place
   logging the unparseable-number warning (`:936`) — and `GoodsReceiptService` changes what it reads for
   the number. Allocation is a round trip inside the caller's transaction, and old numbers are
-  renumbered: step 7 is two releases.
+  renumbered: step 9 is two releases.
+- **Cost**: `sales_orders` and `goods_receipts` become tenant tables for the first time, and that changes
+  **who can read them**, not only how numbers are assigned. Neither has a `{companyId}` path segment
+  (`/api/sales-orders`, `/api/goods-receipts`), so `TenantScopeFilter` states their tenant from a single
+  `company_id` claim: a caller with one claim sees its own documents, a caller with none stops seeing
+  every tenant's, and a caller with more than one is refused on those paths — a refusal the filter
+  already applies today, which arming makes consistent with the rows instead of merely with the path.
 - **Cost**: a new mechanism, the Java migration, exists for one step. It is named here so the
   maintainer decides it once, not in the middle of the slice.
 - **Cost**: decision 3's lock window. A tenant's sales of one month serialize for the tail of each
   charge transaction; the mitigation is allocation last, and the bound is measured in the slice that
   implements it, not assumed.
+
+## Corrections applied before acceptance
+
+Read against the tree for the acceptance decision, and four defects came out. The decision is unchanged
+and is still unimplemented: `SalesOrderService:922` and `PurchaseOrderService:816` still build `max + 1`
+over a global counter, and `GoodsReceiptService:527` still derives a receipt's number from its parent's.
+What was wrong was the plan, and each defect is a kind this set has already paid for once.
+
+1. **The migration numbers were dead.** The `## Schema` block carried `-- V53. The next free version` and
+   the render step named `V54`; both are spent (`V53__tenant_isolation_policies.sql`,
+   `V54__product_variant_mode.sql`) and the head is `V63`. The plan now takes `V64` and `V65`. This is the
+   same collision ADR-0001's acceptance found in `V52`–`V55`.
+2. **The backfill ran blind under `FORCE ROW LEVEL SECURITY`.** This ADR was written before ADR-0005's
+   machinery existed, and named RLS once, in its `Depends on` line. `V53:126` arms `purchase_orders` and
+   `V52` sets `FORCE`, which filters the owner — the role Flyway runs as — so the pre-flight report would
+   have reported zero defects and the backfill would have numbered nothing, both green, for the reason
+   `V54:26` already records. The plan now opens a `NO FORCE` window as step 0 with `V57:85`'s two
+   self-checks, closes it with a re-check as step 5, and gives `V65` its own window, because one that
+   spans two files is one a crash can leave open (`V55:100`).
+3. **N9 claimed enforcement the schema did not deliver.** It stated that the counter "is registered in
+   ADR-0005's policy list, whose startup assertion fails if a `company_id` table is not listed", and the
+   `## Schema` block never called `apply_tenant_isolation` for any of the three tables. It matters more
+   than it reads: `unprotected_tenant_tables()` keys on the **column's existence**, not on its `NOT NULL`,
+   so adding a nullable `company_id` in step 2 and arming later is a deployment that refuses to boot
+   (`TenantIsolationStartupCheck` throws). The three calls are now in `## Schema`, N9 cites them by name,
+   and step 7 runs them last.
+4. **Two statements named facts that did not hold.** Decision 4 gave the period's source as
+   "(`order_date`, `order_date`)"; decision 7 pinned `doc_type` to `status_transition.document_type` of
+   ADR-0004 — a table that does not exist, in an ADR that is still `proposed`. The vocabulary is now a
+   spelling contract this ADR fixes first: accepting it neither waits for 0004 nor accepts it.
+
+The reordering is itself a correction and was caught by re-reading the steps against the `## Schema`
+block: putting `doc_number NOT NULL` before the render is unexecutable, because `ck_*_doc_identity`
+requires the three columns together or none. The order is now **write → read → stop writing → drop**,
+the same order ADR-0001's acceptance had to fix.
+
+One consequence the first draft did not name is now recorded as a cost: `sales_orders` and
+`goods_receipts` become tenant tables for the first time, so arming them changes **who can read them**,
+not only how numbers are assigned.
+
+The new SQL was not executed: no runner is authorized, so it is read-verified, not observed. The claims
+it rests on are read from migrations that already do the same thing (`V54`, `V55`, `V57`) and from the
+code that runs the assertion at every boot (`TenantIsolationStartupCheck`).
