@@ -23,7 +23,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
  *
  * <p>The machinery landed in T2, before anything was armed, because a policy without a scope reads zero
  * rows everywhere. {@code V53} (T5c) is the migration that applies it, so this class now asserts the
- * <b>armed</b> state on the two points that flipped: the list is the seventeen rows the migrations wrote,
+ * <b>armed</b> state on the two points that flipped: the list is the twenty-two rows the migrations wrote,
  * and the assertion query that listed the unprotected tables returns nothing. The rest of the class is
  * unchanged, and still proves the helper on probe tables inside transactions it rolls back — the only
  * place its three kinds can be exercised without touching a table the whole suite shares.</p>
@@ -32,13 +32,14 @@ import org.springframework.jdbc.core.JdbcTemplate;
  *
  * <ul>
  *   <li>{@code unprotectedTenantTablesReturnsNothingOnceThePoliciesAreArmed} and
- *       {@code theListHoldsExactlyTheSeventeenArmedTables} are the same pin T2 wrote, from the other side.
+ *       {@code theListHoldsExactlyTheTwentyTwoArmedTables} are the same pin T2 wrote, from the other side.
  *       S2 decided the policy set is «solo las 15 tablas que ya tienen company_id», and {@code companies}
  *       — which carries no {@code company_id} and is isolated by its own {@code id} — is the sixteenth.
  *       The seventeenth is {@code variant_listing}, which {@code V58} arms in the migration that creates it
- *       (ADR-0006 decision 5). An eighteenth table that gains the column shows up in the assertion instead
- *       of being silently unprotected, and a wrong kind or key on an armed table shows up in the list
- *       instead of filtering the wrong column.</li>
+ *       (ADR-0006 decision 5), and the five after it are ADR-0001's stock ledger, which {@code V60} arms in
+ *       the migration that creates them. A twenty-third table that gains the column shows up in the
+ *       assertion instead of being silently unprotected, and a wrong kind or key on an armed table shows up
+ *       in the list instead of filtering the wrong column.</li>
  *   <li>{@code theScopeSettingsDieWithTheTransaction} is invariant <b>T6</b>: the value is readable
  *       inside the transaction that set it and gone after the commit, so a pooled connection cannot
  *       carry one tenant into the next request.</li>
@@ -46,7 +47,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
  *
  * <p>Every test that creates anything does so inside one transaction it rolls back, in the container all
  * 64 sibling suites share: a leftover table, policy or list row would leak into them, and a leftover row
- * in {@code tenant_table} would make "the list is exactly the migrations' seventeen rows" false for the
+ * in {@code tenant_table} would make "the list is exactly the migrations' twenty-two rows" false for the
  * next reader of this suite. The probe tables are generated from a lower-case alphabet, so no identifier
  * here needs quoting.</p>
  */
@@ -73,11 +74,12 @@ class TenantScopeFunctionsIntegrationTest extends AbstractPostgresIntegrationTes
             "user_preferences");
 
     /**
-     * The seventeen armed rows of {@code V53} and {@code V58}, as {@code table:kind:key}, frozen literally for
-     * the same reason as {@link #S2_TENANT_TABLES}: the kind and the key column <b>are</b> the predicate, so an
-     * armed table with the wrong one is a policy that filters the wrong thing — and it passes any
-     * assertion that only counts rows. Seventeen and not fifteen because {@code companies} is the root,
-     * isolated by its own {@code id}, and {@code variant_listing} is the one {@code V58} arms.
+     * The twenty-two armed rows of {@code V53}, {@code V58} and {@code V60}, as {@code table:kind:key}, frozen
+     * literally for the same reason as {@link #S2_TENANT_TABLES}: the kind and the key column <b>are</b> the
+     * predicate, so an armed table with the wrong one is a policy that filters the wrong thing — and it passes
+     * any assertion that only counts rows. Twenty-two and not fifteen because {@code companies} is the root,
+     * isolated by its own {@code id}, {@code variant_listing} is the one {@code V58} arms, and the five
+     * {@code stock_*} tables are the ones {@code V60} arms.
      */
     private static final List<String> ARMED_TENANT_TABLES = List.of(
             "companies:tenant:id",
@@ -94,6 +96,11 @@ class TenantScopeFunctionsIntegrationTest extends AbstractPostgresIntegrationTes
             "product_variants:tenant:company_id",
             "products:tenant:company_id",
             "purchase_orders:tenant:company_id",
+            "stock_allocation:tenant:company_id",
+            "stock_balance:tenant:company_id",
+            "stock_movement:tenant:company_id",
+            "stock_position:tenant:company_id",
+            "stock_valuation:tenant:company_id",
             "suppliers:tenant:company_id",
             "user_preferences:subject:keycloak_user_id",
             "variant_listing:tenant:company_id");
@@ -186,12 +193,12 @@ class TenantScopeFunctionsIntegrationTest extends AbstractPostgresIntegrationTes
     }
 
     // ──────────────────────────────────────
-    // The list: the seventeen armed rows, and closed to a fourth kind
+    // The list: the twenty-two armed rows, and closed to a fourth kind
     // ──────────────────────────────────────
 
     @Test
-    @DisplayName("the list holds exactly the seventeen armed tables, with their kind and their key")
-    void theListHoldsExactlyTheSeventeenArmedTables() {
+    @DisplayName("the list holds exactly the twenty-two armed tables, with their kind and their key")
+    void theListHoldsExactlyTheTwentyTwoArmedTables() {
         var rows = jdbcTemplate.queryForList("""
                 SELECT table_name::text || ':' || policy_kind || ':' || key_column
                   FROM tenant_table
@@ -229,7 +236,7 @@ class TenantScopeFunctionsIntegrationTest extends AbstractPostgresIntegrationTes
     // ──────────────────────────────────────
 
     @Test
-    @DisplayName("unprotected_tenant_tables() returns nothing: the frozen fifteen are the armed seventeen")
+    @DisplayName("unprotected_tenant_tables() returns nothing: the frozen fifteen are the armed twenty-two")
     void unprotectedTenantTablesReturnsNothingOnceThePoliciesAreArmed() {
         var unprotected = jdbcTemplate.queryForList("SELECT t::text FROM unprotected_tenant_tables() t", String.class);
 
@@ -242,9 +249,10 @@ class TenantScopeFunctionsIntegrationTest extends AbstractPostgresIntegrationTes
                 .isEmpty();
         assertThat(armedTables())
                 .as("the flip stated as the fact that changed: the frozen fifteen are armed, the sixteenth "
-                        + "is the root, and the seventeenth is variant_listing, armed by V58")
+                        + "is the root, the seventeenth is variant_listing (armed by V58) and the five after "
+                        + "it are ADR-0001's stock ledger (armed by V60)")
                 .containsAll(S2_TENANT_TABLES)
-                .hasSize(S2_TENANT_TABLES.size() + 2);
+                .hasSize(S2_TENANT_TABLES.size() + 7);
     }
 
     // ──────────────────────────────────────
@@ -519,8 +527,8 @@ class TenantScopeFunctionsIntegrationTest extends AbstractPostgresIntegrationTes
                         probe))
                 .isZero();
         assertThat(countOfTenantTableRows(connection))
-                .as("and writes no list row: the list is unchanged, not empty — the migrations' seventeen rows "
-                        + "are theirs and this call added none")
+                .as("and writes no list row: the list is unchanged, not empty — the migrations' twenty-two "
+                        + "rows are theirs and this call added none")
                 .isEqualTo(before);
     }
 
