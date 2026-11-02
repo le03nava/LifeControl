@@ -18,6 +18,7 @@ import com.lifecontrol.api.company.repository.CompanyRegionRepository;
 import com.lifecontrol.api.company.repository.CompanyRepository;
 import com.lifecontrol.api.company.repository.CompanyZoneRepository;
 import com.lifecontrol.api.country.repository.CountryRepository;
+import com.lifecontrol.api.measureunit.repository.MeasureUnitRepository;
 import com.lifecontrol.api.paymentmethod.model.PaymentMethod;
 import com.lifecontrol.api.paymentmethod.repository.PaymentMethodRepository;
 import com.lifecontrol.api.product.model.Product;
@@ -93,6 +94,9 @@ class PurchaseOrderDetailVariantIntegrationTest extends AbstractPostgresIntegrat
 
     @Autowired
     private ProductVariantRepository productVariantRepository;
+
+    @Autowired
+    private MeasureUnitRepository measureUnitRepository;
 
     @Autowired
     private ProductVariantStoreStockRepository productVariantStoreStockRepository;
@@ -264,13 +268,32 @@ class PurchaseOrderDetailVariantIntegrationTest extends AbstractPostgresIntegrat
                 .jwt(builder -> builder.claim("preferred_username", "admin").claim("company_id", companyId.toString()));
     }
 
+    /**
+     * A real {@code measure_units} row: {@code V3} seeds "Pieza" as {@code H87}. The unit is required
+     * since ADR-0006 decision 3 ({@code V55}), and a random uuid would be refused by the foreign key —
+     * which would make the fixture fail for a reason that says nothing about the rule under test.
+     */
+    private UUID pieceUnitId() {
+        return measureUnitRepository.findBySatCode("H87").orElseThrow().getId();
+    }
+
     private Product createProduct() {
+        return createProduct("SIMPLE");
+    }
+
+    /**
+     * A product that states its mode. {@code MULTI} is what a case needs before it adds a second variant:
+     * since ADR-0006 decision 4's trigger (V56), a {@code SIMPLE} product refuses one, and the case is
+     * then refused for a reason that says nothing about what it asserts.
+     */
+    private Product createProduct(String variantMode) {
         return TenantFixtures.inTenant(
                 companyId,
                 () -> productRepository.save(Product.builder()
                         .sku("PO-SKU-" + UUID.randomUUID().toString().substring(0, 12))
                         .name("PO Receipt Product")
                         .company(companyRepository.findById(companyId).orElseThrow())
+                        .variantMode(variantMode)
                         .enabled(true)
                         .build()));
     }
@@ -280,6 +303,7 @@ class PurchaseOrderDetailVariantIntegrationTest extends AbstractPostgresIntegrat
             var variant = new ProductVariant();
             variant.setProductId(productId);
             variant.setCompanyId(companyId);
+            variant.setMeasureUnitId(pieceUnitId());
             variant.setBarCode("PO-BAR-" + UUID.randomUUID().toString().substring(0, 12));
             variant.setVariantName("Variant-" + UUID.randomUUID().toString().substring(0, 8));
             variant.setEnabled(true);
@@ -1041,7 +1065,9 @@ class PurchaseOrderDetailVariantIntegrationTest extends AbstractPostgresIntegrat
         @Test
         @DisplayName("should advance lines and promote the header using the seeded status names")
         void receptionFlowAdvancesLinesAndPromotesHeader() throws Exception {
-            var product = createProduct();
+            // Two variants, so the article is a family: a SIMPLE product refuses the second one
+            // (ADR-0006 decision 4, V56) and this case is about the reception state machine.
+            var product = createProduct("MULTI");
             var variantA = createVariant(product.getId(), storeId);
             var variantB = createVariant(product.getId(), storeId);
             var purchaseOrderId = createEmptyPurchaseOrder();

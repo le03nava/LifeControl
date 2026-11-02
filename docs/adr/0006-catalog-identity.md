@@ -1,7 +1,14 @@
 # ADR 0006 — Catalog identity: one variant minimum, a unit, and price apart from stock
 
-- **Status**: proposed
+- **Status**: accepted
 - **Date**: 2026-10-29
+- **Accepted**: 2026-11-01, by the maintainer, in the session that opened
+  `odd/tasks/catalog-identity.md`. Two facts this ADR states were confirmed against the tree at
+  acceptance and are recorded here rather than applied: the `## Schema` block references
+  `currency (code)` and `tax_rate (id)`, which no migration in the tree provides — both belong to
+  ADR-0002 (`currency` to its T1, `tax_rate` to its T4) — so the listing slice sequences after that
+  catalog exists, and `## Depends on` below still names only ADR-0005. The `variant_mode`, measure-unit
+  and barcode decisions of this ADR are independent of both and carry no such constraint.
 - **Decision id**: D6 of `odd/tasks/architecture-redesign-adrs.md`
 - **Depends on**: ADR-0005 (policies on `products`, `product_variants`, `variant_listing`)
 - **Blocks**: ADR-0001 (the ledger's key is the variant; the listing is the price half of a sale)

@@ -14,6 +14,7 @@ import com.lifecontrol.api.company.repository.CompanyRegionRepository;
 import com.lifecontrol.api.company.repository.CompanyRepository;
 import com.lifecontrol.api.company.repository.CompanyZoneRepository;
 import com.lifecontrol.api.country.repository.CountryRepository;
+import com.lifecontrol.api.measureunit.repository.MeasureUnitRepository;
 import com.lifecontrol.api.product.model.Product;
 import com.lifecontrol.api.product.model.ProductVariant;
 import com.lifecontrol.api.product.model.ProductVariantStoreStock;
@@ -87,6 +88,9 @@ class VariantSearchCompanyScopeIntegrationTest extends AbstractPostgresIntegrati
 
     @Autowired
     private ProductVariantRepository productVariantRepository;
+
+    @Autowired
+    private MeasureUnitRepository measureUnitRepository;
 
     @Autowired
     private ProductVariantStoreStockRepository productVariantStoreStockRepository;
@@ -261,12 +265,22 @@ class VariantSearchCompanyScopeIntegrationTest extends AbstractPostgresIntegrati
     }
 
     /** A variant of {@code ownerId}: {@code product_variants} is armed for the insert. */
+    /**
+     * A real {@code measure_units} row: {@code V3} seeds "Pieza" as {@code H87}. The unit is required
+     * since ADR-0006 decision 3 ({@code V55}), and a random uuid would be refused by the foreign key —
+     * which would make the fixture fail for a reason that says nothing about the rule under test.
+     */
+    private UUID pieceUnitId() {
+        return measureUnitRepository.findBySatCode("H87").orElseThrow().getId();
+    }
+
     private UUID createVariant(UUID targetProductId, UUID ownerId, UUID companyStoreId, String variantName) {
         var variant = TenantFixtures.inTenant(
                 ownerId,
                 () -> productVariantRepository.save(ProductVariant.builder()
                         .productId(targetProductId)
                         .companyId(ownerId)
+                        .measureUnitId(pieceUnitId())
                         .barCode("VSCS-BAR-" + UUID.randomUUID().toString().substring(0, 12))
                         .variantName(PREFIX + " " + variantName)
                         .enabled(true)

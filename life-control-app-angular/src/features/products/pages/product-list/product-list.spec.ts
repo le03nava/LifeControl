@@ -45,6 +45,7 @@ describe('ProductList', () => {
       createdAt: '',
       updatedAt: '',
       companyId,
+      variantMode: 'SIMPLE',
     },
     {
       id: '2',
@@ -54,6 +55,7 @@ describe('ProductList', () => {
       createdAt: '',
       updatedAt: '',
       companyId,
+      variantMode: 'SIMPLE',
     },
     {
       id: '3',
@@ -63,6 +65,7 @@ describe('ProductList', () => {
       createdAt: '',
       updatedAt: '',
       companyId,
+      variantMode: 'SIMPLE',
     },
   ];
 

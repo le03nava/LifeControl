@@ -41,6 +41,18 @@ END $$;
 
 ALTER ROLE lifecontrol_app PASSWORD 'lifecontrol_app';
 
+-- WHY THE OWNER ALSO CARRIES ONE
+-- ---------------------------------
+-- `CatalogVariantIdentityMigrationIntegrationTest` migrates its own scratch database as
+-- `lifecontrol_owner`, and for a reason no other suite needs: `V52` calls `ENABLE` **and `FORCE`** on
+-- every table it arms, and `FORCE` is what makes a policy apply to the table's **owner** — the role
+-- Flyway runs as in delivery. The container's own user is a superuser, which bypasses the policies
+-- whatever they say, so a migration asserted under it would report a tenant backfill working while
+-- delivery's `NOSUPERUSER` owner matched zero rows in silence. A scratch-database suite can only reach
+-- that role by logging in as it, and a login takes a password. Same throwaway literal, same reasoning
+-- as the line above.
+ALTER ROLE lifecontrol_owner PASSWORD 'lifecontrol_owner';
+
 -- WHY THE APPLICATION ROLE MAY CREATE IN `public` HERE, AND MUST NOT IN DELIVERY
 -- ----------------------------------------------------------------------------
 -- Three suites own the DDL they assert on: `TenantScopeFunctionsIntegrationTest` and

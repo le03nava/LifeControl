@@ -23,6 +23,7 @@ describe('ProductService', () => {
     createdAt: '',
     updatedAt: '',
     companyId,
+    variantMode: 'SIMPLE',
   };
 
   beforeEach(() => {

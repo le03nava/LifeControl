@@ -18,10 +18,9 @@ import { MatSelectModule } from '@angular/material/select';
  * definition request does not carry it and re-enabling is a list-page action, and the
  * owning product travels in the route, never in the body.
  *
- * `measureUnitId` is nullable on purpose: `null` means **no unit declared**, which is
- * the behavior every variant had before the relation existed (S1). It carries no
- * validator, so an empty selection is a valid, deliberate answer rather than an
- * incomplete form.
+ * `measureUnitId` is nullable on the control because a `mat-select` starts empty, but it is **not**
+ * optional: ADR-0006 decision 3 makes the unit required, and the dialog applies the validator (the
+ * form is presentational and does not own the rules of the entity it edits).
  */
 export interface ProductVariantControl {
   barCode: FormControl<string>;
@@ -39,7 +38,12 @@ export interface ProductVariantControl {
  *
  * `measureUnits` is the catalog the host loaded, offered whole: this component never
  * filters it, so a variant can be counted in any enabled unit the catalog holds (S4).
- * The first option clears the selection to `null`, which is why the field is optional.
+ * There is no "no unit" option: decision 3 makes the unit required, so the empty
+ * selection is the placeholder of an unfinished field and not an answer.
+ *
+ * `barcodeRequired` is the product's mode, resolved by the host (decision 4: required for
+ * `MULTI`, optional for `SIMPLE`). It only changes the copy — the validator lives on the
+ * control the host built, so the two can never disagree about whether the form is valid.
  *
  * `serverErrors` are keyed by control name; the backend field errors are applied
  * to the matching control exactly as `companies-form` does. The 409 collision is
@@ -80,6 +84,14 @@ export class ProductVariantForm {
    * read failed, which leaves only the "Sin unidad" option — never a broken control.
    */
   measureUnits = input<MeasureUnit[]>([]);
+
+  /**
+   * Whether this variant must carry a barcode (ADR-0006 decision 4), decided by the product's mode.
+   *
+   * Defaults to `true` — the stricter answer — so a host that has not resolved the mode cannot present
+   * the field as optional for a product that may be `MULTI`.
+   */
+  barcodeRequired = input<boolean>(true);
 
   /**
    * The variant-level attribute field-set, built by the dialog from the category's profile.
@@ -222,8 +234,11 @@ export class ProductVariantForm {
   private toRequest(): ProductVariantRequest {
     const raw = this.formGroup().getRawValue();
     const definitions = this.attributeDefinitions();
+    const barCode = raw.barCode.trim();
     const request: ProductVariantRequest = {
-      barCode: raw.barCode,
+      // Decision 4: `null` is "this variant has no barcode", which is legal only for a `SIMPLE`
+      // product — and it is the honest wire value, not an invented empty string.
+      barCode: barCode === '' ? null : barCode,
       variantName: raw.variantName,
       measureUnitId: raw.measureUnitId ?? null,
     };

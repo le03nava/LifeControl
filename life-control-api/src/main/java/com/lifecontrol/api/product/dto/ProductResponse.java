@@ -23,6 +23,12 @@ import java.util.UUID;
  * <p>The category's own {@code satCode} is deliberately <b>not</b> here: the product's {@code satCode}
  * is a suggestion the operator accepted or edited, so the value that belongs in a response is the one
  * actually stored on the product.</p>
+ *
+ * <p>{@code variantMode} is ADR-0006 decision 1: {@code SIMPLE} for the single-variant article,
+ * {@code MULTI} for the family. It is reported because the client's own behaviour now depends on it — the
+ * Angular form decides with it whether the barcode of a variant is required (decision 4) — and because a
+ * reader of the catalog has to be able to tell what the creation wrote without re-deriving it from the
+ * variant count, which is a different fact (a {@code MULTI} product with one variant is legal).</p>
  */
 public record ProductResponse(
         UUID id,
@@ -37,4 +43,5 @@ public record ProductResponse(
         LocalDateTime updatedAt,
         UUID categoryId,
         UUID categoryCompanyId,
-        UUID companyId) {}
+        UUID companyId,
+        String variantMode) {}

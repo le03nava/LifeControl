@@ -142,6 +142,129 @@
       }
     }
 
+    <!--
+      ADR-0006 decision 2: the article and its variants are ONE creation, so the mode and the rows are
+      part of this form — never a step and never a dialog. `SIMPLE` collects the single variant inline
+      (no barcode required, decision 4); `MULTI` collects a list, each with its own barcode.
+
+      Create-only: the mode is stated at creation and `PUT` reads neither it nor the variants, so
+      showing them on edit would offer an edit the API ignores. The variants of an existing product
+      are managed in the `Variantes` tab, which is where this screen already sends the operator.
+    -->
+    @if (!isEditMode()) {
+      <mat-form-field appearance="outline">
+        <mat-label>Tipo de artículo</mat-label>
+        <mat-select
+          formControlName="variantMode"
+          (selectionChange)="onVariantModeChange($event.value)"
+        >
+          <mat-option value="SIMPLE">Simple — un solo artículo</mat-option>
+          <mat-option value="MULTI">Con variantes — varios artículos</mat-option>
+        </mat-select>
+        <mat-hint>
+          Simple guarda una sola variante con el producto; con variantes, cada una lleva su código
+          de barras.
+        </mat-hint>
+        @if (getErrorMessage(formGroup().controls.variantMode); as msg) {
+          <mat-error>{{ msg }}</mat-error>
+        }
+      </mat-form-field>
+
+      <div class="variant-section" formArrayName="variants">
+        <h3 class="variant-section__title">
+          @if (canAddVariant()) {
+            Variantes del artículo
+          } @else {
+            La variante del artículo
+          }
+        </h3>
+
+        @for (row of variantRows(); track row; let index = $index) {
+          <div class="variant-row" [formGroupName]="index">
+            <mat-form-field appearance="outline">
+              <mat-label>Nombre de la variante</mat-label>
+              <input
+                matInput
+                type="text"
+                formControlName="variantName"
+                maxlength="255"
+                placeholder="Ej: Talla 38"
+              />
+              @if (getErrorMessage(row.controls.variantName); as msg) {
+                <mat-error>{{ msg }}</mat-error>
+              }
+            </mat-form-field>
+
+            <mat-form-field appearance="outline">
+              <mat-label>Unidad de medida</mat-label>
+              <mat-select formControlName="measureUnitId" placeholder="— Elegir unidad —">
+                @for (unit of measureUnits(); track unit.id) {
+                  <mat-option [value]="unit.id">
+                    {{ unit.measureUnitShortName }} — {{ unit.measureUnitName }}
+                  </mat-option>
+                }
+              </mat-select>
+              @if (getErrorMessage(row.controls.measureUnitId); as msg) {
+                <mat-error>{{ msg }}</mat-error>
+              }
+            </mat-form-field>
+
+            <mat-form-field appearance="outline">
+              <mat-label>Código de barras</mat-label>
+              <input
+                matInput
+                type="text"
+                formControlName="barCode"
+                maxlength="100"
+                placeholder="Código de barras de la variante"
+              />
+              @if (!canAddVariant()) {
+                <mat-hint
+                  >Opcional: un artículo de una sola variante puede no tener código.</mat-hint
+                >
+              }
+              @if (getErrorMessage(row.controls.barCode); as msg) {
+                <mat-error>{{ msg }}</mat-error>
+              }
+            </mat-form-field>
+
+            @if (canAddVariant()) {
+              <button
+                mat-button
+                type="button"
+                class="variant-row__remove"
+                (click)="onRemoveVariant(index)"
+              >
+                <mat-icon>delete</mat-icon>
+                Quitar variante
+              </button>
+            }
+          </div>
+        }
+
+        @if (canAddVariant()) {
+          <button mat-stroked-button type="button" (click)="onAddVariant()">
+            <mat-icon>add</mat-icon>
+            Agregar variante
+          </button>
+        }
+
+        <!--
+          Where the family's refusals are said: decision 2's shape rule (the length of the list, which
+          no control owns) and the API's own `variants` / `barCode` / `measureUnitId` 400s, which the
+          host attributes by the field name each message opens with. A banner is not an option: none of
+          these can be fixed from one.
+        -->
+        @if (variantBlockError(); as error) {
+          <p class="variant-section__error" role="alert">{{ error }}</p>
+        }
+
+        @if (prunedNotice(); as notice) {
+          <p class="variant-section__notice">{{ notice }}</p>
+        }
+      </div>
+    }
+
     <div class="toggle-container">
       <mat-slide-toggle formControlName="enabled">Activo</mat-slide-toggle>
     </div>

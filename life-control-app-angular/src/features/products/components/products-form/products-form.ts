@@ -10,7 +10,13 @@ import {
   signal,
   untracked,
 } from '@angular/core';
-import { AbstractControl, FormGroup, ReactiveFormsModule } from '@angular/forms';
+import {
+  AbstractControl,
+  FormGroup,
+  NonNullableFormBuilder,
+  ReactiveFormsModule,
+  Validators,
+} from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Subscription } from 'rxjs';
 import {
@@ -18,7 +24,10 @@ import {
   ProductAttributeProfile,
   ProductControl,
   ProductFormValue,
+  ProductVariantMode,
+  ProductVariantRowControl,
 } from '../../models/product.models';
+import type { MeasureUnit, ProductVariantRequest } from '../../models/product-variant.models';
 import {
   attributeDefinitionsKey,
   attributePayload,
@@ -143,6 +152,15 @@ export class ProductsForm {
    */
   attributeProfile = input<ProductAttributeProfile | null | undefined>(undefined);
 
+  /**
+   * The enabled measure-unit catalog the inline variant rows offer, read by the host.
+   *
+   * The form owns no HTTP (the same reason the dialog reads the catalog itself): every row's unit
+   * select is built from this input, and an empty list only means the read has not answered yet — the
+   * unit stays required either way, because decision 3 is the API's rule and not the catalog's answer.
+   */
+  measureUnits = input<MeasureUnit[]>([]);
+
   readonly defaultErrorMessages: Record<string, (error: unknown) => string> = {
     required: () => 'Este campo es obligatorio.',
     minlength: (err) =>
@@ -168,6 +186,8 @@ export class ProductsForm {
   });
 
   private readonly destroyRef = inject(DestroyRef);
+
+  private readonly fb = inject(NonNullableFormBuilder);
 
   /** Where the value currently in the SAT input came from, or `null` when it did not come from one. */
   private readonly satCodeSource = signal<string | null>(null);
@@ -269,6 +289,88 @@ export class ProductsForm {
   private appliedAttributeForm: FormGroup<ProductControl> | null = null;
   private attributeSubscription: Subscription | null = null;
 
+  // ─── The article and its variants (ADR-0006 decisions 2 and 4) ──────────────
+
+  /**
+   * The mode currently selected, mirrored from its control.
+   *
+   * `mat-select` and the `@if` that picks one row or a list are rendered from this: a control value is
+   * a plain property, so a `computed` cannot react to it, and the mirror is written from the two
+   * places that can change the mode — the select's own handler and the host's seed (edit mode).
+   */
+  private readonly modeState = signal<ProductVariantMode>('SIMPLE');
+  readonly variantMode = this.modeState.asReadonly();
+
+  /** The row groups rendered inline, mirrored from the `variants` array for the same reason. */
+  private readonly rowsState = signal<FormGroup<ProductVariantRowControl>[]>([]);
+  readonly variantRows = this.rowsState.asReadonly();
+
+  /**
+   * How many rows the switch back to `SIMPLE` removed, so the form can say it instead of implying it.
+   *
+   * `SIMPLE` means exactly one variant (decision 2), so the rows beyond the first cannot survive the
+   * switch — and dropping stored input without a sentence is the one thing this screen does not do
+   * with a set the operator typed.
+   */
+  private readonly prunedState = signal(0);
+
+  /** The sentence that states how many rows the switch dropped, or `null` when it dropped none. */
+  readonly prunedNotice = computed<string | null>(() => {
+    const count = this.prunedState();
+    if (count === 0) {
+      return null;
+    }
+    return count === 1
+      ? 'Se quitó 1 variante al pasar a un artículo simple, que guarda una sola.'
+      : `Se quitaron ${count} variantes al pasar a un artículo simple, que guarda una sola.`;
+  });
+
+  /** `MULTI` is the only mode with an "add" affordance: `SIMPLE` is one row, full stop. */
+  readonly canAddVariant = computed(() => this.variantMode() === 'MULTI');
+
+  /**
+   * The shape rule of decision 2 a save would break, or `null` when the rows match the mode.
+   *
+   * It is a rule and not a validator, so it is stated as soon as it is true instead of after a save:
+   * a `MULTI` product with every row removed is a product the API answers `400 variants is required`
+   * for, and the screen can say the same thing without spending the request. The `SIMPLE` half is the
+   * mirror of that refusal (`400 variantMode ... requires exactly one variant`).
+   */
+  readonly variantCountProblem = computed<string | null>(() => {
+    const rows = this.variantRows().length;
+    if (this.variantMode() === 'MULTI') {
+      return rows === 0 ? 'Un producto con variantes necesita al menos una variante.' : null;
+    }
+    return rows > 1
+      ? 'Un producto simple admite exactamente una variante: quitá las variantes de más o cambiá el modo.'
+      : null;
+  });
+
+  /**
+   * The field errors the API's creation refusals name, where they belong — under the variant block.
+   *
+   * `variants`, `barCode` and `measureUnitId` are about the family, not about one labeled input of the
+   * article, and `variantMode` already has its own control: routing the first three here is what keeps
+   * them out of the generic banner without inventing which row the server meant.
+   */
+  readonly variantBlockError = computed<string | null>(() => {
+    const problem = this.variantCountProblem();
+    if (problem !== null) {
+      return problem;
+    }
+    const errors = this.serverErrors();
+    return errors['variants'] ?? errors['barCode'] ?? errors['measureUnitId'] ?? null;
+  });
+
+  /**
+   * The server-error keys this form renders in the variant block instead of on a control.
+   *
+   * They are named here because the generic routing below matches a control by key: without this
+   * exemption a `barCode` refusal would warn about a missing control and then be dropped, which is the
+   * generic-banner outcome the field attribution exists to avoid.
+   */
+  private static readonly VARIANT_BLOCK_ERROR_KEYS = ['variants', 'barCode', 'measureUnitId'];
+
   protected getErrorMessage(
     control: AbstractControl | null,
     customMessages?: Record<string, (error: unknown) => string>,
@@ -300,6 +402,10 @@ export class ProductsForm {
       const subscriptions: Subscription[] = [];
 
       Object.entries(serverErrors).forEach(([key, message]) => {
+        if (ProductsForm.VARIANT_BLOCK_ERROR_KEYS.includes(key)) {
+          // Rendered by `variantBlockError()`; there is no control of this name to attach it to.
+          return;
+        }
         const control = fg.get(key);
         if (control) {
           const currentErrors = control.errors || {};
@@ -373,6 +479,37 @@ export class ProductsForm {
       });
       onCleanup(() => sub.unsubscribe());
     });
+
+    // ADR-0006 decision 2: the rows follow the mode, and the mode is the one the form states. Seeding
+    // happens here and not in the host because the validators depend on the mode — a host that built
+    // a row itself could build one whose barcode requirement contradicts the article it belongs to.
+    //
+    // On **edit** the rows are cleared instead: `PUT` reads neither the mode nor the variants, the mode
+    // is a creation fact (decision 1) and the variants of an existing product are managed in the
+    // `Variantes` tab, so a required row here would block saving the article for a set it does not own.
+    effect(() => {
+      const fg = this.formGroup();
+      const editing = this.isEditMode();
+      untracked(() => {
+        this.modeState.set(fg.controls.variantMode.value);
+        if (editing) {
+          this.clearRows();
+          return;
+        }
+        if (fg.controls.variants.length === 0) {
+          this.addRow();
+        }
+        this.applyBarcodeRequirement();
+      });
+    });
+
+    // The rendered rows follow the array itself, so no writer can leave the list and the rendered rows
+    // disagreeing about how many variants the article has (the count is the rule of decision 2).
+    effect((onCleanup) => {
+      const array = this.formGroup().controls.variants;
+      const sub = array.valueChanges.subscribe(() => this.syncRows());
+      onCleanup(() => sub.unsubscribe());
+    });
   }
 
   onCompanyChange(companyId: string | null): void {
@@ -430,6 +567,13 @@ export class ProductsForm {
       this.formGroup().controls.attributes.setValue(projected);
     }
 
+    // Decision 2's shape rule, refused before the generic validity gate and before the request: no
+    // control owns the array's length, and the API refuses the same two shapes with a 400 naming
+    // `variants` and `variantMode`. The message is already on screen from `variantBlockError()`.
+    if (!this.isEditMode() && this.variantCountProblem() !== null) {
+      return;
+    }
+
     if (this.formGroup().valid && attributeForm.valid) {
       const raw = this.formGroup().getRawValue();
 
@@ -453,9 +597,152 @@ export class ProductsForm {
         enabled: raw.enabled ?? true,
         // The persisted classification is the deepest selected node, `null` when none is (S3).
         categoryId: raw.categoryId === '' ? null : raw.categoryId,
+        // Decision 1: the article's mode, which the creation states and the update never moves.
+        variantMode: raw.variantMode,
+        // Decision 2: the family travels WITH the article — one row for `SIMPLE`, every row for
+        // `MULTI` — and on edit the list is empty because `PUT` ignores it.
+        variants: this.isEditMode() ? [] : this.variantRequests(),
       };
       this.saveProduct.emit(productData);
     }
+  }
+
+  /**
+   * Applies a mode pick: the article and its rows cannot disagree (decision 2).
+   *
+   * `SIMPLE` means exactly one variant, so the rows beyond the first cannot stay — the operator chose a
+   * shape whose whole point is one article, and the count of dropped rows is reported so the removal is
+   * said out loud ({@link prunedVariants}).
+   */
+  onVariantModeChange(value: string | null): void {
+    const mode: ProductVariantMode = value === 'MULTI' ? 'MULTI' : 'SIMPLE';
+    this.formGroup().controls.variantMode.setValue(mode);
+    this.modeState.set(mode);
+    this.prunedState.set(0);
+
+    if (mode === 'SIMPLE') {
+      this.pruneToSingleRow();
+    } else if (this.variantRows().length === 0) {
+      this.addRow();
+    }
+    this.applyBarcodeRequirement();
+  }
+
+  /** Adds a variant row; `MULTI`-only, because a `SIMPLE` article has one variant by definition. */
+  onAddVariant(): void {
+    if (!this.canAddVariant()) {
+      return;
+    }
+    this.prunedState.set(0);
+    this.addRow();
+  }
+
+  /**
+   * Removes one row.
+   *
+   * `SIMPLE` keeps its single row — there is no article without it — while `MULTI` may be emptied: the
+   * refusal it produces is a sentence on screen plus the button that fixes it, which is the only shape
+   * in which "none is refused" is something the operator can act on.
+   */
+  onRemoveVariant(index: number): void {
+    const rows = this.variantRows();
+    if (rows.length <= 1 && !this.canAddVariant()) {
+      return;
+    }
+    this.formGroup().controls.variants.removeAt(index, { emitEvent: false });
+    this.syncRows();
+  }
+
+  /** The variant rows in the shape the variant endpoint takes, one per visible row. */
+  private variantRequests(): ProductVariantRequest[] {
+    return this.variantRows().map((row) => {
+      const raw = row.getRawValue();
+      const barCode = raw.barCode.trim();
+      return {
+        // An empty barcode is sent as `null`, never as `''`: decision 4 makes it optional for a
+        // `SIMPLE` product, and the API stores "no barcode" as the absence of one.
+        barCode: barCode === '' ? null : barCode,
+        variantName: raw.variantName.trim(),
+        measureUnitId: raw.measureUnitId,
+      };
+    });
+  }
+
+  private addRow(): void {
+    const row = this.createRow(this.modeState());
+    this.formGroup().controls.variants.push(row, { emitEvent: false });
+    this.syncRows();
+  }
+
+  private clearRows(): void {
+    const array = this.formGroup().controls.variants;
+    if (array.length > 0) {
+      array.clear({ emitEvent: false });
+    }
+    this.syncRows();
+    this.prunedState.set(0);
+  }
+
+  private pruneToSingleRow(): void {
+    const array = this.formGroup().controls.variants;
+    if (array.length === 0) {
+      this.addRow();
+      return;
+    }
+    const removed = array.length - 1;
+    while (array.length > 1) {
+      array.removeAt(array.length - 1, { emitEvent: false });
+    }
+    this.syncRows();
+    if (removed > 0) {
+      this.prunedState.set(removed);
+    }
+  }
+
+  /**
+   * Rebuilds the rendered rows from the array, and only when its length moved.
+   *
+   * The array is the authority: this keeps the mirror honest even when a row is pushed by someone other
+   * than {@link addRow}, and it re-writes the signal only on a count change so typing inside a row does
+   * not rebuild the list under the operator's hands (`valueChanges` of a `FormArray` also fires for a
+   * child's value).
+   */
+  private syncRows(): void {
+    const controls = this.formGroup().controls.variants
+      .controls as FormGroup<ProductVariantRowControl>[];
+    if (controls.length !== this.rowsState().length) {
+      this.rowsState.set([...controls]);
+    }
+  }
+
+  private createRow(mode: ProductVariantMode): FormGroup<ProductVariantRowControl> {
+    return this.fb.group<ProductVariantRowControl>({
+      barCode: this.fb.control('', ProductsForm.barcodeValidators(mode)),
+      variantName: this.fb.control('', [Validators.required, Validators.maxLength(255)]),
+      // Decision 3: the unit is required, always and for both modes.
+      measureUnitId: this.fb.control<string | null>(null, Validators.required),
+    });
+  }
+
+  /**
+   * Rewrites the barcode requirement of every row from the current mode (decision 4).
+   *
+   * A validator and not a template check, so `formGroup().valid` already knows: a `MULTI` row without
+   * a barcode cannot be submitted at all, and a `SIMPLE` one is legal without it.
+   */
+  private applyBarcodeRequirement(): void {
+    const validators = ProductsForm.barcodeValidators(this.modeState());
+    this.variantRows().forEach((row) => {
+      const control = row.controls.barCode;
+      control.setValidators(validators);
+      control.updateValueAndValidity({ emitEvent: false });
+    });
+  }
+
+  private static barcodeValidators(mode: ProductVariantMode) {
+    return mode === 'MULTI'
+      ? [Validators.required, Validators.maxLength(100)]
+      : [Validators.maxLength(100)];
   }
 
   onCancel(): void {

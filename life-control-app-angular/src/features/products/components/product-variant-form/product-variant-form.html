@@ -9,6 +9,11 @@
         placeholder="Ingrese el código de barras"
         maxlength="100"
       />
+      @if (!barcodeRequired()) {
+        <mat-hint>
+          Opcional: una variante de un producto simple puede no tener código de barras.
+        </mat-hint>
+      }
       @if (getErrorMessage(formGroup().controls.barCode); as msg) {
         <mat-error>{{ msg }}</mat-error>
       }
@@ -30,19 +35,22 @@
 
     <!--
       Every unit the catalog returned, with no filter by `unitType` or by the product's
-      `productType` (S4). The first option clears the field to `null`, which is a valid
-      answer: a variant with no unit declared keeps working as it did before the relation.
+      `productType` (S4). There is no "Sin unidad" option: ADR-0006 decision 3 makes the unit
+      required, so an empty selection is an unfinished field — the host's validator says so. The
+      placeholder is the only "nothing chosen" state there is.
     -->
     <mat-form-field appearance="outline">
       <mat-label>Unidad de medida</mat-label>
-      <mat-select formControlName="measureUnitId" placeholder="Sin unidad">
-        <mat-option [value]="null">Sin unidad</mat-option>
+      <mat-select formControlName="measureUnitId" placeholder="— Elegir unidad —">
         @for (unit of measureUnits(); track unit.id) {
           <mat-option [value]="unit.id">
             {{ unit.measureUnitShortName }} — {{ unit.measureUnitName }}
           </mat-option>
         }
       </mat-select>
+      @if (getErrorMessage(formGroup().controls.measureUnitId); as msg) {
+        <mat-error>{{ msg }}</mat-error>
+      }
     </mat-form-field>
 
     <!--

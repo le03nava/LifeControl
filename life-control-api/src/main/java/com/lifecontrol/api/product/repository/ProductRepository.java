@@ -75,4 +75,27 @@ public interface ProductRepository extends JpaRepository<Product, UUID> {
         """)
     Page<Product> findByCompanyIdAndSearchTerm(
             @Param("companyId") UUID companyId, @Param("search") String search, Pageable pageable);
+
+    /**
+     * C1's audit: how many products of the company have no variant at all.
+     *
+     * <p>ADR-0006 states the invariant in two halves — "a product has at least one variant", enforced by the
+     * creation transaction, and "a delete that would leave zero is refused by the write path and counted by a
+     * query". This is the query half: the refusal lives in
+     * {@code ProductVariantService#deleteVariant}, and without a read that asks the question of the whole
+     * catalog, nothing would tell an operator whether the invariant already holds. It is deliberately
+     * {@code NOT EXISTS} over the rows and not a count of the <b>enabled</b> ones: C1 is about the family
+     * existing, while the delete guard refuses on the live subset, and collapsing the two would make the audit
+     * report a state the schema does not actually forbid.</p>
+     *
+     * <p>The company is a predicate because the count is meaningful per tenant — the response is
+     * company-scoped everywhere else, and an unscoped total would answer a question no operator asks.</p>
+     */
+    @Query("""
+        SELECT COUNT(p)
+        FROM Product p
+        WHERE p.company.id = :companyId
+          AND NOT EXISTS (SELECT 1 FROM ProductVariant pv WHERE pv.productId = p.id)
+        """)
+    long countProductsWithoutVariants(@Param("companyId") UUID companyId);
 }

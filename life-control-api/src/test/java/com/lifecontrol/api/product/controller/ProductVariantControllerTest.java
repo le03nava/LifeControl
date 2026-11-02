@@ -22,6 +22,7 @@ import com.lifecontrol.api.product.dto.ProductVariantStoreStockRequest;
 import com.lifecontrol.api.product.dto.ProductVariantStoreStockResponse;
 import com.lifecontrol.api.product.exception.DuplicateProductVariantException;
 import com.lifecontrol.api.product.exception.ProductVariantNotFoundException;
+import com.lifecontrol.api.product.exception.VariantRemovalWouldEmptyProductException;
 import com.lifecontrol.api.product.service.ProductService;
 import com.lifecontrol.api.product.service.ProductVariantService;
 import com.lifecontrol.api.product.supplier.service.ProductSupplierService;
@@ -79,6 +80,7 @@ class ProductVariantControllerTest {
     private UUID productId;
     private UUID variantId;
     private UUID storeId;
+    private UUID measureUnitId;
     private ProductVariantResponse testVariantResponse;
     private ProductVariantRequest testVariantRequest;
     private ProductVariantSearchResponse testSearchResponse;
@@ -103,6 +105,7 @@ class ProductVariantControllerTest {
         productId = UUID.randomUUID();
         variantId = UUID.randomUUID();
         storeId = UUID.randomUUID();
+        measureUnitId = UUID.randomUUID();
         var now = LocalDateTime.now();
 
         testVariantResponse = new ProductVariantResponse(
@@ -120,7 +123,7 @@ class ProductVariantControllerTest {
                 now,
                 null);
 
-        testVariantRequest = new ProductVariantRequest("7501234567890", "Talla M", null);
+        testVariantRequest = new ProductVariantRequest("7501234567890", "Talla M", measureUnitId);
 
         testSearchResponse = new ProductVariantSearchResponse(
                 UUID.randomUUID(),
@@ -303,8 +306,13 @@ class ProductVariantControllerTest {
                     .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.status").value(400))
                     .andExpect(jsonPath("$.message").value("Validation failed"))
-                    .andExpect(jsonPath("$.errors.barCode").exists())
                     .andExpect(jsonPath("$.errors.variantName").exists())
+                    // The unit is required too (ADR-0006 decision 3): the refusal names the field.
+                    .andExpect(jsonPath("$.errors.measureUnitId").value("measureUnitId is required"))
+                    // The barcode is NOT a request-level error any more: ADR-0006 decision 4 makes it
+                    // depend on the product's mode, which a bean-validation annotation cannot read — the
+                    // service answers 400 naming the field when the product is MULTI.
+                    .andExpect(jsonPath("$.errors.barCode").doesNotExist())
                     .andExpect(jsonPath("$.timestamp").exists());
         }
 
@@ -451,6 +459,28 @@ class ProductVariantControllerTest {
                     .andExpect(jsonPath("$.status").value(404))
                     .andExpect(jsonPath("$.message").value("Product variant not found with id: " + variantId))
                     .andExpect(jsonPath("$.timestamp").exists());
+        }
+
+        /**
+         * C1 over the wire: a product never loses its last variant, and the refusal is a <b>409</b> — the
+         * request is valid and the stored state is what refuses it, the same shape
+         * {@code MeasureUnitChangeNotAllowedException} uses.
+         */
+        @Test
+        @DisplayName("should return 409 when the variant is the product's last one")
+        void deleteVariant_LastVariant_Returns409() throws Exception {
+            doThrow(new VariantRemovalWouldEmptyProductException(productId))
+                    .when(productVariantService)
+                    .deleteVariant(companyId, productId, variantId);
+
+            mockMvc.perform(delete(
+                            "/api/companies/{companyId}/products/{productId}/variants/{variantId}",
+                            companyId,
+                            productId,
+                            variantId))
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.status").value(409))
+                    .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString(productId.toString())));
         }
     }
 

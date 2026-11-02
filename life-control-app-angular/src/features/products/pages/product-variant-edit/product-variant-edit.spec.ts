@@ -37,6 +37,7 @@ describe('ProductVariantEdit', () => {
     createdAt: '',
     updatedAt: '',
     companyId: mockCompanyId,
+    variantMode: 'SIMPLE',
   };
 
   const mockVariant: ProductVariant = {

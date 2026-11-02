@@ -27,11 +27,14 @@ import com.lifecontrol.api.product.dto.ProductVariantResponse;
 import com.lifecontrol.api.product.dto.ProductVariantSearchResponse;
 import com.lifecontrol.api.product.dto.ProductVariantStoreStockRequest;
 import com.lifecontrol.api.product.dto.ProductVariantStoreStockResponse;
+import com.lifecontrol.api.product.exception.BarcodeRequiredException;
 import com.lifecontrol.api.product.exception.DuplicateProductVariantException;
 import com.lifecontrol.api.product.exception.MeasureUnitChangeNotAllowedException;
+import com.lifecontrol.api.product.exception.MeasureUnitRequiredException;
 import com.lifecontrol.api.product.exception.MeasureUnitTypeMismatchException;
 import com.lifecontrol.api.product.exception.ProductNotFoundException;
 import com.lifecontrol.api.product.exception.ProductVariantNotFoundException;
+import com.lifecontrol.api.product.exception.VariantRemovalWouldEmptyProductException;
 import com.lifecontrol.api.product.model.Product;
 import com.lifecontrol.api.product.model.ProductVariant;
 import com.lifecontrol.api.product.model.ProductVariantStoreStock;
@@ -149,8 +152,6 @@ class ProductVariantServiceTest {
                 .updatedAt(now)
                 .build();
 
-        testVariantRequest = new ProductVariantRequest("7501234567890", "Talla M", null);
-
         // The catalog: two PRODUCT units (so a same-type unit -> unit transition is expressible) and
         // one SERVICE unit (the only one the D4 guard can contradict at the type level).
         pieceUnitId = UUID.randomUUID();
@@ -184,6 +185,10 @@ class ProductVariantServiceTest {
         companyCountryId = UUID.randomUUID();
         regionId = UUID.randomUUID();
         zoneId = UUID.randomUUID();
+
+        // Declared after the catalog, because since ADR-0006 decision 3 a variant request names a unit:
+        // the shared request the cases below reuse carries a real one.
+        testVariantRequest = new ProductVariantRequest("7501234567890", "Talla M", pieceUnitId);
 
         // The store guard derives company -> country -> region -> zone -> store from the store
         // itself, because the endpoint path carries only the store id, so the fixture must carry
@@ -601,6 +606,7 @@ class ProductVariantServiceTest {
             when(productVariantRepository.existsByProductIdAndVariantName(productId, "Talla M"))
                     .thenReturn(false);
             when(productVariantRepository.save(any(ProductVariant.class))).thenReturn(testVariant);
+            when(measureUnitRepository.findById(pieceUnitId)).thenReturn(Optional.of(pieceUnit));
 
             ProductVariantResponse result =
                     productVariantService.createVariant(companyId, productId, testVariantRequest);
@@ -627,6 +633,7 @@ class ProductVariantServiceTest {
             when(productVariantRepository.existsByProductIdAndVariantName(productId, "Talla M"))
                     .thenReturn(false);
             when(productVariantRepository.save(any(ProductVariant.class))).thenAnswer(inv -> inv.getArgument(0));
+            when(measureUnitRepository.findById(pieceUnitId)).thenReturn(Optional.of(pieceUnit));
 
             productVariantService.createVariant(companyId, productId, testVariantRequest);
 
@@ -684,6 +691,7 @@ class ProductVariantServiceTest {
             when(productVariantRepository.existsByProductIdAndVariantName(productId, "Talla M"))
                     .thenReturn(false);
             when(productVariantRepository.save(any(ProductVariant.class))).thenAnswer(inv -> inv.getArgument(0));
+            when(measureUnitRepository.findById(pieceUnitId)).thenReturn(Optional.of(pieceUnit));
 
             productVariantService.createVariant(otherCompanyId, productId, testVariantRequest);
 
@@ -705,6 +713,77 @@ class ProductVariantServiceTest {
 
             verify(productVariantRepository, never()).save(any(ProductVariant.class));
         }
+
+        /**
+         * ADR-0006 decision 4, create side: which mode the product is decides whether a barcode is
+         * required, so the answer cannot come from a bean-validation annotation on the request.
+         */
+        @Test
+        @DisplayName("should refuse a variant with no barCode when the product is MULTI")
+        void createVariant_MultiProductWithoutBarCode_IsRefused() {
+            var multiProduct = Product.builder()
+                    .id(productId)
+                    .sku("PROD-MULTI")
+                    .name("Zapato")
+                    .variantMode(Product.VARIANT_MODE_MULTI)
+                    .enabled(true)
+                    .build();
+
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(multiProduct));
+
+            assertThatThrownBy(() -> productVariantService.createVariant(
+                            companyId, productId, new ProductVariantRequest(null, "Talla 40", pieceUnitId)))
+                    .isInstanceOf(BarcodeRequiredException.class)
+                    // The message names the field: a client gets a 400 it can render, not a trigger message.
+                    .hasMessageContaining("barCode is required");
+
+            verify(productVariantRepository, never()).save(any(ProductVariant.class));
+        }
+
+        @Test
+        @DisplayName("should create a MULTI product's variant when the barCode is there")
+        void createVariant_MultiProductWithBarCode_IsCreated() {
+            var multiProduct = Product.builder()
+                    .id(productId)
+                    .sku("PROD-MULTI")
+                    .name("Zapato")
+                    .variantMode(Product.VARIANT_MODE_MULTI)
+                    .enabled(true)
+                    .build();
+
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(multiProduct));
+            when(productVariantRepository.existsByBarCodeAndCompanyId("7501234567890", companyId))
+                    .thenReturn(false);
+            when(productVariantRepository.existsByProductIdAndVariantName(productId, "Talla M"))
+                    .thenReturn(false);
+            when(productVariantRepository.save(any(ProductVariant.class))).thenAnswer(inv -> inv.getArgument(0));
+            when(measureUnitRepository.findById(pieceUnitId)).thenReturn(Optional.of(pieceUnit));
+
+            var result = productVariantService.createVariant(companyId, productId, testVariantRequest);
+
+            assertThat(result.barCode()).isEqualTo("7501234567890");
+            verify(productVariantRepository).save(argThat(variant -> "7501234567890".equals(variant.getBarCode())));
+        }
+
+        @Test
+        @DisplayName("should accept a variant with no barCode when the product is SIMPLE")
+        void createVariant_SimpleProductWithoutBarCode_IsCreated() {
+            assertThat(testProduct.getVariantMode())
+                    .as("the fixture product states no mode, so it is the single-variant article")
+                    .isEqualTo(Product.VARIANT_MODE_SIMPLE);
+
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
+            when(productVariantRepository.existsByProductIdAndVariantName(productId, "Unica"))
+                    .thenReturn(false);
+            when(productVariantRepository.save(any(ProductVariant.class))).thenAnswer(inv -> inv.getArgument(0));
+            when(measureUnitRepository.findById(pieceUnitId)).thenReturn(Optional.of(pieceUnit));
+
+            var result = productVariantService.createVariant(
+                    companyId, productId, new ProductVariantRequest(null, "Unica", pieceUnitId));
+
+            assertThat(result.barCode()).isNull();
+            verify(productVariantRepository).save(argThat(variant -> variant.getBarCode() == null));
+        }
     }
 
     // ─────────────────────────────────────────────
@@ -717,10 +796,11 @@ class ProductVariantServiceTest {
         @Test
         @DisplayName("should update the definition and return the response")
         void updateVariant_Success() {
-            var updateRequest = new ProductVariantRequest("7509876543210", "Talla L", null);
+            var updateRequest = new ProductVariantRequest("7509876543210", "Talla L", pieceUnitId);
 
             when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
             when(productVariantRepository.findById(variantId)).thenReturn(Optional.of(testVariant));
+            when(measureUnitRepository.findById(pieceUnitId)).thenReturn(Optional.of(pieceUnit));
             when(productVariantRepository.existsByBarCodeAndCompanyIdAndIdNot("7509876543210", companyId, variantId))
                     .thenReturn(false);
             when(productVariantRepository.existsByProductIdAndVariantNameAndIdNot(productId, "Talla L", variantId))
@@ -815,9 +895,13 @@ class ProductVariantServiceTest {
             when(productVariantRepository.existsByProductIdAndVariantNameAndIdNot(productId, "Talla L", variantId))
                     .thenReturn(false);
             when(productVariantRepository.save(any(ProductVariant.class))).thenAnswer(inv -> inv.getArgument(0));
+            when(measureUnitRepository.findById(pieceUnitId)).thenReturn(Optional.of(pieceUnit));
 
             productVariantService.updateVariant(
-                    companyId, productId, variantId, new ProductVariantRequest("7501234567890", "Talla L", null));
+                    companyId,
+                    productId,
+                    variantId,
+                    new ProductVariantRequest("7501234567890", "Talla L", pieceUnitId));
 
             verify(productVariantRepository, never()).existsByBarCodeAndCompanyIdAndIdNot(any(), any(), any());
         }
@@ -825,10 +909,11 @@ class ProductVariantServiceTest {
         @Test
         @DisplayName("should key the barCode gate by the company on update too")
         void updateVariant_BarCodeGateIsPerCompany() {
-            var updateRequest = new ProductVariantRequest("7509876543210", "Talla L", null);
+            var updateRequest = new ProductVariantRequest("7509876543210", "Talla L", pieceUnitId);
 
             when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
             when(productVariantRepository.findById(variantId)).thenReturn(Optional.of(testVariant));
+            when(measureUnitRepository.findById(pieceUnitId)).thenReturn(Optional.of(pieceUnit));
             when(productVariantRepository.existsByBarCodeAndCompanyIdAndIdNot("7509876543210", companyId, variantId))
                     .thenReturn(false);
             when(productVariantRepository.existsByProductIdAndVariantNameAndIdNot(productId, "Talla L", variantId))
@@ -840,6 +925,52 @@ class ProductVariantServiceTest {
             // The exclusion is the variant being written, inside the company: a barcode another
             // company already uses is not a conflict here either.
             verify(productVariantRepository).existsByBarCodeAndCompanyIdAndIdNot("7509876543210", companyId, variantId);
+        }
+
+        /**
+         * ADR-0006 decision 4, update side: the rule is about the state the write leaves behind, so
+         * clearing the barcode of a MULTI variant is refused the same way creating one without it is.
+         */
+        @Test
+        @DisplayName("should refuse to clear the barCode of a MULTI product's variant")
+        void updateVariant_MultiProductWithoutBarCode_IsRefused() {
+            var multiProduct = Product.builder()
+                    .id(productId)
+                    .sku("PROD-MULTI")
+                    .name("Zapato")
+                    .variantMode(Product.VARIANT_MODE_MULTI)
+                    .enabled(true)
+                    .build();
+
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(multiProduct));
+            when(productVariantRepository.findById(variantId)).thenReturn(Optional.of(testVariant));
+
+            assertThatThrownBy(() -> productVariantService.updateVariant(
+                            companyId, productId, variantId, new ProductVariantRequest(null, "Talla M", pieceUnitId)))
+                    .isInstanceOf(BarcodeRequiredException.class)
+                    .hasMessageContaining("barCode is required");
+
+            assertThat(testVariant.getBarCode())
+                    .as("a refused write leaves the entity as it was")
+                    .isEqualTo("7501234567890");
+            verify(productVariantRepository, never()).save(any(ProductVariant.class));
+        }
+
+        @Test
+        @DisplayName("should accept clearing the barCode of a SIMPLE product's variant")
+        void updateVariant_SimpleProductWithoutBarCode_IsAccepted() {
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
+            when(productVariantRepository.findById(variantId)).thenReturn(Optional.of(testVariant));
+            when(productVariantRepository.save(any(ProductVariant.class))).thenAnswer(inv -> inv.getArgument(0));
+            when(measureUnitRepository.findById(pieceUnitId)).thenReturn(Optional.of(pieceUnit));
+
+            // The name is unchanged on purpose: the (product, name) gate is not what this case is about,
+            // and a changed name would claim a stub of its own.
+            var result = productVariantService.updateVariant(
+                    companyId, productId, variantId, new ProductVariantRequest(null, "Talla M", pieceUnitId));
+
+            assertThat(result.barCode()).isNull();
+            verify(productVariantRepository).save(argThat(variant -> variant.getBarCode() == null));
         }
     }
 
@@ -855,6 +986,8 @@ class ProductVariantServiceTest {
         void deleteVariant_Success() {
             when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
             when(productVariantRepository.findById(variantId)).thenReturn(Optional.of(testVariant));
+            when(productVariantRepository.countByProductIdAndEnabledTrue(productId))
+                    .thenReturn(2L);
             when(productVariantRepository.save(any(ProductVariant.class))).thenAnswer(inv -> inv.getArgument(0));
 
             productVariantService.deleteVariant(companyId, productId, variantId);
@@ -862,6 +995,31 @@ class ProductVariantServiceTest {
             assertThat(testVariant.getEnabled()).isFalse();
             verify(productVariantRepository).findById(variantId);
             verify(productVariantRepository).save(any(ProductVariant.class));
+        }
+
+        /**
+         * C1: "a product has at least one variant", and the write path is what refuses to break it.
+         *
+         * <p>The variant definition is soft-deleted ({@code enabled = false}), not removed, so what would
+         * become empty is the product's <b>live</b> variant set — the one a sale, a receipt or a POS listing
+         * can reach. The refusal is a 409 that names the product, and it leaves the row enabled: the count it
+         * reads is the same query the invariant is audited with, not a second way of asking.</p>
+         */
+        @Test
+        @DisplayName("should refuse to delete the only variant of a product")
+        void deleteVariant_LastVariant_IsRefused() {
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
+            when(productVariantRepository.findById(variantId)).thenReturn(Optional.of(testVariant));
+            when(productVariantRepository.countByProductIdAndEnabledTrue(productId))
+                    .thenReturn(1L);
+
+            assertThatThrownBy(() -> productVariantService.deleteVariant(companyId, productId, variantId))
+                    .isInstanceOf(VariantRemovalWouldEmptyProductException.class)
+                    .hasMessageContaining(productId.toString())
+                    .hasMessageContaining("at least one variant");
+
+            assertThat(testVariant.getEnabled()).isTrue();
+            verify(productVariantRepository, never()).save(any(ProductVariant.class));
         }
 
         @Test
@@ -1334,17 +1492,24 @@ class ProductVariantServiceTest {
         }
 
         @Test
-        @DisplayName("should keep the variant unitless when the request omits the unit")
-        void createVariant_WithoutUnit_KeepsPreviousBehavior() {
-            stubCreateGates();
+        @DisplayName("should refuse an absent unit with a 400 that names the field and write nothing")
+        void createVariant_WithoutUnit_IsRefusedNamingTheField() {
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
+            when(productVariantRepository.existsByBarCodeAndCompanyId("7501234567890", companyId))
+                    .thenReturn(false);
+            when(productVariantRepository.existsByProductIdAndVariantName(productId, "Talla M"))
+                    .thenReturn(false);
 
-            var result = productVariantService.createVariant(
-                    companyId, productId, new ProductVariantRequest("7501234567890", "Talla M", null));
+            assertThatThrownBy(() -> productVariantService.createVariant(
+                            companyId, productId, new ProductVariantRequest("7501234567890", "Talla M", null)))
+                    .isInstanceOf(MeasureUnitRequiredException.class)
+                    .hasMessageContaining("measureUnitId")
+                    .hasMessageContaining("required");
 
-            assertThat(result.measureUnitId()).isNull();
-            // No unit was named, so neither the catalog nor the D4 query is read (S7).
+            // The refusal happens before anything is written and before the catalog is read: the column
+            // is NOT NULL (V55), so a variant that reached the database unitless would be a 500 instead.
+            verify(productVariantRepository, never()).save(any(ProductVariant.class));
             verify(measureUnitRepository, never()).findById(any());
-            verify(productVariantRepository, never()).findUsedMeasureUnitTypesByProductId(any());
         }
 
         @Test
@@ -1502,24 +1667,26 @@ class ProductVariantServiceTest {
         }
 
         @Test
-        @DisplayName("should reject unit -> null while a store holds stock")
-        void updateVariant_ClearUnitWithStock_IsRejected() {
+        @DisplayName("should refuse an omitted unit with a 400 before probing any quantity meaning")
+        void updateVariant_OmittedUnit_IsRefusedNamingTheField() {
             testVariant.setMeasureUnitId(pieceUnitId);
             when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
             when(productVariantRepository.findById(variantId)).thenReturn(Optional.of(testVariant));
-            when(productVariantStoreStockRepository.existsByProductVariantIdAndStockNot(variantId, BigDecimal.ZERO))
-                    .thenReturn(true);
 
             assertThatThrownBy(() -> productVariantService.updateVariant(
                             companyId,
                             productId,
                             variantId,
                             new ProductVariantRequest("7501234567890", "Talla M", null)))
-                    .isInstanceOf(MeasureUnitChangeNotAllowedException.class)
-                    .hasMessageContaining("cannot be changed");
+                    .isInstanceOf(MeasureUnitRequiredException.class)
+                    .hasMessageContaining("measureUnitId")
+                    .hasMessageContaining("required");
 
+            // `unit -> null` is not a state change the write path can reach any more: the request is
+            // refused before the 409 probe, and V55's NOT NULL is the same rule in the schema.
             assertThat(testVariant.getMeasureUnitId()).isEqualTo(pieceUnitId);
             verify(measureUnitRepository, never()).findById(any());
+            verify(productVariantStoreStockRepository, never()).existsByProductVariantIdAndStockNot(any(), any());
             verify(productVariantRepository, never()).save(any(ProductVariant.class));
         }
 

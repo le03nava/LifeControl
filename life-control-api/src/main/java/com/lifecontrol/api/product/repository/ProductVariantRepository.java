@@ -64,10 +64,13 @@ public interface ProductVariantRepository extends JpaRepository<ProductVariant, 
      * {@code (company_id, bar_code)} — derived here from the column, exactly like
      * {@code ProductRepository#existsBySkuAndCompanyId} does for the product SKU.</p>
      *
-     * <p>Since {@code V40} the database carries the same key — {@code uq_product_variants_company_bar_code}
-     * replaced V14's global one — so this finder and the index agree, and a cross-company repeat is
-     * accepted by both. The pair is deliberate: the finder answers 409 with the offending value, and the
-     * index is what a writer bypassing this API runs into.</p>
+     * <p>Since {@code V40} the database carries the same key and {@code V56} made it partial —
+     * {@code uq_variant_bar_code} on {@code (company_id, bar_code) WHERE bar_code IS NOT NULL}, which
+     * replaced the full constraint V40 added over V14's global one — so this finder and the index agree, and
+     * a cross-company repeat is accepted by both. The pair is deliberate: the finder answers 409 with the
+     * offending value, and the index is what a writer bypassing this API runs into. A variant with no
+     * barcode is outside both: the predicate leaves those rows unindexed, so an absent barcode here can
+     * never be a conflict.</p>
      */
     boolean existsByBarCodeAndCompanyId(String barCode, UUID companyId);
 
@@ -80,6 +83,16 @@ public interface ProductVariantRepository extends JpaRepository<ProductVariant, 
     boolean existsByProductIdAndVariantName(UUID productId, String variantName);
 
     boolean existsByProductIdAndVariantNameAndIdNot(UUID productId, String variantName, UUID id);
+
+    /**
+     * How many <b>live</b> variants a product has, which is the count C1's delete guard reads.
+     *
+     * <p>{@code enabled = true} and not "every row": a variant is soft-deleted, so the disabled rows still
+     * exist and counting them would let a product end up with zero sellable variants while the guard reported
+     * a non-empty family. The guard ({@code ProductVariantService#deleteVariant}) asks this question and no
+     * other, so the number it refuses on and the number the invariant is audited with have one shape.</p>
+     */
+    long countByProductIdAndEnabledTrue(UUID productId);
 
     /**
      * Whether the definition exists, is still sellable <b>and</b> belongs to {@code companyId}.
@@ -110,8 +123,8 @@ public interface ProductVariantRepository extends JpaRepository<ProductVariant, 
      * The distinct {@code unit_type}s already in use by the measure units of a product's variants,
      * used by the coherence guard of decision D4: a product cannot mix {@code PRODUCT} and {@code
      * SERVICE} units across its variants. Variants without a unit contribute nothing, because the
-     * join onto {@code measure_units} drops a {@code NULL} foreign key — a catalog that is entirely
-     * undeclared (the whole pre-V29 state) therefore constrains nothing.
+     * join onto {@code measure_units} drops a {@code NULL} foreign key — the query is unchanged by
+     * {@code V55}, which simply leaves no row in that state once its report has been paid off.
      */
     @Query("""
             SELECT DISTINCT mu.unitType

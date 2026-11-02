@@ -1,4 +1,15 @@
-import { FormControl } from '@angular/forms';
+import { FormArray, FormControl, FormGroup } from '@angular/forms';
+import type { ProductVariantRequest } from './product-variant.models';
+
+/**
+ * The two shapes ADR-0006 gives an article.
+ *
+ * `SIMPLE` is one sellable thing — one variant, written with the product and never shown as a step —
+ * and `MULTI` is a family whose variants each carry their own barcode (decisions 2 and 4). The
+ * vocabulary is closed on purpose: it mirrors `ck_products_variant_mode` (V54), so an unexpected value
+ * is a compile error rather than a guessed branch.
+ */
+export type ProductVariantMode = 'SIMPLE' | 'MULTI';
 
 export interface Product {
   id: string;
@@ -30,6 +41,14 @@ export interface Product {
    * be a second source of truth for the same fact.
    */
   companyId: string;
+  /**
+   * Whether the article is one sellable thing or a family of them (ADR-0006 decision 1).
+   *
+   * The API always answers it, and the screen needs it for a fact of its own: the variant dialog asks
+   * for a barcode **only** when the product is `MULTI` (decision 4), so this is not a copy of the
+   * variant count — a `MULTI` product with one variant is legal and still demands the barcode.
+   */
+  variantMode: ProductVariantMode;
 }
 
 /**
@@ -39,7 +58,16 @@ export interface Product {
  * screen's `?companyId=` and the scope every write is sent under, so a form value that carried it could
  * only ever restate it — or, worse, contradict it.
  */
-export type ProductFormValue = Omit<Product, 'createdAt' | 'updatedAt' | 'companyId'>;
+export type ProductFormValue = Omit<Product, 'createdAt' | 'updatedAt' | 'companyId'> & {
+  /**
+   * The variants the **creation** writes, in the shape the variant endpoint takes (decision 2).
+   *
+   * Part of the form value and not a second request: the ADR says creating a product is one
+   * transaction, so the form collects the family with the article. On edit it is `[]` — `PUT` ignores
+   * it and the mode is a creation fact, so a save that carried variants would only be noise.
+   */
+  variants: ProductVariantRequest[];
+};
 
 export interface Page<T> {
   content: T[];
@@ -66,6 +94,37 @@ export interface ProductRequest {
    * source of truth the server does not read.
    */
   categoryId?: string | null;
+  /**
+   * The mode the creation states (decision 1), `SIMPLE` when an older client kept the old shape.
+   *
+   * Creation-only on the wire: `updateProduct` never reads it, because a mode change is refused once
+   * a variant holds stock (migration step 6). The update path therefore omits it. An absent value is
+   * `SIMPLE` server-side, which is what every caller that predates the mode means — but a creation
+   * that leaves it out and declares no variant is still refused, so the form always states it.
+   */
+  variantMode?: ProductVariantMode;
+  /**
+   * The variants the creation writes (decision 2), `SIMPLE` meaning exactly one.
+   *
+   * Creation-only for the same reason: `PUT` ignores it, variants are managed through
+   * `/products/{id}/variants`, and a request without a list is refused with a 400 naming `variants`.
+   */
+  variants?: ProductVariantRequest[];
+}
+
+/**
+ * One variant row the creation form collects inline.
+ *
+ * It is deliberately not `ProductVariantControl`, which belongs to the dialog: the barcode is
+ * **optional** here for a `SIMPLE` product and required for a `MULTI` one (decision 4), so the row's
+ * validators are built from the mode instead of from a fixed shape.
+ */
+export interface ProductVariantRowControl {
+  /** Empty means "no barcode", which is only legal for a `SIMPLE` product. */
+  barCode: FormControl<string>;
+  variantName: FormControl<string>;
+  /** Required since decision 3: a quantity of 3 of nothing is not a quantity. */
+  measureUnitId: FormControl<string | null>;
 }
 
 export interface ProductControl {
@@ -92,6 +151,22 @@ export interface ProductControl {
   subcategory1Id: FormControl<string>;
   /** Level 3; only meaningful with a `subcategory1Id`, and cleared when that changes (S7). */
   subcategory2Id: FormControl<string>;
+  /**
+   * The article's mode (decision 1): the branch the form renders one variant or a list of them with.
+   *
+   * It is a control and not a sibling signal because a server error names it (`variantMode`), and the
+   * error routing of this form applies a field error to the control of the same name — and because on
+   * edit it is seeded from the product and must never change.
+   */
+  variantMode: FormControl<ProductVariantMode>;
+  /**
+   * The variant rows: exactly one for `SIMPLE`, one or more for `MULTI` (decision 2).
+   *
+   * A `FormArray` inside the group on purpose — its rows are validated with the rest of the article,
+   * so `markAllAsTouched`/`valid` already cover them, and a refusal to save cannot be bypassed by a
+   * submit path that forgot to look at them.
+   */
+  variants: FormArray<FormGroup<ProductVariantRowControl>>;
 }
 
 // ─── Attribute catalog (S4-S8) ───────────────────────────────────────────────

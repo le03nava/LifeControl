@@ -28,6 +28,7 @@ import com.lifecontrol.api.inventory.model.StoreInventorySettings;
 import com.lifecontrol.api.inventory.repository.InventoryMovementRepository;
 import com.lifecontrol.api.inventory.repository.ProductVariantLocationRepository;
 import com.lifecontrol.api.inventory.repository.StoreInventorySettingsRepository;
+import com.lifecontrol.api.measureunit.repository.MeasureUnitRepository;
 import com.lifecontrol.api.paymentmethod.model.PaymentMethod;
 import com.lifecontrol.api.paymentmethod.repository.PaymentMethodRepository;
 import com.lifecontrol.api.product.model.Product;
@@ -104,6 +105,9 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
 
     @Autowired
     private ProductVariantRepository productVariantRepository;
+
+    @Autowired
+    private MeasureUnitRepository measureUnitRepository;
 
     @Autowired
     private ProductVariantStoreStockRepository productVariantStoreStockRepository;
@@ -465,6 +469,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             var variant = new ProductVariant();
             variant.setProductId(createTestProduct().getId());
             variant.setCompanyId(companyId);
+            variant.setMeasureUnitId(pieceUnitId());
             variant.setBarCode("BAR-" + UUID.randomUUID().toString().substring(0, 12));
             variant.setVariantName("Variant-" + UUID.randomUUID().toString().substring(0, 8));
             variant.setEnabled(true);
@@ -475,6 +480,15 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
     }
 
     /**
+     * A real {@code measure_units} row: {@code V3} seeds "Pieza" as {@code H87}. The unit is required
+     * since ADR-0006 decision 3 ({@code V55}), and a random uuid would be refused by the foreign key —
+     * which would make the fixture fail for a reason that says nothing about the rule under test.
+     */
+    private UUID pieceUnitId() {
+        return measureUnitRepository.findBySatCode("H87").orElseThrow().getId();
+    }
+
+    /**
      * Creates a second variant with given stock (different productId) for multi-variant tests.
      */
     private ProductVariant createTestVariantB(BigDecimal stock) {
@@ -482,6 +496,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             var variant = new ProductVariant();
             variant.setProductId(createTestProduct().getId());
             variant.setCompanyId(companyId);
+            variant.setMeasureUnitId(pieceUnitId());
             variant.setBarCode("BAR-" + UUID.randomUUID().toString().substring(0, 12));
             variant.setVariantName("VariantB-" + UUID.randomUUID().toString().substring(0, 8));
             variant.setEnabled(true);
@@ -500,6 +515,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             var variant = new ProductVariant();
             variant.setProductId(createTestProduct().getId());
             variant.setCompanyId(companyId);
+            variant.setMeasureUnitId(pieceUnitId());
             variant.setBarCode("BAR-" + UUID.randomUUID().toString().substring(0, 12));
             variant.setVariantName(
                     "VariantNoStore-" + UUID.randomUUID().toString().substring(0, 8));

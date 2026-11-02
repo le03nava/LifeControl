@@ -1,5 +1,5 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { FormControl, FormGroup, Validators } from '@angular/forms';
+import { FormArray, FormControl, FormGroup, Validators } from '@angular/forms';
 import { By } from '@angular/platform-browser';
 import { MatSelect } from '@angular/material/select';
 import { ProductsForm } from './products-form';
@@ -7,7 +7,9 @@ import {
   ProductAttributeDefinition,
   ProductAttributeProfile,
   ProductControl,
+  ProductVariantRowControl,
 } from '../../models/product.models';
+import type { MeasureUnit } from '../../models/product-variant.models';
 import { measurementUnitName, measurementValueName } from '../../models/product-attribute-form';
 import { ProductCategory } from '../../models/product-category.models';
 
@@ -35,7 +37,51 @@ describe('ProductsForm', () => {
       categoryRootId: new FormControl('', { nonNullable: true }),
       subcategory1Id: new FormControl('', { nonNullable: true }),
       subcategory2Id: new FormControl('', { nonNullable: true }),
+      variantMode: new FormControl('SIMPLE', { nonNullable: true }),
+      variants: new FormArray<FormGroup<ProductVariantRowControl>>([]),
     });
+  }
+
+  /** The measure-unit catalog the inline variant rows offer. */
+  const piece: MeasureUnit = {
+    id: 'mu-pza',
+    measureUnitName: 'Pieza',
+    measureUnitShortName: 'Pza',
+    unitType: 'PRODUCT',
+    satCode: 'H87',
+    description: null,
+    enabled: true,
+    createdAt: '2026-01-01T00:00:00',
+    updatedAt: '2026-01-01T00:00:00',
+  };
+
+  /**
+   * Fills the article's inline variant, which the creation now always carries (decision 2).
+   *
+   * Without it every save case would be refused by the inline variant's own required fields — the
+   * point of the slice — so the helper states the one variant a `SIMPLE` article has.
+   */
+  function fillSingleVariant(
+    fg: FormGroup<ProductControl>,
+    values: { variantName?: string; measureUnitId?: string | null; barCode?: string } = {},
+  ): void {
+    const row = fg.controls.variants.at(0);
+    row.patchValue({
+      variantName: values.variantName ?? 'Unica',
+      measureUnitId: values.measureUnitId === undefined ? piece.id : values.measureUnitId,
+      barCode: values.barCode ?? '',
+    });
+  }
+
+  /** The message rendered as a `mat-error` inside the row's form-field with that label. */
+  function rowFieldError(label: string): string | null {
+    const fields = Array.from(
+      (fixture.nativeElement as HTMLElement).querySelectorAll('.variant-row mat-form-field'),
+    ) as HTMLElement[];
+    const field = fields.find(
+      (element) => element.querySelector('mat-label')?.textContent?.trim() === label,
+    );
+    return field?.querySelector('mat-error')?.textContent?.trim() ?? null;
   }
 
   function createCategory(overrides: Partial<ProductCategory> = {}): ProductCategory {
@@ -100,6 +146,11 @@ describe('ProductsForm', () => {
     fixture = TestBed.createComponent(ProductsForm);
     component = fixture.componentInstance;
     fixture.componentRef.setInput('formGroup', createFormGroup());
+    fixture.detectChanges();
+    // A creation always carries at least one variant (decision 2), so the article's inline row starts
+    // filled: a case that wants the refusal empties it on purpose instead of every other case having
+    // to state the one variant a `SIMPLE` product has.
+    fillSingleVariant(component.formGroup());
     fixture.detectChanges();
   });
 
@@ -593,6 +644,9 @@ describe('ProductsForm', () => {
       seeded.controls.attributes.setValue('{"marca":"Patito","sistema_rosca":"npt"}');
       fixture.componentRef.setInput('formGroup', seeded);
       fixture.detectChanges();
+      // The replaced group is a creation form, so it carries its own inline variant (decision 2).
+      fillSingleVariant(seeded);
+      fixture.detectChanges();
 
       expect(component.attributeForm().get('marca')?.value).toBe('Patito');
       expect(component.attributeForm().get('sistema_rosca')?.value).toBe('npt');
@@ -654,8 +708,9 @@ describe('ProductsForm', () => {
           'Subcategoría nivel 2',
         ]),
       );
-      // The three level selects are real controls of the form, not just labels.
-      expect(fixture.nativeElement.querySelectorAll('mat-select').length).toBe(4);
+      // Every select is a real control of the form, not just a label: the company, the three levels,
+      // the article's mode (decision 1) and the unit of its inline variant (decision 3).
+      expect(fixture.nativeElement.querySelectorAll('mat-select').length).toBe(6);
     });
 
     describe('the Empresa field (S3)', () => {
@@ -886,6 +941,270 @@ describe('ProductsForm', () => {
       expect(fg.controls.subcategory2Id.value).toBe('');
       expect(fg.controls.satCode.value).toBe('99999999');
       expect(component.satCodeHint()).toBeNull();
+    });
+  });
+
+  /**
+   * ADR-0006 decision 2: the article and its variants are one creation.
+   *
+   * `SIMPLE` collects the one variant inline — never a step, never a dialog — and `MULTI` collects the
+   * list, each with its own barcode (decision 4). The refusal cases matter as much as the happy ones:
+   * both shapes the API answers `400` for are refused here first, with the field the API would name.
+   */
+  describe('the article and its variants (decision 2)', () => {
+    function setArticle(fg: FormGroup<ProductControl>, sku = 'SKU-1'): void {
+      fg.patchValue({ sku, name: 'Articulo' });
+    }
+
+    /** A row the UI itself cannot add to a `SIMPLE` article: pushed straight into the array. */
+    function pushRow(fg: FormGroup<ProductControl>, variantName: string): void {
+      fg.controls.variants.push(
+        new FormGroup<ProductVariantRowControl>({
+          barCode: new FormControl('', { nonNullable: true }),
+          variantName: new FormControl(variantName, { nonNullable: true }),
+          measureUnitId: new FormControl<string | null>(piece.id),
+        }),
+      );
+    }
+
+    it('should send the single variant inline, with no separate step, when the article is SIMPLE', () => {
+      const spy = vi.fn();
+      component.saveProduct.subscribe(spy);
+
+      const fg = component.formGroup();
+      setArticle(fg);
+      fillSingleVariant(fg, { variantName: 'Unica', measureUnitId: piece.id, barCode: '' });
+      fixture.detectChanges();
+
+      component.onSave();
+
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(spy.mock.calls[0][0].variantMode).toBe('SIMPLE');
+      // Decision 4: an empty barcode is sent as "no barcode", never as an empty string.
+      expect(spy.mock.calls[0][0].variants).toEqual([
+        { barCode: null, variantName: 'Unica', measureUnitId: piece.id },
+      ]);
+      // The row is part of the article: one inline row, and no affordance to open another surface.
+      expect(fixture.nativeElement.querySelectorAll('.variant-row').length).toBe(1);
+      expect((fixture.nativeElement as HTMLElement).textContent).not.toContain('Agregar variante');
+    });
+
+    it('should send every variant it lists when the article is MULTI', () => {
+      const spy = vi.fn();
+      component.saveProduct.subscribe(spy);
+
+      const fg = component.formGroup();
+      setArticle(fg, 'SKU-MULTI');
+      component.onVariantModeChange('MULTI');
+      component.onAddVariant();
+      component.onAddVariant();
+      fixture.detectChanges();
+
+      expect(component.variantRows().length).toBe(3);
+      component.variantRows()[0].patchValue({
+        variantName: 'Chica',
+        measureUnitId: piece.id,
+        barCode: 'BAR-CHICA',
+      });
+      component.variantRows()[1].patchValue({
+        variantName: 'Mediana',
+        measureUnitId: piece.id,
+        barCode: 'BAR-MEDIANA',
+      });
+      component.variantRows()[2].patchValue({
+        variantName: 'Grande',
+        measureUnitId: piece.id,
+        barCode: 'BAR-GRANDE',
+      });
+      fixture.detectChanges();
+
+      component.onSave();
+
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(spy.mock.calls[0][0].variantMode).toBe('MULTI');
+      expect(spy.mock.calls[0][0].variants).toEqual([
+        { barCode: 'BAR-CHICA', variantName: 'Chica', measureUnitId: piece.id },
+        { barCode: 'BAR-MEDIANA', variantName: 'Mediana', measureUnitId: piece.id },
+        { barCode: 'BAR-GRANDE', variantName: 'Grande', measureUnitId: piece.id },
+      ]);
+    });
+
+    it('should refuse to save a MULTI article that lists no variant', () => {
+      const spy = vi.fn();
+      component.saveProduct.subscribe(spy);
+
+      const fg = component.formGroup();
+      setArticle(fg, 'SKU-EMPTY');
+      component.onVariantModeChange('MULTI');
+      component.onRemoveVariant(0);
+      fixture.detectChanges();
+
+      expect(component.variantRows().length).toBe(0);
+
+      component.onSave();
+
+      // The API answers `400 variants is required`; the form does not spend the request to be told.
+      expect(spy).not.toHaveBeenCalled();
+      expect((fixture.nativeElement as HTMLElement).textContent).toContain(
+        'Un producto con variantes necesita al menos una variante.',
+      );
+    });
+
+    it('should refuse to save a SIMPLE article that carries two variants', () => {
+      const spy = vi.fn();
+      component.saveProduct.subscribe(spy);
+
+      const fg = component.formGroup();
+      setArticle(fg, 'SKU-TWO');
+      // The mode select cannot produce this state (it prunes to one row); the server refuses it with
+      // `400 variantMode SIMPLE requires exactly one variant`, and the form refuses it the same way.
+      pushRow(fg, 'Segunda');
+      fixture.detectChanges();
+
+      expect(component.variantRows().length).toBe(2);
+
+      component.onSave();
+
+      expect(spy).not.toHaveBeenCalled();
+      expect((fixture.nativeElement as HTMLElement).textContent).toContain(
+        'Un producto simple admite exactamente una variante',
+      );
+    });
+
+    it('should prune the extra rows, and say how many, when the mode goes back to SIMPLE', () => {
+      const fg = component.formGroup();
+      component.onVariantModeChange('MULTI');
+      component.onAddVariant();
+      fixture.detectChanges();
+      expect(component.variantRows().length).toBe(2);
+
+      component.onVariantModeChange('SIMPLE');
+      fixture.detectChanges();
+
+      expect(component.variantRows().length).toBe(1);
+      expect(fg.controls.variants.length).toBe(1);
+      expect(component.prunedNotice()).toBe(
+        'Se quitó 1 variante al pasar a un artículo simple, que guarda una sola.',
+      );
+      expect((fixture.nativeElement as HTMLElement).textContent).toContain(
+        'Se quitó 1 variante al pasar a un artículo simple',
+      );
+    });
+
+    it('should require the barcode only for a MULTI article (decision 4)', () => {
+      const spy = vi.fn();
+      component.saveProduct.subscribe(spy);
+
+      const fg = component.formGroup();
+      setArticle(fg, 'SKU-BAR');
+      fillSingleVariant(fg, { variantName: 'Unica', measureUnitId: piece.id, barCode: '' });
+      fixture.detectChanges();
+
+      // SIMPLE: no barcode, and the article is savable.
+      component.onSave();
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(spy.mock.calls[0][0].variants[0].barCode).toBeNull();
+
+      // MULTI: the same row without a barcode is refused, and the error is on the barcode field.
+      spy.mockClear();
+      component.onVariantModeChange('MULTI');
+      fixture.detectChanges();
+      component.onSave();
+      fixture.detectChanges();
+
+      expect(spy).not.toHaveBeenCalled();
+      expect(component.variantRows()[0].controls.barCode.errors?.['required']).toBe(true);
+      expect(rowFieldError('Código de barras')).toBe('Este campo es obligatorio.');
+    });
+
+    it('should require the measure unit of every variant (decision 3)', () => {
+      const spy = vi.fn();
+      component.saveProduct.subscribe(spy);
+
+      const fg = component.formGroup();
+      setArticle(fg, 'SKU-UNIT');
+      fillSingleVariant(fg, { variantName: 'Unica', measureUnitId: null });
+      fixture.detectChanges();
+
+      component.onSave();
+      fixture.detectChanges();
+
+      expect(spy).not.toHaveBeenCalled();
+      expect(component.variantRows()[0].controls.measureUnitId.errors?.['required']).toBe(true);
+      expect(rowFieldError('Unidad de medida')).toBe('Este campo es obligatorio.');
+    });
+
+    it('should render the server errors it cannot attach to a control under the variant block', () => {
+      fixture.componentRef.setInput('serverErrors', {
+        variants: 'Un producto se crea con al menos una variante.',
+      });
+      fixture.detectChanges();
+
+      expect(
+        (fixture.nativeElement as HTMLElement).querySelector('.variant-section__error')
+          ?.textContent,
+      ).toContain('Un producto se crea con al menos una variante.');
+    });
+
+    it('should render a variants barcode refusal in the block and never in the generic banner', () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      fixture.componentRef.setInput('serverErrors', {
+        barCode: 'Una variante de un producto con variantes necesita su código de barras.',
+      });
+      fixture.detectChanges();
+
+      expect(
+        (fixture.nativeElement as HTMLElement).querySelector('.variant-section__error')
+          ?.textContent,
+      ).toContain('necesita su código de barras');
+      // The key has no control of its own; the routing must not warn about (and drop) it.
+      expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining('barCode'));
+
+      warnSpy.mockRestore();
+    });
+
+    it('should put a variantMode server error on the mode control', () => {
+      fixture.componentRef.setInput('serverErrors', {
+        variantMode: 'El modo elegido no coincide con las variantes cargadas.',
+      });
+      fixture.detectChanges();
+
+      const control = component.formGroup().controls.variantMode;
+      expect(control.errors?.['serverError']).toBe(
+        'El modo elegido no coincide con las variantes cargadas.',
+      );
+
+      control.markAsTouched();
+      fixture.detectChanges();
+
+      const modeField = Array.from(
+        (fixture.nativeElement as HTMLElement).querySelectorAll('mat-form-field'),
+      ).find(
+        (element) => element.querySelector('mat-label')?.textContent?.trim() === 'Tipo de artículo',
+      );
+      expect(modeField?.querySelector('mat-error')?.textContent?.trim()).toBe(
+        'El modo elegido no coincide con las variantes cargadas.',
+      );
+    });
+
+    it('should bring no variant rows and no variant block on edit (the PUT ignores them)', () => {
+      const spy = vi.fn();
+      component.saveProduct.subscribe(spy);
+
+      const editFg = createFormGroup();
+      editFg.patchValue({ id: '123', sku: 'SKU-EDIT', name: 'Existente' });
+      fixture.componentRef.setInput('editMode', true);
+      fixture.componentRef.setInput('formGroup', editFg);
+      fixture.detectChanges();
+
+      expect(component.variantRows().length).toBe(0);
+      expect((fixture.nativeElement as HTMLElement).querySelector('.variant-section')).toBeNull();
+
+      component.onSave();
+
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(spy.mock.calls[0][0].variants).toEqual([]);
     });
   });
 });

@@ -5,9 +5,9 @@
 **Worktree**: `~/workspace/LifeControl-worktrees/docs-architecture-redesign-adrs`, then
 `~/workspace/LifeControl-worktrees/docs-adr-0005-accepted` for the acceptance
 **Status**: implemented — the six ADRs, their index and this record are the set's content. The
-redesign they describe is not implemented. ADR-0005 is `accepted` (2026-10-29) and ADR-0002
-(2026-10-30); the other four are `proposed` and each needs its own decision. This record makes no
-delivery claim. Nothing is deferred.
+redesign they describe is not implemented. ADR-0005 is `accepted` (2026-10-29), ADR-0002
+(2026-10-30) and ADR-0006 (2026-11-01); the other three are `proposed` and each needs its own
+decision. This record makes no delivery claim. Nothing is deferred.
 **Created**: 2026-10-29
 **Risk**: none — documentation only. No code, no schema, no runtime surface.
 
@@ -161,3 +161,15 @@ the decision. The order now reads 0005 → 0006 → 0001 → 0003 → 0004 → 0
 decision changed, and no task changed its dependencies: only the sequence between 0004 and the money unit
 moved, and the reason the original order gave for 0004 last ("it benefits from a settled shape") was the one
 sentence of it that was backwards.
+
+**2026-11-01 — ADR-0006 is accepted, and the header's count was repaired in the same edit.** The
+maintainer accepted `docs/adr/0006-catalog-identity.md` in the session that opened
+`odd/tasks/catalog-identity.md`; `docs/adr/README.md` carries the status, and the header's "the other
+four are `proposed`" became "three" because accepting one makes that word false — rule 5 of
+`references/feature-records.md`, the same repair the ADR-0002 acceptance needed. The acceptance also
+recorded one fact that is not a decision and not drift: the accepted `## Schema` block references
+`currency (code)` and `tax_rate (id)`, which no migration in the tree provides, so 0006's listing slice
+sequences after ADR-0002's T1 and T4 while its `variant_mode`, unit and barcode slices do not. That
+edge is stated in the ADR's `Accepted:` line and in `docs/adr/README.md`, because the `Depends on`
+column mirrors each ADR's own line and 0006's still names only ADR-0005. Nothing else in this record
+was touched.

@@ -13,12 +13,15 @@ import com.lifecontrol.api.product.dto.ProductVariantResponse;
 import com.lifecontrol.api.product.dto.ProductVariantSearchResponse;
 import com.lifecontrol.api.product.dto.ProductVariantStoreStockRequest;
 import com.lifecontrol.api.product.dto.ProductVariantStoreStockResponse;
+import com.lifecontrol.api.product.exception.BarcodeRequiredException;
 import com.lifecontrol.api.product.exception.DisabledMeasureUnitException;
 import com.lifecontrol.api.product.exception.DuplicateProductVariantException;
 import com.lifecontrol.api.product.exception.MeasureUnitChangeNotAllowedException;
+import com.lifecontrol.api.product.exception.MeasureUnitRequiredException;
 import com.lifecontrol.api.product.exception.MeasureUnitTypeMismatchException;
 import com.lifecontrol.api.product.exception.ProductNotFoundException;
 import com.lifecontrol.api.product.exception.ProductVariantNotFoundException;
+import com.lifecontrol.api.product.exception.VariantRemovalWouldEmptyProductException;
 import com.lifecontrol.api.product.model.Product;
 import com.lifecontrol.api.product.model.ProductVariant;
 import com.lifecontrol.api.product.model.ProductVariantStoreStock;
@@ -48,7 +51,8 @@ import org.springframework.transaction.annotation.Transactional;
  * {@link #upsertStoreStock(UUID, UUID, ProductVariantStoreStockRequest)}, the second write endpoint
  * of decision D6(b).</p>
  *
- * <p>Both write paths also carry the variant's measure unit (V29): the request names a unit id, this
+ * <p>Both write paths also carry the variant's measure unit (V29), which is <b>mandatory</b> since
+ * ADR-0006 decision 3: the request must name a unit id, this
  * service resolves it against the catalog and applies the two guards that keep the stored quantities
  * readable — {@code unit_type} coherence inside the product (D4) and immutability once the variant
  * acquired a quantity meaning (D3).</p>
@@ -183,18 +187,23 @@ public class ProductVariantService {
      * {@code (product_id, variant_name)} (D3).
      *
      * <p>The barcode gate is asked for <b>this company's</b> key, never for the table's: a barcode taken
-     * in another company is not a conflict, because two tenants are separate businesses. V40 replaced
-     * V14's global key with {@code uq_product_variants_company_bar_code}, so the service and the index
-     * answer the same question and this method is where the 409 gets a message instead of a constraint
-     * name.</p>
+     * in another company is not a conflict, because two tenants are separate businesses. V56 replaced
+     * V40's full key with the partial {@code uq_variant_bar_code}, so the service and the index answer the
+     * same question — a barcode that exists, in this company — and this method is where the 409 gets a
+     * message instead of an index name. Whether a barcode is required at all is a different question and
+     * it is the product's mode that answers it ({@link #validateBarcodeForMode}).</p>
      *
      * @throws ProductNotFoundException when the product does not exist
      * @throws DuplicateProductVariantException when the barcode or the (product, name) pair already
      *     exists
+     * @throws MeasureUnitRequiredException when the request omits the unit (400) — one that names no
+     *     unit is refused here, before the catalog is read, instead of by the {@code NOT NULL} column
      * @throws MeasureUnitNotFoundException when the named measure unit does not exist (404)
      * @throws DisabledMeasureUnitException when the named measure unit is soft-deleted (400)
      * @throws MeasureUnitTypeMismatchException when the unit's type contradicts the product's other
      *     variants (400)
+     * @throws BarcodeRequiredException when the product is {@code MULTI} and the request names no
+     *     barcode (400) — ADR-0006 decision 4, asked of the product and not of an annotation
      */
     @Transactional
     public ProductVariantResponse createVariant(UUID companyId, UUID productId, ProductVariantRequest request) {
@@ -205,6 +214,8 @@ public class ProductVariantService {
                 productId,
                 request.barCode(),
                 request.variantName());
+
+        validateBarcodeForMode(product, request.barCode());
 
         if (productVariantRepository.existsByBarCodeAndCompanyId(request.barCode(), companyId)) {
             throw new DuplicateProductVariantException(
@@ -225,7 +236,7 @@ public class ProductVariantService {
         var variant = ProductVariant.builder()
                 .productId(productId)
                 .companyId(companyId)
-                .measureUnitId(measureUnit == null ? null : measureUnit.getId())
+                .measureUnitId(measureUnit.getId())
                 .barCode(request.barCode())
                 .variantName(request.variantName())
                 .attributes(request.attributes())
@@ -248,12 +259,15 @@ public class ProductVariantService {
      * @throws ProductVariantNotFoundException when the variant does not exist for that product
      * @throws DuplicateProductVariantException when the barcode or the (product, name) pair already
      *     belongs to another variant
+     * @throws MeasureUnitRequiredException when the request omits the unit (400)
      * @throws MeasureUnitNotFoundException when the named measure unit does not exist (404)
      * @throws DisabledMeasureUnitException when the named measure unit is soft-deleted (400)
      * @throws MeasureUnitTypeMismatchException when the unit's type contradicts the product's other
      *     variants (400)
      * @throws MeasureUnitChangeNotAllowedException when the variant already holds stock or ledger
      *     movements and the unit would change (409)
+     * @throws BarcodeRequiredException when the product is {@code MULTI} and the write would leave the
+     *     variant without a barcode (400) — ADR-0006 decision 4
      */
     @Transactional
     public ProductVariantResponse updateVariant(
@@ -264,7 +278,11 @@ public class ProductVariantService {
 
         var variant = findVariantOfProduct(productId, variantId);
 
-        if (!variant.getBarCode().equals(request.barCode())
+        validateBarcodeForMode(product, request.barCode());
+
+        // `Objects.equals` and not `variant.getBarCode().equals(...)`: the stored barcode may be absent
+        // since ADR-0006 decision 4, and a `SIMPLE` product's variant legitimately has none.
+        if (!Objects.equals(variant.getBarCode(), request.barCode())
                 && productVariantRepository.existsByBarCodeAndCompanyIdAndIdNot(
                         request.barCode(), companyId, variantId)) {
             throw new DuplicateProductVariantException(
@@ -280,7 +298,7 @@ public class ProductVariantService {
         // Validation order matters: existence/enabled (404/400) and the D4 type gate (400) run before
         // the D3 state conflict (409), so a request that is not even valid never reports a conflict.
         var measureUnit = validateMeasureUnit(productId, variantId, request.measureUnitId());
-        verifyMeasureUnitChangeAllowed(variant, measureUnit == null ? null : measureUnit.getId());
+        verifyMeasureUnitChangeAllowed(variant, measureUnit.getId());
 
         // Same rule as create, over the EFFECTIVE set: `null` still means "leave the stored set alone"
         // (which is why a caller that predates the attribute catalog cannot wipe it), but the state the
@@ -290,7 +308,7 @@ public class ProductVariantService {
 
         variant.setBarCode(request.barCode());
         variant.setVariantName(request.variantName());
-        variant.setMeasureUnitId(measureUnit == null ? null : measureUnit.getId());
+        variant.setMeasureUnitId(measureUnit.getId());
         if (request.attributes() != null) {
             variant.setAttributes(request.attributes());
         }
@@ -301,7 +319,20 @@ public class ProductVariantService {
         return toResponse(updated, product.getSku());
     }
 
-    /** Soft delete of the definition ({@code enabled = false}); the store rows are left intact. */
+    /**
+     * Soft delete of the definition ({@code enabled = false}); the store rows are left intact.
+     *
+     * <p>ADR-0006 invariant C1 — "a product has at least one variant" — is refused here: removing the last
+     * <b>live</b> variant of a product would leave a catalog entry nothing can sell, receive or price, which is
+     * the state the single creation transaction exists to remove. The count is asked of
+     * {@link ProductVariantRepository#countByProductIdAndEnabledTrue(UUID)} and of nothing else, so the number
+     * this refuses on is the number the invariant is audited with. A variant that is already disabled is not
+     * the last live one, so removing it changes nothing the guard protects and it is allowed.</p>
+     *
+     * @throws ProductNotFoundException when the product does not exist
+     * @throws ProductVariantNotFoundException when the variant does not exist for that product
+     * @throws VariantRemovalWouldEmptyProductException when the variant is the product's only live one (409)
+     */
     @Transactional
     public void deleteVariant(UUID companyId, UUID productId, UUID variantId) {
         validateProductExists(companyId, productId);
@@ -309,6 +340,12 @@ public class ProductVariantService {
         logger.info("Soft-deleting product variant: variantId={}, productId={}", variantId, productId);
 
         var variant = findVariantOfProduct(productId, variantId);
+
+        if (Boolean.TRUE.equals(variant.getEnabled())
+                && productVariantRepository.countByProductIdAndEnabledTrue(productId) <= 1) {
+            throw new VariantRemovalWouldEmptyProductException(productId);
+        }
+
         variant.setEnabled(false);
         productVariantRepository.save(variant);
         logger.info("Product variant soft-deleted: id={}", variantId);
@@ -510,20 +547,42 @@ public class ProductVariantService {
     }
 
     /**
-     * Resolves the measure unit a write names and validates it: it must exist (404), it must be
-     * enabled (400) and, when it exists, it must agree with the {@code unit_type} already in use by
-     * the product's other variants (D4).
+     * ADR-0006 decision 4: the product's mode, not the request's annotation, decides whether a barcode is
+     * required — required for {@code MULTI}, optional for {@code SIMPLE}, because "a single-variant article
+     * has no barcode to give".
      *
-     * <p>Returns {@code null} when the request omits the unit, which is what keeps the pre-V29
-     * behavior exactly as it was (S7): a variant whose unit is not declared simply carries none, and
-     * neither the catalog nor the type gate is read.</p>
+     * <p>It runs on create <b>and</b> on update, over the state the write leaves behind: clearing the
+     * barcode of a {@code MULTI} variant is the same violation as creating one without it. A blank value
+     * counts as absent, because {@code @Size} is the only constraint the request keeps. The refusal names
+     * {@code barCode} ({@link BarcodeRequiredException}, a 400) so a client renders a field and not the
+     * message {@code trg_variant_matches_mode} raises, and the trigger stays the half no other writer can
+     * skip.</p>
+     */
+    private void validateBarcodeForMode(Product product, String barCode) {
+        if (barCode == null || barCode.isBlank()) {
+            if (Product.VARIANT_MODE_MULTI.equals(product.getVariantMode())) {
+                throw new BarcodeRequiredException(product.getId());
+            }
+        }
+    }
+
+    /**
+     * Resolves the measure unit a write names and validates it: it must be present (400), it must exist
+     * (404), it must be enabled (400) and, when it exists, it must agree with the {@code unit_type}
+     * already in use by the product's other variants (D4).
+     *
+     * <p>The unit is mandatory since ADR-0006 decision 3, and the refusal is this service's job rather
+     * than the column's: {@code V55} makes {@code measure_unit_id} {@code NOT NULL}, so a request that
+     * omits it would otherwise reach the database and fail there with a constraint name that names no
+     * field. {@link MeasureUnitRequiredException} is a 400 that names {@code measureUnitId}, and it is
+     * thrown before the catalog is read — there is no id to look up.
      *
      * @param excludedVariantId the variant being updated, excluded from the type gate so it cannot
      *     contradict itself; {@code null} on create
      */
     private MeasureUnit validateMeasureUnit(UUID productId, UUID excludedVariantId, UUID measureUnitId) {
         if (measureUnitId == null) {
-            return null;
+            throw new MeasureUnitRequiredException();
         }
 
         var measureUnit = measureUnitRepository
@@ -542,7 +601,9 @@ public class ProductVariantService {
      *
      * <p>The types in use come from the product's own variants, and the variant being updated is
      * excluded so its current unit is not counted as somebody else's. An empty result means no
-     * constraint: a product whose variants declare no unit accepts the first unit of either type. The
+     * constraint: a product none of whose other variants declares a unit accepts the first unit of
+     * either type — a first variant, or the {@code V55} window during which an existing row still has
+     * no unit. The
      * type is not derived from {@code products.product_type}, which is free text.</p>
      */
     private void verifyMeasureUnitTypeCoherence(UUID productId, UUID excludedVariantId, MeasureUnit measureUnit) {
@@ -566,11 +627,16 @@ public class ProductVariantService {
      * <strong>unchanged</strong> value is allowed. {@code null -> unit} is <strong>always</strong>
      * allowed, even with stock or movements: it is the first declaration, so it reinterprets nothing
      * that claimed otherwise, and the whole pre-V29 catalog is {@code null} and carries stock, so
-     * blocking it would make the feature unusable on existing data. <strong>Any other</strong>
-     * transition — including {@code unit -> null} and {@code unit A -> unit B} — is allowed only when
+     * blocking it would make the feature unusable on existing data — and since ADR-0006 decision 3 it is
+     * the only way a row the {@code V55} report names ever becomes valid, because the new value is
+     * required and the stored one is absent. <strong>Any other</strong>
+     * transition — {@code unit A -> unit B} — is allowed only when
      * no store row holds stock above zero (a {@code stock} of exactly {@code 0} is not a history: it
      * is the default of a row that was never filled) and {@code inventory_movements} has no row for
      * the variant. Otherwise the write is refused with 409 and the entity is left untouched.</p>
+     *
+     * <p>{@code unit -> null} is no longer reachable from here: the request itself refuses an absent
+     * unit ({@link #validateMeasureUnit}) and {@code V55} makes the column reject it.</p>
      */
     private void verifyMeasureUnitChangeAllowed(ProductVariant variant, UUID newMeasureUnitId) {
         var currentMeasureUnitId = variant.getMeasureUnitId();

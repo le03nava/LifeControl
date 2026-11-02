@@ -14,6 +14,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.lifecontrol.api.config.ratelimit.RateLimitProperties;
 import com.lifecontrol.api.product.dto.ProductRequest;
 import com.lifecontrol.api.product.dto.ProductResponse;
+import com.lifecontrol.api.product.model.Product;
 import com.lifecontrol.api.product.service.ProductService;
 import com.lifecontrol.api.product.service.ProductVariantService;
 import com.lifecontrol.api.product.supplier.service.ProductSupplierService;
@@ -108,7 +109,8 @@ class ProductControllerSecurityTest {
                 LocalDateTime.now(),
                 null,
                 null,
-                companyId);
+                companyId,
+                Product.VARIANT_MODE_SIMPLE);
     }
 
     // ─── POST /api/companies/{companyId}/products ────────────────────────────────────

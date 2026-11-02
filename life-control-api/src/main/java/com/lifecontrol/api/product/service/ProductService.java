@@ -11,10 +11,14 @@ import com.lifecontrol.api.product.category.model.ProductCategory;
 import com.lifecontrol.api.product.category.repository.ProductCategoryRepository;
 import com.lifecontrol.api.product.dto.ProductRequest;
 import com.lifecontrol.api.product.dto.ProductResponse;
+import com.lifecontrol.api.product.dto.ProductVariantRequest;
 import com.lifecontrol.api.product.exception.DuplicateProductException;
 import com.lifecontrol.api.product.exception.ProductNotFoundException;
+import com.lifecontrol.api.product.exception.VariantModeMismatchException;
+import com.lifecontrol.api.product.exception.VariantsRequiredException;
 import com.lifecontrol.api.product.model.Product;
 import com.lifecontrol.api.product.repository.ProductRepository;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.slf4j.Logger;
@@ -36,6 +40,14 @@ import org.springframework.transaction.annotation.Transactional;
  * classification. The category a request names is therefore <em>checked against</em> that company
  * ({@link #resolveCategory(UUID, UUID)}) instead of saying who owns the product, which is what makes "a
  * product of company A filed under a category of company B" unreachable through this API.</p>
+ *
+ * <p><b>Creating a product creates its variants</b> (ADR-0006 decision 2, invariant C1): the request
+ * declares them and this class writes the product <b>and</b> them inside one transaction. The variants
+ * themselves are written through {@link ProductVariantService#createVariant(UUID, UUID,
+ * ProductVariantRequest)} and not by a second copy of the rules — the unit, the barcode-per-mode rule and
+ * the two duplicate keys are the ones that path already enforces and proves, so a variant the standalone
+ * endpoint would refuse is refused here with the same answer, and the exception leaves this method so the
+ * whole creation rolls back.</p>
  */
 @Service
 public class ProductService {
@@ -45,6 +57,7 @@ public class ProductService {
     private final ProductRepository productRepository;
     private final ProductCategoryRepository productCategoryRepository;
     private final ProductAttributeCatalogService productAttributeCatalogService;
+    private final ProductVariantService productVariantService;
     private final CompanyRepository companyRepository;
     private final CurrentUserContext currentUserContext;
 
@@ -52,11 +65,13 @@ public class ProductService {
             ProductRepository productRepository,
             ProductCategoryRepository productCategoryRepository,
             ProductAttributeCatalogService productAttributeCatalogService,
+            ProductVariantService productVariantService,
             CompanyRepository companyRepository,
             CurrentUserContext currentUserContext) {
         this.productRepository = productRepository;
         this.productCategoryRepository = productCategoryRepository;
         this.productAttributeCatalogService = productAttributeCatalogService;
+        this.productVariantService = productVariantService;
         this.companyRepository = companyRepository;
         this.currentUserContext = currentUserContext;
     }
@@ -66,6 +81,13 @@ public class ProductService {
         logger.info("Creating product with SKU {} in company {}", request.sku(), companyId);
 
         var company = resolveCompany(companyId);
+
+        // The request's shape is checked here and before the catalog is read, because a request that cannot
+        // describe a product has nothing to look up: `variants` is required (C1) and the mode decides how
+        // many are allowed (decision 2). Neither refusal names a row, and neither writes one.
+        var variants = requireVariants(request);
+        var variantMode = variantMode(request);
+        validateVariantCount(variantMode, variants);
 
         if (productRepository.existsBySkuAndCompanyId(request.sku(), companyId)) {
             throw new DuplicateProductException("Product with SKU '" + request.sku() + "' already exists");
@@ -83,11 +105,26 @@ public class ProductService {
                 .attributes(request.attributes())
                 .category(category)
                 .company(company)
+                // ADR-0006 decision 1: the mode is a property of the article and it is stated at creation.
+                // An absent one is `SIMPLE` — the single-variant article — and stating it here is what keeps
+                // the column from depending on its default for a caller that does declare `MULTI`.
+                .variantMode(variantMode)
                 .enabled(true)
                 .build();
 
         var saved = productRepository.save(product);
-        logger.info("Product created successfully with id: {}", saved.getId());
+
+        // The insert is flushed before the first variant for a reason that is not cosmetic: every variant is
+        // created through `ProductVariantService#createVariant`, whose first statement is a product lookup by
+        // id, and that lookup runs a query. Flushing states the order instead of leaving it to the persistence
+        // context's auto-flush, so a product is committed-to-the-transaction before anything hangs off it.
+        productRepository.flush();
+
+        for (var variantRequest : variants) {
+            productVariantService.createVariant(companyId, saved.getId(), variantRequest);
+        }
+
+        logger.info("Product created successfully with id: {} and {} variant(s)", saved.getId(), variants.size());
 
         return mapToResponse(saved);
     }
@@ -226,6 +263,51 @@ public class ProductService {
     }
 
     /**
+     * The mode a creation stores: the request's, or {@code SIMPLE} when it states none.
+     *
+     * <p>ADR-0006 decision 1 makes the mode a property of the article, set at creation. An absent one is
+     * not an error: every caller that predates the mode creates the single-variant article, and
+     * {@code SIMPLE} is what one product with one variant is. {@code updateProduct} deliberately
+     * does not read it — a mode change is refused once a variant holds stock (migration step 6, which lands
+     * with ADR-0001's ledger), so this endpoint states the mode once and never silently rewrites it.</p>
+     */
+    private String variantMode(ProductRequest request) {
+        return request.variantMode() == null ? Product.VARIANT_MODE_SIMPLE : request.variantMode();
+    }
+
+    /**
+     * The variants a creation writes, refusing a request that declares none.
+     *
+     * <p>ADR-0006 decision 2 / invariant C1: a product has at least one variant, and the creation request is
+     * where they are declared. The schema forces the reading — {@code variant_name} is {@code NOT NULL} and
+     * nothing may invent one — so an absent list and an empty list are the same refusal and it names
+     * {@code variants} ({@link VariantsRequiredException}, a 400). Nothing has been written when it is thrown:
+     * it runs before the product is built.</p>
+     */
+    private List<ProductVariantRequest> requireVariants(ProductRequest request) {
+        var variants = request.variants();
+        if (variants == null || variants.isEmpty()) {
+            throw new VariantsRequiredException();
+        }
+        return variants;
+    }
+
+    /**
+     * ADR-0006 decision 2: {@code SIMPLE} means <b>exactly</b> one, {@code MULTI} means one or more.
+     *
+     * <p>Only the {@code SIMPLE} half is a count rule: the empty list is refused above for both modes, so
+     * {@code MULTI} accepts whatever is left. A second variant of a {@code SIMPLE} product is refused here —
+     * before the product exists — with a message that names the field and the count, instead of by
+     * {@code trg_variant_matches_mode} (V56), whose {@code 'product % is SIMPLE and already has a variant'} is
+     * the half no other writer can skip and not what a client can render.</p>
+     */
+    private void validateVariantCount(String variantMode, List<ProductVariantRequest> variants) {
+        if (Product.VARIANT_MODE_SIMPLE.equals(variantMode) && variants.size() != 1) {
+            throw new VariantModeMismatchException(variantMode, variants.size());
+        }
+    }
+
+    /**
      * Resolves the category a request points at, or {@code null} when it sends none, and checks that it
      * belongs to the company named by the path.
      *
@@ -289,6 +371,7 @@ public class ProductService {
                 category == null || category.getCompany() == null
                         ? null
                         : category.getCompany().getId(),
-                company == null ? null : company.getId());
+                company == null ? null : company.getId(),
+                product.getVariantMode());
     }
 }

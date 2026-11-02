@@ -38,13 +38,15 @@ export interface ProductVariant {
    * The measure unit this variant is counted in, as an id of the catalog that
    * {@link MeasureUnit} mirrors.
    *
-   * `null` means **no unit declared**, which is the behavior every variant had
-   * before the column existed: the quantity keeps whatever meaning the operator
-   * reads into it. The unit lives on the variant, not on the product, so the same
-   * product can hold a `Pieza` variant and a `Kgm` variant (S1, S3).
+   * **Required** since ADR-0006 decision 3 (`measure_unit_id SET NOT NULL`, V55): a quantity of 3 of
+   * nothing is not a quantity, so the write path answers `400 measureUnitId is required` and no row
+   * can be stored without one. The type stays nullable because that is the answer an older row would
+   * have carried and because a read model should not pretend a column it does not control is filled;
+   * the screens treat it as required, which is what the API enforces.
    *
-   * Only the id travels: the label is resolved in the client from the catalog it
-   * loads for the picker (D2). The store-scoped list carries this field too.
+   * The unit lives on the variant, not on the product, so the same product can hold a `Pieza` variant
+   * and a `Kgm` variant (S1, S3). Only the id travels: the label is resolved in the client from the
+   * catalog it loads for the picker (D2). The store-scoped list carries this field too.
    */
   measureUnitId: string | null;
   /**
@@ -71,17 +73,24 @@ export interface ProductVariant {
  * a soft-deleted variant is a separate endpoint.
  */
 export interface ProductVariantRequest {
-  /** The variant identifier: globally unique barcode. */
-  barCode: string;
+  /**
+   * The variant identifier: globally unique barcode, **optional** and nullable.
+   *
+   * ADR-0006 decision 4 makes the requirement the product's: required for a `MULTI` variant, optional
+   * for a `SIMPLE` one — "a single-variant article has no barcode to give". `null` is therefore a
+   * legal value on the wire, and the server answers `400 barCode is required` only when the mode says
+   * otherwise, which is why the client states it as `null` instead of inventing an empty barcode.
+   */
+  barCode: string | null;
   /** The name of the variant, which is where the size lives (for example `Talla 38`). */
   variantName: string;
   /**
-   * The measure unit of this variant, or `null` for **no unit declared**.
+   * The measure unit of this variant.
    *
-   * Optional on the wire — the backend takes an absent value as `null`, which is what
-   * keeps every client that only sends barcode and name byte-identical to before (S7).
-   * The field itself is not `?`: the form always sends an explicit value, and a write
-   * that omits it would silently keep the stored unit instead of clearing it.
+   * **Required** since ADR-0006 decision 3: the backend refuses an absent value with a `400` that
+   * names this field (`MeasureUnitRequiredException`), so `null` is a value the client may send only
+   * by mistake. It is sent explicitly, never omitted, so a write that carries it cannot silently keep
+   * a previous unit.
    *
    * The backend answers 404 for an unknown id, 400 for a disabled unit or a
    * `unit_type` that collides with another variant of the product (S6), and 409 when

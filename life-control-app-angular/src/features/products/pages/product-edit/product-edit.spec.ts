@@ -25,7 +25,9 @@ import { ProductCategory } from '../../models/product-category.models';
 import { CompanyService } from '@features/companies/companies/data/company.service';
 import { CompanySelectorOption } from '@features/companies/companies/models/company.models';
 import { ProductVariantService } from '../../data/product-variant.service';
-import { ProductVariant } from '../../models/product-variant.models';
+import { MeasureUnitService } from '../../data/measure-unit.service';
+import { MeasureUnit, ProductVariant } from '../../models/product-variant.models';
+import type { ProductFormValue } from '../../models/product.models';
 import { ProductSupplierList } from '../product-supplier-list/product-supplier-list';
 import { ProductVariantList } from '../product-variant-list/product-variant-list';
 import { ProductSupplierDialog } from '../../components/product-supplier-dialog/product-supplier-dialog';
@@ -53,6 +55,7 @@ describe('ProductEdit', () => {
   };
   let profileServiceMock: { getProfile: ReturnType<typeof vi.fn> };
   let companyServiceMock: { getCompanySelector: ReturnType<typeof vi.fn> };
+  let measureUnitServiceMock: { getMeasureUnits: ReturnType<typeof vi.fn> };
   let categoryServiceMock: { getCategories: ReturnType<typeof vi.fn> };
   let routerMock: {
     navigate: ReturnType<typeof vi.fn>;
@@ -118,8 +121,47 @@ describe('ProductEdit', () => {
       createdAt: '',
       updatedAt: '',
       companyId,
+      variantMode: 'SIMPLE',
       ...overrides,
     };
+  }
+
+  /**
+   * The value the form emits, which since ADR-0006 decision 2 also carries the variants of the
+   * creation.
+   *
+   * The defaults state the single-variant article: `SIMPLE`, one row, no barcode — the shape every case
+   * here exercises unless it says otherwise.
+   */
+  function createFormValue(overrides: Partial<ProductFormValue> = {}): ProductFormValue {
+    const {
+      createdAt: _createdAt,
+      updatedAt: _updatedAt,
+      companyId: _companyId,
+      ...editable
+    } = createProductData();
+    return {
+      ...editable,
+      variants: [{ barCode: null, variantName: 'Unica', measureUnitId: 'mu-pza' }],
+      ...overrides,
+    };
+  }
+
+  /** The measure-unit catalog the form's inline variant rows offer. */
+  function createMeasureUnits(): MeasureUnit[] {
+    return [
+      {
+        id: 'mu-pza',
+        measureUnitName: 'Pieza',
+        measureUnitShortName: 'Pza',
+        unitType: 'PRODUCT',
+        satCode: 'H87',
+        description: null,
+        enabled: true,
+        createdAt: '2026-01-01T00:00:00',
+        updatedAt: '2026-01-01T00:00:00',
+      },
+    ];
   }
 
   function createSupplier(index: number): ProductSupplier {
@@ -312,6 +354,7 @@ describe('ProductEdit', () => {
       getProfile: vi.fn().mockReturnValue(of(profileResponse(options.profileStoreId ?? null))),
     };
     companyServiceMock = { getCompanySelector: vi.fn().mockReturnValue(of(createCompanyPage())) };
+    measureUnitServiceMock = { getMeasureUnits: vi.fn().mockReturnValue(of(createMeasureUnits())) };
     tree$ = new Subject<ProductCategory[]>();
     categoryServiceMock = {
       getCategories: options.categoriesFailing
@@ -345,6 +388,7 @@ describe('ProductEdit', () => {
         { provide: ProductVariantService, useValue: variantServiceMock },
         { provide: ProfileService, useValue: profileServiceMock },
         { provide: CompanyService, useValue: companyServiceMock },
+        { provide: MeasureUnitService, useValue: measureUnitServiceMock },
         { provide: ProductCategoryService, useValue: categoryServiceMock },
         { provide: Router, useValue: routerMock },
         { provide: MatDialog, useValue: dialogMock },
@@ -452,7 +496,7 @@ describe('ProductEdit', () => {
   function createProductThroughStepOne(overrides: Partial<Product> = {}): Product {
     const createdProduct = createProductData({ id: 'new-id', ...overrides });
     productServiceMock.createProduct = vi.fn().mockReturnValue(of(createdProduct));
-    component.onSaveProduct(createProductData());
+    component.onSaveProduct(createFormValue());
     return createdProduct;
   }
 
@@ -489,7 +533,7 @@ describe('ProductEdit', () => {
     const createdProduct = createProductData({ id: 'new-id', name: 'Zapatilla Runner' });
     productServiceMock.createProduct = vi.fn().mockReturnValue(of(createdProduct));
 
-    component.onSaveProduct(createProductData());
+    component.onSaveProduct(createFormValue());
 
     expect(component.productId()).toBe('new-id');
     expect(component.product()?.name).toBe('Zapatilla Runner');
@@ -508,8 +552,8 @@ describe('ProductEdit', () => {
     productServiceMock.createProduct = vi.fn().mockReturnValue(of(createdProduct));
     productServiceMock.updateProduct = vi.fn().mockReturnValue(of(createdProduct));
 
-    component.onSaveProduct(createProductData());
-    component.onSaveProduct(createProductData({ id: 'new-id', name: 'Renombrado' }));
+    component.onSaveProduct(createFormValue());
+    component.onSaveProduct(createFormValue({ id: 'new-id', name: 'Renombrado' }));
 
     expect(productServiceMock.updateProduct).toHaveBeenCalledWith(
       companyId,
@@ -524,7 +568,7 @@ describe('ProductEdit', () => {
     setup({ edit: true });
     productServiceMock.updateProduct = vi.fn().mockReturnValue(of({} as Product));
 
-    component.onSaveProduct(createProductData({ id: 'existing-id' }));
+    component.onSaveProduct(createFormValue({ id: 'existing-id' }));
     // The list is a scoped screen, so leaving the workspace carries the company the product belongs to.
     expect(routerMock.navigate).toHaveBeenCalledWith(['/products/list'], {
       queryParams: { companyId },
@@ -580,7 +624,7 @@ describe('ProductEdit', () => {
       component.productForm().get('sku')?.markAsDirty();
       // Precondition: the form must be dirty for `markAsPristine` to be load-bearing.
       expect(component.hasUnsavedChanges()).toBe(true);
-      component.onSaveProduct(createProductData({ id: 'existing-id' }));
+      component.onSaveProduct(createFormValue({ id: 'existing-id' }));
 
       expect(component.hasUnsavedChanges()).toBe(false);
       expect(routerMock.navigate).toHaveBeenCalledWith(['/products/list'], {
@@ -596,7 +640,7 @@ describe('ProductEdit', () => {
       component.productForm().get('sku')?.markAsDirty();
       // Precondition: the form must be dirty for `markAsPristine` to be load-bearing.
       expect(component.hasUnsavedChanges()).toBe(true);
-      component.onSaveProduct(createProductData());
+      component.onSaveProduct(createFormValue());
 
       expect(component.hasUnsavedChanges()).toBe(false);
       // Post-persist there is nothing unsaved, so the guard cannot prompt on the way to
@@ -710,7 +754,7 @@ describe('ProductEdit', () => {
           of(createProductData({ id: 'new-id', name: 'Renombrado', sku: 'ZAP-002' })),
         );
 
-      component.onSaveProduct(createProductData({ id: 'new-id', name: 'Renombrado' }));
+      component.onSaveProduct(createFormValue({ id: 'new-id', name: 'Renombrado' }));
       fixture.detectChanges();
 
       // The header reads the entity, not the live form, so a save has to refresh it or the
@@ -1091,18 +1135,53 @@ describe('ProductEdit', () => {
       attributes: { color: 'red' },
     };
 
+    /** The single-variant article the default form value states. */
+    const singleVariant = [{ barCode: null, variantName: 'Unica', measureUnitId: 'mu-pza' }];
+
     it('sends only the fields ProductRequest declares when creating', () => {
       setup();
       const response = createProductData({ id: 'new-id' });
       productServiceMock.createProduct = vi.fn().mockReturnValue(of(response));
 
-      component.onSaveProduct(createProductData({ id: '', ...requestFields }));
+      component.onSaveProduct(createFormValue({ id: '', ...requestFields }));
 
       expect(productServiceMock.createProduct).toHaveBeenCalledTimes(1);
       expect(productServiceMock.createProduct.mock.calls[0][1]).toStrictEqual({
         ...requestFields,
         // S3: no selection travels as an explicit `null`, which is how the link is cleared.
         categoryId: null,
+        // ADR-0006 decisions 1 and 2: the creation states the article's mode and its variants, in the
+        // same transaction and in the same request.
+        variantMode: 'SIMPLE',
+        variants: singleVariant,
+      });
+    });
+
+    it('carries every variant of a MULTI article in the creation body', () => {
+      setup();
+      const response = createProductData({ id: 'new-id' });
+      productServiceMock.createProduct = vi.fn().mockReturnValue(of(response));
+
+      component.onSaveProduct(
+        createFormValue({
+          id: '',
+          ...requestFields,
+          variantMode: 'MULTI',
+          variants: [
+            { barCode: 'BAR-S', variantName: 'Chica', measureUnitId: 'mu-pza' },
+            { barCode: 'BAR-L', variantName: 'Grande', measureUnitId: 'mu-pza' },
+          ],
+        }),
+      );
+
+      expect(productServiceMock.createProduct.mock.calls[0][1]).toStrictEqual({
+        ...requestFields,
+        categoryId: null,
+        variantMode: 'MULTI',
+        variants: [
+          { barCode: 'BAR-S', variantName: 'Chica', measureUnitId: 'mu-pza' },
+          { barCode: 'BAR-L', variantName: 'Grande', measureUnitId: 'mu-pza' },
+        ],
       });
     });
 
@@ -1111,10 +1190,12 @@ describe('ProductEdit', () => {
       const response = createProductData({ id: 'existing-id' });
       productServiceMock.updateProduct = vi.fn().mockReturnValue(of(response));
 
-      component.onSaveProduct(createProductData({ id: 'existing-id', ...requestFields }));
+      component.onSaveProduct(createFormValue({ id: 'existing-id', ...requestFields }));
 
       expect(productServiceMock.updateProduct).toHaveBeenCalledTimes(1);
-      // `updateProduct(companyId, id, data)`: the body is the last argument.
+      // `updateProduct(companyId, id, data)`: the body is the last argument. Neither `variantMode` nor
+      // `variants` is here on purpose: `PUT` reads neither — the mode is a creation fact (decision 1) and
+      // a variant is written through `/products/{id}/variants`.
       expect(productServiceMock.updateProduct.mock.calls[0][2]).toStrictEqual({
         ...requestFields,
         categoryId: null,
@@ -1127,7 +1208,7 @@ describe('ProductEdit', () => {
       productServiceMock.updateProduct = vi.fn().mockReturnValue(of(response));
 
       component.onSaveProduct(
-        createProductData({ id: 'existing-id', ...requestFields, categoryId: 'sub2-1' }),
+        createFormValue({ id: 'existing-id', ...requestFields, categoryId: 'sub2-1' }),
       );
 
       expect(productServiceMock.updateProduct.mock.calls[0][2]).toStrictEqual({
@@ -1334,7 +1415,7 @@ describe('ProductEdit', () => {
         .fn()
         .mockReturnValue(of(createProductData({ id: 'new-id' })));
 
-      component.onSaveProduct(createProductData());
+      component.onSaveProduct(createFormValue());
 
       expect(productServiceMock.createProduct).not.toHaveBeenCalled();
       expect(component.generalError()).toContain('Elegí una empresa');
@@ -1434,7 +1515,7 @@ describe('ProductEdit', () => {
       });
       productServiceMock.createProduct = vi.fn().mockReturnValue(throwError(() => httpError));
 
-      component.onSaveProduct(createProductData());
+      component.onSaveProduct(createFormValue());
 
       expect(component.serverErrors()).toEqual({
         sku: 'SKU inválido',
@@ -1451,7 +1532,7 @@ describe('ProductEdit', () => {
       });
       productServiceMock.createProduct = vi.fn().mockReturnValue(throwError(() => httpError));
 
-      component.onSaveProduct(createProductData());
+      component.onSaveProduct(createFormValue());
 
       expect(component.serverErrors()).toEqual({});
       expect(component.generalError()).toBe('Error interno del servidor');
@@ -1466,7 +1547,7 @@ describe('ProductEdit', () => {
       });
       productServiceMock.createProduct = vi.fn().mockReturnValue(throwError(() => httpError));
 
-      component.onSaveProduct(createProductData());
+      component.onSaveProduct(createFormValue());
 
       expect(component.serverErrors()).toEqual({});
       expect(component.generalError()).toBe('Error inesperado. Intente de nuevo más tarde.');
@@ -1479,7 +1560,7 @@ describe('ProductEdit', () => {
       });
       productServiceMock.updateProduct = vi.fn().mockReturnValue(throwError(() => httpError));
 
-      component.onSaveProduct(createProductData({ id: 'existing-id' }));
+      component.onSaveProduct(createFormValue({ id: 'existing-id' }));
 
       expect(component.serverErrors()).toEqual({
         name: 'Nombre ya existe',
@@ -1496,7 +1577,7 @@ describe('ProductEdit', () => {
       });
       productServiceMock.createProduct = vi.fn().mockReturnValue(throwError(() => httpError));
 
-      component.onSaveProduct(createProductData());
+      component.onSaveProduct(createFormValue());
 
       expect(component.serverErrors()).toEqual({ sku: 'Ya existe un producto con ese SKU.' });
       expect(component.generalError()).toBeNull();
@@ -1511,7 +1592,7 @@ describe('ProductEdit', () => {
       });
       productServiceMock.createProduct = vi.fn().mockReturnValue(throwError(() => httpError));
 
-      component.onSaveProduct(createProductData());
+      component.onSaveProduct(createFormValue());
       fixture.detectChanges();
 
       expect(component.productForm().get('sku')?.errors?.['serverError']).toBe(
@@ -1528,7 +1609,7 @@ describe('ProductEdit', () => {
       });
       productServiceMock.createProduct = vi.fn().mockReturnValue(throwError(() => httpError));
 
-      component.onSaveProduct(createProductData());
+      component.onSaveProduct(createFormValue());
 
       expect(component.serverErrors()).toEqual({});
       expect(component.generalError()).toBe(
@@ -1545,7 +1626,7 @@ describe('ProductEdit', () => {
       });
       productServiceMock.createProduct = vi.fn().mockReturnValue(throwError(() => httpError));
 
-      component.onSaveProduct(createProductData());
+      component.onSaveProduct(createFormValue());
 
       expect(component.serverErrors()).toEqual({ sku: 'SKU duplicado' });
       expect(component.generalError()).toBeNull();
@@ -1560,7 +1641,7 @@ describe('ProductEdit', () => {
       });
       productServiceMock.updateProduct = vi.fn().mockReturnValue(throwError(() => httpError));
 
-      component.onSaveProduct(createProductData({ id: 'existing-id' }));
+      component.onSaveProduct(createFormValue({ id: 'existing-id' }));
 
       expect(component.serverErrors()).toEqual({ sku: 'Ya existe un producto con ese SKU.' });
       expect(component.generalError()).toBeNull();
