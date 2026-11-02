@@ -230,3 +230,52 @@ refresh has no benchmark in this module, so its cost is a design argument to wat
 sale path. One tidiness item is also recorded: T2's suite cleanup predates the trigger and therefore leaves
 the projection rows it creates. No current assertion is affected; a company-wide I2 check on that fixture key
 would see them.
+
+**2026-11-02 — T4 landed (`V62`), and it collided with an existing fixture.** Path A, as one migration: a
+seven-table `NO FORCE` window that is **proven open two ways** — nothing still `FORCE`d, and the tree
+actually reachable (the count of `product_variant_locations` against the count reached through its two
+`NOT NULL` foreign keys) — then the refusals, the replay, an insert check, the rebuild, the two assertions,
+the reports, and the close with its own proof. That second window check is the slice's most important line:
+an open window over an unreachable tree writes zero movements and reports success, with I2/I6 holding over
+nothing.
+
+RED first: **5/5** failed — two `AssertionError` on movement counts, two `FileNotFoundException` on the file
+that did not exist, and one `AssertionError: Expecting code to raise a throwable` for the abort. One of the
+five pinned a movement count on purpose, which is worth keeping: the two "I2 and I6 are empty" cases would
+have passed vacuousley over an empty ledger, so the count is what makes them evidence.
+
+**The collision, and the decision it forced.** `ProductVariantListingMigrationIntegrationTest` seeded
+`product_variant_store_stock.stock = 4` with **no `product_variant_locations` row** — the exact divergence
+`V62` refuses to interpret, so two cases of the module went red. The writer stopped and asked instead of
+editing outside its surface, and offered three shapes. Option A was taken: the fixture now seeds the area,
+zone and location that explain the store row's stock, with the **same constant** for both halves so they
+cannot drift, `stock = 4` unchanged and **no assertion touched**. Option B (seed `stock = 0`) was refused
+because it deletes the state the case exists to exercise — a fixture weakened to let a migration pass is the
+failure this repository keeps paying for; option C (leave two red and fix later) was refused because a
+permanently red module makes every later slice's verification mean less. A bonus fell out of it: the fixture
+is written at `V57`, where the three location levels still carry no `company_store_id`, so `V59`'s
+derivation now has a fixture that exercises it for the first time.
+
+Decisions the ADR and the record left open, all stated in the file:
+1. **A zero balance writes no movement.** `ck_movement_quantity` refuses `<= 0`, and the rebuild derives the
+   same nothing for that location.
+2. **No recorded cost → `unit_cost = 0` with a `reason` that says the cost is unknown**, and the count is
+   printed. Refusing to run on a tree where nobody filled `cost_price` was the alternative, and a migration
+   that cannot run gets edited under pressure.
+3. **A negative location balance aborts** — a third refusal the task did not name. It cannot be an inbound
+   row, and an `ADJUSTMENT_OUT` would be a consumption with no allocation behind it, i.e. a permanent I6
+   violation created by this file.
+4. **"no location row at all" is read as "no row of that variant in that store"**, because the variant may
+   legitimately hold stock in another store.
+5. **The window covers seven tables**, including `stock_allocation` (read by the valuation replay and I6 even
+   though nothing is allocated) and excluding the three location-side tables, which carry no `company_id`
+   and were never armed.
+6. **`occurred_at = now()`, `actor = NULL`**: a synthesized balance has no historical instant, and its
+   attribution is `source_type`/`source_id` plus `flyway_schema_history`.
+7. **The reports are `RAISE NOTICE`s** and the two cases that assert them execute the migration file over
+   JDBC and read `Statement.getWarnings()`, because Flyway's own connection makes its notices unreachable.
+
+Two observations that are not defects and are worth knowing: the notices are visible to an operator running
+the migration and are **not persisted**, so a later requirement for a queryable audit is a new decision; and
+`FIFO` ordering over the migration's rows rests on their insertion instant, which is older than anything T5
+will write — true, and worth remembering when consumption lands on top of it.

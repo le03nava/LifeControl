@@ -327,15 +327,65 @@ class ProductVariantListingMigrationIntegrationTest extends AbstractPostgresInte
     }
 
     /**
+     * The stock every seeded store row holds, in one place. The store row and the location that holds the
+     * same quantity are two halves of one fact (`product_variant_store_stock.stock = SUM(
+     * product_variant_locations.stock)`, {@code InventoryService.java:57}), so a fixture where the two
+     * could drift apart would seed exactly the divergence {@code V62} refuses to interpret.
+     */
+    private static final int SEEDED_STORE_STOCK = 4;
+
+    /**
      * The per-store row as the pre-unit schema holds it: price and stock together. {@code list_price} is
      * the only column the migration copies, and a {@code null} here is the row that must produce no listing.
+     *
+     * <p>The location row beside it is not a convenience: a store that holds stock has a location that
+     * explains it, which is the invariant {@code V62} (`V62__stock_ledger_path_a_backfill.sql`) replays and
+     * refuses to invent — a seeded store row with stock and no location is the one tree that migration
+     * declines to interpret.</p>
      */
     private void insertStorePrice(UUID company, UUID variant, UUID store, String listPrice) throws SQLException {
         execute(
                 company,
                 "INSERT INTO product_variant_store_stock (product_variant_id, company_store_id, stock, list_price,"
-                        + " cost_price) VALUES ('" + variant + "', '" + store + "', 4, "
+                        + " cost_price) VALUES ('" + variant + "', '" + store + "', " + SEEDED_STORE_STOCK + ", "
                         + (listPrice == null ? "NULL" : "'" + listPrice + "'") + ", 70.00)");
+        insertLocationHoldingTheSameStock(company, variant, store);
+    }
+
+    /**
+     * The location that holds the store row's stock, at the level-4 leaf the tree requires: area → zone →
+     * location. Written at {@code V57}, where none of the three levels carries {@code company_store_id} yet:
+     * {@code V59} derives it from the area through the zone when the chain runs to head, which is also why
+     * the balance row can be written here without naming a store.
+     */
+    private void insertLocationHoldingTheSameStock(UUID company, UUID variant, UUID store) throws SQLException {
+        var area = UUID.randomUUID();
+        execute(
+                company,
+                "INSERT INTO store_areas (id, company_store_id, area_code, area_name, enabled) VALUES ('" + area
+                        + "', '" + store + "', '"
+                        + area.toString().substring(0, 6).toUpperCase()
+                        + "', 'V58 Area', true)");
+
+        var zone = UUID.randomUUID();
+        execute(
+                company,
+                "INSERT INTO store_zones (id, store_area_id, zone_code, zone_name, enabled) VALUES ('" + zone + "', '"
+                        + area + "', '" + zone.toString().substring(0, 6).toUpperCase()
+                        + "', 'V58 Store Zone', true)");
+
+        var location = UUID.randomUUID();
+        execute(
+                company,
+                "INSERT INTO store_locations (id, store_zone_id, location_code, location_name, enabled) VALUES ('"
+                        + location + "', '" + zone + "', '"
+                        + location.toString().substring(0, 6).toUpperCase()
+                        + "', 'V58 Location', true)");
+
+        execute(
+                company,
+                "INSERT INTO product_variant_locations (product_variant_id, store_location_id, stock) VALUES ('"
+                        + variant + "', '" + location + "', " + SEEDED_STORE_STOCK + ")");
     }
 
     /** The same insert on a connection that states no tenant at all: what the policy's WITH CHECK refuses. */
