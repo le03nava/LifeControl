@@ -259,8 +259,20 @@ public class V65__Document_identity_render extends BaseJavaMigration {
     // ─── step 7: the three tables join ADR-0005's list ─────────────────────────────────────────────
 
     private void armTenantTables(Connection connection) throws SQLException {
-        for (var table : List.of("document_sequence", "sales_orders", "goods_receipts")) {
-            execute(connection, "SELECT apply_tenant_isolation('" + table + "')");
+        // The table name travels as a bind parameter and not concatenated: `apply_tenant_isolation` takes a
+        // `regclass`, so a cast in the statement keeps the call one prepared statement per name instead of a
+        // string built at run time (`SQL_NONCONSTANT_STRING_PASSED_TO_EXECUTE`).
+        try (var statement = connection.prepareStatement("SELECT apply_tenant_isolation(cast(? as regclass))")) {
+            for (var table : List.of("document_sequence", "sales_orders", "goods_receipts")) {
+                statement.setString(1, table);
+                // Drained and closed rather than dropped: the function returns void, so the row is the call
+                // itself, and an unclosed ResultSet is a leak SpotBugs is right to refuse.
+                try (var armed = statement.executeQuery()) {
+                    while (armed.next()) {
+                        // no value to read: `apply_tenant_isolation` returns void
+                    }
+                }
+            }
         }
     }
 
