@@ -5,9 +5,9 @@
 **Worktree**: `~/workspace/LifeControl-worktrees/docs-architecture-redesign-adrs`, then
 `~/workspace/LifeControl-worktrees/docs-adr-0005-accepted` for the acceptance
 **Status**: implemented — the six ADRs, their index and this record are the set's content. The
-redesign they describe is not implemented. ADR-0005 is `accepted` (2026-10-29), ADR-0002
-(2026-10-30) and ADR-0006 (2026-11-01); the other three are `proposed` and each needs its own
-decision. This record makes no delivery claim. Nothing is deferred.
+redesign ADR-0001 and ADR-0002 describe is not implemented. ADR-0005 is `accepted` (2026-10-29),
+ADR-0002 (2026-10-30), ADR-0006 (2026-11-01) and ADR-0001 (2026-11-02); the other two are `proposed` and
+each needs its own decision. This record makes no delivery claim. Nothing is deferred.
 **Created**: 2026-10-29
 **Risk**: none — documentation only. No code, no schema, no runtime surface.
 
@@ -173,3 +173,20 @@ sequences after ADR-0002's T1 and T4 while its `variant_mode`, unit and barcode 
 edge is stated in the ADR's `Accepted:` line and in `docs/adr/README.md`, because the `Depends on`
 column mirrors each ADR's own line and 0006's still names only ADR-0005. Nothing else in this record
 was touched.
+
+**2026-11-02 — ADR-0001 is accepted, after the three corrections it needed to be executable.** The
+maintainer chose to close them before the status flipped, the same way ADR-0005 was accepted, rather than
+carry them as implementation notes: the migration plan named `V52`–`V55`, which ADR-0005 and ADR-0006
+have all taken, so the steps are now named by content and each takes the next free slot when it lands;
+`stock_valuation` held `total_value` and `avg_unit_cost` with no currency, and both currency columns now
+reference the `currency` catalog `V57` created; and D1.a — `store_zones` and `store_locations` gaining
+`company_store_id` and `UNIQUE (company_store_id, id)` — is a precondition of `fk_movement_location`, not
+a detail, and `V7`'s `store_locations` has no such column, so the `## Schema` block did not compile as
+written. The decision itself is unchanged. One sentence of `docs/adr/README.md` was also repaired because
+this acceptance made it false in a second direction: it said ADR-0006's listing slice could not run before
+ADR-0002's T1 and T4 — T1 has landed (`V57`) and the listing has landed (`V58`) reading it, while
+`tax_rate` still does not exist and `V58:26-31` names the departure it took instead. That sentence says
+"the redesign they describe is not implemented", and the word "they" had already stopped being true for
+0005 and 0006, so it now names the two ADRs it does describe: 0001 and 0002. The third acceptance-count
+repair is the header's "the other three are `proposed`", now two. `0003` and `0004` remain `proposed`,
+and each still needs its own decision.
