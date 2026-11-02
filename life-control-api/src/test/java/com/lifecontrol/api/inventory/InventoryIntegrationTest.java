@@ -58,6 +58,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.web.servlet.MockMvc;
 import tools.jackson.databind.ObjectMapper;
@@ -94,6 +95,9 @@ class InventoryIntegrationTest extends AbstractPostgresIntegrationTest {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     @Autowired
     private ObjectMapper objectMapper;
@@ -163,6 +167,7 @@ class InventoryIntegrationTest extends AbstractPostgresIntegrationTest {
         productVariantStoreStockRepository.deleteAll();
 
         seedCompanyHierarchy();
+        deleteTheStockLedger();
         locationId = ensureLocation();
     }
 
@@ -171,6 +176,23 @@ class InventoryIntegrationTest extends AbstractPostgresIntegrationTest {
         inventoryMovementRepository.deleteAll();
         productVariantLocationRepository.deleteAll();
         productVariantStoreStockRepository.deleteAll();
+        deleteTheStockLedger();
+    }
+
+    /**
+     * Deletes the stock ledger rows this suite's writers booked, through the shared helper.
+     *
+     * <p>Since T5a of {@code odd/tasks/inventory-ledger.md} every receipt, sale, reversal and manual edit also
+     * writes {@code stock_movement}, which references {@code product_variants} and {@code store_locations}
+     * with no cascade and is append-only, so the inherited {@code inventoryMovementRepository.deleteAll()}
+     * cannot touch it. A row left behind would block any later suite in this shared JVM from deleting the
+     * variant or the location it names.</p>
+     */
+    private void deleteTheStockLedger() {
+        if (companyId == null) {
+            return;
+        }
+        deleteStockLedger(jdbcTemplate, companyId);
     }
 
     /**

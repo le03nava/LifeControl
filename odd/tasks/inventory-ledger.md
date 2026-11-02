@@ -279,3 +279,109 @@ Two observations that are not defects and are worth knowing: the notices are vis
 the migration and are **not persisted**, so a later requirement for a queryable audit is a new decision; and
 `FIFO` ordering over the migration's rows rests on their insertion instant, which is older than anything T5
 will write — true, and worth remembering when consumption lands on top of it.
+
+**2026-11-02 — T5 is re-cut into T5a and T5b, before either starts.** The ADR's step 4 ("move the
+readers") carries two changes that only share a package, not a behaviour: **T5a** moves the POS search, the
+store-scoped variant reads and the stock search onto `variant_listing` ⨝ the projection, with no request
+shape changing at all; **T5b** turns `PUT /api/variants/{id}/stores/{storeId}` from "overwrite the number"
+into "append a movement with a `reason`", which the ADR's `## Consequences` names as a **visible API
+change**. One is a read-path swap whose whole risk is a join or a scope; the other changes a contract a
+screen already calls. Putting them in one slice would make the reviewer hold two different failure modes at
+once, and would bury the contract change inside a diff about joins. T5b therefore sequences after T5a, and
+neither is a smaller decision than the other.
+
+**2026-11-02 — T5 is re-cut a second time, because the ADR's step 4 is not executable before step 6.**
+Found while scoping the reader move, and recorded rather than worked around: the ADR's migration says "4.
+move readers … every read of `.stock` is answered by the projection", and only in "6. `InventoryService` is
+deleted. Its four callers talk to the new module's API". Between those two steps the sale path still writes
+`product_variant_store_stock.stock` and `product_variant_locations.stock` and nothing else, so a reader moved
+onto `stock_position` in step 4 would answer with the number the **backfill** left there — and every sale
+after that would be invisible on the POS while the legacy row kept moving. The order cannot be
+read → drop → write; it has to be write → read → stop writing → drop.
+
+The executable order, and the three slices it makes:
+
+- **T5a — the four writers book the ledger.** `InventoryService`'s entry points (`applyReceipt`,
+  `applySaleBatch`, `applySaleReversal`, `applyStockAdjustment`) write `stock_movement` and, for an outbound
+  row, its allocations **in the same transaction as the legacy update**, so a moved reader and a moved
+  writer cannot disagree and nothing regresses while both exist. The public methods keep their signatures,
+  so the four callers are untouched.
+- **T5b — the readers move** onto `variant_listing` ⨝ `stock_position` / `stock_balance`, with the legacy
+  writes still in place, so the drop is left with no reader.
+- **T5c — the legacy writes stop**, `InventoryService`'s arithmetic is deleted, and T6's drops and the
+  package-cycle break follow.
+
+Why dual-writing is the right shape rather than a shortcut: the ledger and the legacy tables hold the same
+fact for one transition, and the slice that introduces the second copy is the only one where a defect can
+be *seen* rather than inferred — the test pins that after a sale the two agree. Deleting the legacy write in
+the same slice that introduces the ledger's would remove the only witness.
+
+**2026-11-02 — T5a: the dual-write landed, and it found three things worth more than the code.** The four
+writers book the ledger beside the untouched legacy update through a `StockLedgerWriter` that holds no
+arithmetic; the V61 trigger and functions own projections, consumption and valuation. Consent to change four
+fixture files was given (option A) for one reason: a fixture that writes `product_variant_store_stock.stock`
+or `product_variant_locations.stock` by hand authors the aggregate the ADR retires, so it now seeds a state
+the ledger never observed and I8 refuses the sale. The fixtures move to seeding **through**
+`inventoryService.applyReceipt`, which is more faithful than what they did, and every assertion and stock
+constant stays.
+
+1. **`source_id` is a mirror, and the mirror is temporary.** The writer identifies every ledger row by
+   `source_type = 'INVENTORY_MOVEMENT'` and `source_id = ` the id of the legacy `inventory_movements` row it
+   mirrors — the same shape V62 used for the backfill. That is honest for the transition and **dies with
+   T6**, which drops `inventory_movements`: the ledger's source would dangle and document provenance would be
+   gone. Worse, the document line cannot be the source today, measured three ways: a sale line that spans two
+   locations needs two movements under one line id; `SalesOrderService` raises a quantity by selling the
+   difference under the **same** `sales_order_items` row (`:989`, `:991-992`), so a second `SALE` under that
+   line id is refused by `uq_movement_source`; and `GoodsReceiptService:269` passes the `goods_receipts` id
+   once per line. So the ledger needs a key per **transition**, not per line, and `uq_movement_source` needs
+   `store_location_id` beside it. That is T5c, and it must land before the drops.
+2. **After this slice the position is the authority for availability, and one class of tree changes
+   behaviour.** In a tree where `product_variant_store_stock.stock` exceeds the sum of its locations, V62
+   reports the pair and follows the locations; from T5a on, a sale is gated by `stock_position`, so such a
+   store will refuse a sale the legacy engine would have allowed. That is the ADR's decision 1 arriving: one
+   authority, and the number the operator reads changes. V62's report is what tells the operator which pairs
+   those are, which is why it was a report and not a silent choice.
+3. **Two mechanisms that only looked equivalent are not.** The suite cleanup of an append-only table cannot
+   use `ALTER TABLE … DISABLE TRIGGER USER`: it is a catalog change on a table the whole container shares, so
+   a sibling suite's `UPDATE` would pass the append-only rule for as long as it is off. It uses
+   `SET LOCAL session_replication_role = replica` on the container-superuser connection, which is
+   session-scoped and invisible to anyone else, and the helper is itself tested — book, clean, assert empty —
+   rather than trusted.
+
+**2026-11-02 — T5a landed: the four writers book the ledger, and the fixture problem was the interesting
+half.** `StockLedgerWriter` books one `stock_movement` per legacy movement and its allocations for every
+outbound row, in the same transaction as the untouched legacy update; the four public methods and their four
+callers are unchanged. `Booking` now carries a **required** `sourceType` — no default, no overload — and the five
+production call sites state `MIRRORED_SOURCE_TYPE` explicitly, so the transition shape is visible where it is
+decided rather than hidden in the writer. That parameter is not a test accommodation: T5c's finding says the
+mirror dies with T6, and this is the seam that replaces it, built once where the fixture forced it.
+
+Three interactions were needed to get here, and each one was a stop rather than a guess:
+
+1. **The first attempt to fix the fixtures was measured and refused.** Authorized to seed
+   `SalesOrderIntegrationTest` through `applyReceipt`, the writer measured that it changes the legacy
+   `inventory_movements` counts **19 of 40** cases read — and that `seedSplitBalances` has **no writer at all**,
+   because `InventoryService` has no transfer between locations. My authorization was wrong and it said so with
+   the measurement instead of applying it.
+2. **Then two of my own conditions were mutually unsatisfiable**, and it said so instead of choosing: booking
+   through the writer and labelling the row `FIXTURE_OPENING` cannot both hold while the writer hard-codes
+   `source_type`. The resolution opened the required parameter above.
+3. **The split is booked as a relocation, not a sale.** A split between two locations has no writer of its own,
+   so the fixture books `ADJUSTMENT_OUT` of the difference at the priority location plus the secondary
+   location's opening — each sourced by the location balance row it changes, which is V62's own shape — rather
+   than a `SALE`+`RECEIPT` pair, which would have recorded a sale that never happened. The helper refuses a split
+   that does not sum to the seeded aggregate, so a per-location disagreement cannot be seeded silently.
+
+The fixture state this names is a real one: **stock that predates the ledger**. It is labelled
+`FIXTURE_OPENING`, it is booked through the production writer rather than raw SQL, and it dies with the suite.
+A fixture that inserts a ledger row the writers cannot produce would prove nothing.
+
+Two facts that are written here rather than left to be inferred from green tests: the schema suite's two I1
+cases run with the append-only trigger **on** — they assert that a direct `UPDATE` and a direct `DELETE` raise,
+which is why that suite keeps the container superuser handle — and **no executable catalog-level trigger lift
+remains in the module**: the two hits on `DISABLE TRIGGER` are javadoc explaining why the mechanism is not used,
+and the one executable suppression is the shared helper's session-scoped
+`SET LOCAL session_replication_role = replica`.
+
+Verification: module **4359 cases, 0 failures**, from a forced `cleanTest` re-run rather than an `up-to-date`
+reuse; `spotlessCheck` and `spotbugsMain` clean.

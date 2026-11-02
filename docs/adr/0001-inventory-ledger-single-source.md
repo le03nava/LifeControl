@@ -245,6 +245,17 @@ accepted decisions collides the moment the first of them lands. `V59` is the fir
    `InsufficientStockException` moves from `salesorder.exception` to `inventory.exception`, which is what
    breaks the package cycle (`InventoryService.java:13` imports it from today's location).
 
+**Note added 2026-11-02, while implementing: steps 4–6 as numbered are not executable in this order.**
+Step 4 moves a reader onto `stock_position` while step 6 is the one that stops `InventoryService` writing
+`product_variant_store_stock.stock` and `product_variant_locations.stock`. Between those two steps the
+projection holds only what step 3's backfill left there, so a reader moved in step 4 answers with a number
+no sale can change — the POS would report the balance of the day the migration ran, for ever, and the legacy
+row would keep moving beside it. The executable order is **write, read, stop writing, drop**: the four
+writers book the ledger beside the legacy update first (so the two copies can be seen to agree, which is the
+only moment a defect in either is visible), then the readers move, then the legacy writes are deleted and
+the tables drop. `odd/tasks/inventory-ledger.md` carries the three slices and the reasoning; the decision
+this ADR states is unchanged, and none of its invariants moved.
+
 ## Rejected alternatives
 
 | Alternative | Why rejected |

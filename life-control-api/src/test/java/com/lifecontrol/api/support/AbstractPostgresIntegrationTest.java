@@ -3,9 +3,11 @@ package com.lifecontrol.api.support;
 import com.zaxxer.hikari.HikariDataSource;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.UUID;
 import javax.sql.DataSource;
 import org.flywaydb.core.api.MigrationVersion;
 import org.junit.jupiter.api.BeforeEach;
@@ -61,6 +63,12 @@ public abstract class AbstractPostgresIntegrationTest {
     static {
         POSTGRES.start();
     }
+
+    /**
+     * The pool {@link #deleteStockLedger} opens on the container's own login. One per JVM, like the
+     * container itself: a new {@code HikariDataSource} per call would leak a pool per test method.
+     */
+    private static final DataSource STOCK_LEDGER_CLEANUP = containerSuperuserPool();
 
     /**
      * The role the pool logs in as: the one ADR-0005's policies apply to, and the reason this base exists.
@@ -173,6 +181,85 @@ public abstract class AbstractPostgresIntegrationTest {
         if (tenantFixtureBoundary != null) {
             TenantFixtures.bindTransactionManager(tenantFixtureBoundary);
         }
+    }
+
+    /**
+     * Deletes every stock-ledger row of one company: {@code stock_allocation}, {@code stock_movement}, and the
+     * three projections derived from them ({@code stock_balance}, {@code stock_position},
+     * {@code stock_valuation}).
+     *
+     * <p><b>Why a fixture has to do this at all.</b> Since T5a of
+     * {@code odd/tasks/inventory-ledger.md} the inventory writers also book the ledger beside the legacy
+     * balance, and {@code V60} made that ledger append-only and gave it foreign keys to
+     * {@code product_variants} and {@code store_locations} with no cascade. A suite that books a receipt, a
+     * sale, a reversal or a manual edit and later deletes the variant or the store location it names — which
+     * the inventory, order, receipt, catalog and store suites all do — fails on {@code fk_movement_variant} or
+     * {@code fk_movement_location} for a row the application role cannot delete at all, and the failure lands
+     * in whichever suite happens to run next. This helper is the one place those rows are removed, so each
+     * suite can leave the shared container the way it found it.</p>
+     *
+     * <p><b>The mechanism, and why not {@code ALTER TABLE … DISABLE TRIGGER USER}.</b> The append-only
+     * trigger ({@code refuse_ledger_mutation}, {@code V60}) is what refuses the {@code DELETE}, and that
+     * trigger is the invariant the whole feature is about. Disabling it is a <b>catalog</b> change on a table
+     * the whole container shares: for as long as it is off, any sibling suite's {@code UPDATE} or
+     * {@code DELETE} would pass a rule that suite may be asserting, so a teardown would quietly weaken
+     * somebody else's evidence. {@code SET LOCAL session_replication_role = replica} says the same thing about
+     * <b>one session</b> — the superuser's own connection, inside one transaction — so the trigger and the
+     * referential checks are suppressed for exactly these two statements and expire at {@code COMMIT}. A
+     * sibling suite cannot observe it, and a failure mid-way leaves nothing switched off: the setting dies
+     * with the transaction, not with the table.</p>
+     *
+     * <p><b>Why the superuser, and why the projections are not.</b>
+     * {@code session_replication_role} is a superuser setting the application role does not have, which is
+     * the same reason {@link #containerSuperuserPool()} exists; a superuser also bypasses row-level security,
+     * so the two ledger deletes need no tenant scope. The three projections are ordinary derived rows: they
+     * are deleted through the application's own handle, inside the company's scope, the way the application
+     * would — so a wrong scope leaves rows behind (visibly, in {@code InventoryLedgerBookingIntegrationTest})
+     * instead of borrowing a permission the production path never has.</p>
+     *
+     * @param jdbc a handle bound to the test context, used for the three projections
+     * @param companyId the company whose rows go. Never {@code null}: a null would delete nothing and read as
+     *     a pass, which is the failure mode this helper exists to make impossible.
+     * @throws IllegalStateException when a delete fails, so a teardown never reports a clean container it did
+     *     not produce
+     */
+    protected static void deleteStockLedger(JdbcTemplate jdbc, UUID companyId) {
+        if (companyId == null) {
+            throw new IllegalArgumentException(
+                    "deleting a company's stock ledger needs the company the rows belong to, and got null");
+        }
+        try (var connection = STOCK_LEDGER_CLEANUP.getConnection()) {
+            connection.setAutoCommit(false);
+            try {
+                // SET LOCAL is transaction-scoped, which is the whole point: it cannot outlive this block.
+                try (var statement = connection.createStatement()) {
+                    statement.execute("SET LOCAL session_replication_role = replica");
+                }
+                for (var statement : List.of(
+                        "DELETE FROM stock_allocation WHERE company_id = ?",
+                        "DELETE FROM stock_movement WHERE company_id = ?")) {
+                    try (var prepared = connection.prepareStatement(statement)) {
+                        prepared.setObject(1, companyId);
+                        prepared.executeUpdate();
+                    }
+                }
+                connection.commit();
+            } catch (SQLException failed) {
+                connection.rollback();
+                throw new IllegalStateException("could not delete the stock ledger of company " + companyId, failed);
+            } finally {
+                connection.setAutoCommit(true);
+            }
+        } catch (SQLException failed) {
+            throw new IllegalStateException(
+                    "could not reach the container to clean the stock ledger of " + companyId, failed);
+        }
+
+        TenantFixtures.inTenant(companyId, () -> {
+            jdbc.update("DELETE FROM stock_balance WHERE company_id = ?", companyId);
+            jdbc.update("DELETE FROM stock_position WHERE company_id = ?", companyId);
+            jdbc.update("DELETE FROM stock_valuation WHERE company_id = ?", companyId);
+        });
     }
 
     /**

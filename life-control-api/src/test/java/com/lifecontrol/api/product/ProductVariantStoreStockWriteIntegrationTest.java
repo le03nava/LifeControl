@@ -56,6 +56,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
@@ -140,6 +141,10 @@ class ProductVariantStoreStockWriteIntegrationTest extends AbstractPostgresInteg
     @Autowired
     private InventoryService inventoryService;
 
+    /** The handle the shared ledger cleanup deletes the projections through (see the base class). */
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
     private static final SimpleGrantedAuthority ROLE_LC_ADMIN = new SimpleGrantedAuthority("ROLE_lc-admin");
 
     private static final String STORE_STOCK_URL = "/api/variants/{variantId}/stores/{storeId}";
@@ -191,6 +196,14 @@ class ProductVariantStoreStockWriteIntegrationTest extends AbstractPostgresInteg
 
     @AfterEach
     void tearDown() {
+        // The per-store stock editor writes all three sides (W3-D14), so since T5a of
+        // odd/tasks/inventory-ledger.md it also books the stock ledger. Those rows reference the variants and
+        // the locations with no cascade and the ledger is append-only, so they go first — otherwise the
+        // variant deletes below fail on fk_movement_variant for a row the application role cannot remove.
+        if (companyId != null) {
+            deleteStockLedger(jdbcTemplate, companyId);
+        }
+
         // Listings before the variants: `variant_listing` references the variant (C6) with no cascade, and
         // the table is armed, so each pair is removed under this suite's tenant.
         if (companyId != null && storeAId != null && storeBId != null) {

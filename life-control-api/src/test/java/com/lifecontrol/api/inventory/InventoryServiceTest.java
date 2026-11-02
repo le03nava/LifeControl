@@ -3,6 +3,7 @@ package com.lifecontrol.api.inventory;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
@@ -14,6 +15,7 @@ import com.lifecontrol.api.company.model.Company;
 import com.lifecontrol.api.company.model.CompanyCountry;
 import com.lifecontrol.api.company.model.CompanyRegion;
 import com.lifecontrol.api.company.model.CompanyZone;
+import com.lifecontrol.api.inventory.ledger.StockLedgerWriter;
 import com.lifecontrol.api.inventory.model.InventoryMovement;
 import com.lifecontrol.api.inventory.model.MovementType;
 import com.lifecontrol.api.inventory.model.ProductVariantLocation;
@@ -78,6 +80,10 @@ class InventoryServiceTest {
     @Mock
     private CompanyStoreRepository companyStoreRepository;
 
+    /** The ledger's writer is a collaborator here: this suite is about the legacy arithmetic. */
+    @Mock
+    private StockLedgerWriter stockLedgerWriter;
+
     @Captor
     private ArgumentCaptor<InventoryMovement> movementCaptor;
 
@@ -132,7 +138,16 @@ class InventoryServiceTest {
                 inventoryMovementRepository,
                 storeInventorySettingsRepository,
                 companyStoreRepository,
-                new CompanyStoreOwnerResolver());
+                new CompanyStoreOwnerResolver(),
+                stockLedgerWriter);
+
+        // The ledger is a collaborator of this suite, not its subject: the legacy arithmetic is. A
+        // healthy ledger answers the two questions the reversal path asks it (which ledger row mirrors a
+        // legacy sale row, and whether a reversal already names it), so the legacy behaviour the cases
+        // below assert is reached instead of the writer's own refusal.
+        lenient()
+                .when(stockLedgerWriter.mirroredMovementId(any(), anyString()))
+                .thenReturn(Optional.of(UUID.randomUUID()));
 
         // The engine derives the tenant from the store argument before it reads the definition, so
         // every non-quantity path needs the fixture's store to exist. Lenient because the quantity

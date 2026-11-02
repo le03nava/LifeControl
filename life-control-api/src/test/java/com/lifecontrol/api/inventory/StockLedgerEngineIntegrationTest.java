@@ -9,7 +9,6 @@ import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
-import javax.sql.DataSource;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -40,12 +39,14 @@ import org.springframework.jdbc.core.JdbcTemplate;
  * item that motivated this slice. {@code I1}, {@code I3}, {@code I4}, {@code I5} and {@code I7} are the
  * schema's and stay where T2 proved them; none of them is repeated here.</p>
  *
- * <p><b>Two roles, as in the schema suite.</b> The pool logs in as {@code lifecontrol_app}, the role
- * ADR-0005's policies apply to, so every fixture runs inside the tenant scope the ledger's armed tables
+ * <p><b>One role here, and how the cleanup escapes it.</b> The pool logs in as {@code lifecontrol_app}, the
+ * role ADR-0005's policies apply to, so every fixture runs inside the tenant scope the ledger's armed tables
  * require — a trigger that writes a projection row runs as the calling role, so an unscoped insert would
- * be refused by the policy before it proved anything. The container's superuser appears only in the
- * {@code @AfterEach}, which has to lift the append-only triggers to delete the rows this suite wrote: the
- * same rule that refuses a caller refuses the cleanup, and {@code ALTER TABLE} is owner DDL.</p>
+ * be refused by the policy before it proved anything. The cleanup is the one statement the application role
+ * may not run at all, because the ledger is append-only: it goes through
+ * {@link com.lifecontrol.api.support.AbstractPostgresIntegrationTest#deleteStockLedger}, which suppresses
+ * the trigger for one session and one transaction ({@code SET LOCAL session_replication_role = replica})
+ * rather than changing the shared table's catalog entry.</p>
  *
  * <p><b>Deterministic order.</b> FIFO is "oldest first", so every fixture states {@code occurred_at}
  * explicitly instead of taking the column default: two rows written in one transaction share
@@ -73,11 +74,6 @@ class StockLedgerEngineIntegrationTest extends AbstractPostgresIntegrationTest {
                                         source_id, reverses_movement_id, reason)
             VALUES (?, ?, ?, ?, ?, ?, ?::numeric, ?::numeric, ?, ?::timestamptz, ?, ?, ?, 'ledger engine fixture')
             """;
-
-    /** The container's own login, which is a SUPERUSER and the only credential that can lift a trigger. */
-    private static final DataSource CONTAINER_SUPERUSER = containerSuperuserPool();
-
-    private static final JdbcTemplate UNRESTRICTED = new JdbcTemplate(CONTAINER_SUPERUSER);
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
@@ -795,31 +791,19 @@ class StockLedgerEngineIntegrationTest extends AbstractPostgresIntegrationTest {
     }
 
     /**
-     * Deletes the rows this suite wrote, with the append-only triggers lifted for exactly the two statements
-     * that need it and re-enabled in the {@code finally}.
+     * Deletes the rows this suite wrote, through the shared helper.
      *
-     * <p>The projections go too, in the same pass: they are the ledger's derived rows, so a suite that
-     * cleaned only the ledger would leave a projection that no longer replays — the exact state {@code I2}
-     * exists to report.</p>
+     * <p>The ledger is append-only, so the cleanup is the one statement the application role cannot run; the
+     * helper suppresses the trigger for one session and one transaction instead of switching it off in the
+     * catalog, which would weaken every other suite sharing this container. The projections go in the same
+     * pass: they are the ledger's derived rows, so a suite that cleaned only the ledger would leave a
+     * projection that no longer replays — the exact state {@code I2} exists to report.</p>
      */
     private void deleteTheLedger() {
         if (companyId == null) {
             return;
         }
-        UNRESTRICTED.execute("ALTER TABLE stock_allocation DISABLE TRIGGER USER");
-        UNRESTRICTED.execute("ALTER TABLE stock_movement DISABLE TRIGGER USER");
-        try {
-            UNRESTRICTED.update("DELETE FROM stock_allocation WHERE company_id = ?", companyId);
-            UNRESTRICTED.update("DELETE FROM stock_movement WHERE company_id = ?", companyId);
-        } finally {
-            UNRESTRICTED.execute("ALTER TABLE stock_movement ENABLE TRIGGER USER");
-            UNRESTRICTED.execute("ALTER TABLE stock_allocation ENABLE TRIGGER USER");
-        }
-        TenantFixtures.inTenant(companyId, () -> {
-            jdbcTemplate.update("DELETE FROM stock_balance WHERE company_id = ?", companyId);
-            jdbcTemplate.update("DELETE FROM stock_position WHERE company_id = ?", companyId);
-            jdbcTemplate.update("DELETE FROM stock_valuation WHERE company_id = ?", companyId);
-        });
+        deleteStockLedger(jdbcTemplate, companyId);
     }
 
     /** The driver's own sentence, at the bottom of the Spring exception chain. */
