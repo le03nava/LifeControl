@@ -1,9 +1,9 @@
 package com.lifecontrol.api.scheduling.service;
 
 import com.lifecontrol.api.common.auth.CurrentUserContext;
+import com.lifecontrol.api.common.state.InvalidStatusTransitionException;
 import com.lifecontrol.api.customer.exception.CustomerNotFoundException;
 import com.lifecontrol.api.customer.repository.CustomerRepository;
-import com.lifecontrol.api.purchaseorder.exception.InvalidStatusTransitionException;
 import com.lifecontrol.api.scheduling.dto.SchedulingAppointmentRequest;
 import com.lifecontrol.api.scheduling.dto.SchedulingAppointmentRescheduleRequest;
 import com.lifecontrol.api.scheduling.dto.SchedulingAppointmentResponse;
@@ -380,7 +380,7 @@ public class SchedulingAppointmentService {
      *     exist
      * @throws IllegalArgumentException when the target status does not belong to the
      *     {@code APPOINTMENT} type (400)
-     * @throws com.lifecontrol.api.purchaseorder.exception.InvalidStatusTransitionException when the
+     * @throws com.lifecontrol.api.common.state.InvalidStatusTransitionException when the
      *     edge is not allowed (409)
      * @throws SchedulingSlotNotFoundException when the released slot does not exist
      * @throws org.springframework.security.access.AccessDeniedException when the caller cannot access

@@ -3,6 +3,7 @@ package com.lifecontrol.api.goodsreceipt.service;
 import com.lifecontrol.api.common.auth.CurrentUserContext;
 import com.lifecontrol.api.common.document.DocumentNumberRenderer;
 import com.lifecontrol.api.common.document.DocumentType;
+import com.lifecontrol.api.common.state.InvalidStatusTransitionException;
 import com.lifecontrol.api.goodsreceipt.dto.GoodsReceiptFilter;
 import com.lifecontrol.api.goodsreceipt.dto.GoodsReceiptLineRequest;
 import com.lifecontrol.api.goodsreceipt.dto.GoodsReceiptLineResponse;
@@ -28,7 +29,6 @@ import com.lifecontrol.api.inventory.repository.StoreInventorySettingsRepository
 import com.lifecontrol.api.inventory.service.InventoryService;
 import com.lifecontrol.api.product.model.ProductVariant;
 import com.lifecontrol.api.product.repository.ProductVariantStoreStockRepository;
-import com.lifecontrol.api.purchaseorder.exception.InvalidStatusTransitionException;
 import com.lifecontrol.api.purchaseorder.exception.PurchaseOrderDetailNotFoundException;
 import com.lifecontrol.api.purchaseorder.exception.PurchaseOrderNotFoundException;
 import com.lifecontrol.api.purchaseorder.model.PurchaseOrder;
@@ -142,7 +142,7 @@ public class GoodsReceiptService {
      * @throws PurchaseOrderNotFoundException when the purchase order does not exist
      * @throws org.springframework.security.access.AccessDeniedException when the current user cannot
      *     access the purchase order's store
-     * @throws com.lifecontrol.api.purchaseorder.exception.InvalidStatusTransitionException when the
+     * @throws com.lifecontrol.api.common.state.InvalidStatusTransitionException when the
      *     purchase order is not receivable ({@code Accepted} / {@code In Transit})
      * @throws DisabledPurchaseOrderException when the purchase order is soft-deleted
      * @throws StoreInventorySettingsNotFoundException when no receiving location is supplied and the

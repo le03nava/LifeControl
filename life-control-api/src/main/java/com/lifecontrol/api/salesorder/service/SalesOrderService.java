@@ -4,6 +4,7 @@ import com.lifecontrol.api.common.auth.CurrentUserContext;
 import com.lifecontrol.api.common.document.DocumentNumberRenderer;
 import com.lifecontrol.api.common.document.DocumentSequenceAllocator;
 import com.lifecontrol.api.common.document.DocumentType;
+import com.lifecontrol.api.common.state.InvalidStatusTransitionException;
 import com.lifecontrol.api.customer.exception.CustomerNotFoundException;
 import com.lifecontrol.api.customer.repository.CustomerRepository;
 import com.lifecontrol.api.inventory.service.InventoryService;
@@ -12,7 +13,6 @@ import com.lifecontrol.api.paymentmethod.exception.PaymentMethodNotFoundExceptio
 import com.lifecontrol.api.paymentmethod.repository.PaymentMethodRepository;
 import com.lifecontrol.api.product.exception.ProductVariantNotFoundException;
 import com.lifecontrol.api.product.repository.ProductVariantRepository;
-import com.lifecontrol.api.purchaseorder.exception.InvalidStatusTransitionException;
 import com.lifecontrol.api.salesorder.dto.ChargeSalesOrderRequest;
 import com.lifecontrol.api.salesorder.dto.SalesOrderItemRequest;
 import com.lifecontrol.api.salesorder.dto.SalesOrderItemResponse;

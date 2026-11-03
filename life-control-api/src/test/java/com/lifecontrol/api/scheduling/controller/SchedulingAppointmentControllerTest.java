@@ -13,8 +13,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.lifecontrol.api.common.state.InvalidStatusTransitionException;
 import com.lifecontrol.api.exception.GlobalExceptionHandler;
-import com.lifecontrol.api.purchaseorder.exception.InvalidStatusTransitionException;
 import com.lifecontrol.api.scheduling.dto.SchedulingAppointmentRequest;
 import com.lifecontrol.api.scheduling.dto.SchedulingAppointmentResponse;
 import com.lifecontrol.api.scheduling.exception.InvalidSchedulingRangeException;
