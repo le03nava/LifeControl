@@ -96,7 +96,8 @@ S8. Every rule above gets a case that fails before it is implemented, and the tw
 | --- | --- | --- | --- |
 | T1 | S2, S8 | The receipt's line identity: `GoodsReceiptService` hands the writer the line, `InventoryService.applyReceipt` books `GOODS_RECEIPT_ITEM` + `goods_receipt_items.id` while the legacy row keeps the document, and the grain case (two lines, one variant, one location) is written first | **done** — `4fb4c6c4` |
 | T2 | S3, S8 | The reversal's identity off the mirror: the remainder read moves to `stock_movement`, the reversal names the line, and the mixed-identity refusal that only existed because of the mirror is retired with a case that states why | **done** — inline, `5ad8fa7a` |
-| T3 | S4, S7, S8 | The write path: receipts, sales and adjustments stop writing the two legacy columns, and the measure-unit guard asks the ledger | inline |
+| T3a/T3b | S4, S8 | The sale's split reads the projection (`StockLedgerWriter.openBalances`) while the columns are still maintained, because an intermediate state where one writer stops and another reads is not shippable | **done** — `444979ce` |
+| T3c | S4, S7, S8 | The write path: receipts, sales and adjustments stop writing the two legacy columns and the five `inventory_movements` writes stop, the store-aggregate gate goes, the measure-unit guard asks `StockLedgerWriter.hasMovements`, and the 87 dual-truth cases across 8 suites are rewritten to a single truth | **done** — inline; the branch's write-path commit (T4's record update names its hash) |
 | T4 | S5, S6, S8 | The drops, the deletion of `InventoryService`, the move of `InsufficientStockException` and the cycle break, with the ~14 test files that name the dropped objects updated | inline |
 | T5 | S1, S5 | The records: `odd/tasks/inventory-ledger.md` T5d/T6 closed with what landed and what the drops removed, and this record's evidence | inline |
 
@@ -268,3 +269,91 @@ separate commits with separate evidence. The maintainer chose a single PR over a
 the budget is exceeded deliberately and with the reason stated here rather than in a review comment later. T3c and
 T4 — which are where the columns and the service actually die — are **not** in this PR and the issue stays open for
 them.
+
+**2026-11-03 — T3c resumed as its own unit. L2, the maintainer's choice, verbatim**: «Sí, unidad nueva para T3c».
+The parked slice leaves `wip/ledger-legacy-writes-off` (`d6fbc815`) and is delivered from `c80c3227` on
+`feat/ledger-legacy-writes-off` (worktree `~/workspace/LifeControl-worktrees/feat-ledger-legacy-writes-off`),
+together with the fixture rewrite the inventory above implies: a fixture that seeds stock by writing the two legacy
+columns *and* booking the ledger describes a world the code stops living in the moment this slice lands, so each of
+the 87 cases is rewritten to state one truth, not adapted to compare two.
+
+**2026-11-03 — T3c landed: the write path stops maintaining the mirror, and the 87 dual-truth cases state one truth.**
+What the code lost, and why each removal had to happen in this slice:
+
+- **The eight legacy column writes and the five `inventory_movements` writes are gone** (`applyReceipt`,
+  `applySaleDeduction`, `applyStockAdjustment`, `applyAdjustmentDecrease`, `applySaleReversal`). Nothing in
+  `src/main` writes either column or that table now. `MIRRORED_SOURCE_TYPE` is read by exactly one thing — D-1's
+  pre-`V73` fallback — and it dies with the table in T4. `newMovement`, the legacy row builder, had no caller left
+  and is deleted; its javadoc had drifted onto the wrong method (`OpenSale`), which is now corrected.
+- **The store-aggregate availability gate is deleted** from the sale path: it compared the frozen column, and the
+  position gate (`V61` I8) is the one that decides. Both rows are still locked in the same order — store first,
+  then the location — and the sale's read of the store row now says out loud that the lock is the point and the
+  number is nobody's source. SpotBugs caught the three dead stores this left (`applySaleDeduction`,
+  `applyStockAdjustment`, `reverseScope`), plus the accumulator `reverseScope` used only to update the aggregate:
+  removing the write is not the same as removing the read.
+- **The measure-unit guard asks the ledger** (`StockLedgerWriter.hasMovements`, S7), and
+  `ProductVariantService`'s `InventoryMovementRepository` dependency is deleted because that guard was its last
+  user. One probe now answers what two used to: a quantity above zero is nothing but a projection of the movements
+  it counts, so `stock > 0` and `a row exists` were always the same question asked against two clocks.
+- **A manual edit's delta comes from `stock_position` under its lock.** This is the defect the parked slice had
+  already caught: against the frozen column the editor would set the wrong target while every projection stayed
+  self-consistent — a change that creates a defect every projection agrees with.
+- **D-2 is literal now.** The parked slice booked a fresh id as the source while the row got a different id from
+  the schema default: two identities for one row, which is the shape this ADR exists to refuse. `bookAdjustmentIn`
+  and `bookAdjustmentOut` now hand the booking's `sourceId` to the insert as the row's id, so a manual edit's
+  source *is* its row. Nothing else derives from it — a manual edit is never reversed and never retried by its
+  identity — which is exactly why it is not shape (b).
+
+The 87 red cases, per file. Every one was a **dual-truth fixture**; none was a defect in the change:
+
+| File | Cases | What it had to be told |
+| --- | --- | --- |
+| `ProductVariantServiceTest` | 3 | the guard's probe is `hasMovements`; the two column reads are asserted as never asked. The two cases that stated the two probes became one, because there is one rule now |
+| `InventoryServiceTest` | 5 | a receipt books one ledger row and writes **no** legacy column; two cases about column arithmetic (`additive`, `NULL counts as zero`) are deleted — the arithmetic no longer exists |
+| `GoodsReceiptIntegrationTest` | 3 | balances from `stock_balance`/`stock_position`, the booked movement from `stock_movement` |
+| `InventoryIntegrationTest` | 5 | the fixture seeds stock through a receipt; the W3-D5 invariant is restated as the ledger states it (`stock_position = SUM(stock_balance)` over the store's locations); the 40-vs-100 divergence case is deleted — the state it constructed can no longer exist |
+| `InventoryLedgerBookingIntegrationTest` | 11 | `assertTheLedgerAgreesWithTheLegacyBalances` became `assertTheLedgerHolds`: the "agreement between two copies" property is the thing this slice removes, so the helper now asserts the ledger's own equation plus the I2/I6 invariants; `raiseTheLegacyBalancesByHand` is deleted. The case that corrupted the column behind the ledger's back was deleted and then **restored**, because its state does still exist — see the verification entry below |
+| `InventoryServiceSaleMovementTest` | 15 | the mock world is declared through the ledger's collaborators (a position and a set of balances, no column arithmetic) and the assertions read the bookings the engine makes (`bookSale`, `bookSaleReversal`, `bookAdjustmentIn`, `bookAdjustmentOut`) instead of legacy repository saves. No case deleted |
+| `ProductVariantStoreStockWriteIntegrationTest` | 8 | the editor's probe is the ledger and its balances are the projections; the half of one case that probed the legacy stock floor is dropped (S7). One assertion on `product_variant_store_stock.stock == 0` remains on purpose: it reads the INSERT's default, not a balance, and goes with the drop in T4 |
+| `SalesOrderIntegrationTest` | 41 | `saveStoreStock` books a receipt instead of writing the column, `seedSplitBalances` relocates through the ledger, and every balance/movement assertion reads the projections and `stock_movement`. One case deleted (5.2): it existed to make both legacy gates pass while the position refused; its message-shape assertions fold into the surviving 409 case |
+
+**Two measurement corrections to the parked inventory.** `SalesOrderIntegrationTest` had **37** failing of 44 —
+not 41 — and `InventoryServiceSaleMovementTest` **15**, not 14; the parked per-class split was counted from a run
+whose `build/` a sibling session had overwritten (the `EOFException` / `in-progress-results` collision that hit
+three of this session's runs). The total was 87 either way, and the count is the thing the inventory was for.
+
+**Five cases are gone in total** (one per file above except the last two rows) and each deletion is stated in place
+with its reason; the suite therefore reports **4500** tests instead of 4505.
+
+Evidence, measured on the delivered tree:
+
+- Full suite: **1066 result files, 4500 tests, 0 failures, 0 errors, 0 skipped** (baseline before the slice: the
+  same 1066 files, 4505 tests, **87 failed**).
+- `spotlessCheck` and `spotbugsMain` clean. `spotbugsMain` was red at first with three `DLS_DEAD_LOCAL_STORE`
+  findings — the dead stores the removed writes left behind — which is the one place the mechanical half of this
+  slice was not mechanical.
+- Opened as `feat/ledger-legacy-writes-off` from `c80c3227`. T4 — the drops, the deletion of `InventoryService`
+  and the cycle break — is still owed, so the issue stays open.
+
+**2026-11-03 — independent verification of the slice, and the three things it corrected.** Native `assess` called
+the candidate `medium`/`under_budget` (`reviewDue: false`), and the Task Size line above names items 1, 2, 3 and 6,
+so the slice was escalated on item 2 ("the ledger decides who may write stock, and a guard that moves with it is
+silent when it is wrong") and a separate read-only verifier ran over `c80c3227..HEAD`. Its verdicts, and what each
+one changed:
+
+- **S4, locks, S7, D-2 and the delta: all pass**, on `path:line` evidence — including that lock call sites went 16 →
+  17 and none was removed, and that the manual edit's `stock_movement.source_id` is now literally its `id`.
+- **One deletion reason was wrong, and the case is back.** The deleted split case claimed "the column holds its
+  default for every variant". That is false for an upgraded database, where the frozen column keeps the last number
+  the old writer set — precisely the rollout window this slice creates and the next one closes. The case is restored
+  as `aSaleSplitsByTheProjectionNotByTheStaleColumn`: it seeds the ledger with a receipt, sets the column to 999 by
+  hand, and asserts the split ignores it. The four other deletions stand, each for a state that can no longer exist.
+- **Two dead probes stopped advertising themselves.** The measure-unit exception's javadoc still documented the two
+  old probes; `ProductVariantStoreStockRepository.existsByProductVariantIdAndStockNot` still claimed the D3 guard
+  uses it (it survives only so `ProductVariantServiceTest` can assert it is *never* called, and its javadoc now says
+  exactly that); and `InventoryMovementRepository.existsByProductVariantId` was deleted outright rather than left as
+  an invitation to read a table nothing writes.
+
+Re-verified on the corrected tree: **1066 result files, 4500 tests, 0 failures**, `spotbugsMain` and
+`spotlessCheck` clean. The verifier did not re-run the suite (it checked the artifacts of the run that produced them
+and re-ran `spotlessCheck` in a scratch copy); this run is the one the delivered tree states.

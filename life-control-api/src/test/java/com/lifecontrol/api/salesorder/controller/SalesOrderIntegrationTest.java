@@ -23,13 +23,10 @@ import com.lifecontrol.api.country.repository.CountryRepository;
 import com.lifecontrol.api.customer.model.Customer;
 import com.lifecontrol.api.customer.repository.CustomerRepository;
 import com.lifecontrol.api.inventory.ledger.StockLedgerWriter;
-import com.lifecontrol.api.inventory.model.InventoryMovement;
-import com.lifecontrol.api.inventory.model.MovementType;
-import com.lifecontrol.api.inventory.model.ProductVariantLocation;
 import com.lifecontrol.api.inventory.model.StoreInventorySettings;
-import com.lifecontrol.api.inventory.repository.InventoryMovementRepository;
 import com.lifecontrol.api.inventory.repository.ProductVariantLocationRepository;
 import com.lifecontrol.api.inventory.repository.StoreInventorySettingsRepository;
+import com.lifecontrol.api.inventory.service.InventoryService;
 import com.lifecontrol.api.measureunit.repository.MeasureUnitRepository;
 import com.lifecontrol.api.paymentmethod.model.PaymentMethod;
 import com.lifecontrol.api.paymentmethod.repository.PaymentMethodRepository;
@@ -64,6 +61,7 @@ import com.lifecontrol.api.store.repository.StoreZoneRepository;
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
 import com.lifecontrol.api.support.TenantFixtures;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -105,9 +103,13 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
-    /** The production writer the ledger opening goes through, so the fixture books what production books. */
+    /** The production writer the split relocation goes through, so the fixture books what production books. */
     @Autowired
     private StockLedgerWriter stockLedgerWriter;
+
+    /** The production receipt entry point the fixture's opening goes through: stock is booked, never seeded. */
+    @Autowired
+    private InventoryService inventoryService;
 
     @Autowired
     private ObjectMapper objectMapper;
@@ -167,9 +169,6 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
     private ProductVariantLocationRepository productVariantLocationRepository;
 
     @Autowired
-    private InventoryMovementRepository inventoryMovementRepository;
-
-    @Autowired
     private StoreInventorySettingsRepository storeInventorySettingsRepository;
 
     @Autowired
@@ -199,14 +198,15 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
     private static final SimpleGrantedAuthority ROLE_LC_SALES = new SimpleGrantedAuthority("ROLE_lc-sales");
 
     /**
-     * The ledger source of stock this fixture seeds.
+     * The ledger source of the stock this fixture seeds.
      *
-     * <p>A discriminator that can never be mistaken for a real one: a receipt, a sale or a hand edit writes the
-     * movement's source as the {@code inventory_movements} row it mirrors, and this stock has no legacy movement
-     * at all — it is the state {@code V62}'s Path A replay exists for, applied to one key instead of the whole
-     * tree ({@code source_type = 'MIGRATION'} there). The legacy columns stay beside it during the transition
-     * because they are still the authority the API reads, and the ledger's job in this window is to describe the
-     * same balance.</p>
+     * <p>A discriminator that can never be mistaken for a real one: a sale states its line and a receipt its
+     * {@code goods_receipt_items} row, while this stock belongs to no document at all — it is the state a store
+     * carries before its first one, which {@code V62}'s Path A replay books for the whole tree under
+     * {@code source_type = 'MIGRATION'}. The opening is booked as a real {@code RECEIPT} through
+     * {@link InventoryService#applyReceipt}, the production path, so the fixture states stock exactly the way
+     * production does; the discriminator is what lets every assertion answer "what did the document under test
+     * book?" instead of counting the fixture's own receipt.</p>
      */
     private static final String FIXTURE_OPENING = "FIXTURE_OPENING";
 
@@ -221,10 +221,10 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                 .getId();
         TenantScope.set(companyId, null);
 
-        // Clean up mutable data in reverse FK dependency order. inventory_movements and
-        // product_variant_locations reference product_variants with no cascade, so they must go
+        // Clean up mutable data in reverse FK dependency order. The ledger's projections are removed by
+        // `deleteStockLedger` in the teardown; `product_variant_locations` still holds a row per (variant,
+        // location) that the sale path locks, and it references product_variants with no cascade, so it must go
         // before the variants (and before the products) or the delete fails on the FK.
-        inventoryMovementRepository.deleteAll();
         productVariantLocationRepository.deleteAll();
         itemRepository.deleteAll();
         salesOrderRepository.deleteAll();
@@ -248,8 +248,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
         }
 
         // Leave no inventory rows behind: this JVM shares its PostgreSQL container with the other
-        // integration classes, and a leftover movement or balance would block their product deletes.
-        inventoryMovementRepository.deleteAll();
+        // integration classes, and a leftover balance row would block their product deletes.
         productVariantLocationRepository.deleteAll();
         // store_inventory_settings references store_locations, so the store-tree integration
         // classes cannot delete locations wholesale while this row exists. It is recreated by
@@ -573,138 +572,156 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
         });
     }
 
+    /**
+     * Registers the variant in this store with {@code stock} units on hand.
+     *
+     * <p><b>Two writes, and the units are one of them — a movement, never a column.</b> The
+     * {@code product_variant_store_stock} row is what this store records about the variant (its cost, which every
+     * inbound ledger row has to state) and it is created with the column's own default; the units are one
+     * {@code RECEIPT} booked through {@link InventoryService#applyReceipt}, the production path, so the
+     * projection trigger is what fills {@code stock_balance} and {@code stock_position}. Seeding the legacy columns
+     * instead would restore the second truth T3c removed: nothing maintains them any more, so an assertion that
+     * read one would agree for ever with a number the application never reads.</p>
+     *
+     * <p>Runs inside the caller's tenant transaction, like every other writer call in this suite: the receipt reads
+     * the variant and the store row it locks, so opening a transaction of its own here would read neither.</p>
+     */
     private void saveStoreStock(UUID variantId, BigDecimal stock, BigDecimal listPrice, BigDecimal costPrice) {
         productVariantStoreStockRepository.save(ProductVariantStoreStock.builder()
                 .productVariantId(variantId)
                 .companyStoreId(companyStoreId)
-                .stock(stock)
                 .listPrice(listPrice)
                 .costPrice(costPrice)
                 .build());
-        // The engine allocates against location balances, so the seeded aggregate is also the
-        // seeded balance of the store's priority sales location. Tests that need a split across
-        // locations overwrite this with seedSplitBalances(...).
-        productVariantLocationRepository.save(ProductVariantLocation.builder()
-                .productVariantId(variantId)
-                .storeLocationId(salesLocationId)
-                .stock(stock)
-                .build());
-        // …and the same balance in the ledger, as the opening that explains it. Without this the ledger's
-        // position for the key is zero and the projection trigger's I8 refuses every sale of stock the
-        // fixture seeded, which is exactly the state a pre-ledger balance is in.
-        bookLedgerOpening(variantId, salesLocationId, stock, costPrice);
+        seedOpeningReceipt(variantId, salesLocationId, stock);
     }
 
     /**
-     * Books one location's ledger opening through {@link StockLedgerWriter}: an {@code ADJUSTMENT_IN} of the
-     * balance this fixture just wrote into the legacy columns, sourced by the {@code product_variant_locations}
-     * row that states it.
+     * Books the fixture's opening into one location as a receipt: the production writer, in the production shape.
      *
-     * <p>Why the location row and not the store row: {@code uq_movement_source} keys
-     * {@code (source_type, source_id, movement_type, store_location_id, write_seq)} since {@code V73}, and a store
-     * with two seeded locations books two {@code ADJUSTMENT_IN} rows — a shared store-row id would be refused on
-     * the second. It is also what the balance is a balance <em>of</em>, and the same choice {@code V62} made for
-     * the identical job. The opening states {@code SINGLE_WRITE} because a balance row opens once: it has no
-     * counter, and the row's own id is what keeps a second seeded location apart.</p>
-     *
-     * <p>Runs inside the caller's tenant transaction: the writer refuses to book outside one, and the ledger's
-     * tables are armed, so the fixture states its tenant the way every other writer call in this suite does.</p>
+     * <p>Sourced {@link #FIXTURE_OPENING} so no assertion below can confuse it with the document it is about, and
+     * so the two rows a split books — the opening at the priority location and the stock placed on a second shelf
+     * — are one pair of facts under one discriminator.</p>
      */
-    private void bookLedgerOpening(UUID variantId, UUID storeLocationId, BigDecimal quantity, BigDecimal recordedCost) {
+    private void seedOpeningReceipt(UUID variantId, UUID storeLocationId, BigDecimal quantity) {
         if (quantity == null || quantity.signum() == 0) {
             return;
         }
-        var sourceRowId = productVariantLocationRepository
-                .findByProductVariantIdAndStoreLocationId(variantId, storeLocationId)
-                .orElseThrow(() -> new IllegalStateException("The ledger opening needs the balance row that "
-                        + "states it, and variant " + variantId + " has none at location " + storeLocationId))
-                .getId();
-        stockLedgerWriter.bookAdjustmentIn(
-                new StockLedgerWriter.Booking(
-                        companyId,
-                        companyStoreId,
-                        storeLocationId,
-                        variantId,
-                        "fixture",
-                        FIXTURE_OPENING,
-                        sourceRowId,
-                        StockLedgerWriter.SINGLE_WRITE),
-                quantity,
-                recordedCost,
-                stockLedgerWriter.operatingCurrency(companyId),
-                "stock this fixture seeded predates the stock ledger: the same fact V62's Path A replay opens "
-                        + "for the whole tree");
-    }
-
-    /** Reads the per-store stock row, the only place the aggregate lives after the variant split. */
-    private ProductVariantStoreStock storeStockOf(UUID variantId) {
-        return productVariantStoreStockRepository
-                .findByProductVariantIdAndCompanyStoreId(variantId, companyStoreId)
-                .orElseThrow();
-    }
-
-    /** Reads one location balance of a variant — the table the sales suite was blind to before W3. */
-    private BigDecimal locationStockOf(UUID variantId, UUID locationId) {
-        return productVariantLocationRepository
-                .findByProductVariantIdAndStoreLocationId(variantId, locationId)
-                .orElseThrow()
-                .getStock();
+        inventoryService.applyReceipt(
+                variantId, companyStoreId, storeLocationId, quantity, FIXTURE_OPENING, UUID.randomUUID(), "fixture");
     }
 
     /**
-     * Raises the two legacy balances of a variant without booking any movement.
+     * A quantity at the scale the documents speak: two decimals.
      *
-     * <p>Used by exactly one case, and on purpose: it creates the divergence {@code V62} reports — legacy
-     * copies ahead of the ledger — so that a sale can be covered by the legacy gates and refused by the
-     * position. Both halves move, because the legacy engine refuses on the aggregate first and on the sum of
-     * the locations second.</p>
+     * <p>{@code stock_movement.quantity} and the projections derived from it are {@code NUMERIC(19,4)}, so the
+     * {@code 2.00} a line states arrives as {@code 2.0000} — and {@code BigDecimal.equals}, which compares the scale
+     * as well as the value, would call those two different numbers. Every quantity these readers answer goes through
+     * here, so an assertion compares the number a document states instead of the width of the column that stores it.
+     * The rounding mode is {@code UNNECESSARY} on purpose: a movement carrying sub-cent precision is a fixture
+     * stating a quantity this suite cannot have produced, and it should fail loudly instead of being rounded.
      */
-    private void raiseTheLegacyBalancesByHand(UUID variantId, BigDecimal stock) {
-        var row = storeStockOf(variantId);
-        row.setStock(stock);
-        productVariantStoreStockRepository.save(row);
-
-        var balance = productVariantLocationRepository
-                .findByProductVariantIdAndStoreLocationId(variantId, salesLocationId)
-                .orElseThrow();
-        balance.setStock(stock);
-        productVariantLocationRepository.save(balance);
+    private static BigDecimal documentQuantity(BigDecimal stored) {
+        return stored == null ? null : stored.setScale(2, RoundingMode.UNNECESSARY);
     }
 
-    /** The ledger rows of one variant, oldest first, read through the append-only repository. */
-    private List<InventoryMovement> movementsOf(UUID variantId) {
-        return inventoryMovementRepository.findAll().stream()
-                .filter(movement -> variantId.equals(movement.getProductVariantId()))
-                .toList();
+    /**
+     * The store's position — the number a sale is refused by — read from the ledger's projection.
+     *
+     * <p>It used to read {@code product_variant_store_stock.stock}. Since T3c nothing maintains that column, so
+     * reading it would agree with a frozen number for ever and every assertion in this suite would pass over a
+     * balance that stopped moving. {@code stock_position} is derived from {@code stock_movement} by the
+     * {@code V61} trigger, and that is what makes it the answer.</p>
+     */
+    private BigDecimal stockPositionOf(UUID variantId) {
+        return documentQuantity(TenantFixtures.inTenant(
+                companyId, () -> jdbcTemplate.queryForObject("""
+                        SELECT COALESCE(
+                                   (SELECT quantity
+                                      FROM stock_position
+                                     WHERE company_store_id = ? AND product_variant_id = ?),
+                                   0)
+                        """, BigDecimal.class, companyStoreId, variantId)));
+    }
+
+    /**
+     * One location's balance of a variant, from the same projection ({@code stock_balance}).
+     *
+     * <p>An absent row is zero, not an error: the projection only holds keys the ledger moved, so "no movement"
+     * and "nothing on the shelf" are the same answer.</p>
+     */
+    private BigDecimal locationStockOf(UUID variantId, UUID locationId) {
+        return documentQuantity(TenantFixtures.inTenant(
+                companyId, () -> jdbcTemplate.queryForObject("""
+                        SELECT COALESCE(
+                                   (SELECT quantity
+                                      FROM stock_balance
+                                     WHERE store_location_id = ? AND product_variant_id = ?),
+                                   0)
+                        """, BigDecimal.class, locationId, variantId)));
+    }
+
+    /**
+     * One {@code stock_movement} row: the only record of a booked fact since the legacy table stopped being
+     * written. The columns are the ledger's own — {@code sourceId} is the sale line for a sale, and whatever
+     * discriminator the writer stated for a receipt.
+     */
+    private record LedgerMovement(
+            String movementType, BigDecimal quantity, UUID storeLocationId, String sourceType, UUID sourceId) {}
+
+    /**
+     * The ledger rows one variant carries, oldest first, excluding the fixture's own opening.
+     *
+     * <p><b>Why the opening is excluded.</b> Every case below asks what the document under test booked; the stock
+     * it was given to work with is the fixture's, booked under {@link #FIXTURE_OPENING}. Counted together, a case
+     * that expects one row after a sale would see two, and the extra one would say nothing about the sale.</p>
+     *
+     * <p>Read under the tenant: the ledger's tables are armed on {@code tenant_table} ({@code V60}) and
+     * {@code FORCE}d, so an unscoped read answers zero rows instead of failing.</p>
+     */
+    private List<LedgerMovement> movementsOf(UUID variantId) {
+        return TenantFixtures.inTenant(
+                companyId,
+                () -> jdbcTemplate.query(
+                        """
+                        SELECT movement_type, quantity, store_location_id, source_type, source_id
+                          FROM stock_movement
+                         WHERE product_variant_id = ? AND source_type <> ?
+                         ORDER BY occurred_at, id
+                        """,
+                        (rs, rowNum) -> new LedgerMovement(
+                                rs.getString("movement_type"),
+                                documentQuantity(rs.getBigDecimal("quantity")),
+                                rs.getObject("store_location_id", UUID.class),
+                                rs.getString("source_type"),
+                                rs.getObject("source_id", UUID.class)),
+                        variantId,
+                        FIXTURE_OPENING));
     }
 
     /**
      * Splits a variant's balance between the priority sales location and a second location, so a
      * deduction larger than the priority balance has to spill over. The aggregate keeps the sum.
+     *
+     * <p><b>The split is a relocation, and it is booked as one.</b> The units leave the priority location through a
+     * real {@code ADJUSTMENT_OUT} and arrive on the second shelf through a fixture receipt, so the ledger's
+     * per-location balances <em>are</em> the split and no column is written to say so. Both rows are sourced
+     * {@link #FIXTURE_OPENING}, which is what keeps them out of {@link #movementsOf}.</p>
      */
     private void seedSplitBalances(UUID variantId, BigDecimal salesLocationStock, BigDecimal secondaryStock) {
         TenantFixtures.inTenant(companyId, () -> {
-            var aggregate = storeStockOf(variantId).getStock();
+            var aggregate = stockPositionOf(variantId);
             if (salesLocationStock.add(secondaryStock).compareTo(aggregate) != 0) {
                 throw new IllegalStateException("The fixture seeds " + aggregate + " for variant " + variantId
                         + " and this split describes " + salesLocationStock.add(secondaryStock)
-                        + ", so the ledger's per-location balances could not end where the legacy rows do");
+                        + ", so the ledger's position and this split could not agree");
             }
-            var priority = productVariantLocationRepository
-                    .findByProductVariantIdAndStoreLocationId(variantId, salesLocationId)
-                    .orElseThrow();
-            priority.setStock(salesLocationStock);
-            productVariantLocationRepository.save(priority);
-            productVariantLocationRepository.save(ProductVariantLocation.builder()
-                    .productVariantId(variantId)
-                    .storeLocationId(secondaryLocationId)
-                    .stock(secondaryStock)
-                    .build());
 
-            // The ledger's opening is already at the priority location (saveStoreStock booked it); a split is
-            // that opening being placed on two shelves, so it is booked as the relocation it is: quantity out
-            // of the priority location and the same into the second one. Both rows are sourced by the balance
-            // row whose quantity each one changes, so the pair needs no legacy movement and adds none.
+            // The legacy balance row is still the row a sale locks, so the second location needs one too.
+            // Production creates it with this same insert before it writes a quantity; the quantity itself
+            // lives in the ledger now, so nothing is written into the column.
+            productVariantLocationRepository.insertBalanceIfAbsent(variantId, secondaryLocationId);
+
             var relocated = aggregate.subtract(salesLocationStock);
             if (relocated.signum() > 0) {
                 stockLedgerWriter.bookAdjustmentOut(
@@ -715,15 +732,11 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                                 variantId,
                                 "fixture",
                                 FIXTURE_OPENING,
-                                priority.getId(),
+                                UUID.randomUUID(),
                                 StockLedgerWriter.SINGLE_WRITE),
                         relocated);
             }
-            bookLedgerOpening(
-                    variantId,
-                    secondaryLocationId,
-                    secondaryStock,
-                    storeStockOf(variantId).getCostPrice());
+            seedOpeningReceipt(variantId, secondaryLocationId, secondaryStock);
         });
     }
 
@@ -772,9 +785,9 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                 itemId, variantId, new BigDecimal(quantity), new BigDecimal("100.00"), BigDecimal.ZERO, null);
     }
 
-    private List<InventoryMovement> movementsOfType(UUID variantId, MovementType type) {
+    private List<LedgerMovement> movementsOfType(UUID variantId, String movementType) {
         return movementsOf(variantId).stream()
-                .filter(movement -> movement.getMovementType() == type)
+                .filter(movement -> movement.movementType().equals(movementType))
                 .toList();
     }
 
@@ -860,18 +873,18 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                     .asText());
 
             // Verify the deduction reached both sides: aggregate and location 100 - 5 = 95
-            assertThat(storeStockOf(variant.getId()).getStock()).isEqualByComparingTo(new BigDecimal("95.00"));
+            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("95.00"));
             assertThat(locationStockOf(variant.getId(), salesLocationId)).isEqualByComparingTo(new BigDecimal("95.00"));
 
             // The ledger it never read before now explains the move: one SALE row per location
             // consumed, positive quantity, referencing the line that caused it (W3-D6).
             var movements = movementsOf(variant.getId());
             assertThat(movements).hasSize(1);
-            assertThat(movements.get(0).getMovementType()).isEqualTo(MovementType.SALE);
-            assertThat(movements.get(0).getQuantity()).isEqualByComparingTo(new BigDecimal("5.00"));
-            assertThat(movements.get(0).getStoreLocationId()).isEqualTo(salesLocationId);
-            assertThat(movements.get(0).getReferenceType()).isEqualTo("SALES_ORDER_ITEM");
-            assertThat(movements.get(0).getReferenceId()).isEqualTo(itemId);
+            assertThat(movements.get(0).movementType()).isEqualTo(StockLedgerWriter.SALE);
+            assertThat(movements.get(0).quantity()).isEqualByComparingTo(new BigDecimal("5.00"));
+            assertThat(movements.get(0).storeLocationId()).isEqualTo(salesLocationId);
+            assertThat(movements.get(0).sourceType()).isEqualTo("SALES_ORDER_ITEM");
+            assertThat(movements.get(0).sourceId()).isEqualTo(itemId);
         }
     }
 
@@ -897,56 +910,31 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                             .with(scopedSalesJwt()))
                     .andExpect(status().isConflict())
                     .andExpect(jsonPath("$.status").value(409))
-                    .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("Insufficient stock")));
+                    // The documented sale contract, with its own numbers: the position is the authority and its
+                    // refusal is the documented 409, not the projection trigger's database error. These are the
+                    // numbers the retired divergence case used to pin, pinned here because the position is now the
+                    // only balance a sale can be refused by.
+                    .andExpect(jsonPath("$.message")
+                            .value(org.hamcrest.Matchers.containsString(
+                                    "Insufficient stock for variant " + variant.getId())))
+                    .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("requested 10")))
+                    .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("available 5")));
 
             // Verify no order was created (our cleanup already deleted all; verify no new ones)
             assertThat(salesOrderRepository.findAll()).isEmpty();
 
-            // Verify variant stock unchanged on both sides, and the ledger still empty: a failed
-            // deduction must leave no SALE row behind.
-            assertThat(storeStockOf(variant.getId()).getStock()).isEqualByComparingTo(new BigDecimal("5.00"));
+            // Verify the projection is unchanged and the ledger holds nothing but the fixture's own opening: a
+            // failed deduction must leave no SALE row behind.
+            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("5.00"));
             assertThat(locationStockOf(variant.getId(), salesLocationId)).isEqualByComparingTo(new BigDecimal("5.00"));
             assertThat(movementsOf(variant.getId())).isEmpty();
         }
 
-        @Test
-        @DisplayName("should return 409, not 500, when the ledger's position cannot cover the line")
-        void createOrder_PositionCannotCoverTheLine_Returns409() throws Exception {
-            // The variant starts at 10 on all three copies: the legacy aggregate, the location balance and
-            // the ledger's position, seeded through the engine by createTestVariant.
-            var variant = createTestVariant(new BigDecimal("10.00"));
-            // Then only the two legacy copies are raised, by hand and with no movement behind them — the
-            // divergence V62 reports and an operator decides about. Both are raised so the legacy gates (the
-            // aggregate and the location sum) pass and only the ledger's position can refuse.
-            raiseTheLegacyBalancesByHand(variant.getId(), new BigDecimal("20.00"));
-
-            var itemRequest = new SalesOrderItemRequest(
-                    null, variant.getId(), new BigDecimal("15.00"), new BigDecimal("100.00"), BigDecimal.ZERO, null);
-            var request = new SalesOrderRequest(customerId, companyStoreId, shiftId, "user123", List.of(itemRequest));
-
-            mockMvc.perform(post("/api/sales-orders")
-                            .contentType(MediaType.APPLICATION_JSON)
-                            .content(objectMapper.writeValueAsString(request))
-                            .with(scopedSalesJwt()))
-                    .andExpect(status().isConflict())
-                    .andExpect(jsonPath("$.status").value(409))
-                    // The documented sale contract, with its own shape and its own numbers: the position is the
-                    // authority from T5b on, and its refusal is not the trigger's database error.
-                    .andExpect(jsonPath("$.message")
-                            .value(org.hamcrest.Matchers.containsString(
-                                    "Insufficient stock for variant " + variant.getId())))
-                    .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("requested 15")))
-                    .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("available 10")));
-
-            assertThat(salesOrderRepository.findAll())
-                    .as("the refused sale created no order")
-                    .isEmpty();
-            assertThat(movementsOf(variant.getId()))
-                    .as("and no movement on either ledger: the refusal happens before the first write")
-                    .isEmpty();
-            assertThat(storeStockOf(variant.getId()).getStock()).isEqualByComparingTo(new BigDecimal("20.00"));
-            assertThat(locationStockOf(variant.getId(), salesLocationId)).isEqualByComparingTo(new BigDecimal("20.00"));
-        }
+        // One case lived here and no longer can: "409, not 500, when the ledger's position cannot cover the line".
+        // It built its state by raising the two legacy stock columns by hand and booking nothing, so the legacy
+        // gates passed and only the position could refuse. T3c stopped maintaining those columns, so that state
+        // cannot be constructed at all: the position is the only balance there is, and the case above pins the
+        // same refusal with the numbers the position states.
 
         @Test
         @DisplayName("should return 409, not 400, when the variant is not stocked in the order's store")
@@ -967,7 +955,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                     .andExpect(jsonPath("$.status").value(409))
                     .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("Insufficient stock")));
 
-            // Nothing was written for the unstocked variant, on any of the three tables.
+            // Nothing was written for the unstocked variant: no store row, no legacy balance row and no movement.
             assertThat(salesOrderRepository.findAll()).isEmpty();
             assertThat(productVariantStoreStockRepository.findByProductVariantIdAndCompanyStoreId(
                             variant.getId(), companyStoreId))
@@ -1025,13 +1013,13 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                     .asText());
 
             // Verify aggregate and location stock: 50 - 3 = 47
-            assertThat(storeStockOf(variant.getId()).getStock()).isEqualByComparingTo(new BigDecimal("47.00"));
+            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("47.00"));
             assertThat(locationStockOf(variant.getId(), salesLocationId)).isEqualByComparingTo(new BigDecimal("47.00"));
 
             var movements = movementsOf(variant.getId());
             assertThat(movements).hasSize(1);
-            assertThat(movements.get(0).getMovementType()).isEqualTo(MovementType.SALE);
-            assertThat(movements.get(0).getReferenceId()).isEqualTo(itemId);
+            assertThat(movements.get(0).movementType()).isEqualTo(StockLedgerWriter.SALE);
+            assertThat(movements.get(0).sourceId()).isEqualTo(itemId);
         }
     }
 
@@ -1065,8 +1053,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             var itemId = root.get("items").get(0).get("id").asText();
 
             // Verify initial stock: 100 - 5 = 95
-            var v = storeStockOf(variant.getId());
-            assertThat(v.getStock()).isEqualByComparingTo(new BigDecimal("95.00"));
+            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("95.00"));
 
             // Update quantity to 8 (increase by 3 → stock becomes 92)
             var increaseRequest = new SalesOrderItemRequest(
@@ -1084,8 +1071,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.quantity").value(8.00));
 
-            v = storeStockOf(variant.getId());
-            assertThat(v.getStock()).isEqualByComparingTo(new BigDecimal("92.00"));
+            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("92.00"));
             assertThat(locationStockOf(variant.getId(), salesLocationId)).isEqualByComparingTo(new BigDecimal("92.00"));
 
             // Update quantity to 2 (decrease by 6 → stock becomes 98)
@@ -1104,17 +1090,16 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.quantity").value(2.00));
 
-            v = storeStockOf(variant.getId());
-            assertThat(v.getStock()).isEqualByComparingTo(new BigDecimal("98.00"));
+            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("98.00"));
             assertThat(locationStockOf(variant.getId(), salesLocationId)).isEqualByComparingTo(new BigDecimal("98.00"));
 
             // The decrease reversed the line in full and re-sold the new quantity, so the ledger
             // carries a compensating SALE_REVERSAL next to the SALE rows, all positive (W3-D7).
             var movements = movementsOf(variant.getId());
             assertThat(movements)
-                    .extracting(InventoryMovement::getMovementType)
-                    .contains(MovementType.SALE, MovementType.SALE_REVERSAL);
-            assertThat(movements).allSatisfy(m -> assertThat(m.getQuantity()).isGreaterThan(BigDecimal.ZERO));
+                    .extracting(LedgerMovement::movementType)
+                    .contains(StockLedgerWriter.SALE, StockLedgerWriter.SALE_REVERSAL);
+            assertThat(movements).allSatisfy(m -> assertThat(m.quantity()).isGreaterThan(BigDecimal.ZERO));
         }
 
         /**
@@ -1165,15 +1150,12 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                             + "reads the document and stops: I5's retry half is carried by document state, not by "
                             + "the source key")
                     .isEqualTo(1);
-            assertThat(movementsOfType(variant.getId(), MovementType.SALE))
-                    .as("the legacy ledger agrees, which is what lets the two copies be compared row for row")
-                    .hasSize(1);
             assertThat(writeSeqOf(itemId))
                     .as("the retry books nothing, so it bumps nothing: a gap in the sequence is allowed, a "
                             + "busted counter is not, and a bump on the zero-delta branch would pass every "
                             + "assertion above while quietly disagreeing with the movements")
                     .isEqualTo(1L);
-            assertThat(storeStockOf(variant.getId()).getStock()).isEqualByComparingTo(new BigDecimal("95.00"));
+            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("95.00"));
             assertThat(locationStockOf(variant.getId(), salesLocationId)).isEqualByComparingTo(new BigDecimal("95.00"));
         }
 
@@ -1283,7 +1265,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             assertThat(writeSeqOf(itemId))
                     .as("the line's own counter is the authority the copies came from")
                     .isEqualTo(3L);
-            assertThat(storeStockOf(variant.getId()).getStock()).isEqualByComparingTo(new BigDecimal("90.00"));
+            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("90.00"));
         }
 
         /**
@@ -1449,8 +1431,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             var itemId = root.get("items").get(0).get("id").asText();
 
             // Verify aggregate and location stock after create: 93
-            var v = storeStockOf(variant.getId());
-            assertThat(v.getStock()).isEqualByComparingTo(new BigDecimal("93.00"));
+            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("93.00"));
             assertThat(locationStockOf(variant.getId(), salesLocationId)).isEqualByComparingTo(new BigDecimal("93.00"));
 
             // Delete the item
@@ -1459,16 +1440,15 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                     .andExpect(status().isNoContent());
 
             // Verify both sides restored to 100, and the reversal is on the ledger for this line.
-            v = storeStockOf(variant.getId());
-            assertThat(v.getStock()).isEqualByComparingTo(new BigDecimal("100.00"));
+            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("100.00"));
             assertThat(locationStockOf(variant.getId(), salesLocationId))
                     .isEqualByComparingTo(new BigDecimal("100.00"));
 
             var reversals = movementsOf(variant.getId()).stream()
-                    .filter(m -> m.getMovementType() == MovementType.SALE_REVERSAL)
+                    .filter(m -> StockLedgerWriter.SALE_REVERSAL.equals(m.movementType()))
                     .toList();
             assertThat(reversals).hasSize(1);
-            assertThat(reversals.get(0).getReferenceId()).isEqualTo(UUID.fromString(itemId));
+            assertThat(reversals.get(0).sourceId()).isEqualTo(UUID.fromString(itemId));
         }
 
         @Test
@@ -1477,12 +1457,12 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             var variant = createTestVariant(new BigDecimal("100.00"));
             var placed = createOrder(line(null, variant.getId(), "4.00"));
             var itemId = placed.itemId(variant.getId());
-            assertThat(storeStockOf(variant.getId()).getStock()).isEqualByComparingTo(new BigDecimal("96.00"));
+            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("96.00"));
 
             mockMvc.perform(delete("/api/sales-orders/{id}/items/{itemId}", placed.orderId(), itemId)
                             .with(scopedSalesJwt()))
                     .andExpect(status().isNoContent());
-            assertThat(storeStockOf(variant.getId()).getStock()).isEqualByComparingTo(new BigDecimal("100.00"));
+            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("100.00"));
             assertThat(itemEnabled(itemId)).isFalse();
 
             // The PUT carries the deleted line's id back: a soft-deleted line was already given its
@@ -1490,11 +1470,11 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             updateOrderItems(placed.orderId(), line(itemId, variant.getId(), "4.00"));
 
             assertThat(itemEnabled(itemId)).isTrue();
-            assertThat(storeStockOf(variant.getId()).getStock()).isEqualByComparingTo(new BigDecimal("96.00"));
+            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("96.00"));
             assertThat(locationStockOf(variant.getId(), salesLocationId)).isEqualByComparingTo(new BigDecimal("96.00"));
             // SALE(4), SALE_REVERSAL(4) from the delete, SALE(4) from the re-enable.
-            assertThat(movementsOfType(variant.getId(), MovementType.SALE)).hasSize(2);
-            assertThat(movementsOfType(variant.getId(), MovementType.SALE_REVERSAL))
+            assertThat(movementsOfType(variant.getId(), StockLedgerWriter.SALE)).hasSize(2);
+            assertThat(movementsOfType(variant.getId(), StockLedgerWriter.SALE_REVERSAL))
                     .hasSize(1);
         }
     }
@@ -1533,8 +1513,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             var item2Id = root.get("items").get(1).get("id").asText();
 
             // Stock after create: 100 - 3 - 5 = 92
-            var v = storeStockOf(variant.getId());
-            assertThat(v.getStock()).isEqualByComparingTo(new BigDecimal("92.00"));
+            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("92.00"));
             assertThat(locationStockOf(variant.getId(), salesLocationId)).isEqualByComparingTo(new BigDecimal("92.00"));
 
             // Soft-delete item1
@@ -1543,8 +1522,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                     .andExpect(status().isNoContent());
 
             // Stock after delete item1: 92 + 3 = 95 (item1 already restored its stock)
-            v = storeStockOf(variant.getId());
-            assertThat(v.getStock()).isEqualByComparingTo(new BigDecimal("95.00"));
+            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("95.00"));
             assertThat(locationStockOf(variant.getId(), salesLocationId)).isEqualByComparingTo(new BigDecimal("95.00"));
 
             // Cancel order: restores ONLY the enabled item2(qty 5). The soft-deleted
@@ -1559,16 +1537,15 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                     .andExpect(jsonPath("$.statusName").value("Cancelled"));
 
             // Stock should be: 95 + 5 (item2) = 100 — no double-restore of item1, on both sides.
-            v = storeStockOf(variant.getId());
-            assertThat(v.getStock()).isEqualByComparingTo(new BigDecimal("100.00"));
+            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("100.00"));
             assertThat(locationStockOf(variant.getId(), salesLocationId))
                     .isEqualByComparingTo(new BigDecimal("100.00"));
 
             // Each line has exactly one reversal: item1's from its deletion, item2's from the
             // cancellation. A second reversal of either would have credited stock twice (W3-D6).
             assertThat(movementsOf(variant.getId()).stream()
-                            .filter(m -> m.getMovementType() == MovementType.SALE_REVERSAL)
-                            .map(InventoryMovement::getReferenceId)
+                            .filter(m -> StockLedgerWriter.SALE_REVERSAL.equals(m.movementType()))
+                            .map(LedgerMovement::sourceId)
                             .toList())
                     .containsExactlyInAnyOrder(UUID.fromString(item1Id), UUID.fromString(item2Id));
         }
@@ -1605,8 +1582,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                     .asText();
 
             // Verify aggregate and location stock after create: 96
-            var v = storeStockOf(variant.getId());
-            assertThat(v.getStock()).isEqualByComparingTo(new BigDecimal("96.00"));
+            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("96.00"));
             assertThat(locationStockOf(variant.getId(), salesLocationId)).isEqualByComparingTo(new BigDecimal("96.00"));
 
             // Soft-delete the entire order
@@ -1614,8 +1590,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                     .andExpect(status().isNoContent());
 
             // Verify both sides restored to 100
-            v = storeStockOf(variant.getId());
-            assertThat(v.getStock()).isEqualByComparingTo(new BigDecimal("100.00"));
+            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("100.00"));
             assertThat(locationStockOf(variant.getId(), salesLocationId))
                     .isEqualByComparingTo(new BigDecimal("100.00"));
         }
@@ -1652,8 +1627,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                     .asText();
 
             // Verify stock: 94
-            var v = storeStockOf(variant.getId());
-            assertThat(v.getStock()).isEqualByComparingTo(new BigDecimal("94.00"));
+            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("94.00"));
             assertThat(locationStockOf(variant.getId(), salesLocationId)).isEqualByComparingTo(new BigDecimal("94.00"));
 
             // Transition Draft → Active
@@ -1684,11 +1658,10 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                     .andExpect(jsonPath("$.statusName").value("Completed"));
 
             // Stock should remain 94 (no restoration on Complete), on both sides
-            v = storeStockOf(variant.getId());
-            assertThat(v.getStock()).isEqualByComparingTo(new BigDecimal("94.00"));
+            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("94.00"));
             assertThat(locationStockOf(variant.getId(), salesLocationId)).isEqualByComparingTo(new BigDecimal("94.00"));
             assertThat(movementsOf(variant.getId()).stream()
-                            .filter(m -> m.getMovementType() == MovementType.SALE_REVERSAL))
+                            .filter(m -> StockLedgerWriter.SALE_REVERSAL.equals(m.movementType())))
                     .isEmpty();
         }
     }
@@ -1754,8 +1727,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             CompletableFuture.allOf(future1, future2).get(30, TimeUnit.SECONDS);
 
             // Verify final state is consistent
-            var v = storeStockOf(variant.getId());
-            var stock = v.getStock();
+            var stock = stockPositionOf(variant.getId());
 
             // Stock should be consistent: either 2 (thread-1 took 8, thread-2 got 409),
             // or 5 (thread-2 took 5, thread-1 got 409) — never negative or a lost-update
@@ -1808,15 +1780,15 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             assertThat(salesOrderRepository.findAll()).isEmpty();
 
             // Verify variant A stock UNCHANGED (rollback), on both sides, and no ledger row
-            var va = storeStockOf(variantA.getId());
-            assertThat(va.getStock()).isEqualByComparingTo(new BigDecimal("100.00"));
+            var va = stockPositionOf(variantA.getId());
+            assertThat(va).isEqualByComparingTo(new BigDecimal("100.00"));
             assertThat(locationStockOf(variantA.getId(), salesLocationId))
                     .isEqualByComparingTo(new BigDecimal("100.00"));
             assertThat(movementsOf(variantA.getId())).isEmpty();
 
             // Verify variant B stock UNCHANGED
-            var vb = storeStockOf(variantB.getId());
-            assertThat(vb.getStock()).isEqualByComparingTo(new BigDecimal("2.00"));
+            var vb = stockPositionOf(variantB.getId());
+            assertThat(vb).isEqualByComparingTo(new BigDecimal("2.00"));
             assertThat(locationStockOf(variantB.getId(), salesLocationId)).isEqualByComparingTo(new BigDecimal("2.00"));
             assertThat(movementsOf(variantB.getId())).isEmpty();
         }
@@ -1879,8 +1851,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             assertThat(statusAfterFirstItem.getStatusName()).isEqualTo("Active");
 
             // Verify stock deducted: 100 - 3 = 97
-            var v = storeStockOf(variant.getId());
-            assertThat(v.getStock()).isEqualByComparingTo(new BigDecimal("97.00"));
+            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("97.00"));
             assertThat(locationStockOf(variant.getId(), salesLocationId)).isEqualByComparingTo(new BigDecimal("97.00"));
 
             // Step 3: Add second item → stays Active
@@ -1906,8 +1877,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             assertThat(statusAfterSecondItem.getStatusName()).isEqualTo("Active");
 
             // Verify stock deducted: 97 - 2 = 95
-            v = storeStockOf(variant.getId());
-            assertThat(v.getStock()).isEqualByComparingTo(new BigDecimal("95.00"));
+            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("95.00"));
             assertThat(locationStockOf(variant.getId(), salesLocationId)).isEqualByComparingTo(new BigDecimal("95.00"));
 
             // Step 4: Charge → auto-promotes Active → Pending → Completed
@@ -1939,8 +1909,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             assertThat(finalOrder.getPaymentMethodId()).isEqualTo(paymentMethodId);
 
             // Verify stock unchanged after charge (no restoration on Complete)
-            v = storeStockOf(variant.getId());
-            assertThat(v.getStock()).isEqualByComparingTo(new BigDecimal("95.00"));
+            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("95.00"));
             assertThat(locationStockOf(variant.getId(), salesLocationId)).isEqualByComparingTo(new BigDecimal("95.00"));
 
             // Verify items transitioned to Added
@@ -1987,7 +1956,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                     .asText());
 
             // The order deducted its 2 units from its own store: 10 - 2 = 8, on both sides
-            assertThat(storeStockOf(variant.getId()).getStock()).isEqualByComparingTo(new BigDecimal("8.00"));
+            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("8.00"));
             assertThat(locationStockOf(variant.getId(), salesLocationId)).isEqualByComparingTo(new BigDecimal("8.00"));
 
             var zone = TenantFixtures.inTenant(
@@ -2021,7 +1990,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             // The original store keeps its deduction and the other store gains nothing, on either
             // the aggregate or a location balance. Every reversal later depends on this rule: an
             // order's store never changes while it holds stock.
-            assertThat(storeStockOf(variant.getId()).getStock()).isEqualByComparingTo(new BigDecimal("8.00"));
+            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("8.00"));
             assertThat(locationStockOf(variant.getId(), salesLocationId)).isEqualByComparingTo(new BigDecimal("8.00"));
             assertThat(productVariantStoreStockRepository.findByProductVariantIdAndCompanyStoreId(
                             variant.getId(), otherStore.getId()))
@@ -2065,7 +2034,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             // @BeforeEach deletes all orders, so an empty table proves nothing was persisted.
             assertThat(salesOrderRepository.findAll()).isEmpty();
             // The denied request must not have deducted stock, on either side.
-            assertThat(storeStockOf(variant.getId()).getStock()).isEqualByComparingTo(new BigDecimal("100.00"));
+            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("100.00"));
             assertThat(locationStockOf(variant.getId(), salesLocationId))
                     .isEqualByComparingTo(new BigDecimal("100.00"));
             assertThat(movementsOf(variant.getId())).isEmpty();
@@ -2108,21 +2077,21 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                     .asText();
 
             // The priority location drains to zero and the remainder comes from the second one.
-            assertThat(storeStockOf(variant.getId()).getStock()).isEqualByComparingTo(new BigDecimal("8.00"));
+            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("8.00"));
             assertThat(locationStockOf(variant.getId(), salesLocationId)).isEqualByComparingTo(BigDecimal.ZERO);
             assertThat(locationStockOf(variant.getId(), secondaryLocationId))
                     .isEqualByComparingTo(new BigDecimal("8.00"));
 
             var sales = movementsOf(variant.getId()).stream()
-                    .filter(m -> m.getMovementType() == MovementType.SALE)
+                    .filter(m -> StockLedgerWriter.SALE.equals(m.movementType()))
                     .toList();
             assertThat(sales).hasSize(2);
             assertThat(sales)
-                    .extracting(InventoryMovement::getStoreLocationId, InventoryMovement::getQuantity)
+                    .extracting(LedgerMovement::storeLocationId, LedgerMovement::quantity)
                     .containsExactlyInAnyOrder(
                             tuple(salesLocationId, new BigDecimal("3.00")),
                             tuple(secondaryLocationId, new BigDecimal("2.00")));
-            assertThat(sales).allSatisfy(m -> assertThat(m.getReferenceId()).isEqualTo(UUID.fromString(itemId)));
+            assertThat(sales).allSatisfy(m -> assertThat(m.sourceId()).isEqualTo(UUID.fromString(itemId)));
 
             // Deleting the line reverses the ledger, so each location gets back exactly what it gave
             // — never a re-run of the priority allocation, which would credit all 5 to the first one.
@@ -2130,17 +2099,17 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                             .with(scopedSalesJwt()))
                     .andExpect(status().isNoContent());
 
-            assertThat(storeStockOf(variant.getId()).getStock()).isEqualByComparingTo(new BigDecimal("13.00"));
+            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("13.00"));
             assertThat(locationStockOf(variant.getId(), salesLocationId)).isEqualByComparingTo(new BigDecimal("3.00"));
             assertThat(locationStockOf(variant.getId(), secondaryLocationId))
                     .isEqualByComparingTo(new BigDecimal("10.00"));
 
             var reversals = movementsOf(variant.getId()).stream()
-                    .filter(m -> m.getMovementType() == MovementType.SALE_REVERSAL)
+                    .filter(m -> StockLedgerWriter.SALE_REVERSAL.equals(m.movementType()))
                     .toList();
             assertThat(reversals).hasSize(2);
             assertThat(reversals)
-                    .extracting(InventoryMovement::getStoreLocationId, InventoryMovement::getQuantity)
+                    .extracting(LedgerMovement::storeLocationId, LedgerMovement::quantity)
                     .containsExactlyInAnyOrder(
                             tuple(salesLocationId, new BigDecimal("3.00")),
                             tuple(secondaryLocationId, new BigDecimal("2.00")));
@@ -2180,7 +2149,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                     .get("id")
                     .asText();
 
-            assertThat(storeStockOf(variant.getId()).getStock()).isEqualByComparingTo(new BigDecimal("96.00"));
+            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("96.00"));
             assertThat(locationStockOf(variant.getId(), salesLocationId)).isEqualByComparingTo(new BigDecimal("96.00"));
 
             var cancelItem = new UpdateSalesOrderStatusRequest(cancelledItemStatusId);
@@ -2192,11 +2161,11 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                     .andExpect(jsonPath("$.statusName").value("Cancelled"));
 
             // The cancellation now restores the line, where before W3-D4 it restored nothing.
-            assertThat(storeStockOf(variant.getId()).getStock()).isEqualByComparingTo(new BigDecimal("100.00"));
+            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("100.00"));
             assertThat(locationStockOf(variant.getId(), salesLocationId))
                     .isEqualByComparingTo(new BigDecimal("100.00"));
             assertThat(movementsOf(variant.getId()).stream()
-                            .filter(m -> m.getMovementType() == MovementType.SALE_REVERSAL)
+                            .filter(m -> StockLedgerWriter.SALE_REVERSAL.equals(m.movementType()))
                             .count())
                     .isEqualTo(1L);
         }
@@ -2212,8 +2181,8 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             var itemId = placed.itemId(variant.getId());
 
             cancelItem(placed.orderId(), itemId);
-            assertThat(storeStockOf(variant.getId()).getStock()).isEqualByComparingTo(new BigDecimal("100.00"));
-            assertThat(movementsOfType(variant.getId(), MovementType.SALE_REVERSAL))
+            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("100.00"));
+            assertThat(movementsOfType(variant.getId(), StockLedgerWriter.SALE_REVERSAL))
                     .hasSize(1);
 
             // The item-level DELETE is refused now (F-7): the line already gave its stock back, so
@@ -2223,8 +2192,8 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                     .andExpect(status().isConflict());
 
             assertThat(itemEnabled(itemId)).isTrue();
-            assertThat(storeStockOf(variant.getId()).getStock()).isEqualByComparingTo(new BigDecimal("100.00"));
-            assertThat(movementsOfType(variant.getId(), MovementType.SALE_REVERSAL))
+            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("100.00"));
+            assertThat(movementsOfType(variant.getId(), StockLedgerWriter.SALE_REVERSAL))
                     .hasSize(1);
 
             // The supported route is the order-level PUT (W3-D13): it soft-deletes the cancelled
@@ -2232,10 +2201,10 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             updateOrderItems(placed.orderId(), line(placed.itemId(variantB.getId()), variantB.getId(), "3.00"));
 
             assertThat(itemEnabled(itemId)).isFalse();
-            assertThat(storeStockOf(variant.getId()).getStock()).isEqualByComparingTo(new BigDecimal("100.00"));
+            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("100.00"));
             assertThat(locationStockOf(variant.getId(), salesLocationId))
                     .isEqualByComparingTo(new BigDecimal("100.00"));
-            assertThat(movementsOfType(variant.getId(), MovementType.SALE_REVERSAL))
+            assertThat(movementsOfType(variant.getId(), StockLedgerWriter.SALE_REVERSAL))
                     .hasSize(1);
         }
 
@@ -2251,10 +2220,10 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                     .andExpect(status().isNoContent());
 
             assertThat(itemEnabled(itemId)).isFalse();
-            assertThat(storeStockOf(variant.getId()).getStock()).isEqualByComparingTo(new BigDecimal("100.00"));
+            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("100.00"));
             assertThat(locationStockOf(variant.getId(), salesLocationId))
                     .isEqualByComparingTo(new BigDecimal("100.00"));
-            assertThat(movementsOfType(variant.getId(), MovementType.SALE_REVERSAL))
+            assertThat(movementsOfType(variant.getId(), StockLedgerWriter.SALE_REVERSAL))
                     .hasSize(1);
 
             // The line is already soft-deleted, so the second delete is refused instead of answering
@@ -2264,10 +2233,10 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                     .andExpect(status().isConflict());
 
             assertThat(itemEnabled(itemId)).isFalse();
-            assertThat(storeStockOf(variant.getId()).getStock()).isEqualByComparingTo(new BigDecimal("100.00"));
+            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("100.00"));
             assertThat(locationStockOf(variant.getId(), salesLocationId))
                     .isEqualByComparingTo(new BigDecimal("100.00"));
-            assertThat(movementsOfType(variant.getId(), MovementType.SALE_REVERSAL))
+            assertThat(movementsOfType(variant.getId(), StockLedgerWriter.SALE_REVERSAL))
                     .hasSize(1);
         }
 
@@ -2279,7 +2248,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             var itemId = placed.itemId(variant.getId());
 
             cancelItem(placed.orderId(), itemId);
-            assertThat(storeStockOf(variant.getId()).getStock()).isEqualByComparingTo(new BigDecimal("100.00"));
+            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("100.00"));
 
             // Cancelled is terminal in the item status machine, so re-enabling the flag revives no
             // hold: the line already gave its stock back and must not be deducted a second time.
@@ -2298,12 +2267,12 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                             .orElseThrow()
                             .getId()))
                     .isEqualTo(cancelledItemStatusId);
-            assertThat(storeStockOf(variant.getId()).getStock()).isEqualByComparingTo(new BigDecimal("100.00"));
+            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("100.00"));
             assertThat(locationStockOf(variant.getId(), salesLocationId))
                     .isEqualByComparingTo(new BigDecimal("100.00"));
             // The ledger stays SALE(4) + SALE_REVERSAL(4): no third row for the cancelled line.
-            assertThat(movementsOfType(variant.getId(), MovementType.SALE)).hasSize(1);
-            assertThat(movementsOfType(variant.getId(), MovementType.SALE_REVERSAL))
+            assertThat(movementsOfType(variant.getId(), StockLedgerWriter.SALE)).hasSize(1);
+            assertThat(movementsOfType(variant.getId(), StockLedgerWriter.SALE_REVERSAL))
                     .hasSize(1);
             assertThat(movementsOf(variant.getId())).hasSize(2);
         }
@@ -2327,19 +2296,20 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             var after = updateOrderItems(placed.orderId(), retained, line(null, variantB.getId(), "3.00"));
 
             // The kept line owes nothing; the added line is sold in full from its priority location.
-            assertThat(storeStockOf(variantA.getId()).getStock()).isEqualByComparingTo(new BigDecimal("98.00"));
+            assertThat(stockPositionOf(variantA.getId())).isEqualByComparingTo(new BigDecimal("98.00"));
             assertThat(locationStockOf(variantA.getId(), salesLocationId))
                     .isEqualByComparingTo(new BigDecimal("98.00"));
-            assertThat(storeStockOf(variantB.getId()).getStock()).isEqualByComparingTo(new BigDecimal("47.00"));
+            assertThat(stockPositionOf(variantB.getId())).isEqualByComparingTo(new BigDecimal("47.00"));
             assertThat(locationStockOf(variantB.getId(), salesLocationId))
                     .isEqualByComparingTo(new BigDecimal("47.00"));
 
-            var sales = movementsOfType(variantB.getId(), MovementType.SALE);
+            var sales = movementsOfType(variantB.getId(), StockLedgerWriter.SALE);
             assertThat(sales).hasSize(1);
-            assertThat(sales.get(0).getQuantity()).isEqualByComparingTo(new BigDecimal("3.00"));
-            assertThat(sales.get(0).getReferenceType()).isEqualTo("SALES_ORDER_ITEM");
-            assertThat(sales.get(0).getReferenceId()).isEqualTo(after.itemId(variantB.getId()));
-            assertThat(movementsOfType(variantA.getId(), MovementType.SALE)).hasSize(1);
+            assertThat(sales.get(0).quantity()).isEqualByComparingTo(new BigDecimal("3.00"));
+            assertThat(sales.get(0).sourceType()).isEqualTo("SALES_ORDER_ITEM");
+            assertThat(sales.get(0).sourceId()).isEqualTo(after.itemId(variantB.getId()));
+            assertThat(movementsOfType(variantA.getId(), StockLedgerWriter.SALE))
+                    .hasSize(1);
         }
 
         @Test
@@ -2351,19 +2321,16 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
 
             updateOrderItems(placed.orderId(), line(itemId, variant.getId(), "5.00"));
 
-            assertThat(storeStockOf(variant.getId()).getStock()).isEqualByComparingTo(new BigDecimal("95.00"));
+            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("95.00"));
             assertThat(locationStockOf(variant.getId(), salesLocationId)).isEqualByComparingTo(new BigDecimal("95.00"));
 
             // A pure growth deducts the delta only: no reversal is written for the line.
             assertThat(movementsOf(variant.getId()))
-                    .extracting(
-                            InventoryMovement::getMovementType,
-                            InventoryMovement::getReferenceId,
-                            InventoryMovement::getQuantity)
+                    .extracting(LedgerMovement::movementType, LedgerMovement::sourceId, LedgerMovement::quantity)
                     .containsExactlyInAnyOrder(
-                            tuple(MovementType.SALE, itemId, new BigDecimal("2.00")),
-                            tuple(MovementType.SALE, itemId, new BigDecimal("3.00")));
-            assertThat(movementsOfType(variant.getId(), MovementType.SALE_REVERSAL))
+                            tuple(StockLedgerWriter.SALE, itemId, new BigDecimal("2.00")),
+                            tuple(StockLedgerWriter.SALE, itemId, new BigDecimal("3.00")));
+            assertThat(movementsOfType(variant.getId(), StockLedgerWriter.SALE_REVERSAL))
                     .isEmpty();
         }
 
@@ -2375,7 +2342,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
 
             var placed = createOrder(line(null, variant.getId(), "5.00"));
             var itemId = placed.itemId(variant.getId());
-            assertThat(storeStockOf(variant.getId()).getStock()).isEqualByComparingTo(new BigDecimal("8.00"));
+            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("8.00"));
             assertThat(locationStockOf(variant.getId(), salesLocationId)).isEqualByComparingTo(BigDecimal.ZERO);
             assertThat(locationStockOf(variant.getId(), secondaryLocationId))
                     .isEqualByComparingTo(new BigDecimal("8.00"));
@@ -2384,24 +2351,21 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
 
             // The line was given back to the exact locations that gave it (3 + 2), then 2 were sold
             // again from the priority location: 0 + 3 - 2 and 8 + 2.
-            assertThat(storeStockOf(variant.getId()).getStock()).isEqualByComparingTo(new BigDecimal("11.00"));
+            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("11.00"));
             assertThat(locationStockOf(variant.getId(), salesLocationId)).isEqualByComparingTo(new BigDecimal("1.00"));
             assertThat(locationStockOf(variant.getId(), secondaryLocationId))
                     .isEqualByComparingTo(new BigDecimal("10.00"));
 
             assertThat(movementsOf(variant.getId()))
-                    .allSatisfy(m -> assertThat(m.getReferenceId()).isEqualTo(itemId));
+                    .allSatisfy(m -> assertThat(m.sourceId()).isEqualTo(itemId));
             assertThat(movementsOf(variant.getId()))
-                    .extracting(
-                            InventoryMovement::getMovementType,
-                            InventoryMovement::getStoreLocationId,
-                            InventoryMovement::getQuantity)
+                    .extracting(LedgerMovement::movementType, LedgerMovement::storeLocationId, LedgerMovement::quantity)
                     .containsExactlyInAnyOrder(
-                            tuple(MovementType.SALE, salesLocationId, new BigDecimal("3.00")),
-                            tuple(MovementType.SALE, secondaryLocationId, new BigDecimal("2.00")),
-                            tuple(MovementType.SALE_REVERSAL, salesLocationId, new BigDecimal("3.00")),
-                            tuple(MovementType.SALE_REVERSAL, secondaryLocationId, new BigDecimal("2.00")),
-                            tuple(MovementType.SALE, salesLocationId, new BigDecimal("2.00")));
+                            tuple(StockLedgerWriter.SALE, salesLocationId, new BigDecimal("3.00")),
+                            tuple(StockLedgerWriter.SALE, secondaryLocationId, new BigDecimal("2.00")),
+                            tuple(StockLedgerWriter.SALE_REVERSAL, salesLocationId, new BigDecimal("3.00")),
+                            tuple(StockLedgerWriter.SALE_REVERSAL, secondaryLocationId, new BigDecimal("2.00")),
+                            tuple(StockLedgerWriter.SALE, salesLocationId, new BigDecimal("2.00")));
         }
 
         @Test
@@ -2414,27 +2378,24 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             var placed = createOrder(line(null, variantA.getId(), "5.00"), line(null, variantB.getId(), "1.00"));
             var itemAId = placed.itemId(variantA.getId());
             var itemBId = placed.itemId(variantB.getId());
-            assertThat(storeStockOf(variantA.getId()).getStock()).isEqualByComparingTo(new BigDecimal("8.00"));
-            assertThat(storeStockOf(variantB.getId()).getStock()).isEqualByComparingTo(new BigDecimal("9.00"));
+            assertThat(stockPositionOf(variantA.getId())).isEqualByComparingTo(new BigDecimal("8.00"));
+            assertThat(stockPositionOf(variantB.getId())).isEqualByComparingTo(new BigDecimal("9.00"));
 
             // Omitting A from the request deletes it; B keeps its quantity.
             updateOrderItems(placed.orderId(), line(itemBId, variantB.getId(), "1.00"));
 
-            assertThat(storeStockOf(variantA.getId()).getStock()).isEqualByComparingTo(new BigDecimal("13.00"));
+            assertThat(stockPositionOf(variantA.getId())).isEqualByComparingTo(new BigDecimal("13.00"));
             assertThat(locationStockOf(variantA.getId(), salesLocationId)).isEqualByComparingTo(new BigDecimal("3.00"));
             assertThat(locationStockOf(variantA.getId(), secondaryLocationId))
                     .isEqualByComparingTo(new BigDecimal("10.00"));
             assertThat(itemEnabled(itemAId)).isFalse();
 
-            assertThat(movementsOfType(variantA.getId(), MovementType.SALE_REVERSAL))
-                    .extracting(
-                            InventoryMovement::getReferenceId,
-                            InventoryMovement::getStoreLocationId,
-                            InventoryMovement::getQuantity)
+            assertThat(movementsOfType(variantA.getId(), StockLedgerWriter.SALE_REVERSAL))
+                    .extracting(LedgerMovement::sourceId, LedgerMovement::storeLocationId, LedgerMovement::quantity)
                     .containsExactlyInAnyOrder(
                             tuple(itemAId, salesLocationId, new BigDecimal("3.00")),
                             tuple(itemAId, secondaryLocationId, new BigDecimal("2.00")));
-            assertThat(storeStockOf(variantB.getId()).getStock()).isEqualByComparingTo(new BigDecimal("9.00"));
+            assertThat(stockPositionOf(variantB.getId())).isEqualByComparingTo(new BigDecimal("9.00"));
             assertThat(movementsOf(variantB.getId())).hasSize(1);
         }
 
@@ -2454,25 +2415,22 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
 
             updateOrderItems(placed.orderId(), line(itemId, newVariant.getId(), "2.00"));
 
-            assertThat(storeStockOf(oldVariant.getId()).getStock()).isEqualByComparingTo(new BigDecimal("13.00"));
+            assertThat(stockPositionOf(oldVariant.getId())).isEqualByComparingTo(new BigDecimal("13.00"));
             assertThat(locationStockOf(oldVariant.getId(), salesLocationId))
                     .isEqualByComparingTo(new BigDecimal("3.00"));
             assertThat(locationStockOf(oldVariant.getId(), secondaryLocationId))
                     .isEqualByComparingTo(new BigDecimal("10.00"));
-            assertThat(storeStockOf(newVariant.getId()).getStock()).isEqualByComparingTo(new BigDecimal("11.00"));
+            assertThat(stockPositionOf(newVariant.getId())).isEqualByComparingTo(new BigDecimal("11.00"));
             assertThat(locationStockOf(newVariant.getId(), salesLocationId))
                     .isEqualByComparingTo(new BigDecimal("11.00"));
 
-            assertThat(movementsOfType(oldVariant.getId(), MovementType.SALE_REVERSAL))
-                    .extracting(
-                            InventoryMovement::getReferenceId,
-                            InventoryMovement::getStoreLocationId,
-                            InventoryMovement::getQuantity)
+            assertThat(movementsOfType(oldVariant.getId(), StockLedgerWriter.SALE_REVERSAL))
+                    .extracting(LedgerMovement::sourceId, LedgerMovement::storeLocationId, LedgerMovement::quantity)
                     .containsExactlyInAnyOrder(
                             tuple(itemId, salesLocationId, new BigDecimal("3.00")),
                             tuple(itemId, secondaryLocationId, new BigDecimal("2.00")));
-            assertThat(movementsOfType(newVariant.getId(), MovementType.SALE))
-                    .extracting(InventoryMovement::getReferenceId, InventoryMovement::getQuantity)
+            assertThat(movementsOfType(newVariant.getId(), StockLedgerWriter.SALE))
+                    .extracting(LedgerMovement::sourceId, LedgerMovement::quantity)
                     .containsExactly(tuple(itemId, new BigDecimal("2.00")));
             assertThat(itemRepository.findById(itemId).orElseThrow().getProductVariantId())
                     .isEqualTo(newVariant.getId());
@@ -2505,15 +2463,15 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                     line(firstItem, newOne.getId(), "2.00"),
                     line(secondItem, newTwo.getId(), "2.00"));
 
-            assertThat(storeStockOf(oldOne.getId()).getStock()).isEqualByComparingTo(new BigDecimal("100.00"));
-            assertThat(storeStockOf(oldTwo.getId()).getStock()).isEqualByComparingTo(new BigDecimal("100.00"));
-            assertThat(storeStockOf(newOne.getId()).getStock()).isEqualByComparingTo(new BigDecimal("98.00"));
-            assertThat(storeStockOf(newTwo.getId()).getStock()).isEqualByComparingTo(new BigDecimal("98.00"));
-            assertThat(movementsOfType(newOne.getId(), MovementType.SALE)).hasSize(1);
-            assertThat(movementsOfType(newOne.getId(), MovementType.SALE_REVERSAL))
+            assertThat(stockPositionOf(oldOne.getId())).isEqualByComparingTo(new BigDecimal("100.00"));
+            assertThat(stockPositionOf(oldTwo.getId())).isEqualByComparingTo(new BigDecimal("100.00"));
+            assertThat(stockPositionOf(newOne.getId())).isEqualByComparingTo(new BigDecimal("98.00"));
+            assertThat(stockPositionOf(newTwo.getId())).isEqualByComparingTo(new BigDecimal("98.00"));
+            assertThat(movementsOfType(newOne.getId(), StockLedgerWriter.SALE)).hasSize(1);
+            assertThat(movementsOfType(newOne.getId(), StockLedgerWriter.SALE_REVERSAL))
                     .isEmpty();
-            assertThat(movementsOfType(newTwo.getId(), MovementType.SALE)).hasSize(1);
-            assertThat(movementsOfType(newTwo.getId(), MovementType.SALE_REVERSAL))
+            assertThat(movementsOfType(newTwo.getId(), StockLedgerWriter.SALE)).hasSize(1);
+            assertThat(movementsOfType(newTwo.getId(), StockLedgerWriter.SALE_REVERSAL))
                     .isEmpty();
         }
     }
@@ -2547,25 +2505,22 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.quantity").value(3.00));
 
-            assertThat(storeStockOf(oldVariant.getId()).getStock()).isEqualByComparingTo(new BigDecimal("10.00"));
+            assertThat(stockPositionOf(oldVariant.getId())).isEqualByComparingTo(new BigDecimal("10.00"));
             assertThat(locationStockOf(oldVariant.getId(), salesLocationId))
                     .isEqualByComparingTo(new BigDecimal("1.00"));
             assertThat(locationStockOf(oldVariant.getId(), secondaryLocationId))
                     .isEqualByComparingTo(new BigDecimal("9.00"));
-            assertThat(storeStockOf(newVariant.getId()).getStock()).isEqualByComparingTo(new BigDecimal("7.00"));
+            assertThat(stockPositionOf(newVariant.getId())).isEqualByComparingTo(new BigDecimal("7.00"));
             assertThat(locationStockOf(newVariant.getId(), salesLocationId))
                     .isEqualByComparingTo(new BigDecimal("7.00"));
 
-            assertThat(movementsOfType(oldVariant.getId(), MovementType.SALE_REVERSAL))
-                    .extracting(
-                            InventoryMovement::getReferenceId,
-                            InventoryMovement::getStoreLocationId,
-                            InventoryMovement::getQuantity)
+            assertThat(movementsOfType(oldVariant.getId(), StockLedgerWriter.SALE_REVERSAL))
+                    .extracting(LedgerMovement::sourceId, LedgerMovement::storeLocationId, LedgerMovement::quantity)
                     .containsExactlyInAnyOrder(
                             tuple(itemId, salesLocationId, new BigDecimal("1.00")),
                             tuple(itemId, secondaryLocationId, new BigDecimal("3.00")));
-            assertThat(movementsOfType(newVariant.getId(), MovementType.SALE))
-                    .extracting(InventoryMovement::getReferenceId, InventoryMovement::getQuantity)
+            assertThat(movementsOfType(newVariant.getId(), StockLedgerWriter.SALE))
+                    .extracting(LedgerMovement::sourceId, LedgerMovement::quantity)
                     .containsExactly(tuple(itemId, new BigDecimal("3.00")));
             assertThat(itemRepository.findById(itemId).orElseThrow().getProductVariantId())
                     .isEqualTo(newVariant.getId());
@@ -2592,16 +2547,17 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                     .andExpect(status().isOk());
 
             // The outcome must not depend on the internal ordering: old restored exactly, new sold.
-            assertThat(storeStockOf(oldVariant.getId()).getStock()).isEqualByComparingTo(new BigDecimal("10.00"));
+            assertThat(stockPositionOf(oldVariant.getId())).isEqualByComparingTo(new BigDecimal("10.00"));
             assertThat(locationStockOf(oldVariant.getId(), salesLocationId))
                     .isEqualByComparingTo(new BigDecimal("1.00"));
             assertThat(locationStockOf(oldVariant.getId(), secondaryLocationId))
                     .isEqualByComparingTo(new BigDecimal("9.00"));
-            assertThat(storeStockOf(newVariant.getId()).getStock()).isEqualByComparingTo(new BigDecimal("7.00"));
+            assertThat(stockPositionOf(newVariant.getId())).isEqualByComparingTo(new BigDecimal("7.00"));
             assertThat(locationStockOf(newVariant.getId(), salesLocationId))
                     .isEqualByComparingTo(new BigDecimal("7.00"));
-            assertThat(movementsOfType(newVariant.getId(), MovementType.SALE)).hasSize(1);
-            assertThat(movementsOfType(newVariant.getId(), MovementType.SALE_REVERSAL))
+            assertThat(movementsOfType(newVariant.getId(), StockLedgerWriter.SALE))
+                    .hasSize(1);
+            assertThat(movementsOfType(newVariant.getId(), StockLedgerWriter.SALE_REVERSAL))
                     .isEmpty();
         }
 
@@ -2625,23 +2581,23 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             var itemId = placed.itemId(high.getId());
 
             updateOrderItems(placed.orderId(), line(itemId, mid.getId(), "4.00"));
-            assertThat(storeStockOf(high.getId()).getStock()).isEqualByComparingTo(new BigDecimal("100.00"));
-            assertThat(storeStockOf(mid.getId()).getStock()).isEqualByComparingTo(new BigDecimal("96.00"));
+            assertThat(stockPositionOf(high.getId())).isEqualByComparingTo(new BigDecimal("100.00"));
+            assertThat(stockPositionOf(mid.getId())).isEqualByComparingTo(new BigDecimal("96.00"));
 
             updateOrderItems(placed.orderId(), line(itemId, low.getId(), "4.00"));
-            assertThat(storeStockOf(mid.getId()).getStock()).isEqualByComparingTo(new BigDecimal("100.00"));
-            assertThat(storeStockOf(low.getId()).getStock()).isEqualByComparingTo(new BigDecimal("96.00"));
+            assertThat(stockPositionOf(mid.getId())).isEqualByComparingTo(new BigDecimal("100.00"));
+            assertThat(stockPositionOf(low.getId())).isEqualByComparingTo(new BigDecimal("96.00"));
 
             updateOrderItems(placed.orderId(), line(itemId, high.getId(), "4.00"));
-            assertThat(storeStockOf(low.getId()).getStock()).isEqualByComparingTo(new BigDecimal("100.00"));
-            assertThat(storeStockOf(high.getId()).getStock()).isEqualByComparingTo(new BigDecimal("96.00"));
+            assertThat(stockPositionOf(low.getId())).isEqualByComparingTo(new BigDecimal("100.00"));
+            assertThat(stockPositionOf(high.getId())).isEqualByComparingTo(new BigDecimal("96.00"));
 
             // Every batch reversed the variant it held and then sold the new one: no variant keeps
-            // an unsold fresh SALE, so every legacy variant is back at its full balance.
+            // an unsold fresh SALE, so every variant it left is back at its full balance.
             assertThat(movementsOf(mid.getId()))
-                    .allSatisfy(m -> assertThat(m.getReferenceId()).isEqualTo(itemId));
-            assertThat(movementsOfType(high.getId(), MovementType.SALE)).hasSize(2);
-            assertThat(movementsOfType(high.getId(), MovementType.SALE_REVERSAL))
+                    .allSatisfy(m -> assertThat(m.sourceId()).isEqualTo(itemId));
+            assertThat(movementsOfType(high.getId(), StockLedgerWriter.SALE)).hasSize(2);
+            assertThat(movementsOfType(high.getId(), StockLedgerWriter.SALE_REVERSAL))
                     .hasSize(1);
         }
     }
@@ -2670,13 +2626,13 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
 
             // The failed deduction rolled the update back: the line still holds 2 and its sale is
             // still the only row of the ledger.
-            assertThat(storeStockOf(variant.getId()).getStock()).isEqualByComparingTo(new BigDecimal("8.00"));
+            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("8.00"));
             assertThat(locationStockOf(variant.getId(), salesLocationId)).isEqualByComparingTo(new BigDecimal("8.00"));
             assertThat(itemRepository.findById(itemId).orElseThrow().getQuantity())
                     .isEqualByComparingTo(new BigDecimal("2.00"));
             assertThat(movementsOf(variant.getId()))
-                    .extracting(InventoryMovement::getMovementType, InventoryMovement::getQuantity)
-                    .containsExactly(tuple(MovementType.SALE, new BigDecimal("2.00")));
+                    .extracting(LedgerMovement::movementType, LedgerMovement::quantity)
+                    .containsExactly(tuple(StockLedgerWriter.SALE, new BigDecimal("2.00")));
         }
 
         @Test
@@ -2702,15 +2658,15 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
 
             // The old variant's reversal is registered in the same batch, but the failed deduction of
             // the new variant rolls every write of the transaction back.
-            assertThat(storeStockOf(oldVariant.getId()).getStock()).isEqualByComparingTo(new BigDecimal("95.00"));
+            assertThat(stockPositionOf(oldVariant.getId())).isEqualByComparingTo(new BigDecimal("95.00"));
             assertThat(locationStockOf(oldVariant.getId(), salesLocationId))
                     .isEqualByComparingTo(new BigDecimal("95.00"));
-            assertThat(storeStockOf(scarceVariant.getId()).getStock()).isEqualByComparingTo(new BigDecimal("1.00"));
+            assertThat(stockPositionOf(scarceVariant.getId())).isEqualByComparingTo(new BigDecimal("1.00"));
             assertThat(locationStockOf(scarceVariant.getId(), salesLocationId))
                     .isEqualByComparingTo(new BigDecimal("1.00"));
             assertThat(movementsOf(oldVariant.getId()))
-                    .extracting(InventoryMovement::getMovementType, InventoryMovement::getQuantity)
-                    .containsExactly(tuple(MovementType.SALE, new BigDecimal("5.00")));
+                    .extracting(LedgerMovement::movementType, LedgerMovement::quantity)
+                    .containsExactly(tuple(StockLedgerWriter.SALE, new BigDecimal("5.00")));
             assertThat(movementsOf(scarceVariant.getId())).isEmpty();
             assertThat(itemRepository.findById(itemId).orElseThrow().getProductVariantId())
                     .isEqualTo(oldVariant.getId());
@@ -2733,17 +2689,17 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             mockMvc.perform(delete("/api/sales-orders/{id}/items/{itemId}", placed.orderId(), itemId)
                             .with(scopedSalesJwt()))
                     .andExpect(status().isNoContent());
-            assertThat(storeStockOf(variant.getId()).getStock()).isEqualByComparingTo(new BigDecimal("100.00"));
+            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("100.00"));
 
             cancelOrder(placed.orderId());
 
             // The soft-deleted line is excluded from the cancel, so the second reversal never runs.
-            assertThat(storeStockOf(variant.getId()).getStock()).isEqualByComparingTo(new BigDecimal("100.00"));
+            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("100.00"));
             assertThat(locationStockOf(variant.getId(), salesLocationId))
                     .isEqualByComparingTo(new BigDecimal("100.00"));
             assertThat(itemEnabled(itemId)).isFalse();
             assertThat(movementsOf(variant.getId())).hasSize(2);
-            assertThat(movementsOfType(variant.getId(), MovementType.SALE_REVERSAL))
+            assertThat(movementsOfType(variant.getId(), StockLedgerWriter.SALE_REVERSAL))
                     .hasSize(1);
         }
 
@@ -2755,17 +2711,17 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             var itemId = placed.itemId(variant.getId());
 
             cancelItem(placed.orderId(), itemId);
-            assertThat(storeStockOf(variant.getId()).getStock()).isEqualByComparingTo(new BigDecimal("100.00"));
+            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("100.00"));
 
             // The individually cancelled line is still enabled, so the cancel DOES hand it to the
             // engine again; the zero ledger remainder makes that second reversal a no-op.
             cancelOrder(placed.orderId());
 
-            assertThat(storeStockOf(variant.getId()).getStock()).isEqualByComparingTo(new BigDecimal("100.00"));
+            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("100.00"));
             assertThat(locationStockOf(variant.getId(), salesLocationId))
                     .isEqualByComparingTo(new BigDecimal("100.00"));
             assertThat(movementsOf(variant.getId())).hasSize(2);
-            assertThat(movementsOfType(variant.getId(), MovementType.SALE_REVERSAL))
+            assertThat(movementsOfType(variant.getId(), StockLedgerWriter.SALE_REVERSAL))
                     .hasSize(1);
         }
 
@@ -2777,17 +2733,17 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             var itemId = placed.itemId(variant.getId());
 
             cancelOrder(placed.orderId());
-            assertThat(storeStockOf(variant.getId()).getStock()).isEqualByComparingTo(new BigDecimal("100.00"));
+            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("100.00"));
 
             // The cancel already restored the line; cancelling the line itself asks again and the
             // zero remainder keeps the balances still.
             cancelItem(placed.orderId(), itemId);
 
-            assertThat(storeStockOf(variant.getId()).getStock()).isEqualByComparingTo(new BigDecimal("100.00"));
+            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("100.00"));
             assertThat(locationStockOf(variant.getId(), salesLocationId))
                     .isEqualByComparingTo(new BigDecimal("100.00"));
             assertThat(movementsOf(variant.getId())).hasSize(2);
-            assertThat(movementsOfType(variant.getId(), MovementType.SALE_REVERSAL))
+            assertThat(movementsOfType(variant.getId(), StockLedgerWriter.SALE_REVERSAL))
                     .hasSize(1);
         }
 
@@ -2798,7 +2754,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             var placed = createOrder(line(null, variant.getId(), "4.00"));
 
             cancelOrder(placed.orderId());
-            assertThat(storeStockOf(variant.getId()).getStock()).isEqualByComparingTo(new BigDecimal("100.00"));
+            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("100.00"));
 
             mockMvc.perform(delete("/api/sales-orders/{id}", placed.orderId()).with(scopedSalesJwt()))
                     .andExpect(status().isNoContent());
@@ -2807,7 +2763,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                             .orElseThrow()
                             .getEnabled()))
                     .isFalse();
-            assertThat(storeStockOf(variant.getId()).getStock()).isEqualByComparingTo(new BigDecimal("100.00"));
+            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("100.00"));
 
             mockMvc.perform(patch("/api/sales-orders/{id}/enable", placed.orderId())
                             .with(scopedSalesJwt()))
@@ -2815,11 +2771,11 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                     .andExpect(jsonPath("$.enabled").value(true));
 
             // Re-enabling restores the flag, never the stock: no third movement and no balance move.
-            assertThat(storeStockOf(variant.getId()).getStock()).isEqualByComparingTo(new BigDecimal("100.00"));
+            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("100.00"));
             assertThat(locationStockOf(variant.getId(), salesLocationId))
                     .isEqualByComparingTo(new BigDecimal("100.00"));
             assertThat(movementsOf(variant.getId())).hasSize(2);
-            assertThat(movementsOfType(variant.getId(), MovementType.SALE_REVERSAL))
+            assertThat(movementsOfType(variant.getId(), StockLedgerWriter.SALE_REVERSAL))
                     .hasSize(1);
         }
     }
@@ -2836,7 +2792,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             var variant = createTestVariant(new BigDecimal("100.00"));
             var placed = createOrder(line(null, variant.getId(), "4.00"));
             cancelOrder(placed.orderId());
-            assertThat(storeStockOf(variant.getId()).getStock()).isEqualByComparingTo(new BigDecimal("100.00"));
+            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("100.00"));
 
             var body = new SalesOrderRequest(
                     customerId, companyStoreId, shiftId, "user123", List.of(line(null, variant.getId(), "2.00")));
@@ -2849,7 +2805,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             // Cancelled is terminal: order-cancel and order-delete both skip it, so a line added to
             // this order would deduct and never be reversed. The balance must not move on either
             // side. It cannot be charged either — charge refuses a non-Pending order.
-            assertThat(storeStockOf(variant.getId()).getStock()).isEqualByComparingTo(new BigDecimal("100.00"));
+            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("100.00"));
             assertThat(locationStockOf(variant.getId(), salesLocationId))
                     .isEqualByComparingTo(new BigDecimal("100.00"));
             assertThat(movementsOf(variant.getId())).hasSize(2);
@@ -2863,7 +2819,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             var placed = createOrder(line(null, variant.getId(), "4.00"));
             var itemId = placed.itemId(variant.getId());
             completeOrder(placed.orderId());
-            assertThat(storeStockOf(variant.getId()).getStock()).isEqualByComparingTo(new BigDecimal("96.00"));
+            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("96.00"));
 
             var body = new SalesOrderRequest(
                     customerId, companyStoreId, shiftId, "user123", List.of(line(itemId, variant.getId(), "6.00")));
@@ -2873,7 +2829,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                             .with(scopedSalesJwt()))
                     .andReturn();
 
-            assertThat(storeStockOf(variant.getId()).getStock()).isEqualByComparingTo(new BigDecimal("96.00"));
+            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("96.00"));
             assertThat(locationStockOf(variant.getId(), salesLocationId)).isEqualByComparingTo(new BigDecimal("96.00"));
             assertThat(response.getResponse().getStatus()).isEqualTo(409);
         }
@@ -2885,7 +2841,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             var placed = createOrder(line(null, variant.getId(), "4.00"));
             var itemId = placed.itemId(variant.getId());
             cancelItem(placed.orderId(), itemId);
-            assertThat(storeStockOf(variant.getId()).getStock()).isEqualByComparingTo(new BigDecimal("100.00"));
+            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("100.00"));
 
             var body = line(itemId, variant.getId(), "5.00");
             var response = mockMvc.perform(put("/api/sales-orders/{id}/items/{itemId}", placed.orderId(), itemId)
@@ -2896,7 +2852,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
 
             // A cancelled line holds nothing: the item endpoint must not sell it again, which would
             // leave a SALE row no line accounts for (the reversal of its reference is a no-op).
-            assertThat(storeStockOf(variant.getId()).getStock()).isEqualByComparingTo(new BigDecimal("100.00"));
+            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("100.00"));
             assertThat(locationStockOf(variant.getId(), salesLocationId))
                     .isEqualByComparingTo(new BigDecimal("100.00"));
             assertThat(movementsOf(variant.getId())).hasSize(2);
@@ -2912,7 +2868,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             mockMvc.perform(delete("/api/sales-orders/{id}/items/{itemId}", placed.orderId(), itemId)
                             .with(scopedSalesJwt()))
                     .andExpect(status().isNoContent());
-            assertThat(storeStockOf(variant.getId()).getStock()).isEqualByComparingTo(new BigDecimal("100.00"));
+            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("100.00"));
 
             var body = line(itemId, variant.getId(), "5.00");
             var response = mockMvc.perform(put("/api/sales-orders/{id}/items/{itemId}", placed.orderId(), itemId)
@@ -2924,7 +2880,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             // A soft-deleted line was given back and the item endpoint never re-enables it, so a
             // deduction here is stranded until someone re-cancels the line by hand. The supported
             // route is the order-level PUT, which re-enables and re-sells the line (W3-D11).
-            assertThat(storeStockOf(variant.getId()).getStock()).isEqualByComparingTo(new BigDecimal("100.00"));
+            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("100.00"));
             assertThat(locationStockOf(variant.getId(), salesLocationId))
                     .isEqualByComparingTo(new BigDecimal("100.00"));
             assertThat(itemEnabled(itemId)).isFalse();
@@ -2945,7 +2901,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             var owner = createOrder(line(null, variant.getId(), "4.00"));
             var holder = createOrder(line(null, variant.getId(), "1.00"));
             var foreignItemId = owner.itemId(variant.getId());
-            assertThat(storeStockOf(variant.getId()).getStock()).isEqualByComparingTo(new BigDecimal("95.00"));
+            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("95.00"));
 
             // The targeted line is live — enabled and Pending — so the ownership check is the only
             // one that can refuse these two writes; the same request against its own order succeeds.
@@ -2959,12 +2915,12 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                     .andExpect(status().isNotFound());
 
             assertThat(itemEnabled(foreignItemId)).isTrue();
-            assertThat(storeStockOf(variant.getId()).getStock()).isEqualByComparingTo(new BigDecimal("95.00"));
+            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("95.00"));
             assertThat(locationStockOf(variant.getId(), salesLocationId)).isEqualByComparingTo(new BigDecimal("95.00"));
             // The two refusals wrote nothing: one SALE row per order, no reversal, nothing else.
             assertThat(movementsOf(variant.getId())).hasSize(2);
-            assertThat(movementsOfType(variant.getId(), MovementType.SALE)).hasSize(2);
-            assertThat(movementsOfType(variant.getId(), MovementType.SALE_REVERSAL))
+            assertThat(movementsOfType(variant.getId(), StockLedgerWriter.SALE)).hasSize(2);
+            assertThat(movementsOfType(variant.getId(), StockLedgerWriter.SALE_REVERSAL))
                     .isEmpty();
         }
     }

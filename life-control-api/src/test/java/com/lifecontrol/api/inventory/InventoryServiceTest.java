@@ -17,7 +17,6 @@ import com.lifecontrol.api.company.model.CompanyRegion;
 import com.lifecontrol.api.company.model.CompanyZone;
 import com.lifecontrol.api.inventory.ledger.StockLedgerWriter;
 import com.lifecontrol.api.inventory.model.InventoryMovement;
-import com.lifecontrol.api.inventory.model.MovementType;
 import com.lifecontrol.api.inventory.model.ProductVariantLocation;
 import com.lifecontrol.api.inventory.repository.InventoryMovementRepository;
 import com.lifecontrol.api.inventory.repository.ProductVariantLocationRepository;
@@ -41,7 +40,6 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
-import org.mockito.Captor;
 import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -91,9 +89,6 @@ class InventoryServiceTest {
      */
     @Mock
     private StockPositionRepository stockPositionRepository;
-
-    @Captor
-    private ArgumentCaptor<InventoryMovement> movementCaptor;
 
     private InventoryService inventoryService;
 
@@ -307,12 +302,12 @@ class InventoryServiceTest {
     }
 
     @Nested
-    @DisplayName("additive receipt")
+    @DisplayName("receipt write path")
     class AdditiveReceiptTests {
 
         @Test
-        @DisplayName("should append one RECEIPT movement and add the quantity to both balances")
-        void firstReceiptIsAdditive() {
+        @DisplayName("should book exactly one RECEIPT row and write no legacy column")
+        void receiptBooksOneLedgerRowAndNothingElse() {
             var balanceId = UUID.fromString("00000000-0000-0000-0000-000000000002");
             var referenceId = UUID.randomUUID();
 
@@ -320,93 +315,59 @@ class InventoryServiceTest {
                     .thenReturn(Optional.of(enabledVariant()));
             when(productVariantStoreStockRepository.findByProductVariantIdAndCompanyStoreIdForUpdate(
                             VARIANT_ID, STORE_ID))
-                    .thenReturn(Optional.of(storeRowWithStock("10.00")));
-            when(productVariantStoreStockRepository.save(any(ProductVariantStoreStock.class)))
-                    .thenAnswer(invocation -> invocation.getArgument(0));
+                    .thenReturn(Optional.of(ProductVariantStoreStock.builder()
+                            .productVariantId(VARIANT_ID)
+                            .companyStoreId(STORE_ID)
+                            .stock(new BigDecimal("10.00"))
+                            .costPrice(new BigDecimal("7.25"))
+                            .build()));
             when(productVariantLocationRepository.findByProductVariantIdAndStoreLocationIdForUpdate(
                             VARIANT_ID, LOCATION_ID))
                     .thenReturn(Optional.of(balanceWith(balanceId, "0.00")));
-            when(productVariantLocationRepository.save(any(ProductVariantLocation.class)))
-                    .thenAnswer(invocation -> invocation.getArgument(0));
+            when(stockLedgerWriter.operatingCurrency(STORE_COMPANY_ID)).thenReturn("MXN");
 
             inventoryService.applyReceipt(
                     VARIANT_ID,
                     STORE_ID,
                     LOCATION_ID,
                     new BigDecimal("12.50"),
-                    "GOODS_RECEIPT",
+                    StockLedgerWriter.RECEIPT_LINE_SOURCE_TYPE,
                     referenceId,
                     "receiver");
 
-            var savedBalance = captureSavedBalance();
-            assertThat(savedBalance.getStock()).isEqualByComparingTo("12.50");
+            var bookingCaptor = ArgumentCaptor.forClass(StockLedgerWriter.Booking.class);
+            var quantityCaptor = ArgumentCaptor.forClass(BigDecimal.class);
+            var unitCostCaptor = ArgumentCaptor.forClass(BigDecimal.class);
+            var currencyCaptor = ArgumentCaptor.forClass(String.class);
+            var reasonCaptor = ArgumentCaptor.forClass(String.class);
+            verify(stockLedgerWriter)
+                    .bookReceipt(
+                            bookingCaptor.capture(),
+                            quantityCaptor.capture(),
+                            unitCostCaptor.capture(),
+                            currencyCaptor.capture(),
+                            reasonCaptor.capture());
 
-            var savedStoreStock = captureSavedStoreStock();
-            assertThat(savedStoreStock.getStock()).isEqualByComparingTo("22.50");
+            var booking = bookingCaptor.getValue();
+            assertThat(booking.sourceType()).isEqualTo(StockLedgerWriter.RECEIPT_LINE_SOURCE_TYPE);
+            assertThat(booking.sourceId()).isEqualTo(referenceId);
+            assertThat(booking.writeSeq()).isEqualTo(StockLedgerWriter.SINGLE_WRITE);
+            assertThat(booking.companyStoreId()).isEqualTo(STORE_ID);
+            assertThat(booking.storeLocationId()).isEqualTo(LOCATION_ID);
+            assertThat(booking.productVariantId()).isEqualTo(VARIANT_ID);
+            assertThat(booking.actor()).isEqualTo("receiver");
+            assertThat(quantityCaptor.getValue()).isEqualByComparingTo("12.50");
+            // The cost is the one the store records (ck_movement_inbound_cost requires one on every row that
+            // adds quantity) and the currency is the company's operating currency, so no reason is stated.
+            assertThat(unitCostCaptor.getValue()).isEqualByComparingTo("7.25");
+            assertThat(currencyCaptor.getValue()).isEqualTo("MXN");
+            assertThat(reasonCaptor.getValue()).isNull();
 
-            verify(inventoryMovementRepository).save(movementCaptor.capture());
-            var movement = movementCaptor.getValue();
-            assertThat(movement.getMovementType()).isEqualTo(MovementType.RECEIPT);
-            assertThat(movement.getQuantity()).isEqualByComparingTo("12.50");
-            assertThat(movement.getProductVariantId()).isEqualTo(VARIANT_ID);
-            assertThat(movement.getCompanyStoreId()).isEqualTo(STORE_ID);
-            assertThat(movement.getStoreLocationId()).isEqualTo(LOCATION_ID);
-            assertThat(movement.getReferenceType()).isEqualTo("GOODS_RECEIPT");
-            assertThat(movement.getReferenceId()).isEqualTo(referenceId);
-            assertThat(movement.getCreatedBy()).isEqualTo("receiver");
-        }
-
-        @Test
-        @DisplayName("should accumulate on a store row and a balance row that already exist")
-        void secondReceiptAccumulates() {
-            var balanceId = UUID.fromString("00000000-0000-0000-0000-000000000002");
-
-            when(productVariantRepository.findByIdAndCompanyIdAndEnabledTrue(VARIANT_ID, STORE_COMPANY_ID))
-                    .thenReturn(Optional.of(enabledVariant()));
-            when(productVariantStoreStockRepository.findByProductVariantIdAndCompanyStoreIdForUpdate(
-                            VARIANT_ID, STORE_ID))
-                    .thenReturn(Optional.of(storeRowWithStock("3.00")));
-            when(productVariantStoreStockRepository.save(any(ProductVariantStoreStock.class)))
-                    .thenAnswer(invocation -> invocation.getArgument(0));
-            when(productVariantLocationRepository.findByProductVariantIdAndStoreLocationIdForUpdate(
-                            VARIANT_ID, LOCATION_ID))
-                    .thenReturn(Optional.of(balanceWith(balanceId, "5.00")));
-            when(productVariantLocationRepository.save(any(ProductVariantLocation.class)))
-                    .thenAnswer(invocation -> invocation.getArgument(0));
-
-            applyReceipt("2.25");
-
-            assertThat(captureSavedBalance().getStock()).isEqualByComparingTo("7.25");
-            assertThat(captureSavedStoreStock().getStock()).isEqualByComparingTo("5.25");
-        }
-
-        @Test
-        @DisplayName("should treat a NULL store stock as zero and land on exactly the received quantity")
-        void nullStockCountsAsZero() {
-            var nullBalance = ProductVariantLocation.builder()
-                    .id(UUID.fromString("00000000-0000-0000-0000-000000000002"))
-                    .productVariantId(VARIANT_ID)
-                    .storeLocationId(LOCATION_ID)
-                    .stock(null)
-                    .build();
-
-            when(productVariantRepository.findByIdAndCompanyIdAndEnabledTrue(VARIANT_ID, STORE_COMPANY_ID))
-                    .thenReturn(Optional.of(enabledVariant()));
-            when(productVariantStoreStockRepository.findByProductVariantIdAndCompanyStoreIdForUpdate(
-                            VARIANT_ID, STORE_ID))
-                    .thenReturn(Optional.of(storeRowWithStock(null)));
-            when(productVariantStoreStockRepository.save(any(ProductVariantStoreStock.class)))
-                    .thenAnswer(invocation -> invocation.getArgument(0));
-            when(productVariantLocationRepository.findByProductVariantIdAndStoreLocationIdForUpdate(
-                            VARIANT_ID, LOCATION_ID))
-                    .thenReturn(Optional.of(nullBalance));
-            when(productVariantLocationRepository.save(any(ProductVariantLocation.class)))
-                    .thenAnswer(invocation -> invocation.getArgument(0));
-
-            applyReceipt("8.00");
-
-            assertThat(captureSavedBalance().getStock()).isEqualByComparingTo("8.00");
-            assertThat(captureSavedStoreStock().getStock()).isEqualByComparingTo("8.00");
+            // S4: the ledger row is the WHOLE write. A receipt that also touched the legacy columns would be a
+            // second truth, which is what this slice removes; asserting it is what keeps the removal honest.
+            verify(productVariantLocationRepository, never()).save(any(ProductVariantLocation.class));
+            verify(productVariantStoreStockRepository, never()).save(any(ProductVariantStoreStock.class));
+            verify(inventoryMovementRepository, never()).save(any(InventoryMovement.class));
         }
 
         @Test
@@ -417,7 +378,7 @@ class InventoryServiceTest {
 
             assertThatThrownBy(() -> applyReceipt("1.00")).isInstanceOf(ProductVariantNotFoundException.class);
 
-            verifyNoInteractions(inventoryMovementRepository);
+            verifyNoInteractions(stockLedgerWriter);
             verifyNoInteractions(productVariantStoreStockRepository);
             verifyNoInteractions(productVariantLocationRepository);
         }
@@ -432,21 +393,9 @@ class InventoryServiceTest {
 
             assertThatThrownBy(() -> applyReceipt("1.00")).isInstanceOf(ProductVariantNotFoundException.class);
 
-            verifyNoInteractions(inventoryMovementRepository);
+            verifyNoInteractions(stockLedgerWriter);
             verifyNoInteractions(productVariantStoreStockRepository);
             verifyNoInteractions(productVariantLocationRepository);
-        }
-
-        private ProductVariantLocation captureSavedBalance() {
-            var captured = ArgumentCaptor.forClass(ProductVariantLocation.class);
-            verify(productVariantLocationRepository).save(captured.capture());
-            return captured.getValue();
-        }
-
-        private ProductVariantStoreStock captureSavedStoreStock() {
-            var captured = ArgumentCaptor.forClass(ProductVariantStoreStock.class);
-            verify(productVariantStoreStockRepository).save(captured.capture());
-            return captured.getValue();
         }
     }
 
@@ -464,13 +413,9 @@ class InventoryServiceTest {
             when(productVariantStoreStockRepository.findByProductVariantIdAndCompanyStoreIdForUpdate(
                             VARIANT_ID, STORE_ID))
                     .thenReturn(Optional.of(storeRowWithStock("1.00")));
-            when(productVariantStoreStockRepository.save(any(ProductVariantStoreStock.class)))
-                    .thenAnswer(invocation -> invocation.getArgument(0));
             when(productVariantLocationRepository.findByProductVariantIdAndStoreLocationIdForUpdate(
                             VARIANT_ID, LOCATION_ID))
                     .thenReturn(Optional.of(balanceWith(balanceId, "1.00")));
-            when(productVariantLocationRepository.save(any(ProductVariantLocation.class)))
-                    .thenAnswer(invocation -> invocation.getArgument(0));
 
             applyReceipt("1.00");
 
@@ -498,14 +443,10 @@ class InventoryServiceTest {
             when(productVariantStoreStockRepository.findByProductVariantIdAndCompanyStoreIdForUpdate(
                             VARIANT_ID, STORE_ID))
                     .thenReturn(Optional.of(storeRowWithStock("0.00")));
-            when(productVariantStoreStockRepository.save(any(ProductVariantStoreStock.class)))
-                    .thenAnswer(invocation -> invocation.getArgument(0));
             when(productVariantLocationRepository.findByProductVariantIdAndStoreLocationIdForUpdate(
                             VARIANT_ID, LOCATION_ID))
                     .thenReturn(
                             Optional.of(balanceWith(UUID.fromString("00000000-0000-0000-0000-000000000002"), "0.00")));
-            when(productVariantLocationRepository.save(any(ProductVariantLocation.class)))
-                    .thenAnswer(invocation -> invocation.getArgument(0));
 
             applyReceipt("4.00");
 

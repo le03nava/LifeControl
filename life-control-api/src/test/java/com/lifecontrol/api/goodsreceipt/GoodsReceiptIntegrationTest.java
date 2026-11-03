@@ -36,7 +36,6 @@ import com.lifecontrol.api.goodsreceipt.repository.GoodsReceiptItemRepository;
 import com.lifecontrol.api.goodsreceipt.repository.GoodsReceiptRepository;
 import com.lifecontrol.api.goodsreceipt.service.GoodsReceiptService;
 import com.lifecontrol.api.inventory.ledger.StockLedgerWriter;
-import com.lifecontrol.api.inventory.model.MovementType;
 import com.lifecontrol.api.inventory.model.StoreInventorySettings;
 import com.lifecontrol.api.inventory.repository.InventoryMovementRepository;
 import com.lifecontrol.api.inventory.repository.ProductVariantLocationRepository;
@@ -582,6 +581,51 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
                 .orElseThrow();
     }
 
+    /**
+     * One row of {@code stock_movement}, as the fields a receipt case asserts.
+     *
+     * <p>Since T3c the ledger is the only record of a movement: the legacy {@code inventory_movements} row is no
+     * longer written, so a case that wants to say what was booked reads here, and the projections below are the
+     * only balances.</p>
+     */
+    private record LedgerRow(
+            String movementType, String sourceType, UUID sourceId, BigDecimal quantity, String actor) {}
+
+    private List<LedgerRow> ledgerRowsOf(UUID variantId) {
+        return inTransaction(() -> jdbcTemplate.query(
+                """
+                SELECT movement_type, source_type, source_id, quantity, actor
+                  FROM stock_movement
+                 WHERE product_variant_id = ?
+                 ORDER BY occurred_at, id
+                """,
+                (rs, row) -> new LedgerRow(
+                        rs.getString("movement_type"),
+                        rs.getString("source_type"),
+                        rs.getObject("source_id", UUID.class),
+                        rs.getBigDecimal("quantity"),
+                        rs.getString("actor")),
+                variantId));
+    }
+
+    /** The ledger's projection for one location, which is where a location balance lives now (T5b). */
+    private BigDecimal locationBalanceOf(UUID variantId, UUID storeLocationId) {
+        return inTransaction(() -> jdbcTemplate.queryForObject(
+                "SELECT quantity FROM stock_balance WHERE store_location_id = ? AND product_variant_id = ?",
+                BigDecimal.class,
+                storeLocationId,
+                variantId));
+    }
+
+    /** The ledger's projection for the store: the number the aggregate column used to hold (T5b). */
+    private BigDecimal storePositionOf(UUID variantId) {
+        return inTransaction(() -> jdbcTemplate.queryForObject(
+                "SELECT quantity FROM stock_position WHERE company_store_id = ? AND product_variant_id = ?",
+                BigDecimal.class,
+                store.getId(),
+                variantId));
+    }
+
     /** A store configured to receive at {@link #receivingLocation}. */
     private void seedReceivingSettings() {
         storeInventorySettingsRepository.save(StoreInventorySettings.builder()
@@ -1032,24 +1076,25 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
             assertThat(items.getFirst().getProductVariant().getId()).isEqualTo(variantId);
             assertThat(items.getFirst().getQuantityReceived()).isEqualByComparingTo("3");
 
-            var movements = inventoryMovementRepository.findAll();
-            assertThat(movements).hasSize(1);
-            assertThat(movements.getFirst().getMovementType()).isEqualTo(MovementType.RECEIPT);
-            assertThat(movements.getFirst().getReferenceType())
-                    .as("a receipt line books its own line, so the legacy row names the same fact the ledger "
-                            + "names (odd/tasks/ledger-mirror-retirement.md, S2)")
+            var ledgerRows = ledgerRowsOf(variantId);
+            assertThat(ledgerRows).hasSize(1);
+            var booked = ledgerRows.getFirst();
+            assertThat(booked.movementType())
+                    .as("the ledger's own vocabulary, not the legacy MovementType the dropped row carried")
+                    .isEqualTo("RECEIPT");
+            assertThat(booked.sourceType())
+                    .as("a receipt line books its own line, so its source is the line and not the mirror (S2)")
                     .isEqualTo(StockLedgerWriter.RECEIPT_LINE_SOURCE_TYPE);
-            assertThat(movements.getFirst().getReferenceId())
+            assertThat(booked.sourceId())
                     .as("the line, not the document both lines of a receipt would share")
                     .isEqualTo(items.getFirst().getId());
-            assertThat(movements.getFirst().getQuantity()).isEqualByComparingTo("3");
-            assertThat(movements.getFirst().getCreatedBy()).isEqualTo("receiver");
+            assertThat(booked.quantity()).isEqualByComparingTo("3");
+            assertThat(booked.actor()).isEqualTo("receiver");
 
-            var balance = productVariantLocationRepository
-                    .findByProductVariantIdAndStoreLocationId(variantId, receivingLocation.getId())
-                    .orElseThrow();
-            assertThat(balance.getStock()).isEqualByComparingTo("3");
-            assertThat(storeStockOf(variantId).getStock()).isEqualByComparingTo("3");
+            // S4: the trigger's projections are the only balances. The receipt writes the ledger row and nothing
+            // else, so reading the frozen columns would assert a number this slice stops maintaining.
+            assertThat(locationBalanceOf(variantId, receivingLocation.getId())).isEqualByComparingTo("3");
+            assertThat(storePositionOf(variantId)).isEqualByComparingTo("3");
 
             var reloadedDetail =
                     purchaseOrderDetailRepository.findById(detail.getId()).orElseThrow();
@@ -1081,7 +1126,9 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
             assertThat(orderStatusName(order.getId())).isEqualTo("Received");
             assertThat(second.receiptNumber()).endsWith("-02");
             assertThat(goodsReceiptRepository.count()).isEqualTo(2);
-            assertThat(inventoryMovementRepository.count()).isEqualTo(2);
+            assertThat(ledgerRowsOf(detail.getProductVariant().getId()))
+                    .as("one RECEIPT row per receipt line, and no legacy row beside it")
+                    .hasSize(2);
         }
 
         @Test
@@ -1166,16 +1213,16 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
             long receiptsAfterPost = inTransaction(goodsReceiptRepository::count);
             assertThat(receiptsAfterPost).isEqualTo(1L);
             assertThat(goodsReceiptItemRepository.count()).isEqualTo(1);
-            var movements = inventoryMovementRepository.findAll();
-            assertThat(movements).hasSize(1);
-            assertThat(movements.getFirst().getMovementType()).isEqualTo(MovementType.RECEIPT);
-            assertThat(movements.getFirst().getReferenceType())
+            var ledgerRows = ledgerRowsOf(variantId);
+            assertThat(ledgerRows).hasSize(1);
+            assertThat(ledgerRows.getFirst().movementType()).isEqualTo("RECEIPT");
+            assertThat(ledgerRows.getFirst().sourceType())
                     .as("read back through GET, the ledger's receipt identity is still the line")
                     .isEqualTo(StockLedgerWriter.RECEIPT_LINE_SOURCE_TYPE);
-            assertThat(movements.getFirst().getReferenceId())
+            assertThat(ledgerRows.getFirst().sourceId())
                     .as("and the id the line holds, not the receipt's")
                     .isEqualTo(lineId);
-            assertThat(movements.getFirst().getQuantity()).isEqualByComparingTo("3");
+            assertThat(ledgerRows.getFirst().quantity()).isEqualByComparingTo("3");
 
             mockMvc.perform(get("/api/goods-receipts/{id}", receiptId).with(scopedJwt))
                     .andExpect(status().isOk())
