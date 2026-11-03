@@ -220,3 +220,42 @@ legacy repository and the legacy columns; with the split moved, seventeen of its
 having no stock, then failed on stubs that had become unnecessary, then on a verification that named a read the
 code no longer makes. The fixture now states the projection beside the rows it already stated, and it says why:
 a fixture that declares only the column describes a world where the ledger holds nothing.
+
+**2026-11-03 — T3c was implemented, measured, and parked on purpose. The inventory is the plan.** Its own slice,
+not the tail of T3:
+
+What was built (kept at `wip/ledger-legacy-writes-off`, commit `d6fbc815`, **tree red by construction**): the eight
+legacy column writes and the five legacy `inventory_movements` writes removed from every writer, the store-aggregate
+availability gate deleted (the `stock_position` gate already decides it), the measure-unit guard moved to
+`StockLedgerWriter.hasMovements`, and the manual edit's delta taken from `stock_position` — a real defect the change
+created and that was caught before any commit: the delta was computed against the frozen column, so the editor would
+have set the wrong target while every projection stayed self-consistent.
+
+Why it is parked: the full suite reported **87 failing cases across 8 classes**, and none of them is a defect in the
+change. Every one is a **dual-truth fixture**: the suites seed stock by writing `product_variant_store_stock.stock`
+and `product_variant_locations.stock` *and* booking the ledger, then assert on the columns. Once the write path
+stops maintaining them, those fixtures describe a world the code no longer lives in — the same lesson T1, T2 and
+T3a each taught once, arriving here at the scale of a whole suite rewrite:
+
+| Class | Cases |
+| --- | --- |
+| `InventoryLedgerBookingIntegrationTest` | 11 |
+| `SalesOrderIntegrationTest` (13 nested classes) | 41 |
+| `InventoryServiceSaleMovementTest` | 14 |
+| `InventoryServiceTest` | 5 |
+| `ProductVariantStoreStockWriteIntegrationTest` | 8 |
+| `InventoryIntegrationTest` | 4 |
+| `ProductVariantServiceTest` | 3 |
+| `GoodsReceiptIntegrationTest` | 3 |
+
+The plan the inventory implies, in this order: (1) every fixture that seeds stock books a movement and nothing else
+— `SalesOrderIntegrationTest.seedSplitBalances` is the model, it already relocates through the ledger and its legacy
+writes are exactly what has to go; (2) every assertion that reads a balance reads `stock_position` /
+`stock_balance`; (3) the two cases that exist *because* the copies could disagree (`raiseTheLegacyBalancesByHand`
+and its divergence case) are deleted rather than adapted, because the state they construct stops existing; (4) the
+measure-unit and `ManualStockAdjustmentTests` cases assert the ledger's answer.
+
+Two decisions recorded here so the next slice does not have to re-derive them: **D-2** (a manual edit's source is
+`MANUAL_ADJUSTMENT` and the movement's own id — not shape (b) of the document identity, because nothing retries a
+manual edit) and **the guard move** (the measure-unit refusal must ask `stock_movement` or it disappears silently
+with the columns).
