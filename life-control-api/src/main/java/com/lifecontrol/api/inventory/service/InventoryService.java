@@ -296,6 +296,34 @@ public class InventoryService {
     }
 
     /**
+     * Deducts {@code quantity} as the reference's <b>only</b> write, for a caller that owns no counter.
+     *
+     * <p>This is the engine-level entry point the sale-batch path does not use: {@link SaleChange} carries the
+     * line's own {@code writeSeq} and {@link #applySaleBatch} hands it to the seven-argument overload. A caller
+     * whose reference books at most one movement per direction and location reaches the same code through this
+     * shape, and it says {@link StockLedgerWriter#SINGLE_WRITE} explicitly rather than leaving the column to its
+     * default. A document line that can book more than once must state its sequence: the second write of one
+     * reference under {@code 0} is refused by {@code uq_movement_source}, loudly, which is the intended answer to
+     * a caller that forgot.</p>
+     */
+    public void applySaleDeduction(
+            UUID productVariantId,
+            UUID companyStoreId,
+            BigDecimal quantity,
+            String referenceType,
+            UUID referenceId,
+            String createdBy) {
+        applySaleDeduction(
+                productVariantId,
+                companyStoreId,
+                quantity,
+                referenceType,
+                referenceId,
+                createdBy,
+                StockLedgerWriter.SINGLE_WRITE);
+    }
+
+    /**
      * Deducts {@code quantity} of {@code productVariantId} from {@code companyStoreId} and appends
      * one {@code SALE} movement per store location consumed, all with a positive quantity (W3-D7).
      *
@@ -346,9 +374,14 @@ public class InventoryService {
      * {@code store_location_id}, and neither order can meet the other.</p>
      *
      * @param quantity signed amount sold; must be greater than zero
-     * @param referenceType source discriminator carrying the line-level provenance of the sale (W3-D6)
-     * @param referenceId identity of that source
+     * @param referenceType source discriminator carrying the line-level provenance of the sale (W3-D6), and the
+     *     {@code source_type} the ledger movement states: the same vocabulary the legacy row carries, so the
+     *     ledger alone answers which line caused a movement
+     * @param referenceId identity of that source, which is the {@code source_id} of every movement this deduction
+     *     books
      * @param createdBy username of the seller, when known
+     * @param writeSeq which write of that source this deduction is ({@code sales_order_items.write_seq},
+     *     {@code V73}); the ledger keys the movement on it, so two writes of one line are two legal rows
      * @throws IllegalArgumentException when {@code quantity} is not greater than zero
      * @throws InsufficientStockException when the store cannot cover {@code quantity} — including
      *     when the store does not stock the variant at all, which is zero sellable stock — first
@@ -365,7 +398,8 @@ public class InventoryService {
             BigDecimal quantity,
             String referenceType,
             UUID referenceId,
-            String createdBy) {
+            String createdBy,
+            long writeSeq) {
 
         // 1. Reject the invalid quantity before touching the database, as applyReceipt does: an
         //    invalid sale must not lock a store row or leave a ledger entry behind.
@@ -494,13 +528,14 @@ public class InventoryService {
             //     own independent gate — it reads the ledger's position, never these numbers.
             stockLedgerWriter.bookSale(
                     booking(
-                            StockLedgerWriter.MIRRORED_SOURCE_TYPE,
+                            referenceType,
                             companyId,
                             companyStoreId,
                             location.getStoreLocationId(),
                             productVariantId,
                             createdBy,
-                            saleMovement.getId()),
+                            referenceId,
+                            writeSeq),
                     taken);
             remaining = remaining.subtract(taken);
         }
@@ -582,17 +617,42 @@ public class InventoryService {
      * first. A {@code reversal} gives the reference back; otherwise the change sells
      * {@code quantity} under it. The engine derives the locations from the store's settings or from
      * the ledger, so the key exists only for ordering and locking.
+     *
+     * <p><b>{@code writeSeq} is the sale line's own counter</b> ({@code sales_order_items.write_seq},
+     * {@code V73}): which write of that line the movement belongs to. It travels as a component of the change so
+     * the batch path threads it per line, and the seven-argument {@link #applySaleDeduction} states it directly for
+     * a caller that books one reference; the six-argument shape states {@link StockLedgerWriter#SINGLE_WRITE}. No
+     * shape of this engine invents a number: the counter belongs to the document, and a caller that books a line
+     * twice has to say which write each movement is. A reversal states {@code SINGLE_WRITE} because a reversal row
+     * is outside {@code uq_movement_source} and has no counter of its own.</p>
      */
     public record SaleChange(
-            UUID companyStoreId, UUID productVariantId, BigDecimal quantity, UUID referenceId, boolean reversal) {
+            UUID companyStoreId,
+            UUID productVariantId,
+            BigDecimal quantity,
+            UUID referenceId,
+            boolean reversal,
+            long writeSeq) {
 
         /**
-         * Sells {@code quantity} of the variant in the store, under the line-level reference the
-         * ledger carries (W3-D6).
+         * Sells {@code quantity} of the variant in the store, under the line-level reference the ledger carries
+         * (W3-D6), as the line's {@code writeSeq}-th write.
+         */
+        public static SaleChange deduction(
+                UUID companyStoreId, UUID productVariantId, BigDecimal quantity, UUID referenceId, long writeSeq) {
+            return new SaleChange(companyStoreId, productVariantId, quantity, referenceId, false, writeSeq);
+        }
+
+        /**
+         * The same deduction for a caller that owns no counter: it books as the reference's only write
+         * ({@link StockLedgerWriter#SINGLE_WRITE}). A document line that can book more than once states its own
+         * sequence through {@link #deduction(UUID, UUID, BigDecimal, UUID, long)} — this shape exists for the
+         * engine-level callers and fixtures that sell a reference once, and it says so instead of leaving the
+         * number to a default.
          */
         public static SaleChange deduction(
                 UUID companyStoreId, UUID productVariantId, BigDecimal quantity, UUID referenceId) {
-            return new SaleChange(companyStoreId, productVariantId, quantity, referenceId, false);
+            return deduction(companyStoreId, productVariantId, quantity, referenceId, StockLedgerWriter.SINGLE_WRITE);
         }
 
         /**
@@ -600,7 +660,8 @@ public class InventoryService {
          * balance; {@code quantity} plays no part and is null.
          */
         public static SaleChange reversal(UUID companyStoreId, UUID productVariantId, UUID referenceId) {
-            return new SaleChange(companyStoreId, productVariantId, null, referenceId, true);
+            return new SaleChange(
+                    companyStoreId, productVariantId, null, referenceId, true, StockLedgerWriter.SINGLE_WRITE);
         }
     }
 
@@ -669,7 +730,8 @@ public class InventoryService {
                         change.quantity(),
                         referenceType,
                         change.referenceId(),
-                        createdBy));
+                        createdBy,
+                        change.writeSeq()));
     }
 
     private static StoreVariantKey keyOf(SaleChange change) {
@@ -868,7 +930,8 @@ public class InventoryService {
                             location.getStoreLocationId(),
                             productVariantId,
                             createdBy,
-                            decreaseMovement.getId()),
+                            decreaseMovement.getId(),
+                            StockLedgerWriter.SINGLE_WRITE),
                     taken);
             remaining = remaining.subtract(taken);
         }
@@ -970,7 +1033,8 @@ public class InventoryService {
                                 entry.getKey(),
                                 productVariantId,
                                 createdBy,
-                                reversalMovement.getId()),
+                                reversalMovement.getId(),
+                                StockLedgerWriter.SINGLE_WRITE),
                         sale.quantity(),
                         sale.ledgerMovementId());
             }
@@ -1025,12 +1089,12 @@ public class InventoryService {
     /**
      * The key every ledger row needs, plus the identity of the row that states the fact.
      *
-     * <p>{@code sourceType} is required, and every call site in this class states
-     * {@link StockLedgerWriter#MIRRORED_SOURCE_TYPE} explicitly: the dual-write window's transition shape is
-     * visible where each fact is booked instead of being implied by the writer (see
-     * {@link StockLedgerWriter#MIRRORED_SOURCE_TYPE} and the re-cut entry of
-     * {@code odd/tasks/inventory-ledger.md} that defines T5a/T5b/T5c, where T5c stops the legacy writes and
-     * {@code inventory_movements} drops in T6).</p>
+     * <p>{@code sourceType} and {@code writeSeq} are both required, and every call site in this class states
+     * them: a source books either {@link StockLedgerWriter#MIRRORED_SOURCE_TYPE} — the legacy row written beside
+     * it, which is what a receipt, a manual edit and a reversal state — or, for a sale, its own reference and the
+     * line's {@code writeSeq} ({@code V73}). Nothing here is implied by the writer, so the identity of every
+     * movement is readable where the fact is booked (see {@link StockLedgerWriter#MIRRORED_SOURCE_TYPE} and
+     * {@link StockLedgerWriter#SINGLE_WRITE}).</p>
      */
     private static StockLedgerWriter.Booking booking(
             String sourceType,
@@ -1039,9 +1103,17 @@ public class InventoryService {
             UUID storeLocationId,
             UUID productVariantId,
             String createdBy,
-            UUID sourceId) {
+            UUID sourceId,
+            long writeSeq) {
         return new StockLedgerWriter.Booking(
-                companyId, companyStoreId, storeLocationId, productVariantId, createdBy, sourceType, sourceId);
+                companyId,
+                companyStoreId,
+                storeLocationId,
+                productVariantId,
+                createdBy,
+                sourceType,
+                sourceId,
+                writeSeq);
     }
 
     /**
@@ -1067,8 +1139,15 @@ public class InventoryService {
             UUID sourceId,
             String createdBy,
             boolean receipt) {
-        var booking =
-                booking(sourceType, companyId, companyStoreId, storeLocationId, productVariantId, createdBy, sourceId);
+        var booking = booking(
+                sourceType,
+                companyId,
+                companyStoreId,
+                storeLocationId,
+                productVariantId,
+                createdBy,
+                sourceId,
+                StockLedgerWriter.SINGLE_WRITE);
         var unitCost = orZero(recordedCost);
         var currency = stockLedgerWriter.operatingCurrency(companyId);
         var reason = recordedCost == null ? UNRECORDED_COST_REASON : null;
@@ -1083,13 +1162,47 @@ public class InventoryService {
      * The sale movements of one reference that the ledger still holds open, grouped by the key a reversal
      * balances, oldest first.
      *
-     * <p>Read from the legacy rows the reversal already reads, each resolved to the ledger row that mirrors it
-     * — that is what makes the reversal name the exact rows instead of re-deriving a remainder. A legacy sale
-     * that has no ledger twin predates this slice's writers (the deploy window), and it is refused rather than
-     * guessed at: the ledger holds no movement to reverse, and inventing one would record a fact nobody
-     * observed.</p>
+     * <p><b>Read by the source the movements carry, which is the point of the per-write identity.</b> Since
+     * {@code V73} a sale books {@code source_type}/{@code source_id} = the line's own reference and the line id,
+     * so the ledger alone answers "what does this line still hold open": one row per write and location, each
+     * with the quantity it moved. That is a strictly larger set than the old answer could express — a line sold,
+     * grown and sold again holds two open rows at one location — and it is the set a reversal has to name, because
+     * {@code V61} demands a reversal move exactly the quantity of the row it names.</p>
+     *
+     * <p><b>Rows booked before this identity existed are still reachable</b>, and that is why the mirror is read
+     * as a second source instead of being deleted: a sale written before the deploy carries {@code
+     * INVENTORY_MOVEMENT} and the id of the legacy row beside it, so the per-reference read answers nothing and
+     * {@link #openLedgerSalesBookedOnTheMirror} answers for it. A reference with rows of both identities is
+     * answered by the first read and then refused by {@link #requireTheWholeRemainderIsOpen} if the legacy
+     * remainder is larger — loudly, which is the correct answer to a ledger holding two identities for one line.
+     * </p>
      */
     private Map<SaleBalanceKey, List<OpenSale>> openLedgerSales(String referenceType, UUID referenceId) {
+        var open = new LinkedHashMap<SaleBalanceKey, List<OpenSale>>();
+        for (var sale : stockLedgerWriter.openSales(referenceType, referenceId)) {
+            open.computeIfAbsent(
+                            new SaleBalanceKey(sale.productVariantId(), sale.companyStoreId(), sale.storeLocationId()),
+                            key -> new ArrayList<>())
+                    .add(new OpenSale(sale.movementId(), orZero(sale.quantity())));
+        }
+        if (!open.isEmpty()) {
+            return open;
+        }
+        return openLedgerSalesBookedOnTheMirror(referenceType, referenceId);
+    }
+
+    /**
+     * The same question for a ledger whose sale rows predate {@code V73}: each is found by the legacy row it
+     * mirrors, which is what {@code source_type = 'INVENTORY_MOVEMENT'} and a primary-key {@code source_id} can
+     * still answer.
+     *
+     * <p>Read from the legacy rows the reversal already reads, each resolved to the ledger row that mirrors it.
+     * A legacy sale that has no ledger twin predates this slice's writers (the deploy window), and it is refused
+     * rather than guessed at: the ledger holds no movement to reverse, and inventing one would record a fact nobody
+     * observed.</p>
+     */
+    private Map<SaleBalanceKey, List<OpenSale>> openLedgerSalesBookedOnTheMirror(
+            String referenceType, UUID referenceId) {
         var sales = new ArrayList<InventoryMovement>();
         for (var movement : inventoryMovementRepository.findByReferenceTypeAndReferenceId(referenceType, referenceId)) {
             if (movement.getMovementType() == MovementType.SALE) {
