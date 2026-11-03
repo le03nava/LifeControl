@@ -585,7 +585,7 @@ class ProductVariantStoreStockWriteIntegrationTest extends AbstractPostgresInteg
                             dock.getId(),
                             new BigDecimal("10"),
                             "TEST_RECEIPT",
-                            null,
+                            UUID.randomUUID(),
                             "receiver"));
 
             writeStock(bareVariantId, storeAId, "5");

@@ -69,8 +69,6 @@ class InventoryLedgerBookingIntegrationTest extends AbstractPostgresIntegrationT
     private static final String COMPANY_RFC = "LED030303EF3";
 
     /** The two source discriminators the callers pass; the ledger mirrors the rows, not the documents. */
-    private static final String GOODS_RECEIPT = "GOODS_RECEIPT";
-
     private static final String SALES_ORDER_ITEM = "SALES_ORDER_ITEM";
 
     /** What the store records for the variant as its cost, which is what an inbound row must state. */
@@ -181,11 +179,10 @@ class InventoryLedgerBookingIntegrationTest extends AbstractPostgresIntegrationT
     @Test
     @DisplayName("a receipt books one RECEIPT row with its cost and currency, and the projections agree")
     void aReceiptBooksTheLedgerAndTheProjectionsAgree() {
-        var referenceId = UUID.randomUUID();
+        var receiptLineId = UUID.randomUUID();
 
-        applyReceipt(variantId, salesLocationId, "10", referenceId);
+        applyReceipt(variantId, salesLocationId, "10", receiptLineId);
 
-        var legacyMovementId = legacyMovementsOf(variantId, "RECEIPT").getFirst();
         var booked = ledgerMovementsOf(variantId, StockLedgerWriter.RECEIPT);
         assertThat(booked)
                 .as("ADR-0001 decision 1 (:48-50): every change of quantity is one stock_movement row, so a "
@@ -208,11 +205,12 @@ class InventoryLedgerBookingIntegrationTest extends AbstractPostgresIntegrationT
                 .as("a receipt is not a reversal")
                 .isNull();
         assertThat(receipt.sourceType())
-                .as("during the dual-write window a movement's source is the legacy row it mirrors")
-                .isEqualTo(StockLedgerWriter.MIRRORED_SOURCE_TYPE);
+                .as("a receipt names its own line, not a mirrored row: the ledger's receipt identity no longer "
+                        + "dies with inventory_movements (odd/tasks/ledger-mirror-retirement.md, S2)")
+                .isEqualTo(StockLedgerWriter.RECEIPT_LINE_SOURCE_TYPE);
         assertThat(receipt.sourceId())
-                .as("one fact, one row: the ledger row and the legacy row mirror each other one to one")
-                .isEqualTo(legacyMovementId);
+                .as("one fact, one row: the source is the goods_receipt_items row this movement booked")
+                .isEqualTo(receiptLineId);
 
         assertTheLedgerAgreesWithTheLegacyBalances("10", "10", "10");
     }
@@ -432,32 +430,99 @@ class InventoryLedgerBookingIntegrationTest extends AbstractPostgresIntegrationT
     @Test
     @DisplayName("one receipt document carrying two lines books both RECEIPT rows instead of colliding")
     void aReceiptWithTwoLinesOfOneDocumentBooksBoth() {
-        var receiptDocumentId = UUID.randomUUID();
+        // Two lines of ONE receipt document. The document id is deliberately absent from the call: the ledger
+        // states the line, which is the identity that survives the mirror, and this case is here because the
+        // document id is the one a reader would reach for first.
+        var firstLineId = UUID.randomUUID();
+        var secondLineId = UUID.randomUUID();
 
-        applyReceipt(variantId, salesLocationId, "3", receiptDocumentId);
-        applyReceipt(secondVariantId, salesLocationId, "5", receiptDocumentId);
+        applyReceipt(variantId, salesLocationId, "3", firstLineId);
+        applyReceipt(secondVariantId, salesLocationId, "5", secondLineId);
 
         var firstLine = ledgerMovementsOf(variantId, StockLedgerWriter.RECEIPT).getFirst();
         var secondLine =
                 ledgerMovementsOf(secondVariantId, StockLedgerWriter.RECEIPT).getFirst();
         assertThat(ledgerMovementsOf(variantId, StockLedgerWriter.RECEIPT))
-                .as("GoodsReceiptService:269 passes the goods_receipts row once per line, so a document id as "
-                        + "the source would refuse the second line of every multi-line receipt")
+                .as("one document carrying two lines is two facts, and the ledger has to state both")
                 .hasSize(1);
         assertThat(ledgerMovementsOf(secondVariantId, StockLedgerWriter.RECEIPT))
                 .hasSize(1);
         assertThat(List.of(firstLine.sourceType(), secondLine.sourceType()))
-                .as("and this case does NOT move with the sale: the receipt's identity is out of this record's "
-                        + "scope (S8 of odd/tasks/ledger-per-write-identity.md, which is odd/tasks/"
-                        + "inventory-ledger.md's remaining T5d), so both rows still state the mirror. The key does "
-                        + "not carry the variant, so a document id would make the second line of a receipt collide "
-                        + "with the first")
-                .containsOnly(StockLedgerWriter.MIRRORED_SOURCE_TYPE);
+                .as("the receipt now names its own line (S2 of odd/tasks/ledger-mirror-retirement.md): the "
+                        + "document id cannot be the source, because uq_movement_source does not carry the "
+                        + "variant and the second line of every multi-line receipt would collide with the first, "
+                        + "and the mirrored row cannot be it either, because that row dies with inventory_movements")
+                .containsOnly(StockLedgerWriter.RECEIPT_LINE_SOURCE_TYPE);
         assertThat(firstLine.sourceId())
-                .as("each line is kept apart by its own legacy row, which is unique by construction")
-                .isNotEqualTo(secondLine.sourceId());
+                .as("and the source is the line that booked it, not the document both lines share")
+                .isEqualTo(firstLineId);
+        assertThat(secondLine.sourceId()).isEqualTo(secondLineId);
         assertThat(positionOf(secondVariantId)).isEqualByComparingTo("5");
         assertTheLocationAgrees(secondVariantId, salesLocationId, "5", "the sales location");
+        assertThat(verifyStockProjections()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("two lines of one receipt for one variant in one location book two rows, not one")
+    void twoLinesOfOneReceiptForOneVariantInOneLocationBookTwoRows() {
+        // The grain the new key has to hold: source is the LINE, so the same variant received twice on one
+        // document, into one location, is two rows. Under a document id it would be one row and a refusal.
+        applyReceipt(variantId, salesLocationId, "3", UUID.randomUUID());
+        applyReceipt(variantId, salesLocationId, "5", UUID.randomUUID());
+
+        assertThat(ledgerMovementsOf(variantId, StockLedgerWriter.RECEIPT))
+                .as("V60:120 makes one movement name one location, and I5 makes one movement per source line: two "
+                        + "lines of one document at one location are two facts, and the key must not merge them")
+                .hasSize(2);
+        assertThat(positionOf(variantId))
+                .as("and the projection followed both rows into the same position")
+                .isEqualByComparingTo("8");
+        assertTheLocationAgrees(variantId, salesLocationId, "8", "the sales location");
+        assertThat(verifyStockProjections()).isEmpty();
+    }
+
+    // ──────────────────────────────────────
+    // T3 — the split reads the ledger's projection, never the column it is about to lose
+    // ──────────────────────────────────────
+
+    /**
+     * A sale splits across locations by {@code stock_balance}, and a lie in the legacy column cannot change what
+     * it does.
+     *
+     * <p><b>The fixture is the point, not a shortcut.</b> The receipt writes 10 in the location and the projection
+     * agrees; then the legacy column is set to <b>0</b> behind the ledger's back, which is the state the column
+     * reaches on its own once the write path stops maintaining it — a frozen number nobody updates while the
+     * ledger keeps moving. Reading the column, a sale of 5 has nowhere to come from and is refused with 409
+     * although the store holds ten units; reading the projection, it books the 5 and the ledger ends telling the
+     * truth. Both outcomes are measured rather than argued: this case is RED against the code that read the
+     * column.</p>
+     *
+     * <p>Only the location column is corrupted on purpose. The store aggregate is left what the receipt wrote,
+     * because this case is about where the <b>split</b> comes from; the gate that still reads the store column
+     * is the next slice's, and confusing the two would make a green case mean neither.</p>
+     */
+    @Test
+    @DisplayName("a sale splits by the ledger's projection, not by the legacy column")
+    void aSaleSplitsByTheProjectionNotByTheLegacyColumn() {
+        applyReceipt(variantId, salesLocationId, "10", UUID.randomUUID());
+        TenantFixtures.inTenant(
+                companyId,
+                () -> jdbcTemplate.update(
+                        "UPDATE product_variant_locations SET stock = 0 WHERE product_variant_id = ? AND store_location_id = ?",
+                        variantId,
+                        salesLocationId));
+
+        sell(variantId, "5", UUID.randomUUID());
+
+        assertThat(ledgerMovementsOf(variantId, StockLedgerWriter.SALE))
+                .as("the projection holds 10 at that location, so a sale of 5 has a shape even though the "
+                        + "column claims 0: the split's source is the ledger")
+                .hasSize(1);
+        assertThat(ledgerMovementsOf(variantId, StockLedgerWriter.SALE)
+                        .getFirst()
+                        .quantity())
+                .isEqualByComparingTo("5");
+        assertThat(positionOf(variantId)).as("and the position followed it").isEqualByComparingTo("5");
         assertThat(verifyStockProjections()).isEmpty();
     }
 
@@ -520,25 +585,22 @@ class InventoryLedgerBookingIntegrationTest extends AbstractPostgresIntegrationT
     }
 
     /**
-     * A reference whose ledger holds <b>both</b> identities is refused, and nothing is credited.
+     * A reference whose ledger holds <b>both</b> identities reverses every row it can name, and both copies of the
+     * fact end at the same numbers.
      *
-     * <p><b>Why the refusal is the correct answer and not a missing feature.</b> The legacy remainder of this
-     * reference is the hand-written sale <em>plus</em> the post-{@code V73} one, while the per-reference read can
-     * only name the rows the line identity holds open. Reversing the whole remainder would credit 7 back to the two
-     * legacy balances while the ledger booked a reversal of 3 — the quantity of the only row that read can name —
-     * and nothing downstream would catch it: {@code V61}'s shape rule is satisfied, because the reversal row does
-     * move exactly the quantity of the row it names. That is the half-reversal, and it is measured rather than
-     * argued: with {@code requireTheWholeRemainderIsOpen} removed, this case's reference reverses silently and the
-     * two copies of the fact end at different numbers.</p>
-     *
-     * <p><b>The tempting fix is refused for its own reason.</b> Merging the two identities into one open set would
-     * book a reversal of a row the remainder did not name — and it does not even get that far: the mirror read
-     * resolves each legacy row to the ledger row that mirrors it, and a post-{@code V73} sale has none, so the merge
-     * throws about a missing mirror instead of deciding anything. Measured the same way.</p>
+     * <p><b>What changed, and why this case used to be the opposite one.</b> Until T2 the amount a reversal
+     * credited was computed from {@code inventory_movements} and then compared, row by row, against the ledger's
+     * open rows; a reference holding 4 under the mirror identity and 3 under the line identity had a legacy
+     * remainder of 7 the ledger could only name 3 of, so it was refused. The refusal was never a property of the
+     * ledger — it was an artefact of deriving the amount from a second table. From T2 the amount <b>is</b> the set
+     * of open rows ({@code odd/tasks/ledger-mirror-retirement.md}, S3), the two reads are unioned by ledger
+     * movement id, and each reversal names the row it gives back, so the whole reference is reversible in one go:
+     * two reversal rows, 4 and 3, each satisfying {@code V61}'s rule that a reversal moves exactly the quantity of
+     * the row it names.</p>
      */
     @Test
-    @DisplayName("a reference holding both the mirror and the line identity is refused, not half-reversed")
-    void aReferenceHoldingBothIdentitiesIsRefusedInsteadOfHalfReversed() {
+    @DisplayName("a reference holding both the mirror and the line identity reverses both, not half of it")
+    void aReferenceHoldingBothIdentitiesReversesBothOfThem() {
         applyReceipt(variantId, salesLocationId, "10", UUID.randomUUID());
         var referenceId = UUID.randomUUID();
         insertALegacySaleAndItsLedgerTwin(referenceId, "4");
@@ -548,27 +610,29 @@ class InventoryLedgerBookingIntegrationTest extends AbstractPostgresIntegrationT
                 .as("the state this case is about: two SALE rows of one reference, one on each identity")
                 .hasSize(2);
 
-        assertThatThrownBy(() -> reverse(referenceId))
-                .as("the legacy remainder is 7 and the ledger can name only the 3 the line identity holds open, so "
-                        + "the reversal is refused instead of crediting 7 while naming 3")
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("no ledger shape")
-                .hasMessageContaining("variant " + variantId);
+        reverse(referenceId);
 
-        assertThat(ledgerMovementsOf(variantId, StockLedgerWriter.SALE_REVERSAL))
-                .as("the refusal stored nothing: no reversal row in the ledger")
-                .isEmpty();
-        assertThat(legacyMovementsOf(variantId, "SALE_REVERSAL"))
-                .as("and no legacy reversal row either, so the refusal happened before the first write")
-                .isEmpty();
+        var reversals = ledgerMovementsOf(variantId, StockLedgerWriter.SALE_REVERSAL);
+        assertThat(reversals)
+                .as("one reversal per open row, because a reversal moves exactly the quantity of the row it names")
+                .hasSize(2);
+        assertThat(reversals)
+                .extracting(LedgerMovement::quantity)
+                .usingElementComparator(BigDecimal::compareTo)
+                .containsExactlyInAnyOrder(new BigDecimal("4"), new BigDecimal("3"));
+        assertThat(reversals)
+                .as("and the reversal names the line beside the sale it corrects, so the ledger states one source "
+                        + "for both halves of the reference")
+                .allSatisfy(reversal -> assertThat(reversal.sourceId()).isEqualTo(referenceId));
         assertThat(storeStockOf(variantId))
-                .as("the two legacy balances are what the two sales left, untouched")
-                .isEqualByComparingTo("3");
+                .as("the receipt put 10 in, the two sales took 7 out, and the reversal gives the 7 back")
+                .isEqualByComparingTo("10");
         assertThat(locationStockOf(variantId, salesLocationId))
-                .hasValueSatisfying(stock -> assertThat(stock).isEqualByComparingTo("3"));
+                .hasValueSatisfying(stock -> assertThat(stock).isEqualByComparingTo("10"));
         assertThat(positionOf(variantId))
-                .as("and the projection is the same number, so nothing was credited on one side only")
-                .isEqualByComparingTo("3");
+                .as("and the projection agrees, so the two copies end at the same number")
+                .isEqualByComparingTo("10");
+        assertTheLedgerAgreesWithTheLegacyBalances("10", "0", "10");
     }
 
     /**
@@ -586,18 +650,18 @@ class InventoryLedgerBookingIntegrationTest extends AbstractPostgresIntegrationT
      * path built, so the statement under test is the one production runs.</p>
      */
     @Test
-    @DisplayName("the key refuses a second movement on one mirrored source instead of booking it")
-    void theKeyRefusesASecondMovementOnOneMirroredSource() {
-        applyReceipt(variantId, salesLocationId, "3", UUID.randomUUID());
-        var mirroredSourceId = legacyMovementsOf(variantId, "RECEIPT").getFirst();
+    @DisplayName("the key refuses a second movement on one receipt line instead of booking it")
+    void theKeyRefusesASecondMovementOnOneReceiptLine() {
+        var receiptLineId = UUID.randomUUID();
+        applyReceipt(variantId, salesLocationId, "3", receiptLineId);
         var theSameFactAgain = new StockLedgerWriter.Booking(
                 companyId,
                 storeId,
                 salesLocationId,
                 variantId,
                 "receiver",
-                StockLedgerWriter.MIRRORED_SOURCE_TYPE,
-                mirroredSourceId,
+                StockLedgerWriter.RECEIPT_LINE_SOURCE_TYPE,
+                receiptLineId,
                 StockLedgerWriter.SINGLE_WRITE);
 
         assertThatThrownBy(() -> TenantFixtures.inTenant(companyId, () -> {
@@ -930,7 +994,7 @@ class InventoryLedgerBookingIntegrationTest extends AbstractPostgresIntegrationT
                         storeId,
                         salesLocationId,
                         new BigDecimal("5"),
-                        GOODS_RECEIPT,
+                        StockLedgerWriter.RECEIPT_LINE_SOURCE_TYPE,
                         UUID.randomUUID(),
                         "receiver"))
                 .as("the same fact seen through the public writer: without the scope the store it derives the "
@@ -945,11 +1009,24 @@ class InventoryLedgerBookingIntegrationTest extends AbstractPostgresIntegrationT
     // helpers: the public writers, called the way the callers call them
     // ──────────────────────────────────────
 
-    private void applyReceipt(UUID variant, UUID location, String quantity, UUID referenceId) {
+    /**
+     * One receipt line of {@code variant} into {@code location}, booked under its own line identity.
+     *
+     * <p>The document id no longer travels through this call: the ledger's source is the line (S2 of
+     * {@code odd/tasks/ledger-mirror-retirement.md}), and the document is what a multi-line receipt shares — the
+     * shape whose inadequacy as a key this file pins.</p>
+     */
+    private void applyReceipt(UUID variant, UUID location, String quantity, UUID receiptLineId) {
         TenantFixtures.inTenant(
                 companyId,
                 () -> inventoryService.applyReceipt(
-                        variant, storeId, location, new BigDecimal(quantity), GOODS_RECEIPT, referenceId, "receiver"));
+                        variant,
+                        storeId,
+                        location,
+                        new BigDecimal(quantity),
+                        StockLedgerWriter.RECEIPT_LINE_SOURCE_TYPE,
+                        receiptLineId,
+                        "receiver"));
     }
 
     private void sell(UUID variant, String quantity, UUID referenceId) {

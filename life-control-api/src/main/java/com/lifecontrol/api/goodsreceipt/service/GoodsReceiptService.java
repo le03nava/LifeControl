@@ -28,6 +28,7 @@ import com.lifecontrol.api.goodsreceipt.model.GoodsReceiptState;
 import com.lifecontrol.api.goodsreceipt.repository.GoodsReceiptRepository;
 import com.lifecontrol.api.inventory.exception.StoreInventorySettingsNotFoundException;
 import com.lifecontrol.api.inventory.exception.StoreLocationNotInStoreException;
+import com.lifecontrol.api.inventory.ledger.StockLedgerWriter;
 import com.lifecontrol.api.inventory.repository.StoreInventorySettingsRepository;
 import com.lifecontrol.api.inventory.service.InventoryService;
 import com.lifecontrol.api.product.model.ProductVariant;
@@ -84,7 +85,6 @@ public class GoodsReceiptService {
     private static final Logger logger = LoggerFactory.getLogger(GoodsReceiptService.class);
 
     /** {@code inventory_movements.reference_type} discriminator written for every receipt line. */
-    private static final String REFERENCE_TYPE = "GOODS_RECEIPT";
 
     /** The status family the receipt's label is projected from (ADR-0004 decision 7). */
     private static final String RECEIPT_STATUS_TYPE = "GOODS_RECEIPT";
@@ -264,15 +264,20 @@ public class GoodsReceiptService {
                 .enabled(true)
                 .build();
         // receivedAt is deliberately NOT set here: the entity's @PrePersist callback owns it.
+        // The items are paired with their request lines BY CONSTRUCTION, in the loop that builds both, because
+        // step 8 has to name the persisted line that booked each movement. Pairing them afterwards — by detail
+        // id, or by position in a collection whose order this class does not own — is a lookup that can miss.
+        var builtItems = new ArrayList<GoodsReceiptItem>(resolvedLines.size());
         for (var line : resolvedLines) {
-            receipt.getItems()
-                    .add(GoodsReceiptItem.builder()
-                            .goodsReceipt(receipt)
-                            .purchaseOrderDetail(line.detail())
-                            .productVariant(line.variant())
-                            .quantityReceived(line.request().quantityReceived())
-                            .comments(line.request().comments())
-                            .build());
+            var item = GoodsReceiptItem.builder()
+                    .goodsReceipt(receipt)
+                    .purchaseOrderDetail(line.detail())
+                    .productVariant(line.variant())
+                    .quantityReceived(line.request().quantityReceived())
+                    .comments(line.request().comments())
+                    .build();
+            builtItems.add(item);
+            receipt.getItems().add(item);
         }
         var saved = goodsReceiptRepository.save(receipt);
 
@@ -285,18 +290,32 @@ public class GoodsReceiptService {
                 StatusSubject.GOODS_RECEIPT, receipt.getCompanyId(), saved.getId(), INITIAL_RECEIPT_STATE);
 
         // ── Step 8: apply the effects, per line ────────────────────────────────────────────────
-        for (var line : resolvedLines) {
+        // The ledger's source is the LINE, not this document and not the mirrored inventory_movements row:
+        // a receipt is immutable, so a line books exactly once and needs no counter, and the line is the
+        // identity that survives the mirror's drop (odd/tasks/ledger-mirror-retirement.md, S2). The document
+        // id cannot be it — uq_movement_source does not carry the variant, so the second line of a multi-line
+        // receipt would collide with the first.
+        for (var index = 0; index < resolvedLines.size(); index++) {
+            var line = resolvedLines.get(index);
             // Ledger movement FIRST, line status SECOND: the movement must already exist when the
             // status change fires its event. applyReceipt also keeps the documented
             // purchaseOrder -> storeStock -> locationBalance lock order (the purchase order is
             // locked above).
+            var receiptLineId = builtItems.get(index).getId();
+            if (receiptLineId == null) {
+                // A line that reached this loop without an id is a defect in this method, not a state the world
+                // can hold: booking it under an invented source would put a fact in the ledger that no document
+                // explains.
+                throw new IllegalStateException("The receipt " + saved.getId() + " persisted no id for line " + index
+                        + ", so the stock it received has no line to name and is not booked");
+            }
             inventoryService.applyReceipt(
                     line.variant().getId(),
                     companyStore.getId(),
                     receivingLocationId,
                     line.request().quantityReceived(),
-                    REFERENCE_TYPE,
-                    saved.getId(),
+                    StockLedgerWriter.RECEIPT_LINE_SOURCE_TYPE,
+                    receiptLineId,
                     receivedBy);
             // Reusing registerReceivedQuantity is mandatory, not a preference: it is the ONLY
             // allowed writer of the detail status (a second writer is forbidden by this feature). It
