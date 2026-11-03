@@ -35,6 +35,7 @@ import com.lifecontrol.api.goodsreceipt.model.GoodsReceiptState;
 import com.lifecontrol.api.goodsreceipt.repository.GoodsReceiptItemRepository;
 import com.lifecontrol.api.goodsreceipt.repository.GoodsReceiptRepository;
 import com.lifecontrol.api.goodsreceipt.service.GoodsReceiptService;
+import com.lifecontrol.api.inventory.ledger.StockLedgerWriter;
 import com.lifecontrol.api.inventory.model.MovementType;
 import com.lifecontrol.api.inventory.model.StoreInventorySettings;
 import com.lifecontrol.api.inventory.repository.InventoryMovementRepository;
@@ -1034,8 +1035,13 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
             var movements = inventoryMovementRepository.findAll();
             assertThat(movements).hasSize(1);
             assertThat(movements.getFirst().getMovementType()).isEqualTo(MovementType.RECEIPT);
-            assertThat(movements.getFirst().getReferenceType()).isEqualTo("GOODS_RECEIPT");
-            assertThat(movements.getFirst().getReferenceId()).isEqualTo(response.id());
+            assertThat(movements.getFirst().getReferenceType())
+                    .as("a receipt line books its own line, so the legacy row names the same fact the ledger "
+                            + "names (odd/tasks/ledger-mirror-retirement.md, S2)")
+                    .isEqualTo(StockLedgerWriter.RECEIPT_LINE_SOURCE_TYPE);
+            assertThat(movements.getFirst().getReferenceId())
+                    .as("the line, not the document both lines of a receipt would share")
+                    .isEqualTo(items.getFirst().getId());
             assertThat(movements.getFirst().getQuantity()).isEqualByComparingTo("3");
             assertThat(movements.getFirst().getCreatedBy()).isEqualTo("receiver");
 
@@ -1150,10 +1156,9 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
                     .andExpect(jsonPath("$.lines[0].quantityReceived").value(3))
                     .andReturn();
 
-            var receiptId = UUID.fromString(objectMapper
-                    .readTree(createResult.getResponse().getContentAsString())
-                    .get("id")
-                    .asText());
+            var created = objectMapper.readTree(createResult.getResponse().getContentAsString());
+            var receiptId = UUID.fromString(created.get("id").asText());
+            var lineId = UUID.fromString(created.get("lines").get(0).get("id").asText());
 
             // The receipt count is a read of an armed table on the test thread <b>after</b> a request, and
             // `TenantScopeFilter` clears the thread's scope in its `finally`: read unscoped it answers zero
@@ -1164,8 +1169,12 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
             var movements = inventoryMovementRepository.findAll();
             assertThat(movements).hasSize(1);
             assertThat(movements.getFirst().getMovementType()).isEqualTo(MovementType.RECEIPT);
-            assertThat(movements.getFirst().getReferenceType()).isEqualTo("GOODS_RECEIPT");
-            assertThat(movements.getFirst().getReferenceId()).isEqualTo(receiptId);
+            assertThat(movements.getFirst().getReferenceType())
+                    .as("read back through GET, the ledger's receipt identity is still the line")
+                    .isEqualTo(StockLedgerWriter.RECEIPT_LINE_SOURCE_TYPE);
+            assertThat(movements.getFirst().getReferenceId())
+                    .as("and the id the line holds, not the receipt's")
+                    .isEqualTo(lineId);
             assertThat(movements.getFirst().getQuantity()).isEqualByComparingTo("3");
 
             mockMvc.perform(get("/api/goods-receipts/{id}", receiptId).with(scopedJwt))

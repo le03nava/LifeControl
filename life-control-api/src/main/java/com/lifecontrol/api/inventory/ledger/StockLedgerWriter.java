@@ -105,12 +105,32 @@ public class StockLedgerWriter {
      * inventory_movements} row written beside the ledger row is the source, one fact per row, unique by
      * construction because it is a primary key — and it is the same shape {@code V62} established for the
      * backfill. A sale does <b>not</b> use it any more: {@code sales_order_items.write_seq} ({@code V73}) is the
-     * per-write identity of a line, so a sale books {@code source_type = 'SALES_ORDER_ITEM'} and the line id.
-     * What remains on the mirror is {@code odd/tasks/inventory-ledger.md}'s T5d, and this constant dies with the
-     * writers that outlive {@code inventory_movements} — which is why the source type is a {@link Booking}
-     * component the caller states rather than a constant baked into every insert here.</p>
+     * per-write identity of a line, so a sale books {@code source_type = 'SALES_ORDER_ITEM'} and the line id. A
+     * receipt does not either: it books {@link #RECEIPT_LINE_SOURCE_TYPE} and its own
+     * {@code goods_receipt_items} row.
+     * What remains on the mirror is {@code odd/tasks/inventory-ledger.md}'s remaining T5d — a manual edit and a
+     * reversal — and this constant dies with the writers that outlive {@code inventory_movements} — which is why
+     * the source type is a {@link Booking} component the caller states rather than a constant baked into every
+     * insert here.</p>
      */
     public static final String MIRRORED_SOURCE_TYPE = "INVENTORY_MOVEMENT";
+
+    /**
+     * The source type of a {@code RECEIPT}: the {@code goods_receipt_items} row that booked it.
+     *
+     * <p><b>The line, not the document, and not the mirror.</b> A receipt is immutable — nothing edits or deletes
+     * one ({@code GoodsReceiptService:242-246}) — so a line books exactly once and needs no counter, which is why
+     * the receipt states {@link #SINGLE_WRITE} rather than counting writes. The document id cannot be the
+     * identity: {@code uq_movement_source} does not carry the variant, so a document id would make the second
+     * line of every multi-line receipt collide with the first. And the mirror cannot be it either, because that
+     * row dies with {@code inventory_movements}.
+     *
+     * <p>This is the seam the class javadoc names: a {@link Booking} states its own {@code sourceType} so a writer
+     * can leave {@link #MIRRORED_SOURCE_TYPE} without a second constant being baked into the insert. What still
+     * states the mirror is a manual per-store edit and a reversal, which is {@code odd/tasks/inventory-ledger.md}'s
+     * remaining T5d.
+     */
+    public static final String RECEIPT_LINE_SOURCE_TYPE = "GOODS_RECEIPT_ITEM";
 
     /**
      * The {@code write_seq} of a source that books at most one row per direction and location.

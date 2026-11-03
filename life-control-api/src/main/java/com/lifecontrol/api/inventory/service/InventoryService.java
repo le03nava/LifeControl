@@ -269,15 +269,18 @@ public class InventoryService {
         //     currency — ck_movement_inbound_cost (V60) requires both on every row that adds quantity.
         //     The projection trigger derives stock_balance, stock_position and stock_valuation from it,
         //     so from this row on the ledger's numbers are the legacy numbers.
+        //     The source is the caller's pair, not the mirrored row's id: a receipt line is its own identity
+        //     (StockLedgerWriter.RECEIPT_LINE_SOURCE_TYPE), and naming the mirror here is what kept the
+        //     ledger's receipt identity dependent on a table this unit drops.
         bookLedgerInbound(
-                StockLedgerWriter.MIRRORED_SOURCE_TYPE,
+                referenceType,
                 companyId,
                 companyStoreId,
                 storeLocationId,
                 productVariantId,
                 quantity,
                 storeStock.getCostPrice(),
-                movement.getId(),
+                referenceId,
                 createdBy,
                 true);
 

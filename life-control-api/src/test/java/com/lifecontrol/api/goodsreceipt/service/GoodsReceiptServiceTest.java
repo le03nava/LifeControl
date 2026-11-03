@@ -35,6 +35,7 @@ import com.lifecontrol.api.goodsreceipt.model.GoodsReceiptState;
 import com.lifecontrol.api.goodsreceipt.repository.GoodsReceiptRepository;
 import com.lifecontrol.api.inventory.exception.StoreInventorySettingsNotFoundException;
 import com.lifecontrol.api.inventory.exception.StoreLocationNotInStoreException;
+import com.lifecontrol.api.inventory.ledger.StockLedgerWriter;
 import com.lifecontrol.api.inventory.model.StoreInventorySettings;
 import com.lifecontrol.api.inventory.repository.StoreInventorySettingsRepository;
 import com.lifecontrol.api.inventory.service.InventoryService;
@@ -57,6 +58,7 @@ import com.lifecontrol.api.store.repository.StoreLocationRepository;
 import com.lifecontrol.api.store.service.CompanyStoreFilterResolver;
 import com.lifecontrol.api.store.service.CompanyStoreScopeResolver;
 import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -149,6 +151,9 @@ class GoodsReceiptServiceTest {
 
     /** The receipt the service asked to persist, so a case can assert the columns it carries. */
     private GoodsReceipt savedReceipt;
+
+    /** The line ids the mocked save assigns, in the order the request stated them. */
+    private final List<UUID> savedLineIds = new ArrayList<>();
 
     @BeforeEach
     void setUp() {
@@ -269,6 +274,14 @@ class GoodsReceiptServiceTest {
         when(goodsReceiptRepository.save(any(GoodsReceipt.class))).thenAnswer(invocation -> {
             GoodsReceipt saved = invocation.getArgument(0);
             saved.setId(RECEIPT_ID);
+            // The persistence layer is what gives a line its id, and since the ledger names the LINE
+            // (odd/tasks/ledger-mirror-retirement.md, S2) the mock has to provide what a real save provides:
+            // the service refuses a line it cannot name rather than booking an invented source.
+            savedLineIds.clear();
+            for (var item : saved.getItems()) {
+                item.setId(UUID.randomUUID());
+                savedLineIds.add(item.getId());
+            }
             savedReceipt = saved;
             return saved;
         });
@@ -334,8 +347,8 @@ class GoodsReceiptServiceTest {
                             STORE_ID,
                             LOCATION_ID,
                             new BigDecimal("3"),
-                            "GOODS_RECEIPT",
-                            RECEIPT_ID,
+                            StockLedgerWriter.RECEIPT_LINE_SOURCE_TYPE,
+                            savedLineIds.getFirst(),
                             "receiver");
             verify(purchaseOrderService).registerReceivedQuantity(PO_ID, DETAIL_ID, BigDecimal.valueOf(3));
         }
@@ -350,7 +363,13 @@ class GoodsReceiptServiceTest {
             verify(storeInventorySettingsRepository).findById(STORE_ID);
             verify(inventoryService)
                     .applyReceipt(
-                            VARIANT_ID, STORE_ID, LOCATION_ID, BigDecimal.ONE, "GOODS_RECEIPT", RECEIPT_ID, "receiver");
+                            VARIANT_ID,
+                            STORE_ID,
+                            LOCATION_ID,
+                            BigDecimal.ONE,
+                            StockLedgerWriter.RECEIPT_LINE_SOURCE_TYPE,
+                            savedLineIds.getFirst(),
+                            "receiver");
         }
 
         @Test
@@ -378,8 +397,8 @@ class GoodsReceiptServiceTest {
                             STORE_ID,
                             LOCATION_ID,
                             new BigDecimal("2.5"),
-                            "GOODS_RECEIPT",
-                            RECEIPT_ID,
+                            StockLedgerWriter.RECEIPT_LINE_SOURCE_TYPE,
+                            savedLineIds.getFirst(),
                             "receiver");
             verify(purchaseOrderService).registerReceivedQuantity(PO_ID, DETAIL_ID, new BigDecimal("2.5"));
         }
@@ -398,8 +417,8 @@ class GoodsReceiptServiceTest {
                             STORE_ID,
                             LOCATION_ID,
                             new BigDecimal("3"),
-                            "GOODS_RECEIPT",
-                            RECEIPT_ID,
+                            StockLedgerWriter.RECEIPT_LINE_SOURCE_TYPE,
+                            savedLineIds.getFirst(),
                             "receiver");
             order.verify(purchaseOrderService).registerReceivedQuantity(PO_ID, DETAIL_ID, BigDecimal.valueOf(3));
         }

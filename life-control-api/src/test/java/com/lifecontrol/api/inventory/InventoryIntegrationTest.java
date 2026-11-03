@@ -14,6 +14,7 @@ import com.lifecontrol.api.company.repository.CompanyRegionRepository;
 import com.lifecontrol.api.company.repository.CompanyRepository;
 import com.lifecontrol.api.company.repository.CompanyZoneRepository;
 import com.lifecontrol.api.country.repository.CountryRepository;
+import com.lifecontrol.api.inventory.ledger.StockLedgerWriter;
 import com.lifecontrol.api.inventory.model.MovementType;
 import com.lifecontrol.api.inventory.model.ProductVariantLocation;
 import com.lifecontrol.api.inventory.repository.InventoryMovementRepository;
@@ -383,7 +384,13 @@ class InventoryIntegrationTest extends AbstractPostgresIntegrationTest {
         TenantFixtures.inTenant(
                 companyId,
                 () -> inventoryService.applyReceipt(
-                        variantId, storeId, locationId, new BigDecimal(quantity), "GOODS_RECEIPT", null, "receiver"));
+                        variantId,
+                        storeId,
+                        locationId,
+                        new BigDecimal(quantity),
+                        StockLedgerWriter.RECEIPT_LINE_SOURCE_TYPE,
+                        UUID.randomUUID(),
+                        "receiver"));
     }
 
     private Optional<ProductVariantLocation> balanceOf(UUID variantId) {
@@ -414,7 +421,7 @@ class InventoryIntegrationTest extends AbstractPostgresIntegrationTest {
                             storeId,
                             locationId,
                             new BigDecimal("12.50"),
-                            "GOODS_RECEIPT",
+                            StockLedgerWriter.RECEIPT_LINE_SOURCE_TYPE,
                             referenceId,
                             "receiver"));
 
@@ -435,7 +442,9 @@ class InventoryIntegrationTest extends AbstractPostgresIntegrationTest {
             assertThat(movement.getProductVariantId()).isEqualTo(variant.getId());
             assertThat(movement.getCompanyStoreId()).isEqualTo(storeId);
             assertThat(movement.getStoreLocationId()).isEqualTo(locationId);
-            assertThat(movement.getReferenceType()).isEqualTo("GOODS_RECEIPT");
+            assertThat(movement.getReferenceType())
+                    .as("the legacy row names the same fact the ledger names: the receipt line")
+                    .isEqualTo(StockLedgerWriter.RECEIPT_LINE_SOURCE_TYPE);
             assertThat(movement.getReferenceId()).isEqualTo(referenceId);
             assertThat(movement.getCreatedBy()).isEqualTo("receiver");
             assertThat(movement.getOccurredAt()).isNotNull();
@@ -715,7 +724,7 @@ class InventoryIntegrationTest extends AbstractPostgresIntegrationTest {
                                     storeId,
                                     locationId,
                                     new BigDecimal("5.00"),
-                                    "GOODS_RECEIPT",
+                                    StockLedgerWriter.RECEIPT_LINE_SOURCE_TYPE,
                                     UUID.randomUUID(),
                                     "receiver")))
                     .isInstanceOf(ProductVariantNotFoundException.class);

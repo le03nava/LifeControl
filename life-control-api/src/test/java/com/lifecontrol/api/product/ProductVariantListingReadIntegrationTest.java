@@ -546,7 +546,13 @@ class ProductVariantListingReadIntegrationTest extends AbstractPostgresIntegrati
             TenantFixtures.inTenant(
                     companyId,
                     () -> inventoryService.applyReceipt(
-                            variantId, storeId, salesLocationId, quantity, "FIXTURE_OPENING", null, "fixture"));
+                            variantId,
+                            storeId,
+                            salesLocationId,
+                            quantity,
+                            "FIXTURE_OPENING",
+                            UUID.randomUUID(),
+                            "fixture"));
         }
         return row.getId();
     }
