@@ -38,6 +38,20 @@ public class SalesOrderItem extends Auditable {
     @Column(name = "status_id", nullable = false)
     private UUID statusId;
 
+    /**
+     * The line's typed state (ADR-0004 decision 3), the reason "an item of a charged order cannot be
+     * cancelled" stops being a {@code !"Cancelled".equals(…)} test and becomes the absence of an edge out of
+     * {@link SalesOrderItemState#ADDED}.
+     *
+     * <p>Read by the service to classify a line — a {@code CANCELLED} line holds no stock — so that
+     * classification cannot fail on a catalog lookup and never falls back to a guess (the defect
+     * {@code odd/tasks/sales-location-aware-stock.md} records as F-2). Not marked {@code nullable = false}
+     * for the reason {@link SalesOrder#getStatus()} gives.</p>
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "status", length = 24)
+    private SalesOrderItemState status;
+
     @Column(name = "enabled", nullable = false)
     private Boolean enabled = true;
 
@@ -81,6 +95,10 @@ public class SalesOrderItem extends Auditable {
         return statusId;
     }
 
+    public SalesOrderItemState getStatus() {
+        return status;
+    }
+
     public Boolean getEnabled() {
         return enabled;
     }
@@ -120,6 +138,10 @@ public class SalesOrderItem extends Auditable {
 
     public void setStatusId(UUID statusId) {
         this.statusId = statusId;
+    }
+
+    public void setStatus(SalesOrderItemState status) {
+        this.status = status;
     }
 
     public void setEnabled(Boolean enabled) {
@@ -176,6 +198,11 @@ public class SalesOrderItem extends Auditable {
 
         public Builder statusId(UUID statusId) {
             item.statusId = statusId;
+            return this;
+        }
+
+        public Builder status(SalesOrderItemState status) {
+            item.status = status;
             return this;
         }
 

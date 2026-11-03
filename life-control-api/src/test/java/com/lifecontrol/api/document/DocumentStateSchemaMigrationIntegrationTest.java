@@ -218,12 +218,22 @@ class DocumentStateSchemaMigrationIntegrationTest extends AbstractPostgresIntegr
 
         // A writer of today sets `status_id` and nothing else; the new `NOT NULL` would refuse it wholesale
         // without this trigger, which is the only reason the column can be required before T8 drops the old one.
-        var derived = insertSalesOrder(company, 1, statusId("SALES_ORDER", "Draft"), null);
+        //
+        // Since `V68` the same writer also appends its creation row, and the two writes are one transaction:
+        // decision 5's side A refuses a document that commits without it. The row states the state the bridge
+        // is about to derive, which is how the admission is the bridge's and not the fixture's.
+        var derived = insertSalesOrderWithItsCreationRow(company, 1, statusId("SALES_ORDER", "Draft"), "DRAFT");
         assertThat(readScoped(company, "SELECT status FROM sales_orders WHERE id = '" + derived + "'"))
                 .as("an insert that names only status_id is derived from the catalog's code")
                 .isEqualTo("DRAFT");
+        assertThat(countScoped(
+                        company,
+                        "SELECT count(*) FROM status_transition WHERE document_id = '" + derived + "'"
+                                + " AND from_status IS NULL AND to_status = 'DRAFT'"))
+                .as("and the document's history begins with the row its own transaction wrote")
+                .isEqualTo(1);
 
-        var overwritten = insertSalesOrder(company, 2, statusId("SALES_ORDER", "Draft"), "ACTIVE");
+        var overwritten = insertSalesOrderWithItsCreationRow(company, 2, statusId("SALES_ORDER", "Draft"), "DRAFT");
         assertThat(readScoped(company, "SELECT status FROM sales_orders WHERE id = '" + overwritten + "'"))
                 .as("the pointer wins: the row stores the catalog's code, not the value the writer supplied")
                 .isEqualTo("DRAFT");
@@ -459,6 +469,48 @@ class DocumentStateSchemaMigrationIntegrationTest extends AbstractPostgresIntegr
 
     private UUID insertSalesOrder(UUID company, long seq, String statusName) throws SQLException {
         return insertSalesOrder(company, seq, statusId("SALES_ORDER", statusName), null);
+    }
+
+    /**
+     * A sales order whose {@code status} column is omitted, plus the creation row {@code V68} requires, in
+     * <b>one</b> transaction: a document that commits without its history is refused by decision 5's side A,
+     * so this is the only shape a post-{@code V68} writer has.
+     *
+     * @param state the state the row claims, which is the one {@code V66}'s bridge is expected to derive
+     */
+    private UUID insertSalesOrderWithItsCreationRow(UUID company, long seq, UUID statusId, String state)
+            throws SQLException {
+        var id = UUID.randomUUID();
+        var number = "SO-202610-" + String.format("%05d", seq);
+        var document = "INSERT INTO sales_orders (id, order_number, customer_id, company_store_id, order_date,"
+                + " status_id, company_id, doc_type, seq_period, seq_value, doc_number) VALUES ('" + id + "', '"
+                + number + "', '" + customerId() + "', '" + storeOf(company) + "', '2026-10-05 10:00:00', '"
+                + statusId + "', '" + company + "', 'SALES_ORDER', '202610', " + seq + ", '" + number + "')";
+        var creation = "INSERT INTO status_transition (company_id, document_type, document_id, from_status,"
+                + " to_status, actor, reason) VALUES ('" + company + "', 'SALES_ORDER', '" + id + "', NULL, '"
+                + state + "', 'unknown:test', 'fixture')";
+        executeInOneTransaction(company, document, creation);
+        return id;
+    }
+
+    /** Two statements on one connection, the tenant scope stated first, closed by one commit. */
+    private void executeInOneTransaction(UUID scope, String first, String second) throws SQLException {
+        try (Connection connection = DriverManager.getConnection(jdbcUrl, OWNER, OWNER_PASSWORD)) {
+            connection.setAutoCommit(false);
+            try {
+                try (Statement statement = connection.createStatement()) {
+                    statement.execute("SELECT set_config('app.company_id', '" + scope + "', false)");
+                    statement.execute(first);
+                    statement.execute(second);
+                }
+                connection.commit();
+            } finally {
+                if (!connection.getAutoCommit()) {
+                    connection.rollback();
+                    connection.setAutoCommit(true);
+                }
+            }
+        }
     }
 
     private UUID insertSalesOrderItem(UUID company, UUID salesOrder, String statusName) throws SQLException {

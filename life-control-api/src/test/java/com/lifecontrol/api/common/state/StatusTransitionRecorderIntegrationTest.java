@@ -9,6 +9,7 @@ import com.lifecontrol.api.support.TenantFixtures;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.UUID;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.AfterEach;
@@ -162,7 +163,6 @@ class StatusTransitionRecorderIntegrationTest extends AbstractPostgresIntegratio
     void refusesUpdateAndDeleteOnAStoredRow() {
         var company = seedCompany("append-only");
         var document = insertSalesOrder(company, 1, "Draft");
-        insertCreationRow(company, document, "DRAFT", "fixture");
 
         assertThatThrownBy(() -> UNRESTRICTED.update(
                         "UPDATE status_transition SET reason = 'rewritten by hand' WHERE document_id = ?", document))
@@ -184,8 +184,10 @@ class StatusTransitionRecorderIntegrationTest extends AbstractPostgresIntegratio
                 .as("both refusals stored nothing: the row is still exactly one")
                 .hasSize(1);
         assertThat(rows.get(0).reason())
-                .as("and it still carries what it was written with, not what the UPDATE asked for")
-                .isEqualTo("fixture");
+                .as("and the UPDATE did not take: this creation row was written by the recorder, which writes "
+                        + "no reason for a creation — a reason belongs to a move — so the 'rewritten by hand' the "
+                        + "statement asked for is demonstrably absent")
+                .isNull();
         assertThat(rows.get(0).toStatus()).isEqualTo("DRAFT");
     }
 
@@ -223,23 +225,26 @@ class StatusTransitionRecorderIntegrationTest extends AbstractPostgresIntegratio
         var other = seedCompany("tenant-other");
         var document = insertSalesOrder(owner, 1, "Draft");
 
-        assertThatThrownBy(() -> insertCreationRow(other, document, "DRAFT", "cross-tenant"))
+        // A move row and not the creation row: the fixture already wrote the document's one creation row, and
+        // `uq_status_transition_creation` allows exactly one — so the tenant rule is stated on the row shape
+        // that can still be written. Inserted on the superuser login on purpose: the policy is out of the way,
+        // so decision 6's trigger is the only thing that can refuse it, which is exactly the claim tested.
+        assertThatThrownBy(() -> insertMoveRow(other, document, "DRAFT", "ACTIVE"))
                 .as("ADR-0004 decision 6: without this trigger a wrong company_id is not rejected but HIDDEN, "
-                        + "because ADR-0005's policy filters the row instead of failing the write. Inserted on "
-                        + "the superuser login on purpose: the policy is out of the way, so the trigger is the "
-                        + "only thing that can refuse it, which is exactly the claim being tested")
+                        + "because ADR-0005's policy filters the row instead of failing the write")
                 .isInstanceOf(DataAccessException.class)
                 .hasMessageContaining("does not name a SALES_ORDER")
                 .hasMessageContaining(document.toString());
         assertThat(rowsOf(document))
-                .as("the refusal stored nothing: the document has no history row from the wrong tenant")
-                .isEmpty();
+                .as("the refusal stored nothing: the document still has only the creation row its writer wrote")
+                .hasSize(1);
 
-        insertCreationRow(owner, document, "DRAFT", "right tenant");
+        moveDocumentAndAppend(owner, document, "DRAFT", "ACTIVE", "2026-11-01T10:00:00Z");
 
         assertThat(rowsOf(document))
-                .as("the same row with the company that owns the document is accepted")
-                .hasSize(1);
+                .as("the same move with the company that owns the document is accepted, and it is the second "
+                        + "row of a history that began with its creation row")
+                .hasSize(2);
     }
 
     // ─── T3: one creation row, and one row per move ──────────────────────────────────────────────────
@@ -249,7 +254,6 @@ class StatusTransitionRecorderIntegrationTest extends AbstractPostgresIntegratio
     void recordsOneCreationRowAndOneMove() {
         var company = seedCompany("uniqueness");
         var document = insertSalesOrder(company, 1, "Draft");
-        insertCreationRow(company, document, "DRAFT", "first");
 
         assertThatThrownBy(() -> insertCreationRow(company, document, "DRAFT", "second"))
                 .as("`uq_status_transition_creation` is partial on `from_status IS NULL`, so a document has "
@@ -290,7 +294,6 @@ class StatusTransitionRecorderIntegrationTest extends AbstractPostgresIntegratio
     void refusesARowThatClaimsAStateTheDocumentDoesNotHold() throws SQLException {
         var company = seedCompany("side-b");
         var document = insertSalesOrder(company, 1, "Draft");
-        insertCreationRow(company, document, "DRAFT", "creation");
 
         try (var connection = CONTAINER_SUPERUSER.getConnection()) {
             connection.setAutoCommit(false);
@@ -348,13 +351,13 @@ class StatusTransitionRecorderIntegrationTest extends AbstractPostgresIntegratio
                 .hasMessageContaining("DRAFT")
                 .hasMessageContaining("COMPLETED");
         assertThat(rowsOf(document))
-                .as("the refusal wrote nothing: a refused move is not a transition row")
-                .isEmpty();
+                .as("the refusal wrote nothing beyond the creation row the fixture's own transaction wrote, and "
+                        + "no move row: a refused move is not a transition row")
+                .hasSize(1);
 
-        TenantFixtures.inTenant(
-                company,
-                () -> recorder.recordCreation(StatusSubject.SALES_ORDER, company, document, SalesOrderState.DRAFT));
-
+        // The creation row under test is the one `insertSalesOrder` wrote through the recorder, in the same
+        // transaction as the document: a document cannot commit without it, so the fixture owns it and this
+        // case reads it back instead of writing a second one.
         var creation = rowsOf(document);
         assertThat(creation)
                 .as("the creation row is the one with no predecessor")
@@ -410,13 +413,28 @@ class StatusTransitionRecorderIntegrationTest extends AbstractPostgresIntegratio
                 .claim("preferred_username", USERNAME)
                 .build());
 
-        TenantFixtures.inTenant(
-                company,
-                () -> recorder.recordCreation(StatusSubject.SALES_ORDER, company, document, SalesOrderState.DRAFT));
+        // A move, not a creation: every document already carries the one creation row it could not have been
+        // written without, so the actor resolution of a live write is stated on the row shape that can still be
+        // appended now. The rule belongs to the recorder and not to the row: `sub` when it exists,
+        // `preferred_username` when it does not.
+        TenantFixtures.inTenant(company, () -> {
+            moveDocument(company, document, "ACTIVE");
+            recorder.recordMove(
+                    StatusSubject.SALES_ORDER,
+                    company,
+                    document,
+                    SalesOrderState.DRAFT,
+                    SalesOrderState.ACTIVE,
+                    "actor");
+        });
 
-        assertThat(rowsOf(document).get(0).actor())
+        assertThat(rowsOf(document).stream()
+                        .filter(row -> row.fromStatus() != null)
+                        .findFirst()
+                        .orElseThrow())
                 .as("a token with no `sub` falls back to `preferred_username` rather than refusing a write the "
                         + "request can identify")
+                .extracting(HistoryRow::actor)
                 .isEqualTo(USERNAME);
 
         RequestContextHolder.resetRequestAttributes();
@@ -433,7 +451,10 @@ class StatusTransitionRecorderIntegrationTest extends AbstractPostgresIntegratio
                 .hasMessageContaining("would have no actor")
                 .hasMessageContaining("SALES_ORDER")
                 .hasMessageContaining(other.toString());
-        assertThat(rowsOf(other)).as("the refusal wrote nothing").isEmpty();
+        assertThat(rowsOf(other))
+                .as("the refusal wrote nothing beyond the creation row the fixture's own transaction wrote: no "
+                        + "second creation row, and no placeholder actor")
+                .hasSize(1);
     }
 
     // ─── the arm: the new tenant table joins ADR-0005's list ─────────────────────────────────────────
@@ -445,8 +466,6 @@ class StatusTransitionRecorderIntegrationTest extends AbstractPostgresIntegratio
         var second = seedCompany("armed-second");
         var firstDocument = insertSalesOrder(first, 1, "Draft");
         var secondDocument = insertSalesOrder(second, 1, "Draft");
-        insertCreationRow(first, firstDocument, "DRAFT", "first tenant");
-        insertCreationRow(second, secondDocument, "DRAFT", "second tenant");
 
         assertThat(jdbcTemplate.queryForList("SELECT t::text FROM unprotected_tenant_tables() t", String.class))
                 .as("ADR-0004 migration step 8: `apply_tenant_isolation('status_transition')` is the last "
@@ -590,6 +609,13 @@ class StatusTransitionRecorderIntegrationTest extends AbstractPostgresIntegratio
      *
      * <p>{@code status} is deliberately omitted: {@code V66}'s bridge derives it from {@code statuses.code},
      * which is how every writer today reaches the new {@code NOT NULL} while {@code status_id} still exists.</p>
+     *
+     * <p><b>The document and its creation row are written in ONE transaction, and that is not a
+     * convenience.</b> {@code V68} arms ADR-0004 decision 5's side A for this table: a sales order that
+     * commits with no {@code status_transition} creation row is refused at the commit itself, so a fixture
+     * that inserted the document first and its row afterwards would be writing the two halves of one fact in
+     * two transactions — exactly the shape the invariant forbids (ADR-0004 migration step 6 says the pair goes
+     * in one transaction). The second half is written by the recorder, because it is the production writer.</p>
      */
     private UUID insertSalesOrder(UUID company, long seq, String catalogStatus) {
         var id = UUID.randomUUID();
@@ -601,20 +627,22 @@ class StatusTransitionRecorderIntegrationTest extends AbstractPostgresIntegratio
                 () -> jdbcTemplate.queryForObject(
                         "SELECT id FROM company_stores WHERE company_id = ?", UUID.class, company));
         var catalog = statusId("SALES_ORDER", catalogStatus);
-        TenantFixtures.inTenant(
-                company,
-                () -> jdbcTemplate.update(
-                        "INSERT INTO sales_orders (id, order_number, customer_id, company_store_id, order_date, status_id,"
-                                + " company_id, doc_type, seq_period, seq_value, doc_number)"
-                                + " VALUES (?, ?, ?, ?, '2026-11-05 10:00:00', ?, ?, 'SALES_ORDER', '202611', ?, ?)",
-                        id,
-                        number,
-                        customer,
-                        store,
-                        catalog,
-                        company,
-                        seq,
-                        number));
+        var state = SalesOrderState.valueOf(catalogStatus.toUpperCase(Locale.ROOT));
+        TenantFixtures.inTenant(company, () -> {
+            jdbcTemplate.update(
+                    "INSERT INTO sales_orders (id, order_number, customer_id, company_store_id, order_date, status_id,"
+                            + " company_id, doc_type, seq_period, seq_value, doc_number)"
+                            + " VALUES (?, ?, ?, ?, '2026-11-05 10:00:00', ?, ?, 'SALES_ORDER', '202611', ?, ?)",
+                    id,
+                    number,
+                    customer,
+                    store,
+                    catalog,
+                    company,
+                    seq,
+                    number);
+            recorder.recordCreation(StatusSubject.SALES_ORDER, company, id, state);
+        });
         return id;
     }
 
@@ -644,9 +672,22 @@ class StatusTransitionRecorderIntegrationTest extends AbstractPostgresIntegratio
     /**
      * One creation row, on the superuser login: the cases that insert directly are asking what the
      * <b>triggers</b> do, and the policy would answer first.
+     *
+     * <p>Every document this suite writes arrives with its creation row already — {@code V68} refuses a
+     * document that commits without one — so a direct creation row is only ever a <b>second</b> one, and the
+     * case that writes it is asserting the unique index.</p>
      */
     private void insertCreationRow(UUID company, UUID document, String state, String reason) {
         UNRESTRICTED.update(INSERT_ROW, company, "SALES_ORDER", document, null, state, "fixture", reason);
+    }
+
+    /**
+     * One move row on its own, on the superuser login: what a case needs when it is asking about the row's
+     * tenant rather than about the pair's consistency — the document has not moved, so side B would refuse
+     * this at commit, and the refusal under test (decision 6's {@code BEFORE INSERT}) happens first.
+     */
+    private void insertMoveRow(UUID company, UUID document, String from, String to) {
+        UNRESTRICTED.update(INSERT_ROW, company, "SALES_ORDER", document, from, to, "fixture", "move");
     }
 
     /** Two identical moves in one transaction: one {@code now()}, so the second is the duplicate. */

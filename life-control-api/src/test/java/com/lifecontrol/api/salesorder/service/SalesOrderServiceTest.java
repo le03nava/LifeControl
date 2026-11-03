@@ -19,6 +19,8 @@ import com.lifecontrol.api.common.document.DocumentNumberRenderer;
 import com.lifecontrol.api.common.document.DocumentSequenceAllocator;
 import com.lifecontrol.api.common.document.DocumentType;
 import com.lifecontrol.api.common.state.InvalidStatusTransitionException;
+import com.lifecontrol.api.common.state.StatusSubject;
+import com.lifecontrol.api.common.state.StatusTransitionRecorder;
 import com.lifecontrol.api.company.model.Company;
 import com.lifecontrol.api.company.model.CompanyCountry;
 import com.lifecontrol.api.company.model.CompanyRegion;
@@ -46,13 +48,14 @@ import com.lifecontrol.api.salesorder.exception.SalesOrderNotFoundException;
 import com.lifecontrol.api.salesorder.exception.SalesOrderStoreReassignmentNotAllowedException;
 import com.lifecontrol.api.salesorder.model.SalesOrder;
 import com.lifecontrol.api.salesorder.model.SalesOrderItem;
+import com.lifecontrol.api.salesorder.model.SalesOrderItemState;
+import com.lifecontrol.api.salesorder.model.SalesOrderState;
 import com.lifecontrol.api.salesorder.repository.SalesOrderItemRepository;
 import com.lifecontrol.api.salesorder.repository.SalesOrderRepository;
 import com.lifecontrol.api.shift.exception.ShiftNotFoundException;
 import com.lifecontrol.api.shift.exception.ShiftNotOpenException;
 import com.lifecontrol.api.shift.model.Shift;
 import com.lifecontrol.api.shift.repository.ShiftRepository;
-import com.lifecontrol.api.status.exception.StatusNotFoundException;
 import com.lifecontrol.api.status.model.Status;
 import com.lifecontrol.api.status.model.StatusType;
 import com.lifecontrol.api.status.repository.StatusRepository;
@@ -115,6 +118,14 @@ class SalesOrderServiceTest {
 
     @Mock
     private DocumentSequenceAllocator documentSequenceAllocator;
+
+    /** The one writer of {@code status_transition}: every state change of this module goes through it. */
+    @Mock
+    private StatusTransitionRecorder statusTransitionRecorder;
+
+    /** The catalog's code, which is the only way a request's {@code statusId} becomes a state. */
+    @Mock
+    private SalesOrderStatusCatalog statusCatalog;
 
     /**
      * The real derivation, not a mock: the store fixture carries the whole
@@ -273,12 +284,14 @@ class SalesOrderServiceTest {
         testOrder = SalesOrder.builder()
                 .id(orderId)
                 .orderNumber("SO-20260610-00001")
+                .companyId(companyId)
                 .customerId(customerId)
                 .companyStoreId(companyStoreId)
                 .shiftId(shiftId)
                 .userId("user123")
                 .orderDate(now)
                 .statusId(borradorStatus.getId())
+                .status(SalesOrderState.DRAFT)
                 .totalAmount(BigDecimal.ZERO)
                 .enabled(true)
                 .createdAt(now)
@@ -299,7 +312,9 @@ class SalesOrderServiceTest {
                 statusRepository,
                 paymentMethodRepository,
                 currentUserContext,
-                documentSequenceAllocator);
+                documentSequenceAllocator,
+                statusTransitionRecorder,
+                statusCatalog);
 
         testItem = SalesOrderItem.builder()
                 .id(itemId)
@@ -310,6 +325,7 @@ class SalesOrderServiceTest {
                 .discountApplied(new BigDecimal("10.00"))
                 .finalPrice(new BigDecimal("90.00"))
                 .statusId(pendienteItemStatus.getId())
+                .status(SalesOrderItemState.PENDING)
                 .enabled(true)
                 .createdAt(now)
                 .updatedAt(now)
@@ -327,15 +343,6 @@ class SalesOrderServiceTest {
                 .status(status)
                 .enabled(true)
                 .build();
-    }
-
-    /**
-     * updateSalesOrder reads the terminal item status to tell a line that still holds stock from one
-     * whose stock was already given back, so only the item-diff tests declare it (F-6).
-     */
-    private void stubCancelledItemStatus() {
-        when(statusRepository.findByTypeNameAndStatusName("SALES_ORDER_ITEM", "Cancelled"))
-                .thenReturn(Optional.of(canceladoItemStatus));
     }
 
     /**
@@ -372,6 +379,7 @@ class SalesOrderServiceTest {
                 .discountApplied(BigDecimal.ZERO)
                 .finalPrice(new BigDecimal("100.00"))
                 .statusId(pendienteItemStatus.getId())
+                .status(SalesOrderItemState.PENDING)
                 .enabled(true)
                 .build();
     }
@@ -732,6 +740,7 @@ class SalesOrderServiceTest {
                     .userId("user123")
                     .orderDate(testOrder.getOrderDate())
                     .statusId(canceladaStatus.getId())
+                    .status(SalesOrderState.CANCELLED)
                     .totalAmount(BigDecimal.ZERO)
                     .enabled(true)
                     .build();
@@ -740,11 +749,10 @@ class SalesOrderServiceTest {
             when(customerRepository.existsById(customerId)).thenReturn(true);
             when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
             when(shiftRepository.existsById(shiftId)).thenReturn(true);
-            when(statusRepository.findById(canceladaStatus.getId())).thenReturn(Optional.of(canceladaStatus));
 
             assertThatThrownBy(() -> salesOrderService.updateSalesOrder(orderId, testOrderRequest))
                     .isInstanceOf(SalesOrderAlreadyFinalizedException.class)
-                    .hasMessageContaining("already Cancelled")
+                    .hasMessageContaining("already CANCELLED")
                     .hasMessageContaining("cannot be modified");
 
             verify(salesOrderRepository, never()).save(any(SalesOrder.class));
@@ -754,7 +762,6 @@ class SalesOrderServiceTest {
         @Test
         @DisplayName("should not sell a cancelled line re-enabled with a changed quantity through the order PUT")
         void updateSalesOrder_ReEnableCancelledLineWithChangedQuantity_NoStockMovement() {
-            stubCancelledItemStatus();
             var cancelledLine = SalesOrderItem.builder()
                     .id(itemId)
                     .salesOrderId(orderId)
@@ -764,6 +771,7 @@ class SalesOrderServiceTest {
                     .discountApplied(BigDecimal.ZERO)
                     .finalPrice(new BigDecimal("100.00"))
                     .statusId(canceladoItemStatus.getId())
+                    .status(SalesOrderItemState.CANCELLED)
                     .enabled(true)
                     .build();
             var lineRequest = new SalesOrderItemRequest(
@@ -790,48 +798,6 @@ class SalesOrderServiceTest {
             // would look like it still held 4 and the engine would deduct the 1-unit delta.
             verifyNoInteractions(inventoryService);
         }
-
-        @Test
-        @DisplayName("should refuse the order-level write, not sell a cancelled line, when the Cancelled "
-                + "status row is missing")
-        void updateSalesOrder_MissingCancelledItemStatus_RefusesInsteadOfSellingTheLine() {
-            var cancelledLine = SalesOrderItem.builder()
-                    .id(itemId)
-                    .salesOrderId(orderId)
-                    .productVariantId(variantId)
-                    .quantity(new BigDecimal("4.00"))
-                    .listPrice(new BigDecimal("100.00"))
-                    .discountApplied(BigDecimal.ZERO)
-                    .finalPrice(new BigDecimal("100.00"))
-                    .statusId(canceladoItemStatus.getId())
-                    .enabled(true)
-                    .build();
-            var lineRequest = new SalesOrderItemRequest(
-                    itemId, variantId, new BigDecimal("5.00"), new BigDecimal("100.00"), BigDecimal.ZERO, null);
-
-            when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
-            when(customerRepository.existsById(customerId)).thenReturn(true);
-            when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
-            when(shiftRepository.existsById(shiftId)).thenReturn(true);
-            when(statusRepository.findById(borradorStatus.getId())).thenReturn(Optional.of(borradorStatus));
-            when(itemRepository.findBySalesOrderId(orderId)).thenReturn(List.of(cancelledLine));
-            when(salesOrderRepository.save(any(SalesOrder.class))).thenReturn(testOrder);
-            // F-2: the row that tells a line which still holds stock from one that was already given
-            // back is gone, so the delta this PUT would compute is unknowable. Fail closed: refuse the
-            // write instead of classifying the cancelled line as live and selling the 4 -> 5 delta.
-            when(statusRepository.findByTypeNameAndStatusName("SALES_ORDER_ITEM", "Cancelled"))
-                    .thenReturn(Optional.empty());
-
-            var request = new SalesOrderRequest(customerId, companyStoreId, shiftId, "user123", List.of(lineRequest));
-
-            assertThatThrownBy(() -> salesOrderService.updateSalesOrder(orderId, request))
-                    .isInstanceOf(StatusNotFoundException.class)
-                    .hasMessageContaining("Cancelled")
-                    .hasMessageContaining("SALES_ORDER_ITEM");
-
-            verify(itemRepository, never()).save(any(SalesOrderItem.class));
-            verifyNoInteractions(inventoryService);
-        }
     }
 
     // ─────────────────────────────────────────────
@@ -855,11 +821,11 @@ class SalesOrderServiceTest {
                     .listPrice(new BigDecimal("50.00"))
                     .finalPrice(new BigDecimal("50.00"))
                     .statusId(pendienteItemStatus.getId())
+                    .status(SalesOrderItemState.PENDING)
                     .enabled(true)
                     .build();
 
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
-            when(statusRepository.findById(borradorStatus.getId())).thenReturn(Optional.of(borradorStatus));
             when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId)).thenReturn(List.of(testItem, item2));
             when(itemRepository.findBySalesOrderId(orderId)).thenReturn(List.of(testItem, item2));
 
@@ -886,12 +852,12 @@ class SalesOrderServiceTest {
                     .userId("user123")
                     .orderDate(testOrder.getOrderDate())
                     .statusId(canceladaStatus.getId())
+                    .status(SalesOrderState.CANCELLED)
                     .totalAmount(BigDecimal.ZERO)
                     .enabled(true)
                     .build();
 
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(cancelledOrder));
-            when(statusRepository.findById(canceladaStatus.getId())).thenReturn(Optional.of(canceladaStatus));
             when(itemRepository.findBySalesOrderId(orderId)).thenReturn(List.of(testItem));
 
             salesOrderService.deleteSalesOrder(orderId);
@@ -916,13 +882,14 @@ class SalesOrderServiceTest {
                     .userId("user123")
                     .orderDate(testOrder.getOrderDate())
                     .statusId(canceladaStatus.getId())
+                    .status(SalesOrderState.CANCELLED)
                     .totalAmount(BigDecimal.ZERO)
                     .enabled(true)
                     .build();
 
             // ── Cancel transition ──
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
-            when(statusRepository.findById(borradorStatus.getId())).thenReturn(Optional.of(borradorStatus));
+            when(statusCatalog.requireOrderState(canceladaStatus.getId())).thenReturn(SalesOrderState.CANCELLED);
             when(statusRepository.findById(canceladaStatus.getId())).thenReturn(Optional.of(canceladaStatus));
             when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId))
                     .thenReturn(List.of(testItem))
@@ -974,6 +941,7 @@ class SalesOrderServiceTest {
                     .userId("user123")
                     .orderDate(LocalDateTime.now())
                     .statusId(borradorStatus.getId())
+                    .status(SalesOrderState.DRAFT)
                     .totalAmount(BigDecimal.ZERO)
                     .enabled(false)
                     .build();
@@ -1005,8 +973,9 @@ class SalesOrderServiceTest {
             var statusRequest = new UpdateSalesOrderStatusRequest(activoStatus.getId());
 
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
-            when(statusRepository.findById(borradorStatus.getId())).thenReturn(Optional.of(borradorStatus));
-            when(statusRepository.findById(activoStatus.getId())).thenReturn(Optional.of(activoStatus));
+            // The target is resolved through the catalog's code and not through its label (ADR-0004
+            // decision 7): the service asks the catalog one question and the enum answers the rest.
+            when(statusCatalog.requireOrderState(activoStatus.getId())).thenReturn(SalesOrderState.ACTIVE);
 
             var updatedOrder = SalesOrder.builder()
                     .id(orderId)
@@ -1017,6 +986,7 @@ class SalesOrderServiceTest {
                     .userId("user123")
                     .orderDate(testOrder.getOrderDate())
                     .statusId(activoStatus.getId())
+                    .status(SalesOrderState.ACTIVE)
                     .totalAmount(BigDecimal.ZERO)
                     .enabled(true)
                     .createdAt(testOrder.getCreatedAt())
@@ -1041,8 +1011,7 @@ class SalesOrderServiceTest {
             var statusRequest = new UpdateSalesOrderStatusRequest(canceladaStatus.getId());
 
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
-            when(statusRepository.findById(borradorStatus.getId())).thenReturn(Optional.of(borradorStatus));
-            when(statusRepository.findById(canceladaStatus.getId())).thenReturn(Optional.of(canceladaStatus));
+            when(statusCatalog.requireOrderState(canceladaStatus.getId())).thenReturn(SalesOrderState.CANCELLED);
 
             var updatedOrder = SalesOrder.builder()
                     .id(orderId)
@@ -1053,6 +1022,7 @@ class SalesOrderServiceTest {
                     .userId("user123")
                     .orderDate(testOrder.getOrderDate())
                     .statusId(canceladaStatus.getId())
+                    .status(SalesOrderState.CANCELLED)
                     .totalAmount(BigDecimal.ZERO)
                     .enabled(true)
                     .createdAt(testOrder.getCreatedAt())
@@ -1079,14 +1049,13 @@ class SalesOrderServiceTest {
             var statusRequest = new UpdateSalesOrderStatusRequest(cerradaStatus.getId());
 
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
-            when(statusRepository.findById(borradorStatus.getId())).thenReturn(Optional.of(borradorStatus));
-            when(statusRepository.findById(cerradaStatus.getId())).thenReturn(Optional.of(cerradaStatus));
+            when(statusCatalog.requireOrderState(cerradaStatus.getId())).thenReturn(SalesOrderState.COMPLETED);
 
             assertThatThrownBy(() -> salesOrderService.updateSalesOrderStatus(orderId, statusRequest))
                     .isInstanceOf(InvalidStatusTransitionException.class)
                     .hasMessageContaining("Invalid status transition")
-                    .hasMessageContaining("Draft")
-                    .hasMessageContaining("Completed");
+                    .hasMessageContaining("DRAFT")
+                    .hasMessageContaining("COMPLETED");
 
             verify(salesOrderRepository, never()).save(any(SalesOrder.class));
         }
@@ -1105,8 +1074,12 @@ class SalesOrderServiceTest {
             var statusRequest = new UpdateSalesOrderStatusRequest(wrongTypeStatus.getId());
 
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
-            when(statusRepository.findById(borradorStatus.getId())).thenReturn(Optional.of(borradorStatus));
-            when(statusRepository.findById(wrongTypeStatus.getId())).thenReturn(Optional.of(wrongTypeStatus));
+            // The catalog is the one that refuses a row of another family, and the service must not swallow
+            // it: the real refusal is asserted against the query in `SalesOrderStatusCatalogTest`.
+            when(statusCatalog.requireOrderState(wrongTypeStatus.getId()))
+                    .thenThrow(new IllegalArgumentException(
+                            "The provided status does not belong to type SALES_ORDER: catalog status 'Pending' ("
+                                    + wrongTypeStatus.getId() + ") belongs to SALES_ORDER_ITEM"));
 
             assertThatThrownBy(() -> salesOrderService.updateSalesOrderStatus(orderId, statusRequest))
                     .isInstanceOf(IllegalArgumentException.class)
@@ -1140,14 +1113,14 @@ class SalesOrderServiceTest {
                     .discountApplied(BigDecimal.ZERO)
                     .finalPrice(new BigDecimal("50.00"))
                     .statusId(pendienteItemStatus.getId())
+                    .status(SalesOrderItemState.PENDING)
                     .enabled(false) // soft-deleted
                     .build();
 
             var statusRequest = new UpdateSalesOrderStatusRequest(canceladaStatus.getId());
 
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
-            when(statusRepository.findById(borradorStatus.getId())).thenReturn(Optional.of(borradorStatus));
-            when(statusRepository.findById(canceladaStatus.getId())).thenReturn(Optional.of(canceladaStatus));
+            when(statusCatalog.requireOrderState(canceladaStatus.getId())).thenReturn(SalesOrderState.CANCELLED);
 
             var updatedOrder = SalesOrder.builder()
                     .id(orderId)
@@ -1158,6 +1131,7 @@ class SalesOrderServiceTest {
                     .userId("user123")
                     .orderDate(testOrder.getOrderDate())
                     .statusId(canceladaStatus.getId())
+                    .status(SalesOrderState.CANCELLED)
                     .totalAmount(BigDecimal.ZERO)
                     .enabled(true)
                     .createdAt(testOrder.getCreatedAt())
@@ -1229,7 +1203,6 @@ class SalesOrderServiceTest {
             // variant of the company that owns the order's store. A bare existsById answers `true`
             // for it — no product, no store, no company — which is what this pins.
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
-            when(statusRepository.findById(borradorStatus.getId())).thenReturn(Optional.of(borradorStatus));
             when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
             when(productVariantRepository.existsByIdAndCompanyIdAndEnabledTrue(variantId, companyId))
                     .thenReturn(false);
@@ -1250,7 +1223,6 @@ class SalesOrderServiceTest {
         @DisplayName("should add item with finalPrice = listPrice - discountApplied")
         void addSalesOrderItem_Success() {
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
-            when(statusRepository.findById(borradorStatus.getId())).thenReturn(Optional.of(borradorStatus));
             when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
             when(productVariantRepository.existsByIdAndCompanyIdAndEnabledTrue(variantId, companyId))
                     .thenReturn(true);
@@ -1280,7 +1252,6 @@ class SalesOrderServiceTest {
         @DisplayName("should recalculate totalAmount after adding item")
         void addSalesOrderItem_RecalculatesTotalAmount() {
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
-            when(statusRepository.findById(borradorStatus.getId())).thenReturn(Optional.of(borradorStatus));
             when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
             when(productVariantRepository.existsByIdAndCompanyIdAndEnabledTrue(variantId, companyId))
                     .thenReturn(true);
@@ -1308,16 +1279,16 @@ class SalesOrderServiceTest {
                     .userId("user123")
                     .orderDate(testOrder.getOrderDate())
                     .statusId(cerradaStatus.getId())
+                    .status(SalesOrderState.COMPLETED)
                     .totalAmount(BigDecimal.ZERO)
                     .enabled(true)
                     .build();
 
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(cerradaOrder));
-            when(statusRepository.findById(cerradaStatus.getId())).thenReturn(Optional.of(cerradaStatus));
 
             assertThatThrownBy(() -> salesOrderService.addSalesOrderItem(orderId, testItemRequest))
                     .isInstanceOf(SalesOrderAlreadyFinalizedException.class)
-                    .hasMessageContaining("already Completed")
+                    .hasMessageContaining("already COMPLETED")
                     .hasMessageContaining("cannot be modified");
 
             verify(itemRepository, never()).save(any(SalesOrderItem.class));
@@ -1335,16 +1306,16 @@ class SalesOrderServiceTest {
                     .userId("user123")
                     .orderDate(testOrder.getOrderDate())
                     .statusId(canceladaStatus.getId())
+                    .status(SalesOrderState.CANCELLED)
                     .totalAmount(BigDecimal.ZERO)
                     .enabled(true)
                     .build();
 
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(cancelledOrder));
-            when(statusRepository.findById(canceladaStatus.getId())).thenReturn(Optional.of(canceladaStatus));
 
             assertThatThrownBy(() -> salesOrderService.addSalesOrderItem(orderId, testItemRequest))
                     .isInstanceOf(SalesOrderAlreadyFinalizedException.class)
-                    .hasMessageContaining("already Cancelled")
+                    .hasMessageContaining("already CANCELLED")
                     .hasMessageContaining("cannot be modified");
 
             verify(itemRepository, never()).save(any(SalesOrderItem.class));
@@ -1362,12 +1333,12 @@ class SalesOrderServiceTest {
                     .userId("user123")
                     .orderDate(testOrder.getOrderDate())
                     .statusId(activoStatus.getId())
+                    .status(SalesOrderState.ACTIVE)
                     .totalAmount(BigDecimal.ZERO)
                     .enabled(true)
                     .build();
 
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(activeOrder));
-            when(statusRepository.findById(activoStatus.getId())).thenReturn(Optional.of(activoStatus));
             when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
             when(productVariantRepository.existsByIdAndCompanyIdAndEnabledTrue(variantId, companyId))
                     .thenReturn(true);
@@ -1394,18 +1365,19 @@ class SalesOrderServiceTest {
             var pendingOrder = SalesOrder.builder()
                     .id(orderId)
                     .orderNumber(testOrder.getOrderNumber())
+                    .companyId(companyId)
                     .customerId(customerId)
                     .companyStoreId(companyStoreId)
                     .shiftId(shiftId)
                     .userId("user123")
                     .orderDate(testOrder.getOrderDate())
                     .statusId(enviadaStatus.getId())
+                    .status(SalesOrderState.PENDING)
                     .totalAmount(BigDecimal.ZERO)
                     .enabled(true)
                     .build();
 
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(pendingOrder));
-            when(statusRepository.findById(enviadaStatus.getId())).thenReturn(Optional.of(enviadaStatus));
             when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
             when(productVariantRepository.existsByIdAndCompanyIdAndEnabledTrue(variantId, companyId))
                     .thenReturn(true);
@@ -1430,18 +1402,19 @@ class SalesOrderServiceTest {
             var pendingOrder = SalesOrder.builder()
                     .id(orderId)
                     .orderNumber(testOrder.getOrderNumber())
+                    .companyId(companyId)
                     .customerId(customerId)
                     .companyStoreId(companyStoreId)
                     .shiftId(shiftId)
                     .userId("user123")
                     .orderDate(testOrder.getOrderDate())
                     .statusId(enviadaStatus.getId())
+                    .status(SalesOrderState.PENDING)
                     .totalAmount(BigDecimal.ZERO)
                     .enabled(true)
                     .build();
 
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(pendingOrder));
-            when(statusRepository.findById(enviadaStatus.getId())).thenReturn(Optional.of(enviadaStatus));
             when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
             when(productVariantRepository.existsByIdAndCompanyIdAndEnabledTrue(variantId, companyId))
                     .thenReturn(true);
@@ -1464,7 +1437,6 @@ class SalesOrderServiceTest {
         @DisplayName("should auto-transition Draft → Active when first item is added")
         void addSalesOrderItem_FirstItem_AutoTransitionsToActive() {
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
-            when(statusRepository.findById(borradorStatus.getId())).thenReturn(Optional.of(borradorStatus));
             when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
             when(productVariantRepository.existsByIdAndCompanyIdAndEnabledTrue(variantId, companyId))
                     .thenReturn(true);
@@ -1479,6 +1451,7 @@ class SalesOrderServiceTest {
                     .discountApplied(new BigDecimal("10.00"))
                     .finalPrice(new BigDecimal("90.00"))
                     .statusId(pendienteItemStatus.getId())
+                    .status(SalesOrderItemState.PENDING)
                     .enabled(true)
                     .build();
             when(itemRepository.save(any(SalesOrderItem.class))).thenReturn(savedItem);
@@ -1515,7 +1488,6 @@ class SalesOrderServiceTest {
         @DisplayName("should throw ProductVariantNotFoundException when the variant is missing or soft-deleted")
         void addSalesOrderItem_VariantNotFound_ThrowsException() {
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
-            when(statusRepository.findById(borradorStatus.getId())).thenReturn(Optional.of(borradorStatus));
             // The gate requires a live definition: the split removed findByIdForUpdate, whose query
             // filtered enabled = true, so a soft-deleted variant must not become sellable again.
             when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
@@ -1540,9 +1512,7 @@ class SalesOrderServiceTest {
         @Test
         @DisplayName("should update item and recalculate total")
         void updateSalesOrderItem_Success() {
-            stubCancelledItemStatus();
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
-            when(statusRepository.findById(borradorStatus.getId())).thenReturn(Optional.of(borradorStatus));
             when(itemRepository.findById(itemId)).thenReturn(Optional.of(testItem));
             when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
             when(productVariantRepository.existsByIdAndCompanyIdAndEnabledTrue(variantId, companyId))
@@ -1563,12 +1533,10 @@ class SalesOrderServiceTest {
         @Test
         @DisplayName("should deduct stock when item quantity increases")
         void updateSalesOrderItem_QuantityIncrease_DeductsStock() {
-            stubCancelledItemStatus();
             var request = new SalesOrderItemRequest(
                     itemId, variantId, new BigDecimal("5.00"), new BigDecimal("100.00"), BigDecimal.ZERO, null);
 
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
-            when(statusRepository.findById(borradorStatus.getId())).thenReturn(Optional.of(borradorStatus));
             when(itemRepository.findById(itemId)).thenReturn(Optional.of(testItem));
             when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
             when(productVariantRepository.existsByIdAndCompanyIdAndEnabledTrue(variantId, companyId))
@@ -1586,12 +1554,10 @@ class SalesOrderServiceTest {
         @Test
         @DisplayName("should restore stock when item quantity decreases")
         void updateSalesOrderItem_QuantityDecrease_RestoresStock() {
-            stubCancelledItemStatus();
             var request = new SalesOrderItemRequest(
                     itemId, variantId, new BigDecimal("1.00"), new BigDecimal("100.00"), BigDecimal.ZERO, null);
 
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
-            when(statusRepository.findById(borradorStatus.getId())).thenReturn(Optional.of(borradorStatus));
             when(itemRepository.findById(itemId)).thenReturn(Optional.of(testItem));
             when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
             when(productVariantRepository.existsByIdAndCompanyIdAndEnabledTrue(variantId, companyId))
@@ -1610,10 +1576,8 @@ class SalesOrderServiceTest {
         @Test
         @DisplayName("should not change stock when quantity unchanged")
         void updateSalesOrderItem_SameQuantity_NoStockChange() {
-            stubCancelledItemStatus();
             // testItemRequest has qty 2.00, testItem has qty 2.00 → diff = 0 → no stock change
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
-            when(statusRepository.findById(borradorStatus.getId())).thenReturn(Optional.of(borradorStatus));
             when(itemRepository.findById(itemId)).thenReturn(Optional.of(testItem));
             when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
             when(productVariantRepository.existsByIdAndCompanyIdAndEnabledTrue(variantId, companyId))
@@ -1631,14 +1595,12 @@ class SalesOrderServiceTest {
         @Test
         @DisplayName("should restore old variant stock and deduct new variant stock when productVariantId changes")
         void updateSalesOrderItem_VariantChange_RestoresOldAndDeductsNew() {
-            stubCancelledItemStatus();
             var newVariantId = UUID.randomUUID();
 
             var request = new SalesOrderItemRequest(
                     itemId, newVariantId, new BigDecimal("2.00"), new BigDecimal("100.00"), BigDecimal.ZERO, null);
 
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
-            when(statusRepository.findById(borradorStatus.getId())).thenReturn(Optional.of(borradorStatus));
             when(itemRepository.findById(itemId)).thenReturn(Optional.of(testItem));
             when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
             when(productVariantRepository.existsByIdAndCompanyIdAndEnabledTrue(newVariantId, companyId))
@@ -1658,14 +1620,12 @@ class SalesOrderServiceTest {
         @DisplayName(
                 "should restore old variant full quantity and deduct new quantity when both variant and quantity change")
         void updateSalesOrderItem_VariantChange_WithQuantityChange() {
-            stubCancelledItemStatus();
             var newVariantId = UUID.randomUUID();
 
             var request = new SalesOrderItemRequest(
                     itemId, newVariantId, new BigDecimal("5.00"), new BigDecimal("100.00"), BigDecimal.ZERO, null);
 
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
-            when(statusRepository.findById(borradorStatus.getId())).thenReturn(Optional.of(borradorStatus));
             when(itemRepository.findById(itemId)).thenReturn(Optional.of(testItem));
             when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
             when(productVariantRepository.existsByIdAndCompanyIdAndEnabledTrue(newVariantId, companyId))
@@ -1683,12 +1643,10 @@ class SalesOrderServiceTest {
         @Test
         @DisplayName("should throw InsufficientStockException on quantity increase beyond stock")
         void updateSalesOrderItem_InsufficientStock_Throws409() {
-            stubCancelledItemStatus();
             var request = new SalesOrderItemRequest(
                     itemId, variantId, new BigDecimal("10.00"), new BigDecimal("100.00"), BigDecimal.ZERO, null);
 
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
-            when(statusRepository.findById(borradorStatus.getId())).thenReturn(Optional.of(borradorStatus));
             when(itemRepository.findById(itemId)).thenReturn(Optional.of(testItem));
             when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
             when(productVariantRepository.existsByIdAndCompanyIdAndEnabledTrue(variantId, companyId))
@@ -1708,7 +1666,6 @@ class SalesOrderServiceTest {
         @DisplayName("should throw SalesOrderItemNotFoundException when item not found")
         void updateSalesOrderItem_ItemNotFound_ThrowsException() {
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
-            when(statusRepository.findById(borradorStatus.getId())).thenReturn(Optional.of(borradorStatus));
             when(itemRepository.findById(itemId)).thenReturn(Optional.empty());
 
             assertThatThrownBy(() -> salesOrderService.updateSalesOrderItem(orderId, itemId, testItemRequest))
@@ -1726,7 +1683,6 @@ class SalesOrderServiceTest {
             var foreignLine = foreignLine();
 
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
-            when(statusRepository.findById(borradorStatus.getId())).thenReturn(Optional.of(borradorStatus));
             when(itemRepository.findById(itemId)).thenReturn(Optional.of(foreignLine));
 
             assertThatThrownBy(() -> salesOrderService.updateSalesOrderItem(orderId, itemId, testItemRequest))
@@ -1750,16 +1706,16 @@ class SalesOrderServiceTest {
                     .userId("user123")
                     .orderDate(testOrder.getOrderDate())
                     .statusId(cerradaStatus.getId())
+                    .status(SalesOrderState.COMPLETED)
                     .totalAmount(BigDecimal.ZERO)
                     .enabled(true)
                     .build();
 
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(cerradaOrder));
-            when(statusRepository.findById(cerradaStatus.getId())).thenReturn(Optional.of(cerradaStatus));
 
             assertThatThrownBy(() -> salesOrderService.updateSalesOrderItem(orderId, itemId, testItemRequest))
                     .isInstanceOf(SalesOrderAlreadyFinalizedException.class)
-                    .hasMessageContaining("already Completed")
+                    .hasMessageContaining("already COMPLETED")
                     .hasMessageContaining("cannot be modified");
 
             verify(itemRepository, never()).save(any(SalesOrderItem.class));
@@ -1768,7 +1724,6 @@ class SalesOrderServiceTest {
         @Test
         @DisplayName("should update item on Active order successfully")
         void updateSalesOrderItem_ActiveOrder_Success() {
-            stubCancelledItemStatus();
             var activeOrder = SalesOrder.builder()
                     .id(orderId)
                     .orderNumber(testOrder.getOrderNumber())
@@ -1778,12 +1733,12 @@ class SalesOrderServiceTest {
                     .userId("user123")
                     .orderDate(testOrder.getOrderDate())
                     .statusId(activoStatus.getId())
+                    .status(SalesOrderState.ACTIVE)
                     .totalAmount(BigDecimal.ZERO)
                     .enabled(true)
                     .build();
 
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(activeOrder));
-            when(statusRepository.findById(activoStatus.getId())).thenReturn(Optional.of(activoStatus));
             when(itemRepository.findById(itemId)).thenReturn(Optional.of(testItem));
             when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
             when(productVariantRepository.existsByIdAndCompanyIdAndEnabledTrue(variantId, companyId))
@@ -1804,22 +1759,22 @@ class SalesOrderServiceTest {
         @Test
         @DisplayName("should update item on Pending order successfully")
         void updateSalesOrderItem_PendingOrder_Success() {
-            stubCancelledItemStatus();
             var pendingOrder = SalesOrder.builder()
                     .id(orderId)
                     .orderNumber(testOrder.getOrderNumber())
+                    .companyId(companyId)
                     .customerId(customerId)
                     .companyStoreId(companyStoreId)
                     .shiftId(shiftId)
                     .userId("user123")
                     .orderDate(testOrder.getOrderDate())
                     .statusId(enviadaStatus.getId())
+                    .status(SalesOrderState.PENDING)
                     .totalAmount(BigDecimal.ZERO)
                     .enabled(true)
                     .build();
 
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(pendingOrder));
-            when(statusRepository.findById(enviadaStatus.getId())).thenReturn(Optional.of(enviadaStatus));
             when(itemRepository.findById(itemId)).thenReturn(Optional.of(testItem));
             when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
             when(productVariantRepository.existsByIdAndCompanyIdAndEnabledTrue(variantId, companyId))
@@ -1838,7 +1793,6 @@ class SalesOrderServiceTest {
         @Test
         @DisplayName("should reject changing a Cancelled line and touch no stock")
         void updateSalesOrderItem_CancelledLine_ThrowsException() {
-            stubCancelledItemStatus();
             var cancelledLine = SalesOrderItem.builder()
                     .id(itemId)
                     .salesOrderId(orderId)
@@ -1847,49 +1801,17 @@ class SalesOrderServiceTest {
                     .listPrice(new BigDecimal("100.00"))
                     .finalPrice(new BigDecimal("100.00"))
                     .statusId(canceladoItemStatus.getId())
+                    .status(SalesOrderItemState.CANCELLED)
                     .enabled(true)
                     .build();
 
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
-            when(statusRepository.findById(borradorStatus.getId())).thenReturn(Optional.of(borradorStatus));
             when(itemRepository.findById(itemId)).thenReturn(Optional.of(cancelledLine));
 
             assertThatThrownBy(() -> salesOrderService.updateSalesOrderItem(orderId, itemId, testItemRequest))
                     .isInstanceOf(SalesOrderItemNotModifiableException.class)
-                    .hasMessageContaining("is Cancelled")
+                    .hasMessageContaining("is CANCELLED")
                     .hasMessageContaining("cannot be modified");
-
-            verify(itemRepository, never()).save(any(SalesOrderItem.class));
-            verifyNoInteractions(inventoryService);
-        }
-
-        @Test
-        @DisplayName("should refuse the item-level write, not modify a cancelled line, when the Cancelled "
-                + "status row is missing")
-        void updateSalesOrderItem_MissingCancelledItemStatus_RefusesInsteadOfModifyingTheLine() {
-            var cancelledLine = SalesOrderItem.builder()
-                    .id(itemId)
-                    .salesOrderId(orderId)
-                    .productVariantId(variantId)
-                    .quantity(new BigDecimal("4.00"))
-                    .listPrice(new BigDecimal("100.00"))
-                    .finalPrice(new BigDecimal("100.00"))
-                    .statusId(canceladoItemStatus.getId())
-                    .enabled(true)
-                    .build();
-
-            when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
-            when(statusRepository.findById(borradorStatus.getId())).thenReturn(Optional.of(borradorStatus));
-            when(itemRepository.findById(itemId)).thenReturn(Optional.of(cancelledLine));
-            // F-2: without the row the guard cannot tell a cancelled line from a live one, so the
-            // write must refuse rather than fall through and modify the line.
-            when(statusRepository.findByTypeNameAndStatusName("SALES_ORDER_ITEM", "Cancelled"))
-                    .thenReturn(Optional.empty());
-
-            assertThatThrownBy(() -> salesOrderService.updateSalesOrderItem(orderId, itemId, testItemRequest))
-                    .isInstanceOf(StatusNotFoundException.class)
-                    .hasMessageContaining("Cancelled")
-                    .hasMessageContaining("SALES_ORDER_ITEM");
 
             verify(itemRepository, never()).save(any(SalesOrderItem.class));
             verifyNoInteractions(inventoryService);
@@ -1906,11 +1828,11 @@ class SalesOrderServiceTest {
                     .listPrice(new BigDecimal("100.00"))
                     .finalPrice(new BigDecimal("100.00"))
                     .statusId(pendienteItemStatus.getId())
+                    .status(SalesOrderItemState.PENDING)
                     .enabled(false)
                     .build();
 
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
-            when(statusRepository.findById(borradorStatus.getId())).thenReturn(Optional.of(borradorStatus));
             when(itemRepository.findById(itemId)).thenReturn(Optional.of(deletedLine));
 
             assertThatThrownBy(() -> salesOrderService.updateSalesOrderItem(orderId, itemId, testItemRequest))
@@ -1933,9 +1855,7 @@ class SalesOrderServiceTest {
         @Test
         @DisplayName("should soft-delete item with stock restoration and recalculate total")
         void deleteSalesOrderItem_Success() {
-            stubCancelledItemStatus();
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
-            when(statusRepository.findById(borradorStatus.getId())).thenReturn(Optional.of(borradorStatus));
             when(itemRepository.findById(itemId)).thenReturn(Optional.of(testItem));
             when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId)).thenReturn(List.of());
             when(salesOrderRepository.save(any(SalesOrder.class))).thenAnswer(inv -> inv.getArgument(0));
@@ -1952,7 +1872,6 @@ class SalesOrderServiceTest {
         @DisplayName("should throw SalesOrderItemNotFoundException when item not found")
         void deleteSalesOrderItem_ItemNotFound_ThrowsException() {
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
-            when(statusRepository.findById(borradorStatus.getId())).thenReturn(Optional.of(borradorStatus));
             when(itemRepository.findById(itemId)).thenReturn(Optional.empty());
 
             assertThatThrownBy(() -> salesOrderService.deleteSalesOrderItem(orderId, itemId))
@@ -1968,7 +1887,6 @@ class SalesOrderServiceTest {
             var foreignLine = foreignLine();
 
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
-            when(statusRepository.findById(borradorStatus.getId())).thenReturn(Optional.of(borradorStatus));
             when(itemRepository.findById(itemId)).thenReturn(Optional.of(foreignLine));
 
             assertThatThrownBy(() -> salesOrderService.deleteSalesOrderItem(orderId, itemId))
@@ -1983,7 +1901,6 @@ class SalesOrderServiceTest {
         @Test
         @DisplayName("should reject deleting a Cancelled line and touch no stock")
         void deleteSalesOrderItem_CancelledLine_ThrowsException() {
-            stubCancelledItemStatus();
             // A Cancelled line already gave its stock back, so the delete must be refused by the same
             // line guard the update path runs (F-7), before any reversal reaches the engine.
             var cancelledLine = SalesOrderItem.builder()
@@ -1994,16 +1911,16 @@ class SalesOrderServiceTest {
                     .listPrice(new BigDecimal("100.00"))
                     .finalPrice(new BigDecimal("100.00"))
                     .statusId(canceladoItemStatus.getId())
+                    .status(SalesOrderItemState.CANCELLED)
                     .enabled(true)
                     .build();
 
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
-            when(statusRepository.findById(borradorStatus.getId())).thenReturn(Optional.of(borradorStatus));
             when(itemRepository.findById(itemId)).thenReturn(Optional.of(cancelledLine));
 
             assertThatThrownBy(() -> salesOrderService.deleteSalesOrderItem(orderId, itemId))
                     .isInstanceOf(SalesOrderItemNotModifiableException.class)
-                    .hasMessageContaining("is Cancelled")
+                    .hasMessageContaining("is CANCELLED")
                     .hasMessageContaining("cannot be modified");
 
             assertThat(cancelledLine.getEnabled()).isTrue();
@@ -2024,11 +1941,11 @@ class SalesOrderServiceTest {
                     .listPrice(new BigDecimal("100.00"))
                     .finalPrice(new BigDecimal("100.00"))
                     .statusId(pendienteItemStatus.getId())
+                    .status(SalesOrderItemState.PENDING)
                     .enabled(false)
                     .build();
 
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
-            when(statusRepository.findById(borradorStatus.getId())).thenReturn(Optional.of(borradorStatus));
             when(itemRepository.findById(itemId)).thenReturn(Optional.of(deletedLine));
 
             assertThatThrownBy(() -> salesOrderService.deleteSalesOrderItem(orderId, itemId))
@@ -2044,7 +1961,6 @@ class SalesOrderServiceTest {
         @Test
         @DisplayName("should soft-delete item on Active order with stock restoration")
         void deleteSalesOrderItem_ActiveOrder_Success() {
-            stubCancelledItemStatus();
             var activeOrder = SalesOrder.builder()
                     .id(orderId)
                     .orderNumber(testOrder.getOrderNumber())
@@ -2054,12 +1970,12 @@ class SalesOrderServiceTest {
                     .userId("user123")
                     .orderDate(testOrder.getOrderDate())
                     .statusId(activoStatus.getId())
+                    .status(SalesOrderState.ACTIVE)
                     .totalAmount(BigDecimal.ZERO)
                     .enabled(true)
                     .build();
 
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(activeOrder));
-            when(statusRepository.findById(activoStatus.getId())).thenReturn(Optional.of(activoStatus));
             when(itemRepository.findById(itemId)).thenReturn(Optional.of(testItem));
             when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId)).thenReturn(List.of());
             when(salesOrderRepository.save(any(SalesOrder.class))).thenAnswer(inv -> inv.getArgument(0));
@@ -2074,22 +1990,22 @@ class SalesOrderServiceTest {
         @Test
         @DisplayName("should soft-delete item on Pending order with stock restoration")
         void deleteSalesOrderItem_PendingOrder_Success() {
-            stubCancelledItemStatus();
             var pendingOrder = SalesOrder.builder()
                     .id(orderId)
                     .orderNumber(testOrder.getOrderNumber())
+                    .companyId(companyId)
                     .customerId(customerId)
                     .companyStoreId(companyStoreId)
                     .shiftId(shiftId)
                     .userId("user123")
                     .orderDate(testOrder.getOrderDate())
                     .statusId(enviadaStatus.getId())
+                    .status(SalesOrderState.PENDING)
                     .totalAmount(BigDecimal.ZERO)
                     .enabled(true)
                     .build();
 
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(pendingOrder));
-            when(statusRepository.findById(enviadaStatus.getId())).thenReturn(Optional.of(enviadaStatus));
             when(itemRepository.findById(itemId)).thenReturn(Optional.of(testItem));
             when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId)).thenReturn(List.of());
             when(salesOrderRepository.save(any(SalesOrder.class))).thenAnswer(inv -> inv.getArgument(0));
@@ -2116,7 +2032,7 @@ class SalesOrderServiceTest {
 
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
             when(itemRepository.findById(itemId)).thenReturn(Optional.of(testItem));
-            when(statusRepository.findById(pendienteItemStatus.getId())).thenReturn(Optional.of(pendienteItemStatus));
+            when(statusCatalog.requireItemState(agregadoItemStatus.getId())).thenReturn(SalesOrderItemState.ADDED);
             when(statusRepository.findById(agregadoItemStatus.getId())).thenReturn(Optional.of(agregadoItemStatus));
 
             var updatedItem = SalesOrderItem.builder()
@@ -2128,6 +2044,7 @@ class SalesOrderServiceTest {
                     .discountApplied(testItem.getDiscountApplied())
                     .finalPrice(testItem.getFinalPrice())
                     .statusId(agregadoItemStatus.getId())
+                    .status(SalesOrderItemState.ADDED)
                     .enabled(true)
                     .build();
 
@@ -2150,7 +2067,7 @@ class SalesOrderServiceTest {
 
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
             when(itemRepository.findById(itemId)).thenReturn(Optional.of(testItem));
-            when(statusRepository.findById(pendienteItemStatus.getId())).thenReturn(Optional.of(pendienteItemStatus));
+            when(statusCatalog.requireItemState(canceladoItemStatus.getId())).thenReturn(SalesOrderItemState.CANCELLED);
             when(statusRepository.findById(canceladoItemStatus.getId())).thenReturn(Optional.of(canceladoItemStatus));
 
             var updatedItem = SalesOrderItem.builder()
@@ -2162,6 +2079,7 @@ class SalesOrderServiceTest {
                     .discountApplied(testItem.getDiscountApplied())
                     .finalPrice(testItem.getFinalPrice())
                     .statusId(canceladoItemStatus.getId())
+                    .status(SalesOrderItemState.CANCELLED)
                     .enabled(true)
                     .build();
 
@@ -2180,31 +2098,39 @@ class SalesOrderServiceTest {
         }
 
         @Test
-        @DisplayName("should throw InvalidStatusTransitionException on Pending → Completed")
-        void updateItemStatus_PendingToCompleted_ThrowsInvalidTransition() {
-            // Must be SALES_ORDER_ITEM type to pass type validation, but "Completed" is not in allowed transitions
-            var invalidTransitionStatus = Status.builder()
-                    .id(UUID.randomUUID())
-                    .statusName("Completed")
-                    .statusType(salesOrderItemType)
+        @DisplayName("should throw InvalidStatusTransitionException on Added → Cancelled")
+        void updateItemStatus_AddedToCancelled_ThrowsInvalidTransition() {
+            // ADR-0004 decision 3: "an item of a charged order cannot be cancelled" is the absence of an
+            // edge out of ADDED, not a comparison against a label. It is also the only refused pair the item
+            // machine can be asked about — ADDED and CANCELLED are terminal, so every move out of either is
+            // refused, and a state outside the enum never reaches the machine at all (the catalog refuses it
+            // first, which `SalesOrderStatusCatalogTest` pins).
+            var addedLine = SalesOrderItem.builder()
+                    .id(itemId)
+                    .salesOrderId(orderId)
+                    .productVariantId(variantId)
+                    .quantity(new BigDecimal("2.00"))
+                    .listPrice(new BigDecimal("100.00"))
+                    .finalPrice(new BigDecimal("100.00"))
+                    .statusId(agregadoItemStatus.getId())
+                    .status(SalesOrderItemState.ADDED)
                     .enabled(true)
                     .build();
 
-            var statusRequest = new UpdateSalesOrderStatusRequest(invalidTransitionStatus.getId());
+            var statusRequest = new UpdateSalesOrderStatusRequest(canceladoItemStatus.getId());
 
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
-            when(itemRepository.findById(itemId)).thenReturn(Optional.of(testItem));
-            when(statusRepository.findById(pendienteItemStatus.getId())).thenReturn(Optional.of(pendienteItemStatus));
-            when(statusRepository.findById(invalidTransitionStatus.getId()))
-                    .thenReturn(Optional.of(invalidTransitionStatus));
+            when(itemRepository.findById(itemId)).thenReturn(Optional.of(addedLine));
+            when(statusCatalog.requireItemState(canceladoItemStatus.getId())).thenReturn(SalesOrderItemState.CANCELLED);
 
             assertThatThrownBy(() -> salesOrderService.updateSalesOrderItemStatus(orderId, itemId, statusRequest))
                     .isInstanceOf(InvalidStatusTransitionException.class)
                     .hasMessageContaining("Invalid status transition")
-                    .hasMessageContaining("Pending")
-                    .hasMessageContaining("Completed");
+                    .hasMessageContaining("ADDED")
+                    .hasMessageContaining("CANCELLED");
 
             verify(itemRepository, never()).save(any(SalesOrderItem.class));
+            verifyNoInteractions(inventoryService);
         }
     }
 
@@ -2231,6 +2157,7 @@ class SalesOrderServiceTest {
                     .userId("user123")
                     .orderDate(testOrder.getOrderDate())
                     .statusId(enviadaStatus.getId())
+                    .status(SalesOrderState.PENDING)
                     .totalAmount(BigDecimal.ZERO)
                     .enabled(true)
                     .createdAt(testOrder.getCreatedAt())
@@ -2247,6 +2174,7 @@ class SalesOrderServiceTest {
                     .discountApplied(BigDecimal.ZERO)
                     .finalPrice(new BigDecimal("100.00"))
                     .statusId(pendienteItemStatus.getId())
+                    .status(SalesOrderItemState.PENDING)
                     .enabled(true)
                     .build();
             var item2 = SalesOrderItem.builder()
@@ -2258,6 +2186,7 @@ class SalesOrderServiceTest {
                     .discountApplied(BigDecimal.ZERO)
                     .finalPrice(new BigDecimal("50.00"))
                     .statusId(pendienteItemStatus.getId())
+                    .status(SalesOrderItemState.PENDING)
                     .enabled(true)
                     .build();
 
@@ -2271,6 +2200,7 @@ class SalesOrderServiceTest {
                     .userId("user123")
                     .orderDate(testOrder.getOrderDate())
                     .statusId(cerradaStatus.getId())
+                    .status(SalesOrderState.COMPLETED)
                     .totalAmount(BigDecimal.ZERO)
                     .paymentMethodId(paymentMethodId)
                     .enabled(true)
@@ -2281,7 +2211,6 @@ class SalesOrderServiceTest {
             when(salesOrderRepository.findById(orderId))
                     .thenReturn(Optional.of(pendingOrder))
                     .thenReturn(Optional.of(savedOrder));
-            when(statusRepository.findById(enviadaStatus.getId())).thenReturn(Optional.of(enviadaStatus));
             when(paymentMethodRepository.existsById(paymentMethodId)).thenReturn(true);
             when(statusRepository.findByTypeNameAndStatusName("SALES_ORDER", "Completed"))
                     .thenReturn(Optional.of(cerradaStatus));
@@ -2289,7 +2218,6 @@ class SalesOrderServiceTest {
                     .thenReturn(Optional.of(agregadoItemStatus));
             when(itemRepository.findBySalesOrderId(orderId)).thenReturn(List.of(item1, item2));
             // Item status lookup: bulk fetch by the set of item statusIds
-            when(statusRepository.findAllById(any())).thenReturn(List.of(pendienteItemStatus));
             // toResponse mocks
             when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId)).thenReturn(List.of());
             when(statusRepository.findById(cerradaStatus.getId())).thenReturn(Optional.of(cerradaStatus));
@@ -2318,14 +2246,13 @@ class SalesOrderServiceTest {
             var paymentMethodId = UUID.randomUUID();
             var request = new ChargeSalesOrderRequest(paymentMethodId);
 
-            // testOrder is Draft by default — Draft is neither Pending nor Active
+            // testOrder is DRAFT by default — DRAFT is neither PENDING nor ACTIVE
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
-            when(statusRepository.findById(borradorStatus.getId())).thenReturn(Optional.of(borradorStatus));
 
             assertThatThrownBy(() -> salesOrderService.chargeSalesOrder(orderId, request))
                     .isInstanceOf(InvalidSalesOrderChargeException.class)
                     .hasMessageContaining(orderId.toString())
-                    .hasMessageContaining("Draft");
+                    .hasMessageContaining("DRAFT");
 
             verify(salesOrderRepository, never()).save(any(SalesOrder.class));
             verify(itemRepository, never()).save(any(SalesOrderItem.class));
@@ -2346,12 +2273,12 @@ class SalesOrderServiceTest {
                     .userId("user123")
                     .orderDate(testOrder.getOrderDate())
                     .statusId(enviadaStatus.getId())
+                    .status(SalesOrderState.PENDING)
                     .totalAmount(BigDecimal.ZERO)
                     .enabled(true)
                     .build();
 
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(pendingOrder));
-            when(statusRepository.findById(enviadaStatus.getId())).thenReturn(Optional.of(enviadaStatus));
             when(paymentMethodRepository.existsById(paymentMethodId)).thenReturn(false);
 
             assertThatThrownBy(() -> salesOrderService.chargeSalesOrder(orderId, request))
@@ -2377,6 +2304,7 @@ class SalesOrderServiceTest {
                     .userId("user123")
                     .orderDate(testOrder.getOrderDate())
                     .statusId(enviadaStatus.getId())
+                    .status(SalesOrderState.PENDING)
                     .totalAmount(BigDecimal.ZERO)
                     .enabled(true)
                     .build();
@@ -2390,6 +2318,7 @@ class SalesOrderServiceTest {
                     .listPrice(BigDecimal.TEN)
                     .finalPrice(BigDecimal.TEN)
                     .statusId(pendienteItemStatus.getId())
+                    .status(SalesOrderItemState.PENDING)
                     .enabled(true)
                     .build();
             var itemPending2 = SalesOrderItem.builder()
@@ -2400,6 +2329,7 @@ class SalesOrderServiceTest {
                     .listPrice(BigDecimal.TEN)
                     .finalPrice(BigDecimal.TEN)
                     .statusId(pendienteItemStatus.getId())
+                    .status(SalesOrderItemState.PENDING)
                     .enabled(true)
                     .build();
             var itemCancelled = SalesOrderItem.builder()
@@ -2410,6 +2340,7 @@ class SalesOrderServiceTest {
                     .listPrice(BigDecimal.TEN)
                     .finalPrice(BigDecimal.TEN)
                     .statusId(canceladoItemStatus.getId())
+                    .status(SalesOrderItemState.CANCELLED)
                     .enabled(true)
                     .build();
 
@@ -2422,6 +2353,7 @@ class SalesOrderServiceTest {
                     .userId("user123")
                     .orderDate(testOrder.getOrderDate())
                     .statusId(cerradaStatus.getId())
+                    .status(SalesOrderState.COMPLETED)
                     .totalAmount(BigDecimal.ZERO)
                     .paymentMethodId(paymentMethodId)
                     .enabled(true)
@@ -2432,7 +2364,6 @@ class SalesOrderServiceTest {
             when(salesOrderRepository.findById(orderId))
                     .thenReturn(Optional.of(pendingOrder))
                     .thenReturn(Optional.of(savedOrder));
-            when(statusRepository.findById(enviadaStatus.getId())).thenReturn(Optional.of(enviadaStatus));
             when(paymentMethodRepository.existsById(paymentMethodId)).thenReturn(true);
             when(statusRepository.findByTypeNameAndStatusName("SALES_ORDER", "Completed"))
                     .thenReturn(Optional.of(cerradaStatus));
@@ -2441,7 +2372,6 @@ class SalesOrderServiceTest {
             when(itemRepository.findBySalesOrderId(orderId))
                     .thenReturn(List.of(itemPending1, itemPending2, itemCancelled));
             // Item status lookup: bulk fetch by the set of item statusIds
-            when(statusRepository.findAllById(any())).thenReturn(List.of(pendienteItemStatus, canceladoItemStatus));
             // toResponse mocks
             when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId)).thenReturn(List.of());
             when(statusRepository.findById(cerradaStatus.getId())).thenReturn(Optional.of(cerradaStatus));
@@ -2478,6 +2408,7 @@ class SalesOrderServiceTest {
                     .userId("user123")
                     .orderDate(testOrder.getOrderDate())
                     .statusId(activoStatus.getId())
+                    .status(SalesOrderState.ACTIVE)
                     .totalAmount(BigDecimal.ZERO)
                     .enabled(true)
                     .createdAt(testOrder.getCreatedAt())
@@ -2494,6 +2425,7 @@ class SalesOrderServiceTest {
                     .discountApplied(BigDecimal.ZERO)
                     .finalPrice(new BigDecimal("100.00"))
                     .statusId(pendienteItemStatus.getId())
+                    .status(SalesOrderItemState.PENDING)
                     .enabled(true)
                     .build();
             var item2 = SalesOrderItem.builder()
@@ -2505,6 +2437,7 @@ class SalesOrderServiceTest {
                     .discountApplied(BigDecimal.ZERO)
                     .finalPrice(new BigDecimal("50.00"))
                     .statusId(pendienteItemStatus.getId())
+                    .status(SalesOrderItemState.PENDING)
                     .enabled(true)
                     .build();
 
@@ -2518,6 +2451,7 @@ class SalesOrderServiceTest {
                     .userId("user123")
                     .orderDate(testOrder.getOrderDate())
                     .statusId(cerradaStatus.getId())
+                    .status(SalesOrderState.COMPLETED)
                     .totalAmount(BigDecimal.ZERO)
                     .paymentMethodId(paymentMethodId)
                     .enabled(true)
@@ -2529,7 +2463,6 @@ class SalesOrderServiceTest {
                     .thenReturn(Optional.of(activeOrder))
                     .thenReturn(Optional.of(savedOrder));
             // ensureOrderIsPending: lookup Active status
-            when(statusRepository.findById(activoStatus.getId())).thenReturn(Optional.of(activoStatus));
             // ensureOrderIsPending: find Pending status for promotion
             when(statusRepository.findByTypeNameAndStatusName("SALES_ORDER", "Pending"))
                     .thenReturn(Optional.of(enviadaStatus));
@@ -2540,7 +2473,6 @@ class SalesOrderServiceTest {
                     .thenReturn(Optional.of(agregadoItemStatus));
             when(itemRepository.findBySalesOrderId(orderId)).thenReturn(List.of(item1, item2));
             // Item status lookup: bulk fetch by the set of item statusIds
-            when(statusRepository.findAllById(any())).thenReturn(List.of(pendienteItemStatus));
             // toResponse mocks — items have been transitioned to Added
             when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId)).thenReturn(List.of());
             when(statusRepository.findById(cerradaStatus.getId())).thenReturn(Optional.of(cerradaStatus));
@@ -2578,6 +2510,7 @@ class SalesOrderServiceTest {
                     .userId("user123")
                     .orderDate(testOrder.getOrderDate())
                     .statusId(activoStatus.getId())
+                    .status(SalesOrderState.ACTIVE)
                     .totalAmount(new BigDecimal("250.00"))
                     .enabled(true)
                     .createdAt(testOrder.getCreatedAt())
@@ -2594,6 +2527,7 @@ class SalesOrderServiceTest {
                     .discountApplied(BigDecimal.ZERO)
                     .finalPrice(new BigDecimal("100.00"))
                     .statusId(pendienteItemStatus.getId())
+                    .status(SalesOrderItemState.PENDING)
                     .enabled(true)
                     .build();
             var item2 = SalesOrderItem.builder()
@@ -2605,6 +2539,7 @@ class SalesOrderServiceTest {
                     .discountApplied(BigDecimal.ZERO)
                     .finalPrice(new BigDecimal("50.00"))
                     .statusId(pendienteItemStatus.getId())
+                    .status(SalesOrderItemState.PENDING)
                     .enabled(true)
                     .build();
 
@@ -2618,6 +2553,7 @@ class SalesOrderServiceTest {
                     .userId("user123")
                     .orderDate(testOrder.getOrderDate())
                     .statusId(cerradaStatus.getId())
+                    .status(SalesOrderState.COMPLETED)
                     .totalAmount(new BigDecimal("250.00"))
                     .paymentMethodId(paymentMethodId)
                     .enabled(true)
@@ -2629,7 +2565,6 @@ class SalesOrderServiceTest {
                     .thenReturn(Optional.of(activeOrder))
                     .thenReturn(Optional.of(savedOrder));
             // ensureOrderIsPending: lookup Active status
-            when(statusRepository.findById(activoStatus.getId())).thenReturn(Optional.of(activoStatus));
             // ensureOrderIsPending: find Pending status for promotion
             when(statusRepository.findByTypeNameAndStatusName("SALES_ORDER", "Pending"))
                     .thenReturn(Optional.of(enviadaStatus));
@@ -2640,7 +2575,6 @@ class SalesOrderServiceTest {
                     .thenReturn(Optional.of(agregadoItemStatus));
             when(itemRepository.findBySalesOrderId(orderId)).thenReturn(List.of(item1, item2));
             // Item status lookup: bulk fetch by the set of item statusIds
-            when(statusRepository.findAllById(any())).thenReturn(List.of(pendienteItemStatus));
             // toResponse mocks
             // toResponse mocks — use fresh item copies since the originals were mutated in place
             var item1AfterCharge = SalesOrderItem.builder()
@@ -2652,6 +2586,7 @@ class SalesOrderServiceTest {
                     .discountApplied(item1.getDiscountApplied())
                     .finalPrice(item1.getFinalPrice())
                     .statusId(agregadoItemStatus.getId())
+                    .status(SalesOrderItemState.ADDED)
                     .enabled(true)
                     .build();
             var item2AfterCharge = SalesOrderItem.builder()
@@ -2663,6 +2598,7 @@ class SalesOrderServiceTest {
                     .discountApplied(item2.getDiscountApplied())
                     .finalPrice(item2.getFinalPrice())
                     .statusId(agregadoItemStatus.getId())
+                    .status(SalesOrderItemState.ADDED)
                     .enabled(true)
                     .build();
 
@@ -2704,7 +2640,6 @@ class SalesOrderServiceTest {
         @Test
         @DisplayName("should soft-delete items present in DB but absent from request")
         void updateSalesOrder_SoftDeletesMissingItems() {
-            stubCancelledItemStatus();
             var vid2 = UUID.randomUUID();
             var vid3 = UUID.randomUUID();
 
@@ -2716,6 +2651,7 @@ class SalesOrderServiceTest {
                     .listPrice(BigDecimal.TEN)
                     .finalPrice(BigDecimal.TEN)
                     .statusId(pendienteItemStatus.getId())
+                    .status(SalesOrderItemState.PENDING)
                     .enabled(true)
                     .build();
             var existingItem2 = SalesOrderItem.builder()
@@ -2726,6 +2662,7 @@ class SalesOrderServiceTest {
                     .listPrice(BigDecimal.TEN)
                     .finalPrice(BigDecimal.TEN)
                     .statusId(pendienteItemStatus.getId())
+                    .status(SalesOrderItemState.PENDING)
                     .enabled(true)
                     .build();
             var existingItem3 = SalesOrderItem.builder()
@@ -2736,6 +2673,7 @@ class SalesOrderServiceTest {
                     .listPrice(BigDecimal.TEN)
                     .finalPrice(BigDecimal.TEN)
                     .statusId(pendienteItemStatus.getId())
+                    .status(SalesOrderItemState.PENDING)
                     .enabled(true)
                     .build();
 
@@ -2783,7 +2721,6 @@ class SalesOrderServiceTest {
         @Test
         @DisplayName("should update changed fields on existing items with matching IDs")
         void updateSalesOrder_UpdatesChangedItems() {
-            stubCancelledItemStatus();
             var newQty = new BigDecimal("5.00");
             var newPrice = new BigDecimal("200.00");
             var newDiscount = new BigDecimal("20.00");
@@ -2820,7 +2757,6 @@ class SalesOrderServiceTest {
         @Test
         @DisplayName("should insert new items when request items have null id")
         void updateSalesOrder_InsertsNewItems() {
-            stubCancelledItemStatus();
             UUID newVariantId = UUID.randomUUID();
             UUID savedItemId = UUID.randomUUID();
 
@@ -2879,7 +2815,6 @@ class SalesOrderServiceTest {
         @Test
         @DisplayName("should recalculate total amount after item changes")
         void updateSalesOrder_RecalculatesTotalAfterItemChanges() {
-            stubCancelledItemStatus();
             var savedItemId = UUID.randomUUID();
             var reqItem = new SalesOrderItemRequest(
                     null, variantId, BigDecimal.ONE, new BigDecimal("100.00"), BigDecimal.ZERO, null);
@@ -2920,7 +2855,6 @@ class SalesOrderServiceTest {
         @Test
         @DisplayName("should deduct stock for new items (create flow via updateSalesOrder)")
         void deltaComputation_NewItemOnly_DeductsStock() {
-            stubCancelledItemStatus();
             var newVariantId = UUID.randomUUID();
             var savedItemId = UUID.randomUUID();
 
@@ -2955,7 +2889,6 @@ class SalesOrderServiceTest {
         @Test
         @DisplayName("should restore stock for deleted items only")
         void deltaComputation_DeletedItemOnly_RestoresStock() {
-            stubCancelledItemStatus();
             var vid2 = UUID.randomUUID();
 
             var existingToDelete = SalesOrderItem.builder()
@@ -2966,6 +2899,7 @@ class SalesOrderServiceTest {
                     .listPrice(BigDecimal.TEN)
                     .finalPrice(BigDecimal.TEN)
                     .statusId(pendienteItemStatus.getId())
+                    .status(SalesOrderItemState.PENDING)
                     .enabled(true)
                     .build();
 
@@ -2977,6 +2911,7 @@ class SalesOrderServiceTest {
                     .listPrice(BigDecimal.TEN)
                     .finalPrice(BigDecimal.TEN)
                     .statusId(pendienteItemStatus.getId())
+                    .status(SalesOrderItemState.PENDING)
                     .enabled(true)
                     .build();
 
@@ -3013,7 +2948,6 @@ class SalesOrderServiceTest {
         @Test
         @DisplayName("should deduct additional stock on quantity increase")
         void deltaComputation_QuantityIncrease_DeductsAdditional() {
-            stubCancelledItemStatus();
             var reqItem = new SalesOrderItemRequest(
                     testItem.getId(),
                     testItem.getProductVariantId(),
@@ -3045,7 +2979,6 @@ class SalesOrderServiceTest {
         @Test
         @DisplayName("should restore stock on quantity decrease")
         void deltaComputation_QuantityDecrease_RestoresStock() {
-            stubCancelledItemStatus();
             var reqItem = new SalesOrderItemRequest(
                     testItem.getId(),
                     testItem.getProductVariantId(),
@@ -3078,7 +3011,6 @@ class SalesOrderServiceTest {
         @Test
         @DisplayName("should handle mix of add, modify, and delete in one update")
         void deltaComputation_MixOfAllThree() {
-            stubCancelledItemStatus();
             var vidNew = UUID.randomUUID();
             var vidOld = UUID.randomUUID();
             var savedItemId = UUID.randomUUID();
@@ -3092,6 +3024,7 @@ class SalesOrderServiceTest {
                     .listPrice(BigDecimal.TEN)
                     .finalPrice(BigDecimal.TEN)
                     .statusId(pendienteItemStatus.getId())
+                    .status(SalesOrderItemState.PENDING)
                     .enabled(true)
                     .build();
 
@@ -3138,7 +3071,6 @@ class SalesOrderServiceTest {
         @Test
         @DisplayName("should restore old variant and deduct new variant when an item switches variants inline")
         void deltaComputation_VariantChange_RestoresOldAndDeductsNew() {
-            stubCancelledItemStatus();
             var vidOld = UUID.randomUUID();
 
             var existingItem = SalesOrderItem.builder()
@@ -3149,6 +3081,7 @@ class SalesOrderServiceTest {
                     .listPrice(BigDecimal.TEN)
                     .finalPrice(BigDecimal.TEN)
                     .statusId(pendienteItemStatus.getId())
+                    .status(SalesOrderItemState.PENDING)
                     .enabled(true)
                     .build();
 
@@ -3184,7 +3117,6 @@ class SalesOrderServiceTest {
         @Test
         @DisplayName("should throw InsufficientStockException on update with insufficient stock")
         void deltaComputation_InsufficientStock_Throws409() {
-            stubCancelledItemStatus();
             var reqItem = new SalesOrderItemRequest(
                     testItem.getId(),
                     testItem.getProductVariantId(),
@@ -3198,7 +3130,6 @@ class SalesOrderServiceTest {
             when(customerRepository.existsById(customerId)).thenReturn(true);
             when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
             when(shiftRepository.existsById(shiftId)).thenReturn(true);
-            when(statusRepository.findById(borradorStatus.getId())).thenReturn(Optional.of(borradorStatus));
             when(itemRepository.findBySalesOrderId(orderId)).thenReturn(List.of(testItem));
             when(itemRepository.findById(testItem.getId())).thenReturn(Optional.of(testItem));
             when(statusRepository.findByTypeNameAndStatusName("SALES_ORDER_ITEM", "Pending"))
@@ -3258,6 +3189,230 @@ class SalesOrderServiceTest {
             var ex = new InsufficientStockException(UUID.randomUUID(), BigDecimal.ONE, BigDecimal.ZERO);
 
             assertThat(ex).isInstanceOf(RuntimeException.class);
+        }
+    }
+
+    // ─────────────────────────────────────────────
+    // The typed state machine and the history it writes (ADR-0004 T5)
+    // ─────────────────────────────────────────────
+    @Nested
+    @DisplayName("state moves and their history rows")
+    class StatusHistoryTests {
+
+        @Test
+        @DisplayName("creation writes the order's creation row and one per line, in the same transaction")
+        void createSalesOrder_recordsEveryCreationRow() {
+            when(customerRepository.existsById(customerId)).thenReturn(true);
+            when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
+            when(statusRepository.findByTypeNameAndStatusName("SALES_ORDER", "Draft"))
+                    .thenReturn(Optional.of(borradorStatus));
+            when(statusRepository.findByTypeNameAndStatusName("SALES_ORDER_ITEM", "Pending"))
+                    .thenReturn(Optional.of(pendienteItemStatus));
+            when(documentSequenceAllocator.allocate(eq(companyId), eq(DocumentType.SALES_ORDER), anyString()))
+                    .thenReturn(1L);
+            when(salesOrderRepository.save(any(SalesOrder.class))).thenAnswer(invocation -> {
+                var order = invocation.getArgument(0, SalesOrder.class);
+                order.setId(orderId);
+                return order;
+            });
+            var createdLines = new ArrayList<SalesOrderItem>();
+            when(itemRepository.save(any(SalesOrderItem.class))).thenAnswer(invocation -> {
+                var line = invocation.getArgument(0, SalesOrderItem.class);
+                line.setId(UUID.randomUUID());
+                createdLines.add(line);
+                return line;
+            });
+            when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId)).thenAnswer(invocation -> createdLines);
+            when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
+            when(statusRepository.findById(borradorStatus.getId())).thenReturn(Optional.of(borradorStatus));
+            when(statusRepository.findById(pendienteItemStatus.getId())).thenReturn(Optional.of(pendienteItemStatus));
+
+            var itemRequests = List.of(
+                    new SalesOrderItemRequest(
+                            null, variantId, new BigDecimal("1.00"), new BigDecimal("10.00"), BigDecimal.ZERO, null),
+                    new SalesOrderItemRequest(
+                            null, variantId, new BigDecimal("1.00"), new BigDecimal("20.00"), BigDecimal.ZERO, null));
+            var request = new SalesOrderRequest(customerId, companyStoreId, null, "user123", itemRequests);
+
+            var result = salesOrderService.createSalesOrder(request);
+
+            // ADR-0004 decision 5 side A: the document is born with its history, or the commit is refused.
+            verify(statusTransitionRecorder)
+                    .recordCreation(StatusSubject.SALES_ORDER, companyId, orderId, SalesOrderState.DRAFT);
+            verify(statusTransitionRecorder, times(2))
+                    .recordCreation(
+                            eq(StatusSubject.SALES_ORDER_ITEM),
+                            eq(companyId),
+                            any(UUID.class),
+                            eq(SalesOrderItemState.PENDING));
+            assertThat(result.status())
+                    .as("the response carries the code of the state")
+                    .isEqualTo("DRAFT");
+            assertThat(result.items()).hasSize(2).allMatch(item -> "PENDING".equals(item.status()));
+        }
+
+        @Test
+        @DisplayName("a move writes one row with both ends, and the state and the catalog pointer move together")
+        void updateSalesOrderStatus_recordsOneMoveAndKeepsThePairCoherent() {
+            var statusRequest = new UpdateSalesOrderStatusRequest(activoStatus.getId());
+            var captor = ArgumentCaptor.forClass(SalesOrder.class);
+
+            when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
+            when(statusCatalog.requireOrderState(activoStatus.getId())).thenReturn(SalesOrderState.ACTIVE);
+            when(salesOrderRepository.save(captor.capture())).thenAnswer(invocation -> invocation.getArgument(0));
+            when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId)).thenReturn(List.of());
+            when(statusRepository.findById(activoStatus.getId())).thenReturn(Optional.of(activoStatus));
+
+            var result = salesOrderService.updateSalesOrderStatus(orderId, statusRequest);
+
+            var moved = captor.getValue();
+            assertThat(moved.getStatus())
+                    .as("the enum's column is written, not only read")
+                    .isEqualTo(SalesOrderState.ACTIVE);
+            assertThat(moved.getStatusId())
+                    .as("and the catalog pointer beside it, so V66's bridge never sees them disagree")
+                    .isEqualTo(activoStatus.getId());
+            verify(statusTransitionRecorder)
+                    .recordMove(
+                            StatusSubject.SALES_ORDER,
+                            companyId,
+                            orderId,
+                            SalesOrderState.DRAFT,
+                            SalesOrderState.ACTIVE,
+                            "status update");
+            assertThat(result.status()).isEqualTo("ACTIVE");
+        }
+
+        @Test
+        @DisplayName("a forbidden move is a 409 that writes no row, no state and no stock")
+        void updateSalesOrderStatus_forbiddenMove_WritesNothing() {
+            var statusRequest = new UpdateSalesOrderStatusRequest(cerradaStatus.getId());
+
+            when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
+            when(statusCatalog.requireOrderState(cerradaStatus.getId())).thenReturn(SalesOrderState.COMPLETED);
+
+            assertThatThrownBy(() -> salesOrderService.updateSalesOrderStatus(orderId, statusRequest))
+                    .isInstanceOf(InvalidStatusTransitionException.class)
+                    .hasMessageContaining("DRAFT")
+                    .hasMessageContaining("COMPLETED");
+
+            assertThat(testOrder.getStatus())
+                    .as("the refused move left the order where it was")
+                    .isEqualTo(SalesOrderState.DRAFT);
+            assertThat(testOrder.getStatusId()).isEqualTo(borradorStatus.getId());
+            verify(salesOrderRepository, never()).save(any(SalesOrder.class));
+            verifyNoInteractions(statusTransitionRecorder);
+            verifyNoInteractions(inventoryService);
+        }
+
+        @Test
+        @DisplayName("a forbidden cancel restores no stock: the guard runs before the reversal")
+        void updateSalesOrderStatus_forbiddenCancel_RestoresNothing() {
+            // A COMPLETED order is terminal, so CANCELLED is not one of its successors and the reversal the
+            // cancel path would run must never happen (ADR-0004 T2: the row is left untouched).
+            var completedOrder = SalesOrder.builder()
+                    .id(orderId)
+                    .orderNumber(testOrder.getOrderNumber())
+                    .companyId(companyId)
+                    .customerId(customerId)
+                    .companyStoreId(companyStoreId)
+                    .userId("user123")
+                    .orderDate(testOrder.getOrderDate())
+                    .statusId(cerradaStatus.getId())
+                    .status(SalesOrderState.COMPLETED)
+                    .totalAmount(BigDecimal.ZERO)
+                    .enabled(true)
+                    .build();
+            var statusRequest = new UpdateSalesOrderStatusRequest(canceladaStatus.getId());
+
+            when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(completedOrder));
+            when(statusCatalog.requireOrderState(canceladaStatus.getId())).thenReturn(SalesOrderState.CANCELLED);
+
+            assertThatThrownBy(() -> salesOrderService.updateSalesOrderStatus(orderId, statusRequest))
+                    .isInstanceOf(InvalidStatusTransitionException.class)
+                    .hasMessageContaining("COMPLETED")
+                    .hasMessageContaining("CANCELLED");
+
+            verifyNoInteractions(inventoryService);
+            verifyNoInteractions(statusTransitionRecorder);
+            verify(salesOrderRepository, never()).save(any(SalesOrder.class));
+        }
+
+        @Test
+        @DisplayName("charge moves the order and only the lines that are waiting for it")
+        void chargeSalesOrder_movesTheWaitingLinesOnly() {
+            var paymentMethodId = UUID.randomUUID();
+            var pendingOrder = SalesOrder.builder()
+                    .id(orderId)
+                    .orderNumber(testOrder.getOrderNumber())
+                    .companyId(companyId)
+                    .customerId(customerId)
+                    .companyStoreId(companyStoreId)
+                    .userId("user123")
+                    .orderDate(testOrder.getOrderDate())
+                    .statusId(enviadaStatus.getId())
+                    .status(SalesOrderState.PENDING)
+                    .totalAmount(BigDecimal.ZERO)
+                    .enabled(true)
+                    .build();
+            var waitingLine = lineIn(SalesOrderItemState.PENDING, pendienteItemStatus.getId());
+            var chargedLine = lineIn(SalesOrderItemState.ADDED, agregadoItemStatus.getId());
+            var cancelledLine = lineIn(SalesOrderItemState.CANCELLED, canceladoItemStatus.getId());
+
+            when(salesOrderRepository.findById(orderId))
+                    .thenReturn(Optional.of(pendingOrder))
+                    .thenReturn(Optional.of(pendingOrder));
+            when(paymentMethodRepository.existsById(paymentMethodId)).thenReturn(true);
+            when(statusRepository.findByTypeNameAndStatusName("SALES_ORDER", "Completed"))
+                    .thenReturn(Optional.of(cerradaStatus));
+            when(statusRepository.findByTypeNameAndStatusName("SALES_ORDER_ITEM", "Added"))
+                    .thenReturn(Optional.of(agregadoItemStatus));
+            when(itemRepository.findBySalesOrderId(orderId))
+                    .thenReturn(List.of(waitingLine, chargedLine, cancelledLine));
+            when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId)).thenReturn(List.of());
+            when(statusRepository.findById(cerradaStatus.getId())).thenReturn(Optional.of(cerradaStatus));
+
+            salesOrderService.chargeSalesOrder(orderId, new ChargeSalesOrderRequest(paymentMethodId));
+
+            verify(statusTransitionRecorder)
+                    .recordMove(
+                            StatusSubject.SALES_ORDER,
+                            companyId,
+                            orderId,
+                            SalesOrderState.PENDING,
+                            SalesOrderState.COMPLETED,
+                            "charge");
+            // One line move and no more: ADDED is already charged and CANCELLED is terminal, so neither has
+            // an edge to record — the rule that used to be `!"Cancelled".equals(statusName)`.
+            verify(statusTransitionRecorder, times(1))
+                    .recordMove(
+                            eq(StatusSubject.SALES_ORDER_ITEM),
+                            eq(companyId),
+                            eq(waitingLine.getId()),
+                            eq(SalesOrderItemState.PENDING),
+                            eq(SalesOrderItemState.ADDED),
+                            eq("charge"));
+            verify(statusTransitionRecorder, times(2))
+                    .recordMove(any(StatusSubject.class), any(), any(), any(), any(), any());
+            assertThat(waitingLine.getStatus()).isEqualTo(SalesOrderItemState.ADDED);
+            assertThat(chargedLine.getStatus())
+                    .as("an already charged line is not moved to itself")
+                    .isEqualTo(SalesOrderItemState.ADDED);
+            assertThat(cancelledLine.getStatus()).isEqualTo(SalesOrderItemState.CANCELLED);
+        }
+
+        private SalesOrderItem lineIn(SalesOrderItemState state, UUID statusId) {
+            return SalesOrderItem.builder()
+                    .id(UUID.randomUUID())
+                    .salesOrderId(orderId)
+                    .productVariantId(variantId)
+                    .quantity(BigDecimal.ONE)
+                    .listPrice(new BigDecimal("10.00"))
+                    .finalPrice(new BigDecimal("10.00"))
+                    .statusId(statusId)
+                    .status(state)
+                    .enabled(true)
+                    .build();
         }
     }
 }

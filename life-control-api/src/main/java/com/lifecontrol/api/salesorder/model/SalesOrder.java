@@ -62,6 +62,22 @@ public class SalesOrder extends Auditable {
     @Column(name = "status_id", nullable = false)
     private UUID statusId;
 
+    /**
+     * The order's typed state (ADR-0004 decision 1), and the column the service decides every move with.
+     * {@code status_id} stays beside it until ADR-0004's T8 drops that column, and {@code V66}'s bridge
+     * refuses the two ever disagreeing.
+     *
+     * <p>Mapped as the enum and not as a string: {@code @Enumerated(STRING)} stores the constant's name,
+     * which is exactly what the column's {@code CHECK} lists, and it makes an unmapped value a load failure
+     * inside Hibernate instead of a guess in a service. The field is deliberately not marked
+     * {@code nullable = false}: the column is (the migration states it), and leaving the annotation silent
+     * keeps a fixture that omits it reaching {@code V66}'s bridge, which derives it from the catalog's code
+     * — the same path every writer took before this slice.</p>
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "status", length = 24)
+    private SalesOrderState status;
+
     @Column(name = "total_amount", precision = 12, scale = 2)
     private BigDecimal totalAmount;
 
@@ -127,6 +143,10 @@ public class SalesOrder extends Auditable {
         return statusId;
     }
 
+    public SalesOrderState getStatus() {
+        return status;
+    }
+
     public BigDecimal getTotalAmount() {
         return totalAmount;
     }
@@ -190,6 +210,10 @@ public class SalesOrder extends Auditable {
 
     public void setStatusId(UUID statusId) {
         this.statusId = statusId;
+    }
+
+    public void setStatus(SalesOrderState status) {
+        this.status = status;
     }
 
     public void setTotalAmount(BigDecimal totalAmount) {
@@ -274,6 +298,11 @@ public class SalesOrder extends Auditable {
 
         public Builder statusId(UUID statusId) {
             order.statusId = statusId;
+            return this;
+        }
+
+        public Builder status(SalesOrderState status) {
+            order.status = status;
             return this;
         }
 

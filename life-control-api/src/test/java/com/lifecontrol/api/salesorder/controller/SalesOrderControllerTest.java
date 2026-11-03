@@ -97,6 +97,7 @@ class SalesOrderControllerTest {
                 null,
                 UUID.randomUUID(),
                 "Pending",
+                "PENDING",
                 now,
                 now);
 
@@ -110,6 +111,7 @@ class SalesOrderControllerTest {
                 now,
                 testStatusId,
                 "Draft",
+                "DRAFT",
                 BigDecimal.ZERO,
                 null,
                 true,
@@ -222,6 +224,7 @@ class SalesOrderControllerTest {
                     testOrderResponse.orderDate(),
                     testStatusId,
                     "Draft",
+                    "DRAFT",
                     new BigDecimal("180.00"),
                     null,
                     true,
@@ -390,6 +393,7 @@ class SalesOrderControllerTest {
                     testOrderResponse.orderDate(),
                     testStatusId,
                     "Pending",
+                    "PENDING",
                     BigDecimal.ZERO,
                     null,
                     true,
@@ -453,6 +457,7 @@ class SalesOrderControllerTest {
                     testOrderResponse.orderDate(),
                     testStatusId,
                     "Completed",
+                    "COMPLETED",
                     BigDecimal.ZERO,
                     paymentMethodId,
                     true,
@@ -485,6 +490,7 @@ class SalesOrderControllerTest {
                     testOrderResponse.orderDate(),
                     testStatusId,
                     "Completed",
+                    "COMPLETED",
                     BigDecimal.ZERO,
                     paymentMethodId,
                     true,
@@ -718,6 +724,7 @@ class SalesOrderControllerTest {
                     null,
                     testItemResponse.statusId(),
                     "Pending",
+                    "PENDING",
                     testItemResponse.createdAt(),
                     LocalDateTime.now());
 
@@ -804,6 +811,7 @@ class SalesOrderControllerTest {
                     null,
                     UUID.randomUUID(),
                     "Added",
+                    "ADDED",
                     testItemResponse.createdAt(),
                     LocalDateTime.now());
 
