@@ -6,12 +6,18 @@
 **Status**: implemented — T1–T5c are in `main`: the location hierarchy carries its store (`V59`), the ledger
 exists with its engine (`V60`, `V61`), today's balances were replayed into it (`V62`), the five write paths
 book it beside the legacy update, the readers answer from its position, and its source key includes the
-location (`V63`). **T5d is blocked on the ledger's per-write identity, and no ADR supplies it.** The
-earlier statement of this header said it was blocked on ADR-0004's "per-transition identity"; reading that
-ADR against this tree shows it does not and cannot supply one — its `status_transition` records **state
-moves**, and raising a line's quantity books a second `SALE` movement under the same `itemId` with no
-state move at all (`SalesOrderService:985-989`). So the `source_id` mirror still cannot outlive
-`inventory_movements`, and the
+location (`V63`). **T5d's per-write identity is built — shape (a), derived from the document state — and what
+it still waits on is the receipt shape, the reversal flip and the drops themselves.** The earlier statement
+of this header said T5d was blocked on ADR-0004's "per-transition identity"; reading that ADR against this
+tree shows it does not and cannot supply one — its `status_transition` records **state moves**, and raising a
+line's quantity books a second `SALE` movement under the same `itemId` with no state move at all
+(`SalesOrderService:985-989`) — and the entry that replaced it said the identity itself was open, which it no
+longer is: the maintainer decided shape (a) on 2026-11-03 and the slice that builds it is
+`odd/tasks/ledger-per-write-identity.md`, where `V73` adds `write_seq` to the line and to the movement and
+`uq_movement_source` keys a sale by the line, the direction, the location and the write. A `SALES_ORDER_ITEM`
+movement no longer needs the mirror to be written; a `RECEIPT` still does (`GoodsReceiptService:269` hands the
+writer the document id once per line), a reversal still does, and
+`source_id` cannot outlive `inventory_movements` until those two move — so the
 drops, the deletion of `InventoryService` and the move of `InsufficientStockException` stay open. The debt
 that leaves — one stock fact still stored three times, and the `inventory` ↔ `salesorder` package cycle — is
 named here rather than closed quietly.
@@ -532,3 +538,40 @@ stop before the drops. What changed is only the reason: T5d is blocked on the **
 identity**, which no accepted ADR supplies, not on ADR-0004's acceptance. ADR-0004 now carries a `## What
 this ADR does not unblock` section saying so, so a reader of the adoption order does not conclude that
 accepting it releases this debt. The earlier entries are not rewritten; they were accurate when written.
+
+**2026-11-03 — the identity is decided: shape (a), derived from the document state.** The maintainer was
+shown the three shapes with their costs stated and answered, verbatim, «la a». So a movement's key comes
+from the document the movement serves, and the discriminator between two legal writes of one line is a
+per-write fact that line states. Shape (b) — the ledger generating its own key — is refused rather than
+left as an alternative: it moves I5 out of the ledger and into the caller's memory, the same trade this
+set exists to stop making (ADR-0005's `## Context`: 150 call-site checks against zero policies). Shape (c)
+— stopping before the drops — stays on the table only as the fallback if the measurement below ever stops
+holding, and it is what the tree does today.
+
+**What shape (a) needs, measured before it was written down.** `sales_order_items` carries no per-write
+identity: `V1:496-509` declares no `version`, no later migration adds one, and the only column that moves
+on a quantity edit is `updated_at`, which `Auditable` maintains with an application-side
+`@PreUpdate LocalDateTime.now()`. Keying on that timestamp would make a retry's idempotency depend on a
+clock, which is the class of fact this repository refuses to key on; so shape (a) needs a new column on the
+line, bumped by the booking writers inside the transaction they already own, and the key becomes
+`(SALES_ORDER_ITEM, <line id>, <movement type>, <store location>, <write sequence>)`. This entry does not
+create it: the column, its writers and the drops are T5d's own slices.
+
+**What carries the retry half of I5 is the delta rule, not the key — and that is now pinned.** The new case
+in `SalesOrderIntegrationTest` (§5.4, "a retried quantity update books no movement") re-sends the same
+`PUT /api/sales-orders/{id}/items/{itemId}` three times and observes one `SALE` row in `stock_movement` and
+one legacy row: `SalesOrderService:974-981` computes the delta and books nothing when it is zero, so a
+repeated request is a no-op by reading document state — the same source shape (a) keys on. It is the
+property the shape rests on, so it is measured instead of argued.
+
+**The receipt shape is not covered by this decision, and it is named so it is not read as covered.** Shape 3
+of `StockLedgerWriter`'s javadoc — `GoodsReceiptService:269` hands the writer the document id once per line
+— needs a per-line identity of its own, and `goods_receipt_details` has no more of one than
+`sales_order_items` does. T5d's slices own both shapes, and until they land the mirror stays.
+
+**2026-11-03 — the first of those slices is built, and it is its own record.** Shape (a) is
+`odd/tasks/ledger-per-write-identity.md` on `feat/ledger-per-write-identity`: `V73` adds `write_seq` to
+`sales_order_items` and to `stock_movement`, `uq_movement_source` grows the fifth column, the bump is one
+locked `UPDATE … RETURNING`, and a sale books `SALES_ORDER_ITEM` + the line id. The slice is green
+(58 tests over the booking and sales-order suites) and it does not close T5d: the receipt identity, the
+reversal's own flip and the drops stay here, which is why the header above still names them.
