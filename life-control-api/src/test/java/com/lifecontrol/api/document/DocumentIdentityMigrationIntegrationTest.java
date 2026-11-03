@@ -34,12 +34,25 @@ import org.junit.jupiter.api.Test;
  * the rewrite working while delivery's {@code NOSUPERUSER} owner matched zero rows in silence. That is the
  * premise {@code V64} step 0 and {@code V65} open their {@code NO FORCE} windows for, and case 6 below
  * pins it from the other side.</p>
+ *
+ * <p><b>And why {@code V72} is tested here</b> (issue #756). {@code V64} asks its row question after it has
+ * re-armed {@code FORCE}, so the question reads no row and cannot fire. {@code V72} is that guard's
+ * follow-up, and the only way to prove it can fire is to reach a corrupted state on purpose: the database is
+ * migrated to {@code V71}, a document's identity or a counter is rewritten as a bad backfill would have left
+ * it, and the chain is then asked to run to head. A green run over a scratch database at {@code V63} proves
+ * the opposite half — that a correct history passes the questions — and neither half means anything alone.</p>
  */
-@DisplayName("Document identity per tenant (V64, V65)")
+@DisplayName("Document identity per tenant (V64, V65, V72)")
 class DocumentIdentityMigrationIntegrationTest extends AbstractPostgresIntegrationTest {
 
     /** The head this unit starts from: no document carries an identity in parts. */
     private static final String PRE_UNIT_HEAD = "63";
+
+    /**
+     * The head {@code V72} runs from: every document carries its parts and {@code status_id} is still there,
+     * so a fixture can be written in the old shape and then corrupted before the guard reads it.
+     */
+    private static final String PRE_GUARD_HEAD = "71";
 
     /** The role Flyway runs as in delivery: it owns the tables and the policies still apply to it. */
     private static final String OWNER = "lifecontrol_owner";
@@ -268,6 +281,85 @@ class DocumentIdentityMigrationIntegrationTest extends AbstractPostgresIntegrati
                                 + company + "', 'SALES_ORDER', '202610', 1, 'SO-202610-00001')"))
                 .as("the identity is the parts, and a duplicate insert is what fails")
                 .hasStackTraceContaining("uq_sales_orders_doc_identity");
+    }
+
+    // ─── V72: the guard V64 asks too late to fire (issue #756) ────────────────────────────────────
+
+    @Test
+    @DisplayName("a correct history passes the identity questions and leaves the three tables armed")
+    void passesTheIdentityQuestionsOverACorrectHistory() throws Exception {
+        migrateTo(PRE_UNIT_HEAD);
+
+        var company = seedCompany();
+        insertSalesOrder(company, "SO-20261029-00001", "2026-10-01 09:00:00");
+        var order = insertPurchaseOrder(company, "PO-20261029-00001", "2026-10-03 10:00:00");
+        insertReceipt(company, order, "GR-PO-20261029-00001-01", "2026-10-04 10:00:00");
+
+        migrateToHead();
+
+        assertThat(count("SELECT count(*) FROM flyway_schema_history WHERE version = '72'"))
+                .as("a guard Flyway never discovered would leave no row and fail nothing")
+                .isEqualTo(1);
+        assertThat(countScoped(
+                        company,
+                        "SELECT count(*) FROM sales_orders WHERE company_id IS NULL OR seq_value IS NULL"
+                                + " OR seq_period IS NULL OR status IS NULL"))
+                .as("no sales order is left without a company, a sequence value or its typed status")
+                .isZero();
+        assertThat(countScoped(
+                        company,
+                        "SELECT count(*) FROM purchase_orders WHERE company_id IS NULL OR seq_value IS NULL"
+                                + " OR seq_period IS NULL OR status IS NULL"))
+                .isZero();
+        assertThat(countScoped(
+                        company, "SELECT count(*) FROM goods_receipts WHERE company_id IS NULL OR status IS NULL"))
+                .isZero();
+        assertThat(count("SELECT count(*) FROM pg_class WHERE relkind = 'r' AND relforcerowsecurity"
+                        + " AND relname IN ('purchase_orders', 'sales_orders', 'document_sequence')"))
+                .as("the window was re-armed: a table left unforced exempts its owner from its own policy")
+                .isEqualTo(3);
+        assertThat(count("SELECT count(*) FROM unprotected_tenant_tables()")).isZero();
+    }
+
+    @Test
+    @DisplayName("a period that disagrees with the document's own date aborts the migration, named")
+    void refusesAPeriodThatDisagreesWithItsOwnDate() throws Exception {
+        migrateTo(PRE_UNIT_HEAD);
+
+        var company = seedCompany();
+        var order = insertSalesOrder(company, "SO-20261029-00001", "2026-10-05 10:00:00");
+
+        migrateTo(PRE_GUARD_HEAD);
+        // `V64` derives 202610 from this order's own `order_date`; rewriting it is the corruption a backfill
+        // reading the wrong column would have left behind.
+        execute(company, "UPDATE sales_orders SET seq_period = '202001' WHERE id = '" + order + "'");
+
+        assertThatThrownBy(this::migrateToHead)
+                .as("ADR-0003 decision 4: the period comes from the document's own date")
+                .hasStackTraceContaining("V72")
+                .hasStackTraceContaining("sales_orders")
+                .hasStackTraceContaining("is not the period their own order_date states");
+    }
+
+    @Test
+    @DisplayName("a counter that is not ahead of its own documents aborts the migration, named")
+    void refusesACounterThatIsNotAheadOfItsDocuments() throws Exception {
+        migrateTo(PRE_UNIT_HEAD);
+
+        var company = seedCompany();
+        insertSalesOrder(company, "SO-20261029-00001", "2026-10-01 09:00:00");
+        insertSalesOrder(company, "SO-20261029-00002", "2026-10-02 09:00:00");
+
+        migrateTo(PRE_GUARD_HEAD);
+        // `V64` seeds max(seq_value) + 1, which is 3 here. Handing out 2 next is a number a document of this
+        // very bucket already holds, so the seed read a subset — the failure `max + 1` exists to prevent.
+        execute(company, "UPDATE document_sequence SET next_value = 2 WHERE doc_type = 'SALES_ORDER'");
+
+        assertThatThrownBy(this::migrateToHead)
+                .as("next_value is the NEXT value, so the highest document must sit strictly below it")
+                .hasStackTraceContaining("V72")
+                .hasStackTraceContaining("document_sequence")
+                .hasStackTraceContaining("says next_value 2 but a document already holds 2");
     }
 
     // ─── migrations ────────────────────────────────────────────────────────────────────────────────
