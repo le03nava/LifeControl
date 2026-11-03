@@ -343,13 +343,15 @@ END $$;
 --
 -- What it buys, and why the `NOT NULL` of step 3 is legal at all: every writer today sets `status_id` and
 -- nothing else, and without this trigger each of those writes would be refused the moment the column
--- became required. It buys that with three rules and no fourth one:
+-- became required. It buys that with two rules and no third one:
 --
 --   1. `status_id IS NULL` → the row is left exactly as the writer wrote it. Nothing to derive from.
---   2. `status IS NULL` → derive it from the catalog's code. This is the path every existing writer takes.
---   3. `status` present and different from that code → refuse, naming the table and both values. A silent
---      divergence must be impossible while both columns exist, because after T8 the wrong one would be the
---      only one left and nothing would have said so.
+--   2. `status_id` present → `status` becomes that row's code, **whatever the writer supplied**. The pointer
+--      is today's authority and the typed column follows it; a supplied value is overwritten rather than
+--      refused, because every writer in the tree changes `status_id` and nothing else — a refusal here would
+--      reject every legal transition the product performs between this slice and the one that maps the enum.
+--      The direction is one-way on purpose: while both columns exist, exactly one of them can win, and a
+--      bridge that let either win would be the second source of truth decision 1 removes.
 --
 -- A `status_id` whose catalog row carries no code (an out-of-scope family, or a row created at runtime)
 -- leaves `status` NULL by rule 2 and the `NOT NULL` refuses the row: fail closed, in the database, rather
@@ -364,16 +366,8 @@ BEGIN
 
     SELECT s.code INTO v_code FROM statuses s WHERE s.id = NEW.status_id;
 
-    IF NEW.status IS NULL THEN
-        NEW.status := v_code;
-        RETURN NEW;
-    END IF;
-
-    IF NEW.status IS DISTINCT FROM v_code THEN
-        RAISE EXCEPTION
-            '%: stored status % disagrees with the catalog code % for status_id %',
-            TG_TABLE_NAME, NEW.status, coalesce(v_code, '(no code)'), NEW.status_id;
-    END IF;
+    -- One-way, and unconditional: the pointer wins while it exists. See rule 2 in the header.
+    NEW.status := v_code;
 
     RETURN NEW;
 END;
@@ -383,8 +377,8 @@ $$ LANGUAGE plpgsql;
 -- surprises them, and "temporary" is the one thing they need to know about it.
 COMMENT ON FUNCTION sync_document_status_from_catalog() IS
     'TEMPORARY (ADR-0004 task T2): derives document.status from statuses.code while status_id still exists, '
-    'and refuses a stored state that disagrees with it. Dropped by task T8 together with status_id — it is '
-    'not a second source of truth and must not outlive the column it bridges from.';
+    'one way, so the pointer wins until it is dropped. Dropped by task T8 together with status_id — it is not '
+    'a second source of truth and must not outlive the column it bridges from.';
 
 CREATE TRIGGER trg_sales_orders_status_bridge
     BEFORE INSERT OR UPDATE ON sales_orders
