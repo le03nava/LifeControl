@@ -482,6 +482,51 @@ class InventoryLedgerBookingIntegrationTest extends AbstractPostgresIntegrationT
     }
 
     // ──────────────────────────────────────
+    // T3 — the split reads the ledger's projection, never the column it is about to lose
+    // ──────────────────────────────────────
+
+    /**
+     * A sale splits across locations by {@code stock_balance}, and a lie in the legacy column cannot change what
+     * it does.
+     *
+     * <p><b>The fixture is the point, not a shortcut.</b> The receipt writes 10 in the location and the projection
+     * agrees; then the legacy column is set to <b>0</b> behind the ledger's back, which is the state the column
+     * reaches on its own once the write path stops maintaining it — a frozen number nobody updates while the
+     * ledger keeps moving. Reading the column, a sale of 5 has nowhere to come from and is refused with 409
+     * although the store holds ten units; reading the projection, it books the 5 and the ledger ends telling the
+     * truth. Both outcomes are measured rather than argued: this case is RED against the code that read the
+     * column.</p>
+     *
+     * <p>Only the location column is corrupted on purpose. The store aggregate is left what the receipt wrote,
+     * because this case is about where the <b>split</b> comes from; the gate that still reads the store column
+     * is the next slice's, and confusing the two would make a green case mean neither.</p>
+     */
+    @Test
+    @DisplayName("a sale splits by the ledger's projection, not by the legacy column")
+    void aSaleSplitsByTheProjectionNotByTheLegacyColumn() {
+        applyReceipt(variantId, salesLocationId, "10", UUID.randomUUID());
+        TenantFixtures.inTenant(
+                companyId,
+                () -> jdbcTemplate.update(
+                        "UPDATE product_variant_locations SET stock = 0 WHERE product_variant_id = ? AND store_location_id = ?",
+                        variantId,
+                        salesLocationId));
+
+        sell(variantId, "5", UUID.randomUUID());
+
+        assertThat(ledgerMovementsOf(variantId, StockLedgerWriter.SALE))
+                .as("the projection holds 10 at that location, so a sale of 5 has a shape even though the "
+                        + "column claims 0: the split's source is the ledger")
+                .hasSize(1);
+        assertThat(ledgerMovementsOf(variantId, StockLedgerWriter.SALE)
+                        .getFirst()
+                        .quantity())
+                .isEqualByComparingTo("5");
+        assertThat(positionOf(variantId)).as("and the position followed it").isEqualByComparingTo("5");
+        assertThat(verifyStockProjections()).isEmpty();
+    }
+
+    // ──────────────────────────────────────
     // the mirror identity the deploy window still holds, and the key that still refuses a duplicate on it
     // ──────────────────────────────────────
 

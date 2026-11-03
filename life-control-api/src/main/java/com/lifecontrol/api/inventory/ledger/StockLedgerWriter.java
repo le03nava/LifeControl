@@ -236,6 +236,33 @@ public class StockLedgerWriter {
              ORDER BY m.occurred_at, m.id
             """;
 
+    /**
+     * The ledger's own balance per location of one store, in the order the legacy rows state.
+     *
+     * <p><b>Why the projections and not the legacy column.</b> The split of a sale across a store's locations
+     * is a read, and from T3 the reader answers from {@code stock_balance} — the projection {@code V61}'s trigger
+     * maintains from every movement — instead of {@code product_variant_locations.stock}, which the write path is
+     * about to stop maintaining and the migration after that drops. The join to
+     * {@code product_variant_locations} is for the ORDER only ({@code created_at, store_location_id}, the pair the
+     * legacy query ordered by): a row that names no location of this store contributes nothing, and the order is
+     * kept so the change is a change of source, not of behaviour.</p>
+     */
+    private static final String OPEN_BALANCES = """
+            SELECT b.store_location_id, b.quantity
+              FROM stock_balance b
+              JOIN product_variant_locations pvl
+                ON pvl.product_variant_id = b.product_variant_id
+               AND pvl.store_location_id = b.store_location_id
+             WHERE b.product_variant_id = ?
+               AND b.store_location_id IN (
+                   SELECT sl.id
+                     FROM store_locations sl
+                     JOIN store_zones sz ON sz.id = sl.store_zone_id
+                     JOIN store_areas sa ON sa.id = sz.store_area_id
+                    WHERE sa.company_store_id = ?)
+             ORDER BY pvl.created_at ASC, pvl.store_location_id ASC
+            """;
+
     private static final String REVERSAL_OF = "SELECT count(*) FROM stock_movement WHERE reverses_movement_id = ?";
 
     private final JdbcTemplate jdbcTemplate;
@@ -330,6 +357,25 @@ public class StockLedgerWriter {
                 sourceId,
                 SALE);
     }
+
+    /**
+     * The quantity the ledger holds at each location of one store for one variant (T3).
+     *
+     * @param companyStoreId the store whose locations bound the answer
+     * @param productVariantId the variant
+     * @return one entry per location that holds a projection row, in the legacy FIFO order
+     */
+    public List<LocationBalance> openBalances(UUID companyStoreId, UUID productVariantId) {
+        return jdbcTemplate.query(
+                OPEN_BALANCES,
+                (rs, rowNum) -> new LocationBalance(
+                        rs.getObject("store_location_id", UUID.class), rs.getBigDecimal("quantity")),
+                productVariantId,
+                companyStoreId);
+    }
+
+    /** One location's balance in the ledger: the grain a sale consumes and a reversal credits. */
+    public record LocationBalance(UUID storeLocationId, BigDecimal quantity) {}
 
     /**
      * The operating currency of a company — the only currency a document can be in (ADR-0002 decision 2),

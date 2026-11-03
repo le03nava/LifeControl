@@ -285,12 +285,26 @@ class InventoryServiceSaleMovementTest {
     /**
      * Registers the store's balance rows in the exact order the FIFO query returns them (oldest row
      * first, {@code store_location_id} as the tie-break).
+     *
+     * <p><b>And states the same rows as the ledger's projection</b>, because from T3 the split reads
+     * {@code stock_balance} and not the legacy column (odd/tasks/ledger-mirror-retirement.md, S4). A fixture that
+     * declared only the column would describe a world where the ledger holds nothing and every sale is refused —
+     * which is exactly what the first run of this change reported.</p>
      */
     private void givenFifoOrder(UUID... locationIdsInFifoOrder) {
-        when(productVariantLocationRepository.findByProductVariantIdAndCompanyStoreId(VARIANT_ID, STORE_ID))
-                .thenReturn(
-                        Arrays.stream(locationIdsInFifoOrder).map(balances::get).toList());
+        // No stub for the legacy repository read: since T3 the split does not consult it at all, and stubbing it
+        // would be the fixture asserting a query the code no longer makes.
         givenLockableBalances(locationIdsInFifoOrder);
+        lenient()
+                .when(stockLedgerWriter.openBalances(STORE_ID, VARIANT_ID))
+                .thenReturn(Arrays.stream(locationIdsInFifoOrder)
+                        .map(locationId -> new StockLedgerWriter.LocationBalance(
+                                locationId, orZero(balances.get(locationId).getStock())))
+                        .toList());
+    }
+
+    private static BigDecimal orZero(BigDecimal value) {
+        return value == null ? BigDecimal.ZERO : value;
     }
 
     /** Stubs the locking read of each balance row, which the reversal uses without the FIFO query. */
@@ -875,9 +889,9 @@ class InventoryServiceSaleMovementTest {
             lockOrder
                     .verify(productVariantStoreStockRepository)
                     .findByProductVariantIdAndCompanyStoreIdForUpdate(VARIANT_ID, STORE_ID);
-            lockOrder
-                    .verify(productVariantLocationRepository)
-                    .findByProductVariantIdAndCompanyStoreId(VARIANT_ID, STORE_ID);
+            // The first interaction with the balance repository is its LOCKING read: the legacy per-store read
+            // that used to come first is gone with the split's source (T3). The invariant the case exists for is
+            // unchanged — the store row is locked before any balance row is touched.
             lockOrder
                     .verify(productVariantLocationRepository)
                     .findByProductVariantIdAndStoreLocationIdForUpdate(VARIANT_ID, LOCATION_A);
@@ -922,6 +936,9 @@ class InventoryServiceSaleMovementTest {
 
         /** The second key of a batch, sellable: an enabled variant with stock and one location row. */
         private void givenSecondVariantSellable() {
+            lenient()
+                    .when(stockLedgerWriter.openBalances(STORE_ID, SECOND_VARIANT_ID))
+                    .thenReturn(List.of(new StockLedgerWriter.LocationBalance(LOCATION_A, new BigDecimal("10.00"))));
             var secondBalance = ProductVariantLocation.builder()
                     .id(UUID.randomUUID())
                     .productVariantId(SECOND_VARIANT_ID)
@@ -943,8 +960,7 @@ class InventoryServiceSaleMovementTest {
                             .companyStoreId(STORE_ID)
                             .stock(new BigDecimal("10.00"))
                             .build()));
-            when(productVariantLocationRepository.findByProductVariantIdAndCompanyStoreId(SECOND_VARIANT_ID, STORE_ID))
-                    .thenReturn(List.of(secondBalance));
+            // No stub for the legacy per-store balance read: T3 removed it from the split.
             when(productVariantLocationRepository.findByProductVariantIdAndStoreLocationIdForUpdate(
                             SECOND_VARIANT_ID, LOCATION_A))
                     .thenReturn(Optional.of(secondBalance));
@@ -970,6 +986,9 @@ class InventoryServiceSaleMovementTest {
             when(productVariantLocationRepository.findByProductVariantIdAndStoreLocationIdForUpdate(
                             SECOND_VARIANT_ID, LOCATION_A))
                     .thenReturn(Optional.of(secondBalance));
+            lenient()
+                    .when(stockLedgerWriter.openBalances(STORE_ID, SECOND_VARIANT_ID))
+                    .thenReturn(List.of(new StockLedgerWriter.LocationBalance(LOCATION_A, new BigDecimal("0.00"))));
         }
 
         @Test

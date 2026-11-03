@@ -479,46 +479,51 @@ public class InventoryService {
         //    fallback with one warning, never a failure (W3-D8).
         UUID priorityLocationId = resolveSalesLocationId(companyStoreId);
 
-        // 6. Every balance row of the variant in this store, in the repository's FIFO order.
-        var storeBalances = productVariantLocationRepository.findByProductVariantIdAndCompanyStoreId(
-                productVariantId, companyStoreId);
-
-        // 7. Lock each balance before reading it, in the FIFO order of the query so two movers take
-        //    the same rows in the same sequence. storeStock is already held, so the documented order
-        //    storeStock -> locationBalance holds.
-        var lockedBalances = new LinkedHashMap<UUID, ProductVariantLocation>();
-        for (var balance : storeBalances) {
-            lockedBalances.put(
-                    balance.getStoreLocationId(), lockBalance(productVariantId, balance.getStoreLocationId()));
+        // 6. How much is where: the ledger's projection per location, in the order the legacy rows state.
+        //    THE SOURCE OF THIS NUMBER MOVED, and that is the whole point of the slice: it used to be
+        //    `product_variant_locations.stock`, the column the write path stops maintaining (T3) and the
+        //    migration after that drops. A split read from a column nothing updates is a split read from a
+        //    frozen number, and the case that pins this corrupts the column on purpose and asserts the sale
+        //    still follows the projection.
+        var storedByLocation = new LinkedHashMap<UUID, BigDecimal>();
+        for (var balance : stockLedgerWriter.openBalances(companyStoreId, productVariantId)) {
+            storedByLocation.put(balance.storeLocationId(), orZero(balance.quantity()));
         }
 
-        // 8. Second fail-closed check (W3-D1), computed before any write: a store the aggregate
-        //    promised but the locations cannot cover is left untouched instead of partially deducted.
-        var locationTotal = lockedBalances.values().stream()
-                .map(location -> orZero(location.getStock()))
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        // 7. Lock each balance row before writing it, in that same order so two movers take the same rows in
+        //    the same sequence. storeStock is already held, so the documented order storeStock -> locationBalance
+        //    holds.
+        var lockedBalances = new LinkedHashMap<UUID, ProductVariantLocation>();
+        for (var locationId : storedByLocation.keySet()) {
+            lockedBalances.put(locationId, lockBalance(productVariantId, locationId));
+        }
+
+        // 8. Second fail-closed check (W3-D1), computed before any write: a store the position promised but the
+        //    locations cannot cover is left untouched instead of partially deducted.
+        var locationTotal = storedByLocation.values().stream().reduce(BigDecimal.ZERO, BigDecimal::add);
         if (locationTotal.compareTo(quantity) < 0) {
             throw new InsufficientStockException(productVariantId, quantity, locationTotal);
         }
 
-        // 9. Consume: priority location first, then the FIFO order. One SALE movement per location
-        //    actually consumed; a location holding nothing contributes no row.
+        // 9. Consume: priority location first, then the FIFO order. One SALE movement per location actually
+        //    consumed; a location holding nothing contributes no row.
         var remaining = quantity;
-        for (var location : orderForDeduction(lockedBalances.values(), priorityLocationId)) {
+        for (var locationId : orderForDeduction(storedByLocation.keySet(), priorityLocationId)) {
             if (remaining.signum() == 0) {
                 break;
             }
-            var stock = orZero(location.getStock());
+            var stock = storedByLocation.getOrDefault(locationId, BigDecimal.ZERO);
             var taken = stock.min(remaining);
             if (taken.signum() <= 0) {
                 continue;
             }
-            location.setStock(stock.subtract(taken));
+            var location = lockedBalances.get(locationId);
+            location.setStock(orZero(location.getStock()).subtract(taken));
             productVariantLocationRepository.save(location);
             var saleMovement = newMovement(
                     productVariantId,
                     companyStoreId,
-                    location.getStoreLocationId(),
+                    locationId,
                     MovementType.SALE,
                     taken,
                     referenceType,
@@ -534,7 +539,7 @@ public class InventoryService {
                             referenceType,
                             companyId,
                             companyStoreId,
-                            location.getStoreLocationId(),
+                            locationId,
                             productVariantId,
                             createdBy,
                             referenceId,
@@ -892,38 +897,39 @@ public class InventoryService {
     private void applyAdjustmentDecrease(
             UUID productVariantId, UUID companyStoreId, UUID priorityLocationId, BigDecimal amount, String createdBy) {
 
-        var storeBalances = productVariantLocationRepository.findByProductVariantIdAndCompanyStoreId(
-                productVariantId, companyStoreId);
+        // Same source as a sale's split (T3): the ledger's projection, never the column.
+        var storedByLocation = new LinkedHashMap<UUID, BigDecimal>();
+        for (var balance : stockLedgerWriter.openBalances(companyStoreId, productVariantId)) {
+            storedByLocation.put(balance.storeLocationId(), orZero(balance.quantity()));
+        }
         var lockedBalances = new LinkedHashMap<UUID, ProductVariantLocation>();
-        for (var balance : storeBalances) {
-            lockedBalances.put(
-                    balance.getStoreLocationId(), lockBalance(productVariantId, balance.getStoreLocationId()));
+        for (var locationId : storedByLocation.keySet()) {
+            lockedBalances.put(locationId, lockBalance(productVariantId, locationId));
         }
 
-        var locationTotal = lockedBalances.values().stream()
-                .map(location -> orZero(location.getStock()))
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        var locationTotal = storedByLocation.values().stream().reduce(BigDecimal.ZERO, BigDecimal::add);
         if (locationTotal.compareTo(amount) < 0) {
             throw new InsufficientStockException(productVariantId, amount, locationTotal);
         }
 
         var remaining = amount;
         var companyId = companyIdOf(companyStoreId);
-        for (var location : orderForDeduction(lockedBalances.values(), priorityLocationId)) {
+        for (var locationId : orderForDeduction(storedByLocation.keySet(), priorityLocationId)) {
             if (remaining.signum() == 0) {
                 break;
             }
-            var stock = orZero(location.getStock());
+            var stock = storedByLocation.getOrDefault(locationId, BigDecimal.ZERO);
             var taken = stock.min(remaining);
             if (taken.signum() <= 0) {
                 continue;
             }
-            location.setStock(stock.subtract(taken));
+            var location = lockedBalances.get(locationId);
+            location.setStock(orZero(location.getStock()).subtract(taken));
             productVariantLocationRepository.save(location);
             var decreaseMovement = newMovement(
                     productVariantId,
                     companyStoreId,
-                    location.getStoreLocationId(),
+                    locationId,
                     MovementType.ADJUSTMENT_DECREASE,
                     taken,
                     MANUAL_STOCK_EDIT_REFERENCE_TYPE,
@@ -938,7 +944,7 @@ public class InventoryService {
                             StockLedgerWriter.MIRRORED_SOURCE_TYPE,
                             companyId,
                             companyStoreId,
-                            location.getStoreLocationId(),
+                            locationId,
                             productVariantId,
                             createdBy,
                             decreaseMovement.getId(),
@@ -1059,15 +1065,12 @@ public class InventoryService {
      * order the repository returned (FIFO). A priority location without a balance row of the variant
      * is simply absent from the list.
      */
-    private static List<ProductVariantLocation> orderForDeduction(
-            Collection<ProductVariantLocation> lockedBalances, UUID priorityLocationId) {
-        var ordered = new ArrayList<ProductVariantLocation>(lockedBalances.size());
-        if (priorityLocationId != null) {
-            lockedBalances.stream()
-                    .filter(location -> priorityLocationId.equals(location.getStoreLocationId()))
-                    .forEach(ordered::add);
+    private static List<UUID> orderForDeduction(Collection<UUID> locationIds, UUID priorityLocationId) {
+        var ordered = new ArrayList<UUID>(locationIds.size());
+        if (priorityLocationId != null && locationIds.contains(priorityLocationId)) {
+            ordered.add(priorityLocationId);
         }
-        lockedBalances.stream().filter(location -> !ordered.contains(location)).forEach(ordered::add);
+        locationIds.stream().filter(locationId -> !ordered.contains(locationId)).forEach(ordered::add);
         return ordered;
     }
 

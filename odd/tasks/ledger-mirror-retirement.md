@@ -199,3 +199,24 @@ learn, in the order it learned it:
 Evidence: `InventoryLedgerBookingIntegrationTest` 15/15 and `InventoryServiceSaleMovementTest` 37/37 green, and
 the full suite: **1066 result files, 4504 tests, 0 failures, 0 errors, 0 skipped**, `spotlessCheck` and
 `spotbugsMain` clean. The slice is **374 changed lines** (236+/138−).
+
+**2026-11-03 — T3, first half: the sale's split reads the projection, and a lie in the column cannot move it.**
+The order of work here was chosen so that the tree is green between halves:
+
+- `StockLedgerWriter.openBalances(companyStoreId, productVariantId)` is the new read: quantities from
+  `stock_balance` (the projection `V61` maintains from every movement), joined to
+  `product_variant_locations` **for the order only** — `created_at, store_location_id`, the pair the legacy
+  query ordered by — so the change is a change of source and not of behaviour.
+- `applySaleDeduction`'s steps 6-9 and `applyAdjustmentDecrease` take their amounts from that read, keep locking
+  the same rows in the same order, and still maintain the columns (that stops in the second half). `orderForDeduction`
+  now orders location **ids**, because the entity is no longer the thing holding the number.
+- **The case that pins it corrupts the column on purpose**: a receipt of 10 leaves `stock_balance` at 10, then the
+  location's legacy `stock` is set to 0 behind the ledger's back, and a sale of 5 is booked. **RED was measured
+  against the previous code** — `InsufficientStockException: requested 5, available 0` — and the case is green
+  after the change. That is the difference between saying "the column is not the source" and proving it.
+
+**What the unit fixture had to be told, again.** `InventoryServiceSaleMovementTest` declared its world through the
+legacy repository and the legacy columns; with the split moved, seventeen of its cases refused every sale for
+having no stock, then failed on stubs that had become unnecessary, then on a verification that named a read the
+code no longer makes. The fixture now states the projection beside the rows it already stated, and it says why:
+a fixture that declares only the column describes a world where the ledger holds nothing.
