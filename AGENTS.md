@@ -62,6 +62,40 @@ Los skills propios del repo viven en `.agents/skills/` y se versionan. Pi y Open
 
 ---
 
+## Exploración de código con CodeGraph
+
+Grafo de símbolos en `.codegraph/codegraph.db` (SQLite + FTS5): Java y TypeScript en **un mismo índice**,
+con call paths y blast radius resueltos. Es la única vista del repo que cruza `life-control-api` y
+`life-control-app-angular` en una sola consulta — Gradle ve sólo el build, `madge` sólo los `.ts`,
+`jdeps` sólo los `.java`. Medido en este repo: **1,517 archivos, 43,178 nodos, 98,016 aristas, 198 MB**,
+5.5 s de indexado.
+
+| Regla | Valor |
+|-------|-------|
+| Dónde se indexa | **Sólo el anchor.** El índice es **por checkout** y pesa ~198 MB: indexar cada worktree de `new-unit.sh` multiplica ese costo y el índice muere con el worktree. Se consulta desde el anchor, que es de lectura por convención — `.codegraph/` va excluido localmente, así que `git status` sigue vacío |
+| Qué queda **afuera** del índice | **Shell no está soportado**: `.github/scripts/**`, `.githooks/**` y `docker/scripts/**` no existen para el grafo, así que `affected` nunca va a nombrar ninguna de las suites de `.github/scripts/tests/`. `odd/tasks/*.md`, los ADRs, el compose y el YAML de `k8s/` tampoco son nodos. Esa mitad del repo se sigue leyendo con `read`/`grep` |
+| Cómo se mantiene fresco | **No se auto-sincroniza**: el watcher sólo vive dentro de `codegraph serve --mcp` y el daemon no queda corriendo tras `init` (`codegraph daemon` → *No CodeGraph daemons running*). Antes de una tanda de consultas: `codegraph sync`, incremental y ~1 s con cero cambios. El lock `writer.pid` admite **un solo writer por proyecto** |
+| Antes de editar código compartido | `codegraph impact <símbolo>` enumera qué se afecta, con `archivo:línea` y los tests que lo verifican. Es la forma barata de detectar que tocaste algo que otros consumen, en vez de juzgarlo por el tamaño del diff |
+| Para elegir tests | `codegraph affected <archivo>`. Con un símbolo **hoja** devuelve 3–15 archivos y ahorra de verdad; con un **hub** (`CurrentUserContext`: 226 callers, **206 tests** afectados) devuelve "casi todo el API", y ese resultado *es* la respuesta: el cambio es de riesgo alto y va con suite completa, no con un subconjunto |
+| Qué **no** reemplaza | Nada del flujo de verificación: las suites de `.github/scripts/tests/`, `./gradlew test`, `npm run test:coverage:check` y el `PR Label Guard` siguen siendo los gates. El grafo dice **por dónde empezar**, nunca **qué alcanza** |
+| Cómo se consulta desde Pi | La tool `codegraph` (`init` / `query` / `explore`), sin ruta: siempre el workspace actual. El subagente `gentle-ai-explore` la tiene en su lista de tools y la usa **antes** de buscar en el filesystem |
+| Entorno y privacidad | La telemetría anónima viene **encendida** por defecto: `codegraph telemetry off`. La instalación tampoco cablea Pi (`codegraph install` no lo lista como agente); el adapter lo aporta gentle-pi con esa tool, y `~/.pi/agent/mcp.json` aporta `codegraph serve --mcp` |
+| Lo que no se hace | Versionar `.codegraph/` (la exclusión va por `git rev-parse --git-path info/exclude`, nunca por un `.gitignore` trackeado: eso sí sería una decisión de PR); cablearlo en CI (necesitaría el índice por job); o sincronizarlo desde un hook (llega tarde: sincroniza después del commit, cuando ya consultaste un grafo viejo) |
+
+```bash
+# En el anchor, una vez por checkout
+codegraph init && codegraph telemetry off
+
+# Después de un pull, antes de consultar
+git pull --ff-only && codegraph sync
+
+# Pre-vuelo de un cambio y su test plan
+codegraph impact CurrentUserContext
+codegraph affected life-control-api/src/main/java/com/lifecontrol/api/<área>/<Clase>.java
+```
+
+---
+
 ## Trabajo en paralelo con worktrees
 
 Aislamiento para trabajo concurrente. El detalle completo, los comandos y los anti-patrones están en
