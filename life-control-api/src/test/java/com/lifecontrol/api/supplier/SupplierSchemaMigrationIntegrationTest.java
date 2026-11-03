@@ -73,7 +73,6 @@ class SupplierSchemaMigrationIntegrationTest extends AbstractPostgresIntegration
     private final List<InsertedRow> insertedCompanyCountries = new ArrayList<>();
 
     private UUID paymentMethodId;
-    private UUID draftPurchaseOrderStatusId;
 
     @BeforeEach
     void insertCompanies() {
@@ -84,11 +83,6 @@ class SupplierSchemaMigrationIntegrationTest extends AbstractPostgresIntegration
         // what these cases are about.
         paymentMethodId = jdbcTemplate.queryForObject(
                 "SELECT id FROM payment_methods ORDER BY payment_method_name LIMIT 1", UUID.class);
-        draftPurchaseOrderStatusId = jdbcTemplate.queryForObject("""
-                SELECT s.id FROM statuses s
-                JOIN status_types st ON st.id = s.status_type_id
-                WHERE st.status_type_name = 'PURCHASE_ORDER' AND s.status_name = 'Draft'
-                """, UUID.class);
     }
 
     @AfterEach
@@ -490,28 +484,19 @@ class SupplierSchemaMigrationIntegrationTest extends AbstractPostgresIntegration
             jdbcTemplate.update(
                     """
                 INSERT INTO purchase_orders (id, order_number, supplier_id, company_store_id,
-                                             payment_method_id, status_id, company_id, enabled,
+                                             payment_method_id, status, company_id, enabled,
                                              doc_type, seq_period, seq_value, doc_number)
-                VALUES (?, ?, ?, ?, ?, ?, ?, true, 'PURCHASE_ORDER', '202601', 1, ?)
-                """,
-                    id,
-                    orderNumber,
-                    supplierId,
-                    storeId,
-                    paymentMethodId,
-                    draftPurchaseOrderStatusId,
-                    companyId,
-                    "PO-SCHEMA-" + orderNumber);
+                VALUES (?, ?, ?, ?, ?, 'DRAFT', ?, true, 'PURCHASE_ORDER', '202601', 1, ?)
+                """, id, orderNumber, supplierId, storeId, paymentMethodId, companyId, "PO-SCHEMA-" + orderNumber);
             // ADR-0004 decision 5 side A: a document and its creation row commit together, so a fixture that
-            // inserts a document owes the history it claims. `to_status` is read from the catalog row the order
-            // points at — the same code `V66`'s bridge derives for the column — so the two cannot drift, and the
-            // actor says a fixture wrote it: `unknown:migration` belongs to the migration alone.
+            // inserts a document owes the history it claims. `to_status` is the order's own typed state — the
+            // only state column since `V71` dropped `status_id` — so the two cannot drift, and the actor says a
+            // fixture wrote it: `unknown:migration` belongs to the migration alone.
             jdbcTemplate.update("""
                     INSERT INTO status_transition (company_id, document_type, document_id, from_status, to_status,
                                                    actor, reason)
-                    SELECT ?, 'PURCHASE_ORDER', ?, NULL, s.code, 'unknown:test', 'fixture'
-                      FROM statuses s WHERE s.id = ?
-                    """, companyId, id, draftPurchaseOrderStatusId);
+                    VALUES (?, 'PURCHASE_ORDER', ?, NULL, 'DRAFT', 'unknown:test', 'fixture')
+                    """, companyId, id);
         });
         insertedPurchaseOrders.add(new InsertedRow(companyId, id));
     }

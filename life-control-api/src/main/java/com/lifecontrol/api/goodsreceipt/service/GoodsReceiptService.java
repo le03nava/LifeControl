@@ -39,7 +39,7 @@ import com.lifecontrol.api.purchaseorder.model.PurchaseOrderDetail;
 import com.lifecontrol.api.purchaseorder.repository.PurchaseOrderDetailRepository;
 import com.lifecontrol.api.purchaseorder.repository.PurchaseOrderRepository;
 import com.lifecontrol.api.purchaseorder.service.PurchaseOrderService;
-import com.lifecontrol.api.status.exception.StatusNotFoundException;
+import com.lifecontrol.api.status.model.Status;
 import com.lifecontrol.api.status.repository.StatusRepository;
 import com.lifecontrol.api.store.exception.StoreLocationNotFoundException;
 import com.lifecontrol.api.store.model.CompanyStore;
@@ -86,18 +86,16 @@ public class GoodsReceiptService {
     /** {@code inventory_movements.reference_type} discriminator written for every receipt line. */
     private static final String REFERENCE_TYPE = "GOODS_RECEIPT";
 
-    /** Status family and the single status a new receipt is registered with. */
+    /** The status family the receipt's label is projected from (ADR-0004 decision 7). */
     private static final String RECEIPT_STATUS_TYPE = "GOODS_RECEIPT";
-
-    private static final String REGISTERED_STATUS_NAME = "Registered";
 
     /**
      * The state every receipt is born in (ADR-0004 decision 1), and the only one its machine declares.
      *
      * <p>Stated as a constant instead of read from the request because a receipt is immutable: the request has no
-     * {@code statusId} and must not gain one. The catalog row below is still resolved, because {@code status_id}
-     * is the pointer every screen reads until T8 drops it, and {@code V66}'s bridge refuses that pointer and this
-     * constant disagreeing — which is what makes the pair coherent without either side guessing.</p>
+     * {@code statusId} and must not gain one. The constant is the whole write — {@code V71} dropped the
+     * {@code status_id} pointer and the bridge that kept it coherent, so nothing is resolved on the way in; the
+     * catalog row is read back on the way out, as the label of this code.</p>
      */
     private static final GoodsReceiptState INITIAL_RECEIPT_STATE = GoodsReceiptState.REGISTERED;
 
@@ -175,8 +173,6 @@ public class GoodsReceiptService {
      *     decimals
      * @throws OverReceiptException when a line would exceed its ordered quantity
      * @throws DuplicateReceiptLineException when one request repeats a purchase-order line
-     * @throws StatusNotFoundException when the {@code GOODS_RECEIPT} / {@code Registered} status is
-     *     missing
      * @throws ReceiptNumberTooLongException when the generated number would not fit the column
      */
     @Transactional
@@ -249,10 +245,6 @@ public class GoodsReceiptService {
         var receiptNumber = generateReceiptNumber(purchaseOrder, receiptCount);
 
         // ── Step 7: persist the receipt ────────────────────────────────────────────────────────
-        var status = statusRepository
-                .findByTypeNameAndStatusName(RECEIPT_STATUS_TYPE, REGISTERED_STATUS_NAME)
-                .orElseThrow(() -> new StatusNotFoundException(
-                        "Status '" + REGISTERED_STATUS_NAME + "' not found for " + RECEIPT_STATUS_TYPE + " type"));
         var receivedBy = currentUserContext.getUsername();
 
         var receipt = GoodsReceipt.builder()
@@ -265,10 +257,8 @@ public class GoodsReceiptService {
                 .purchaseOrder(purchaseOrder)
                 .companyStore(companyStore)
                 .receivingLocation(receivingLocation)
-                .status(status)
-                // The two halves of one fact (see `GoodsReceipt#state`): the pointer the screens read and the
-                // constant the machine reads. `V66`'s bridge refuses them disagreeing.
-                .state(INITIAL_RECEIPT_STATE)
+                // One column, one fact: the receipt's state, and the label is projected from this code.
+                .status(INITIAL_RECEIPT_STATE)
                 .receivedBy(receivedBy)
                 .comments(request.comments())
                 .enabled(true)
@@ -579,7 +569,32 @@ public class GoodsReceiptService {
         return receiptNumber;
     }
 
+    /**
+     * The catalog row a state is labelled by: where {@code statusId} and {@code statusName} come from now that
+     * no column stores them.
+     *
+     * <p><b>The pair is a projection of the code.</b> The row stores {@code REGISTERED}, {@code statuses} keeps
+     * one row per constant keyed by the family and the {@code code} (ADR-0004 decision 7), and this lookup turns
+     * the constant back into the id and the label the screens have always read. A screen may read either half —
+     * {@code status} is the authority and the pair is its presentation — and a rename in the catalog changes a
+     * label and never a state.</p>
+     *
+     * <p><b>A missing row leaves the pair null and does not fail the read</b>, the shape this mapper already had,
+     * so one deleted catalog row cannot turn a GET into a {@code 500}. The state is still answered, and
+     * {@code V66} step 4 plus {@code V71}'s assertion block are what guarantee the row exists.</p>
+     */
+    private Status catalogRowOf(GoodsReceiptState state) {
+        if (state == null) {
+            return null;
+        }
+        return statusRepository
+                .findByTypeNameAndCode(RECEIPT_STATUS_TYPE, state.name())
+                .orElse(null);
+    }
+
     private GoodsReceiptResponse toResponse(GoodsReceipt receipt) {
+        // Resolved once per response: the receipt's own pair, from the receipt's own code.
+        var status = catalogRowOf(receipt.getStatus());
         var lines = receipt.getItems().stream()
                 .map(item -> new GoodsReceiptLineResponse(
                         item.getId(),
@@ -596,9 +611,9 @@ public class GoodsReceiptService {
                 receipt.getPurchaseOrder().getOrderNumber(),
                 receipt.getCompanyStore().getId(),
                 receipt.getReceivingLocation().getId(),
-                receipt.getStatus().getId(),
-                receipt.getStatus().getStatusName(),
-                receipt.getState() == null ? null : receipt.getState().name(),
+                status == null ? null : status.getId(),
+                status == null ? null : status.getStatusName(),
+                receipt.getStatus() == null ? null : receipt.getStatus().name(),
                 receipt.getReceivedBy(),
                 receipt.getReceivedAt(),
                 receipt.getComments(),

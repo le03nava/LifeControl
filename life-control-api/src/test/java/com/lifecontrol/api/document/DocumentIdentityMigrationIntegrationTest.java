@@ -259,11 +259,13 @@ class DocumentIdentityMigrationIntegrationTest extends AbstractPostgresIntegrati
 
         assertThatThrownBy(() -> execute(
                         company,
+                        // The state is the only state column since `V71`: the fixture writes it and the insert
+                        // fails on the identity, which is the constraint this case is about.
                         "INSERT INTO sales_orders (id, order_number, customer_id, company_store_id, order_date,"
-                                + " status_id, company_id, doc_type, seq_period, seq_value, doc_number)"
+                                + " status, company_id, doc_type, seq_period, seq_value, doc_number)"
                                 + " VALUES ('" + UUID.randomUUID() + "', 'SO-202610-00001', '" + customerId()
-                                + "', '" + storeOf(company) + "', '2026-10-20 10:00:00', '" + statusId("SALES_ORDER")
-                                + "', '" + company + "', 'SALES_ORDER', '202610', 1, 'SO-202610-00001')"))
+                                + "', '" + storeOf(company) + "', '2026-10-20 10:00:00', 'DRAFT', '"
+                                + company + "', 'SALES_ORDER', '202610', 1, 'SO-202610-00001')"))
                 .as("the identity is the parts, and a duplicate insert is what fails")
                 .hasStackTraceContaining("uq_sales_orders_doc_identity");
     }

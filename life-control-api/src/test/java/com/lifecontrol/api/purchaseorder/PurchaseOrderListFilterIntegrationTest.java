@@ -25,7 +25,6 @@ import com.lifecontrol.api.purchaseorder.model.PurchaseOrder;
 import com.lifecontrol.api.purchaseorder.model.PurchaseOrderState;
 import com.lifecontrol.api.purchaseorder.repository.PurchaseOrderDetailRepository;
 import com.lifecontrol.api.purchaseorder.repository.PurchaseOrderRepository;
-import com.lifecontrol.api.status.model.Status;
 import com.lifecontrol.api.status.repository.StatusRepository;
 import com.lifecontrol.api.store.model.CompanyStore;
 import com.lifecontrol.api.store.repository.CompanyStoreRepository;
@@ -345,7 +344,7 @@ class PurchaseOrderListFilterIntegrationTest extends AbstractPostgresIntegration
      * {@code INSERT} and for the store read that precedes it.
      */
     private String createOrder(UUID storeId, Supplier supplier, Company company, boolean enabled) {
-        var status = draftStatus();
+        var status = PurchaseOrderState.DRAFT;
         var order = TenantFixtures.inTenant(company.getId(), () -> {
             // ADR-0003 identity parts: one company's fixtures write several orders in one period, so the
             // sequence value has to come from the counter instead of a literal that would repeat.
@@ -364,7 +363,6 @@ class PurchaseOrderListFilterIntegrationTest extends AbstractPostgresIntegration
                     .company(company)
                     .paymentMethod(paymentMethodOf())
                     .status(status)
-                    .state(PurchaseOrderState.DRAFT)
                     .comments("PO filter fixture")
                     .enabled(enabled)
                     .build());
@@ -393,16 +391,10 @@ class PurchaseOrderListFilterIntegrationTest extends AbstractPostgresIntegration
         try {
             purchaseOrderRepository.flush();
             statusTransitionRecorder.recordCreation(
-                    StatusSubject.PURCHASE_ORDER, order.getCompany().getId(), order.getId(), order.getState());
+                    StatusSubject.PURCHASE_ORDER, order.getCompany().getId(), order.getId(), order.getStatus());
         } finally {
             SecurityContextHolder.clearContext();
         }
-    }
-
-    private Status draftStatus() {
-        return statusRepository
-                .findByTypeNameAndStatusName("PURCHASE_ORDER", "Draft")
-                .orElseThrow();
     }
 
     private PaymentMethod paymentMethodOf() {

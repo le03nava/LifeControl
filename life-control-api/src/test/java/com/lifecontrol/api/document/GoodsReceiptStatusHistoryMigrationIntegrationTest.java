@@ -177,7 +177,7 @@ class GoodsReceiptStatusHistoryMigrationIntegrationTest extends AbstractPostgres
         var order = purchaseOrderOf(company);
         assertThatThrownBy(() -> executeInOneTransaction(
                         company,
-                        insertGoodsReceiptStatement(company, orphan, order, 2, "2026-11-07 08:00:00"),
+                        insertGoodsReceiptStatementAtHead(company, orphan, order, 2, "2026-11-07 08:00:00"),
                         "COMMIT"))
                 .as("`trg_goods_receipts_transition_recorded` is DEFERRABLE INITIALLY DEFERRED, so the INSERT "
                         + "itself succeeds and only the commit can judge it against the history")
@@ -199,12 +199,12 @@ class GoodsReceiptStatusHistoryMigrationIntegrationTest extends AbstractPostgres
         migrateToHead();
 
         // A receipt has exactly one state, so a *move* has to be made representable before it can be refused.
-        // The scratch database loses the two guards that make it unrepresentable — `V66`'s `CHECK` (one value)
-        // and `V66`'s bridge (a stored state that disagrees with `status_id` is refused at the statement) — and
-        // keeps the one this case is about. Side A's UPDATE branch is then the only statement in the schema
-        // that can judge this commit, which is exactly the question: a state moved and no row says so.
+        // The scratch database loses the guard that makes it unrepresentable — `V66`'s `CHECK`, which lists the
+        // single value — and keeps the one this case is about. Side A's UPDATE branch is then the only statement
+        // in the schema that can judge this commit, which is exactly the question: a state moved and no row says
+        // so. The bridge of `V66` used to be a third guard here; `V71` dropped it with `status_id`, so there is
+        // nothing left to disable beside the `CHECK`.
         execute(null, "ALTER TABLE goods_receipts DROP CONSTRAINT ck_goods_receipts_status");
-        execute(null, "DROP TRIGGER trg_goods_receipts_status_bridge ON goods_receipts");
 
         assertThatThrownBy(() -> executeInOneTransaction(
                         company,
@@ -366,6 +366,23 @@ class GoodsReceiptStatusHistoryMigrationIntegrationTest extends AbstractPostgres
                 insertGoodsReceiptStatement(company, receipt, order, seq, createdAt),
                 "COMMIT");
         return receipt;
+    }
+
+    /**
+     * The same insert at head, where {@code V71} has dropped {@code status_id}: the typed state is the only
+     * column a writer names, and the creation row is still what the commit is judged by.
+     */
+    private String insertGoodsReceiptStatementAtHead(UUID company, UUID id, UUID order, long seq, String createdAt)
+            throws SQLException {
+        var number =
+                "GR-202611-" + String.format("%05d", seq) + "-" + id.toString().substring(0, 4);
+        return "INSERT INTO goods_receipts (id, receipt_number, purchase_order_id, company_store_id,"
+                + " receiving_location_id, status, received_by, received_at, comments, enabled,"
+                + " company_id, doc_type, doc_number, created_at)"
+                + " VALUES ('" + id + "', '" + number + "', '" + order + "', '"
+                + storeOf(company) + "', '" + storeLocationOf(company) + "', 'REGISTERED', 'V70 receiver', '"
+                + createdAt + "', 'V70 receipt', true, '" + company + "', 'GOODS_RECEIPT', '" + number
+                + "', '" + createdAt + "')";
     }
 
     /**

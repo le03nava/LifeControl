@@ -3,6 +3,7 @@ package com.lifecontrol.api.goodsreceipt.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -28,6 +29,7 @@ import com.lifecontrol.api.purchaseorder.repository.PurchaseOrderDetailRepositor
 import com.lifecontrol.api.purchaseorder.repository.PurchaseOrderRepository;
 import com.lifecontrol.api.purchaseorder.service.PurchaseOrderService;
 import com.lifecontrol.api.status.model.Status;
+import com.lifecontrol.api.status.model.StatusType;
 import com.lifecontrol.api.status.repository.StatusRepository;
 import com.lifecontrol.api.store.model.CompanyStore;
 import com.lifecontrol.api.store.model.StoreLocation;
@@ -78,8 +80,9 @@ class GoodsReceiptServiceReadTest {
     private static final UUID THIRD_STORE_ID = UUID.fromString("00000000-0000-0000-0000-0000000000a7");
     private static final UUID RECEIPT_ID = UUID.fromString("00000000-0000-0000-0000-0000000000b1");
     private static final UUID PO_ID = UUID.fromString("00000000-0000-0000-0000-0000000000b2");
-    private static final UUID LOCATION_ID = UUID.fromString("00000000-0000-0000-0000-0000000000b3");
     private static final UUID STATUS_ID = UUID.fromString("00000000-0000-0000-0000-0000000000b4");
+
+    private static final UUID LOCATION_ID = UUID.fromString("00000000-0000-0000-0000-0000000000b3");
 
     @Mock
     private PurchaseOrderRepository purchaseOrderRepository;
@@ -169,9 +172,22 @@ class GoodsReceiptServiceReadTest {
                 .locationName("Receiving")
                 .enabled(true)
                 .build();
-        var status = new Status();
-        status.setId(STATUS_ID);
-        status.setStatusName("Registered");
+        // The catalog row a response projects `statusId`/`statusName` from: `V71` dropped the pointer the row
+        // used to store, so the pair is read by (family, code) and this is the row it finds.
+        var registeredStatus = Status.builder()
+                .id(STATUS_ID)
+                .statusName("Registered")
+                .code("REGISTERED")
+                .statusType(StatusType.builder()
+                        .id(UUID.randomUUID())
+                        .statusTypeName("GOODS_RECEIPT")
+                        .enabled(true)
+                        .build())
+                .enabled(true)
+                .build();
+        lenient()
+                .when(statusRepository.findByTypeNameAndCode("GOODS_RECEIPT", "REGISTERED"))
+                .thenReturn(Optional.of(registeredStatus));
 
         receipt = GoodsReceipt.builder()
                 .id(RECEIPT_ID)
@@ -179,8 +195,7 @@ class GoodsReceiptServiceReadTest {
                 .purchaseOrder(purchaseOrder)
                 .companyStore(store)
                 .receivingLocation(location)
-                .status(status)
-                .state(GoodsReceiptState.REGISTERED)
+                .status(GoodsReceiptState.REGISTERED)
                 .receivedBy("receiver")
                 .receivedAt(LocalDateTime.now())
                 .comments("Reception")

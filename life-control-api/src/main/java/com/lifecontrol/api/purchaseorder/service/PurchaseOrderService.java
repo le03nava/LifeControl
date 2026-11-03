@@ -42,7 +42,6 @@ import com.lifecontrol.api.purchaseorder.model.PurchaseOrderDetailState;
 import com.lifecontrol.api.purchaseorder.model.PurchaseOrderState;
 import com.lifecontrol.api.purchaseorder.repository.PurchaseOrderDetailRepository;
 import com.lifecontrol.api.purchaseorder.repository.PurchaseOrderRepository;
-import com.lifecontrol.api.status.exception.StatusNotFoundException;
 import com.lifecontrol.api.status.model.Status;
 import com.lifecontrol.api.status.repository.StatusRepository;
 import com.lifecontrol.api.store.exception.CompanyStoreNotFoundException;
@@ -74,9 +73,9 @@ public class PurchaseOrderService {
     private static final Logger logger = LoggerFactory.getLogger(PurchaseOrderService.class);
 
     /**
-     * The state every purchase order is born in (ADR-0004 decision 1). The catalog label is still looked up,
-     * because {@code status_id} is what the screens read until T8 drops it, but the state is the constant and
-     * {@link DocumentStates} decides every move after it.
+     * The state every purchase order is born in (ADR-0004 decision 1). The constant is the whole input: the
+     * catalog row that labels it is a projection of the code now that {@code V71} dropped the pointer, so
+     * creating an order no longer reads the catalog, and {@link DocumentStates} decides every move after it.
      */
     private static final PurchaseOrderState INITIAL_ORDER_STATE = PurchaseOrderState.DRAFT;
 
@@ -183,16 +182,11 @@ public class PurchaseOrderService {
         var company = resolveCompany(companyId);
         var supplier = validateSupplierExists(companyId, request.supplierId());
         var paymentMethod = validatePaymentMethodExists(request.paymentMethodId());
-        // The request names a catalog row and the machine only reads its code (ADR-0004 decision 7); the row
-        // itself is still resolved, because `status_id` is the pointer every screen reads until T8 drops it.
-        // A request that names nothing is born in `DRAFT`, and the row is the catalog's label of that code.
+        // The request names a catalog row and the machine only reads its code (ADR-0004 decision 7); the row is
+        // read for nothing else, because `V71` dropped the `status_id` column the pointer used to be written to.
+        // A request that names nothing is born in `DRAFT`, and the label of that code is projected on the way
+        // out, not stored on the way in.
         var orderState = request.statusId() != null ? orderStateOf(request.statusId()) : INITIAL_ORDER_STATE;
-        var status = request.statusId() != null
-                ? statusPointerOf(request.statusId())
-                : statusRepository
-                        .findByTypeNameAndStatusName("PURCHASE_ORDER", "Draft")
-                        .orElseThrow(() -> new StatusNotFoundException(
-                                "Default status 'Draft' not found for PURCHASE_ORDER type"));
 
         // ADR-0003 decision 4: ONE date is read and the period comes from it, so the allocation and the
         // render cannot disagree about which period the document belongs to. `purchase_orders` carries no
@@ -223,8 +217,7 @@ public class PurchaseOrderService {
                 // tautology and would let an order of company A carry company B's owner.
                 .company(company)
                 .paymentMethod(paymentMethod)
-                .status(status)
-                .state(orderState)
+                .status(orderState)
                 .comments(request.comments())
                 .enabled(true)
                 .build();
@@ -234,23 +227,14 @@ public class PurchaseOrderService {
         // row, and the 201 would then report lines no read route can return.
         var newDetails = new ArrayList<PurchaseOrderDetail>();
         if (request.details() != null && !request.details().isEmpty()) {
-            // A line may omit statusId: the field is optional on the DTO, and the update route
-            // already answers such a line with the PENDING default. Both write routes take the same
-            // DTO, so the create route resolves the same default instead of passing the null id to
-            // findById, which answered 500 on a payload the contract accepts (issue #605).
-            var defaultDetailStatus = request.details().stream().anyMatch(line -> line.statusId() == null)
-                    ? statusRepository
-                            .findByTypeNameAndStatusName("PURCHASE_ORDER_DETAIL", "Pending")
-                            .orElseThrow(() -> new StatusNotFoundException(
-                                    "Default status 'Pending' not found for PURCHASE_ORDER_DETAIL type"))
-                    : null;
+            // A line may omit statusId: the field is optional on the DTO, and both write routes answer such a
+            // line with the PENDING default (issue #605). The default is the constant now — there is no catalog
+            // row to resolve for it, because the row is the label of this code and not an input to it.
             for (var detailReq : request.details()) {
                 var product = validateProductExists(detailReq.productId());
                 var productVariant = resolveProductVariant(detailReq.productVariantId(), product, store);
                 var detailState =
                         detailReq.statusId() != null ? detailStateOf(detailReq.statusId()) : INITIAL_DETAIL_STATE;
-                var detailStatus =
-                        detailReq.statusId() != null ? statusPointerOf(detailReq.statusId()) : defaultDetailStatus;
                 var total = lineTotal(detailReq.unitPrice(), detailReq.quantity());
 
                 var detail = PurchaseOrderDetail.builder()
@@ -262,8 +246,7 @@ public class PurchaseOrderService {
                         .total(total)
                         .receivedQuantity(BigDecimal.ZERO)
                         .comments(detailReq.comments())
-                        .status(detailStatus)
-                        .state(detailState)
+                        .status(detailState)
                         .enabled(true)
                         .build();
                 newDetails.add(detail);
@@ -285,7 +268,7 @@ public class PurchaseOrderService {
             flushDocuments();
             for (var detail : newDetails) {
                 statusTransitionRecorder.recordCreation(
-                        StatusSubject.PURCHASE_ORDER_DETAIL, companyId, detail.getId(), detail.getState());
+                        StatusSubject.PURCHASE_ORDER_DETAIL, companyId, detail.getId(), detail.getStatus());
             }
             saved.getDetails().addAll(newDetails);
         }
@@ -313,10 +296,9 @@ public class PurchaseOrderService {
         // The request may name a state, and naming a different one is a move like the status route's: it is
         // decided by the same guard and recorded by the same writer. The guard runs BEFORE the lines are
         // replaced below, so a refused move leaves the stored lines exactly as they were (ADR-0004 T2).
-        var targetState = request.statusId() != null ? orderStateOf(request.statusId()) : po.getState();
-        var targetStatus = request.statusId() != null ? statusPointerOf(request.statusId()) : po.getStatus();
-        if (targetState != po.getState()) {
-            DocumentStates.requireTransition(po.getState(), targetState);
+        var targetState = request.statusId() != null ? orderStateOf(request.statusId()) : po.getStatus();
+        if (targetState != po.getStatus()) {
+            DocumentStates.requireTransition(po.getStatus(), targetState);
         }
 
         po.setSupplier(supplier);
@@ -337,19 +319,12 @@ public class PurchaseOrderService {
             po.getDetails().clear();
 
             if (!request.details().isEmpty()) {
-                var defaultDetailStatus = statusRepository
-                        .findByTypeNameAndStatusName("PURCHASE_ORDER_DETAIL", "Pending")
-                        .orElseThrow(() -> new StatusNotFoundException(
-                                "Default status 'Pending' not found for PURCHASE_ORDER_DETAIL type"));
-
                 var replacementDetails = new ArrayList<PurchaseOrderDetail>();
                 for (var detailReq : request.details()) {
                     var product = validateProductExists(detailReq.productId());
                     var productVariant = resolveProductVariant(detailReq.productVariantId(), product, store);
                     var detailState =
                             detailReq.statusId() != null ? detailStateOf(detailReq.statusId()) : INITIAL_DETAIL_STATE;
-                    var detailStatus =
-                            detailReq.statusId() != null ? statusPointerOf(detailReq.statusId()) : defaultDetailStatus;
                     var total = lineTotal(detailReq.unitPrice(), detailReq.quantity());
 
                     var detail = PurchaseOrderDetail.builder()
@@ -361,8 +336,7 @@ public class PurchaseOrderService {
                             .total(total)
                             .receivedQuantity(BigDecimal.ZERO)
                             .comments(detailReq.comments())
-                            .status(detailStatus)
-                            .state(detailState)
+                            .status(detailState)
                             .enabled(true)
                             .build();
                     replacementDetails.add(detailRepository.save(detail));
@@ -373,18 +347,18 @@ public class PurchaseOrderService {
                 flushDocuments();
                 for (var detail : replacementDetails) {
                     statusTransitionRecorder.recordCreation(
-                            StatusSubject.PURCHASE_ORDER_DETAIL, companyId, detail.getId(), detail.getState());
+                            StatusSubject.PURCHASE_ORDER_DETAIL, companyId, detail.getId(), detail.getStatus());
                 }
             }
         }
 
-        // One seam, one write: the state and the pointer move together, and a named state that is the state the
-        // order already holds is not a move and appends no row.
+        // One write, one column: a named state that is the state the order already holds is not a move and
+        // appends no row.
         PurchaseOrder updated;
-        if (targetState != po.getState()) {
-            updated = moveOrder(po, targetStatus, targetState, "update");
+        if (targetState != po.getStatus()) {
+            updated = moveOrder(po, targetState, "update");
         } else {
-            writeState(po, targetStatus, targetState);
+            po.setStatus(targetState);
             updated = purchaseOrderRepository.save(po);
         }
         return toResponse(updated);
@@ -401,10 +375,10 @@ public class PurchaseOrderService {
         var newState = orderStateOf(request.statusId());
         // The guard runs BEFORE the first write, so a refused move is a 409 that leaves the row, the history
         // and the response exactly as they were (ADR-0004 T2).
-        DocumentStates.requireTransition(po.getState(), newState);
+        DocumentStates.requireTransition(po.getStatus(), newState);
 
-        var previousState = po.getState();
-        var updated = moveOrder(po, statusPointerOf(request.statusId()), newState, "status update");
+        var previousState = po.getStatus();
+        var updated = moveOrder(po, newState, "status update");
 
         eventPublisher.publishEvent(new PurchaseOrderStatusChangedEvent(
                 this, updated.getId(), updated.getOrderNumber(), previousState.name(), newState.name()));
@@ -464,7 +438,6 @@ public class PurchaseOrderService {
         var product = validateProductExists(request.productId());
         var productVariant = resolveProductVariant(request.productVariantId(), product, po.getCompanyStore());
         var detailState = detailStateOf(request.statusId());
-        var detailStatus = statusPointerOf(request.statusId());
         var total = lineTotal(request.unitPrice(), request.quantity());
 
         var detail = PurchaseOrderDetail.builder()
@@ -476,8 +449,7 @@ public class PurchaseOrderService {
                 .total(total)
                 .receivedQuantity(BigDecimal.ZERO)
                 .comments(request.comments())
-                .status(detailStatus)
-                .state(detailState)
+                .status(detailState)
                 .enabled(true)
                 .build();
 
@@ -507,10 +479,9 @@ public class PurchaseOrderService {
         var productVariant = resolveProductVariant(
                 request.productVariantId(), product, detail.getPurchaseOrder().getCompanyStore());
         var detailState = detailStateOf(request.statusId());
-        var detailStatus = statusPointerOf(request.statusId());
         // The line's own guard, before any field is written: a forbidden move leaves the row untouched.
-        if (detailState != detail.getState()) {
-            DocumentStates.requireTransition(detail.getState(), detailState);
+        if (detailState != detail.getStatus()) {
+            DocumentStates.requireTransition(detail.getStatus(), detailState);
         }
         var total = lineTotal(request.unitPrice(), request.quantity());
 
@@ -522,10 +493,10 @@ public class PurchaseOrderService {
         detail.setComments(request.comments());
 
         PurchaseOrderDetail updated;
-        if (detailState != detail.getState()) {
-            updated = moveDetail(detail, detailStatus, detailState, "line update");
+        if (detailState != detail.getStatus()) {
+            updated = moveDetail(detail, detailState, "line update");
         } else {
-            writeState(detail, detailStatus, detailState);
+            detail.setStatus(detailState);
             updated = detailRepository.save(detail);
         }
         return toDetailResponse(updated);
@@ -557,7 +528,7 @@ public class PurchaseOrderService {
     public void requireReceivable(PurchaseOrder purchaseOrder) {
         // The header's state and not its label: the two states that admit a receipt are constants, so renaming
         // either catalog row cannot open or close this door (ADR-0004 decisions 1 and 7).
-        var currentState = purchaseOrder.getState();
+        var currentState = purchaseOrder.getStatus();
         if (currentState != PurchaseOrderState.ACCEPTED && currentState != PurchaseOrderState.IN_TRANSIT) {
             throw new InvalidStatusTransitionException(
                     currentState == null ? "missing" : currentState.name(), "reception");
@@ -594,7 +565,7 @@ public class PurchaseOrderService {
      *     receiving state
      */
     public void requireDetailReceivable(PurchaseOrderDetail detail) {
-        var currentState = detail.getState();
+        var currentState = detail.getStatus();
         // PARTIAL_RECEIVED is the receiving prerequisite. Reachability is reflexive, so an extra "or RECEIVED"
         // disjunct would wrongly admit a terminal RECEIVED line; every state admitted here reaches both of the
         // mutator's derived targets, so the mutator can never reject an admitted line.
@@ -654,25 +625,21 @@ public class PurchaseOrderService {
             throw new IllegalArgumentException("receivedQuantity must not exceed the ordered quantity");
         }
 
-        // The derived state, and the catalog label that is its pointer: the label is looked up because
-        // `status_id` is still what the screens read, and it is *not* what decides anything (ADR-0004 T8 drops
-        // the column; the state is already the constant).
+        // The derived state, and nothing else: the catalog label that used to be looked up beside it was the
+        // `status_id` pointer, which `V71` dropped. The state is derived from the two quantities and is the
+        // only thing this method decides with.
         var targetState = receivedQuantity.compareTo(detail.getQuantity()) < 0
                 ? PurchaseOrderDetailState.PARTIAL_RECEIVED
                 : PurchaseOrderDetailState.RECEIVED;
-        var targetStatus = statusRepository
-                .findByTypeNameAndStatusName("PURCHASE_ORDER_DETAIL", labelOf(targetState))
-                .orElseThrow(() -> new StatusNotFoundException(
-                        "Status '" + labelOf(targetState) + "' not found for PURCHASE_ORDER_DETAIL type"));
 
-        var previousState = detail.getState();
+        var previousState = detail.getStatus();
         // The derived move is decided before the quantity is written, so a refused line keeps what it had. It is
         // asked over the graph and not over one hop: a line whose goods arrived may never have been marked
         // IN_TRANSIT, and that arrival is one fact, not three.
         DocumentStates.requireReachable(previousState, targetState);
 
         detail.setReceivedQuantity(receivedQuantity);
-        writeState(detail, targetStatus, targetState);
+        detail.setStatus(targetState);
         var updated = detailRepository.save(detail);
         // A receipt that lands in the state the line already holds moved nothing — a second partial quantity on a
         // partially received line is the real case — and history is a change, not a write.
@@ -688,17 +655,13 @@ public class PurchaseOrderService {
         }
 
         // Promote the header only once every enabled line is fully received.
-        if (po.getState() == PurchaseOrderState.IN_TRANSIT && allEnabledDetailsReceived(po)) {
+        if (po.getStatus() == PurchaseOrderState.IN_TRANSIT && allEnabledDetailsReceived(po)) {
             var receivedHeaderState = PurchaseOrderState.RECEIVED;
             // The header's own move goes through the guard like every other path, and it is a declared edge
             // (IN_TRANSIT → RECEIVED), so it is recorded as a move and not as a derived arrival.
-            DocumentStates.requireTransition(po.getState(), receivedHeaderState);
-            var receivedHeaderStatus = statusRepository
-                    .findByTypeNameAndStatusName("PURCHASE_ORDER", labelOf(receivedHeaderState))
-                    .orElseThrow(
-                            () -> new StatusNotFoundException("Status 'Received' not found for PURCHASE_ORDER type"));
-            var previousHeaderState = po.getState();
-            moveOrder(po, receivedHeaderStatus, receivedHeaderState, "all lines received");
+            DocumentStates.requireTransition(po.getStatus(), receivedHeaderState);
+            var previousHeaderState = po.getStatus();
+            moveOrder(po, receivedHeaderState, "all lines received");
             eventPublisher.publishEvent(new PurchaseOrderStatusChangedEvent(
                     this, po.getId(), po.getOrderNumber(), previousHeaderState.name(), receivedHeaderState.name()));
         }
@@ -724,9 +687,9 @@ public class PurchaseOrderService {
 
         // Only a DRAFT order accepts a line-level write: its lines may still be created, edited and removed,
         // and any other state has left that surface behind (ADR-0004 decision 1; a null state cannot move).
-        if (po.getState() != PurchaseOrderState.DRAFT) {
+        if (po.getStatus() != PurchaseOrderState.DRAFT) {
             throw new InvalidStatusTransitionException(
-                    po.getState() == null ? "missing" : po.getState().name(), "detail mutation");
+                    po.getStatus() == null ? "missing" : po.getStatus().name(), "detail mutation");
         }
         return po;
     }
@@ -860,7 +823,7 @@ public class PurchaseOrderService {
                 continue;
             }
             enabledLines++;
-            var fullyReceived = line.getState() == PurchaseOrderDetailState.RECEIVED
+            var fullyReceived = line.getStatus() == PurchaseOrderDetailState.RECEIVED
                     && line.getReceivedQuantity() != null
                     && line.getReceivedQuantity().compareTo(line.getQuantity()) >= 0;
             if (!fullyReceived) {
@@ -893,86 +856,56 @@ public class PurchaseOrderService {
     }
 
     /**
-     * The catalog row a requested {@code status_id} names, for the {@code status_id} column only.
+     * The catalog row a state is labelled by: where {@code statusId} and {@code statusName} come from now that
+     * no column stores them.
      *
-     * <p><b>This half of the pair dies with the column.</b> The state above is what the machine decides with;
-     * this is the pointer the screens and every existing reader still join to for a label, and it is read here
-     * — not inside the catalog — because it is a storage concern and not a decision. T8 drops {@code status_id}
-     * and this method with it, and the callers keep working with the argument removed.</p>
+     * <p><b>The pair is a projection of the code.</b> The row stores the enum constant, {@code statuses} keeps
+     * one row per constant keyed by the family and the {@code code} (ADR-0004 decision 7), and this lookup
+     * turns the constant back into the id and the label the screens have always read. A screen may read either
+     * half — {@code status} is the authority and the pair is its presentation — and neither is stored on the
+     * document any more, so a rename in the catalog changes a label and never a state.</p>
+     *
+     * <p><b>A missing row leaves the pair null and does not fail the read</b>, which is the shape this mapper
+     * already had ({@code statusName} was {@code null} whenever the catalog row it joined was gone) and keeps
+     * one deleted catalog row from turning a GET into a {@code 500}. The state is still answered, and
+     * {@code V66} step 4 plus {@code V71}'s assertion block are what guarantee the row exists.</p>
      */
-    private Status statusPointerOf(UUID statusId) {
-        return statusRepository.findById(statusId).orElseThrow(() -> new StatusNotFoundException(statusId));
+    private Status catalogRowOf(StatusSubject subject, PurchaseOrderState state) {
+        if (state == null) {
+            return null;
+        }
+        return statusRepository
+                .findByTypeNameAndCode(subject.name(), state.name())
+                .orElse(null);
+    }
+
+    /** The line's half of {@link #catalogRowOf(StatusSubject, PurchaseOrderState)}. */
+    private Status catalogRowOf(StatusSubject subject, PurchaseOrderDetailState state) {
+        if (state == null) {
+            return null;
+        }
+        return statusRepository
+                .findByTypeNameAndCode(subject.name(), state.name())
+                .orElse(null);
     }
 
     /**
-     * The catalog label of a state the service derived instead of receiving.
-     *
-     * <p>A derived state has no {@code status_id} in the request, so the pointer has to be looked up by the
-     * label its family declares — the one place this slice still reads a label, and only to keep
-     * {@code status_id} coherent until T8 deletes the column. The state itself is the constant: a catalog whose
-     * {@code Received} was renamed would still resolve here, and V66's bridge is what refuses the two ever
-     * disagreeing.</p>
-     */
-    private static String labelOf(PurchaseOrderState state) {
-        return switch (state) {
-            case DRAFT -> "Draft";
-            case SENT -> "Sent";
-            case ACCEPTED -> "Accepted";
-            case IN_TRANSIT -> "In Transit";
-            case RECEIVED -> "Received";
-            case BILLED -> "Billed";
-            case CLOSED -> "Closed";
-            case REJECTED -> "Rejected";
-        };
-    }
-
-    /** The line's half of {@link #labelOf(PurchaseOrderState)}. */
-    private static String labelOf(PurchaseOrderDetailState state) {
-        return switch (state) {
-            case PENDING -> "Pending";
-            case IN_PROCESS -> "In Process";
-            case IN_TRANSIT -> "In Transit";
-            case PARTIAL_RECEIVED -> "Partial Received";
-            case RECEIVED -> "Received";
-            case REJECTED -> "Rejected";
-            case CANCELLED -> "Cancelled";
-        };
-    }
-
-    /**
-     * Writes an order's state and the catalog pointer together, and that pairing is the only reason this method
-     * exists: {@code state} is the enum's column and {@code status} is the pointer the screens and every
-     * existing reader still use, so a path that writes one and forgets the other either trips {@code V66}'s
-     * bridge (which refuses the two disagreeing) or leaves the response and the row saying different things.
-     *
-     * <p><b>This is the seam T8 deletes.</b> ADR-0004 migration step 9 drops {@code status_id}; when that lands,
-     * this method loses one of its two arguments, its body becomes the {@code setState} that is left, and each
-     * call site keeps working with the unused pointer removed. Until then it is the one place the pair is
-     * written — not repeated at the ten call sites — so T8 has one thing to delete instead of ten to find.</p>
-     */
-    private static void writeState(PurchaseOrder order, Status pointer, PurchaseOrderState state) {
-        order.setStatus(pointer);
-        order.setState(state);
-    }
-
-    /** The line's half of {@link #writeState(PurchaseOrder, Status, PurchaseOrderState)}, deleted by the same T8. */
-    private static void writeState(PurchaseOrderDetail detail, Status pointer, PurchaseOrderDetailState state) {
-        detail.setStatus(pointer);
-        detail.setState(state);
-    }
-
-    /**
-     * Moves an order: the guard decides, the pair is written, the row is saved and the move is appended to the
+     * Moves an order: the guard decides, the state is written, the row is saved and the move is appended to the
      * history — all in the caller's transaction, which is what makes the deferred checks of ADR-0004 decision 5
      * judge the state and its row together.
+     *
+     * <p><b>One assignment, not two.</b> Until {@code V71} this method also wrote the {@code status_id} pointer
+     * through {@code writeState}, because the row carried the state and the catalog row it was labelled by. The
+     * column is gone, so the seam that kept the pair coherent is gone with it and what is left is
+     * {@code setStatus}.</p>
      *
      * @throws InvalidStatusTransitionException (409) when the enum does not declare the move; nothing is written
      *     in that case, because the guard runs before the first write
      */
-    private PurchaseOrder moveOrder(PurchaseOrder po, Status pointer, PurchaseOrderState to, String reason) {
-        var from = po.getState();
+    private PurchaseOrder moveOrder(PurchaseOrder po, PurchaseOrderState to, String reason) {
+        var from = po.getStatus();
         DocumentStates.requireTransition(from, to);
-        writeState(po, pointer, to);
+        po.setStatus(to);
         var saved = purchaseOrderRepository.save(po);
         flushDocuments();
         statusTransitionRecorder.recordMove(
@@ -981,15 +914,14 @@ public class PurchaseOrderService {
     }
 
     /**
-     * The line's half of {@link #moveOrder(PurchaseOrder, Status, PurchaseOrderState, String)}. The tenant is
+     * The line's half of {@link #moveOrder(PurchaseOrder, PurchaseOrderState, String)}. The tenant is
      * derived from the parent order because a line carries none: {@code purchase_order_details} has no
      * {@code company_id}, and the history row names the tenant of the order it belongs to.
      */
-    private PurchaseOrderDetail moveDetail(
-            PurchaseOrderDetail detail, Status pointer, PurchaseOrderDetailState to, String reason) {
-        var from = detail.getState();
+    private PurchaseOrderDetail moveDetail(PurchaseOrderDetail detail, PurchaseOrderDetailState to, String reason) {
+        var from = detail.getStatus();
         DocumentStates.requireTransition(from, to);
-        writeState(detail, pointer, to);
+        detail.setStatus(to);
         var saved = detailRepository.save(detail);
         flushDocuments();
         statusTransitionRecorder.recordMove(
@@ -1066,6 +998,9 @@ public class PurchaseOrderService {
                 .map(CompanyZone::getId)
                 .orElse(null);
 
+        // Resolved once per response: the order's own pair, from the order's own code.
+        var orderStatus = catalogRowOf(StatusSubject.PURCHASE_ORDER, po.getStatus());
+
         return new PurchaseOrderResponse(
                 po.getId(),
                 po.getOrderNumber(),
@@ -1079,9 +1014,9 @@ public class PurchaseOrderService {
                 zoneId,
                 po.getPaymentMethod().getId(),
                 po.getPaymentMethod().getPaymentMethodName(),
-                po.getStatus().getId(),
-                po.getStatus().getStatusName(),
-                po.getState() == null ? null : po.getState().name(),
+                orderStatus == null ? null : orderStatus.getId(),
+                orderStatus == null ? null : orderStatus.getStatusName(),
+                po.getStatus() == null ? null : po.getStatus().name(),
                 po.getComments(),
                 po.getEnabled(),
                 po.getCreatedAt(),
@@ -1101,6 +1036,8 @@ public class PurchaseOrderService {
 
     private PurchaseOrderDetailResponse toDetailResponse(PurchaseOrderDetail detail) {
         var productVariant = detail.getProductVariant();
+        // The line's pair, from the line's code and its own family: `RECEIVED` exists in three families.
+        var detailStatus = catalogRowOf(StatusSubject.PURCHASE_ORDER_DETAIL, detail.getStatus());
         return new PurchaseOrderDetailResponse(
                 detail.getId(),
                 detail.getPurchaseOrder().getId(),
@@ -1113,9 +1050,9 @@ public class PurchaseOrderService {
                 detail.getTotal(),
                 detail.getReceivedQuantity(),
                 detail.getComments(),
-                detail.getStatus().getId(),
-                detail.getStatus().getStatusName(),
-                detail.getState() == null ? null : detail.getState().name(),
+                detailStatus == null ? null : detailStatus.getId(),
+                detailStatus == null ? null : detailStatus.getStatusName(),
+                detail.getStatus() == null ? null : detail.getStatus().name(),
                 detail.getCreatedAt(),
                 detail.getUpdatedAt());
     }
