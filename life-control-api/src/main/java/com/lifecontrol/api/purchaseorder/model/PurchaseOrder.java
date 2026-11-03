@@ -112,6 +112,29 @@ public class PurchaseOrder extends Auditable {
     @JoinColumn(name = "status_id", nullable = false)
     private Status status;
 
+    /**
+     * The order's typed state (ADR-0004 decision 1), and the column every move is decided with.
+     *
+     * <p><b>Two columns, one fact, and only one of them is the machine.</b> {@code status} (this field, the
+     * {@code VARCHAR(24)} of {@code V66}) is the state; {@code status_id} (the {@link Status} above) is the
+     * catalog pointer that still feeds every screen and read route, refuses to disagree with the code through
+     * {@code V66}'s bridge, and is dropped by ADR-0004 task T8 together with this field's neighbour. Until then
+     * {@code PurchaseOrderService} writes both through one helper, so the pair cannot drift.
+     *
+     * <p><b>Why the enum is not named {@code status} here, as it is on {@code SalesOrder}.</b> The pointer keeps
+     * the accessor the rest of the tree already reads — {@code getStatus().getStatusName()} is how the receipt
+     * flow and its suites render a label — and renaming it would change four files outside this slice's surface
+     * to buy a name. {@code getState()} is the machine; {@code getStatus()} is the pointer; T8 deletes the
+     * second.
+     *
+     * <p>Mapped as the enum and not as a string: {@code @Enumerated(STRING)} stores the constant's name, which is
+     * exactly what the column's {@code CHECK} lists, and an unmapped value becomes a load failure inside
+     * Hibernate instead of a guess in a service.</p>
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "status", length = 24)
+    private PurchaseOrderState state;
+
     @Column(length = 500)
     private String comments;
 
@@ -169,6 +192,11 @@ public class PurchaseOrder extends Auditable {
         return status;
     }
 
+    /** The order's typed state (ADR-0004 decision 1); see {@link #state} for why the pointer keeps its name. */
+    public PurchaseOrderState getState() {
+        return state;
+    }
+
     public String getComments() {
         return comments;
     }
@@ -224,6 +252,10 @@ public class PurchaseOrder extends Auditable {
 
     public void setStatus(Status status) {
         this.status = status;
+    }
+
+    public void setState(PurchaseOrderState state) {
+        this.state = state;
     }
 
     public void setComments(String comments) {
@@ -298,6 +330,11 @@ public class PurchaseOrder extends Auditable {
 
         public Builder status(Status status) {
             purchaseOrder.status = status;
+            return this;
+        }
+
+        public Builder state(PurchaseOrderState state) {
+            purchaseOrder.state = state;
             return this;
         }
 

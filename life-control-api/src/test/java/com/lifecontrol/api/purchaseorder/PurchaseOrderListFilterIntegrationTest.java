@@ -8,6 +8,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.lifecontrol.api.common.document.DocumentNumberRenderer;
 import com.lifecontrol.api.common.document.DocumentSequenceAllocator;
 import com.lifecontrol.api.common.document.DocumentType;
+import com.lifecontrol.api.common.state.StatusSubject;
+import com.lifecontrol.api.common.state.StatusTransitionRecorder;
 import com.lifecontrol.api.company.model.Company;
 import com.lifecontrol.api.company.model.CompanyCountry;
 import com.lifecontrol.api.company.model.CompanyRegion;
@@ -20,6 +22,7 @@ import com.lifecontrol.api.country.repository.CountryRepository;
 import com.lifecontrol.api.paymentmethod.model.PaymentMethod;
 import com.lifecontrol.api.paymentmethod.repository.PaymentMethodRepository;
 import com.lifecontrol.api.purchaseorder.model.PurchaseOrder;
+import com.lifecontrol.api.purchaseorder.model.PurchaseOrderState;
 import com.lifecontrol.api.purchaseorder.repository.PurchaseOrderDetailRepository;
 import com.lifecontrol.api.purchaseorder.repository.PurchaseOrderRepository;
 import com.lifecontrol.api.status.model.Status;
@@ -33,6 +36,7 @@ import com.lifecontrol.api.support.TenantFixtures;
 import java.time.LocalDate;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -47,6 +51,9 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import tools.jackson.databind.JsonNode;
@@ -84,6 +91,9 @@ class PurchaseOrderListFilterIntegrationTest extends AbstractPostgresIntegration
 
     @Autowired
     private PurchaseOrderRepository purchaseOrderRepository;
+
+    @Autowired
+    private StatusTransitionRecorder statusTransitionRecorder;
 
     @Autowired
     private DocumentSequenceAllocator documentSequenceAllocator;
@@ -341,7 +351,7 @@ class PurchaseOrderListFilterIntegrationTest extends AbstractPostgresIntegration
             // sequence value has to come from the counter instead of a literal that would repeat.
             var period = DocumentNumberRenderer.periodOf(LocalDate.now());
             var seqValue = documentSequenceAllocator.allocate(company.getId(), DocumentType.PURCHASE_ORDER, period);
-            return purchaseOrderRepository.save(PurchaseOrder.builder()
+            var saved = purchaseOrderRepository.save(PurchaseOrder.builder()
                     .orderNumber("PO-FILTER-" + UUID.randomUUID().toString().substring(0, 12))
                     .docType(DocumentType.PURCHASE_ORDER.code())
                     .seqPeriod(period)
@@ -354,11 +364,39 @@ class PurchaseOrderListFilterIntegrationTest extends AbstractPostgresIntegration
                     .company(company)
                     .paymentMethod(paymentMethodOf())
                     .status(status)
+                    .state(PurchaseOrderState.DRAFT)
                     .comments("PO filter fixture")
                     .enabled(enabled)
                     .build());
+            // ADR-0004 decision 5 side A: a document and its creation row commit together, so a fixture that
+            // writes a document owes that row exactly as a writer does. It goes through the one writer of the
+            // table, under an identity, because a live row may not claim `unknown:migration` (decision 4).
+            recordCreation(saved);
+            return saved;
         });
         return order.getOrderNumber();
+    }
+
+    /**
+     * Appends {@code order}'s creation row through {@link StatusTransitionRecorder}, under a fixture identity.
+     *
+     * <p>The identity is not decoration: the recorder takes the actor from the request's claims and refuses a
+     * row with none, so a fixture that wants to write history has to say who it is. It is installed for this one
+     * call and cleared afterwards, so no case inherits an authenticated caller it did not ask for.</p>
+     */
+    private void recordCreation(PurchaseOrder order) {
+        var identity = Jwt.withTokenValue("fixture-token")
+                .header("alg", "none")
+                .subject("test:fixture")
+                .build();
+        SecurityContextHolder.getContext().setAuthentication(new JwtAuthenticationToken(identity, List.of()));
+        try {
+            purchaseOrderRepository.flush();
+            statusTransitionRecorder.recordCreation(
+                    StatusSubject.PURCHASE_ORDER, order.getCompany().getId(), order.getId(), order.getState());
+        } finally {
+            SecurityContextHolder.clearContext();
+        }
     }
 
     private Status draftStatus() {

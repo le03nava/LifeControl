@@ -120,6 +120,54 @@ public class StatusTransitionRecorder {
     }
 
     /**
+     * Appends the row of a move whose target the family reaches through <b>more than one</b> declared move.
+     *
+     * <p><b>When this is the right method, and when it is not.</b> A requested move names one target and
+     * {@link #recordMove} is the only entry point for it: a pair outside the current state's successor set is a
+     * {@code 409} and nothing is written. This method exists for the one shape the domain really has and the
+     * closed successor set cannot express: a receipt <em>derives</em> a line's state from what physically
+     * arrived, and a line that was never marked {@code IN_TRANSIT} still becomes {@code PARTIAL_RECEIVED} — one
+     * fact, one row, recorded with the ends the document now holds. That is why the reachability question
+     * ({@link DocumentStates#isReachable}) is asked here instead of the one-hop question, and why the caller must
+     * have asked it <b>before</b> touching the document: this method still refuses a missing end and a pair of
+     * states from another family, but it cannot refuse a pair the family admits through the graph.</p>
+     *
+     * <p>Everything else is {@link #recordMove}'s contract: the family is {@code document_type}, the actor comes
+     * from the request, the caller's transaction is required, and a pair with the same state at both ends is not
+     * a move at all — a document that did not change state has nothing to record.</p>
+     *
+     * @param subject the family, which is {@code status_transition.document_type}
+     * @param companyId the tenant that owns the document
+     * @param documentId the document the row is about
+     * @param from the state the document held
+     * @param to the state it now holds; must be reachable from {@code from} in its family
+     * @param reason free text saying what derived the state, or {@code null} when the caller has none
+     * @throws InvalidStatusTransitionException when the document did not move, or the target is not reachable
+     * @throws IllegalArgumentException when a state belongs to another family, or a parameter is missing
+     * @throws IllegalStateException when the request carries no actor at all
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public <S extends Enum<S> & DocumentState<S>> void recordReachableMove(
+            StatusSubject subject, UUID companyId, UUID documentId, S from, S to, String reason) {
+        requireSubject(subject);
+        requireCompanyAndDocument(companyId, documentId, subject);
+        requireSameFamily(subject, from);
+        requireSameFamily(subject, to);
+
+        // The same 409 `recordMove` answers, asked over the graph: a target no path reaches is refused, and a
+        // pair with equal ends is refused there too, because no state declares itself a successor.
+        DocumentStates.requireReachable(from, to);
+
+        // Reachable is not the same as moved: the graph is reflexive, so an unchanged state would otherwise be
+        // written as a row whose two ends are equal — which `ck_transition_moves` refuses at the database.
+        if (from == to) {
+            return;
+        }
+
+        append(companyId, subject, documentId, from.name(), to.name(), reason);
+    }
+
+    /**
      * The single statement, with the actor resolved first so a request with no identity writes nothing.
      *
      * @param fromStatus the constant being left, or {@code null} for the row that creates the document

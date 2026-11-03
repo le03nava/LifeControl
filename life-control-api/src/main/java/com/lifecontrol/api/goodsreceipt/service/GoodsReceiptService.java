@@ -4,6 +4,8 @@ import com.lifecontrol.api.common.auth.CurrentUserContext;
 import com.lifecontrol.api.common.document.DocumentNumberRenderer;
 import com.lifecontrol.api.common.document.DocumentType;
 import com.lifecontrol.api.common.state.InvalidStatusTransitionException;
+import com.lifecontrol.api.common.state.StatusSubject;
+import com.lifecontrol.api.common.state.StatusTransitionRecorder;
 import com.lifecontrol.api.goodsreceipt.dto.GoodsReceiptFilter;
 import com.lifecontrol.api.goodsreceipt.dto.GoodsReceiptLineRequest;
 import com.lifecontrol.api.goodsreceipt.dto.GoodsReceiptLineResponse;
@@ -22,6 +24,7 @@ import com.lifecontrol.api.goodsreceipt.exception.ReceiptNumberTooLongException;
 import com.lifecontrol.api.goodsreceipt.exception.UnreceivableDetailStatusException;
 import com.lifecontrol.api.goodsreceipt.model.GoodsReceipt;
 import com.lifecontrol.api.goodsreceipt.model.GoodsReceiptItem;
+import com.lifecontrol.api.goodsreceipt.model.GoodsReceiptState;
 import com.lifecontrol.api.goodsreceipt.repository.GoodsReceiptRepository;
 import com.lifecontrol.api.inventory.exception.StoreInventorySettingsNotFoundException;
 import com.lifecontrol.api.inventory.exception.StoreLocationNotInStoreException;
@@ -88,6 +91,16 @@ public class GoodsReceiptService {
 
     private static final String REGISTERED_STATUS_NAME = "Registered";
 
+    /**
+     * The state every receipt is born in (ADR-0004 decision 1), and the only one its machine declares.
+     *
+     * <p>Stated as a constant instead of read from the request because a receipt is immutable: the request has no
+     * {@code statusId} and must not gain one. The catalog row below is still resolved, because {@code status_id}
+     * is the pointer every screen reads until T8 drops it, and {@code V66}'s bridge refuses that pointer and this
+     * constant disagreeing — which is what makes the pair coherent without either side guessing.</p>
+     */
+    private static final GoodsReceiptState INITIAL_RECEIPT_STATE = GoodsReceiptState.REGISTERED;
+
     /** {@code goods_receipts.receipt_number} is {@code VARCHAR(30)}; the generator fails closed. */
     private static final int RECEIPT_NUMBER_MAX_LENGTH = 30;
 
@@ -103,6 +116,7 @@ public class GoodsReceiptService {
     private final CurrentUserContext currentUserContext;
     private final CompanyStoreScopeResolver storeScopeResolver;
     private final CompanyStoreFilterResolver storeFilterResolver;
+    private final StatusTransitionRecorder statusTransitionRecorder;
 
     public GoodsReceiptService(
             PurchaseOrderRepository purchaseOrderRepository,
@@ -116,7 +130,8 @@ public class GoodsReceiptService {
             StatusRepository statusRepository,
             CurrentUserContext currentUserContext,
             CompanyStoreScopeResolver storeScopeResolver,
-            CompanyStoreFilterResolver storeFilterResolver) {
+            CompanyStoreFilterResolver storeFilterResolver,
+            StatusTransitionRecorder statusTransitionRecorder) {
         this.purchaseOrderRepository = purchaseOrderRepository;
         this.purchaseOrderDetailRepository = purchaseOrderDetailRepository;
         this.purchaseOrderService = purchaseOrderService;
@@ -129,6 +144,7 @@ public class GoodsReceiptService {
         this.currentUserContext = currentUserContext;
         this.storeScopeResolver = storeScopeResolver;
         this.storeFilterResolver = storeFilterResolver;
+        this.statusTransitionRecorder = statusTransitionRecorder;
     }
 
     /**
@@ -250,6 +266,9 @@ public class GoodsReceiptService {
                 .companyStore(companyStore)
                 .receivingLocation(receivingLocation)
                 .status(status)
+                // The two halves of one fact (see `GoodsReceipt#state`): the pointer the screens read and the
+                // constant the machine reads. `V66`'s bridge refuses them disagreeing.
+                .state(INITIAL_RECEIPT_STATE)
                 .receivedBy(receivedBy)
                 .comments(request.comments())
                 .enabled(true)
@@ -266,6 +285,14 @@ public class GoodsReceiptService {
                             .build());
         }
         var saved = goodsReceiptRepository.save(receipt);
+
+        // ADR-0004 decision 5, side A: a document born without its creation row cannot commit (V70's
+        // `trg_goods_receipts_transition_recorded`), so the row is appended in this same transaction. The flush
+        // comes first because decision 6's check is immediate and resolves the receipt back; the receipt itself
+        // is never moved afterwards, so this creation row is its whole history and no second row is ever expected.
+        goodsReceiptRepository.flush();
+        statusTransitionRecorder.recordCreation(
+                StatusSubject.GOODS_RECEIPT, receipt.getCompanyId(), saved.getId(), INITIAL_RECEIPT_STATE);
 
         // ── Step 8: apply the effects, per line ────────────────────────────────────────────────
         for (var line : resolvedLines) {
@@ -571,6 +598,7 @@ public class GoodsReceiptService {
                 receipt.getReceivingLocation().getId(),
                 receipt.getStatus().getId(),
                 receipt.getStatus().getStatusName(),
+                receipt.getState() == null ? null : receipt.getState().name(),
                 receipt.getReceivedBy(),
                 receipt.getReceivedAt(),
                 receipt.getComments(),

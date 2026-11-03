@@ -12,6 +12,8 @@ import static org.mockito.Mockito.when;
 
 import com.lifecontrol.api.common.auth.CurrentUserContext;
 import com.lifecontrol.api.common.state.InvalidStatusTransitionException;
+import com.lifecontrol.api.common.state.StatusSubject;
+import com.lifecontrol.api.common.state.StatusTransitionRecorder;
 import com.lifecontrol.api.company.model.Company;
 import com.lifecontrol.api.company.model.CompanyCountry;
 import com.lifecontrol.api.company.model.CompanyRegion;
@@ -29,6 +31,7 @@ import com.lifecontrol.api.goodsreceipt.exception.PurchaseOrderVariantNotInStore
 import com.lifecontrol.api.goodsreceipt.exception.ReceiptNumberTooLongException;
 import com.lifecontrol.api.goodsreceipt.exception.UnreceivableDetailStatusException;
 import com.lifecontrol.api.goodsreceipt.model.GoodsReceipt;
+import com.lifecontrol.api.goodsreceipt.model.GoodsReceiptState;
 import com.lifecontrol.api.goodsreceipt.repository.GoodsReceiptRepository;
 import com.lifecontrol.api.inventory.exception.StoreInventorySettingsNotFoundException;
 import com.lifecontrol.api.inventory.exception.StoreLocationNotInStoreException;
@@ -133,6 +136,9 @@ class GoodsReceiptServiceTest {
     @Mock
     private CompanyStoreFilterResolver storeFilterResolver;
 
+    @Mock
+    private StatusTransitionRecorder statusTransitionRecorder;
+
     private GoodsReceiptService service;
 
     private CompanyStore store;
@@ -159,7 +165,8 @@ class GoodsReceiptServiceTest {
                 statusRepository,
                 currentUserContext,
                 storeScopeResolver,
-                storeFilterResolver);
+                storeFilterResolver,
+                statusTransitionRecorder);
 
         var company = Company.builder().id(COMPANY_ID).companyKey("GR-KEY").build();
         var companyCountry =
@@ -270,6 +277,8 @@ class GoodsReceiptServiceTest {
         verifyNoInteractions(inventoryService);
         verify(purchaseOrderService, never()).registerReceivedQuantity(any(), any(), any());
         verify(goodsReceiptRepository, never()).save(any(GoodsReceipt.class));
+        // A rejected request is not a document either: no creation row may be appended for one.
+        verifyNoInteractions(statusTransitionRecorder);
         verify(storeInventorySettingsRepository, never()).save(any(StoreInventorySettings.class));
         verify(storeLocationRepository, never()).save(any(StoreLocation.class));
         verify(purchaseOrderDetailRepository, never()).save(any(PurchaseOrderDetail.class));
@@ -297,6 +306,11 @@ class GoodsReceiptServiceTest {
             assertThat(response.receivingLocationId()).isEqualTo(LOCATION_ID);
             assertThat(response.statusId()).isEqualTo(STATUS_ID);
             assertThat(response.statusName()).isEqualTo("Registered");
+            // ADR-0004 decision 1: the code beside the label, and the state the receipt's own row carries.
+            assertThat(response.status()).isEqualTo("REGISTERED");
+            // ADR-0004 decision 5 side A: the receipt is born with its history row, in this transaction.
+            verify(statusTransitionRecorder)
+                    .recordCreation(StatusSubject.GOODS_RECEIPT, COMPANY_ID, RECEIPT_ID, GoodsReceiptState.REGISTERED);
             assertThat(response.receivedBy()).isEqualTo("receiver");
             assertThat(response.comments()).isEqualTo("Reception");
             assertThat(response.enabled()).isTrue();

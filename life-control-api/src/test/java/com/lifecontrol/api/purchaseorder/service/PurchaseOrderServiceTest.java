@@ -11,12 +11,16 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.lifecontrol.api.common.auth.CurrentUserContext;
 import com.lifecontrol.api.common.document.DocumentSequenceAllocator;
 import com.lifecontrol.api.common.document.DocumentType;
+import com.lifecontrol.api.common.state.DocumentStateCatalog;
 import com.lifecontrol.api.common.state.InvalidStatusTransitionException;
+import com.lifecontrol.api.common.state.StatusSubject;
+import com.lifecontrol.api.common.state.StatusTransitionRecorder;
 import com.lifecontrol.api.company.model.Company;
 import com.lifecontrol.api.company.model.CompanyCountry;
 import com.lifecontrol.api.company.model.CompanyRegion;
@@ -43,6 +47,8 @@ import com.lifecontrol.api.purchaseorder.exception.PurchaseOrderDetailNotFoundEx
 import com.lifecontrol.api.purchaseorder.exception.PurchaseOrderNotFoundException;
 import com.lifecontrol.api.purchaseorder.model.PurchaseOrder;
 import com.lifecontrol.api.purchaseorder.model.PurchaseOrderDetail;
+import com.lifecontrol.api.purchaseorder.model.PurchaseOrderDetailState;
+import com.lifecontrol.api.purchaseorder.model.PurchaseOrderState;
 import com.lifecontrol.api.purchaseorder.repository.PurchaseOrderDetailRepository;
 import com.lifecontrol.api.purchaseorder.repository.PurchaseOrderRepository;
 import com.lifecontrol.api.status.exception.StatusNotFoundException;
@@ -59,7 +65,9 @@ import com.lifecontrol.api.supplier.model.Supplier;
 import com.lifecontrol.api.supplier.repository.SupplierRepository;
 import java.math.BigDecimal;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
@@ -122,6 +130,21 @@ class PurchaseOrderServiceTest {
     private DocumentSequenceAllocator documentSequenceAllocator;
 
     /**
+     * The history writer, mocked: what this class asserts about it is <b>which</b> rows a path appends — the
+     * family, the document, both ends of the move and the reason — because the row itself and its two deferred
+     * checks are the database's ({@code StatusTransitionRecorderIntegrationTest}, {@code V69}).
+     */
+    @Mock
+    private StatusTransitionRecorder statusTransitionRecorder;
+
+    /**
+     * The real catalog over the mocked {@code statuses} read: the four refusals are its own contract and are
+     * asserted in {@code DocumentStateCatalogTest}, so a mock here would only prove that a call was made. What
+     * this fixture supplies instead is a repository whose rows carry the {@code code} the enum spells.
+     */
+    private DocumentStateCatalog documentStateCatalog;
+
+    /**
      * The real derivation, not a mock: the store fixture carries the whole
      * company &rarr; country &rarr; region &rarr; zone &rarr; store chain, so the tenant the line
      * lookup asks for is the one the fixture describes.
@@ -142,6 +165,8 @@ class PurchaseOrderServiceTest {
     private PaymentMethod paymentMethod;
     private Product product;
     private ProductVariant productVariant;
+    private final Map<Status, PurchaseOrderState> headerStates = new LinkedHashMap<>();
+    private final Map<Status, PurchaseOrderDetailState> detailStates = new LinkedHashMap<>();
     private Status draftStatus, sentStatus, pendingStatus, inProcessStatus;
     private Status inTransitStatus, partialReceivedStatus, receivedStatus;
     private Status rejectedStatus, cancelledStatus;
@@ -216,65 +241,33 @@ class PurchaseOrderServiceTest {
         detailStatusType.setId(UUID.randomUUID());
         detailStatusType.setStatusTypeName("PURCHASE_ORDER_DETAIL");
 
-        draftStatus = new Status();
-        draftStatus.setId(draftStatusId);
-        draftStatus.setStatusName("Draft");
-        draftStatus.setStatusType(poStatusType);
+        draftStatus = status(draftStatusId, "Draft", "DRAFT", poStatusType);
+        sentStatus = status(statusId, "Sent", "SENT", poStatusType);
+        pendingStatus = status(UUID.randomUUID(), "Pending", "PENDING", detailStatusType);
+        inProcessStatus = status(UUID.randomUUID(), "In Process", "IN_PROCESS", detailStatusType);
+        inTransitStatus = status(UUID.randomUUID(), "In Transit", "IN_TRANSIT", detailStatusType);
+        partialReceivedStatus = status(UUID.randomUUID(), "Partial Received", "PARTIAL_RECEIVED", detailStatusType);
+        receivedStatus = status(UUID.randomUUID(), "Received", "RECEIVED", detailStatusType);
+        rejectedStatus = status(UUID.randomUUID(), "Rejected", "REJECTED", detailStatusType);
+        cancelledStatus = status(UUID.randomUUID(), "Cancelled", "CANCELLED", detailStatusType);
+        acceptedStatus = status(UUID.randomUUID(), "Accepted", "ACCEPTED", poStatusType);
+        inTransitPoStatus = status(UUID.randomUUID(), "In Transit", "IN_TRANSIT", poStatusType);
+        receivedPoStatus = status(UUID.randomUUID(), "Received", "RECEIVED", poStatusType);
 
-        sentStatus = new Status();
-        sentStatus.setId(statusId);
-        sentStatus.setStatusName("Sent");
-        sentStatus.setStatusType(poStatusType);
-
-        pendingStatus = new Status();
-        pendingStatus.setId(UUID.randomUUID());
-        pendingStatus.setStatusName("Pending");
-        pendingStatus.setStatusType(detailStatusType);
-
-        inProcessStatus = new Status();
-        inProcessStatus.setId(UUID.randomUUID());
-        inProcessStatus.setStatusName("In Process");
-        inProcessStatus.setStatusType(detailStatusType);
-
-        inTransitStatus = new Status();
-        inTransitStatus.setId(UUID.randomUUID());
-        inTransitStatus.setStatusName("In Transit");
-        inTransitStatus.setStatusType(detailStatusType);
-
-        partialReceivedStatus = new Status();
-        partialReceivedStatus.setId(UUID.randomUUID());
-        partialReceivedStatus.setStatusName("Partial Received");
-        partialReceivedStatus.setStatusType(detailStatusType);
-
-        receivedStatus = new Status();
-        receivedStatus.setId(UUID.randomUUID());
-        receivedStatus.setStatusName("Received");
-        receivedStatus.setStatusType(detailStatusType);
-
-        rejectedStatus = new Status();
-        rejectedStatus.setId(UUID.randomUUID());
-        rejectedStatus.setStatusName("Rejected");
-        rejectedStatus.setStatusType(detailStatusType);
-
-        cancelledStatus = new Status();
-        cancelledStatus.setId(UUID.randomUUID());
-        cancelledStatus.setStatusName("Cancelled");
-        cancelledStatus.setStatusType(detailStatusType);
-
-        acceptedStatus = new Status();
-        acceptedStatus.setId(UUID.randomUUID());
-        acceptedStatus.setStatusName("Accepted");
-        acceptedStatus.setStatusType(poStatusType);
-
-        inTransitPoStatus = new Status();
-        inTransitPoStatus.setId(UUID.randomUUID());
-        inTransitPoStatus.setStatusName("In Transit");
-        inTransitPoStatus.setStatusType(poStatusType);
-
-        receivedPoStatus = new Status();
-        receivedPoStatus.setId(UUID.randomUUID());
-        receivedPoStatus.setStatusName("Received");
-        receivedPoStatus.setStatusType(poStatusType);
+        // One pairing, declared next to the rows: the fixture states a catalog row and the machine reads the
+        // constant it carries, exactly as `statuses.code` carries it in the database.
+        headerStates.put(draftStatus, PurchaseOrderState.DRAFT);
+        headerStates.put(sentStatus, PurchaseOrderState.SENT);
+        headerStates.put(acceptedStatus, PurchaseOrderState.ACCEPTED);
+        headerStates.put(inTransitPoStatus, PurchaseOrderState.IN_TRANSIT);
+        headerStates.put(receivedPoStatus, PurchaseOrderState.RECEIVED);
+        detailStates.put(pendingStatus, PurchaseOrderDetailState.PENDING);
+        detailStates.put(inProcessStatus, PurchaseOrderDetailState.IN_PROCESS);
+        detailStates.put(inTransitStatus, PurchaseOrderDetailState.IN_TRANSIT);
+        detailStates.put(partialReceivedStatus, PurchaseOrderDetailState.PARTIAL_RECEIVED);
+        detailStates.put(receivedStatus, PurchaseOrderDetailState.RECEIVED);
+        detailStates.put(rejectedStatus, PurchaseOrderDetailState.REJECTED);
+        detailStates.put(cancelledStatus, PurchaseOrderDetailState.CANCELLED);
 
         purchaseOrder = PurchaseOrder.builder()
                 .id(poId)
@@ -283,6 +276,7 @@ class PurchaseOrderServiceTest {
                 .companyStore(store)
                 .paymentMethod(paymentMethod)
                 .status(draftStatus)
+                .state(PurchaseOrderState.DRAFT)
                 .comments("Test PO")
                 .enabled(true)
                 .build();
@@ -293,6 +287,8 @@ class PurchaseOrderServiceTest {
         // cases here stop before that lookup runs, and a case that never reaches it has not proved
         // anything about the owner.
         lenient().when(companyRepository.findById(companyId)).thenReturn(Optional.of(company));
+
+        documentStateCatalog = new DocumentStateCatalog(statusRepository);
 
         service = new PurchaseOrderService(
                 purchaseOrderRepository,
@@ -308,7 +304,9 @@ class PurchaseOrderServiceTest {
                 statusRepository,
                 eventPublisher,
                 currentUserContext,
-                documentSequenceAllocator);
+                documentSequenceAllocator,
+                statusTransitionRecorder,
+                documentStateCatalog);
 
         detail = PurchaseOrderDetail.builder()
                 .id(detailId)
@@ -319,8 +317,51 @@ class PurchaseOrderServiceTest {
                 .total(new BigDecimal("500.00"))
                 .receivedQuantity(BigDecimal.ZERO)
                 .status(pendingStatus)
+                .state(PurchaseOrderDetailState.PENDING)
                 .enabled(true)
                 .build();
+    }
+
+    /**
+     * One catalog row with its code, which is what both readers of a status need: the pointer the seam writes
+     * and the enum the machine decides with.
+     *
+     * <p>Lenient because a case that is refused by the catalog — a row of another family, a code the enum does
+     * not declare — never reaches the pointer read, and strict stubs would fail such a case for the stub it did
+     * not need instead of for the refusal it asserts.</p>
+     */
+    private Status status(UUID id, String name, String code, StatusType type) {
+        return Status.builder()
+                .id(id)
+                .statusName(name)
+                .code(code)
+                .statusType(type)
+                .enabled(true)
+                .build();
+    }
+
+    /** The typed state a fixture catalog row carries, refused loudly when a case names an unpaired row. */
+    private PurchaseOrderState headerStateOf(Status row) {
+        var state = headerStates.get(row);
+        if (state == null) {
+            throw new IllegalStateException("no typed header state for fixture row " + row.getStatusName());
+        }
+        return state;
+    }
+
+    /** The line's half of {@link #headerStateOf(Status)}. */
+    private PurchaseOrderDetailState detailStateOf(Status row) {
+        var state = detailStates.get(row);
+        if (state == null) {
+            throw new IllegalStateException("no typed detail state for fixture row " + row.getStatusName());
+        }
+        return state;
+    }
+
+    /** The one catalog row, stubbed for both of its readers: the family fetch and the pointer lookup. */
+    private void catalogRow(Status status) {
+        lenient().when(statusRepository.findWithStatusTypeById(status.getId())).thenReturn(Optional.of(status));
+        lenient().when(statusRepository.findById(status.getId())).thenReturn(Optional.of(status));
     }
 
     // ─── getAllPurchaseOrders ────────────────────────────────────────────
@@ -437,7 +478,7 @@ class PurchaseOrderServiceTest {
             when(supplierRepository.findByIdAndCompanyId(supplierId, companyId)).thenReturn(Optional.of(supplier));
             when(companyStoreRepository.findById(storeId)).thenReturn(Optional.of(store));
             when(paymentMethodRepository.findById(pmId)).thenReturn(Optional.of(paymentMethod));
-            when(statusRepository.findById(draftStatusId)).thenReturn(Optional.of(draftStatus));
+            catalogRow(draftStatus);
             when(documentSequenceAllocator.allocate(eq(companyId), eq(DocumentType.PURCHASE_ORDER), anyString()))
                     .thenReturn(1L);
             var captor = ArgumentCaptor.forClass(PurchaseOrder.class);
@@ -476,7 +517,7 @@ class PurchaseOrderServiceTest {
             when(supplierRepository.findByIdAndCompanyId(supplierId, companyId)).thenReturn(Optional.of(supplier));
             when(companyStoreRepository.findById(storeId)).thenReturn(Optional.of(store));
             when(paymentMethodRepository.findById(pmId)).thenReturn(Optional.of(paymentMethod));
-            when(statusRepository.findById(draftStatusId)).thenReturn(Optional.of(draftStatus));
+            catalogRow(draftStatus);
             when(documentSequenceAllocator.allocate(eq(companyId), eq(DocumentType.PURCHASE_ORDER), anyString()))
                     .thenReturn(1L);
 
@@ -514,8 +555,8 @@ class PurchaseOrderServiceTest {
             when(supplierRepository.findByIdAndCompanyId(supplierId, companyId)).thenReturn(Optional.of(supplier));
             when(companyStoreRepository.findById(storeId)).thenReturn(Optional.of(store));
             when(paymentMethodRepository.findById(pmId)).thenReturn(Optional.of(paymentMethod));
-            when(statusRepository.findById(draftStatusId)).thenReturn(Optional.of(draftStatus));
-            when(statusRepository.findById(pendingStatus.getId())).thenReturn(Optional.of(pendingStatus));
+            catalogRow(draftStatus);
+            catalogRow(pendingStatus);
             when(productRepository.findById(productId)).thenReturn(Optional.of(product));
             when(productVariantRepository.findByIdAndProductIdAndCompanyIdAndEnabledTrue(
                             variantId, productId, companyId))
@@ -554,7 +595,7 @@ class PurchaseOrderServiceTest {
             when(supplierRepository.findByIdAndCompanyId(supplierId, companyId)).thenReturn(Optional.of(supplier));
             when(companyStoreRepository.findById(storeId)).thenReturn(Optional.of(store));
             when(paymentMethodRepository.findById(pmId)).thenReturn(Optional.of(paymentMethod));
-            when(statusRepository.findById(draftStatusId)).thenReturn(Optional.of(draftStatus));
+            catalogRow(draftStatus);
             when(productRepository.findById(productId)).thenReturn(Optional.of(product));
             // The allocation runs before the lines are resolved, so even a refused line has already taken a
             // value; the case is about the refusal, not about numbering.
@@ -649,7 +690,7 @@ class PurchaseOrderServiceTest {
             when(supplierRepository.findByIdAndCompanyId(supplierId, companyId)).thenReturn(Optional.of(supplier));
             when(companyStoreRepository.findById(storeId)).thenReturn(Optional.of(store));
             when(paymentMethodRepository.findById(pmId)).thenReturn(Optional.of(paymentMethod));
-            when(statusRepository.findById(draftStatusId)).thenReturn(Optional.empty());
+            when(statusRepository.findWithStatusTypeById(draftStatusId)).thenReturn(Optional.empty());
 
             assertThatThrownBy(() -> service.createPurchaseOrder(request)).isInstanceOf(StatusNotFoundException.class);
         }
@@ -661,7 +702,7 @@ class PurchaseOrderServiceTest {
             when(supplierRepository.findByIdAndCompanyId(supplierId, companyId)).thenReturn(Optional.of(supplier));
             when(companyStoreRepository.findById(storeId)).thenReturn(Optional.of(store));
             when(paymentMethodRepository.findById(pmId)).thenReturn(Optional.of(paymentMethod));
-            when(statusRepository.findById(pendingStatus.getId())).thenReturn(Optional.of(pendingStatus));
+            catalogRow(pendingStatus);
 
             assertThatThrownBy(() -> service.createPurchaseOrder(request))
                     .isInstanceOf(IllegalArgumentException.class)
@@ -702,7 +743,7 @@ class PurchaseOrderServiceTest {
             when(supplierRepository.findByIdAndCompanyId(supplierId, companyId)).thenReturn(Optional.of(supplier));
             when(companyStoreRepository.findById(storeId)).thenReturn(Optional.of(store));
             when(paymentMethodRepository.findById(pmId)).thenReturn(Optional.of(paymentMethod));
-            when(statusRepository.findById(draftStatusId)).thenReturn(Optional.of(draftStatus));
+            catalogRow(draftStatus);
             when(purchaseOrderRepository.save(any(PurchaseOrder.class))).thenReturn(purchaseOrder);
 
             var result = service.updatePurchaseOrder(poId, request);
@@ -739,7 +780,7 @@ class PurchaseOrderServiceTest {
             when(supplierRepository.findByIdAndCompanyId(supplierId, companyId)).thenReturn(Optional.of(supplier));
             when(companyStoreRepository.findById(storeId)).thenReturn(Optional.of(store));
             when(paymentMethodRepository.findById(pmId)).thenReturn(Optional.of(paymentMethod));
-            when(statusRepository.findById(draftStatusId)).thenReturn(Optional.of(draftStatus));
+            catalogRow(draftStatus);
             when(statusRepository.findByTypeNameAndStatusName("PURCHASE_ORDER_DETAIL", "Pending"))
                     .thenReturn(Optional.of(pendingStatus));
             when(productRepository.findById(productId)).thenReturn(Optional.of(product));
@@ -748,7 +789,7 @@ class PurchaseOrderServiceTest {
                     .thenReturn(Optional.of(productVariant));
             when(productVariantStoreStockRepository.existsByProductVariantIdAndCompanyStoreId(variantId, storeId))
                     .thenReturn(true);
-            when(statusRepository.findById(pendingStatus.getId())).thenReturn(Optional.of(pendingStatus));
+            catalogRow(pendingStatus);
             when(purchaseOrderRepository.save(any(PurchaseOrder.class))).thenReturn(purchaseOrder);
 
             var captor = ArgumentCaptor.forClass(PurchaseOrderDetail.class);
@@ -788,7 +829,7 @@ class PurchaseOrderServiceTest {
         void validTransitionSucceeds() {
             var request = new UpdatePurchaseOrderStatusRequest(sentStatus.getId());
             when(purchaseOrderRepository.findById(poId)).thenReturn(Optional.of(purchaseOrder));
-            when(statusRepository.findById(sentStatus.getId())).thenReturn(Optional.of(sentStatus));
+            catalogRow(sentStatus);
             when(purchaseOrderRepository.save(any(PurchaseOrder.class))).thenReturn(purchaseOrder);
 
             var result = service.updatePurchaseOrderStatus(poId, request);
@@ -807,16 +848,17 @@ class PurchaseOrderServiceTest {
                     .companyStore(store)
                     .paymentMethod(paymentMethod)
                     .status(sentStatus)
+                    .state(PurchaseOrderState.SENT)
                     .enabled(true)
                     .build();
 
             var request = new UpdatePurchaseOrderStatusRequest(draftStatusId);
             when(purchaseOrderRepository.findById(poId)).thenReturn(Optional.of(alreadySent));
-            when(statusRepository.findById(draftStatusId)).thenReturn(Optional.of(draftStatus));
+            catalogRow(draftStatus);
 
             assertThatThrownBy(() -> service.updatePurchaseOrderStatus(poId, request))
                     .isInstanceOf(InvalidStatusTransitionException.class)
-                    .hasMessageContaining("Sent → Draft");
+                    .hasMessageContaining("SENT → DRAFT");
         }
 
         @Test
@@ -824,7 +866,7 @@ class PurchaseOrderServiceTest {
         void wrongStatusTypeThrows() {
             var request = new UpdatePurchaseOrderStatusRequest(pendingStatus.getId());
             when(purchaseOrderRepository.findById(poId)).thenReturn(Optional.of(purchaseOrder));
-            when(statusRepository.findById(pendingStatus.getId())).thenReturn(Optional.of(pendingStatus));
+            catalogRow(pendingStatus);
 
             assertThatThrownBy(() -> service.updatePurchaseOrderStatus(poId, request))
                     .isInstanceOf(IllegalArgumentException.class);
@@ -903,7 +945,7 @@ class PurchaseOrderServiceTest {
                     .thenReturn(Optional.of(productVariant));
             when(productVariantStoreStockRepository.existsByProductVariantIdAndCompanyStoreId(variantId, storeId))
                     .thenReturn(true);
-            when(statusRepository.findById(pendingStatus.getId())).thenReturn(Optional.of(pendingStatus));
+            catalogRow(pendingStatus);
             when(detailRepository.save(any(PurchaseOrderDetail.class))).thenAnswer(inv -> {
                 var d = inv.getArgument(0, PurchaseOrderDetail.class);
                 d.setId(detailId);
@@ -956,7 +998,7 @@ class PurchaseOrderServiceTest {
                     .thenReturn(Optional.of(productVariant));
             when(productVariantStoreStockRepository.existsByProductVariantIdAndCompanyStoreId(variantId, storeId))
                     .thenReturn(true);
-            when(statusRepository.findById(pendingStatus.getId())).thenReturn(Optional.of(pendingStatus));
+            catalogRow(pendingStatus);
             when(detailRepository.save(any(PurchaseOrderDetail.class))).thenReturn(detail);
 
             var result = service.updatePurchaseOrderDetail(poId, detailId, updatedReq);
@@ -1030,7 +1072,7 @@ class PurchaseOrderServiceTest {
             when(supplierRepository.findByIdAndCompanyId(supplierId, companyId)).thenReturn(Optional.of(supplier));
             when(companyStoreRepository.findById(storeId)).thenReturn(Optional.of(store));
             when(paymentMethodRepository.findById(pmId)).thenReturn(Optional.of(paymentMethod));
-            when(statusRepository.findById(draftStatusId)).thenReturn(Optional.of(draftStatus));
+            catalogRow(draftStatus);
             when(productRepository.findById(productId)).thenReturn(Optional.of(product));
             when(documentSequenceAllocator.allocate(eq(companyId), eq(DocumentType.PURCHASE_ORDER), anyString()))
                     .thenReturn(1L);
@@ -1060,8 +1102,8 @@ class PurchaseOrderServiceTest {
             when(supplierRepository.findByIdAndCompanyId(supplierId, companyId)).thenReturn(Optional.of(supplier));
             when(companyStoreRepository.findById(storeId)).thenReturn(Optional.of(store));
             when(paymentMethodRepository.findById(pmId)).thenReturn(Optional.of(paymentMethod));
-            when(statusRepository.findById(draftStatusId)).thenReturn(Optional.of(draftStatus));
-            when(statusRepository.findById(pendingStatus.getId())).thenReturn(Optional.of(pendingStatus));
+            catalogRow(draftStatus);
+            catalogRow(pendingStatus);
             when(productRepository.findById(productId)).thenReturn(Optional.of(product));
             when(productVariantRepository.findByIdAndProductIdAndCompanyIdAndEnabledTrue(
                             variantId, productId, companyId))
@@ -1100,7 +1142,7 @@ class PurchaseOrderServiceTest {
             when(supplierRepository.findByIdAndCompanyId(supplierId, companyId)).thenReturn(Optional.of(supplier));
             when(companyStoreRepository.findById(storeId)).thenReturn(Optional.of(store));
             when(paymentMethodRepository.findById(pmId)).thenReturn(Optional.of(paymentMethod));
-            when(statusRepository.findById(draftStatusId)).thenReturn(Optional.of(draftStatus));
+            catalogRow(draftStatus);
             when(productRepository.findById(productId)).thenReturn(Optional.of(product));
             when(documentSequenceAllocator.allocate(eq(companyId), eq(DocumentType.PURCHASE_ORDER), anyString()))
                     .thenReturn(1L);
@@ -1131,7 +1173,7 @@ class PurchaseOrderServiceTest {
                     .thenReturn(Optional.of(productVariant));
             when(productVariantStoreStockRepository.existsByProductVariantIdAndCompanyStoreId(variantId, storeId))
                     .thenReturn(true);
-            when(statusRepository.findById(pendingStatus.getId())).thenReturn(Optional.of(pendingStatus));
+            catalogRow(pendingStatus);
 
             var captor = ArgumentCaptor.forClass(PurchaseOrderDetail.class);
             when(detailRepository.save(captor.capture())).thenAnswer(inv -> {
@@ -1207,7 +1249,7 @@ class PurchaseOrderServiceTest {
                     .thenReturn(Optional.of(productVariant));
             when(productVariantStoreStockRepository.existsByProductVariantIdAndCompanyStoreId(variantId, storeId))
                     .thenReturn(true);
-            when(statusRepository.findById(pendingStatus.getId())).thenReturn(Optional.of(pendingStatus));
+            catalogRow(pendingStatus);
             when(detailRepository.save(any(PurchaseOrderDetail.class))).thenReturn(detail);
 
             service.updatePurchaseOrderDetail(poId, detailId, updatedReq);
@@ -1225,12 +1267,17 @@ class PurchaseOrderServiceTest {
         @Test
         @DisplayName("should reject Draft, Sent, Received and Rejected headers")
         void rejectsNonReceivableStatuses() {
-            for (var status : List.of(draftStatus, sentStatus, receivedPoStatus, rejectedStatus)) {
-                purchaseOrder.setStatus(status);
+            for (var state : List.of(
+                    PurchaseOrderState.DRAFT,
+                    PurchaseOrderState.SENT,
+                    PurchaseOrderState.RECEIVED,
+                    PurchaseOrderState.REJECTED)) {
+                purchaseOrder.setState(state);
 
                 assertThatThrownBy(() -> service.requireReceivable(purchaseOrder))
+                        .as("a header in %s cannot receive", state)
                         .isInstanceOf(InvalidStatusTransitionException.class)
-                        .hasMessageContaining(status.getStatusName())
+                        .hasMessageContaining(state.name())
                         .hasMessageContaining("reception");
             }
         }
@@ -1238,10 +1285,10 @@ class PurchaseOrderServiceTest {
         @Test
         @DisplayName("should allow Accepted and In Transit headers")
         void allowsAcceptedAndInTransit() {
-            purchaseOrder.setStatus(acceptedStatus);
+            purchaseOrder.setState(PurchaseOrderState.ACCEPTED);
             assertThatCode(() -> service.requireReceivable(purchaseOrder)).doesNotThrowAnyException();
 
-            purchaseOrder.setStatus(inTransitPoStatus);
+            purchaseOrder.setState(PurchaseOrderState.IN_TRANSIT);
             assertThatCode(() -> service.requireReceivable(purchaseOrder)).doesNotThrowAnyException();
         }
     }
@@ -1260,11 +1307,15 @@ class PurchaseOrderServiceTest {
         @Test
         @DisplayName("should admit every status that can still reach Partial Received")
         void admitsNonTerminalStatuses() {
-            for (var status : List.of(pendingStatus, inProcessStatus, inTransitStatus, partialReceivedStatus)) {
-                detail.setStatus(status);
+            for (var state : List.of(
+                    PurchaseOrderDetailState.PENDING,
+                    PurchaseOrderDetailState.IN_PROCESS,
+                    PurchaseOrderDetailState.IN_TRANSIT,
+                    PurchaseOrderDetailState.PARTIAL_RECEIVED)) {
+                detail.setState(state);
 
                 assertThatCode(() -> service.requireDetailReceivable(detail))
-                        .as("line in %s must be receivable", status.getStatusName())
+                        .as("line in %s must be receivable", state)
                         .doesNotThrowAnyException();
             }
         }
@@ -1272,13 +1323,16 @@ class PurchaseOrderServiceTest {
         @Test
         @DisplayName("should reject the terminal statuses: Received, Rejected and Cancelled")
         void rejectsTerminalStatuses() {
-            for (var status : List.of(receivedStatus, rejectedStatus, cancelledStatus)) {
-                detail.setStatus(status);
+            for (var state : List.of(
+                    PurchaseOrderDetailState.RECEIVED,
+                    PurchaseOrderDetailState.REJECTED,
+                    PurchaseOrderDetailState.CANCELLED)) {
+                detail.setState(state);
 
                 assertThatThrownBy(() -> service.requireDetailReceivable(detail))
-                        .as("line in %s must be unreceivable", status.getStatusName())
+                        .as("line in %s must be unreceivable", state)
                         .isInstanceOf(InvalidStatusTransitionException.class)
-                        .hasMessageContaining(status.getStatusName())
+                        .hasMessageContaining(state.name())
                         .hasMessageContaining("reception");
             }
         }
@@ -1290,12 +1344,12 @@ class PurchaseOrderServiceTest {
             // mutator would derive Partial Received, but the reflexive walk made the old
             // "... || isDetailStatusReachable(current, \"Received\")" predicate admit the terminal
             // Received line and let the write happen before the mutator threw a 409.
-            detail.setStatus(receivedStatus);
+            detail.setState(PurchaseOrderDetailState.RECEIVED);
             detail.setReceivedQuantity(BigDecimal.valueOf(0));
 
             assertThatThrownBy(() -> service.requireDetailReceivable(detail))
                     .isInstanceOf(InvalidStatusTransitionException.class)
-                    .hasMessageContaining("Received")
+                    .hasMessageContaining("RECEIVED")
                     .hasMessageContaining("reception");
         }
     }
@@ -1308,7 +1362,9 @@ class PurchaseOrderServiceTest {
 
         private void stubReceivableHeaderAndDetail(Status detailStatus) {
             purchaseOrder.setStatus(acceptedStatus);
+            purchaseOrder.setState(PurchaseOrderState.ACCEPTED);
             detail.setStatus(detailStatus);
+            detail.setState(detailStateOf(detailStatus));
             when(purchaseOrderRepository.findById(poId)).thenReturn(Optional.of(purchaseOrder));
             when(detailRepository.findById(detailId)).thenReturn(Optional.of(detail));
         }
@@ -1405,7 +1461,7 @@ class PurchaseOrderServiceTest {
 
             assertThatThrownBy(() -> service.registerReceivedQuantity(poId, detailId, BigDecimal.valueOf(3)))
                     .isInstanceOf(InvalidStatusTransitionException.class)
-                    .hasMessageContaining("Rejected");
+                    .hasMessageContaining("REJECTED");
 
             verify(detailRepository, never()).save(any(PurchaseOrderDetail.class));
         }
@@ -1418,7 +1474,7 @@ class PurchaseOrderServiceTest {
 
             assertThatThrownBy(() -> service.registerReceivedQuantity(poId, detailId, BigDecimal.valueOf(3)))
                     .isInstanceOf(InvalidStatusTransitionException.class)
-                    .hasMessageContaining("Cancelled");
+                    .hasMessageContaining("CANCELLED");
 
             verify(detailRepository, never()).save(any(PurchaseOrderDetail.class));
         }
@@ -1451,7 +1507,9 @@ class PurchaseOrderServiceTest {
         @DisplayName("should promote an In Transit header to Received when every enabled line is Received")
         void promotesHeaderWhenFullyReceived() {
             purchaseOrder.setStatus(inTransitPoStatus);
+            purchaseOrder.setState(PurchaseOrderState.IN_TRANSIT);
             detail.setStatus(inTransitStatus);
+            detail.setState(PurchaseOrderDetailState.IN_TRANSIT);
             purchaseOrder.getDetails().clear();
             purchaseOrder.getDetails().add(detail);
 
@@ -1466,10 +1524,11 @@ class PurchaseOrderServiceTest {
 
             assertThat(result.statusName()).isEqualTo("Received");
             assertThat(purchaseOrder.getStatus()).isSameAs(receivedPoStatus);
+            assertThat(purchaseOrder.getState()).isSameAs(PurchaseOrderState.RECEIVED);
             verify(eventPublisher)
                     .publishEvent(argThat(event -> event instanceof PurchaseOrderStatusChangedEvent statusEvent
-                            && "In Transit".equals(statusEvent.getFromStatus())
-                            && "Received".equals(statusEvent.getToStatus())));
+                            && "IN_TRANSIT".equals(statusEvent.getFromStatus())
+                            && "RECEIVED".equals(statusEvent.getToStatus())));
         }
 
         @Test
@@ -1484,11 +1543,14 @@ class PurchaseOrderServiceTest {
                     .total(new BigDecimal("20.00"))
                     .receivedQuantity(BigDecimal.ZERO)
                     .status(pendingStatus)
+                    .state(PurchaseOrderDetailState.PENDING)
                     .enabled(true)
                     .build();
 
             purchaseOrder.setStatus(inTransitPoStatus);
+            purchaseOrder.setState(PurchaseOrderState.IN_TRANSIT);
             detail.setStatus(inTransitStatus);
+            detail.setState(PurchaseOrderDetailState.IN_TRANSIT);
             purchaseOrder.getDetails().clear();
             purchaseOrder.getDetails().add(detail);
             purchaseOrder.getDetails().add(sibling);
@@ -1515,8 +1577,8 @@ class PurchaseOrderServiceTest {
             var captor = ArgumentCaptor.forClass(PurchaseOrderDetailStatusChangedEvent.class);
             verify(eventPublisher).publishEvent(captor.capture());
             var event = captor.getValue();
-            assertThat(event.getFromStatus()).isEqualTo("In Process");
-            assertThat(event.getToStatus()).isEqualTo("Partial Received");
+            assertThat(event.getFromStatus()).isEqualTo("IN_PROCESS");
+            assertThat(event.getToStatus()).isEqualTo("PARTIAL_RECEIVED");
             assertThat(event.getReceivedQuantity()).isEqualByComparingTo("3");
             assertThat(event.getOrderedQuantity()).isEqualByComparingTo("5");
         }
@@ -1532,6 +1594,7 @@ class PurchaseOrderServiceTest {
                     .companyStore(store)
                     .paymentMethod(paymentMethod)
                     .status(acceptedStatus)
+                    .state(PurchaseOrderState.ACCEPTED)
                     .enabled(true)
                     .build();
             detail.setPurchaseOrder(otherOrder);
@@ -1555,11 +1618,294 @@ class PurchaseOrderServiceTest {
         @DisplayName("should throw PurchaseOrderDetailNotFoundException when the detail is missing")
         void missingDetailThrows() {
             purchaseOrder.setStatus(acceptedStatus);
+            purchaseOrder.setState(PurchaseOrderState.ACCEPTED);
             when(purchaseOrderRepository.findById(poId)).thenReturn(Optional.of(purchaseOrder));
             when(detailRepository.findById(detailId)).thenReturn(Optional.empty());
 
             assertThatThrownBy(() -> service.registerReceivedQuantity(poId, detailId, BigDecimal.valueOf(1)))
                     .isInstanceOf(PurchaseOrderDetailNotFoundException.class);
+        }
+    }
+
+    // ─── The typed state machine and its history ───────────────────────
+
+    /**
+     * ADR-0004 decisions 2–5 in the purchase module: one guard decides every move, every move appends
+     * exactly one {@code status_transition} row, a refused move writes nothing at all, and the two derived
+     * paths — the receipt's line promotion and the header promotion it triggers — append like any other path.
+     *
+     * <p><b>Why the recorder is asserted and not the table.</b> What this class owns is <em>which</em> rows a
+     * path asks for: the family, the document, both ends of the move and the reason. Whether the row lands, and
+     * whether a commit without it is refused, is the database's own contract —
+     * {@code StatusTransitionRecorderIntegrationTest} for the writer and
+     * {@code PurchaseOrderStatusHistoryMigrationIntegrationTest} for the pair of deferred triggers.</p>
+     *
+     * <p><b>The receipt cases are the old walk, pinned one step at a time.</b> `DETAIL_TRANSITIONS` used to be
+     * walked as a reachability graph, so a line could arrive at {@code Partial Received} straight from
+     * {@code Pending} — skipping {@code In Process} and {@code In Transit} — and the guard now walks the enum's
+     * successors instead of a string map. Each case below is one source state of that walk, so a change in the
+     * machine that quietly narrows what a receipt may do fails here instead of in a warehouse.</p>
+     */
+    @Nested
+    @DisplayName("the typed machine and its history")
+    class TypedStateMachineTests {
+
+        @Test
+        @DisplayName("creation appends the order's row and one row per line it creates")
+        @SuppressWarnings("unchecked")
+        void creationAppendsTheDocumentsRows() {
+            var detailReq = new PurchaseOrderDetailRequest(
+                    productId,
+                    variantId,
+                    BigDecimal.valueOf(3),
+                    new BigDecimal("150.00"),
+                    "Note",
+                    pendingStatus.getId());
+            var request =
+                    new PurchaseOrderRequest(supplierId, storeId, pmId, draftStatusId, "Comments", List.of(detailReq));
+
+            catalogRow(draftStatus);
+            catalogRow(pendingStatus);
+            when(supplierRepository.findByIdAndCompanyId(supplierId, companyId)).thenReturn(Optional.of(supplier));
+            when(companyStoreRepository.findById(storeId)).thenReturn(Optional.of(store));
+            when(paymentMethodRepository.findById(pmId)).thenReturn(Optional.of(paymentMethod));
+            when(productRepository.findById(productId)).thenReturn(Optional.of(product));
+            when(productVariantRepository.findByIdAndProductIdAndCompanyIdAndEnabledTrue(
+                            variantId, productId, companyId))
+                    .thenReturn(Optional.of(productVariant));
+            when(productVariantStoreStockRepository.existsByProductVariantIdAndCompanyStoreId(variantId, storeId))
+                    .thenReturn(true);
+            when(documentSequenceAllocator.allocate(eq(companyId), eq(DocumentType.PURCHASE_ORDER), anyString()))
+                    .thenReturn(1L);
+            when(purchaseOrderRepository.save(any(PurchaseOrder.class))).thenAnswer(inv -> {
+                var po = inv.getArgument(0, PurchaseOrder.class);
+                po.setId(poId);
+                return po;
+            });
+            when(detailRepository.saveAll(any())).thenAnswer(inv -> {
+                List<PurchaseOrderDetail> lines = inv.getArgument(0);
+                lines.forEach(line -> line.setId(detailId));
+                return lines;
+            });
+
+            service.createPurchaseOrder(request);
+
+            verify(statusTransitionRecorder)
+                    .recordCreation(StatusSubject.PURCHASE_ORDER, companyId, poId, PurchaseOrderState.DRAFT);
+            verify(statusTransitionRecorder)
+                    .recordCreation(
+                            StatusSubject.PURCHASE_ORDER_DETAIL, companyId, detailId, PurchaseOrderDetailState.PENDING);
+        }
+
+        @Test
+        @DisplayName("a move appends exactly one row, with both ends named as the constants")
+        void aMoveAppendsExactlyOneRow() {
+            when(purchaseOrderRepository.findById(poId)).thenReturn(Optional.of(purchaseOrder));
+            catalogRow(sentStatus);
+            when(purchaseOrderRepository.save(any(PurchaseOrder.class))).thenReturn(purchaseOrder);
+
+            service.updatePurchaseOrderStatus(poId, new UpdatePurchaseOrderStatusRequest(sentStatus.getId()));
+
+            assertThat(purchaseOrder.getState()).isSameAs(PurchaseOrderState.SENT);
+            assertThat(purchaseOrder.getStatus()).isSameAs(sentStatus);
+            verify(statusTransitionRecorder)
+                    .recordMove(
+                            StatusSubject.PURCHASE_ORDER,
+                            companyId,
+                            poId,
+                            PurchaseOrderState.DRAFT,
+                            PurchaseOrderState.SENT,
+                            "status update");
+            verify(statusTransitionRecorder, never()).recordCreation(any(), any(), any(), any());
+        }
+
+        @Test
+        @DisplayName("a forbidden move is a 409 that writes nothing: no row, no save and no history")
+        void aForbiddenMoveWritesNothing() {
+            var alreadySent = PurchaseOrder.builder()
+                    .id(poId)
+                    .orderNumber("PO-OTHER-00002")
+                    .supplier(supplier)
+                    .companyStore(store)
+                    .paymentMethod(paymentMethod)
+                    .status(sentStatus)
+                    .state(PurchaseOrderState.SENT)
+                    .enabled(true)
+                    .build();
+            when(purchaseOrderRepository.findById(poId)).thenReturn(Optional.of(alreadySent));
+            catalogRow(draftStatus);
+
+            assertThatThrownBy(() -> service.updatePurchaseOrderStatus(
+                            poId, new UpdatePurchaseOrderStatusRequest(draftStatusId)))
+                    .isInstanceOf(InvalidStatusTransitionException.class)
+                    .hasMessageContaining("SENT → DRAFT");
+
+            assertThat(alreadySent.getState()).isSameAs(PurchaseOrderState.SENT);
+            assertThat(alreadySent.getStatus()).isSameAs(sentStatus);
+            verify(purchaseOrderRepository, never()).save(any(PurchaseOrder.class));
+            verifyNoInteractions(statusTransitionRecorder);
+        }
+
+        @Test
+        @DisplayName("a receipt moves Pending straight to Partial Received, as the old walk allowed")
+        void receiptMovesPendingToPartialReceived() {
+            assertReceipt(
+                    PurchaseOrderDetailState.PENDING,
+                    pendingStatus,
+                    BigDecimal.valueOf(3),
+                    PurchaseOrderDetailState.PARTIAL_RECEIVED,
+                    partialReceivedStatus);
+        }
+
+        @Test
+        @DisplayName("a receipt moves In Process to Partial Received")
+        void receiptMovesInProcessToPartialReceived() {
+            assertReceipt(
+                    PurchaseOrderDetailState.IN_PROCESS,
+                    inProcessStatus,
+                    BigDecimal.valueOf(3),
+                    PurchaseOrderDetailState.PARTIAL_RECEIVED,
+                    partialReceivedStatus);
+        }
+
+        @Test
+        @DisplayName("a receipt moves In Transit to Partial Received")
+        void receiptMovesInTransitToPartialReceived() {
+            assertReceipt(
+                    PurchaseOrderDetailState.IN_TRANSIT,
+                    inTransitStatus,
+                    BigDecimal.valueOf(3),
+                    PurchaseOrderDetailState.PARTIAL_RECEIVED,
+                    partialReceivedStatus);
+        }
+
+        @Test
+        @DisplayName("a receipt moves Pending straight to Received when the whole quantity arrives")
+        void receiptMovesPendingToReceived() {
+            assertReceipt(
+                    PurchaseOrderDetailState.PENDING,
+                    pendingStatus,
+                    BigDecimal.valueOf(5),
+                    PurchaseOrderDetailState.RECEIVED,
+                    receivedStatus);
+        }
+
+        @Test
+        @DisplayName("a receipt moves In Transit to Received")
+        void receiptMovesInTransitToReceived() {
+            assertReceipt(
+                    PurchaseOrderDetailState.IN_TRANSIT,
+                    inTransitStatus,
+                    BigDecimal.valueOf(5),
+                    PurchaseOrderDetailState.RECEIVED,
+                    receivedStatus);
+        }
+
+        @Test
+        @DisplayName("a second partial receipt on a partially received line moves nothing and appends nothing")
+        void aSecondPartialReceiptAppendsNothing() {
+            purchaseOrder.setState(PurchaseOrderState.ACCEPTED);
+            purchaseOrder.setStatus(acceptedStatus);
+            detail.setState(PurchaseOrderDetailState.PARTIAL_RECEIVED);
+            detail.setStatus(partialReceivedStatus);
+            when(purchaseOrderRepository.findById(poId)).thenReturn(Optional.of(purchaseOrder));
+            when(detailRepository.findById(detailId)).thenReturn(Optional.of(detail));
+            when(detailRepository.save(any(PurchaseOrderDetail.class))).thenReturn(detail);
+            when(statusRepository.findByTypeNameAndStatusName("PURCHASE_ORDER_DETAIL", "Partial Received"))
+                    .thenReturn(Optional.of(partialReceivedStatus));
+
+            service.registerReceivedQuantity(poId, detailId, BigDecimal.valueOf(2));
+
+            assertThat(detail.getState())
+                    .as("the state did not move, so there is no move to record: history is a change, not a write")
+                    .isSameAs(PurchaseOrderDetailState.PARTIAL_RECEIVED);
+            verify(detailRepository).save(detail);
+            verifyNoInteractions(statusTransitionRecorder);
+        }
+
+        @Test
+        @DisplayName("the header promotion appends its own row, in the same transaction as the line's")
+        void theHeaderPromotionAppendsItsOwnRow() {
+            purchaseOrder.setStatus(inTransitPoStatus);
+            purchaseOrder.setState(PurchaseOrderState.IN_TRANSIT);
+            detail.setStatus(inTransitStatus);
+            detail.setState(PurchaseOrderDetailState.IN_TRANSIT);
+            purchaseOrder.getDetails().clear();
+            purchaseOrder.getDetails().add(detail);
+
+            when(purchaseOrderRepository.findById(poId)).thenReturn(Optional.of(purchaseOrder));
+            when(detailRepository.findById(detailId)).thenReturn(Optional.of(detail));
+            when(detailRepository.save(any(PurchaseOrderDetail.class))).thenReturn(detail);
+            when(statusRepository.findByTypeNameAndStatusName("PURCHASE_ORDER_DETAIL", "Received"))
+                    .thenReturn(Optional.of(receivedStatus));
+            when(statusRepository.findByTypeNameAndStatusName("PURCHASE_ORDER", "Received"))
+                    .thenReturn(Optional.of(receivedPoStatus));
+
+            service.registerReceivedQuantity(poId, detailId, BigDecimal.valueOf(5));
+
+            assertThat(purchaseOrder.getState()).isSameAs(PurchaseOrderState.RECEIVED);
+            verify(statusTransitionRecorder)
+                    .recordReachableMove(
+                            StatusSubject.PURCHASE_ORDER_DETAIL,
+                            companyId,
+                            detailId,
+                            PurchaseOrderDetailState.IN_TRANSIT,
+                            PurchaseOrderDetailState.RECEIVED,
+                            "receipt");
+            verify(statusTransitionRecorder)
+                    .recordMove(
+                            StatusSubject.PURCHASE_ORDER,
+                            companyId,
+                            poId,
+                            PurchaseOrderState.IN_TRANSIT,
+                            PurchaseOrderState.RECEIVED,
+                            "all lines received");
+        }
+
+        @Test
+        @DisplayName("a status_id whose code the enum does not declare is refused, naming the code")
+        void aCodeTheEnumLacksIsRefused() {
+            var shipped = status(UUID.randomUUID(), "Shipped", "SHIPPED", poStatusType);
+            when(purchaseOrderRepository.findById(poId)).thenReturn(Optional.of(purchaseOrder));
+            catalogRow(shipped);
+
+            assertThatThrownBy(() -> service.updatePurchaseOrderStatus(
+                            poId, new UpdatePurchaseOrderStatusRequest(shipped.getId())))
+                    .as("the catalog's code is the authority, and a code no constant spells is a 400 that names it")
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("SHIPPED")
+                    .hasMessageContaining("PurchaseOrderState");
+
+            verify(purchaseOrderRepository, never()).save(any(PurchaseOrder.class));
+            verifyNoInteractions(statusTransitionRecorder);
+        }
+
+        /**
+         * One receipt from one source state: the line is moved to {@code to}, the pointer follows it and the
+         * history gets exactly the pair of ends the row now carries.
+         */
+        private void assertReceipt(
+                PurchaseOrderDetailState from,
+                Status fromRow,
+                BigDecimal received,
+                PurchaseOrderDetailState to,
+                Status toRow) {
+            purchaseOrder.setState(PurchaseOrderState.ACCEPTED);
+            purchaseOrder.setStatus(acceptedStatus);
+            detail.setState(from);
+            detail.setStatus(fromRow);
+            when(purchaseOrderRepository.findById(poId)).thenReturn(Optional.of(purchaseOrder));
+            when(detailRepository.findById(detailId)).thenReturn(Optional.of(detail));
+            when(detailRepository.save(any(PurchaseOrderDetail.class))).thenReturn(detail);
+            when(statusRepository.findByTypeNameAndStatusName("PURCHASE_ORDER_DETAIL", toRow.getStatusName()))
+                    .thenReturn(Optional.of(toRow));
+
+            var result = service.registerReceivedQuantity(poId, detailId, received);
+
+            assertThat(result.statusName()).isEqualTo(toRow.getStatusName());
+            assertThat(detail.getState()).isSameAs(to);
+            verify(statusTransitionRecorder)
+                    .recordReachableMove(StatusSubject.PURCHASE_ORDER_DETAIL, companyId, detailId, from, to, "receipt");
         }
     }
 }

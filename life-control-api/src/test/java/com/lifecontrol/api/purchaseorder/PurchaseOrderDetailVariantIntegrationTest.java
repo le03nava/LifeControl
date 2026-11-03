@@ -57,6 +57,9 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 import tools.jackson.databind.JsonNode;
@@ -458,15 +461,29 @@ class PurchaseOrderDetailVariantIntegrationTest extends AbstractPostgresIntegrat
     }
 
     /**
-     * Registers a received quantity under this class's company.
+     * Registers a received quantity under this class's company <b>and</b> under an actor.
      *
-     * <p>{@link PurchaseOrderService} is called directly here instead of through the controller, so no
-     * principal states the tenant at its transaction boundary and its first read of
-     * {@code purchase_orders} — an armed table — would answer not-found. The fixture states it.</p>
+     * <p>{@link PurchaseOrderService} is called directly here instead of through the controller, so two things a
+     * request would have supplied have to be stated by the fixture: the tenant, which its first read of an armed
+     * table needs, and the identity, because every move appends a {@code status_transition} row whose
+     * {@code actor} comes from the request's claims (ADR-0004 decision 4) and a live row may not claim
+     * {@code unknown:migration}. The identity is cleared afterwards so no case inherits a caller it did not ask
+     * for.</p>
      */
     private void registerReceivedQuantity(UUID purchaseOrderId, UUID detailId, BigDecimal quantity) {
-        TenantFixtures.inTenant(
-                companyId, () -> purchaseOrderService.registerReceivedQuantity(purchaseOrderId, detailId, quantity));
+        TenantFixtures.inTenant(companyId, () -> {
+            var identity = Jwt.withTokenValue("fixture-token")
+                    .header("alg", "none")
+                    .subject("test:fixture")
+                    .claim("company_id", companyId.toString())
+                    .build();
+            SecurityContextHolder.getContext().setAuthentication(new JwtAuthenticationToken(identity, List.of()));
+            try {
+                return purchaseOrderService.registerReceivedQuantity(purchaseOrderId, detailId, quantity);
+            } finally {
+                SecurityContextHolder.clearContext();
+            }
+        });
     }
 
     private void assertHeaderStatus(UUID purchaseOrderId, String statusName) throws Exception {

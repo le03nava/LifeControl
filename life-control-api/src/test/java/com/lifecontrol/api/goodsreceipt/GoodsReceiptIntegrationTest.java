@@ -91,6 +91,8 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 import tools.jackson.databind.ObjectMapper;
@@ -200,9 +202,21 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
     private MockMvc mockMvc;
 
     @Autowired
+    private PlatformTransactionManager transactionManager;
+
+    @Autowired
     private ObjectMapper objectMapper;
 
     private static final SimpleGrantedAuthority ROLE_LC_ADMIN = new SimpleGrantedAuthority("ROLE_lc-admin");
+
+    /** One creation row of one receipt, as {@code from|to|actor|reason}; see {@link #creationRowsOf}. */
+    private static final String CREATION_ROW_SQL = """
+            SELECT coalesce(from_status, '<none>') || '|' || to_status || '|' || actor
+                   || '|' || coalesce(reason, '<none>')
+              FROM status_transition
+             WHERE document_type = 'GOODS_RECEIPT' AND document_id = ?
+             ORDER BY seq
+            """;
 
     private static final SimpleGrantedAuthority ROLE_LC_COMPANY_STORE =
             new SimpleGrantedAuthority("ROLE_lc-company-store");
@@ -476,7 +490,7 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
                     .build());
             saveStoreStock(variant.getId());
 
-            var order = purchaseOrderRepository.save(PurchaseOrder.builder()
+            var order = purchaseOrderRepository.saveAndFlush(PurchaseOrder.builder()
                     .orderNumber(identity.docNumber())
                     .docType(DocumentType.PURCHASE_ORDER.code())
                     .seqPeriod(identity.period())
@@ -491,8 +505,11 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
                     .comments("Reception order")
                     .enabled(true)
                     .build());
+            // ADR-0004 decision 5 side A: the fixture inserts a document, so it owes the creation row the
+            // trigger checks — in the same transaction, because the pair is deferred to commit.
+            recordCreation("PURCHASE_ORDER", order.getId(), order.getStatus());
 
-            var detail = purchaseOrderDetailRepository.save(PurchaseOrderDetail.builder()
+            var detail = purchaseOrderDetailRepository.saveAndFlush(PurchaseOrderDetail.builder()
                     .purchaseOrder(order)
                     .product(product)
                     .productVariant(variant)
@@ -504,6 +521,7 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
                     .status(pendingDetailStatus)
                     .enabled(true)
                     .build());
+            recordCreation("PURCHASE_ORDER_DETAIL", detail.getId(), detail.getStatus());
 
             return new ReceptionFixtures(order, detail, variant);
         });
@@ -577,7 +595,7 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
     private PurchaseOrder createReceivableOrder(String statusName) {
         return TenantFixtures.inTenant(company.getId(), () -> {
             var identity = allocateIdentity(DocumentType.PURCHASE_ORDER, company.getId());
-            return purchaseOrderRepository.save(PurchaseOrder.builder()
+            var order = purchaseOrderRepository.saveAndFlush(PurchaseOrder.builder()
                     .orderNumber(identity.docNumber())
                     .docType(DocumentType.PURCHASE_ORDER.code())
                     .seqPeriod(identity.period())
@@ -592,6 +610,9 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
                     .comments("Reception order")
                     .enabled(true)
                     .build());
+            // The order is a document: without its creation row the commit that stores it is refused.
+            recordCreation("PURCHASE_ORDER", order.getId(), order.getStatus());
+            return order;
         });
     }
 
@@ -613,7 +634,7 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
                     .enabled(true)
                     .build());
             saveStoreStock(variant.getId());
-            return purchaseOrderDetailRepository.save(PurchaseOrderDetail.builder()
+            var detail = purchaseOrderDetailRepository.saveAndFlush(PurchaseOrderDetail.builder()
                     .purchaseOrder(order)
                     .product(product)
                     .productVariant(variant)
@@ -625,6 +646,9 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
                     .status(statusByName("PURCHASE_ORDER_DETAIL", detailStatusName))
                     .enabled(true)
                     .build());
+            // A line is a document of its own family, with its own pair of triggers.
+            recordCreation("PURCHASE_ORDER_DETAIL", detail.getId(), detail.getStatus());
+            return detail;
         });
     }
 
@@ -705,6 +729,51 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
         return false;
     }
 
+    /**
+     * The columns of a creation row of one receipt, read in a transaction that states this class's tenant.
+     *
+     * <p>{@code status_transition} is FORCEd since {@code V68}, so an unscoped read answers no row at all and
+     * would make "the service wrote nothing" and "the service wrote the row" print the same green. The
+     * {@code coalesce} is not cosmetic: {@code from_status} is {@code NULL} by definition on a creation row, and
+     * a {@code NULL} in a string concatenation turns the whole row into {@code NULL}.</p>
+     */
+    private List<String> creationRowsOf(UUID receiptId) {
+        return inTransaction(() -> jdbcTemplate.queryForList(CREATION_ROW_SQL, String.class, receiptId));
+    }
+
+    /**
+     * Appends the creation row ADR-0004 decision 5 side A requires of the writer, for a fixture that inserts a
+     * document directly instead of through its service.
+     *
+     * <p>{@code to_status} is read from the catalog row the document points at — the same {@code code}
+     * {@code V66}'s bridge derives for the column — so the fixture cannot state a state that disagrees with the
+     * pointer, and the actor says a fixture wrote it: {@code unknown:migration} belongs to the migration alone.
+     * It must run in the same transaction as the document's insert, which is what {@link #saveReceipt} arranges:
+     * the check is deferred to commit, so two commits are one commit too many.</p>
+     */
+    private void recordCreation(String documentType, UUID documentId, Status status) {
+        jdbcTemplate.update("""
+                INSERT INTO status_transition (company_id, document_type, document_id, from_status, to_status,
+                                               actor, reason)
+                SELECT ?, ?, ?, NULL, s.code, 'unknown:test', 'fixture' FROM statuses s WHERE s.id = ?
+                """, company.getId(), documentType, documentId, status.getId());
+    }
+
+    /**
+     * Saves a receipt <b>with</b> its creation row, in one transaction.
+     *
+     * <p>Since {@code V70} the receipt table carries the deferred pair, so a fixture that inserts the document
+     * and then its history in two commits cannot insert it at all: the first commit is the one that is judged.
+     * One transaction is the shape the service itself uses, and this helper is that shape.</p>
+     */
+    private GoodsReceipt saveReceipt(GoodsReceipt receipt) {
+        return inTransaction(() -> {
+            var saved = goodsReceiptRepository.saveAndFlush(receipt);
+            recordCreation("GOODS_RECEIPT", saved.getId(), saved.getStatus());
+            return saved;
+        });
+    }
+
     private record ReceptionFixtures(PurchaseOrder order, PurchaseOrderDetail detail, ProductVariant variant) {}
 
     @Test
@@ -740,9 +809,9 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
     @DisplayName("should reject a duplicate doc_number of one tenant at the database level")
     void duplicateReceiptNumberIsRejected() {
         var fixtures = createReceptionFixtures();
-        goodsReceiptRepository.saveAndFlush(newReceipt(fixtures.order(), "GR-DUP-001"));
+        saveReceipt(newReceipt(fixtures.order(), "GR-DUP-001"));
 
-        assertThatThrownBy(() -> goodsReceiptRepository.saveAndFlush(newReceipt(fixtures.order(), "GR-DUP-001")))
+        assertThatThrownBy(() -> saveReceipt(newReceipt(fixtures.order(), "GR-DUP-001")))
                 .satisfies(thrown -> assertThat(hasConstraintViolationCause(thrown))
                         // `V64` dropped the global UNIQUE on `receipt_number`; what refuses the duplicate now
                         // is ADR-0003 decision 5's per-tenant net over the rendered string.
@@ -756,7 +825,7 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
     @DisplayName("should reject zero and negative quantity_received through the CHECK constraint")
     void nonPositiveQuantityIsRejectedByCheckConstraint() {
         var fixtures = createReceptionFixtures();
-        var receipt = goodsReceiptRepository.saveAndFlush(newReceipt(fixtures.order(), "GR-CHK-001"));
+        var receipt = saveReceipt(newReceipt(fixtures.order(), "GR-CHK-001"));
 
         assertThatThrownBy(() -> goodsReceiptItemRepository.saveAndFlush(
                         newLine(receipt, fixtures.detail(), fixtures.variant(), "0.00")))
@@ -777,7 +846,7 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
     @DisplayName("should reject a null product_variant_id at the database level")
     void nullProductVariantIsRejectedByNotNullConstraint() {
         var fixtures = createReceptionFixtures();
-        var receipt = goodsReceiptRepository.saveAndFlush(newReceipt(fixtures.order(), "GR-NULL-001"));
+        var receipt = saveReceipt(newReceipt(fixtures.order(), "GR-NULL-001"));
 
         // Inserted through raw SQL on purpose: the entity mapping is non-nullable, so Hibernate would
         // stop the null before it reached the database. This proves the DB-level NOT NULL backstop.
@@ -799,7 +868,7 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
         var receipt = newReceipt(fixtures.order(), "GR-RT-001");
         receipt.getItems().add(newLine(receipt, fixtures.detail(), fixtures.variant(), "3.00"));
 
-        goodsReceiptRepository.saveAndFlush(receipt);
+        saveReceipt(receipt);
 
         var reloaded = goodsReceiptRepository.findById(receipt.getId()).orElseThrow();
         assertThat(reloaded.getReceiptNumber()).isEqualTo("GR-RT-001");
@@ -852,7 +921,7 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
                 .build();
         assertThat(receipt.getReceivedAt()).isNull();
 
-        goodsReceiptRepository.saveAndFlush(receipt);
+        saveReceipt(receipt);
 
         var reloaded = goodsReceiptRepository.findById(receipt.getId()).orElseThrow();
         assertThat(reloaded.getReceivedAt()).isNotNull();
@@ -867,7 +936,7 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
         var fixtures = createReceptionFixtures();
         assertThat(receiptsOf(fixtures.order())).isZero();
 
-        goodsReceiptRepository.saveAndFlush(newReceipt(fixtures.order(), "GR-CNT-001"));
+        saveReceipt(newReceipt(fixtures.order(), "GR-CNT-001"));
 
         assertThat(receiptsOf(fixtures.order())).isEqualTo(1);
 
@@ -1088,12 +1157,13 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
             // and Hibernate reports an optimistic-lock failure instead of the fixture's intent.
             TenantFixtures.inTenant(company.getId(), () -> productVariantRepository.saveAndFlush(secondVariant));
 
+            var historyRowsBefore = goodsReceiptHistoryRows();
             assertThatThrownBy(() -> createReceipt(
                             receptionRequest(order, line(firstLine.getId(), "3"), line(secondLine.getId(), "3"))))
                     .isInstanceOf(DisabledProductVariantException.class)
                     .hasMessageContaining("Reception line 1");
 
-            assertNoReceptionEffects(order, firstLine, secondLine);
+            assertNoReceptionEffects(order, historyRowsBefore, firstLine, secondLine);
             assertThat(detailStatusName(firstLine.getId())).isEqualTo("In Transit");
             assertThat(detailStatusName(secondLine.getId())).isEqualTo("In Transit");
         }
@@ -1107,12 +1177,13 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
             var firstLine = addReceivableLine(order, "5", "In Transit");
             var secondLine = addReceivableLine(order, "5", "Cancelled");
 
+            var historyRowsBefore = goodsReceiptHistoryRows();
             assertThatThrownBy(() -> createReceipt(
                             receptionRequest(order, line(firstLine.getId(), "3"), line(secondLine.getId(), "3"))))
                     .isInstanceOf(UnreceivableDetailStatusException.class)
                     .hasMessageContaining("Reception line 1");
 
-            assertNoReceptionEffects(order, firstLine, secondLine);
+            assertNoReceptionEffects(order, historyRowsBefore, firstLine, secondLine);
             assertThat(detailStatusName(firstLine.getId())).isEqualTo("In Transit");
             assertThat(detailStatusName(secondLine.getId())).isEqualTo("Cancelled");
         }
@@ -1134,6 +1205,7 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
                     "Reception",
                     List.of(line(firstLine.getId(), "3"), line(terminalLine.getId(), "3")));
 
+            var historyRowsBefore = goodsReceiptHistoryRows();
             // The old "... || isDetailStatusReachable(current, \"Received\")" predicate admitted the
             // terminal Received line (the reachability walk is reflexive), so the write phase ran and
             // the mutator answered 409 after it. The corrected guard rejects the line pre-write, so the
@@ -1148,7 +1220,7 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
                     .andExpect(jsonPath("$.message")
                             .value(containsString(terminalLine.getId().toString())));
 
-            assertNoReceptionEffects(order, firstLine, terminalLine);
+            assertNoReceptionEffects(order, historyRowsBefore, firstLine, terminalLine);
             assertThat(detailStatusName(firstLine.getId())).isEqualTo("In Transit");
             assertThat(detailStatusName(terminalLine.getId())).isEqualTo("Received");
         }
@@ -1158,7 +1230,8 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
          * touched row must be byte-for-byte untouched — for the rejected line and, critically, for
          * the earlier valid one, which a per-line loop could otherwise have half-applied.
          */
-        private void assertNoReceptionEffects(PurchaseOrder order, PurchaseOrderDetail... lines) {
+        private void assertNoReceptionEffects(
+                PurchaseOrder order, long historyRowsBefore, PurchaseOrderDetail... lines) {
             assertThat(goodsReceiptRepository.count()).isZero();
             assertThat(goodsReceiptItemRepository.count()).isZero();
             assertThat(inventoryMovementRepository.count()).isZero();
@@ -1173,6 +1246,76 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
                         .isEqualByComparingTo("0");
             }
             assertThat(orderStatusName(order.getId())).isEqualTo("In Transit");
+            // ADR-0004 decision 5: a rejected request writes no receipt, so it writes no receipt history
+            // either. Asked as "the count did not move" and not as "the count is zero", because
+            // `status_transition` is append-only: the rows of every earlier case of this class are still
+            // there, and a zero would be a statement about the whole table instead of about this request.
+            // The scope is the receipt family, which is what keeps the fixture's own purchase-order rows out
+            // of the question exactly as the assertions above exclude them.
+            assertThat(goodsReceiptHistoryRows())
+                    .as("a rejected request appends no receipt history row")
+                    .isEqualTo(historyRowsBefore);
+        }
+
+        /**
+         * How many {@code status_transition} rows the receipt family holds, read with this class's tenant
+         * stated: the table is FORCEd, so an unscoped count answers zero for rows that exist.
+         */
+        private long goodsReceiptHistoryRows() {
+            return inTransaction(() -> jdbcTemplate.queryForObject(
+                    "SELECT count(*) FROM status_transition WHERE document_type = 'GOODS_RECEIPT'", Long.class));
+        }
+    }
+
+    @Nested
+    @DisplayName("status history (ADR-0004 decision 5)")
+    class StatusHistoryTests {
+
+        @Test
+        @DisplayName("should append exactly one creation row for the receipt it writes, with the caller as its actor")
+        void createReceiptAppendsItsCreationRow() {
+            seedReceivingSettings();
+            var order = createReceivableOrder("In Transit");
+            var detail = addReceivableLine(order, "5", "In Transit");
+
+            var response = createReceipt(receptionRequest(order, line(detail.getId(), "3")));
+
+            assertThat(response.status())
+                    .as("the code beside the label, from the row the receipt was born with")
+                    .isEqualTo("REGISTERED");
+            assertThat(creationRowsOf(response.id()))
+                    .as("one row and no predecessor: the receipt is born REGISTERED and is never moved, so this "
+                            + "creation row is its whole history")
+                    .containsExactly("<none>|REGISTERED|receiver-sub|<none>");
+        }
+
+        @Test
+        @DisplayName("should leave no creation row when the receipt's transaction rolls back")
+        void rolledBackReceiptLeavesNoCreationRow() {
+            seedReceivingSettings();
+            var order = createReceivableOrder("In Transit");
+            var detail = addReceivableLine(order, "5", "In Transit");
+
+            // The service's own transaction is joined here instead of started, so the receipt and its history
+            // row are written and then discarded together: the pair is only a pair if both directions roll
+            // back, and a row that outlived its document would be a history nobody could resolve.
+            var template = new TransactionTemplate(transactionManager);
+            var receiptId = new UUID[1];
+            template.executeWithoutResult(status -> {
+                TenantFixtures.stateTenantWithinTheOpenTransaction(company.getId(), jdbcTemplate);
+                var response = goodsReceiptService.createReceipt(receptionRequest(order, line(detail.getId(), "3")));
+                receiptId[0] = response.id();
+                assertThat(jdbcTemplate.queryForList(CREATION_ROW_SQL, String.class, response.id()))
+                        .as("the row is there while the transaction both writes share is open")
+                        .hasSize(1);
+                status.setRollbackOnly();
+            });
+
+            var receipts = inTransaction(goodsReceiptRepository::count);
+            assertThat(receipts).as("the rolled-back receipt is not a receipt").isZero();
+            assertThat(creationRowsOf(receiptId[0]))
+                    .as("and it leaves no history behind either")
+                    .isEmpty();
         }
     }
 
@@ -1186,12 +1329,12 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
         void storeScopedListRunsOnPostgresAndNarrowsBySearch() throws Exception {
             var mine1 = persistedOrder(store, "PO-GR-LIST-A");
             var mine2 = persistedOrder(store, "PO-GR-LIST-B");
-            goodsReceiptRepository.saveAndFlush(receiptFor(store, mine1, "GR-MINE-001"));
-            goodsReceiptRepository.saveAndFlush(receiptFor(store, mine2, "GR-MINE-002"));
+            saveReceipt(receiptFor(store, mine1, "GR-MINE-001"));
+            saveReceipt(receiptFor(store, mine2, "GR-MINE-002"));
 
             var foreignStore = createOtherStore();
             var foreignOrder = persistedOrder(foreignStore, "PO-GR-LIST-FOREIGN");
-            goodsReceiptRepository.saveAndFlush(receiptFor(foreignStore, foreignOrder, "GR-OTHER-001"));
+            saveReceipt(receiptFor(foreignStore, foreignOrder, "GR-OTHER-001"));
 
             var chain = storeChain();
             var principal = storeScopedJwt(chain, chain.storeId());
@@ -1216,10 +1359,10 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
         @DisplayName("should return the unscoped page for an admin principal")
         void adminListIsUnscoped() throws Exception {
             var mine = persistedOrder(store, "PO-GR-ADMIN-A");
-            goodsReceiptRepository.saveAndFlush(receiptFor(store, mine, "GR-ADMIN-001"));
+            saveReceipt(receiptFor(store, mine, "GR-ADMIN-001"));
             var foreignStore = createOtherStore();
             var foreignOrder = persistedOrder(foreignStore, "PO-GR-ADMIN-B");
-            goodsReceiptRepository.saveAndFlush(receiptFor(foreignStore, foreignOrder, "GR-ADMIN-002"));
+            saveReceipt(receiptFor(foreignStore, foreignOrder, "GR-ADMIN-002"));
 
             mockMvc.perform(get("/api/goods-receipts").with(adminPrincipal()))
                     .andExpect(status().isOk())
@@ -1231,7 +1374,7 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
         @DisplayName("should return an empty page for a store-scoped principal with no store claim, leaking nothing")
         void emptyStoreSetYieldsEmptyPage() throws Exception {
             var mine = persistedOrder(store, "PO-GR-EMPTY");
-            goodsReceiptRepository.saveAndFlush(receiptFor(store, mine, "GR-EMPTY-001"));
+            saveReceipt(receiptFor(store, mine, "GR-EMPTY-001"));
 
             var noStoreClaim = jwt().authorities(ROLE_LC_COMPANY_STORE_READ)
                     .jwt(builder -> builder.claim("preferred_username", "reader"));
@@ -1271,7 +1414,7 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
         @DisplayName("should reject a foreign-store principal reading another store's receipt with 403")
         void readForeignStoreReceiptIsForbidden() throws Exception {
             var order = persistedOrder(store, "PO-GR-FOREIGN-READ");
-            var receipt = goodsReceiptRepository.saveAndFlush(receiptFor(store, order, "GR-FOREIGN-READ-001"));
+            var receipt = saveReceipt(receiptFor(store, order, "GR-FOREIGN-READ-001"));
             var chain = storeChain();
 
             mockMvc.perform(get("/api/goods-receipts/{id}", receipt.getId())
@@ -1294,9 +1437,9 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
             var disabledOrder = persistedOrder(store, "PO-GR-DISABLED-A");
             var disabled = receiptFor(store, disabledOrder, "GR-DISABLED-001");
             disabled.setEnabled(false);
-            goodsReceiptRepository.saveAndFlush(disabled);
+            saveReceipt(disabled);
             var enabledOrder = persistedOrder(store, "PO-GR-DISABLED-B");
-            goodsReceiptRepository.saveAndFlush(receiptFor(store, enabledOrder, "GR-DISABLED-002"));
+            saveReceipt(receiptFor(store, enabledOrder, "GR-DISABLED-002"));
 
             mockMvc.perform(get("/api/goods-receipts").with(adminPrincipal()))
                     .andExpect(status().isOk())
@@ -1324,9 +1467,9 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
             var disabledOrder = persistedOrder(store, "PO-GR-DISABLED-SCOPED-A");
             var disabled = receiptFor(store, disabledOrder, "GR-SCOPED-DISABLED-001");
             disabled.setEnabled(false);
-            goodsReceiptRepository.saveAndFlush(disabled);
+            saveReceipt(disabled);
             var enabledOrder = persistedOrder(store, "PO-GR-DISABLED-SCOPED-B");
-            goodsReceiptRepository.saveAndFlush(receiptFor(store, enabledOrder, "GR-SCOPED-DISABLED-002"));
+            saveReceipt(receiptFor(store, enabledOrder, "GR-SCOPED-DISABLED-002"));
 
             var chain = storeChain();
             var storeScoped = storeScopedJwt(chain, chain.storeId());
@@ -1355,7 +1498,7 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
             var order = persistedOrder(store, "PO-GR-DISABLED-DETAIL");
             var receipt = receiptFor(store, order, "GR-DISABLED-DETAIL-001");
             receipt.setEnabled(false);
-            var disabled = goodsReceiptRepository.saveAndFlush(receipt);
+            var disabled = saveReceipt(receipt);
 
             mockMvc.perform(get("/api/goods-receipts/{id}", disabled.getId()).with(adminPrincipal()))
                     .andExpect(status().isOk())
@@ -1397,7 +1540,7 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
         private PurchaseOrder persistedOrder(CompanyStore companyStore, String orderNumber) {
             return TenantFixtures.inTenant(company.getId(), () -> {
                 var identity = allocateIdentity(DocumentType.PURCHASE_ORDER, company.getId());
-                return purchaseOrderRepository.save(PurchaseOrder.builder()
+                var order = purchaseOrderRepository.saveAndFlush(PurchaseOrder.builder()
                         .orderNumber(orderNumber)
                         .docType(DocumentType.PURCHASE_ORDER.code())
                         .seqPeriod(identity.period())
@@ -1413,6 +1556,8 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
                         .comments("List order")
                         .enabled(true)
                         .build());
+                recordCreation("PURCHASE_ORDER", order.getId(), order.getStatus());
+                return order;
             });
         }
 

@@ -8,6 +8,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.lifecontrol.api.common.document.DocumentNumberRenderer;
 import com.lifecontrol.api.common.document.DocumentSequenceAllocator;
 import com.lifecontrol.api.common.document.DocumentType;
+import com.lifecontrol.api.common.state.StatusSubject;
+import com.lifecontrol.api.common.state.StatusTransitionRecorder;
 import com.lifecontrol.api.company.model.CompanyCountry;
 import com.lifecontrol.api.company.model.CompanyRegion;
 import com.lifecontrol.api.company.model.CompanyZone;
@@ -19,6 +21,7 @@ import com.lifecontrol.api.country.repository.CountryRepository;
 import com.lifecontrol.api.paymentmethod.model.PaymentMethod;
 import com.lifecontrol.api.paymentmethod.repository.PaymentMethodRepository;
 import com.lifecontrol.api.purchaseorder.model.PurchaseOrder;
+import com.lifecontrol.api.purchaseorder.model.PurchaseOrderState;
 import com.lifecontrol.api.purchaseorder.repository.PurchaseOrderDetailRepository;
 import com.lifecontrol.api.purchaseorder.repository.PurchaseOrderRepository;
 import com.lifecontrol.api.status.repository.StatusRepository;
@@ -30,6 +33,7 @@ import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
 import com.lifecontrol.api.support.TenantFixtures;
 import java.time.LocalDate;
 import java.util.HashSet;
+import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
@@ -38,6 +42,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.springframework.test.web.servlet.MockMvc;
 import tools.jackson.databind.ObjectMapper;
 
@@ -79,6 +86,9 @@ class PurchaseOrderListNullSearchIntegrationTest extends AbstractPostgresIntegra
 
     @Autowired
     private PurchaseOrderRepository purchaseOrderRepository;
+
+    @Autowired
+    private StatusTransitionRecorder statusTransitionRecorder;
 
     @Autowired
     private DocumentSequenceAllocator documentSequenceAllocator;
@@ -156,6 +166,25 @@ class PurchaseOrderListNullSearchIntegrationTest extends AbstractPostgresIntegra
     private org.springframework.test.web.servlet.request.RequestPostProcessor adminPrincipal() {
         return jwt().authorities(ROLE_LC_ADMIN)
                 .jwt(builder -> builder.claim("preferred_username", "admin").claim("company_id", companyId.toString()));
+    }
+
+    /**
+     * Appends {@code order}'s creation row through {@link StatusTransitionRecorder}, under a fixture identity,
+     * and clears that identity afterwards so no case inherits an authenticated caller it did not ask for.
+     */
+    private void recordCreation(PurchaseOrder order) {
+        var identity = Jwt.withTokenValue("fixture-token")
+                .header("alg", "none")
+                .subject("test:fixture")
+                .build();
+        SecurityContextHolder.getContext().setAuthentication(new JwtAuthenticationToken(identity, List.of()));
+        try {
+            purchaseOrderRepository.flush();
+            statusTransitionRecorder.recordCreation(
+                    StatusSubject.PURCHASE_ORDER, order.getCompany().getId(), order.getId(), order.getState());
+        } finally {
+            SecurityContextHolder.clearContext();
+        }
     }
 
     /**
@@ -243,9 +272,14 @@ class PurchaseOrderListNullSearchIntegrationTest extends AbstractPostgresIntegra
                     .company(company)
                     .paymentMethod(paymentMethod)
                     .status(status)
+                    .state(PurchaseOrderState.DRAFT)
                     .comments("PO null search fixture")
                     .enabled(true)
                     .build());
+            // ADR-0004 decision 5 side A: this fixture writes a document, so it owes the creation row that
+            // makes the document committable. Written through the one writer of the table, under an identity,
+            // because a live row may not claim `unknown:migration` (decision 4).
+            recordCreation(order);
             return order.getOrderNumber();
         });
     }

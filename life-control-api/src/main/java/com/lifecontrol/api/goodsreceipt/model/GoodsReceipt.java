@@ -71,6 +71,24 @@ public class GoodsReceipt extends Auditable {
     @JoinColumn(name = "status_id", nullable = false)
     private Status status;
 
+    /**
+     * The receipt's typed state (ADR-0004 decision 1), and the column {@code V70} now keeps history for.
+     *
+     * <p><b>Two columns, one fact.</b> {@code status} (this field, the {@code VARCHAR(24)} of {@code V66}) is the
+     * state; {@code status_id} (the {@link Status} above) is the catalog pointer the screens read until T8 drops
+     * it. {@code V66}'s bridge refuses the two ever disagreeing, so a writer that sets one and not the other
+     * cannot commit a row that says two things.</p>
+     *
+     * <p>Mapped as the enum and not as a string, exactly as {@code SalesOrder.status} is: the stored value is the
+     * constant's name, which is what the column's {@code CHECK} lists, so an unmapped value is a load failure
+     * rather than a guess. It is deliberately not marked {@code nullable = false}: the column is, and leaving the
+     * annotation silent lets a fixture that omits it reach {@code V66}'s bridge, which derives it from the
+     * catalog's code — the path every receipt took before this slice.</p>
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "status", length = 24)
+    private GoodsReceiptState state;
+
     @Column(name = "received_by")
     private String receivedBy;
 
@@ -144,6 +162,11 @@ public class GoodsReceipt extends Auditable {
         return status;
     }
 
+    /** The receipt's typed state (ADR-0004 decision 1); see {@link #state} for why the pointer keeps its name. */
+    public GoodsReceiptState getState() {
+        return state;
+    }
+
     public String getReceivedBy() {
         return receivedBy;
     }
@@ -199,6 +222,10 @@ public class GoodsReceipt extends Auditable {
 
     public void setStatus(Status status) {
         this.status = status;
+    }
+
+    public void setState(GoodsReceiptState state) {
+        this.state = state;
     }
 
     public void setReceivedBy(String receivedBy) {
@@ -271,6 +298,11 @@ public class GoodsReceipt extends Auditable {
 
         public Builder status(Status status) {
             receipt.status = status;
+            return this;
+        }
+
+        public Builder state(GoodsReceiptState state) {
+            receipt.state = state;
             return this;
         }
 

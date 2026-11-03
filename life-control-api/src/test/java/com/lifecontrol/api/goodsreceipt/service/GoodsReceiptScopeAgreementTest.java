@@ -8,12 +8,14 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.lifecontrol.api.common.auth.CurrentUserContext;
+import com.lifecontrol.api.common.state.StatusTransitionRecorder;
 import com.lifecontrol.api.company.model.Company;
 import com.lifecontrol.api.company.model.CompanyCountry;
 import com.lifecontrol.api.company.model.CompanyRegion;
 import com.lifecontrol.api.company.model.CompanyZone;
 import com.lifecontrol.api.goodsreceipt.dto.GoodsReceiptFilter;
 import com.lifecontrol.api.goodsreceipt.model.GoodsReceipt;
+import com.lifecontrol.api.goodsreceipt.model.GoodsReceiptState;
 import com.lifecontrol.api.goodsreceipt.repository.GoodsReceiptRepository;
 import com.lifecontrol.api.inventory.repository.StoreInventorySettingsRepository;
 import com.lifecontrol.api.inventory.service.InventoryService;
@@ -121,6 +123,9 @@ class GoodsReceiptScopeAgreementTest {
     @Mock
     private CompanyStoreFilterResolver storeFilterResolver;
 
+    @Mock
+    private StatusTransitionRecorder statusTransitionRecorder;
+
     private final CurrentUserContext currentUserContext = new CurrentUserContext();
 
     private GoodsReceiptService service;
@@ -140,7 +145,8 @@ class GoodsReceiptScopeAgreementTest {
                 statusRepository,
                 currentUserContext,
                 new CompanyStoreScopeResolver(currentUserContext, companyStoreRepository),
-                storeFilterResolver);
+                storeFilterResolver,
+                statusTransitionRecorder);
 
         var company = Company.builder().id(COMPANY).companyKey("SCOPE-KEY").build();
         var country = CompanyCountry.builder().id(COUNTRY).company(company).build();
@@ -175,6 +181,7 @@ class GoodsReceiptScopeAgreementTest {
                 .companyStore(store)
                 .receivingLocation(location)
                 .status(status)
+                .state(GoodsReceiptState.REGISTERED)
                 .receivedBy("subject")
                 .receivedAt(LocalDateTime.now())
                 .enabled(true)

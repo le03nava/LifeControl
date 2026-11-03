@@ -48,6 +48,19 @@ public class PurchaseOrderDetail extends Auditable {
     @JoinColumn(name = "status_id", nullable = false)
     private Status status;
 
+    /**
+     * The line's typed state (ADR-0004 decision 3), and the column every move is decided with: this machine has
+     * its own tail ({@code IN_PROCESS}, {@code PARTIAL_RECEIVED}) and is not the sales-order item set.
+     *
+     * <p>{@code status_id} above is the catalog pointer, still written so every existing reader keeps its label,
+     * refused by {@code V66}'s bridge whenever the two disagree, and dropped by ADR-0004 task T8 with this
+     * field's neighbour. {@code getState()} is the machine and {@code getStatus()} is the pointer; see
+     * {@link PurchaseOrder#getState()} for why the second keeps its name until T8.</p>
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "status", length = 24)
+    private PurchaseOrderDetailState state;
+
     @Column(nullable = false)
     private Boolean enabled = true;
 
@@ -95,6 +108,11 @@ public class PurchaseOrderDetail extends Auditable {
         return status;
     }
 
+    /** The line's typed state (ADR-0004 decision 3); see {@link #state}. */
+    public PurchaseOrderDetailState getState() {
+        return state;
+    }
+
     public Boolean getEnabled() {
         return enabled;
     }
@@ -138,6 +156,10 @@ public class PurchaseOrderDetail extends Auditable {
 
     public void setStatus(Status status) {
         this.status = status;
+    }
+
+    public void setState(PurchaseOrderDetailState state) {
+        this.state = state;
     }
 
     public void setEnabled(Boolean enabled) {
@@ -199,6 +221,11 @@ public class PurchaseOrderDetail extends Auditable {
 
         public Builder status(Status status) {
             detail.status = status;
+            return this;
+        }
+
+        public Builder state(PurchaseOrderDetailState state) {
+            detail.state = state;
             return this;
         }
 

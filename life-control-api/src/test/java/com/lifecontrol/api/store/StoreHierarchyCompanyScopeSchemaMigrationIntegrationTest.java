@@ -455,23 +455,33 @@ class StoreHierarchyCompanyScopeSchemaMigrationIntegrationTest extends AbstractP
 
     private void insertPurchaseOrderWithId(UUID id, UUID companyId, UUID storeId, UUID supplierId) {
         var orderNumber = "SCHEMA-PO-" + UUID.randomUUID().toString().substring(0, 8);
-        TenantFixtures.inTenant(
-                companyId,
-                () -> jdbcTemplate.update(
-                        """
+        TenantFixtures.inTenant(companyId, () -> {
+            jdbcTemplate.update(
+                    """
                 INSERT INTO purchase_orders (id, order_number, supplier_id, company_store_id,
                                              payment_method_id, status_id, company_id, enabled,
                                              doc_type, seq_period, seq_value, doc_number)
                 VALUES (?, ?, ?, ?, ?, ?, ?, true, 'PURCHASE_ORDER', '202601', 1, ?)
                 """,
-                        id,
-                        orderNumber,
-                        supplierId,
-                        storeId,
-                        paymentMethodId,
-                        draftPurchaseOrderStatusId,
-                        companyId,
-                        "PO-SCHEMA-" + orderNumber));
+                    id,
+                    orderNumber,
+                    supplierId,
+                    storeId,
+                    paymentMethodId,
+                    draftPurchaseOrderStatusId,
+                    companyId,
+                    "PO-SCHEMA-" + orderNumber);
+            // ADR-0004 decision 5 side A: a document and its creation row commit together, so a fixture that
+            // inserts a document owes the history it claims. `to_status` is read from the catalog row the order
+            // points at — the same code `V66`'s bridge derives for the column — so the two cannot drift, and the
+            // actor says a fixture wrote it: `unknown:migration` belongs to the migration alone.
+            jdbcTemplate.update("""
+                    INSERT INTO status_transition (company_id, document_type, document_id, from_status, to_status,
+                                                   actor, reason)
+                    SELECT ?, 'PURCHASE_ORDER', ?, NULL, s.code, 'unknown:test', 'fixture'
+                      FROM statuses s WHERE s.id = ?
+                    """, companyId, id, draftPurchaseOrderStatusId);
+        });
         insertedPurchaseOrders.add(new InsertedRow(companyId, id));
     }
 

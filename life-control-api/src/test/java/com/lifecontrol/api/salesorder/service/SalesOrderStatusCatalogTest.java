@@ -4,9 +4,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.when;
 
+import com.lifecontrol.api.common.state.DocumentStateCatalog;
 import com.lifecontrol.api.salesorder.model.SalesOrderItemState;
 import com.lifecontrol.api.salesorder.model.SalesOrderState;
-import com.lifecontrol.api.status.exception.StatusNotFoundException;
 import com.lifecontrol.api.status.model.Status;
 import com.lifecontrol.api.status.model.StatusType;
 import com.lifecontrol.api.status.repository.StatusRepository;
@@ -20,27 +20,18 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 /**
- * The one place a request's {@code status_id} becomes a state (ADR-0004 decision 7): the catalog stopped
- * being the authority and kept its rows as labels, so the only thing the machine may read is
- * {@link Status#getCode()}.
+ * The sales module's two names for the shared resolution (ADR-0004 decision 7).
  *
- * <p>The four refusals are the point of the class, and each one is asserted by its message rather than by its
- * type alone: a row of another family, a row with no code, a code the enum does not declare, and an id that
- * names no row at all. The first three answer {@code 400} — the caller sent a status the family cannot
- * become — and the last is the {@code 404} the catalog never had a row for.</p>
- *
- * <p>The repository is mocked with a row, not a database: what this class owns is the mapping and the
- * refusal, and both are decided after the one indexed read. The read itself is a derived query over
- * {@code statuses}, exercised end to end by {@code SalesOrderIntegrationTest} and by every head-booting
- * suite that resolves a status.</p>
+ * <p><b>This class is a delegate and the test says so.</b> The resolution itself — the four refusals and the
+ * 400-versus-404 split — moved to {@link DocumentStateCatalog} when the purchase module needed the same four
+ * answers, and {@code DocumentStateCatalogTest} is where each refusal is asserted by its message. What is
+ * left here is the pair of names the sales service and the sales controller are written against, so this
+ * test pins exactly that: the right family and the right enum reach the shared class, and a refusal from it
+ * arrives unchanged instead of being swallowed by the delegation.</p>
  */
 @ExtendWith(MockitoExtension.class)
 @DisplayName("SalesOrderStatusCatalog")
 class SalesOrderStatusCatalogTest {
-
-    private static final String SALES_ORDER = "SALES_ORDER";
-
-    private static final String SALES_ORDER_ITEM = "SALES_ORDER_ITEM";
 
     @Mock
     private StatusRepository statusRepository;
@@ -51,99 +42,41 @@ class SalesOrderStatusCatalogTest {
 
     @BeforeEach
     void setUp() {
-        catalog = new SalesOrderStatusCatalog(statusRepository);
+        // The real shared catalog over a mocked read: a mocked delegate would prove the call was made and
+        // nothing about what the module gets back.
+        catalog = new SalesOrderStatusCatalog(new DocumentStateCatalog(statusRepository));
         statusId = UUID.randomUUID();
     }
 
     @Test
-    @DisplayName("resolves the order's code into the enum, whatever the label says")
+    @DisplayName("resolves the order's code into the order's enum")
     void resolvesTheOrdersCodeIntoTheEnum() {
-        whenCatalogRow("Draft", "DRAFT", SALES_ORDER);
+        whenCatalogRow("Draft", "DRAFT", "SALES_ORDER");
 
-        assertThat(catalog.requireOrderState(statusId))
-                .as("the code is the constant, so a renamed label changes nothing about the state")
-                .isEqualTo(SalesOrderState.DRAFT);
+        assertThat(catalog.requireOrderState(statusId)).isEqualTo(SalesOrderState.DRAFT);
     }
 
     @Test
-    @DisplayName("resolves a line's code into the line's enum")
+    @DisplayName("resolves a line's code into the line's enum, which is not the order's")
     void resolvesTheLinesCodeIntoTheEnum() {
-        whenCatalogRow("Added", "ADDED", SALES_ORDER_ITEM);
+        whenCatalogRow("Added", "ADDED", "SALES_ORDER_ITEM");
 
-        assertThat(catalog.requireItemState(statusId)).isEqualTo(SalesOrderItemState.ADDED);
+        assertThat(catalog.requireItemState(statusId))
+                .as("the family is part of the question: the same code belongs to two enums in this module")
+                .isEqualTo(SalesOrderItemState.ADDED);
     }
 
     @Test
-    @DisplayName("a renamed label still resolves: the code is what the machine reads")
-    void aRenamedLabelStillResolves() {
-        whenCatalogRow("Cancelada", "CANCELLED", SALES_ORDER);
-
-        assertThat(catalog.requireOrderState(statusId))
-                .as("ADR-0004 decision 7: renaming a catalog row is translation and cannot change a behavior")
-                .isEqualTo(SalesOrderState.CANCELLED);
-    }
-
-    @Test
-    @DisplayName("refuses a row of another family, and names both families")
-    void refusesARowOfAnotherFamily() {
-        whenCatalogRow("Pending", "PENDING", SALES_ORDER_ITEM);
+    @DisplayName("passes a refusal through unchanged instead of answering a state of its own")
+    void passesARefusalThrough() {
+        whenCatalogRow("Shipped", "SHIPPED", "SALES_ORDER");
 
         assertThatThrownBy(() -> catalog.requireOrderState(statusId))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("does not belong to type SALES_ORDER")
-                .hasMessageContaining(SALES_ORDER_ITEM)
-                .hasMessageContaining(statusId.toString());
-    }
-
-    @Test
-    @DisplayName("refuses a row with no code, naming the catalog row and its id")
-    void refusesARowWithNoCode() {
-        whenCatalogRow("Registrado", null, SALES_ORDER);
-
-        assertThatThrownBy(() -> catalog.requireOrderState(statusId))
-                .as("an out-of-scope family or a row created at run time has no constant to move to")
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("Registrado")
-                .hasMessageContaining(statusId.toString())
-                .hasMessageContaining("carries no code");
-    }
-
-    @Test
-    @DisplayName("refuses a code the enum does not declare, naming the row, the id and the code")
-    void refusesACodeTheEnumDoesNotDeclare() {
-        whenCatalogRow("Shipped", "SHIPPED", SALES_ORDER);
-
-        assertThatThrownBy(() -> catalog.requireOrderState(statusId))
-                .as("the database's CHECK and the enum are coupled; a catalog row that spells neither must not "
-                        + "be turned into a state by guesswork")
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("Shipped")
-                .hasMessageContaining(statusId.toString())
                 .hasMessageContaining("SHIPPED")
                 .hasMessageContaining("SalesOrderState");
     }
 
-    @Test
-    @DisplayName("refuses an id that names no catalog row")
-    void refusesAnIdThatNamesNoRow() {
-        when(statusRepository.findWithStatusTypeById(statusId)).thenReturn(Optional.empty());
-
-        assertThatThrownBy(() -> catalog.requireOrderState(statusId))
-                .isInstanceOf(StatusNotFoundException.class)
-                .hasMessageContaining(statusId.toString());
-    }
-
-    @Test
-    @DisplayName("refuses a missing id before reading the catalog")
-    void refusesAMissingId() {
-        assertThatThrownBy(() -> catalog.requireOrderState(null))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining(SALES_ORDER);
-    }
-
-    // ─── the row the one read answers with ─────────────────────────────────────────────────────────
-
-    /** One catalog row with its family, which is what {@code findWithStatusTypeById} returns. */
     private void whenCatalogRow(String name, String code, String typeName) {
         var status = Status.builder()
                 .id(statusId)
