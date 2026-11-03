@@ -411,7 +411,9 @@ public class InventoryService {
         //    invalid receipt: receiving into a store the variant is not stocked in is a placement
         //    error, while a sale for an unstocked variant is an empty balance, and it must keep the
         //    sales contract (409) rather than surface as the 400 an IllegalArgumentException gets.
-        var storeStock = productVariantStoreStockRepository
+        // The lock is the point of this read and the only reason it stays (S4): two sales of one
+        // (store, variant) queue here, and the row's own number is nobody's source any more.
+        productVariantStoreStockRepository
                 .findByProductVariantIdAndCompanyStoreIdForUpdate(productVariantId, companyStoreId)
                 .orElseThrow(() -> new InsufficientStockException(productVariantId, quantity, BigDecimal.ZERO));
 
@@ -800,13 +802,16 @@ public class InventoryService {
         //    location and drive it below zero while aggregate = SUM(locations) still holds (F18).
         if (delta.signum() > 0) {
             productVariantLocationRepository.insertBalanceIfAbsent(productVariantId, destinationLocationId);
-            var location = lockBalance(productVariantId, destinationLocationId);
+            // Locked for the same reason the store row is: the number the delta was taken from must not move
+            // under the edit. The value itself is the projection's now, so nothing reads it back here.
+            lockBalance(productVariantId, destinationLocationId);
 
             // 5b. One ADJUSTMENT_IN row, and it states its own identity: a manual edit has no document to
-            //     name, so its source is the movement's own id (D-2). That is not shape (b) of the ledger's
-            //     identity — nothing is retried by a manual edit's identity, so the key refuses nothing for it
-            //     and needs to refuse nothing. ADJUSTMENT_IN adds quantity, so it states a cost and a currency
-            //     (ck_movement_inbound_cost), and the operator's cost is the one this store records.
+            //     name, so its source is the movement's own id (D-2), and the id drawn here becomes the row's
+            //     id. That is not shape (b) of the ledger's identity — nothing is retried by a manual edit's
+            //     identity, so the key refuses nothing for it and needs to refuse nothing. ADJUSTMENT_IN adds
+            //     quantity, so it states a cost and a currency (ck_movement_inbound_cost), and the operator's
+            //     cost is the one this store records.
             bookLedgerInbound(
                     StockLedgerWriter.MANUAL_ADJUSTMENT_SOURCE_TYPE,
                     companyIdOf(companyStoreId),
@@ -932,16 +937,16 @@ public class InventoryService {
             UUID referenceId,
             String createdBy) {
 
-        var storeStock = productVariantStoreStockRepository
+        // The store row is still locked first (the order every mover agrees on) and its number is no longer
+        // read: the reversal states what the ledger holds open, and the projections follow by trigger.
+        productVariantStoreStockRepository
                 .findByProductVariantIdAndCompanyStoreIdForUpdate(productVariantId, companyStoreId)
                 .orElseThrow(() -> new IllegalArgumentException(
                         "Product variant " + productVariantId + " has no stock row in store " + companyStoreId));
 
         var companyId = companyIdOf(companyStoreId);
-        var total = BigDecimal.ZERO;
         for (var entry : locationAmounts.entrySet()) {
-            var location = lockBalance(productVariantId, entry.getKey());
-            var amount = entry.getValue();
+            lockBalance(productVariantId, entry.getKey());
             var open = openSales.getOrDefault(
                     new SaleBalanceKey(productVariantId, companyStoreId, entry.getKey()), List.of());
             for (var sale : open) {
@@ -962,7 +967,6 @@ public class InventoryService {
                         sale.quantity(),
                         sale.ledgerMovementId());
             }
-            total = total.add(amount);
         }
     }
 
@@ -1002,38 +1006,20 @@ public class InventoryService {
      * One remainder the ledger still holds open: a {@code SALE} row no reversal names yet, and the quantity
      * it moved. It is what a reversal has to name to free exactly the rows the sale consumed.
      */
-    private static InventoryMovement newMovement(
-            UUID productVariantId,
-            UUID companyStoreId,
-            UUID storeLocationId,
-            MovementType movementType,
-            BigDecimal quantity,
-            String referenceType,
-            UUID referenceId,
-            String createdBy) {
-        return InventoryMovement.builder()
-                .productVariantId(productVariantId)
-                .companyStoreId(companyStoreId)
-                .storeLocationId(storeLocationId)
-                .movementType(movementType)
-                .quantity(quantity)
-                .referenceType(referenceType)
-                .referenceId(referenceId)
-                .createdBy(createdBy)
-                .build();
-    }
-
     private record OpenSale(UUID ledgerMovementId, BigDecimal quantity) {}
 
     /**
      * The key every ledger row needs, plus the identity of the row that states the fact.
      *
      * <p>{@code sourceType} and {@code writeSeq} are both required, and every call site in this class states
-     * them: a source books either {@link StockLedgerWriter#MIRRORED_SOURCE_TYPE} — the legacy row written beside
-     * it, which is what a receipt, a manual edit and a reversal state — or, for a sale, its own reference and the
-     * line's {@code writeSeq} ({@code V73}). Nothing here is implied by the writer, so the identity of every
-     * movement is readable where the fact is booked (see {@link StockLedgerWriter#MIRRORED_SOURCE_TYPE} and
-     * {@link StockLedgerWriter#SINGLE_WRITE}).</p>
+     * them, because nothing is implied by the writer and the identity of every movement has to be readable where
+     * the fact is booked. Since T3c the sources are all the document's own: a receipt line states
+     * {@link StockLedgerWriter#RECEIPT_LINE_SOURCE_TYPE} and the {@code goods_receipt_items} id, a sale and its
+     * reversal state the sales-order line and the line's {@code writeSeq} ({@code V73}), and a manual per-store
+     * edit states {@link StockLedgerWriter#MANUAL_ADJUSTMENT_SOURCE_TYPE} and the movement's own id, because no
+     * document states a manual edit (D-2). {@link StockLedgerWriter#MIRRORED_SOURCE_TYPE} is no longer written by
+     * anything in {@code src/main}: it survives only as what the pre-{@code V73} fallback reads, and it goes with
+     * the table (T4).</p>
      */
     private static StockLedgerWriter.Booking booking(
             String sourceType,
@@ -1056,8 +1042,8 @@ public class InventoryService {
     }
 
     /**
-     * Books an inbound movement (a receipt or the increase side of a manual edit) beside the legacy row that
-     * states the same fact.
+     * Books an inbound movement (a receipt or the increase side of a manual edit) in the ledger, which is the only
+     * write: the projections follow from it by trigger and the legacy columns are no longer maintained (S4).
      *
      * <p>The cost is what {@code product_variant_store_stock.cost_price} records for this variant in this
      * store — the only cost this deployment keeps, and the same source {@code V62}'s backfill used. A missing

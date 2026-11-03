@@ -15,11 +15,8 @@ import com.lifecontrol.api.company.repository.CompanyRegionRepository;
 import com.lifecontrol.api.company.repository.CompanyRepository;
 import com.lifecontrol.api.company.repository.CompanyZoneRepository;
 import com.lifecontrol.api.country.repository.CountryRepository;
-import com.lifecontrol.api.inventory.model.InventoryMovement;
-import com.lifecontrol.api.inventory.model.MovementType;
-import com.lifecontrol.api.inventory.model.ProductVariantLocation;
+import com.lifecontrol.api.inventory.ledger.StockLedgerWriter;
 import com.lifecontrol.api.inventory.model.StoreInventorySettings;
-import com.lifecontrol.api.inventory.repository.InventoryMovementRepository;
 import com.lifecontrol.api.inventory.repository.ProductVariantLocationRepository;
 import com.lifecontrol.api.inventory.repository.StoreInventorySettingsRepository;
 import com.lifecontrol.api.inventory.service.InventoryService;
@@ -136,12 +133,17 @@ class ProductVariantStoreStockWriteIntegrationTest extends AbstractPostgresInteg
     private ProductVariantLocationRepository productVariantLocationRepository;
 
     @Autowired
-    private InventoryMovementRepository inventoryMovementRepository;
-
-    @Autowired
     private InventoryService inventoryService;
 
-    /** The handle the shared ledger cleanup deletes the projections through (see the base class). */
+    /** The writer the measure-unit guard asks whether the variant has history (S7). */
+    @Autowired
+    private StockLedgerWriter stockLedgerWriter;
+
+    /**
+     * The handle every balance is read through: {@code stock_position}, {@code stock_balance} and
+     * {@code stock_movement} are the only numbers and the only record of a movement since T3c. The shared ledger
+     * cleanup of the base class deletes the projections through it too.
+     */
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
@@ -196,8 +198,8 @@ class ProductVariantStoreStockWriteIntegrationTest extends AbstractPostgresInteg
 
     @AfterEach
     void tearDown() {
-        // The per-store stock editor writes all three sides (W3-D14), so since T5a of
-        // odd/tasks/inventory-ledger.md it also books the stock ledger. Those rows reference the variants and
+        // The per-store stock editor books the stock ledger (W3-D14), so since T5a of
+        // odd/tasks/inventory-ledger.md it also writes movements. Those rows reference the variants and
         // the locations with no cascade and the ledger is append-only, so they go first — otherwise the
         // variant deletes below fail on fk_movement_variant for a row the application role cannot remove.
         if (companyId != null) {
@@ -218,13 +220,11 @@ class ProductVariantStoreStockWriteIntegrationTest extends AbstractPostgresInteg
             });
         }
 
-        // The balance rows and the ledger now reference this test's variants (the editor writes all
-        // three sides), and neither has a cascade, so they must go before the variants do.
+        // The balance rows reference this test's variants and have no cascade, so they must go before the
+        // variants do. Only the location rows: since T3c nothing writes `inventory_movements` any more, and
+        // the ledger's own rows were removed above by `deleteStockLedger`.
         var variantIds = new HashSet<>(createdVariantIds);
         if (!variantIds.isEmpty()) {
-            inventoryMovementRepository.deleteAll(inventoryMovementRepository.findAll().stream()
-                    .filter(movement -> variantIds.contains(movement.getProductVariantId()))
-                    .toList());
             productVariantLocationRepository.deleteAll(productVariantLocationRepository.findAll().stream()
                     .filter(location -> variantIds.contains(location.getProductVariantId()))
                     .toList());
@@ -292,7 +292,9 @@ class ProductVariantStoreStockWriteIntegrationTest extends AbstractPostgresInteg
         assertThat(inserted.getListPrice()).isNull();
         assertThat(listingPriceOf(bareVariantId, storeAId)).isEqualByComparingTo("25.50");
         assertThat(inserted.getCostPrice()).isEqualByComparingTo("12.00");
-        assertThat(inserted.getStock()).isEqualByComparingTo("7");
+        // The quantity the write stated is the ledger's position: the row's own `stock` column is written by
+        // nobody since T3c, so reading it would assert a frozen number.
+        assertThat(storePositionOf(storeAId, bareVariantId)).isEqualByComparingTo("7");
 
         // The row now exists, so this write's insert takes the ON CONFLICT DO NOTHING branch
         // instead of failing on UNIQUE(product_variant_id, company_store_id). `costPrice` is sent as
@@ -314,7 +316,7 @@ class ProductVariantStoreStockWriteIntegrationTest extends AbstractPostgresInteg
                 .orElseThrow();
         // Same row: the conflict did nothing, it did not create a second one.
         assertThat(updated.getId()).isEqualTo(inserted.getId());
-        assertThat(updated.getStock()).isEqualByComparingTo("11");
+        assertThat(storePositionOf(storeAId, bareVariantId)).isEqualByComparingTo("11");
         assertThat(updated.getCostPrice()).isEqualByComparingTo("12.00");
         // A write that names no price leaves the listing alone: "absent" has never meant "clear".
         assertThat(listingPriceOf(bareVariantId, storeAId)).isEqualByComparingTo("25.50");
@@ -371,11 +373,7 @@ class ProductVariantStoreStockWriteIntegrationTest extends AbstractPostgresInteg
         writeStock(sharedVariantId, storeBId, "6");
 
         assertThat(listingPriceOf(sharedVariantId, storeBId)).isEqualByComparingTo("18.75");
-        assertThat(productVariantStoreStockRepository
-                        .findByProductVariantIdAndCompanyStoreId(sharedVariantId, storeBId)
-                        .orElseThrow()
-                        .getStock())
-                .isEqualByComparingTo("6");
+        assertThat(storePositionOf(storeBId, sharedVariantId)).isEqualByComparingTo("6");
     }
 
     @Test
@@ -391,7 +389,9 @@ class ProductVariantStoreStockWriteIntegrationTest extends AbstractPostgresInteg
         var row = productVariantStoreStockRepository
                 .findByProductVariantIdAndCompanyStoreId(bareVariantId, storeAId)
                 .orElseThrow();
-        // stock has a NOT NULL DEFAULT 0 in the migration; the two prices have no default.
+        // stock still has a NOT NULL DEFAULT 0 in the migration, and this asserts the INSERT's default — not a
+        // balance: the column is written by nobody since T3c, so the quantity on hand is the ledger's position,
+        // which no row exists for yet. The two prices have no default.
         assertThat(row.getStock()).isEqualByComparingTo("0");
         assertThat(row.getListPrice()).isNull();
         assertThat(row.getCostPrice()).isNull();
@@ -433,8 +433,10 @@ class ProductVariantStoreStockWriteIntegrationTest extends AbstractPostgresInteg
                 .orElseThrow();
 
         assertThat(rowA.getId()).isNotEqualTo(rowB.getId());
-        assertThat(rowA.getStock()).isEqualByComparingTo("5");
-        assertThat(rowB.getStock()).isEqualByComparingTo("9");
+        // Each store's stock is the ledger's position for that pair, not a column on the row: the row's own
+        // `stock` has been frozen since T3c, when the write path stopped maintaining it.
+        assertThat(storePositionOf(storeAId, sharedVariantId)).isEqualByComparingTo("5");
+        assertThat(storePositionOf(storeBId, sharedVariantId)).isEqualByComparingTo("9");
 
         // Two store writes, still two definitions: the write hangs rows off the definition
         // instead of duplicating it, which is the whole point of the split.
@@ -476,15 +478,16 @@ class ProductVariantStoreStockWriteIntegrationTest extends AbstractPostgresInteg
                 .andExpect(jsonPath("$.totalElements").value(0));
     }
 
-    // ─────────────────────────── S3-T4 / S3-T5: the editor and the invariant ───────────────────────────
+    // ─────────────────────────── S3-T4 / S3-T5: the editor and the invariant
+    // ───────────────────────────
 
     @Nested
-    @DisplayName("W3-D14: the per-store stock editor writes all three sides")
+    @DisplayName("W3-D14: the per-store stock editor books the ledger, and the projections follow it")
     class StoreStockEditorMaintainsTheBalanceInvariantTests {
 
         @Test
-        @DisplayName("raising stock writes the aggregate, the sales-location row and an ADJUSTMENT_INCREASE")
-        void raisesStockAcrossAllThreeSides() throws Exception {
+        @DisplayName("raising stock books one ADJUSTMENT_IN at the sales location")
+        void raisesStockAcrossTheLedgerAndItsProjections() throws Exception {
             var body = objectMapper.createObjectNode();
             body.put("stock", new BigDecimal("7"));
 
@@ -495,37 +498,33 @@ class ProductVariantStoreStockWriteIntegrationTest extends AbstractPostgresInteg
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.stock").value(7));
 
-            // Side 1: the sellable aggregate.
-            assertThat(productVariantStoreStockRepository
-                            .findByProductVariantIdAndCompanyStoreId(bareVariantId, storeAId)
-                            .orElseThrow()
-                            .getStock())
-                    .isEqualByComparingTo("7");
+            // ONE row explains the delta, at the destination location: the store's sales_location_id, which the
+            // edit asserts a total against. Its source is an id of its own — a manual edit names no document
+            // (D-2) — and the actor is the operator the token names.
+            var rows = ledgerRowsOf(bareVariantId);
+            assertThat(rows).hasSize(1);
+            var row = rows.getFirst();
+            assertThat(row.movementType())
+                    .as("the direction is the movement type, and the quantity stays positive (W3-D7)")
+                    .isEqualTo(StockLedgerWriter.ADJUSTMENT_IN);
+            assertThat(row.quantity()).isEqualByComparingTo("7");
+            assertThat(row.storeLocationId()).isEqualTo(locationA);
+            assertThat(row.sourceType()).isEqualTo(StockLedgerWriter.MANUAL_ADJUSTMENT_SOURCE_TYPE);
+            assertThat(row.sourceId())
+                    .as("a manual edit states a source of its own, so the row is one fact (D-2)")
+                    .isNotNull();
+            assertThat(row.actor()).isEqualTo("stock-editor");
 
-            // Side 2: the destination location row, which is the store's sales_location_id. The
-            // aggregate moving alone is exactly the F16 divergence (11.00 against a location 1.00).
-            assertThat(productVariantLocationRepository
-                            .findByProductVariantIdAndStoreLocationId(bareVariantId, locationA)
-                            .orElseThrow()
-                            .getStock())
-                    .isEqualByComparingTo("7");
-
-            // Side 3: the ledger row that explains the delta.
-            var movements = movementsOf(bareVariantId);
-            assertThat(movements).hasSize(1);
-            var movement = movements.getFirst();
-            assertThat(movement.getMovementType()).isEqualTo(MovementType.ADJUSTMENT_INCREASE);
-            assertThat(movement.getQuantity()).isEqualByComparingTo("7");
-            assertThat(movement.getStoreLocationId()).isEqualTo(locationA);
-            assertThat(movement.getReferenceType()).isEqualTo("MANUAL_STOCK_EDIT");
-            assertThat(movement.getReferenceId()).isNull();
-            assertThat(movement.getCreatedBy()).isEqualTo("stock-editor");
+            // And both balances are that row's projection: stock_position and stock_balance are derived from it
+            // by the V61 trigger, so the number is stated once and read twice.
+            assertThat(storePositionOf(storeAId, bareVariantId)).isEqualByComparingTo("7");
+            assertThat(locationStockOf(bareVariantId, locationA)).isEqualByComparingTo("7");
 
             assertInvariant(bareVariantId, storeAId);
         }
 
         @Test
-        @DisplayName("lowering stock writes a positive ADJUSTMENT_DECREASE and keeps the invariant")
+        @DisplayName("lowering stock writes a positive ADJUSTMENT_OUT and the projections follow it")
         void lowersStockWithAPositiveDecreaseMovement() throws Exception {
             // A step down the ledger has no precedent for: raise to 11, then lower to 4.
             writeStock(bareVariantId, storeAId, "11");
@@ -533,31 +532,27 @@ class ProductVariantStoreStockWriteIntegrationTest extends AbstractPostgresInteg
 
             writeStock(bareVariantId, storeAId, "4");
 
-            assertThat(productVariantStoreStockRepository
-                            .findByProductVariantIdAndCompanyStoreId(bareVariantId, storeAId)
-                            .orElseThrow()
-                            .getStock())
-                    .isEqualByComparingTo("4");
-            assertThat(productVariantLocationRepository
-                            .findByProductVariantIdAndStoreLocationId(bareVariantId, locationA)
-                            .orElseThrow()
-                            .getStock())
-                    .isEqualByComparingTo("4");
+            assertThat(storePositionOf(storeAId, bareVariantId)).isEqualByComparingTo("4");
+            assertThat(locationStockOf(bareVariantId, locationA)).isEqualByComparingTo("4");
 
-            var movements = movementsOf(bareVariantId);
-            assertThat(movements).hasSize(2);
-            var increase = movements.stream()
-                    .filter(movement -> movement.getMovementType() == MovementType.ADJUSTMENT_INCREASE)
+            var rows = ledgerRowsOf(bareVariantId);
+            assertThat(rows).hasSize(2);
+            var increase = rows.stream()
+                    .filter(row -> StockLedgerWriter.ADJUSTMENT_IN.equals(row.movementType()))
                     .findFirst()
                     .orElseThrow();
-            var decrease = movements.stream()
-                    .filter(movement -> movement.getMovementType() == MovementType.ADJUSTMENT_DECREASE)
+            var decrease = rows.stream()
+                    .filter(row -> StockLedgerWriter.ADJUSTMENT_OUT.equals(row.movementType()))
                     .findFirst()
                     .orElseThrow();
-            assertThat(increase.getQuantity()).isEqualByComparingTo("11");
+            assertThat(increase.quantity()).isEqualByComparingTo("11");
             // W3-D7 holds: the decrease is positive and the direction lives in the type.
-            assertThat(decrease.getQuantity()).isEqualByComparingTo("7");
-            assertThat(decrease.getStoreLocationId()).isEqualTo(locationA);
+            assertThat(decrease.quantity()).isEqualByComparingTo("7");
+            assertThat(decrease.storeLocationId()).isEqualTo(locationA);
+            assertThat(decrease.sourceId())
+                    .as("each side of the edit books a source of its own, so the two rows are two facts" + " (D-2)")
+                    .isNotNull()
+                    .isNotEqualTo(increase.sourceId());
 
             assertInvariant(bareVariantId, storeAId);
         }
@@ -573,7 +568,7 @@ class ProductVariantStoreStockWriteIntegrationTest extends AbstractPostgresInteg
                     companyId, () -> companyStoreRepository.findById(storeAId).orElseThrow());
             var dock = findOrCreateLocation(storeA, "VSD", "Variant Stock Write Dock A", 2);
 
-            // The editor creates the per-store row (the receipt needs it) and leaves both at zero.
+            // The editor creates the per-store row (the receipt needs it) and leaves the ledger untouched.
             writeStock(bareVariantId, storeAId, "0");
             // The service is called directly, so the fixture states the tenant its `company_stores` read
             // needs — the same fact the write above states by naming the company in the path.
@@ -584,31 +579,22 @@ class ProductVariantStoreStockWriteIntegrationTest extends AbstractPostgresInteg
                             storeAId,
                             dock.getId(),
                             new BigDecimal("10"),
-                            "TEST_RECEIPT",
+                            StockLedgerWriter.RECEIPT_LINE_SOURCE_TYPE,
                             UUID.randomUUID(),
                             "receiver"));
 
             writeStock(bareVariantId, storeAId, "5");
 
             // The sales location never goes negative: before the fix the whole decrease landed on it.
-            var salesStock = productVariantLocationRepository
-                    .findByProductVariantIdAndStoreLocationId(bareVariantId, locationA)
-                    .map(ProductVariantLocation::getStock)
-                    .orElse(BigDecimal.ZERO);
-            assertThat(salesStock).isEqualByComparingTo("0");
+            assertThat(locationStockOf(bareVariantId, locationA)).isEqualByComparingTo("0");
+            assertThat(locationStockOf(bareVariantId, dock.getId())).isEqualByComparingTo("5");
 
-            assertThat(productVariantLocationRepository
-                            .findByProductVariantIdAndStoreLocationId(bareVariantId, dock.getId())
-                            .orElseThrow()
-                            .getStock())
-                    .isEqualByComparingTo("5");
-
-            var decreases = movementsOf(bareVariantId).stream()
-                    .filter(movement -> movement.getMovementType() == MovementType.ADJUSTMENT_DECREASE)
+            var decreases = ledgerRowsOf(bareVariantId).stream()
+                    .filter(row -> StockLedgerWriter.ADJUSTMENT_OUT.equals(row.movementType()))
                     .toList();
             assertThat(decreases).hasSize(1);
-            assertThat(decreases.getFirst().getStoreLocationId()).isEqualTo(dock.getId());
-            assertThat(decreases.getFirst().getQuantity()).isEqualByComparingTo("5");
+            assertThat(decreases.getFirst().storeLocationId()).isEqualTo(dock.getId());
+            assertThat(decreases.getFirst().quantity()).isEqualByComparingTo("5");
 
             assertInvariant(bareVariantId, storeAId);
         }
@@ -631,54 +617,49 @@ class ProductVariantStoreStockWriteIntegrationTest extends AbstractPostgresInteg
             assertThat(productVariantStoreStockRepository.existsByProductVariantIdAndCompanyStoreId(
                             bareVariantId, storeBId))
                     .isFalse();
-            assertThat(movementsOf(bareVariantId)).isEmpty();
+            assertThat(ledgerRowsOf(bareVariantId)).isEmpty();
         }
 
         @Test
         @DisplayName("an edit that sends the same stock writes no movement")
         void sameStockWritesNoMovement() throws Exception {
             writeStock(bareVariantId, storeAId, "5");
-            assertThat(movementsOf(bareVariantId)).hasSize(1);
+            assertThat(ledgerRowsOf(bareVariantId)).hasSize(1);
 
             writeStock(bareVariantId, storeAId, "5");
 
-            assertThat(movementsOf(bareVariantId)).hasSize(1);
+            // The ledger records facts, not no-ops: the edit sends the number the position already states, so
+            // the delta is zero and nothing is booked.
+            assertThat(ledgerRowsOf(bareVariantId)).hasSize(1);
             assertInvariant(bareVariantId, storeAId);
         }
 
         /**
-         * D3's two guards read these probes, and a mock cannot prove them: both are derived queries
-         * over real rows — the stock floor over {@code product_variant_store_stock} and the ledger
-         * existence over {@code inventory_movements}.
+         * D3's guard reads this probe, and a mock cannot prove it: it is a query over real rows.
+         *
+         * <p><b>It is one probe since T3c.</b> It used to be two — a stock floor over
+         * {@code product_variant_store_stock} plus a row in {@code inventory_movements} — and neither table is
+         * written any more, so asking them would answer "no history" for a variant with plenty and the refusal
+         * would disappear without a failing test. That is exactly what S7 exists to prevent, and
+         * {@code StockLedgerWriter#hasMovements} is the whole answer now.</p>
          */
         @Test
-        @DisplayName("D3: the probes see the stock floor and the ledger row a stock edit produces")
-        void measureUnitProbesSeeTheStockFloorAndTheLedger() throws Exception {
-            // A variant nobody wrote to has neither, so a unit change would still be allowed on it.
+        @DisplayName("D3: the measure-unit guard's probe answers from the ledger (S7)")
+        void measureUnitProbeAnswersFromTheLedger() throws Exception {
+            // A variant nobody wrote to has no history, so a unit change would still be allowed on it.
             // (The unit itself is declared — V55 makes it required — which is a different fact.)
-            assertThat(productVariantStoreStockRepository.existsByProductVariantIdAndStockNot(
-                            sharedVariantId, BigDecimal.ZERO))
-                    .isFalse();
-            assertThat(inventoryMovementRepository.existsByProductVariantId(sharedVariantId))
-                    .isFalse();
+            assertThat(hasLedgerHistory(sharedVariantId)).isFalse();
 
             writeStock(bareVariantId, storeAId, "3");
 
-            assertThat(productVariantStoreStockRepository.existsByProductVariantIdAndStockNot(
-                            bareVariantId, BigDecimal.ZERO))
-                    .isTrue();
-            assertThat(inventoryMovementRepository.existsByProductVariantId(bareVariantId))
-                    .isTrue();
+            assertThat(hasLedgerHistory(bareVariantId)).isTrue();
 
-            // Back to zero: the aggregate no longer claims quantity, but the ledger row remains, so
-            // the unit still cannot be swapped. Both halves are what D3 refuses on.
+            // Back to zero: the balance is drained, but the movements remain, so the unit still cannot be
+            // swapped. Nothing reads a quantity above zero any more — the history is the answer.
             writeStock(bareVariantId, storeAId, "0");
 
-            assertThat(productVariantStoreStockRepository.existsByProductVariantIdAndStockNot(
-                            bareVariantId, BigDecimal.ZERO))
-                    .isFalse();
-            assertThat(inventoryMovementRepository.existsByProductVariantId(bareVariantId))
-                    .isTrue();
+            assertThat(storePositionOf(storeAId, bareVariantId)).isEqualByComparingTo("0");
+            assertThat(hasLedgerHistory(bareVariantId)).isTrue();
         }
     }
 
@@ -743,32 +724,109 @@ class ProductVariantStoreStockWriteIntegrationTest extends AbstractPostgresInteg
                 .authorities(ROLE_LC_ADMIN);
     }
 
-    private List<InventoryMovement> movementsOf(UUID variantId) {
-        return inventoryMovementRepository.findAll().stream()
-                .filter(movement -> variantId.equals(movement.getProductVariantId()))
-                .toList();
+    /**
+     * What the measure-unit guard asks the ledger (S7): the question {@link StockLedgerWriter#hasMovements}
+     * answers, asked under this suite's tenant because {@code stock_movement} is armed.
+     */
+    private boolean hasLedgerHistory(UUID variantId) {
+        return TenantFixtures.inTenant(companyId, () -> stockLedgerWriter.hasMovements(variantId));
     }
 
     /**
-     * The whole point of W3: the aggregate equals the sum of every location balance the store owns.
+     * One row of {@code stock_movement}, as the fields a booking case asserts.
      *
-     * <p>Store-wide on purpose. It resolves the store's locations through the same
-     * {@code product_variant_locations -> store_locations -> store_zones -> store_areas ->
-     * company_store_id} chain the production code uses
-     * ({@link ProductVariantLocationRepository#findByProductVariantIdAndCompanyStoreId}), so a
-     * stray balance row on a location no caller named is caught instead of silently summed past.
-     * The per-location assertions in the individual tests still pin down which location moved.</p>
+     * <p>Since T3c the ledger is the only record of a movement: {@code inventory_movements} is no longer written,
+     * so a case that wants to say what was booked reads here. The projections below are the only balances.</p>
+     */
+    private record LedgerRow(
+            String movementType,
+            String sourceType,
+            UUID sourceId,
+            BigDecimal quantity,
+            UUID companyStoreId,
+            UUID storeLocationId,
+            String actor) {}
+
+    private List<LedgerRow> ledgerRowsOf(UUID variantId) {
+        return TenantFixtures.inTenant(
+                companyId,
+                () -> jdbcTemplate.query(
+                        """
+                        SELECT movement_type, source_type, source_id, quantity, company_store_id,
+                               store_location_id, actor
+                          FROM stock_movement
+                         WHERE product_variant_id = ?
+                         ORDER BY occurred_at, id
+                        """,
+                        (rs, row) -> new LedgerRow(
+                                rs.getString("movement_type"),
+                                rs.getString("source_type"),
+                                rs.getObject("source_id", UUID.class),
+                                rs.getBigDecimal("quantity"),
+                                rs.getObject("company_store_id", UUID.class),
+                                rs.getObject("store_location_id", UUID.class),
+                                rs.getString("actor")),
+                        variantId));
+    }
+
+    /**
+     * The store's sellable aggregate, from the ledger's projection.
+     *
+     * <p>It used to read {@code product_variant_store_stock.stock}. Since T3c nothing maintains that column, so
+     * reading it would make every assertion about an edit agree with a frozen number — the silent agreement this
+     * slice exists to remove. {@code stock_position} is derived from the movements by trigger, which is what makes
+     * it the answer.</p>
+     */
+    private BigDecimal storePositionOf(UUID storeId, UUID variantId) {
+        var quantities = TenantFixtures.inTenant(
+                companyId,
+                () -> jdbcTemplate.queryForList(
+                        "SELECT quantity FROM stock_position WHERE company_store_id = ? AND product_variant_id"
+                                + " = ?",
+                        BigDecimal.class,
+                        storeId,
+                        variantId));
+        return quantities.stream()
+                .findFirst()
+                .orElseThrow(() ->
+                        new AssertionError("no stock_position row for variant " + variantId + " in store " + storeId));
+    }
+
+    /** One location's balance, from the projection the trigger maintains. A location with no row holds none. */
+    private BigDecimal locationStockOf(UUID variantId, UUID storeLocationId) {
+        var quantities = TenantFixtures.inTenant(
+                companyId,
+                () -> jdbcTemplate.queryForList(
+                        "SELECT quantity FROM stock_balance WHERE store_location_id = ? AND product_variant_id"
+                                + " = ?",
+                        BigDecimal.class,
+                        storeLocationId,
+                        variantId));
+        return quantities.stream().findFirst().orElse(BigDecimal.ZERO);
+    }
+
+    /**
+     * The W3-D5 invariant as the ledger states it since T3c: the store's projection equals the sum of the
+     * location balances the store owns.
+     *
+     * <p>Both sides used to be the two legacy columns — {@code product_variant_store_stock.stock} against
+     * {@code SUM(product_variant_locations.stock)} — and nothing maintains either any more, so comparing them
+     * would compare two frozen numbers and call it agreement. {@code stock_position} and {@code stock_balance} are
+     * derived from {@code stock_movement} by the V61 trigger, and the locations are resolved through
+     * {@code store_locations.company_store_id} so a balance row of another store cannot be summed in.</p>
      */
     private void assertInvariant(UUID variantId, UUID storeId) {
-        var aggregate = productVariantStoreStockRepository
-                .findByProductVariantIdAndCompanyStoreId(variantId, storeId)
-                .orElseThrow()
-                .getStock();
-        var locationSum =
-                productVariantLocationRepository.findByProductVariantIdAndCompanyStoreId(variantId, storeId).stream()
-                        .map(ProductVariantLocation::getStock)
-                        .reduce(BigDecimal.ZERO, BigDecimal::add);
-        assertThat(aggregate).isEqualByComparingTo(locationSum);
+        var locationSum = TenantFixtures.inTenant(
+                companyId, () -> jdbcTemplate.queryForObject("""
+                    SELECT COALESCE(SUM(b.quantity), 0)
+                      FROM stock_balance b
+                      JOIN store_locations l ON l.id = b.store_location_id
+                     WHERE b.product_variant_id = ?
+                       AND l.company_store_id = ?
+                    """, BigDecimal.class, variantId, storeId));
+        assertThat(storePositionOf(storeId, variantId))
+                .as("stock_position must equal SUM(stock_balance) over the locations the store owns")
+                .isEqualByComparingTo(locationSum);
     }
 
     /**

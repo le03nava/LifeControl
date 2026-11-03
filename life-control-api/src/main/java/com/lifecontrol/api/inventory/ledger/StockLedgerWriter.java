@@ -140,7 +140,8 @@ public class StockLedgerWriter {
      * would be indistinguishable from a retry. A manual edit is the opposite case: nothing retries it, no document
      * states it, and the only thing its key must guarantee is that the row it states is one row. Stating its own
      * id does exactly that, and it is the identity that survives the mirror
-     * ({@code odd/tasks/ledger-mirror-retirement.md}, D-2).</p>
+     * ({@code odd/tasks/ledger-mirror-retirement.md}, D-2). The two adjustment entry points below make that literal:
+     * the id the {@link Booking} states is the id the row gets, so a manual edit has ONE identity and not two.</p>
      */
     public static final String MANUAL_ADJUSTMENT_SOURCE_TYPE = "MANUAL_ADJUSTMENT";
 
@@ -289,7 +290,7 @@ public class StockLedgerWriter {
      * @return the ledger row's id
      */
     public UUID bookReceipt(Booking booking, BigDecimal quantity, BigDecimal unitCost, String currency, String reason) {
-        return book(booking, RECEIPT, quantity, unitCost, currency, null, reason);
+        return book(booking, RECEIPT, quantity, unitCost, currency, null, reason, null);
     }
 
     /**
@@ -300,7 +301,7 @@ public class StockLedgerWriter {
      * @return the ledger row's id
      */
     public UUID bookSale(Booking booking, BigDecimal quantity) {
-        return bookAndAllocate(booking, SALE, quantity);
+        return bookAndAllocate(booking, SALE, quantity, null);
     }
 
     /**
@@ -311,18 +312,23 @@ public class StockLedgerWriter {
      * @return the ledger row's id
      */
     public UUID bookSaleReversal(Booking booking, BigDecimal quantity, UUID reversesMovementId) {
-        return book(booking, SALE_REVERSAL, quantity, null, null, reversesMovementId, null);
+        return book(booking, SALE_REVERSAL, quantity, null, null, reversesMovementId, null, null);
     }
 
-    /** Books the increase side of a manual per-store edit, at the cost the operator's deployment records. */
+    /**
+     * Books the increase side of a manual per-store edit, at the cost the operator's deployment records.
+     *
+     * <p>The row IS what its booking states: a manual edit names no document, so its source is its own id (D-2),
+     * which is why the id the caller passes in the booking becomes the row's id instead of being drawn here.</p>
+     */
     public UUID bookAdjustmentIn(
             Booking booking, BigDecimal quantity, BigDecimal unitCost, String currency, String reason) {
-        return book(booking, ADJUSTMENT_IN, quantity, unitCost, currency, null, reason);
+        return book(booking, ADJUSTMENT_IN, quantity, unitCost, currency, null, reason, booking.sourceId());
     }
 
-    /** Books the decrease side of a manual per-store edit and records what it consumed. */
+    /** Books the decrease side of a manual per-store edit and records what it consumed (its own id, D-2). */
     public UUID bookAdjustmentOut(Booking booking, BigDecimal quantity) {
-        return bookAndAllocate(booking, ADJUSTMENT_OUT, quantity);
+        return bookAndAllocate(booking, ADJUSTMENT_OUT, quantity, booking.sourceId());
     }
 
     /**
@@ -435,14 +441,14 @@ public class StockLedgerWriter {
         }
     }
 
-    private UUID bookAndAllocate(Booking booking, String movementType, BigDecimal quantity) {
-        var movementId = book(booking, movementType, quantity, null, null, null, null);
-        var allocations = jdbcTemplate.queryForObject(ALLOCATE, Integer.class, movementId);
+    private UUID bookAndAllocate(Booking booking, String movementType, BigDecimal quantity, UUID movementId) {
+        var rowId = book(booking, movementType, quantity, null, null, null, null, movementId);
+        var allocations = jdbcTemplate.queryForObject(ALLOCATE, Integer.class, rowId);
         if (allocations == null) {
-            throw new IllegalStateException("allocate_stock_movement(" + movementId + ") answered no row, so the "
+            throw new IllegalStateException("allocate_stock_movement(" + rowId + ") answered no row, so the "
                     + "consumption of an outbound movement is unknown (ADR-0001 invariant I6)");
         }
-        return movementId;
+        return rowId;
     }
 
     private UUID book(
@@ -452,12 +458,13 @@ public class StockLedgerWriter {
             BigDecimal unitCost,
             String currency,
             UUID reversesMovementId,
-            String reason) {
+            String reason,
+            UUID movementId) {
         requireTransaction();
-        var movementId = UUID.randomUUID();
+        var rowId = movementId == null ? UUID.randomUUID() : movementId;
         jdbcTemplate.update(
                 INSERT_MOVEMENT,
-                movementId,
+                rowId,
                 booking.companyId(),
                 booking.companyStoreId(),
                 booking.storeLocationId(),
@@ -472,7 +479,7 @@ public class StockLedgerWriter {
                 booking.writeSeq(),
                 reversesMovementId,
                 reason);
-        return movementId;
+        return rowId;
     }
 
     /**

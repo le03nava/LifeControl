@@ -32,20 +32,23 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * T5a of {@code odd/tasks/inventory-ledger.md}: the four writers of {@link InventoryService} book the ledger
- * <b>beside</b> the legacy update, in the same transaction.
+ * T5a of {@code odd/tasks/inventory-ledger.md}, as T3c leaves it: the writers of {@link InventoryService} book the
+ * ledger, and the ledger is the only place stock is written.
  *
- * <p><b>What this suite is the witness of.</b> The slice's whole purpose is that one transition is written
- * twice for a while, and that the two copies can be seen to agree. So every case drives a public writer of
- * {@link InventoryService} — the same entry point {@code GoodsReceiptService}, {@code SalesOrderService} and
- * {@code ProductVariantService} call — and then asserts, for the same {@code (store, variant)}:</p>
+ * <p><b>What this suite is the witness of.</b> Every case drives a public writer of {@link InventoryService} — the
+ * same entry point {@code GoodsReceiptService}, {@code SalesOrderService} and {@code ProductVariantService} call —
+ * and then asserts the movement it booked (its type, its quantity, its cost and currency, and — for an outbound
+ * row — the allocations the engine recorded for it, invariant I6) and the balances {@code V61}'s trigger derived
+ * from it:</p>
  * <pre>{@code
- * stock_position.quantity = product_variant_store_stock.stock
- * stock_balance.quantity  = product_variant_locations.stock   (per location)
+ * stock_position.quantity = the movements booked for that (store, variant)
+ * stock_balance.quantity  = the movements booked for that (location, variant)
  * }</pre>
- * <p>plus the movement the writer booked: its type, its quantity, its cost and currency, and — for an
- * outbound row — the allocations the engine recorded for it (invariant I6). Nothing asserts on a trigger or a
- * function body: the ledger's own engine is T3's suite, and this one does not restate its cases.</p>
+ * <p>Nothing asserts on a trigger or a function body: the ledger's own engine is T3's suite, and this one does not
+ * restate its cases. Nothing reads or writes the two legacy {@code stock} columns either: since
+ * {@code odd/tasks/ledger-mirror-retirement.md} S4 the write path stopped maintaining them, so a fixture that
+ * seeded them would construct a second truth that only a test could see, and an assertion that compared the ledger
+ * to them would be comparing it to a frozen number.</p>
  *
  * <p><b>The tenant scope is stated, never assumed.</b> The pool logs in as {@code lifecontrol_app}, and
  * {@code V60} armed all five ledger tables on {@code tenant_table}, so every statement the ledger runs meets
@@ -68,7 +71,10 @@ class InventoryLedgerBookingIntegrationTest extends AbstractPostgresIntegrationT
     private static final String COMPANY_KEY = "LEDGER-BOOKING-A";
     private static final String COMPANY_RFC = "LED030303EF3";
 
-    /** The two source discriminators the callers pass; the ledger mirrors the rows, not the documents. */
+    /**
+     * The sales-order line discriminator the callers pass. A receipt's own ({@code GOODS_RECEIPT_ITEM}) is stated by
+     * {@link StockLedgerWriter#RECEIPT_LINE_SOURCE_TYPE}, because the writer is what declares it.
+     */
     private static final String SALES_ORDER_ITEM = "SALES_ORDER_ITEM";
 
     /** What the store records for the variant as its cost, which is what an inbound row must state. */
@@ -173,7 +179,7 @@ class InventoryLedgerBookingIntegrationTest extends AbstractPostgresIntegrationT
     }
 
     // ──────────────────────────────────────
-    // writer 1 — a receipt books one RECEIPT row, and the projections agree
+    // writer 1 — a receipt books one RECEIPT row, and the projections follow it
     // ──────────────────────────────────────
 
     @Test
@@ -212,7 +218,7 @@ class InventoryLedgerBookingIntegrationTest extends AbstractPostgresIntegrationT
                 .as("one fact, one row: the source is the goods_receipt_items row this movement booked")
                 .isEqualTo(receiptLineId);
 
-        assertTheLedgerAgreesWithTheLegacyBalances("10", "10", "10");
+        assertTheLedgerHolds("10", "0", "10");
     }
 
     // ──────────────────────────────────────
@@ -275,7 +281,7 @@ class InventoryLedgerBookingIntegrationTest extends AbstractPostgresIntegrationT
         assertThat(unallocatedOutboundMovements())
                 .as("no outbound row of this company is left without its allocations")
                 .isEmpty();
-        assertTheLedgerAgreesWithTheLegacyBalances("0", "2", "2");
+        assertTheLedgerHolds("0", "2", "2");
     }
 
     // ──────────────────────────────────────
@@ -311,7 +317,7 @@ class InventoryLedgerBookingIntegrationTest extends AbstractPostgresIntegrationT
                 .as("and the reversed sale is untouched — the ledger is append-only")
                 .hasSize(1);
 
-        assertTheLedgerAgreesWithTheLegacyBalances("10", "10", "10");
+        assertTheLedgerHolds("10", "0", "10");
     }
 
     // ──────────────────────────────────────
@@ -346,7 +352,7 @@ class InventoryLedgerBookingIntegrationTest extends AbstractPostgresIntegrationT
                 .isEqualByComparingTo("6");
         assertThat(unallocatedOutboundMovements()).isEmpty();
 
-        assertTheLedgerAgreesWithTheLegacyBalances("4", "4", "4");
+        assertTheLedgerHolds("4", "0", "4");
     }
 
     // ──────────────────────────────────────
@@ -377,8 +383,9 @@ class InventoryLedgerBookingIntegrationTest extends AbstractPostgresIntegrationT
                         + "describing stock no movement explains")
                 .isZero();
         assertThat(countLegacyMovements())
-                .as("the helper owns the stock ledger only: the legacy ledger is the suites' own business")
-                .isEqualTo(1);
+                .as("and the receipt booked no legacy row at all: the five legacy writers stopped with T3c (S4), so "
+                        + "the only ledger this helper has to own is stock_movement")
+                .isZero();
 
         // and the same helper is what this class's @AfterEach runs, so the teardown is the thing just proven
     }
@@ -424,7 +431,7 @@ class InventoryLedgerBookingIntegrationTest extends AbstractPostgresIntegrationT
                 .hasSize(1);
         assertThat(unallocatedOutboundMovements()).isEmpty();
 
-        assertTheLedgerAgreesWithTheLegacyBalances("6", "6", "6");
+        assertTheLedgerHolds("6", "0", "6");
     }
 
     @Test
@@ -458,7 +465,7 @@ class InventoryLedgerBookingIntegrationTest extends AbstractPostgresIntegrationT
                 .isEqualTo(firstLineId);
         assertThat(secondLine.sourceId()).isEqualTo(secondLineId);
         assertThat(positionOf(secondVariantId)).isEqualByComparingTo("5");
-        assertTheLocationAgrees(secondVariantId, salesLocationId, "5", "the sales location");
+        assertTheLedgerHoldsAt(secondVariantId, salesLocationId, "5", "the sales location");
         assertThat(verifyStockProjections()).isEmpty();
     }
 
@@ -477,54 +484,19 @@ class InventoryLedgerBookingIntegrationTest extends AbstractPostgresIntegrationT
         assertThat(positionOf(variantId))
                 .as("and the projection followed both rows into the same position")
                 .isEqualByComparingTo("8");
-        assertTheLocationAgrees(variantId, salesLocationId, "8", "the sales location");
+        assertTheLedgerHoldsAt(variantId, salesLocationId, "8", "the sales location");
         assertThat(verifyStockProjections()).isEmpty();
     }
 
     // ──────────────────────────────────────
-    // T3 — the split reads the ledger's projection, never the column it is about to lose
+    // the split reads the ledger's projection (T3) — its divergence-only case is gone
     // ──────────────────────────────────────
 
-    /**
-     * A sale splits across locations by {@code stock_balance}, and a lie in the legacy column cannot change what
-     * it does.
-     *
-     * <p><b>The fixture is the point, not a shortcut.</b> The receipt writes 10 in the location and the projection
-     * agrees; then the legacy column is set to <b>0</b> behind the ledger's back, which is the state the column
-     * reaches on its own once the write path stops maintaining it — a frozen number nobody updates while the
-     * ledger keeps moving. Reading the column, a sale of 5 has nowhere to come from and is refused with 409
-     * although the store holds ten units; reading the projection, it books the 5 and the ledger ends telling the
-     * truth. Both outcomes are measured rather than argued: this case is RED against the code that read the
-     * column.</p>
-     *
-     * <p>Only the location column is corrupted on purpose. The store aggregate is left what the receipt wrote,
-     * because this case is about where the <b>split</b> comes from; the gate that still reads the store column
-     * is the next slice's, and confusing the two would make a green case mean neither.</p>
-     */
-    @Test
-    @DisplayName("a sale splits by the ledger's projection, not by the legacy column")
-    void aSaleSplitsByTheProjectionNotByTheLegacyColumn() {
-        applyReceipt(variantId, salesLocationId, "10", UUID.randomUUID());
-        TenantFixtures.inTenant(
-                companyId,
-                () -> jdbcTemplate.update(
-                        "UPDATE product_variant_locations SET stock = 0 WHERE product_variant_id = ? AND store_location_id = ?",
-                        variantId,
-                        salesLocationId));
-
-        sell(variantId, "5", UUID.randomUUID());
-
-        assertThat(ledgerMovementsOf(variantId, StockLedgerWriter.SALE))
-                .as("the projection holds 10 at that location, so a sale of 5 has a shape even though the "
-                        + "column claims 0: the split's source is the ledger")
-                .hasSize(1);
-        assertThat(ledgerMovementsOf(variantId, StockLedgerWriter.SALE)
-                        .getFirst()
-                        .quantity())
-                .isEqualByComparingTo("5");
-        assertThat(positionOf(variantId)).as("and the position followed it").isEqualByComparingTo("5");
-        assertThat(verifyStockProjections()).isEmpty();
-    }
+    // A case here used to corrupt product_variant_locations.stock behind the ledger's back and assert that a sale
+    // still split by the projection. It is deleted rather than rewritten because the state it constructed can no
+    // longer exist: since T3c nothing writes that column, so it holds its default for every variant and the
+    // "corruption" is indistinguishable from the untouched column. The behaviour it measured — the split reads
+    // stock_balance, never a legacy balance — is what every sale case in this file now asserts by construction.
 
     // ──────────────────────────────────────
     // the mirror identity the deploy window still holds, and the key that still refuses a duplicate on it
@@ -537,10 +509,11 @@ class InventoryLedgerBookingIntegrationTest extends AbstractPostgresIntegrationT
      * <p><b>The fixture is the state, not a shortcut.</b> A sale written before this slice carries
      * {@code source_type = 'INVENTORY_MOVEMENT'} and the id of the {@code inventory_movements} row beside it, so
      * {@code openSales('SALES_ORDER_ITEM', line)} answers nothing for it and the reversal has to read the mirror as
-     * a <b>second</b> source ({@code InventoryService.openLedgerSalesBookedOnTheMirror}). All three parts of that
-     * state are therefore written by hand — the legacy row, the two legacy balances it moved, and the ledger
-     * movement that mirrors it — because no writer in this tree produces the pair any more, which is exactly what
-     * "predates the deploy" means.</p>
+     * a <b>second</b> source ({@code InventoryService.openLedgerSalesBookedOnTheMirror}). Both parts of that state
+     * that a reversal reads are therefore written by hand — the legacy row and the ledger movement that mirrors it
+     * — because no writer in this tree produces the pair any more, which is exactly what "predates the deploy"
+     * means. The two legacy balance columns are not seeded: since T3c nothing maintains them and no assertion here
+     * reads them (S4).</p>
      *
      * <p><b>What it would take to make this pass for the wrong reason.</b> Nothing here reads a default: the mirror
      * row's identity and its {@code SINGLE_WRITE} are asserted before the reversal runs, so a case that accidentally
@@ -577,11 +550,7 @@ class InventoryLedgerBookingIntegrationTest extends AbstractPostgresIntegrationT
         assertThat(ledgerMovementsOf(variantId, StockLedgerWriter.SALE))
                 .as("the reversed sale is untouched — the ledger is append-only")
                 .hasSize(1);
-        assertThat(legacyMovementsOf(variantId, "SALE_REVERSAL"))
-                .as("the legacy engine credited its own row back, so the two copies still describe one fact")
-                .hasSize(1);
-
-        assertTheLedgerAgreesWithTheLegacyBalances("10", "0", "10");
+        assertTheLedgerHolds("10", "0", "10");
     }
 
     /**
@@ -624,27 +593,22 @@ class InventoryLedgerBookingIntegrationTest extends AbstractPostgresIntegrationT
                 .as("and the reversal names the line beside the sale it corrects, so the ledger states one source "
                         + "for both halves of the reference")
                 .allSatisfy(reversal -> assertThat(reversal.sourceId()).isEqualTo(referenceId));
-        assertThat(storeStockOf(variantId))
+        assertThat(positionOf(variantId))
                 .as("the receipt put 10 in, the two sales took 7 out, and the reversal gives the 7 back")
                 .isEqualByComparingTo("10");
-        assertThat(locationStockOf(variantId, salesLocationId))
-                .hasValueSatisfying(stock -> assertThat(stock).isEqualByComparingTo("10"));
-        assertThat(positionOf(variantId))
-                .as("and the projection agrees, so the two copies end at the same number")
-                .isEqualByComparingTo("10");
-        assertTheLedgerAgreesWithTheLegacyBalances("10", "0", "10");
+        assertTheLedgerHolds("10", "0", "10");
     }
 
     /**
-     * The key still refuses a second movement on one mirrored source, which is the half of I5 the fifth column
-     * could have destroyed.
+     * The key still refuses a second movement on one receipt line, which is the half of I5 the fifth column could
+     * have destroyed.
      *
-     * <p><b>What is at stake.</b> A receipt, a manual edit and a reversal state the row they mirror plus
-     * {@link StockLedgerWriter#SINGLE_WRITE}: their source has no counter, so the write column is a constant for
-     * them and the key refuses a second row exactly as it did before {@code V73}. The failure this case exists to
-     * refuse is the one where the fifth column quietly becomes a discriminator — a writer that invents a number
-     * per booking, a counter that is read from a clock — and every mirrored source stops being unique at all: a
-     * replayed receipt would book a second {@code RECEIPT} row and double the stock instead of being refused.</p>
+     * <p><b>What is at stake.</b> A receipt line, a manual edit and a reversal book a source that has no counter
+     * and therefore state {@link StockLedgerWriter#SINGLE_WRITE}: the write column is a constant for them, so the
+     * key refuses a second row exactly as it did before {@code V73}. The failure this case exists to refuse is the
+     * one where the fifth column quietly becomes a discriminator — a writer that invents a number per booking, a
+     * counter that is read from a clock — and every such source stops being unique at all: a replayed receipt would
+     * book a second {@code RECEIPT} row and double the stock instead of being refused.</p>
      *
      * <p>The duplicate is attempted through the writer, with the same {@link StockLedgerWriter.Booking} the receipt
      * path built, so the statement under test is the one production runs.</p>
@@ -681,7 +645,9 @@ class InventoryLedgerBookingIntegrationTest extends AbstractPostgresIntegrationT
                 .as("and the refusal stored nothing: the ledger still holds the one RECEIPT row")
                 .hasSize(1);
         assertThat(positionOf(variantId)).as("so the projection did not double").isEqualByComparingTo("3");
-        assertThat(storeStockOf(variantId)).isEqualByComparingTo("3");
+        assertThat(balanceOf(variantId, salesLocationId))
+                .as("nor did the balance at the location the row names")
+                .hasValueSatisfying(balance -> assertThat(balance).isEqualByComparingTo("3"));
     }
 
     // ──────────────────────────────────────
@@ -689,43 +655,38 @@ class InventoryLedgerBookingIntegrationTest extends AbstractPostgresIntegrationT
     // ──────────────────────────────────────
 
     /**
-     * The refusal is the documented sale contract, and this is the state where it has to come from the ledger:
-     * a key whose legacy copies cover the sale and whose <b>position</b> does not.
+     * The refusal is the documented sale contract, and the number it refuses with is the ledger's position.
      *
-     * <p>Why the fixture has to create that state. While the two copies agree, the legacy gates and the
-     * ledger's projection agree too, so no case could tell which one refused and the case would prove nothing.
-     * Both legacy copies are therefore raised by hand — the aggregate and the location balance, so the
-     * aggregate gate and the location-sum gate both pass — and no movement explains either, which is exactly
-     * the tree record T5a finding 2 describes and {@code V62} reports. Sell 15 of the 10 the ledger holds:
-     * before this slice that reached {@code V61}'s invariant I8 in the projection trigger and surfaced as a
-     * database error, i.e. a 500 for a contract that documents a 409.</p>
+     * <p><b>What this case is about now.</b> Until T3c the fixture had to create a state where the two copies of
+     * the fact disagreed — the legacy copies raised above the sale and the position below it — because otherwise
+     * no case could tell which gate refused. There is one copy now: the receipt books 10, the position says 10,
+     * and a sale of 15 is refused by the position. That refusal is the socket the sale contract has always
+     * documented (409), not the {@code DataAccessException} {@code V61}'s invariant I8 would raise from inside the
+     * projection trigger — which is the 500 this gate exists to replace.</p>
      */
     @Test
     @DisplayName("a sale the position cannot cover answers the 409 contract, not the trigger's database error")
     void aSaleThePositionCannotCoverAnswersTheSaleContract() {
         applyReceipt(variantId, salesLocationId, "10", UUID.randomUUID());
-        raiseTheLegacyBalancesByHand("20");
 
         assertThatThrownBy(() -> sell(variantId, "15", UUID.randomUUID()))
-                .as("from this slice on the position is the authority a sale is refused by, and its refusal is "
-                        + "the exception the sale contract has always documented — not a DataAccessException "
-                        + "from the trigger")
+                .as("the position is the authority a sale is refused by, and its refusal is the exception the "
+                        + "sale contract has always documented — not a DataAccessException from the trigger")
                 .isInstanceOf(InsufficientStockException.class)
                 .hasMessageContaining("Insufficient stock for variant " + variantId)
                 .hasMessageContaining("requested 15")
                 .hasMessageContaining("available 10");
 
         assertThat(positionOf(variantId)).isEqualByComparingTo("10");
+        assertThat(balanceOf(variantId, salesLocationId))
+                .as("the refused deduction moved no balance either")
+                .hasValueSatisfying(balance -> assertThat(balance).isEqualByComparingTo("10"));
         assertThat(ledgerMovementsOf(variantId, StockLedgerWriter.SALE))
                 .as("the refusal stored no movement: a refused sale is not a fact")
                 .isEmpty();
         assertThat(legacyMovementsOf(variantId, "SALE"))
-                .as("and no legacy row either: the refusal happens before the first write, so the transaction "
-                        + "does not have to be rolled back to keep the ledger empty")
+                .as("and no legacy row either, because nothing writes that table any more (S4)")
                 .isEmpty();
-        assertThat(storeStockOf(variantId)).isEqualByComparingTo("20");
-        assertThat(locationStockOf(variantId, salesLocationId))
-                .hasValueSatisfying(stock -> assertThat(stock).isEqualByComparingTo("20"));
     }
 
     // ──────────────────────────────────────
@@ -734,21 +695,19 @@ class InventoryLedgerBookingIntegrationTest extends AbstractPostgresIntegrationT
 
     /**
      * T5c: {@code applySaleDeduction}'s step 4b reads {@code stock_position} <b>under the row's lock</b>, so the
-     * gate serializes on the row it decides about instead of relying on the legacy store row locked earlier in
-     * the same method.
+     * gate serializes on the row it decides about instead of relying on the store row locked earlier in the same
+     * method — a row that no longer carries any stock at all (T3c).
      *
-     * <p><b>Why the case has to be a race and not an assertion about a query.</b> While the legacy store row's
-     * lock is taken first ({@code InventoryService:383-390}), it alone serializes two deductions of one key, so
-     * a case that only asserts a refusal cannot tell a locking read from a plain one. The case therefore holds
-     * the {@code stock_position} row from a second transaction, on a key whose legacy copies cover the sale and
-     * whose position does not — the divergence {@code raiseTheLegacyBalancesByHand} creates — and observes what the
-     * deduction does <b>while that lock is held</b>.</p>
+     * <p><b>Why the case has to be a race and not an assertion about a query.</b> A case that only asserts a
+     * refusal cannot tell a locking read from a plain one. The case therefore holds the {@code stock_position} row
+     * from a second transaction, after lowering it below what the sale needs, and observes what the deduction does
+     * <b>while that lock is held</b>.</p>
      *
      * <p><b>What distinguishes the two behaviours, exactly.</b> The holder raises the row lock <em>before</em> the
      * deduction starts, so a locking read cannot return the pre-update quantity at all: it waits, and under
      * {@code READ COMMITTED} it then reads what the holder committed. A plain read does not wait — MVCC hands it
      * the last committed version, which is the quantity that still passes the gate — so the deduction proceeds,
-     * writes its legacy rows, and is refused later by {@code V61}'s trigger as a {@code DataAccessException}. The
+     * books its movement, and is refused later by {@code V61}'s trigger as a {@code DataAccessException}. The
      * assertion below is therefore the exception <b>type and number</b>, and neither outcome can be reached by
      * timing: with the lock the gate always reads the committed {@code 8}, without it the gate always reads
      * {@code 10}.</p>
@@ -789,10 +748,8 @@ class InventoryLedgerBookingIntegrationTest extends AbstractPostgresIntegrationT
         @Test
         @DisplayName("a deduction waits for the position row and refuses with the quantity committed under it")
         void aDeductionWaitsForThePositionRowAndRefusesWithTheQuantityCommittedUnderIt() throws Exception {
-            // The ledger holds 10 in this store and the legacy copies are raised to 20 by hand, so the two legacy
-            // gates pass for 9 and only the position can refuse it.
+            // The receipt books 10, so the position passes for anything up to 10 and the holder lowers it to 8.
             applyReceipt(variantId, salesLocationId, "10", UUID.randomUUID());
-            raiseTheLegacyBalancesByHand("20");
 
             var theLockIsHeld = new CountDownLatch(1);
             ExecutorService pool = Executors.newFixedThreadPool(2);
@@ -852,11 +809,10 @@ class InventoryLedgerBookingIntegrationTest extends AbstractPostgresIntegrationT
                 assertThat(legacyMovementsOf(variantId, "SALE"))
                         .as("and no legacy row either: the gate refuses before the first write of the loop")
                         .isEmpty();
-                assertThat(storeStockOf(variantId)).isEqualByComparingTo("20");
-                assertThat(locationStockOf(variantId, salesLocationId))
-                        .as("neither legacy copy moved, so the refusal did not need a rollback to keep the "
-                                + "legacy balances intact")
-                        .hasValueSatisfying(stock -> assertThat(stock).isEqualByComparingTo("20"));
+                assertThat(balanceOf(variantId, salesLocationId))
+                        .as("the location's balance is still the 10 the receipt booked: the refused deduction "
+                                + "moved nothing, and the only number the holder changed is the position")
+                        .hasValueSatisfying(balance -> assertThat(balance).isEqualByComparingTo("10"));
             } finally {
                 pool.shutdownNow();
             }
@@ -865,43 +821,30 @@ class InventoryLedgerBookingIntegrationTest extends AbstractPostgresIntegrationT
         @Test
         @DisplayName("a key the ledger never moved is refused: a row that does not exist cannot be locked")
         void aKeyTheLedgerNeverMovedIsRefused() {
-            // Both legacy copies state 10 and the ledger holds no movement for the key at all, so there is no
-            // stock_position row to lock. Written by hand because no writer produces this state: a receipt would
-            // book the movement the position is derived from.
-            jdbcTemplate.update(
-                    "UPDATE product_variant_store_stock SET stock = ? "
-                            + "WHERE product_variant_id = ? AND company_store_id = ?",
-                    new BigDecimal("10"),
-                    variantId,
-                    storeId);
-            jdbcTemplate.update(
-                    "INSERT INTO product_variant_locations (product_variant_id, store_location_id, stock) "
-                            + "VALUES (?, ?, ?)",
-                    variantId,
-                    salesLocationId,
-                    new BigDecimal("10"));
-
+            // The ledger never moved this key: no movement, therefore no position row to lock. No fixture writes
+            // that state by hand — the store's stock row exists (every store/variant pair has one) and the ledger
+            // has booked nothing for it, which is what a variant nobody has received looks like.
             assertThat(countPositionRows())
                     .as("the ledger never moved this key, which is the state this case is about")
                     .isZero();
 
             assertThatThrownBy(() -> sell(variantId, "5", UUID.randomUUID()))
                     .as("a locking read cannot lock a row that does not exist, and the gate must not read that as "
-                            + "permission: an empty position is used as zero and the sale is refused, the same "
-                            + "answer the legacy aggregate gives for a variant this store does not stock. Reading "
-                            + "it optimistically — \"no row, therefore nothing to check\" — would authorize a "
+                            + "permission: an empty position is used as zero and the sale is refused. Reading it "
+                            + "optimistically — \"no row, therefore nothing to check\" — would authorize a "
                             + "deduction the ledger cannot explain")
                     .isInstanceOf(InsufficientStockException.class)
                     .hasMessageContaining("requested 5")
                     .hasMessageContaining("available 0");
 
             assertThat(ledgerMovementsOf(variantId, StockLedgerWriter.SALE))
-                    .as("and it stored nothing: no movement, no allocation, no position")
+                    .as("and it stored nothing: no movement, no allocation")
                     .isEmpty();
+            assertThat(countAllocations()).isZero();
             assertThat(countPositionRows()).isZero();
-            assertThat(storeStockOf(variantId))
-                    .as("the legacy copies are untouched, so the refusal did not need a rollback")
-                    .isEqualByComparingTo("10");
+            assertThat(countProjections())
+                    .as("and nothing was projected, because nothing was booked")
+                    .isZero();
         }
 
         /** How many position rows exist for the fixture's key: zero is a state, not an error. */
@@ -958,7 +901,7 @@ class InventoryLedgerBookingIntegrationTest extends AbstractPostgresIntegrationT
                 salesLocationId,
                 variantId,
                 "receiver",
-                StockLedgerWriter.MIRRORED_SOURCE_TYPE,
+                StockLedgerWriter.RECEIPT_LINE_SOURCE_TYPE,
                 UUID.randomUUID(),
                 StockLedgerWriter.SINGLE_WRITE);
 
@@ -968,8 +911,8 @@ class InventoryLedgerBookingIntegrationTest extends AbstractPostgresIntegrationT
                         new BigDecimal(RECORDED_COST),
                         TenantFixtures.SEED_CURRENCY,
                         null))
-                .as("first gate: a movement outside the transaction that moves the legacy balance would let "
-                        + "the two copies disagree after a rollback, so the writer refuses to book one")
+                .as("first gate: a movement booked outside the transaction that states the fact would survive the "
+                        + "rollback of that fact, so the writer refuses to book one")
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("inside the transaction");
 
@@ -982,8 +925,8 @@ class InventoryLedgerBookingIntegrationTest extends AbstractPostgresIntegrationT
                                 null)))
                 .as("second gate, and the one ADR-0005 owns: the five ledger tables are armed on tenant_table "
                         + "(V60) and FORCED, so an insert from a transaction that states no app.company_id is "
-                        + "refused by the policy. The failure is the loud one — a silently skipped row would let "
-                        + "the legacy balance move with no ledger row to explain it")
+                        + "refused by the policy. The failure is the loud one — a silently skipped row would report "
+                        + "success while the stock the caller asked to record does not exist")
                 .isInstanceOf(DataAccessException.class)
                 .satisfies(thrown -> assertThat(rootCauseMessage(thrown)).contains("row-level security policy"));
 
@@ -1000,7 +943,9 @@ class InventoryLedgerBookingIntegrationTest extends AbstractPostgresIntegrationT
                 .as("the same fact seen through the public writer: without the scope the store it derives the "
                         + "tenant from is not visible, so nothing is booked and nothing is moved")
                 .isInstanceOf(CompanyStoreNotFoundException.class);
-        assertThat(storeStockOf(variantId)).isEqualByComparingTo("0");
+        assertThat(countProjections())
+                .as("and nothing was projected: no balance, no position, no valuation")
+                .isZero();
         assertThat(countLegacyMovements()).isZero();
         assertThat(countLedgerMovements()).isZero();
     }
@@ -1060,17 +1005,12 @@ class InventoryLedgerBookingIntegrationTest extends AbstractPostgresIntegrationT
     }
 
     /**
-     * Raises the two legacy balances of the variant without booking any movement — the divergence the ledger
-     * exists to report, and the only state in which the position and the legacy engine can refuse different
-     * quantities.
+     * A sale as the tree wrote it <b>before</b> {@code V73}, both parts that matter to a reversal: the
+     * {@code inventory_movements} row it wrote, and the ledger movement that mirrors it by primary key.
      *
-     * <p>Both halves move: the aggregate gate reads {@code product_variant_store_stock.stock} and the second
-     * gate reads the sum of {@code product_variant_locations.stock}, so raising one and not the other would be
-     * refused by the legacy engine and would prove nothing about the ledger.</p>
-     */
-    /**
-     * A sale as the tree wrote it <b>before</b> {@code V73}, all three parts: the {@code inventory_movements} row,
-     * the two legacy balances that row moved, and the ledger movement that mirrors it by primary key.
+     * <p>The two legacy {@code stock} columns that row also moved are deliberately left alone: since T3c nothing
+     * maintains them and no case in this file reads them, so seeding them would be constructing a second truth a
+     * fixture would have to keep in step for no assertion's benefit.</p>
      *
      * <p>The columns are the ones {@code V10__inventory.sql} declares for {@code inventory_movements} —
      * {@code product_variant_id}, {@code company_store_id}, {@code store_location_id}, {@code movement_type},
@@ -1096,19 +1036,6 @@ class InventoryLedgerBookingIntegrationTest extends AbstractPostgresIntegrationT
                         RETURNING id
                         """, UUID.class, variantId, storeId, salesLocationId, amount, SALES_ORDER_ITEM, referenceId));
 
-        jdbcTemplate.update(
-                "UPDATE product_variant_store_stock SET stock = stock - ? "
-                        + "WHERE product_variant_id = ? AND company_store_id = ?",
-                amount,
-                variantId,
-                storeId);
-        jdbcTemplate.update(
-                "UPDATE product_variant_locations SET stock = stock - ? "
-                        + "WHERE product_variant_id = ? AND store_location_id = ?",
-                amount,
-                variantId,
-                salesLocationId);
-
         TenantFixtures.inTenant(
                 companyId,
                 () -> stockLedgerWriter.bookSale(
@@ -1125,39 +1052,27 @@ class InventoryLedgerBookingIntegrationTest extends AbstractPostgresIntegrationT
         return legacySaleId;
     }
 
-    private void raiseTheLegacyBalancesByHand(String stock) {
-        jdbcTemplate.update(
-                "UPDATE product_variant_store_stock SET stock = ? WHERE product_variant_id = ? AND company_store_id = ?",
-                new BigDecimal(stock),
-                variantId,
-                storeId);
-        jdbcTemplate.update(
-                "UPDATE product_variant_locations SET stock = ? WHERE product_variant_id = ? AND store_location_id = ?",
-                new BigDecimal(stock),
-                variantId,
-                salesLocationId);
-    }
-
     // ──────────────────────────────────────
-    // helpers: the agreement property, and the ledger's own checks
+    // helpers: the ledger's own state, and its invariants
     // ──────────────────────────────────────
 
     /**
-     * The property this slice exists for: after a writer ran, the ledger's two projections are the legacy
-     * balances, for the store and for each of its locations.
+     * The ledger's equation after a writer ran: the store's position and each location's balance are the numbers
+     * the booked movements sum to, and the ledger's invariants hold over them.
+     *
+     * <p>Until T3c this method asserted an agreement with the two legacy columns the write path also maintained.
+     * There is one copy of the fact now — {@code stock_movement}, and the projections {@code V61}'s trigger derives
+     * from it — so the expected quantities are checked against {@code stock_position} and {@code stock_balance}
+     * directly. No legacy balance is read, and none is written: that is the whole point of the slice.</p>
      */
-    private void assertTheLedgerAgreesWithTheLegacyBalances(
-            String salesLocationStock, String secondaryLocationStock, String storeStock) {
-        assertThat(storeStockOf(variantId))
-                .as("the legacy aggregate the callers and the screens still read")
-                .isEqualByComparingTo(storeStock);
+    private void assertTheLedgerHolds(String salesLocationStock, String secondaryLocationStock, String storeStock) {
         assertThat(positionOf(variantId))
-                .as("ADR-0001 decision 2 (:51-55): stock_position is derived from the ledger, so it has to be "
-                        + "the number product_variant_store_stock.stock holds — the two copies of one fact")
+                .as("ADR-0001 decision 2 (:51-55): the store's position is what the movements booked for "
+                        + "(store, variant) add up to, and it is the only per-store balance there is")
                 .isEqualByComparingTo(storeStock);
 
-        assertTheLocationAgrees(variantId, salesLocationId, salesLocationStock, "the sales location");
-        assertTheLocationAgrees(variantId, secondaryLocationId, secondaryLocationStock, "the second location");
+        assertTheLedgerHoldsAt(variantId, salesLocationId, salesLocationStock, "the sales location");
+        assertTheLedgerHoldsAt(variantId, secondaryLocationId, secondaryLocationStock, "the second location");
 
         assertThat(verifyStockProjections())
                 .as("invariant I2, over all three projections of this company: nothing the writers booked "
@@ -1168,7 +1083,7 @@ class InventoryLedgerBookingIntegrationTest extends AbstractPostgresIntegrationT
                 .isEmpty();
     }
 
-    /** The ledger rows of one type, oldest first, as the fields the agreement is about. */
+    /** The ledger rows of one type, oldest first, as the fields each case judges them on. */
     private List<LedgerMovement> ledgerMovementsOf(UUID variant, String movementType) {
         return TenantFixtures.inTenant(
                 companyId,
@@ -1196,7 +1111,10 @@ class InventoryLedgerBookingIntegrationTest extends AbstractPostgresIntegrationT
                         movementType));
     }
 
-    /** The ids of the legacy ledger rows of one type, which is the identity a ledger row mirrors. */
+    /**
+     * The ids of the legacy ledger rows of one type. Read only by the cases whose subject is what the pre-V73
+     * fallback answers, and never to compare a balance: the legacy table is not a balance any more.
+     */
     private List<UUID> legacyMovementsOf(UUID variant, String movementType) {
         return TenantFixtures.inTenant(
                 companyId,
@@ -1249,50 +1167,30 @@ class InventoryLedgerBookingIntegrationTest extends AbstractPostgresIntegrationT
     }
 
     // ──────────────────────────────────────
-    // helpers: the balances the two copies of the fact live in
+    // helpers: the balances the ledger itself states
     // ──────────────────────────────────────
 
-    private BigDecimal storeStockOf(UUID variant) {
-        return jdbcTemplate.queryForObject(
-                "SELECT stock FROM product_variant_store_stock WHERE product_variant_id = ? AND company_store_id = ?",
-                BigDecimal.class,
-                variant,
-                storeId);
-    }
-
     /**
-     * The agreement, per location: the legacy balance row and the derived {@code stock_balance} are the same
-     * number — or both absent, which is the same fact said twice, since neither table gets a row for a
-     * location nothing ever moved at.
+     * One location's balance as {@code stock_balance} states it, where an absent row means zero.
+     *
+     * <p>{@code V61}'s trigger writes a balance row for a location the first time a movement names it, so a
+     * location nothing ever moved at has no row at all — the same fact as a row of zero, which is why "0" is a
+     * valid expectation for either shape.</p>
      */
-    private void assertTheLocationAgrees(UUID variant, UUID location, String expected, String where) {
-        var legacy = locationStockOf(variant, location);
-        var ledger = balanceOf(variant, location);
-        if (legacy.isEmpty()) {
-            assertThat(ledger)
+    private void assertTheLedgerHoldsAt(UUID variant, UUID location, String expected, String where) {
+        var balance = balanceOf(variant, location);
+        if (balance.isEmpty()) {
+            assertThat(new BigDecimal(expected).signum())
                     .as(
-                            "no legacy balance row and no ledger balance row at %s: the two copies agree that "
-                                    + "nothing happened there",
+                            "no stock_balance row at %s, which is the ledger saying nothing ever moved there, so "
+                                    + "the expected quantity has to be zero",
                             where)
-                    .isEmpty();
+                    .isZero();
             return;
         }
-        assertThat(legacy.get()).as("the legacy balance at %s", where).isEqualByComparingTo(expected);
-        assertThat(ledger)
-                .as("and stock_balance, derived from the same movements, is the same number at %s", where)
-                .isPresent();
-        assertThat(ledger.get()).isEqualByComparingTo(expected);
-    }
-
-    private Optional<BigDecimal> locationStockOf(UUID variant, UUID location) {
-        return jdbcTemplate
-                .query(
-                        "SELECT stock FROM product_variant_locations WHERE product_variant_id = ? AND store_location_id = ?",
-                        (rs, rowNum) -> rs.getBigDecimal("stock"),
-                        variant,
-                        location)
-                .stream()
-                .findFirst();
+        assertThat(balance.get())
+                .as("stock_balance at %s, derived from the movements booked there", where)
+                .isEqualByComparingTo(expected);
     }
 
     private BigDecimal positionOf(UUID variant) {
@@ -1388,7 +1286,7 @@ class InventoryLedgerBookingIntegrationTest extends AbstractPostgresIntegrationT
     // helpers: what a case reads back
     // ──────────────────────────────────────
 
-    /** One ledger row, with every field the agreement and the movement's shape are judged on. */
+    /** One ledger row, with every field the balances and the movement's shape are judged on. */
     private record LedgerMovement(
             UUID id,
             String movementType,
@@ -1515,9 +1413,10 @@ class InventoryLedgerBookingIntegrationTest extends AbstractPostgresIntegrationT
     }
 
     /**
-     * One product, one variant, and the per-store stock row the legacy engine locks first. The row starts at
-     * zero and at the cost this deployment records, so every unit in the ledger entered through a writer —
-     * which is what makes the agreement this suite asserts an observation instead of a fixture.
+     * One product, one variant, and the per-store stock row every mover locks first. The row carries the cost this
+     * deployment records for the variant and no stock: the column is left to its default, because since T3c nothing
+     * maintains it and a fixture that seeded it would state a balance no movement explains. Every unit this suite
+     * asserts on therefore entered through a writer.
      */
     private UUID insertVariant(String suffix) {
         var productId = UUID.randomUUID();
@@ -1537,10 +1436,12 @@ class InventoryLedgerBookingIntegrationTest extends AbstractPostgresIntegrationT
                     INSERT INTO product_variants (id, company_id, product_id, variant_name, measure_unit_id)
                     VALUES (?, ?, ?, 'unica', ?)
                     """, variantId, companyId, productId, measureUnitId);
-            jdbcTemplate.update("""
-                    INSERT INTO product_variant_store_stock (product_variant_id, company_store_id, stock, cost_price)
-                    VALUES (?, ?, 0, ?)
-                    """, variantId, storeId, new BigDecimal(RECORDED_COST));
+            jdbcTemplate.update(
+                    "INSERT INTO product_variant_store_stock (product_variant_id, company_store_id, cost_price) "
+                            + "VALUES (?, ?, ?)",
+                    variantId,
+                    storeId,
+                    new BigDecimal(RECORDED_COST));
         });
         insertedProducts.add(new InsertedRow(companyId, productId));
         insertedVariants.add(new InsertedRow(companyId, variantId));

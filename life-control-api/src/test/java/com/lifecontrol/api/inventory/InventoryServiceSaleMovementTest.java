@@ -2,6 +2,7 @@ package com.lifecontrol.api.inventory;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
@@ -75,6 +76,14 @@ import org.slf4j.LoggerFactory;
  *
  * <p>These tests replace the interim expectation that sales never touch a location row. Persistence
  * behaviour on real PostgreSQL stays covered by {@code InventoryIntegrationTest}.</p>
+ *
+ * <p><b>What this suite asserts, and where.</b> Since T3c of {@code odd/tasks/ledger-mirror-retirement.md} the
+ * engine writes the ledger and nothing else: the five {@code inventory_movements} writes and both legacy
+ * {@code stock} columns are gone, and {@code stock_balance} / {@code stock_position} are projections the
+ * {@code V61} trigger derives from every {@code stock_movement} row. A case therefore reads the <b>bookings</b>
+ * ({@code bookSale}, {@code bookSaleReversal}, {@code bookAdjustmentIn}, {@code bookAdjustmentOut}) and the
+ * positions the engine decides on, and never the two columns: asserting those would be asserting this
+ * fixture's own arithmetic, since nothing in the application writes them any more.</p>
  */
 @ExtendWith(MockitoExtension.class)
 @DisplayName("InventoryService sale movement engine")
@@ -108,22 +117,33 @@ class InventoryServiceSaleMovementTest {
     @Mock
     private CompanyStoreRepository companyStoreRepository;
 
-    /** The ledger's writer is a collaborator here: this suite is about the legacy arithmetic. */
+    /**
+     * The ledger's writer: since T3c the only place this engine's writes can be observed. The legacy
+     * {@code inventory_movements} rows and the two legacy {@code stock} columns are written by nothing, so a
+     * case that asserted them would be asserting its own fixture.
+     */
     @Mock
     private StockLedgerWriter stockLedgerWriter;
 
     /**
      * The ledger's position, which is the authority a sale is refused by since T5b of
-     * {@code odd/tasks/inventory-ledger.md}. Every fixture that states a legacy aggregate states the same
-     * number here: the two copies agree in production, and stating one without the other would make the
-     * fixture refuse a sale the case expects to succeed.
+     * {@code odd/tasks/inventory-ledger.md} and the number a manual edit's delta is taken from since T3c. It is
+     * the only aggregate this suite states: the legacy store column stopped being written, so seeding it would
+     * describe a world the code no longer lives in.
      */
     @Mock
     private StockPositionRepository stockPositionRepository;
 
     private InventoryService inventoryService;
 
-    private final Map<UUID, ProductVariantLocation> balances = new LinkedHashMap<>();
+    /**
+     * The balance rows a mover locks, per location — and nothing else: they carry no quantity, because nothing in
+     * the write path reads {@code product_variant_locations.stock} any more.
+     */
+    private final Map<UUID, ProductVariantLocation> locationRows = new LinkedHashMap<>();
+
+    /** What the ledger's projection holds at each location: the balance every mover reads and moves. */
+    private final Map<UUID, BigDecimal> ledgerBalances = new LinkedHashMap<>();
 
     /** The company that owns this fixture's store, derived through the chain the resolver walks. */
     private static final UUID STORE_COMPANY_ID = UUID.fromString("00000000-0000-0000-0000-0000000000c0");
@@ -182,13 +202,13 @@ class InventoryServiceSaleMovementTest {
                 stockLedgerWriter,
                 stockPositionRepository);
 
-        // The ledger is a collaborator of this suite, not its subject: the legacy arithmetic is. A
-        // healthy ledger answers the two questions the reversal path asks it (which ledger row mirrors a
-        // legacy sale row, and whether a reversal already names it), so the legacy behaviour the cases
-        // below assert is reached instead of the writer's own refusal.
+        // The ledger is a collaborator of this suite, not its subject: the engine's decisions are. A healthy
+        // ledger answers the two questions the reversal path asks it (which ledger row mirrors a legacy sale
+        // row, and whether a reversal already names it), so the behaviour the cases below assert is reached
+        // instead of the writer's own refusal.
         // The fixture models the world after T2: a sale's ledger row names the LINE, so a legacy row has no
-        // mirror twin and the reversal must not go looking for one. With a twin stubbed here the fixture would be
-        // claiming every legacy sale is also reachable by the mirror, which is exactly the second truth S3
+        // mirror twin and the reversal must not go looking for one. With a twin stubbed here the fixture would
+        // be claiming every legacy sale is also reachable by the mirror, which is exactly the second truth S3
         // removes — and it would make unrelated cases consult a store row they never stated.
         lenient().when(stockLedgerWriter.mirroredMovementId(any(), anyString())).thenReturn(Optional.empty());
 
@@ -225,21 +245,28 @@ class InventoryServiceSaleMovementTest {
                         .build()));
     }
 
-    private void givenStoreStock(String stock) {
+    /**
+     * The store stocks the variant — the row every mover locks first — and the ledger holds {@code quantity} for
+     * it.
+     *
+     * <p><b>The number is the position's, and only the position's.</b> Since T3c nothing writes
+     * {@code product_variant_store_stock.stock}: a fixture that seeded it would state a second balance that neither
+     * the availability gate nor the split ever reads, which is the dual truth this slice removes. What the row
+     * still gives the engine is the lock every writer takes first.</p>
+     */
+    private void givenStoreStock(String quantity) {
         when(productVariantStoreStockRepository.findByProductVariantIdAndCompanyStoreIdForUpdate(VARIANT_ID, STORE_ID))
                 .thenReturn(Optional.of(ProductVariantStoreStock.builder()
                         .id(UUID.fromString("00000000-0000-0000-0000-000000000003"))
                         .productVariantId(VARIANT_ID)
                         .companyStoreId(STORE_ID)
-                        .stock(stock != null ? new BigDecimal(stock) : null)
                         .build()));
-        givenThePosition(VARIANT_ID, stock);
+        givenThePosition(VARIANT_ID, quantity);
     }
 
     /**
-     * States the ledger's position of one key, which is the number a sale is refused by since T5b. It mirrors
-     * the aggregate the same fixture states, because the two copies agree in production; {@code null} means the
-     * legacy column was never set, which counts as no position.
+     * States the ledger's position of one key, which is the number a sale is refused by since T5b and the number
+     * a manual edit's delta is taken from since T3c; {@code null} means the key has no position row at all.
      *
      * <p>It stubs the <b>locking</b> read, which is the one a deduction takes since T5c of
      * {@code odd/tasks/inventory-ledger.md}: the gate reads the projection row {@code FOR UPDATE} so it
@@ -271,40 +298,39 @@ class InventoryServiceSaleMovementTest {
         when(storeInventorySettingsRepository.findByCompanyStoreId(STORE_ID)).thenReturn(Optional.empty());
     }
 
-    private void balance(UUID locationId, String stock) {
-        balances.put(
+    /**
+     * Declares what the ledger holds at one location, and the row a mover locks before it moves it.
+     *
+     * <p><b>One number, in the place the code reads it.</b> {@code quantity} is what {@code stock_balance} states —
+     * the balance a sale's split, a manual decrease and a reversal all move — and the entity beside it carries no
+     * stock at all: {@code product_variant_locations.stock} is written by nobody since T3c, so filling it in would
+     * be declaring a second truth the engine cannot see.</p>
+     */
+    private void balance(UUID locationId, String quantity) {
+        ledgerBalances.put(locationId, quantity == null ? BigDecimal.ZERO : new BigDecimal(quantity));
+        locationRows.put(
                 locationId,
                 ProductVariantLocation.builder()
                         .id(UUID.randomUUID())
                         .productVariantId(VARIANT_ID)
                         .storeLocationId(locationId)
-                        .stock(stock != null ? new BigDecimal(stock) : null)
                         .build());
     }
 
     /**
-     * Registers the store's balance rows in the exact order the FIFO query returns them (oldest row
+     * Registers the store's balance rows in the exact order the ledger's read returns them (oldest row
      * first, {@code store_location_id} as the tie-break).
-     *
-     * <p><b>And states the same rows as the ledger's projection</b>, because from T3 the split reads
-     * {@code stock_balance} and not the legacy column (odd/tasks/ledger-mirror-retirement.md, S4). A fixture that
-     * declared only the column would describe a world where the ledger holds nothing and every sale is refused —
-     * which is exactly what the first run of this change reported.</p>
      */
     private void givenFifoOrder(UUID... locationIdsInFifoOrder) {
-        // No stub for the legacy repository read: since T3 the split does not consult it at all, and stubbing it
-        // would be the fixture asserting a query the code no longer makes.
+        // No stub for the legacy repository read: since T3 the split does not consult it at all, and stubbing
+        // it would be the fixture asserting a query the code no longer makes.
         givenLockableBalances(locationIdsInFifoOrder);
         lenient()
                 .when(stockLedgerWriter.openBalances(STORE_ID, VARIANT_ID))
                 .thenReturn(Arrays.stream(locationIdsInFifoOrder)
-                        .map(locationId -> new StockLedgerWriter.LocationBalance(
-                                locationId, orZero(balances.get(locationId).getStock())))
+                        .map(locationId ->
+                                new StockLedgerWriter.LocationBalance(locationId, ledgerBalances.get(locationId)))
                         .toList());
-    }
-
-    private static BigDecimal orZero(BigDecimal value) {
-        return value == null ? BigDecimal.ZERO : value;
     }
 
     /** Stubs the locking read of each balance row, which the reversal uses without the FIFO query. */
@@ -312,7 +338,7 @@ class InventoryServiceSaleMovementTest {
         for (var locationId : locationIds) {
             when(productVariantLocationRepository.findByProductVariantIdAndStoreLocationIdForUpdate(
                             VARIANT_ID, locationId))
-                    .thenAnswer(invocation -> Optional.of(balances.get(locationId)));
+                    .thenAnswer(invocation -> Optional.of(locationRows.get(locationId)));
         }
     }
 
@@ -325,20 +351,61 @@ class InventoryServiceSaleMovementTest {
         inventoryService.applySaleReversal(REFERENCE_TYPE, REFERENCE_ID, ACTOR);
     }
 
-    private List<ProductVariantLocation> savedBalances() {
-        var captor = ArgumentCaptor.forClass(ProductVariantLocation.class);
-        verify(productVariantLocationRepository, atLeastOnce()).save(captor.capture());
-        return captor.getAllValues();
+    /** One booking of the ledger: what the writer was told to record, and for how much. */
+    private record Booked(StockLedgerWriter.Booking booking, BigDecimal quantity) {}
+
+    /** One reversal the ledger was told to book: the row it frees, and how much it gives back. */
+    private record BookedReversal(StockLedgerWriter.Booking booking, BigDecimal quantity, UUID reversesMovementId) {}
+
+    /**
+     * Every {@code SALE} row the engine booked, in the order it booked them.
+     *
+     * <p>This is the one side a balance change has since S4: the movement is the fact and the projections follow
+     * from it, so a case that wants to say "this location gave 3" says it here.</p>
+     */
+    private List<Booked> bookedSales() {
+        var bookings = ArgumentCaptor.forClass(StockLedgerWriter.Booking.class);
+        var quantities = ArgumentCaptor.forClass(BigDecimal.class);
+        verify(stockLedgerWriter, atLeastOnce()).bookSale(bookings.capture(), quantities.capture());
+        return zip(bookings.getAllValues(), quantities.getAllValues());
     }
 
-    private List<InventoryMovement> savedMovements() {
-        var captor = ArgumentCaptor.forClass(InventoryMovement.class);
-        verify(inventoryMovementRepository, atLeastOnce()).save(captor.capture());
-        return captor.getAllValues();
+    /** Every {@code ADJUSTMENT_OUT} row a manual decrease booked, in the order it booked them. */
+    private List<Booked> bookedDecreases() {
+        var bookings = ArgumentCaptor.forClass(StockLedgerWriter.Booking.class);
+        var quantities = ArgumentCaptor.forClass(BigDecimal.class);
+        verify(stockLedgerWriter, atLeastOnce()).bookAdjustmentOut(bookings.capture(), quantities.capture());
+        return zip(bookings.getAllValues(), quantities.getAllValues());
+    }
+
+    /** Every {@code SALE_REVERSAL} row the engine booked, with the movement each one names. */
+    private List<BookedReversal> bookedReversals() {
+        var bookings = ArgumentCaptor.forClass(StockLedgerWriter.Booking.class);
+        var quantities = ArgumentCaptor.forClass(BigDecimal.class);
+        var reverses = ArgumentCaptor.forClass(UUID.class);
+        verify(stockLedgerWriter, atLeastOnce())
+                .bookSaleReversal(bookings.capture(), quantities.capture(), reverses.capture());
+        var reversals = new ArrayList<BookedReversal>(bookings.getAllValues().size());
+        for (var index = 0; index < bookings.getAllValues().size(); index++) {
+            reversals.add(new BookedReversal(
+                    bookings.getAllValues().get(index),
+                    quantities.getAllValues().get(index),
+                    reverses.getAllValues().get(index)));
+        }
+        return reversals;
+    }
+
+    private static List<Booked> zip(List<StockLedgerWriter.Booking> bookings, List<BigDecimal> quantities) {
+        var booked = new ArrayList<Booked>(bookings.size());
+        for (var index = 0; index < bookings.size(); index++) {
+            booked.add(new Booked(bookings.get(index), quantities.get(index)));
+        }
+        return booked;
     }
 
     private InventoryMovement movement(MovementType type, UUID locationId, String quantity) {
         return InventoryMovement.builder()
+                .id(UUID.randomUUID())
                 .productVariantId(VARIANT_ID)
                 .companyStoreId(STORE_ID)
                 .storeLocationId(locationId)
@@ -370,9 +437,10 @@ class InventoryServiceSaleMovementTest {
         when(inventoryMovementRepository.findByReferenceTypeAndReferenceId(REFERENCE_TYPE, REFERENCE_ID))
                 .thenReturn(List.of(movements));
         // The reversal no longer derives its amount from the legacy rows: it credits the rows the LEDGER holds
-        // open (odd/tasks/ledger-mirror-retirement.md, S3), so the fixture has to answer that question. It states
-        // it by netting the very rows the case states — a sale whose location was already reversed in full is not
-        // open — which keeps each case's intent readable instead of hiding a second truth in the stub.
+        // open (odd/tasks/ledger-mirror-retirement.md, S3), so the fixture has to answer that question. It
+        // states it by netting the very rows the case states — a sale whose location was already reversed in
+        // full is not open — which keeps each case's intent readable instead of hiding a second truth in the
+        // stub.
         var open = new ArrayList<StockLedgerWriter.OpenSale>();
         var net = new LinkedHashMap<UUID, BigDecimal>();
         for (var movement : movements) {
@@ -461,27 +529,29 @@ class InventoryServiceSaleMovementTest {
 
             deduct("6.00");
 
-            // 5 from the sales location B, then 1 from A: the FIFO prefix after B.
-            var saved = savedBalances();
-            assertThat(saved)
-                    .extracting(ProductVariantLocation::getStoreLocationId)
-                    .containsExactly(LOCATION_B, LOCATION_A);
-            assertThat(saved)
-                    .extracting(ProductVariantLocation::getStock)
-                    .containsExactly(new BigDecimal("0.00"), new BigDecimal("1.00"));
-            assertThat(balances.get(LOCATION_C).getStock()).isEqualByComparingTo("7.00");
+            // 5 from the sales location B, then 1 from A: the FIFO prefix after B. The ledger's bookings are the
+            // only side a balance has since S4 — the legacy rows and the store column are written by nobody, so
+            // a case that asserted them would be asserting its own fixture.
+            var booked = bookedSales();
+            assertThat(booked)
+                    .extracting(entry -> entry.booking().storeLocationId(), Booked::quantity)
+                    .containsExactly(
+                            tuple(LOCATION_B, new BigDecimal("5.00")), tuple(LOCATION_A, new BigDecimal("1.00")));
+            // C held 7 and was never reached, so it contributed no row.
+            assertThat(booked)
+                    .extracting(entry -> entry.booking().storeLocationId())
+                    .doesNotContain(LOCATION_C);
 
-            var movements = savedMovements();
-            assertThat(movements)
-                    .extracting(InventoryMovement::getStoreLocationId)
-                    .containsExactly(LOCATION_B, LOCATION_A);
-            assertThat(movements)
-                    .extracting(InventoryMovement::getQuantity)
-                    .containsExactly(new BigDecimal("5.00"), new BigDecimal("1.00"));
-
-            var storeCaptor = ArgumentCaptor.forClass(ProductVariantStoreStock.class);
-            verify(productVariantStoreStockRepository).save(storeCaptor.capture());
-            assertThat(storeCaptor.getValue().getStock()).isEqualByComparingTo("14.00");
+            assertThat(booked).allSatisfy(entry -> {
+                assertThat(entry.booking().sourceType())
+                        .as("the movement names the line the sale was written under (W3-D6)")
+                        .isEqualTo(REFERENCE_TYPE);
+                assertThat(entry.booking().sourceId()).isEqualTo(REFERENCE_ID);
+                assertThat(entry.booking().writeSeq())
+                        .as("the six-argument deduction books the reference's only write")
+                        .isEqualTo(StockLedgerWriter.SINGLE_WRITE);
+                assertThat(entry.booking().actor()).isEqualTo(ACTOR);
+            });
         }
 
         @Test
@@ -496,13 +566,12 @@ class InventoryServiceSaleMovementTest {
 
             deduct("2.00");
 
-            var saved = savedBalances();
-            assertThat(saved)
-                    .extracting(ProductVariantLocation::getStoreLocationId)
-                    .containsExactly(LOCATION_A, LOCATION_B);
-            assertThat(saved)
-                    .extracting(ProductVariantLocation::getStock)
-                    .containsExactly(new BigDecimal("0.00"), new BigDecimal("0.00"));
+            // The priority location holds no balance of this variant, so the split is plain FIFO: one booking
+            // per location, each for the whole balance it held.
+            assertThat(bookedSales())
+                    .extracting(entry -> entry.booking().storeLocationId(), Booked::quantity)
+                    .containsExactly(
+                            tuple(LOCATION_A, new BigDecimal("1.00")), tuple(LOCATION_B, new BigDecimal("1.00")));
         }
 
         @Test
@@ -517,11 +586,10 @@ class InventoryServiceSaleMovementTest {
 
             deduct("2.00");
 
-            var saved = savedBalances();
-            assertThat(saved)
-                    .extracting(ProductVariantLocation::getStoreLocationId)
-                    .containsExactly(LOCATION_B);
-            assertThat(saved).extracting(ProductVariantLocation::getStock).containsExactly(new BigDecimal("2.00"));
+            // A is the priority location but holds nothing, so it contributes no movement and only B is drawn.
+            assertThat(bookedSales())
+                    .extracting(entry -> entry.booking().storeLocationId(), Booked::quantity)
+                    .containsExactly(tuple(LOCATION_B, new BigDecimal("2.00")));
         }
 
         @Test
@@ -536,18 +604,11 @@ class InventoryServiceSaleMovementTest {
 
             deduct("5.00");
 
-            var saved = savedBalances();
-            assertThat(saved)
-                    .extracting(ProductVariantLocation::getStoreLocationId)
-                    .containsExactly(LOCATION_B, LOCATION_A);
-            assertThat(saved)
-                    .extracting(ProductVariantLocation::getStock)
-                    .containsExactly(new BigDecimal("0.00"), new BigDecimal("3.00"));
-
-            var movements = savedMovements();
-            assertThat(movements)
-                    .extracting(InventoryMovement::getQuantity)
-                    .containsExactly(new BigDecimal("3.00"), new BigDecimal("2.00"));
+            // The priority location gives its whole 3 and the remainder spills to A: two bookings, one fact each.
+            assertThat(bookedSales())
+                    .extracting(entry -> entry.booking().storeLocationId(), Booked::quantity)
+                    .containsExactly(
+                            tuple(LOCATION_B, new BigDecimal("3.00")), tuple(LOCATION_A, new BigDecimal("2.00")));
         }
     }
 
@@ -666,22 +727,23 @@ class InventoryServiceSaleMovementTest {
 
             deduct("5.00");
 
-            var movements = savedMovements();
-            assertThat(movements).hasSize(2);
-            for (var movement : movements) {
-                assertThat(movement.getMovementType()).isEqualTo(MovementType.SALE);
-                assertThat(movement.getProductVariantId()).isEqualTo(VARIANT_ID);
-                assertThat(movement.getCompanyStoreId()).isEqualTo(STORE_ID);
-                assertThat(movement.getReferenceType()).isEqualTo(REFERENCE_TYPE);
-                assertThat(movement.getReferenceId()).isEqualTo(REFERENCE_ID);
-                assertThat(movement.getCreatedBy()).isEqualTo(ACTOR);
-                assertThat(movement.getQuantity()).isPositive();
+            var booked = bookedSales();
+            assertThat(booked).hasSize(2);
+            for (var entry : booked) {
+                assertThat(entry.booking().productVariantId()).isEqualTo(VARIANT_ID);
+                assertThat(entry.booking().companyStoreId()).isEqualTo(STORE_ID);
+                assertThat(entry.booking().companyId()).isEqualTo(STORE_COMPANY_ID);
+                assertThat(entry.booking().sourceType()).isEqualTo(REFERENCE_TYPE);
+                assertThat(entry.booking().sourceId()).isEqualTo(REFERENCE_ID);
+                assertThat(entry.booking().actor()).isEqualTo(ACTOR);
+                // The direction is the writer's, not the caller's: bookSale is the SALE row, and the quantity
+                // it moves is positive.
+                assertThat(entry.quantity()).isPositive();
             }
-            assertThat(movements)
-                    .extracting(InventoryMovement::getStoreLocationId, InventoryMovement::getQuantity)
+            assertThat(booked)
+                    .extracting(entry -> entry.booking().storeLocationId(), Booked::quantity)
                     .containsExactly(
-                            org.assertj.core.groups.Tuple.tuple(LOCATION_B, new BigDecimal("3.00")),
-                            org.assertj.core.groups.Tuple.tuple(LOCATION_A, new BigDecimal("2.00")));
+                            tuple(LOCATION_B, new BigDecimal("3.00")), tuple(LOCATION_A, new BigDecimal("2.00")));
         }
     }
 
@@ -698,35 +760,23 @@ class InventoryServiceSaleMovementTest {
             balance(LOCATION_A, "3.00");
             balance(LOCATION_B, "0.00");
             givenLockableBalances(LOCATION_A, LOCATION_B);
-            givenLedger(
-                    movement(MovementType.SALE, LOCATION_B, "3.00"), movement(MovementType.SALE, LOCATION_A, "2.00"));
+            var soldFromB = movement(MovementType.SALE, LOCATION_B, "3.00");
+            var soldFromA = movement(MovementType.SALE, LOCATION_A, "2.00");
+            givenLedger(soldFromB, soldFromA);
 
             reverse();
 
-            var saved = savedBalances();
-            assertThat(saved)
-                    .extracting(ProductVariantLocation::getStoreLocationId)
-                    .containsExactly(LOCATION_A, LOCATION_B);
-            assertThat(saved)
-                    .extracting(ProductVariantLocation::getStock)
-                    .containsExactly(new BigDecimal("5.00"), new BigDecimal("3.00"));
-
-            var movements = savedMovements();
-            assertThat(movements).hasSize(2);
-            assertThat(movements)
-                    .extracting(
-                            InventoryMovement::getMovementType,
-                            InventoryMovement::getStoreLocationId,
-                            InventoryMovement::getQuantity)
+            // Each location gives back exactly what it gave, and each reversal names the row it frees: the
+            // amount is the open rows themselves, so no second arithmetic could disagree with them (S3).
+            var reversals = bookedReversals();
+            assertThat(reversals)
+                    .extracting(BookedReversal::reversesMovementId, BookedReversal::quantity)
                     .containsExactly(
-                            org.assertj.core.groups.Tuple.tuple(
-                                    MovementType.SALE_REVERSAL, LOCATION_A, new BigDecimal("2.00")),
-                            org.assertj.core.groups.Tuple.tuple(
-                                    MovementType.SALE_REVERSAL, LOCATION_B, new BigDecimal("3.00")));
-
-            var storeCaptor = ArgumentCaptor.forClass(ProductVariantStoreStock.class);
-            verify(productVariantStoreStockRepository).save(storeCaptor.capture());
-            assertThat(storeCaptor.getValue().getStock()).isEqualByComparingTo("15.00");
+                            tuple(soldFromA.getId(), new BigDecimal("2.00")),
+                            tuple(soldFromB.getId(), new BigDecimal("3.00")));
+            assertThat(reversals)
+                    .extracting(entry -> entry.booking().storeLocationId())
+                    .containsExactly(LOCATION_A, LOCATION_B);
 
             // The reversal never consults the store's priority location (W3-D6/W3-D8).
             verifyNoInteractions(storeInventorySettingsRepository);
@@ -755,24 +805,18 @@ class InventoryServiceSaleMovementTest {
             balance(LOCATION_A, "3.00");
             balance(LOCATION_B, "0.00");
             givenLockableBalances(LOCATION_A);
-            givenLedger(
-                    movement(MovementType.SALE, LOCATION_B, "3.00"),
-                    movement(MovementType.SALE, LOCATION_A, "2.00"),
-                    movement(MovementType.SALE_REVERSAL, LOCATION_B, "3.00"));
+            var soldFromB = movement(MovementType.SALE, LOCATION_B, "3.00");
+            var soldFromA = movement(MovementType.SALE, LOCATION_A, "2.00");
+            givenLedger(soldFromB, soldFromA, movement(MovementType.SALE_REVERSAL, LOCATION_B, "3.00"));
 
             reverse();
 
-            var saved = savedBalances();
-            assertThat(saved)
-                    .extracting(ProductVariantLocation::getStoreLocationId)
-                    .containsExactly(LOCATION_A);
-            assertThat(saved).extracting(ProductVariantLocation::getStock).containsExactly(new BigDecimal("5.00"));
-
-            var movements = savedMovements();
-            assertThat(movements).hasSize(1);
-            assertThat(movements.get(0).getMovementType()).isEqualTo(MovementType.SALE_REVERSAL);
-            assertThat(movements.get(0).getStoreLocationId()).isEqualTo(LOCATION_A);
-            assertThat(movements.get(0).getQuantity()).isEqualByComparingTo("2.00");
+            // B's sale is already named by a reversal, so only A's row is still open and only it is credited.
+            var reversals = bookedReversals();
+            assertThat(reversals).hasSize(1);
+            assertThat(reversals.getFirst().reversesMovementId()).isEqualTo(soldFromA.getId());
+            assertThat(reversals.getFirst().booking().storeLocationId()).isEqualTo(LOCATION_A);
+            assertThat(reversals.getFirst().quantity()).isEqualByComparingTo("2.00");
         }
 
         @Test
@@ -820,13 +864,11 @@ class InventoryServiceSaleMovementTest {
 
             deduct("2.00");
 
-            var saved = savedBalances();
-            assertThat(saved)
-                    .extracting(ProductVariantLocation::getStoreLocationId)
-                    .containsExactly(LOCATION_A, LOCATION_B);
-            assertThat(saved)
-                    .extracting(ProductVariantLocation::getStock)
-                    .containsExactly(new BigDecimal("0.00"), new BigDecimal("0.00"));
+            // A missing configuration row falls back to plain FIFO: one booking per location it draws from.
+            assertThat(bookedSales())
+                    .extracting(entry -> entry.booking().storeLocationId(), Booked::quantity)
+                    .containsExactly(
+                            tuple(LOCATION_A, new BigDecimal("1.00")), tuple(LOCATION_B, new BigDecimal("1.00")));
 
             assertThat(logAppender.list).hasSize(1);
             assertThat(logAppender.list.get(0).getLevel()).isEqualTo(Level.WARN);
@@ -857,9 +899,10 @@ class InventoryServiceSaleMovementTest {
 
             reverse();
 
-            assertThat(savedBalances())
-                    .extracting(ProductVariantLocation::getStock)
-                    .containsExactly(new BigDecimal("2.00"));
+            var reversals = bookedReversals();
+            assertThat(reversals).hasSize(1);
+            assertThat(reversals.getFirst().booking().storeLocationId()).isEqualTo(LOCATION_A);
+            assertThat(reversals.getFirst().quantity()).isEqualByComparingTo("2.00");
             assertThat(logAppender.list).isEmpty();
             verifyNoInteractions(storeInventorySettingsRepository);
         }
@@ -890,8 +933,8 @@ class InventoryServiceSaleMovementTest {
                     .verify(productVariantStoreStockRepository)
                     .findByProductVariantIdAndCompanyStoreIdForUpdate(VARIANT_ID, STORE_ID);
             // The first interaction with the balance repository is its LOCKING read: the legacy per-store read
-            // that used to come first is gone with the split's source (T3). The invariant the case exists for is
-            // unchanged — the store row is locked before any balance row is touched.
+            // that used to come first is gone with the split's source (T3). The invariant the case exists for
+            // is unchanged — the store row is locked before any balance row is touched.
             lockOrder
                     .verify(productVariantLocationRepository)
                     .findByProductVariantIdAndStoreLocationIdForUpdate(VARIANT_ID, LOCATION_A);
@@ -943,7 +986,6 @@ class InventoryServiceSaleMovementTest {
                     .id(UUID.randomUUID())
                     .productVariantId(SECOND_VARIANT_ID)
                     .storeLocationId(LOCATION_A)
-                    .stock(new BigDecimal("10.00"))
                     .build();
             when(productVariantRepository.findByIdAndCompanyIdAndEnabledTrue(SECOND_VARIANT_ID, STORE_COMPANY_ID))
                     .thenReturn(Optional.of(ProductVariant.builder()
@@ -958,7 +1000,6 @@ class InventoryServiceSaleMovementTest {
                             .id(UUID.fromString("00000000-0000-0000-0000-000000000004"))
                             .productVariantId(SECOND_VARIANT_ID)
                             .companyStoreId(STORE_ID)
-                            .stock(new BigDecimal("10.00"))
                             .build()));
             // No stub for the legacy per-store balance read: T3 removed it from the split.
             when(productVariantLocationRepository.findByProductVariantIdAndStoreLocationIdForUpdate(
@@ -973,7 +1014,6 @@ class InventoryServiceSaleMovementTest {
                     .id(UUID.randomUUID())
                     .productVariantId(SECOND_VARIANT_ID)
                     .storeLocationId(LOCATION_A)
-                    .stock(new BigDecimal("0.00"))
                     .build();
             when(productVariantStoreStockRepository.findByProductVariantIdAndCompanyStoreIdForUpdate(
                             SECOND_VARIANT_ID, STORE_ID))
@@ -981,7 +1021,6 @@ class InventoryServiceSaleMovementTest {
                             .id(UUID.fromString("00000000-0000-0000-0000-000000000004"))
                             .productVariantId(SECOND_VARIANT_ID)
                             .companyStoreId(STORE_ID)
-                            .stock(new BigDecimal("0.00"))
                             .build()));
             when(productVariantLocationRepository.findByProductVariantIdAndStoreLocationIdForUpdate(
                             SECOND_VARIANT_ID, LOCATION_A))
@@ -1067,13 +1106,14 @@ class InventoryServiceSaleMovementTest {
                             SaleChange.deduction(STORE_ID, VARIANT_ID, new BigDecimal("2.00"), REFERENCE_ID),
                             SaleChange.reversal(STORE_ID, SECOND_VARIANT_ID, REFERENCE_ID)));
 
-            InOrder phases = inOrder(inventoryMovementRepository);
-            phases.verify(inventoryMovementRepository)
-                    .save(argThat(movement -> movement.getMovementType() == MovementType.SALE_REVERSAL
-                            && movement.getProductVariantId().equals(SECOND_VARIANT_ID)));
-            phases.verify(inventoryMovementRepository)
-                    .save(argThat(movement -> movement.getMovementType() == MovementType.SALE
-                            && movement.getProductVariantId().equals(VARIANT_ID)));
+            // The order is asserted on the ledger's own writes: the reversal of the shared reference lands
+            // before the deduction that would otherwise be credited back to it.
+            InOrder phases = inOrder(stockLedgerWriter);
+            phases.verify(stockLedgerWriter)
+                    .bookSaleReversal(
+                            argThat(booking -> booking.productVariantId().equals(SECOND_VARIANT_ID)), any(), any());
+            phases.verify(stockLedgerWriter)
+                    .bookSale(argThat(booking -> booking.productVariantId().equals(VARIANT_ID)), any());
         }
 
         @Test
@@ -1122,9 +1162,9 @@ class InventoryServiceSaleMovementTest {
 
             // The reversal (higher key) runs first, so without a pre-lock phase its own re-lock would take
             // SECOND_VARIANT before the deduction's re-lock takes VARIANT and the captured order would be
-            // [SECOND_VARIANT, VARIANT]: only a pre-lock phase makes the lower key first. This is the case
-            // the pre-lock exists for, so it is the case that has to detect its absence (measured: deleting
-            // the pre-lock loop leaves every other test of this class green).
+            // [SECOND_VARIANT, VARIANT]: only a pre-lock phase makes the lower key first. This is the case the
+            // pre-lock exists for, so it is the case that has to detect its absence (measured: deleting the
+            // pre-lock loop leaves every other test of this class green).
             inventoryService.applySaleBatch(
                     REFERENCE_TYPE,
                     ACTOR,
@@ -1149,19 +1189,9 @@ class InventoryServiceSaleMovementTest {
             return inventoryService.applyStockAdjustment(VARIANT_ID, STORE_ID, new BigDecimal(stock), ACTOR);
         }
 
-        /** Both sides of the invariant: the aggregate saved equals the sum of the location balances. */
-        private void assertInvariant(String expectedAggregate) {
-            var locationSum = balances.values().stream()
-                    .map(location -> location.getStock() != null ? location.getStock() : BigDecimal.ZERO)
-                    .reduce(BigDecimal.ZERO, BigDecimal::add);
-            assertThat(locationSum).isEqualByComparingTo(expectedAggregate);
-            verify(productVariantStoreStockRepository)
-                    .save(argThat(row -> row.getStock().compareTo(new BigDecimal(expectedAggregate)) == 0));
-        }
-
         @Test
-        @DisplayName("should raise the destination location and the aggregate, and write one positive movement")
-        void raiseWritesAllThreeSides() {
+        @DisplayName("should raise the destination location and write one positive ADJUSTMENT_IN")
+        void raiseBooksOneIncreaseAtTheDestination() {
             givenStoreStock("0.00");
             givenSalesLocation(LOCATION_A);
             balance(LOCATION_A, "0.00");
@@ -1170,41 +1200,50 @@ class InventoryServiceSaleMovementTest {
             var result = adjust("5.00");
 
             assertThat(result).isEqualByComparingTo("5.00");
-            assertThat(savedBalances())
-                    .extracting(ProductVariantLocation::getStock)
-                    .containsExactly(new BigDecimal("5.00"));
-            assertThat(savedMovements()).hasSize(1);
-            var movement = savedMovements().getFirst();
-            assertThat(movement.getMovementType()).isEqualTo(MovementType.ADJUSTMENT_INCREASE);
-            assertThat(movement.getQuantity()).isEqualByComparingTo("5.00");
-            assertThat(movement.getStoreLocationId()).isEqualTo(LOCATION_A);
-            assertThat(movement.getReferenceType()).isEqualTo("MANUAL_STOCK_EDIT");
-            assertThat(movement.getReferenceId()).isNull();
-            assertThat(movement.getCreatedBy()).isEqualTo(ACTOR);
-            verify(productVariantStoreStockRepository)
-                    .save(argThat(row -> row.getStock().compareTo(new BigDecimal("5.00")) == 0));
+
+            // One inbound row, at the destination and for the delta. Its source is the movement's own id — a
+            // manual edit names no document, so there is no line to point at (D-2) — and nothing else is
+            // written: the projections follow from this row by trigger (S4).
+            var bookings = ArgumentCaptor.forClass(StockLedgerWriter.Booking.class);
+            var quantity = ArgumentCaptor.forClass(BigDecimal.class);
+            verify(stockLedgerWriter).bookAdjustmentIn(bookings.capture(), quantity.capture(), any(), any(), any());
+            assertThat(quantity.getValue()).isEqualByComparingTo("5.00");
+            assertThat(bookings.getValue().storeLocationId()).isEqualTo(LOCATION_A);
+            assertThat(bookings.getValue().productVariantId()).isEqualTo(VARIANT_ID);
+            assertThat(bookings.getValue().companyStoreId()).isEqualTo(STORE_ID);
+            assertThat(bookings.getValue().sourceType()).isEqualTo(StockLedgerWriter.MANUAL_ADJUSTMENT_SOURCE_TYPE);
+            assertThat(bookings.getValue().writeSeq()).isEqualTo(StockLedgerWriter.SINGLE_WRITE);
+            assertThat(bookings.getValue().actor()).isEqualTo(ACTOR);
+            assertThat(bookings.getValue().sourceId()).isNotNull();
+
+            // And nothing on the legacy side: the store column and the legacy movement table are written by
+            // nobody, so a case that asserted them would be asserting its own fixture.
+            verify(productVariantStoreStockRepository, never()).save(any(ProductVariantStoreStock.class));
+            verifyNoInteractions(inventoryMovementRepository);
         }
 
         @Test
-        @DisplayName("should lower the destination and write a POSITIVE ADJUSTMENT_DECREASE (W3-D7)")
+        @DisplayName("should lower the destination and write a POSITIVE ADJUSTMENT_OUT (W3-D7)")
         void lowerWritesAPositiveDecrease() {
             givenStoreStock("11.00");
             givenSalesLocation(LOCATION_A);
             balance(LOCATION_A, "11.00");
-            givenLockableBalances(LOCATION_A);
             givenFifoOrder(LOCATION_A);
 
             var result = adjust("4.00");
 
             assertThat(result).isEqualByComparingTo("4.00");
-            assertThat(savedBalances())
-                    .extracting(ProductVariantLocation::getStock)
-                    .containsExactly(new BigDecimal("4.00"));
-            assertThat(savedMovements()).hasSize(1);
-            var movement = savedMovements().getFirst();
-            assertThat(movement.getMovementType()).isEqualTo(MovementType.ADJUSTMENT_DECREASE);
-            // The direction is the type; the quantity stays positive.
-            assertThat(movement.getQuantity()).isEqualByComparingTo("7.00");
+
+            // The direction is the writer's and the quantity stays positive. The delta is taken from the position
+            // (11) and not from the frozen store column, which is what makes the target land where the operator
+            // asked instead of against a number nothing maintains.
+            var decreases = bookedDecreases();
+            assertThat(decreases).hasSize(1);
+            assertThat(decreases.getFirst().quantity()).isEqualByComparingTo("7.00");
+            assertThat(decreases.getFirst().booking().storeLocationId()).isEqualTo(LOCATION_A);
+            assertThat(decreases.getFirst().booking().sourceType())
+                    .isEqualTo(StockLedgerWriter.MANUAL_ADJUSTMENT_SOURCE_TYPE);
+            verifyNoInteractions(inventoryMovementRepository);
         }
 
         @Test
@@ -1223,17 +1262,14 @@ class InventoryServiceSaleMovementTest {
             var result = adjust("5.00");
 
             assertThat(result).isEqualByComparingTo("5.00");
-            assertThat(balances.get(LOCATION_A).getStock()).isEqualByComparingTo("0.00");
-            assertThat(balances.get(LOCATION_B).getStock()).isEqualByComparingTo("5.00");
-            assertThat(savedBalances())
-                    .extracting(ProductVariantLocation::getStoreLocationId)
-                    .containsExactly(LOCATION_B);
-            var movements = savedMovements();
-            assertThat(movements).hasSize(1);
-            assertThat(movements.getFirst().getMovementType()).isEqualTo(MovementType.ADJUSTMENT_DECREASE);
-            assertThat(movements.getFirst().getQuantity()).isEqualByComparingTo("5.00");
-            assertThat(movements.getFirst().getStoreLocationId()).isEqualTo(LOCATION_B);
-            assertInvariant("5.00");
+
+            // The whole 5 comes out of B, the location that held it: the sales location stays at zero instead
+            // of being driven to -5 while the aggregate still summed right (F18).
+            var decreases = bookedDecreases();
+            assertThat(decreases).hasSize(1);
+            assertThat(decreases.getFirst().booking().storeLocationId()).isEqualTo(LOCATION_B);
+            assertThat(decreases.getFirst().quantity()).isEqualByComparingTo("5.00");
+            verifyNoInteractions(inventoryMovementRepository);
         }
 
         @Test
@@ -1248,19 +1284,13 @@ class InventoryServiceSaleMovementTest {
             var result = adjust("5.00");
 
             assertThat(result).isEqualByComparingTo("5.00");
-            assertThat(balances.get(LOCATION_A).getStock()).isEqualByComparingTo("0.00");
-            assertThat(balances.get(LOCATION_B).getStock()).isEqualByComparingTo("5.00");
-            var movements = savedMovements();
-            assertThat(movements)
-                    .extracting(InventoryMovement::getStoreLocationId)
-                    .containsExactly(LOCATION_A, LOCATION_B);
-            assertThat(movements)
-                    .extracting(InventoryMovement::getMovementType)
-                    .containsOnly(MovementType.ADJUSTMENT_DECREASE);
-            assertThat(movements)
-                    .extracting(InventoryMovement::getQuantity)
-                    .containsExactly(new BigDecimal("2.00"), new BigDecimal("3.00"));
-            assertInvariant("5.00");
+
+            // One row per location drawn from, each fully allocated: the ledger answers where the number went.
+            assertThat(bookedDecreases())
+                    .extracting(entry -> entry.booking().storeLocationId(), Booked::quantity)
+                    .containsExactly(
+                            tuple(LOCATION_A, new BigDecimal("2.00")), tuple(LOCATION_B, new BigDecimal("3.00")));
+            verifyNoInteractions(inventoryMovementRepository);
         }
 
         @Test
@@ -1275,12 +1305,14 @@ class InventoryServiceSaleMovementTest {
             var result = adjust("0.00");
 
             assertThat(result).isEqualByComparingTo("0.00");
-            assertThat(balances.get(LOCATION_A).getStock()).isEqualByComparingTo("0.00");
-            assertThat(balances.get(LOCATION_B).getStock()).isEqualByComparingTo("0.00");
-            assertThat(savedMovements())
-                    .extracting(InventoryMovement::getQuantity)
-                    .containsExactly(new BigDecimal("2.00"), new BigDecimal("3.00"));
-            assertInvariant("0.00");
+
+            // Every location is drawn down to nothing and each draw is its own row, so the bookings sum to the
+            // whole aggregate — which is what "empty" means in the ledger.
+            assertThat(bookedDecreases())
+                    .extracting(entry -> entry.booking().storeLocationId(), Booked::quantity)
+                    .containsExactly(
+                            tuple(LOCATION_A, new BigDecimal("2.00")), tuple(LOCATION_B, new BigDecimal("3.00")));
+            verifyNoInteractions(inventoryMovementRepository);
         }
 
         @Test
@@ -1299,8 +1331,8 @@ class InventoryServiceSaleMovementTest {
                     .isInstanceOf(InsufficientStockException.class)
                     .hasMessageContaining("requested 10.00, available 2.00");
 
-            assertThat(balances.get(LOCATION_A).getStock()).isEqualByComparingTo("1.00");
-            assertThat(balances.get(LOCATION_B).getStock()).isEqualByComparingTo("1.00");
+            // Nothing was booked and no legacy row was written: the refusal happens before the first movement.
+            verify(stockLedgerWriter, never()).bookAdjustmentOut(any(), any());
             verify(productVariantStoreStockRepository, never()).save(any());
             verifyNoInteractions(inventoryMovementRepository);
         }
