@@ -8,7 +8,7 @@ import com.lifecontrol.api.exception.ConflictException;
  *
  * <p>Maps to {@code 409 Conflict}: the request is well formed but conflicts with the current state
  * of the tree. State conflicts belong to the {@link ConflictException} category, the same one used
- * by {@link com.lifecontrol.api.purchaseorder.exception.InvalidStatusTransitionException}.</p>
+ * by {@link com.lifecontrol.api.common.state.InvalidStatusTransitionException}.</p>
  */
 public class DisabledParentException extends ConflictException {
 

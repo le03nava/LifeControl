@@ -13,6 +13,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.lifecontrol.api.common.state.InvalidStatusTransitionException;
 import com.lifecontrol.api.exception.GlobalExceptionHandler;
 import com.lifecontrol.api.purchaseorder.dto.PurchaseOrderDetailRequest;
 import com.lifecontrol.api.purchaseorder.dto.PurchaseOrderDetailResponse;
@@ -20,7 +21,6 @@ import com.lifecontrol.api.purchaseorder.dto.PurchaseOrderFilter;
 import com.lifecontrol.api.purchaseorder.dto.PurchaseOrderRequest;
 import com.lifecontrol.api.purchaseorder.dto.PurchaseOrderResponse;
 import com.lifecontrol.api.purchaseorder.dto.UpdatePurchaseOrderStatusRequest;
-import com.lifecontrol.api.purchaseorder.exception.InvalidStatusTransitionException;
 import com.lifecontrol.api.purchaseorder.exception.PurchaseOrderDetailNotFoundException;
 import com.lifecontrol.api.purchaseorder.exception.PurchaseOrderNotFoundException;
 import com.lifecontrol.api.purchaseorder.service.PurchaseOrderService;

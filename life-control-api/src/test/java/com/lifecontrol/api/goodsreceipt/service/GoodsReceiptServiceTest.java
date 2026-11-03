@@ -11,6 +11,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.lifecontrol.api.common.auth.CurrentUserContext;
+import com.lifecontrol.api.common.state.InvalidStatusTransitionException;
 import com.lifecontrol.api.company.model.Company;
 import com.lifecontrol.api.company.model.CompanyCountry;
 import com.lifecontrol.api.company.model.CompanyRegion;
@@ -36,7 +37,6 @@ import com.lifecontrol.api.inventory.repository.StoreInventorySettingsRepository
 import com.lifecontrol.api.inventory.service.InventoryService;
 import com.lifecontrol.api.product.model.ProductVariant;
 import com.lifecontrol.api.product.repository.ProductVariantStoreStockRepository;
-import com.lifecontrol.api.purchaseorder.exception.InvalidStatusTransitionException;
 import com.lifecontrol.api.purchaseorder.exception.PurchaseOrderDetailNotFoundException;
 import com.lifecontrol.api.purchaseorder.exception.PurchaseOrderNotFoundException;
 import com.lifecontrol.api.purchaseorder.model.PurchaseOrder;
