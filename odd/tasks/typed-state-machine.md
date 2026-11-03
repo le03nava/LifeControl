@@ -80,8 +80,8 @@ Line references are to that file unless stated otherwise.
 
 | ID | S# | Work | Depends on | Route |
 | --- | --- | --- | --- | --- |
-| T1 | S2, S3, S4 | The five domain enums with their closed transition sets and `canTransition(from, to)`, the successor sets copied from `SO_TRANSITIONS`, `SO_ITEM_TRANSITIONS`, `PO_TRANSITIONS` and `DETAIL_TRANSITIONS`, plus unit tests per family (every declared edge accepted, every undeclared pair refused, no state reachable from itself) | — | inline; one work-unit commit |
-| T2 | S2, S8, S10 | `V66`: the `NO FORCE` window with its two self-checks, `status VARCHAR(24)` on the five tables, the explicit `VALUES` backfill per family, the null assertion, `CHECK` + `NOT NULL`, the bridge trigger that derives `status` from `status_id` while that column lives (it dies in T8), `statuses.code` with its backfill and its assertion, the window closed and re-checked | T1 | inline |
+| T1 | S2, S3, S4 | The five domain enums with their closed transition sets and `canTransition(from, to)`, the successor sets copied from `SO_TRANSITIONS`, `SO_ITEM_TRANSITIONS`, `PO_TRANSITIONS` and `DETAIL_TRANSITIONS`, plus unit tests per family (every declared edge accepted, every undeclared pair refused, no state reachable from itself) | — | inline; done `9a6e9938` |
+| T2 | S2, S8, S10 | `V66`: the `NO FORCE` window with its two self-checks, `status VARCHAR(24)` on the five tables, the explicit `VALUES` backfill per family, the null assertion, `CHECK` + `NOT NULL`, the bridge trigger that derives `status` from `status_id` while that column lives (it dies in T8), `statuses.code` with its backfill and its assertion, the window closed and re-checked | T1 | inline; done `ba71d1a6` |
 | T3 | S11 | The two parity tests: the `CHECK` read back from `pg_constraint` compared with `Enum.values()` in both directions, and `statuses.code` joined to the enum scoped to the five families, failing on a constant without a row and on an in-scope row without a constant | T2 | inline |
 | T4 | S5, S7, S11 | `V67`: `status_transition` with `seq`, its three indexes, the append-only function and trigger with the `REVOKE`/`GRANT` pair, `document_tenant_and_state`, decision 6's `BEFORE INSERT` trigger, and `apply_tenant_isolation('status_transition')` **last**, with the assertion that `unprotected_tenant_tables()` returns no row. Plus `StatusTransitionRecorder` and its tests: `UPDATE`/`DELETE` raise, a cross-tenant row is refused, the application role holds `INSERT, SELECT` only | T2 | inline |
 | T5 | S5, S6, S11 | Sales order family: `V68` with the deferred pair on `sales_orders` and `sales_order_items` and the seed of one creation row per existing document **and item**; `SalesOrderService` writes through the enum and appends via the recorder on creation, the order-level put, the single-item edit, the charge and the cancel; `SalesOrderResponse`/`SalesOrderItemResponse`/`UpdateSalesOrderStatusRequest` carry the code; the Angular sales screens read it | T3, T4 | delegated writer |
@@ -114,3 +114,20 @@ schema suites' head assertion follows it.
 `V66`'s `NO FORCE` window names exactly those three and T4's arm of `status_transition` is the only new
 policy.** Measured in `V64__document_identity_per_tenant.sql:47-48` (open) and `:265-266` (close) — the
 window pattern this delivery copies.
+
+**L5 — T1 and T2 landed, and the delivery's first slice is the schema half.** T1 is `9a6e9938` (five
+enums, `DocumentStates`, `StatusSubject`, the exception moved to `common.state`, and a test that checks
+every ordered pair of every family: 15 cases). T2 is `ba71d1a6` (`V66`, the ADR's steps 0–4 and 7, plus
+`sync_document_status_from_catalog()` and the scratch-database suite: 7 cases in a database held at `V65`,
+and the other 27 migration and schema suites still green at 210 cases, which is what proves the bridge sits
+inside every head-booting suite's writes). Slice boundary for review: T1 + T2 are the schema half and land
+as one chained PR of ~1 980 authored lines — larger than the ~400-line budget on its own, so the chain is
+cut at T1/T2 and then per family (T5, T6, T7), with T3+T4 as their own slice.
+
+**L6 — `V64`'s second self-check is vacuous, and it is a follow-up, not a fix here.** `V64:265-266` FORCEs
+the two tables and `:268-304` asks the row question afterwards; under a forced policy the owner reads zero
+rows, so `v_missing` stays null and the raise cannot fire. Independent verification of T2 read the block and
+confirmed it, and `V66` deliberately uses `V57`'s order instead. Filed as issue **#756** with the line
+references, because `V64` is merged and re-editing a merged migration is a decision for the maintainer, not
+a side effect of this delivery. `V66`'s header records the defect in the same words so the next migration
+does not copy it again.
