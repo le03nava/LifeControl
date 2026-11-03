@@ -5,8 +5,8 @@ import java.util.UUID;
 
 /**
  * Thrown when the measure unit of a variant would be changed after the variant acquired a quantity
- * meaning (D3): one of its store rows holds a non-zero stock balance, or the inventory ledger already has a
- * movement for it.
+ * meaning (D3): the stock ledger already holds a movement for it, which is the one question that carries
+ * the whole rule since T3c — a balance above zero is nothing but a projection of those movements.
  *
  * <p>Thin subclass of {@link ConflictException}: the {@code GlobalExceptionHandler} maps the parent
  * to 409 and needs no method of its own for this type. The stored numbers carry no unit of their

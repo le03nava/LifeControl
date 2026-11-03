@@ -33,14 +33,14 @@ public interface ProductVariantStoreStockRepository extends JpaRepository<Produc
     boolean existsByProductVariantIdAndCompanyStoreId(UUID productVariantId, UUID companyStoreId);
 
     /**
-     * Whether the variant holds stock different from the given value in <strong>any</strong> store, used
-     * by the measure-unit guard of decision D3.
+     * Whether the variant holds stock different from the given value in <strong>any</strong> store.
      *
-     * <p>The guard reads it with {@link BigDecimal#ZERO}, so both a positive and a negative balance block
-     * the change: either one is quantity that already carries a unit meaning, and re-expressing it would
-     * reinterpret stored numbers that have no unit of their own. A row whose {@code stock} is exactly
-     * {@code 0} is deliberately <strong>not</strong> a history — it is the column default of a row that
-     * was never filled.</p>
+     * <p><b>Nothing asks this any more.</b> It used to be half of the measure-unit guard of decision D3; since
+     * T3c the guard asks the stock ledger ({@code StockLedgerWriter#hasMovements}), because this column stops
+     * being maintained by the write path and a guard reading it would answer "no history" for a variant with
+     * plenty. The method survives only so {@code ProductVariantServiceTest} can assert it is <em>never</em>
+     * called, and it goes with the column in T4. Do not wire a new reader to it: the number it returns is a
+     * frozen copy of a fact the ledger owns.</p>
      */
     boolean existsByProductVariantIdAndStockNot(UUID productVariantId, BigDecimal stock);
 

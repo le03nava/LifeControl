@@ -312,7 +312,7 @@ The 87 red cases, per file. Every one was a **dual-truth fixture**; none was a d
 | `InventoryServiceTest` | 5 | a receipt books one ledger row and writes **no** legacy column; two cases about column arithmetic (`additive`, `NULL counts as zero`) are deleted — the arithmetic no longer exists |
 | `GoodsReceiptIntegrationTest` | 3 | balances from `stock_balance`/`stock_position`, the booked movement from `stock_movement` |
 | `InventoryIntegrationTest` | 5 | the fixture seeds stock through a receipt; the W3-D5 invariant is restated as the ledger states it (`stock_position = SUM(stock_balance)` over the store's locations); the 40-vs-100 divergence case is deleted — the state it constructed can no longer exist |
-| `InventoryLedgerBookingIntegrationTest` | 11 | `assertTheLedgerAgreesWithTheLegacyBalances` became `assertTheLedgerHolds`: the "agreement between two copies" property is the thing this slice removes, so the helper now asserts the ledger's own equation plus the I2/I6 invariants; `raiseTheLegacyBalancesByHand` and one case that seeded a lie in the column are deleted |
+| `InventoryLedgerBookingIntegrationTest` | 11 | `assertTheLedgerAgreesWithTheLegacyBalances` became `assertTheLedgerHolds`: the "agreement between two copies" property is the thing this slice removes, so the helper now asserts the ledger's own equation plus the I2/I6 invariants; `raiseTheLegacyBalancesByHand` is deleted. The case that corrupted the column behind the ledger's back was deleted and then **restored**, because its state does still exist — see the verification entry below |
 | `InventoryServiceSaleMovementTest` | 15 | the mock world is declared through the ledger's collaborators (a position and a set of balances, no column arithmetic) and the assertions read the bookings the engine makes (`bookSale`, `bookSaleReversal`, `bookAdjustmentIn`, `bookAdjustmentOut`) instead of legacy repository saves. No case deleted |
 | `ProductVariantStoreStockWriteIntegrationTest` | 8 | the editor's probe is the ledger and its balances are the projections; the half of one case that probed the legacy stock floor is dropped (S7). One assertion on `product_variant_store_stock.stock == 0` remains on purpose: it reads the INSERT's default, not a balance, and goes with the drop in T4 |
 | `SalesOrderIntegrationTest` | 41 | `saveStoreStock` books a receipt instead of writing the column, `seedSplitBalances` relocates through the ledger, and every balance/movement assertion reads the projections and `stock_movement`. One case deleted (5.2): it existed to make both legacy gates pass while the position refused; its message-shape assertions fold into the surviving 409 case |
@@ -322,15 +322,38 @@ not 41 — and `InventoryServiceSaleMovementTest` **15**, not 14; the parked per
 whose `build/` a sibling session had overwritten (the `EOFException` / `in-progress-results` collision that hit
 three of this session's runs). The total was 87 either way, and the count is the thing the inventory was for.
 
-**Six cases are gone in total** (one per file above except the last two rows) and each deletion is stated in place
-with its reason; the suite therefore reports **4499** tests instead of 4505.
+**Five cases are gone in total** (one per file above except the last two rows) and each deletion is stated in place
+with its reason; the suite therefore reports **4500** tests instead of 4505.
 
 Evidence, measured on the delivered tree:
 
-- Full suite: **1066 result files, 4499 tests, 0 failures, 0 errors, 0 skipped** (baseline before the slice: the
+- Full suite: **1066 result files, 4500 tests, 0 failures, 0 errors, 0 skipped** (baseline before the slice: the
   same 1066 files, 4505 tests, **87 failed**).
 - `spotlessCheck` and `spotbugsMain` clean. `spotbugsMain` was red at first with three `DLS_DEAD_LOCAL_STORE`
   findings — the dead stores the removed writes left behind — which is the one place the mechanical half of this
   slice was not mechanical.
 - Opened as `feat/ledger-legacy-writes-off` from `c80c3227`. T4 — the drops, the deletion of `InventoryService`
   and the cycle break — is still owed, so the issue stays open.
+
+**2026-11-03 — independent verification of the slice, and the three things it corrected.** Native `assess` called
+the candidate `medium`/`under_budget` (`reviewDue: false`), and the Task Size line above names items 1, 2, 3 and 6,
+so the slice was escalated on item 2 ("the ledger decides who may write stock, and a guard that moves with it is
+silent when it is wrong") and a separate read-only verifier ran over `c80c3227..HEAD`. Its verdicts, and what each
+one changed:
+
+- **S4, locks, S7, D-2 and the delta: all pass**, on `path:line` evidence — including that lock call sites went 16 →
+  17 and none was removed, and that the manual edit's `stock_movement.source_id` is now literally its `id`.
+- **One deletion reason was wrong, and the case is back.** The deleted split case claimed "the column holds its
+  default for every variant". That is false for an upgraded database, where the frozen column keeps the last number
+  the old writer set — precisely the rollout window this slice creates and the next one closes. The case is restored
+  as `aSaleSplitsByTheProjectionNotByTheStaleColumn`: it seeds the ledger with a receipt, sets the column to 999 by
+  hand, and asserts the split ignores it. The four other deletions stand, each for a state that can no longer exist.
+- **Two dead probes stopped advertising themselves.** The measure-unit exception's javadoc still documented the two
+  old probes; `ProductVariantStoreStockRepository.existsByProductVariantIdAndStockNot` still claimed the D3 guard
+  uses it (it survives only so `ProductVariantServiceTest` can assert it is *never* called, and its javadoc now says
+  exactly that); and `InventoryMovementRepository.existsByProductVariantId` was deleted outright rather than left as
+  an invitation to read a table nothing writes.
+
+Re-verified on the corrected tree: **1066 result files, 4500 tests, 0 failures**, `spotbugsMain` and
+`spotlessCheck` clean. The verifier did not re-run the suite (it checked the artifacts of the run that produced them
+and re-ran `spotlessCheck` in a scratch copy); this run is the one the delivered tree states.

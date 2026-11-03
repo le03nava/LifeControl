@@ -492,11 +492,41 @@ class InventoryLedgerBookingIntegrationTest extends AbstractPostgresIntegrationT
     // the split reads the ledger's projection (T3) — its divergence-only case is gone
     // ──────────────────────────────────────
 
-    // A case here used to corrupt product_variant_locations.stock behind the ledger's back and assert that a sale
-    // still split by the projection. It is deleted rather than rewritten because the state it constructed can no
-    // longer exist: since T3c nothing writes that column, so it holds its default for every variant and the
-    // "corruption" is indistinguishable from the untouched column. The behaviour it measured — the split reads
-    // stock_balance, never a legacy balance — is what every sale case in this file now asserts by construction.
+    /**
+     * The rollout window this slice creates: an upgraded database whose frozen column still holds the last number
+     * the old writer set. A sale must split by the projection, not by that number.
+     *
+     * <p><b>Why this case survives the deletion rule the others of its kind met.</b> Their state — two copies both
+     * maintained, disagreeing — cannot exist any more. This one can: nothing in this tree writes the column, so a
+     * deployment that upgrades keeps whatever it held, and a hand with a psql prompt can still set it. That is
+     * exactly the window between T3c and T4's drop, and it is the case that proves the split's source moved rather
+     * than that the column happened to read zero.</p>
+     */
+    @Test
+    @DisplayName("a sale splits by the ledger's projection even when the frozen column holds another number")
+    void aSaleSplitsByTheProjectionNotByTheStaleColumn() {
+        applyReceipt(variantId, salesLocationId, "10", UUID.randomUUID());
+        TenantFixtures.inTenant(
+                companyId,
+                () -> jdbcTemplate.update(
+                        "UPDATE product_variant_locations SET stock = 999 "
+                                + "WHERE product_variant_id = ? AND store_location_id = ?",
+                        variantId,
+                        salesLocationId));
+
+        sell(variantId, "5", UUID.randomUUID());
+
+        assertThat(ledgerMovementsOf(variantId, StockLedgerWriter.SALE))
+                .as("the projection holds 10 at that location, so a sale of 5 has a shape even though the frozen "
+                        + "column claims 999: the split's source is the ledger")
+                .hasSize(1);
+        assertThat(ledgerMovementsOf(variantId, StockLedgerWriter.SALE)
+                        .getFirst()
+                        .quantity())
+                .isEqualByComparingTo("5");
+        assertThat(positionOf(variantId)).as("and the position followed it").isEqualByComparingTo("5");
+        assertThat(verifyStockProjections()).isEmpty();
+    }
 
     // ──────────────────────────────────────
     // the mirror identity the deploy window still holds, and the key that still refuses a duplicate on it
