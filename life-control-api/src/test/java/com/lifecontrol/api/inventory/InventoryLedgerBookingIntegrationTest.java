@@ -54,12 +54,12 @@ import org.springframework.transaction.support.TransactionTemplate;
  * the ledger refuses the row instead of writing nothing and reporting success.</p>
  *
  * <p><b>Two collision cases, which is what the {@code source_id} decision is judged by.</b> {@code
- * uq_movement_source} is {@code (source_type, source_id, movement_type)}, and the naive source identity — the
- * document's or the line's id — cannot satisfy it in two shapes this tree really writes: a sale line that
- * spans locations books one row per location, a line sold again after its reversal books a second {@code SALE}
- * under the same reference, and a receipt hands the writer the document id once per line. Cases 5 and 6 pin
- * the first two; the third is pinned by 6. See {@link StockLedgerWriter}'s javadoc for where each {@code
- * source_id} comes from.</p>
+ * uq_movement_source} is {@code (source_type, source_id, movement_type, store_location_id, write_seq)} since
+ * {@code V73}, and the naive source identity — the document's id, or the line's id alone — cannot satisfy it in
+ * two shapes this tree really writes: a sale line that spans locations books one row per location, and a line
+ * sold again after its reversal books a second {@code SALE} under the same reference. Cases 5 and 6 pin those
+ * two, and case 6 states why a receipt still does <b>not</b> move to the line identity. See
+ * {@link StockLedgerWriter}'s javadoc for where each {@code source_id} and {@code write_seq} comes from.</p>
  */
 @SpringBootTest
 @DisplayName("Inventory ledger booking integration tests (T5a)")
@@ -258,10 +258,21 @@ class InventoryLedgerBookingIntegrationTest extends AbstractPostgresIntegrationT
         assertThat(allocatedCosts(atSalesLocation.id()).getFirst()).isEqualByComparingTo(RECORDED_COST);
         assertThat(allocatedCosts(atSecondary.id())).hasSize(1);
         assertThat(allocatedCosts(atSecondary.id()).getFirst()).isEqualByComparingTo(RECORDED_COST);
+        assertThat(atSalesLocation.sourceType())
+                .as("a sale books the line's own identity (V73): the movement names the document line, so the "
+                        + "ledger alone answers which line caused it")
+                .isEqualTo(SALES_ORDER_ITEM);
         assertThat(atSalesLocation.sourceId())
-                .as("both rows mirror their own legacy row, which is why one line that spans locations does not "
-                        + "collide on uq_movement_source")
-                .isNotEqualTo(atSecondary.sourceId());
+                .as("the source is the line id, and both rows of the line name it")
+                .isEqualTo(referenceId);
+        assertThat(atSecondary.sourceId()).isEqualTo(referenceId);
+        assertThat(atSalesLocation.locationId())
+                .as("the two rows do not collide because the location is in the key (V63), not because their "
+                        + "sources differ: one line that spans locations is one source and two facts")
+                .isNotEqualTo(atSecondary.locationId());
+        assertThat(atSalesLocation.writeSeq())
+                .as("and both belong to the same write of that line")
+                .isEqualTo(atSecondary.writeSeq());
 
         assertThat(unallocatedOutboundMovements())
                 .as("no outbound row of this company is left without its allocations")
@@ -384,16 +395,33 @@ class InventoryLedgerBookingIntegrationTest extends AbstractPostgresIntegrationT
         applyReceipt(variantId, salesLocationId, "10", UUID.randomUUID());
         var referenceId = UUID.randomUUID();
 
-        sell(variantId, "4", referenceId);
+        // The two writes of this line state their own numbers (V73): the column starts at 0 and a line's first bump
+        // hands out 1, so a line sold, reversed and sold again carries 1 and 2. The fixture states them instead of
+        // letting a default decide, because the number is the document's and the key is what this case is about.
+        sell(variantId, "4", referenceId, 1L);
         reverse(referenceId);
-        sell(variantId, "4", referenceId);
+        sell(variantId, "4", referenceId, 2L);
 
-        assertThat(ledgerMovementsOf(variantId, StockLedgerWriter.SALE))
+        var sales = ledgerMovementsOf(variantId, StockLedgerWriter.SALE);
+        assertThat(sales)
                 .as("SalesOrderService raises a line's quantity by selling the difference and lowers it by "
                         + "reversing and re-selling, always under the same SALES_ORDER_ITEM reference "
-                        + "(SalesOrderService:989, :991-992). The ledger is append-only, so the first SALE row "
-                        + "survives; making the line id the source would refuse the second one")
+                        + "(SalesOrderService:961-981). The ledger is append-only, so the first SALE row survives; "
+                        + "the fifth key column is what lets the second one exist under the same line")
                 .hasSize(2);
+        assertThat(sales)
+                .extracting(LedgerMovement::sourceType)
+                .as("both rows are the line's, which is the identity a sale books from V73 on")
+                .containsOnly(SALES_ORDER_ITEM);
+        assertThat(sales)
+                .extracting(LedgerMovement::sourceId)
+                .as("both name the same sales_order_items row")
+                .containsOnly(referenceId);
+        assertThat(sales)
+                .extracting(LedgerMovement::writeSeq)
+                .as("and they are two writes, not one: source, direction and location are identical, so the "
+                        + "write is the only column that tells them apart")
+                .containsExactlyInAnyOrder(1L, 2L);
         assertThat(ledgerMovementsOf(variantId, StockLedgerWriter.SALE_REVERSAL))
                 .hasSize(1);
         assertThat(unallocatedOutboundMovements()).isEmpty();
@@ -409,15 +437,187 @@ class InventoryLedgerBookingIntegrationTest extends AbstractPostgresIntegrationT
         applyReceipt(variantId, salesLocationId, "3", receiptDocumentId);
         applyReceipt(secondVariantId, salesLocationId, "5", receiptDocumentId);
 
+        var firstLine = ledgerMovementsOf(variantId, StockLedgerWriter.RECEIPT).getFirst();
+        var secondLine =
+                ledgerMovementsOf(secondVariantId, StockLedgerWriter.RECEIPT).getFirst();
         assertThat(ledgerMovementsOf(variantId, StockLedgerWriter.RECEIPT))
                 .as("GoodsReceiptService:269 passes the goods_receipts row once per line, so a document id as "
                         + "the source would refuse the second line of every multi-line receipt")
                 .hasSize(1);
         assertThat(ledgerMovementsOf(secondVariantId, StockLedgerWriter.RECEIPT))
                 .hasSize(1);
+        assertThat(List.of(firstLine.sourceType(), secondLine.sourceType()))
+                .as("and this case does NOT move with the sale: the receipt's identity is out of this record's "
+                        + "scope (S8 of odd/tasks/ledger-per-write-identity.md, which is odd/tasks/"
+                        + "inventory-ledger.md's remaining T5d), so both rows still state the mirror. The key does "
+                        + "not carry the variant, so a document id would make the second line of a receipt collide "
+                        + "with the first")
+                .containsOnly(StockLedgerWriter.MIRRORED_SOURCE_TYPE);
+        assertThat(firstLine.sourceId())
+                .as("each line is kept apart by its own legacy row, which is unique by construction")
+                .isNotEqualTo(secondLine.sourceId());
         assertThat(positionOf(secondVariantId)).isEqualByComparingTo("5");
         assertTheLocationAgrees(secondVariantId, salesLocationId, "5", "the sales location");
         assertThat(verifyStockProjections()).isEmpty();
+    }
+
+    // ──────────────────────────────────────
+    // the mirror identity the deploy window still holds, and the key that still refuses a duplicate on it
+    // ──────────────────────────────────────
+
+    /**
+     * A sale written <b>before</b> {@code V73} is still reversible, which is the half of the widening the deploy
+     * window depends on.
+     *
+     * <p><b>The fixture is the state, not a shortcut.</b> A sale written before this slice carries
+     * {@code source_type = 'INVENTORY_MOVEMENT'} and the id of the {@code inventory_movements} row beside it, so
+     * {@code openSales('SALES_ORDER_ITEM', line)} answers nothing for it and the reversal has to read the mirror as
+     * a <b>second</b> source ({@code InventoryService.openLedgerSalesBookedOnTheMirror}). All three parts of that
+     * state are therefore written by hand — the legacy row, the two legacy balances it moved, and the ledger
+     * movement that mirrors it — because no writer in this tree produces the pair any more, which is exactly what
+     * "predates the deploy" means.</p>
+     *
+     * <p><b>What it would take to make this pass for the wrong reason.</b> Nothing here reads a default: the mirror
+     * row's identity and its {@code SINGLE_WRITE} are asserted before the reversal runs, so a case that accidentally
+     * booked the line identity would fail instead of silently proving the other path.</p>
+     */
+    @Test
+    @DisplayName("a sale booked on the pre-V73 mirror identity still reverses by its line reference")
+    void aSaleBookedOnTheMirrorIdentityStillReverses() {
+        applyReceipt(variantId, salesLocationId, "10", UUID.randomUUID());
+        var referenceId = UUID.randomUUID();
+        var legacySaleId = insertALegacySaleAndItsLedgerTwin(referenceId, "4");
+
+        var mirrored = ledgerMovementsOf(variantId, StockLedgerWriter.SALE).getFirst();
+        assertThat(mirrored.sourceType())
+                .as("the identity this case is about: a sale booked before V73 names the legacy row it mirrors, "
+                        + "not the document line")
+                .isEqualTo(StockLedgerWriter.MIRRORED_SOURCE_TYPE);
+        assertThat(mirrored.sourceId()).isEqualTo(legacySaleId);
+        assertThat(mirrored.writeSeq())
+                .as("a source with no counter states SINGLE_WRITE, which is what every pre-V73 row carries")
+                .isEqualTo(StockLedgerWriter.SINGLE_WRITE);
+
+        reverse(referenceId);
+
+        var reversals = ledgerMovementsOf(variantId, StockLedgerWriter.SALE_REVERSAL);
+        assertThat(reversals)
+                .as("the reversal found the row the line reference no longer names: the per-reference read answers "
+                        + "nothing for a pre-V73 sale, and the mirror answers for it")
+                .hasSize(1);
+        assertThat(reversals.getFirst().reversesMovementId())
+                .as("and it names the exact row, which is what V61's shape rules demand")
+                .isEqualTo(mirrored.id());
+        assertThat(reversals.getFirst().quantity()).isEqualByComparingTo("4");
+        assertThat(ledgerMovementsOf(variantId, StockLedgerWriter.SALE))
+                .as("the reversed sale is untouched — the ledger is append-only")
+                .hasSize(1);
+        assertThat(legacyMovementsOf(variantId, "SALE_REVERSAL"))
+                .as("the legacy engine credited its own row back, so the two copies still describe one fact")
+                .hasSize(1);
+
+        assertTheLedgerAgreesWithTheLegacyBalances("10", "0", "10");
+    }
+
+    /**
+     * A reference whose ledger holds <b>both</b> identities is refused, and nothing is credited.
+     *
+     * <p><b>Why the refusal is the correct answer and not a missing feature.</b> The legacy remainder of this
+     * reference is the hand-written sale <em>plus</em> the post-{@code V73} one, while the per-reference read can
+     * only name the rows the line identity holds open. Reversing the whole remainder would credit 7 back to the two
+     * legacy balances while the ledger booked a reversal of 3 — the quantity of the only row that read can name —
+     * and nothing downstream would catch it: {@code V61}'s shape rule is satisfied, because the reversal row does
+     * move exactly the quantity of the row it names. That is the half-reversal, and it is measured rather than
+     * argued: with {@code requireTheWholeRemainderIsOpen} removed, this case's reference reverses silently and the
+     * two copies of the fact end at different numbers.</p>
+     *
+     * <p><b>The tempting fix is refused for its own reason.</b> Merging the two identities into one open set would
+     * book a reversal of a row the remainder did not name — and it does not even get that far: the mirror read
+     * resolves each legacy row to the ledger row that mirrors it, and a post-{@code V73} sale has none, so the merge
+     * throws about a missing mirror instead of deciding anything. Measured the same way.</p>
+     */
+    @Test
+    @DisplayName("a reference holding both the mirror and the line identity is refused, not half-reversed")
+    void aReferenceHoldingBothIdentitiesIsRefusedInsteadOfHalfReversed() {
+        applyReceipt(variantId, salesLocationId, "10", UUID.randomUUID());
+        var referenceId = UUID.randomUUID();
+        insertALegacySaleAndItsLedgerTwin(referenceId, "4");
+        sell(variantId, "3", referenceId, 1L);
+
+        assertThat(ledgerMovementsOf(variantId, StockLedgerWriter.SALE))
+                .as("the state this case is about: two SALE rows of one reference, one on each identity")
+                .hasSize(2);
+
+        assertThatThrownBy(() -> reverse(referenceId))
+                .as("the legacy remainder is 7 and the ledger can name only the 3 the line identity holds open, so "
+                        + "the reversal is refused instead of crediting 7 while naming 3")
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("no ledger shape")
+                .hasMessageContaining("variant " + variantId);
+
+        assertThat(ledgerMovementsOf(variantId, StockLedgerWriter.SALE_REVERSAL))
+                .as("the refusal stored nothing: no reversal row in the ledger")
+                .isEmpty();
+        assertThat(legacyMovementsOf(variantId, "SALE_REVERSAL"))
+                .as("and no legacy reversal row either, so the refusal happened before the first write")
+                .isEmpty();
+        assertThat(storeStockOf(variantId))
+                .as("the two legacy balances are what the two sales left, untouched")
+                .isEqualByComparingTo("3");
+        assertThat(locationStockOf(variantId, salesLocationId))
+                .hasValueSatisfying(stock -> assertThat(stock).isEqualByComparingTo("3"));
+        assertThat(positionOf(variantId))
+                .as("and the projection is the same number, so nothing was credited on one side only")
+                .isEqualByComparingTo("3");
+    }
+
+    /**
+     * The key still refuses a second movement on one mirrored source, which is the half of I5 the fifth column
+     * could have destroyed.
+     *
+     * <p><b>What is at stake.</b> A receipt, a manual edit and a reversal state the row they mirror plus
+     * {@link StockLedgerWriter#SINGLE_WRITE}: their source has no counter, so the write column is a constant for
+     * them and the key refuses a second row exactly as it did before {@code V73}. The failure this case exists to
+     * refuse is the one where the fifth column quietly becomes a discriminator — a writer that invents a number
+     * per booking, a counter that is read from a clock — and every mirrored source stops being unique at all: a
+     * replayed receipt would book a second {@code RECEIPT} row and double the stock instead of being refused.</p>
+     *
+     * <p>The duplicate is attempted through the writer, with the same {@link StockLedgerWriter.Booking} the receipt
+     * path built, so the statement under test is the one production runs.</p>
+     */
+    @Test
+    @DisplayName("the key refuses a second movement on one mirrored source instead of booking it")
+    void theKeyRefusesASecondMovementOnOneMirroredSource() {
+        applyReceipt(variantId, salesLocationId, "3", UUID.randomUUID());
+        var mirroredSourceId = legacyMovementsOf(variantId, "RECEIPT").getFirst();
+        var theSameFactAgain = new StockLedgerWriter.Booking(
+                companyId,
+                storeId,
+                salesLocationId,
+                variantId,
+                "receiver",
+                StockLedgerWriter.MIRRORED_SOURCE_TYPE,
+                mirroredSourceId,
+                StockLedgerWriter.SINGLE_WRITE);
+
+        assertThatThrownBy(() -> TenantFixtures.inTenant(companyId, () -> {
+                    stockLedgerWriter.bookReceipt(
+                            theSameFactAgain,
+                            new BigDecimal("3"),
+                            new BigDecimal(RECORDED_COST),
+                            TenantFixtures.SEED_CURRENCY,
+                            null);
+                }))
+                .as("the same source, direction and location under the same write is one key, so the second "
+                        + "booking is refused by the database rather than booked as a second fact")
+                .isInstanceOf(DataAccessException.class)
+                .satisfies(thrown -> assertThat(rootCauseMessage(thrown)).contains("uq_movement_source"));
+
+        assertThat(ledgerMovementsOf(variantId, StockLedgerWriter.RECEIPT))
+                .as("and the refusal stored nothing: the ledger still holds the one RECEIPT row")
+                .hasSize(1);
+        assertThat(positionOf(variantId)).as("so the projection did not double").isEqualByComparingTo("3");
+        assertThat(storeStockOf(variantId)).isEqualByComparingTo("3");
     }
 
     // ──────────────────────────────────────
@@ -695,7 +895,8 @@ class InventoryLedgerBookingIntegrationTest extends AbstractPostgresIntegrationT
                 variantId,
                 "receiver",
                 StockLedgerWriter.MIRRORED_SOURCE_TYPE,
-                UUID.randomUUID());
+                UUID.randomUUID(),
+                StockLedgerWriter.SINGLE_WRITE);
 
         assertThatThrownBy(() -> stockLedgerWriter.bookReceipt(
                         booking,
@@ -752,10 +953,21 @@ class InventoryLedgerBookingIntegrationTest extends AbstractPostgresIntegrationT
     }
 
     private void sell(UUID variant, String quantity, UUID referenceId) {
+        sell(variant, quantity, referenceId, StockLedgerWriter.SINGLE_WRITE);
+    }
+
+    /**
+     * One sale of {@code variant} under {@code referenceId}, as that reference's {@code writeSeq}-th write.
+     *
+     * <p>The sequence is stated by the case rather than defaulted here for {@code StockLedgerWriter}'s own reason:
+     * the number belongs to the document line, and a fixture that sells the same reference twice has to say which
+     * write each movement is. {@code SINGLE_WRITE} is the honest answer for the cases that sell once.</p>
+     */
+    private void sell(UUID variant, String quantity, UUID referenceId, long writeSeq) {
         TenantFixtures.inTenant(
                 companyId,
                 () -> inventoryService.applySaleDeduction(
-                        variant, storeId, new BigDecimal(quantity), SALES_ORDER_ITEM, referenceId, "seller"));
+                        variant, storeId, new BigDecimal(quantity), SALES_ORDER_ITEM, referenceId, "seller", writeSeq));
     }
 
     private void reverse(UUID referenceId) {
@@ -779,6 +991,63 @@ class InventoryLedgerBookingIntegrationTest extends AbstractPostgresIntegrationT
      * gate reads the sum of {@code product_variant_locations.stock}, so raising one and not the other would be
      * refused by the legacy engine and would prove nothing about the ledger.</p>
      */
+    /**
+     * A sale as the tree wrote it <b>before</b> {@code V73}, all three parts: the {@code inventory_movements} row,
+     * the two legacy balances that row moved, and the ledger movement that mirrors it by primary key.
+     *
+     * <p>The columns are the ones {@code V10__inventory.sql} declares for {@code inventory_movements} —
+     * {@code product_variant_id}, {@code company_store_id}, {@code store_location_id}, {@code movement_type},
+     * {@code quantity}, {@code reference_type}, {@code reference_id}, {@code created_by} — with {@code id} and
+     * {@code occurred_at} left to their defaults, which is what the legacy engine's own insert does.</p>
+     *
+     * <p>The ledger twin is booked through the production writer instead of by a hand-written {@code INSERT}: it is
+     * the same statement, and the allocation the writer performs is what invariant I6 requires of an outbound row —
+     * a hand-written row would be refused by {@code allocate_stock_movement} the moment the reversal ran.</p>
+     *
+     * @return the legacy row's id, which is the {@code source_id} a pre-V73 ledger row carries
+     */
+    private UUID insertALegacySaleAndItsLedgerTwin(UUID referenceId, String quantity) {
+        var amount = new BigDecimal(quantity);
+        var legacySaleId = TenantFixtures.inTenant(
+                companyId,
+                () -> jdbcTemplate.queryForObject(
+                        """
+                        INSERT INTO inventory_movements (product_variant_id, company_store_id, store_location_id,
+                                                         movement_type, quantity, reference_type, reference_id,
+                                                         created_by)
+                        VALUES (?, ?, ?, 'SALE', ?, ?, ?, 'seller')
+                        RETURNING id
+                        """, UUID.class, variantId, storeId, salesLocationId, amount, SALES_ORDER_ITEM, referenceId));
+
+        jdbcTemplate.update(
+                "UPDATE product_variant_store_stock SET stock = stock - ? "
+                        + "WHERE product_variant_id = ? AND company_store_id = ?",
+                amount,
+                variantId,
+                storeId);
+        jdbcTemplate.update(
+                "UPDATE product_variant_locations SET stock = stock - ? "
+                        + "WHERE product_variant_id = ? AND store_location_id = ?",
+                amount,
+                variantId,
+                salesLocationId);
+
+        TenantFixtures.inTenant(
+                companyId,
+                () -> stockLedgerWriter.bookSale(
+                        new StockLedgerWriter.Booking(
+                                companyId,
+                                storeId,
+                                salesLocationId,
+                                variantId,
+                                "seller",
+                                StockLedgerWriter.MIRRORED_SOURCE_TYPE,
+                                legacySaleId,
+                                StockLedgerWriter.SINGLE_WRITE),
+                        amount));
+        return legacySaleId;
+    }
+
     private void raiseTheLegacyBalancesByHand(String stock) {
         jdbcTemplate.update(
                 "UPDATE product_variant_store_stock SET stock = ? WHERE product_variant_id = ? AND company_store_id = ?",
@@ -829,7 +1098,7 @@ class InventoryLedgerBookingIntegrationTest extends AbstractPostgresIntegrationT
                 () -> jdbcTemplate.query(
                         """
                         SELECT id, movement_type, quantity, unit_cost, currency, company_store_id, store_location_id,
-                               source_type, source_id, reverses_movement_id
+                               source_type, source_id, write_seq, reverses_movement_id
                           FROM stock_movement
                          WHERE product_variant_id = ? AND movement_type = ?
                          ORDER BY occurred_at, id
@@ -844,6 +1113,7 @@ class InventoryLedgerBookingIntegrationTest extends AbstractPostgresIntegrationT
                                 rs.getObject("store_location_id", UUID.class),
                                 rs.getString("source_type"),
                                 rs.getObject("source_id", UUID.class),
+                                rs.getLong("write_seq"),
                                 rs.getObject("reverses_movement_id", UUID.class)),
                         variant,
                         movementType));
@@ -1052,6 +1322,7 @@ class InventoryLedgerBookingIntegrationTest extends AbstractPostgresIntegrationT
             UUID locationId,
             String sourceType,
             UUID sourceId,
+            long writeSeq,
             UUID reversesMovementId) {}
 
     /** One I6 violation: an outbound row and what its allocations sum to. */

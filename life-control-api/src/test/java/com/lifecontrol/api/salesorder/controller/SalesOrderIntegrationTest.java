@@ -73,6 +73,8 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
@@ -599,9 +601,11 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
      * row that states it.
      *
      * <p>Why the location row and not the store row: {@code uq_movement_source} keys
-     * {@code (source_type, source_id, movement_type)}, and a store with two seeded locations books two
-     * {@code ADJUSTMENT_IN} rows — a shared store-row id would be refused on the second. It is also what the
-     * balance is a balance <em>of</em>, and the same choice {@code V62} made for the identical job.</p>
+     * {@code (source_type, source_id, movement_type, store_location_id, write_seq)} since {@code V73}, and a store
+     * with two seeded locations books two {@code ADJUSTMENT_IN} rows — a shared store-row id would be refused on
+     * the second. It is also what the balance is a balance <em>of</em>, and the same choice {@code V62} made for
+     * the identical job. The opening states {@code SINGLE_WRITE} because a balance row opens once: it has no
+     * counter, and the row's own id is what keeps a second seeded location apart.</p>
      *
      * <p>Runs inside the caller's tenant transaction: the writer refuses to book outside one, and the ledger's
      * tables are armed, so the fixture states its tenant the way every other writer call in this suite does.</p>
@@ -617,7 +621,14 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                 .getId();
         stockLedgerWriter.bookAdjustmentIn(
                 new StockLedgerWriter.Booking(
-                        companyId, companyStoreId, storeLocationId, variantId, "fixture", FIXTURE_OPENING, sourceRowId),
+                        companyId,
+                        companyStoreId,
+                        storeLocationId,
+                        variantId,
+                        "fixture",
+                        FIXTURE_OPENING,
+                        sourceRowId,
+                        StockLedgerWriter.SINGLE_WRITE),
                 quantity,
                 recordedCost,
                 stockLedgerWriter.operatingCurrency(companyId),
@@ -704,7 +715,8 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                                 variantId,
                                 "fixture",
                                 FIXTURE_OPENING,
-                                priority.getId()),
+                                priority.getId(),
+                                StockLedgerWriter.SINGLE_WRITE),
                         relocated);
             }
             bookLedgerOpening(
@@ -1103,6 +1115,302 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                     .extracting(InventoryMovement::getMovementType)
                     .contains(MovementType.SALE, MovementType.SALE_REVERSAL);
             assertThat(movements).allSatisfy(m -> assertThat(m.getQuantity()).isGreaterThan(BigDecimal.ZERO));
+        }
+
+        /**
+         * The measurement shape (a) of the ledger's per-write identity rests on: a repeated request books
+         * nothing, and what makes it a no-op is the delta rule — document state — and not the movement's
+         * source key. Keying the movement on the document therefore does not move invariant I5 out of the
+         * ledger, which is the only reason the ledger-generated key was refused.
+         *
+         * <p><b>Three sends, not two.</b> A retry has no bound, and a single no-op is indistinguishable from a
+         * write that collided with {@code uq_movement_source} and was swallowed — so the row count is what is
+         * asserted, not the aggregate alone.</p>
+         */
+        @Test
+        @DisplayName("a retried quantity update books no movement: the delta rule is what makes a retry a no-op")
+        void aRetriedQuantityUpdateBooksNoMovement() throws Exception {
+            var variant = createTestVariant(new BigDecimal("100.00"));
+
+            var createRequest = new SalesOrderRequest(
+                    customerId, companyStoreId, shiftId, "user123", List.of(line(null, variant.getId(), "5.00")));
+
+            var createResult = mockMvc.perform(post("/api/sales-orders")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(createRequest))
+                            .with(scopedSalesJwt()))
+                    .andExpect(status().isCreated())
+                    .andReturn();
+
+            var root = objectMapper.readTree(createResult.getResponse().getContentAsString());
+            var orderId = UUID.fromString(root.get("id").asText());
+            var itemId = UUID.fromString(root.get("items").get(0).get("id").asText());
+
+            assertThat(ledgerSaleRowsOf(variant.getId()))
+                    .as("the creation is one SALE row, which is the count the retries must not raise")
+                    .isEqualTo(1);
+
+            var retry = line(itemId, variant.getId(), "5.00");
+            for (int attempt = 0; attempt < 3; attempt++) {
+                mockMvc.perform(put("/api/sales-orders/{id}/items/{itemId}", orderId, itemId)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsString(retry))
+                                .with(scopedSalesJwt()))
+                        .andExpect(status().isOk())
+                        .andExpect(jsonPath("$.quantity").value(5.00));
+            }
+
+            assertThat(ledgerSaleRowsOf(variant.getId()))
+                    .as("SalesOrderService:974-981 books nothing when the delta is zero, so a repeated request "
+                            + "reads the document and stops: I5's retry half is carried by document state, not by "
+                            + "the source key")
+                    .isEqualTo(1);
+            assertThat(movementsOfType(variant.getId(), MovementType.SALE))
+                    .as("the legacy ledger agrees, which is what lets the two copies be compared row for row")
+                    .hasSize(1);
+            assertThat(storeStockOf(variant.getId()).getStock()).isEqualByComparingTo(new BigDecimal("95.00"));
+            assertThat(locationStockOf(variant.getId(), salesLocationId)).isEqualByComparingTo(new BigDecimal("95.00"));
+        }
+
+        /** The ledger's {@code SALE} rows of one variant, counted inside the tenant ADR-0005's policy demands. */
+        private int ledgerSaleRowsOf(UUID variantId) {
+            return TenantFixtures.inTenant(
+                    companyId,
+                    () -> jdbcTemplate.queryForObject(
+                            "SELECT count(*) FROM stock_movement WHERE product_variant_id = ? AND movement_type = 'SALE'",
+                            Integer.class,
+                            variantId));
+        }
+
+        /**
+         * The identity each {@code SALE} row of one variant was booked under, oldest first.
+         *
+         * <p>The three columns {@code V73} keys a movement on are read together because they answer one question:
+         * which line, and which of its writes, produced this row. Reading the source alone cannot tell two writes
+         * of one line apart, which is the whole point of the fifth column.</p>
+         */
+        private List<LedgerSaleIdentity> ledgerSaleIdentitiesOf(UUID variantId) {
+            return TenantFixtures.inTenant(
+                    companyId,
+                    () -> jdbcTemplate.query(
+                            """
+                            SELECT source_type, source_id, write_seq
+                              FROM stock_movement
+                             WHERE product_variant_id = ? AND movement_type = 'SALE'
+                             ORDER BY occurred_at, id
+                            """,
+                            (rs, rowNum) -> new LedgerSaleIdentity(
+                                    rs.getString("source_type"),
+                                    rs.getObject("source_id", UUID.class),
+                                    rs.getLong("write_seq")),
+                            variantId));
+        }
+
+        /** The line's own counter, which is the authority the movement's copy of it comes from. */
+        private long writeSeqOf(UUID itemId) {
+            return jdbcTemplate.queryForObject(
+                    "SELECT write_seq FROM sales_order_items WHERE id = ?", Long.class, itemId);
+        }
+
+        /** One ledger {@code SALE} row's identity: the source it names and the write it belongs to. */
+        private record LedgerSaleIdentity(String sourceType, UUID sourceId, long writeSeq) {}
+
+        /**
+         * Two edits of one line, through the endpoint that makes them, book two writes — and the ledger can name
+         * both.
+         *
+         * <p><b>What this case is the witness of.</b> {@code sales_order_items.write_seq} ({@code V73}) is bumped by
+         * the service on every deduction and copied onto the movement, so the ledger's vocabulary — {@code
+         * source_type} = the line's discriminator, {@code source_id} = the line id — gains a third dimension: the
+         * write. Before it, the second {@code SALE} row of one line at one location was refused by {@code
+         * uq_movement_source}, which is why a sale had to book the legacy row it mirrored instead of the document
+         * line it belongs to.</p>
+         *
+         * <p><b>Why it goes through the controller and not through a fixture with hand-written numbers.</b> The
+         * numbers are the service's to produce: a case that states them itself would prove the key is wide enough
+         * and nothing about the bump, and the bump is the half that can silently repeat a value.</p>
+         */
+        @Test
+        @DisplayName("two edits of one line book two distinct write_seq values under SALES_ORDER_ITEM")
+        void twoEditsOfOneLineBookTwoDistinctWriteSequences() throws Exception {
+            var variant = createTestVariant(new BigDecimal("100.00"));
+            var createRequest = new SalesOrderRequest(
+                    customerId, companyStoreId, shiftId, "user123", List.of(line(null, variant.getId(), "5.00")));
+
+            var created = mockMvc.perform(post("/api/sales-orders")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(createRequest))
+                            .with(scopedSalesJwt()))
+                    .andExpect(status().isCreated())
+                    .andReturn();
+
+            var root = objectMapper.readTree(created.getResponse().getContentAsString());
+            var orderId = UUID.fromString(root.get("id").asText());
+            var itemId = UUID.fromString(root.get("items").get(0).get("id").asText());
+
+            for (var quantity : List.of("8.00", "10.00")) {
+                mockMvc.perform(put("/api/sales-orders/{id}/items/{itemId}", orderId, itemId)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsString(line(itemId, variant.getId(), quantity)))
+                                .with(scopedSalesJwt()))
+                        .andExpect(status().isOk())
+                        .andExpect(jsonPath("$.quantity").value(Double.parseDouble(quantity)));
+            }
+
+            var identities = ledgerSaleIdentitiesOf(variant.getId());
+            assertThat(identities)
+                    .as("creation and the two increases are three writes, so the ledger holds three SALE rows")
+                    .hasSize(3);
+            assertThat(identities)
+                    .extracting(LedgerSaleIdentity::sourceType)
+                    .as("every row names the document line, not the legacy row it used to mirror")
+                    .containsOnly("SALES_ORDER_ITEM");
+            assertThat(identities)
+                    .extracting(LedgerSaleIdentity::sourceId)
+                    .as("and the same line, which is what makes the fifth column the only thing that can tell the "
+                            + "three apart")
+                    .containsOnly(itemId);
+            assertThat(identities)
+                    .extracting(LedgerSaleIdentity::writeSeq)
+                    .as("the bump hands out 1, 2, 3 in the order the writes happen, and the movement copies the "
+                            + "number it was booked under")
+                    .containsExactlyInAnyOrder(1L, 2L, 3L);
+            assertThat(writeSeqOf(itemId))
+                    .as("the line's own counter is the authority the copies came from")
+                    .isEqualTo(3L);
+            assertThat(storeStockOf(variant.getId()).getStock()).isEqualByComparingTo(new BigDecimal("90.00"));
+        }
+
+        /**
+         * The locked bump, measured <b>inside</b> the bump: the first transaction bumps and holds the line's row
+         * while the second one bumps, so the second must observe the value the first produced.
+         *
+         * <p><b>Why two threads released together are not enough, stated because the first version of this case did
+         * exactly that.</b> Two threads that start at the same instant prove nothing about the statement: a
+         * read-modify-write reads, writes, and — when the two windows happen not to overlap — answers 2 and 3 as
+         * happily as {@code UPDATE … RETURNING} does. This case therefore holds the first bump's transaction open
+         * until the second bump is <b>observed waiting on the row</b>, which is a fact the database reports rather
+         * than a sleep that hopes for it:</p>
+         * <ul>
+         *   <li>{@code UPDATE … write_seq = write_seq + 1 … RETURNING} takes the row lock with the statement, so the
+         *       second bump blocks on it, is seen waiting, and re-reads the committed 2 under {@code READ COMMITTED}
+         *       after the first commits: the answers are 2 and 3.</li>
+         *   <li>A {@code SELECT} followed by an {@code UPDATE} takes no lock on the read, so the second bump reads
+         *       the stale 1 and both write 2 back: the answers are 2 and 2 — the duplicate the fifth key column would
+         *       then have to refuse, i.e. a legal concurrent edit turned into a 500.</li>
+         *   <li>An implementation that takes no lock at all never makes the second bump wait, and the barrier times
+         *       out naming the other sessions instead of passing on a lucky interleaving.</li>
+         * </ul>
+         * <p>No sleep and no barrier can make a read-modify-write pass this: the second bump is demonstrably inside
+         * its own bump — the database says it is waiting on the row — before the first one commits.</p>
+         */
+        @Test
+        @DisplayName("the locked bump hands two concurrent edits distinct sequences")
+        void theLockedBumpHandsTwoConcurrentEditsDistinctSequences() throws Exception {
+            var variant = createTestVariant(new BigDecimal("100.00"));
+            var createRequest = new SalesOrderRequest(
+                    customerId, companyStoreId, shiftId, "user123", List.of(line(null, variant.getId(), "5.00")));
+
+            var created = mockMvc.perform(post("/api/sales-orders")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(createRequest))
+                            .with(scopedSalesJwt()))
+                    .andExpect(status().isCreated())
+                    .andReturn();
+
+            var itemId = UUID.fromString(objectMapper
+                    .readTree(created.getResponse().getContentAsString())
+                    .get("items")
+                    .get(0)
+                    .get("id")
+                    .asText());
+            assertThat(writeSeqOf(itemId))
+                    .as("the creation is this line's first write, so the counter starts at 1")
+                    .isEqualTo(1L);
+
+            var theFirstBumpIsDone = new CountDownLatch(1);
+            ExecutorService pool = Executors.newFixedThreadPool(2);
+            try {
+                var first = CompletableFuture.supplyAsync(
+                        () -> TenantFixtures.inTenant(companyId, () -> {
+                            var bumped = itemRepository.bumpWriteSeq(itemId);
+                            theFirstBumpIsDone.countDown();
+                            awaitTheOtherTransactionWaitingOnTheLineRow();
+                            return bumped;
+                        }),
+                        pool);
+
+                assertThat(theFirstBumpIsDone.await(20, TimeUnit.SECONDS))
+                        .as("the first bump answered and its transaction still holds the line's row, which is the "
+                                + "window the second bump has to start inside")
+                        .isTrue();
+
+                var second = CompletableFuture.supplyAsync(
+                        () -> TenantFixtures.inTenant(companyId, () -> itemRepository.bumpWriteSeq(itemId)), pool);
+
+                assertThat(List.of(first.get(60, TimeUnit.SECONDS), second.get(60, TimeUnit.SECONDS)))
+                        .as("the second bump was waiting on the row while the first held it, so it cannot have read "
+                                + "the value the first read: the answers are 2 and 3, and a read-modify-write answers "
+                                + "2 twice")
+                        .containsExactlyInAnyOrder(2L, 3L);
+            } finally {
+                pool.shutdownNow();
+            }
+
+            assertThat(writeSeqOf(itemId)).as("and both bumps are on the line").isEqualTo(3L);
+        }
+
+        /**
+         * The wait the second bump must be in: the transaction-id lock a concurrent {@code UPDATE} blocks on.
+         *
+         * <p><b>Why the transaction id and not a tuple.</b> A second {@code UPDATE} of a row another transaction is
+         * already updating waits on that transaction's id — PostgreSQL's {@code XactLockTableWait} — which is what
+         * {@code pg_locks.locktype = 'transactionid'} and {@code wait_event = 'transactionid'} report. A statement
+         * that only <em>read</em> the row waits on nothing, which is exactly the difference this case measures.</p>
+         */
+        private static final String WAITING_ON_THE_LINE_ROW = """
+                SELECT count(*) FROM pg_stat_activity
+                 WHERE pid <> pg_backend_pid()
+                   AND datname = current_database()
+                   AND usename = current_user
+                   AND wait_event_type = 'Lock'
+                   AND wait_event = 'transactionid'
+                """;
+
+        /** What the other sessions of this case looked like, so a timeout says why instead of just failing. */
+        private static final String OTHER_SESSIONS = """
+                SELECT format('%s state=%s waiting=%s/%s query=%s', pid, state, wait_event_type, wait_event,
+                              left(coalesce(query, '<hidden>'), 80))
+                  FROM pg_stat_activity
+                 WHERE pid <> pg_backend_pid()
+                   AND datname = current_database()
+                """;
+
+        /**
+         * Blocks until another session is waiting on a transaction id, which is what a second bump does.
+         *
+         * <p>This is the barrier the case needs, and the reason it is not a sleep: the first transaction must not
+         * commit until the second one is inside its bump, or a read-modify-write could be observed in a lucky order
+         * and pass. {@code pg_stat_activity} is the database's own report of the wait, and both sessions belong to
+         * the pool's role, which is what makes another session's row readable.</p>
+         */
+        private void awaitTheOtherTransactionWaitingOnTheLineRow() {
+            var deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(20);
+            while (System.nanoTime() < deadline) {
+                var waiting = jdbcTemplate.queryForObject(WAITING_ON_THE_LINE_ROW, Integer.class);
+                if (waiting != null && waiting > 0) {
+                    return;
+                }
+                try {
+                    Thread.sleep(20);
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException("the first bump was interrupted while waiting", interrupted);
+                }
+            }
+            throw new IllegalStateException("no other transaction was waiting on the sales_order_items row within 20 "
+                    + "seconds, so the second bump never reached the row's lock — the bump is not taking it. Other "
+                    + "sessions: " + jdbcTemplate.queryForList(OTHER_SESSIONS, String.class));
         }
     }
 
