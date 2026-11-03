@@ -238,7 +238,8 @@ public class SalesOrderService {
                         saved.getCompanyStoreId(),
                         savedItem.getProductVariantId(),
                         savedItem.getQuantity(),
-                        savedItem.getId()));
+                        savedItem.getId(),
+                        nextWriteSeq(savedItem.getId())));
             }
             applyStockChanges(operations);
 
@@ -569,9 +570,14 @@ public class SalesOrderService {
         recordItemCreated(so.getCompanyId(), saved);
         logger.info("Item added: id={}, soId={}", saved.getId(), salesOrderId);
 
-        // Deduct stock for the new item, referencing its id so a later reversal is exact (W3-D6).
-        applyStockChanges(List.of(
-                deduct(so.getCompanyStoreId(), saved.getProductVariantId(), saved.getQuantity(), saved.getId())));
+        // Deduct stock for the new item, referencing its id so a later reversal is exact (W3-D6), and taking the
+        // line's first write sequence so the movement can name the write and not only the line (V73).
+        applyStockChanges(List.of(deduct(
+                so.getCompanyStoreId(),
+                saved.getProductVariantId(),
+                saved.getQuantity(),
+                saved.getId(),
+                nextWriteSeq(saved.getId()))));
 
         // Recalculate order total
         recalculateTotalAmount(salesOrderId);
@@ -949,6 +955,17 @@ public class SalesOrderService {
      * a line that only grew deducts the difference; a line that shrank gives back the old reference
      * and re-sells its new quantity. Every movement carries the line id as its reference, so a later
      * reversal is exact (W3-D6).
+     *
+     * <p><b>Which sites bump the line's write sequence, and which do not</b> ({@code V73}, {@code
+     * odd/tasks/ledger-per-write-identity.md} S5). Exactly the four deduction sites here, plus the two outside
+     * this method — the creation of a line ({@code createSalesOrder}) and a line added to an existing order
+     * ({@code addSalesOrderItem}) — bump, because each of them books a movement and the ledger keys a movement by
+     * the write that produced it. The reversals this method registers do <b>not</b>: a reversal row carries
+     * {@code reverses_movement_id} and is outside {@code uq_movement_source}, its source is still the mirror, and
+     * a number nobody books under would only make the line's counter disagree with its movements. The branch a
+     * retry takes - no variant change and a zero delta - registers nothing at all, so the §5.4 rule survives: a
+     * path that books nothing must not bump, because a gap in the sequence is allowed and a movement with no
+     * number is not.</p>
      */
     private void collectLineStockOperations(
             SalesOrderItem line,
@@ -962,20 +979,20 @@ public class SalesOrderService {
         var itemId = line.getId();
 
         if (oldVariantId == null || oldQuantity == null) {
-            operations.add(deduct(companyStoreId, newVariantId, newQuantity, itemId));
+            operations.add(deduct(companyStoreId, newVariantId, newQuantity, itemId, nextWriteSeq(itemId)));
             return;
         }
         if (!oldVariantId.equals(newVariantId)) {
             operations.add(reverse(companyStoreId, oldVariantId, itemId));
-            operations.add(deduct(companyStoreId, newVariantId, newQuantity, itemId));
+            operations.add(deduct(companyStoreId, newVariantId, newQuantity, itemId, nextWriteSeq(itemId)));
             return;
         }
         var delta = newQuantity.subtract(oldQuantity);
         if (delta.signum() > 0) {
-            operations.add(deduct(companyStoreId, newVariantId, delta, itemId));
+            operations.add(deduct(companyStoreId, newVariantId, delta, itemId, nextWriteSeq(itemId)));
         } else if (delta.signum() < 0) {
             operations.add(reverse(companyStoreId, oldVariantId, itemId));
-            operations.add(deduct(companyStoreId, newVariantId, newQuantity, itemId));
+            operations.add(deduct(companyStoreId, newVariantId, newQuantity, itemId, nextWriteSeq(itemId)));
         }
     }
 
@@ -1008,12 +1025,32 @@ public class SalesOrderService {
         return line.getStatus() == SalesOrderItemState.CANCELLED;
     }
 
-    private SaleChange deduct(UUID companyStoreId, UUID variantId, BigDecimal quantity, UUID itemId) {
-        return SaleChange.deduction(companyStoreId, variantId, quantity, itemId);
+    private SaleChange deduct(UUID companyStoreId, UUID variantId, BigDecimal quantity, UUID itemId, long writeSeq) {
+        return SaleChange.deduction(companyStoreId, variantId, quantity, itemId, writeSeq);
     }
 
     private SaleChange reverse(UUID companyStoreId, UUID variantId, UUID itemId) {
         return SaleChange.reversal(companyStoreId, variantId, itemId);
+    }
+
+    /**
+     * The line's next write sequence: the locked bump of {@link
+     * SalesOrderItemRepository#bumpWriteSeq(UUID)}, as a number this method refuses to invent.
+     *
+     * <p><b>One statement, taken before the movement it numbers</b> ({@code V73}). The bump has to happen here
+     * rather than in the inventory engine because the counter is the document's: this service owns the
+     * transaction that writes the line and books the stock, so a rolled-back edit gives the number back and a
+     * committed one has exactly as many numbers as movements. It runs after the line is persisted (the create and
+     * add paths flush it before reaching here) and before the engine books anything, so a refused or replayed
+     * deduction never consumes a number it does not use — a gap is allowed, a movement with no number is not.</p>
+     *
+     * <p><b>A missing row is a defect, not zero.</b> {@code UPDATE … RETURNING} answers nothing when the id names
+     * no line, and the repository's primitive result turns that into its own empty-result failure rather than a
+     * {@code 0}: booking the fact under {@code 0} would put it in the ledger under the identity of "this source
+     * books once" and hide the defect behind a valid key.</p>
+     */
+    private long nextWriteSeq(UUID itemId) {
+        return itemRepository.bumpWriteSeq(itemId);
     }
 
     // ─── Total Amount Recalculation ────────────────────────────────────

@@ -1,6 +1,7 @@
 package com.lifecontrol.api.inventory.ledger;
 
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.dao.EmptyResultDataAccessException;
@@ -21,46 +22,44 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
  * the legacy engine has just decided and records the same fact in the ledger, in the same transaction.</p>
  *
  * <h2>Where a movement's {@code source_id} comes from, per writer — the decision this class exists to state</h2>
- * <p>The ledger's unique index is {@code uq_movement_source}, which {@code V60} declared as
- * {@code (source_type, source_id, movement_type)} and {@code V63} widened with {@code store_location_id} (see
- * shape 1 below). Measured against the call sites, the document's or the line's id still cannot satisfy it in
- * three shapes this tree writes — and the first of them is now permitted by the key itself, which is why the
- * mirror below rests on the other two:</p>
+ * <p>The ledger's unique index is {@code uq_movement_source}, which {@code V73} left as
+ * {@code (source_type, source_id, movement_type, store_location_id, write_seq)} over the partial predicate
+ * {@code reverses_movement_id IS NULL}. Each of those five columns answers a question the tree really asks,
+ * and each of them was added by a slice that measured why: {@code V60} keyed the source and the direction so a
+ * replayed write is refused, {@code V63} added the location because a movement names exactly one and a line
+ * that draws from two is two facts, and {@code V73} added the write because a line books the same direction at
+ * the same location more than once over its life. Three shapes of source are written today, and the fifth
+ * column is what makes the second of them legal:</p>
  * <ol>
  *   <li><b>A sale line that spans locations books more than one movement.</b>
  *       {@code InventoryService.applySaleDeduction} writes one {@code SALE} row per location it drains
  *       (priority location first, then FIFO), and a {@code stock_movement} names exactly one
- *       {@code store_location_id}. Two rows of one line therefore share the line id — and since {@code V63} the
- *       index permits exactly that: one movement per source, direction <b>and location</b>. This shape is the
- *       reason {@code V63} exists, and it is no longer a reason for the mirror below.</li>
- *   <li><b>A line books more than one {@code SALE} over its life.</b> {@code SalesOrderService} raises a
- *       line's quantity by selling the difference and lowers it by reversing and re-selling
- *       ({@code SalesOrderService:989}, {@code :991-992}), always under the same {@code SALES_ORDER_ITEM}
- *       reference. The ledger is append-only, so the first {@code SALE} row is never removed, and the second
- *       one under the same line id would be refused.</li>
+ *       {@code store_location_id}. The rows share the line id and differ by location, which is what
+ *       {@code V63}'s fourth column is for.</li>
+ *   <li><b>A line books more than one {@code SALE} over its life, at one location.</b> {@code SalesOrderService}
+ *       raises a line's quantity by selling the difference and lowers it by reversing and re-selling
+ *       ({@code SalesOrderService:961-981}), always under the same {@code SALES_ORDER_ITEM} reference. The
+ *       ledger is append-only, so the first {@code SALE} row is never removed; what tells the two writes apart
+ *       is the line's own counter, {@code sales_order_items.write_seq}, taken by a locked bump and stated in
+ *       the movement by {@code V73}'s fifth column. That is the identity a sale now books:
+ *       {@code source_type = 'SALES_ORDER_ITEM'}, {@code source_id = <the line id>},
+ *       {@code write_seq = <the write that produced it>}.</li>
  *   <li><b>A receipt's writer is handed the document, not the line.</b> {@code GoodsReceiptService:269}
  *       passes {@code saved.getId()} — the {@code goods_receipts} row — once per line, so any receipt with two
- *       lines books two {@code RECEIPT} movements under one id.</li>
+ *       lines would book two {@code RECEIPT} movements under one id, and the key does not carry the variant to
+ *       keep them apart. Receipts, manual edits and reversals therefore still state
+ *       {@link #MIRRORED_SOURCE_TYPE}: their source is the {@code inventory_movements} row written beside them,
+ *       one fact per row, unique by construction because it is a primary key. That shape is
+ *       {@code odd/tasks/inventory-ledger.md}'s remaining T5d work and it is deliberately not this class's.</li>
  * </ol>
- * <p>The identity this class uses instead is the row that states the fact in the dual-write window: the
- * {@code inventory_movements} row {@code InventoryService} writes beside the ledger row, one fact per row, so
- * {@code source_type = 'INVENTORY_MOVEMENT'} and {@code source_id = <that row's id>}. It is unique by
- * construction (it is a primary key), it makes the ledger a one-to-one mirror of the legacy ledger — which is
- * what lets a test see the two copies agree, the whole point of this slice — and it is the same shape
- * {@code V62} established for the backfill, where {@code source_id} is the {@code product_variant_locations}
- * row's own id rather than a document's.</p>
- * <p><b>What that costs, stated rather than hidden.</b> The document identity ({@code reference_type} /
- * {@code reference_id}) stays on the legacy row, so the ledger alone cannot yet answer "which document line
- * caused this". And the cost is now two shapes, not three: {@code V63} took {@code store_location_id} into
- * {@code uq_movement_source}, so a line that spans locations no longer needs the mirror — what still does is the
- * <em>identity</em> of a transition. A line books more than one {@code SALE} over its life (shape 2) and a
- * receipt hands its writer the document id once per line (shape 3), and neither can be keyed by an id the
- * service does not have: a line id repeats, a document id repeats, and only a per-transition identity would
- * distinguish them. That is ADR-0004's state guard, which is why the record's last {@code ## Log} entry stops this
- * unit before the drops and defers them; until it lands, {@code source_type}/{@code source_id} cannot carry the
- * document line and the mirror is the honest answer.
- * {@code InventoryLedgerBookingIntegrationTest} pins both surviving shapes so the gap is measured instead of
- * discovered.</p>
+ * <p><b>What the mirror costs, stated rather than hidden.</b> For a receipt or a manual edit the document
+ * identity ({@code reference_type} / {@code reference_id}) stays on the legacy row, so the ledger alone cannot
+ * yet answer "which receipt line caused this". For a sale it can: the line is the source. The mirror is a
+ * transition shape of the dual-write window, not a destination — it survives exactly as long as the writers that
+ * have no line identity do, and it dies with {@code inventory_movements} in T5d. What does <b>not</b> die is this
+ * class: {@link Booking} and {@link #SINGLE_WRITE} are the seam the receipt takes when its own counter arrives.</p>
+ * <p>{@code InventoryLedgerBookingIntegrationTest} pins each of the three shapes, including the one that stays on
+ * the mirror, so the gap is measured instead of discovered.</p>
  *
  * <h2>The order chosen: the legacy write first, the ledger row immediately after it</h2>
  * <p>Both runs in one transaction, so the outcome of a divergence is the same either way: everything rolls
@@ -100,21 +99,31 @@ public class StockLedgerWriter {
     /**
      * The {@code stock_movement.source_type} of a movement that mirrors one {@code inventory_movements} row.
      *
-     * <p><b>This is a transition shape and it dies with the legacy ledger.</b> During the dual-write window
-     * defined by the re-cut entry of {@code odd/tasks/inventory-ledger.md} (the one that splits T5 into T5a,
-     * T5b and T5c) the source identity of a movement is the legacy row it mirrors, because neither the document
-     * id nor the line id can satisfy {@code uq_movement_source} in the shapes the tree still writes: a line sold
-     * again after its reversal books a second {@code SALE} under the same reference, and a receipt hands its
-     * writer the document id once per line. {@code V63} took the location into the key, so a line that spans
-     * locations — the third shape, and the one that used to collide at the same source — is no longer a reason
-     * for this constant; the other two are, and closing them needs ADR-0004's per-transition identity. It is also
-     * V62's own precedent — the backfill's movements carry {@code source_type = 'MIGRATION'} and the id of the
-     * row that stated the balance. The legacy writes stop and {@code inventory_movements} drops in T6, which the
-     * record's last {@code ## Log} entry defers to ADR-0004; at that point {@code source_type}/{@code source_id}
-     * must carry the per-transition document identity instead, which is why the source type is a
-     * {@link Booking} component the caller states rather than a constant baked into every insert here.</p>
+     * <p><b>This is the identity of the writers that have no line of their own</b>: a receipt ({@code
+     * GoodsReceiptService} hands its writer the document id once per line, so a document id repeats), the two
+     * sides of a manual per-store edit, and the reversal that names a movement. For all of them the {@code
+     * inventory_movements} row written beside the ledger row is the source, one fact per row, unique by
+     * construction because it is a primary key — and it is the same shape {@code V62} established for the
+     * backfill. A sale does <b>not</b> use it any more: {@code sales_order_items.write_seq} ({@code V73}) is the
+     * per-write identity of a line, so a sale books {@code source_type = 'SALES_ORDER_ITEM'} and the line id.
+     * What remains on the mirror is {@code odd/tasks/inventory-ledger.md}'s T5d, and this constant dies with the
+     * writers that outlive {@code inventory_movements} — which is why the source type is a {@link Booking}
+     * component the caller states rather than a constant baked into every insert here.</p>
      */
     public static final String MIRRORED_SOURCE_TYPE = "INVENTORY_MOVEMENT";
+
+    /**
+     * The {@code write_seq} of a source that books at most one row per direction and location.
+     *
+     * <p>Every writer whose source is the row it mirrors states this value explicitly rather than leaving the
+     * column to its default, because the two cases are different facts: a receipt, a manual edit and a reversal
+     * are stated once per location and have no counter, whereas a sale line counts its writes and books {@code
+     * 1}, {@code 2}, {@code 3}… under the same line id ({@code V73}). Saying {@code 0} here is saying "this
+     * source cannot book twice under one location" — and the unique key, not this constant, is what enforces
+     * it. It is also the value every row the ledger held before {@code V73} carries, so the backfill of the
+     * widening is the column's own default and no row was rewritten to say it.</p>
+     */
+    public static final long SINGLE_WRITE = 0L;
 
     /** The ledger's closed movement vocabulary ({@code ck_movement_type}, {@code V60}); outbound ones consume. */
     public static final String RECEIPT = "RECEIPT";
@@ -125,21 +134,24 @@ public class StockLedgerWriter {
     public static final String ADJUSTMENT_OUT = "ADJUSTMENT_OUT";
 
     /**
-     * One fact to book: the key every movement needs, and the identity of what caused it.
+     * One fact to book: the key every movement needs, the write it belongs to, and the identity of what caused it.
      *
      * @param companyId the tenant, derived once by the caller from the store that owns the movement
      * @param companyStoreId the store the quantity moves in
      * @param storeLocationId the exact location the quantity moves at — one movement names one location
      * @param productVariantId the variant
      * @param actor the username that caused the fact, when there is one
-     * @param sourceType what kind of thing {@code sourceId} names. The caller states it, never this class:
-     *     every production call site passes {@link #MIRRORED_SOURCE_TYPE} during the dual-write window, and a
-     *     fixture opening passes its own discriminator. There is deliberately no default and no overload
-     *     without it — a default would let a later call site fall back into the mirror silently, which is the
-     *     failure mode the parameter exists to remove
-     * @param sourceId the row that states this fact: the {@code inventory_movements} row the movement mirrors,
-     *     or — for a fixture opening — the {@code product_variant_locations} row whose balance it opens (see
-     *     the class javadoc)
+     * @param sourceType what kind of thing {@code sourceId} names. The caller states it, never this class: a sale
+     *     states the line's own discriminator, and a receipt, a manual edit or a reversal states
+     *     {@link #MIRRORED_SOURCE_TYPE}. There is deliberately no default and no overload without it — a default
+     *     would let a later call site fall back into the mirror silently, which is the failure mode the parameter
+     *     exists to remove
+     * @param sourceId the row that states this fact: the sale line for a sale, or the {@code inventory_movements}
+     *     row the movement mirrors for the writers that have no line identity (see the class javadoc)
+     * @param writeSeq which write of that source this movement is: the line's counter for a sale ({@code V73}),
+     *     and {@link #SINGLE_WRITE} for a source that books at most one row per direction and location. Stated by
+     *     the caller for the same reason as {@code sourceType} — the number is the document's, and this class
+     *     never invents one
      */
     public record Booking(
             UUID companyId,
@@ -148,7 +160,21 @@ public class StockLedgerWriter {
             UUID productVariantId,
             String actor,
             String sourceType,
-            UUID sourceId) {}
+            UUID sourceId,
+            long writeSeq) {}
+
+    /**
+     * One {@code SALE} row of a source that no reversal names yet: what the reversal has to name, and the quantity
+     * it has to move.
+     *
+     * @param movementId the ledger row a reversal will name in {@code reverses_movement_id}
+     * @param companyStoreId the store the row moved quantity in
+     * @param storeLocationId the location it moved it at, which is the grain a reversal balances
+     * @param productVariantId the variant
+     * @param quantity the quantity the row moved, which is exactly what a reversal of it must move ({@code V61})
+     */
+    public record OpenSale(
+            UUID movementId, UUID companyStoreId, UUID storeLocationId, UUID productVariantId, BigDecimal quantity) {}
 
     /**
      * One row of the ledger, without its key: what {@code V60} declares and nothing else.
@@ -160,8 +186,8 @@ public class StockLedgerWriter {
     private static final String INSERT_MOVEMENT = """
             INSERT INTO stock_movement (id, company_id, company_store_id, store_location_id, product_variant_id,
                                         movement_type, quantity, unit_cost, currency, occurred_at, actor,
-                                        source_type, source_id, reverses_movement_id, reason)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, clock_timestamp(), ?, ?, ?, ?, ?)
+                                        source_type, source_id, write_seq, reverses_movement_id, reason)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, clock_timestamp(), ?, ?, ?, ?, ?, ?)
             """;
 
     /** The engine's allocation writer; the only consumption path, and it refuses an uncoverable quantity. */
@@ -172,6 +198,23 @@ public class StockLedgerWriter {
     /** The ledger row one legacy row was mirrored into, which is what a reversal has to name. */
     private static final String MIRRORED_MOVEMENT =
             "SELECT id FROM stock_movement WHERE source_type = ? AND source_id = ? AND movement_type = ?";
+
+    /**
+     * Every {@code SALE} row of one source that no reversal names yet.
+     *
+     * <p>Read by the source the movement carries, which since {@code V73} is the sale line itself, so the answer
+     * is the set of writes that line has booked and not given back — one row per write and location, oldest
+     * first. {@code reverses_movement_id IS NULL} is the same predicate {@code uq_movement_source} has, and the
+     * {@code NOT EXISTS} is {@code uq_movement_one_reversal}'s: a row a reversal already names is not open.</p>
+     */
+    private static final String OPEN_SALES = """
+            SELECT m.id, m.company_store_id, m.store_location_id, m.product_variant_id, m.quantity
+              FROM stock_movement m
+             WHERE m.source_type = ? AND m.source_id = ? AND m.movement_type = ?
+               AND m.reverses_movement_id IS NULL
+               AND NOT EXISTS (SELECT 1 FROM stock_movement r WHERE r.reverses_movement_id = m.id)
+             ORDER BY m.occurred_at, m.id
+            """;
 
     private static final String REVERSAL_OF = "SELECT count(*) FROM stock_movement WHERE reverses_movement_id = ?";
 
@@ -246,6 +289,29 @@ public class StockLedgerWriter {
     }
 
     /**
+     * The {@code SALE} rows of one source that no reversal names yet, oldest first.
+     *
+     * <p>This is what a reversal names, and it is read by the source the movements carry instead of by the
+     * legacy rows beside them: since {@code V73} a sale's source is the line, so the ledger alone answers "what
+     * does this reference still hold open" — the question {@code InventoryService.applySaleReversal} asks. The
+     * old answer, one lookup per legacy row, cannot express a line that booked more than one {@code SALE} at one
+     * location, which is exactly the case the fifth key column made legal.</p>
+     */
+    public List<OpenSale> openSales(String sourceType, UUID sourceId) {
+        return jdbcTemplate.query(
+                OPEN_SALES,
+                (rs, rowNum) -> new OpenSale(
+                        rs.getObject("id", UUID.class),
+                        rs.getObject("company_store_id", UUID.class),
+                        rs.getObject("store_location_id", UUID.class),
+                        rs.getObject("product_variant_id", UUID.class),
+                        rs.getBigDecimal("quantity")),
+                sourceType,
+                sourceId,
+                SALE);
+    }
+
+    /**
      * The operating currency of a company — the only currency a document can be in (ADR-0002 decision 2),
      * and therefore what an inbound movement's {@code unit_cost} is denominated in.
      *
@@ -307,6 +373,7 @@ public class StockLedgerWriter {
                 booking.actor(),
                 booking.sourceType(),
                 booking.sourceId(),
+                booking.writeSeq(),
                 reversesMovementId,
                 reason);
         return movementId;
