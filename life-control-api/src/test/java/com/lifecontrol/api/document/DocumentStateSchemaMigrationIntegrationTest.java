@@ -210,7 +210,7 @@ class DocumentStateSchemaMigrationIntegrationTest extends AbstractPostgresIntegr
     }
 
     @Test
-    @DisplayName("the bridge derives the state from the catalog, refuses a divergence and fails closed on a gap")
+    @DisplayName("the bridge derives the state from the pointer, one way, and fails closed on a gap")
     void derivesTheStateFromTheCatalogWhileStatusIdLives() throws Exception {
         migrateTo(PRE_UNIT_HEAD);
         var company = seedCompany();
@@ -223,9 +223,10 @@ class DocumentStateSchemaMigrationIntegrationTest extends AbstractPostgresIntegr
                 .as("an insert that names only status_id is derived from the catalog's code")
                 .isEqualTo("DRAFT");
 
-        assertThatThrownBy(() -> insertSalesOrder(company, 2, statusId("SALES_ORDER", "Draft"), "ACTIVE"))
-                .as("a stored state that disagrees with the catalog cannot exist while both columns do")
-                .hasStackTraceContaining("sales_orders: stored status ACTIVE disagrees with the catalog code DRAFT");
+        var overwritten = insertSalesOrder(company, 2, statusId("SALES_ORDER", "Draft"), "ACTIVE");
+        assertThat(readScoped(company, "SELECT status FROM sales_orders WHERE id = '" + overwritten + "'"))
+                .as("the pointer wins: the row stores the catalog's code, not the value the writer supplied")
+                .isEqualTo("DRAFT");
 
         assertThatThrownBy(() -> insertSalesOrder(company, 3, statusId("APPOINTMENT", "Scheduled"), null))
                 .as("a status_id whose catalog row has no code leaves status null, and NOT NULL then refuses it")
@@ -300,10 +301,10 @@ class DocumentStateSchemaMigrationIntegrationTest extends AbstractPostgresIntegr
     /**
      * Asks the {@code CHECK} its own question, with the bridge out of the way for exactly one statement.
      *
-     * <p>The bridge raises on any {@code status} that disagrees with the catalog's code, and every value a
-     * {@code CHECK} refuses disagrees with it by construction — so with the bridge live the constraint is
-     * unreachable and its existence is unpinned. Disabling <b>that one trigger</b>, on this class's own
-     * scratch database, is what lets the case below observe the net that stays after T8 drops the bridge; the
+     * <p>The bridge overwrites every {@code status} it sees with the catalog's code, and every value a
+     * {@code CHECK} refuses is overwritten with one the {@code CHECK} admits — so while the bridge lives the
+     * constraint is unreachable and its existence is unpinned. Disabling <b>that one trigger</b>, on this
+     * class's own scratch database, is what lets the net that stays after T8 drops the bridge be observed; the
      * trigger is re-enabled in a {@code finally} so a failing assertion cannot leave the table weaker than the
      * next statement expects.</p>
      */
