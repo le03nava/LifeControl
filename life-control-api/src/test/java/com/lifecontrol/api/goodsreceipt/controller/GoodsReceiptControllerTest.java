@@ -88,6 +88,7 @@ class GoodsReceiptControllerTest {
                 locationId,
                 statusId,
                 "Registered",
+                "REGISTERED",
                 "receiver",
                 LocalDateTime.now(),
                 "Reception",

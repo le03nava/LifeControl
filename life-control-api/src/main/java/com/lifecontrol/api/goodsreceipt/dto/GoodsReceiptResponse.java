@@ -4,7 +4,13 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 
-/** A persisted goods receipt, with the order number and status name denormalized for the client. */
+/**
+ * A persisted goods receipt, with the order number and status name denormalized for the client.
+ *
+ * @param status the receipt's typed state as its code (ADR-0004 decision 1) — {@code REGISTERED}, never the
+ *     catalog's label — added beside {@code statusId}/{@code statusName}, which are unchanged until T8 drops the
+ *     pointer. A receipt has one state and is never moved, so this code is always the one it was born in
+ */
 public record GoodsReceiptResponse(
         UUID id,
         String receiptNumber,
@@ -14,6 +20,7 @@ public record GoodsReceiptResponse(
         UUID receivingLocationId,
         UUID statusId,
         String statusName,
+        String status,
         String receivedBy,
         LocalDateTime receivedAt,
         String comments,

@@ -106,6 +106,7 @@ class GoodsReceiptControllerSecurityTest {
                 UUID.randomUUID(),
                 UUID.randomUUID(),
                 "Registered",
+                "REGISTERED",
                 "receiver",
                 LocalDateTime.now(),
                 "Reception",

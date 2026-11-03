@@ -9,6 +9,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.lifecontrol.api.common.auth.CurrentUserContext;
+import com.lifecontrol.api.common.state.StatusTransitionRecorder;
 import com.lifecontrol.api.company.model.Company;
 import com.lifecontrol.api.company.model.CompanyCountry;
 import com.lifecontrol.api.company.model.CompanyRegion;
@@ -17,6 +18,7 @@ import com.lifecontrol.api.goodsreceipt.dto.GoodsReceiptFilter;
 import com.lifecontrol.api.goodsreceipt.dto.GoodsReceiptResponse;
 import com.lifecontrol.api.goodsreceipt.exception.GoodsReceiptNotFoundException;
 import com.lifecontrol.api.goodsreceipt.model.GoodsReceipt;
+import com.lifecontrol.api.goodsreceipt.model.GoodsReceiptState;
 import com.lifecontrol.api.goodsreceipt.repository.GoodsReceiptRepository;
 import com.lifecontrol.api.inventory.repository.StoreInventorySettingsRepository;
 import com.lifecontrol.api.inventory.service.InventoryService;
@@ -115,6 +117,9 @@ class GoodsReceiptServiceReadTest {
     @Mock
     private CompanyStoreFilterResolver storeFilterResolver;
 
+    @Mock
+    private StatusTransitionRecorder statusTransitionRecorder;
+
     private GoodsReceiptService service;
 
     private GoodsReceipt receipt;
@@ -134,7 +139,8 @@ class GoodsReceiptServiceReadTest {
                 statusRepository,
                 currentUserContext,
                 storeScopeResolver,
-                storeFilterResolver);
+                storeFilterResolver,
+                statusTransitionRecorder);
 
         var company = Company.builder().id(COMPANY_ID).companyKey("GR-READ-KEY").build();
         var companyCountry =
@@ -174,6 +180,7 @@ class GoodsReceiptServiceReadTest {
                 .companyStore(store)
                 .receivingLocation(location)
                 .status(status)
+                .state(GoodsReceiptState.REGISTERED)
                 .receivedBy("receiver")
                 .receivedAt(LocalDateTime.now())
                 .comments("Reception")
@@ -418,9 +425,15 @@ class GoodsReceiptServiceReadTest {
                             GoodsReceiptResponse::receiptNumber,
                             GoodsReceiptResponse::orderNumber,
                             GoodsReceiptResponse::companyStoreId,
-                            GoodsReceiptResponse::statusName)
+                            GoodsReceiptResponse::statusName,
+                            GoodsReceiptResponse::status)
                     .containsExactly(
-                            RECEIPT_ID, "GR-PO-20260603-00001-01", "PO-20260603-00001", STORE_ID, "Registered");
+                            RECEIPT_ID,
+                            "GR-PO-20260603-00001-01",
+                            "PO-20260603-00001",
+                            STORE_ID,
+                            "Registered",
+                            "REGISTERED");
         }
 
         @Test
