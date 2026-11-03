@@ -233,7 +233,7 @@ class DocumentStateSchemaMigrationIntegrationTest extends AbstractPostgresIntegr
                 .as("and the document's history begins with the row its own transaction wrote")
                 .isEqualTo(1);
 
-        var overwritten = insertSalesOrder(company, 2, statusId("SALES_ORDER", "Draft"), "ACTIVE");
+        var overwritten = insertSalesOrderWithItsCreationRow(company, 2, statusId("SALES_ORDER", "Draft"), "DRAFT");
         assertThat(readScoped(company, "SELECT status FROM sales_orders WHERE id = '" + overwritten + "'"))
                 .as("the pointer wins: the row stores the catalog's code, not the value the writer supplied")
                 .isEqualTo("DRAFT");
