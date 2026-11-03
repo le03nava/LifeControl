@@ -16,6 +16,25 @@ public class Status extends Auditable {
     @Column(name = "status_name", length = 100, nullable = false)
     private String statusName;
 
+    /**
+     * The domain constant this row names — {@code DRAFT}, {@code IN_TRANSIT}, … — for the five families
+     * ADR-0004 types ({@code V66} step 4, decision 7).
+     *
+     * <p><b>Nullable, and read by the domain, never by a human.</b> {@code statuses} is one catalog for seven
+     * families and ADR-0004 puts two of them out of scope by decision, so nine rows carry no code and no
+     * column-level {@code NOT NULL} can be true here; the migration asserts the property for the five
+     * in-scope families instead. The label stays what a screen renders, and this column is what a state
+     * machine reads, which is why renaming a label stopped being a behavior change.</p>
+     *
+     * <p><b>There is deliberately no setter.</b> A code is the enum constant a family's migration maps its
+     * rows to ({@code V66} step 4); nothing in the API creates or edits one, so {@code StatusService} can
+     * persist a row without a code and cannot mint one by accident. A row created at runtime therefore has
+     * no code, and every reader that needs a state refuses it explicitly instead of falling back to a
+     * label — the fail-closed shape {@code SalesOrderStatusCatalog} states.</p>
+     */
+    @Column(name = "code", length = 24)
+    private String code;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "status_type_id", nullable = false)
     private StatusType statusType;
@@ -33,6 +52,10 @@ public class Status extends Auditable {
 
     public String getStatusName() {
         return statusName;
+    }
+
+    public String getCode() {
+        return code;
     }
 
     public StatusType getStatusType() {
@@ -75,6 +98,11 @@ public class Status extends Auditable {
 
         public Builder statusName(String statusName) {
             status.statusName = statusName;
+            return this;
+        }
+
+        public Builder code(String code) {
+            status.code = code;
             return this;
         }
 

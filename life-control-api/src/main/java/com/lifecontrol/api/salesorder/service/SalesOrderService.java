@@ -4,7 +4,9 @@ import com.lifecontrol.api.common.auth.CurrentUserContext;
 import com.lifecontrol.api.common.document.DocumentNumberRenderer;
 import com.lifecontrol.api.common.document.DocumentSequenceAllocator;
 import com.lifecontrol.api.common.document.DocumentType;
-import com.lifecontrol.api.common.state.InvalidStatusTransitionException;
+import com.lifecontrol.api.common.state.DocumentStates;
+import com.lifecontrol.api.common.state.StatusSubject;
+import com.lifecontrol.api.common.state.StatusTransitionRecorder;
 import com.lifecontrol.api.customer.exception.CustomerNotFoundException;
 import com.lifecontrol.api.customer.repository.CustomerRepository;
 import com.lifecontrol.api.inventory.service.InventoryService;
@@ -27,6 +29,8 @@ import com.lifecontrol.api.salesorder.exception.SalesOrderNotFoundException;
 import com.lifecontrol.api.salesorder.exception.SalesOrderStoreReassignmentNotAllowedException;
 import com.lifecontrol.api.salesorder.model.SalesOrder;
 import com.lifecontrol.api.salesorder.model.SalesOrderItem;
+import com.lifecontrol.api.salesorder.model.SalesOrderItemState;
+import com.lifecontrol.api.salesorder.model.SalesOrderState;
 import com.lifecontrol.api.salesorder.repository.SalesOrderItemRepository;
 import com.lifecontrol.api.salesorder.repository.SalesOrderRepository;
 import com.lifecontrol.api.shift.exception.ShiftNotFoundException;
@@ -35,7 +39,6 @@ import com.lifecontrol.api.shift.repository.ShiftRepository;
 import com.lifecontrol.api.status.exception.StatusNotFoundException;
 import com.lifecontrol.api.status.model.Status;
 import com.lifecontrol.api.status.repository.StatusRepository;
-import com.lifecontrol.api.status.service.StatusValidator;
 import com.lifecontrol.api.store.exception.CompanyStoreNotFoundException;
 import com.lifecontrol.api.store.model.CompanyStore;
 import com.lifecontrol.api.store.repository.CompanyStoreRepository;
@@ -46,9 +49,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
-import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import org.slf4j.Logger;
@@ -64,17 +65,16 @@ public class SalesOrderService {
 
     private static final Logger logger = LoggerFactory.getLogger(SalesOrderService.class);
 
-    private static final Map<String, Set<String>> SO_TRANSITIONS = Map.ofEntries(
-            Map.entry("Draft", Set.of("Active", "Cancelled")),
-            Map.entry("Active", Set.of("Pending", "Cancelled")),
-            Map.entry("Pending", Set.of("Completed", "Cancelled")),
-            Map.entry("Completed", Set.of()),
-            Map.entry("Cancelled", Set.of()));
+    /**
+     * The state every order is born in (ADR-0004 decision 1). It was the catalog label {@code "Draft"} until
+     * this slice; the row is still looked up by name because the catalog is the label of a code, but the
+     * state itself is the constant, and {@link com.lifecontrol.api.common.state.DocumentStates} is what
+     * decides every move after it.
+     */
+    private static final SalesOrderState INITIAL_ORDER_STATE = SalesOrderState.DRAFT;
 
-    private static final Map<String, Set<String>> SO_ITEM_TRANSITIONS = Map.ofEntries(
-            Map.entry("Pending", Set.of("Added", "Cancelled")),
-            Map.entry("Added", Set.of()),
-            Map.entry("Cancelled", Set.of()));
+    /** The state every line is born in (ADR-0004 decision 3), same reasoning as {@link #INITIAL_ORDER_STATE}. */
+    private static final SalesOrderItemState INITIAL_ITEM_STATE = SalesOrderItemState.PENDING;
 
     private static final String SHIFT_STATUS_OPEN = "ABIERTO";
 
@@ -97,6 +97,8 @@ public class SalesOrderService {
     private final PaymentMethodRepository paymentMethodRepository;
     private final CurrentUserContext currentUserContext;
     private final DocumentSequenceAllocator documentSequenceAllocator;
+    private final StatusTransitionRecorder statusTransitionRecorder;
+    private final SalesOrderStatusCatalog statusCatalog;
 
     public SalesOrderService(
             SalesOrderRepository salesOrderRepository,
@@ -110,7 +112,9 @@ public class SalesOrderService {
             StatusRepository statusRepository,
             PaymentMethodRepository paymentMethodRepository,
             CurrentUserContext currentUserContext,
-            DocumentSequenceAllocator documentSequenceAllocator) {
+            DocumentSequenceAllocator documentSequenceAllocator,
+            StatusTransitionRecorder statusTransitionRecorder,
+            SalesOrderStatusCatalog statusCatalog) {
         this.salesOrderRepository = salesOrderRepository;
         this.itemRepository = itemRepository;
         this.customerRepository = customerRepository;
@@ -123,6 +127,8 @@ public class SalesOrderService {
         this.paymentMethodRepository = paymentMethodRepository;
         this.currentUserContext = currentUserContext;
         this.documentSequenceAllocator = documentSequenceAllocator;
+        this.statusTransitionRecorder = statusTransitionRecorder;
+        this.statusCatalog = statusCatalog;
     }
 
     // ─── Sales Order CRUD ────────────────────────────────────────────────
@@ -197,11 +203,17 @@ public class SalesOrderService {
                 .userId(request.userId())
                 .orderDate(orderDate)
                 .statusId(status.getId())
+                .status(INITIAL_ORDER_STATE)
                 .totalAmount(BigDecimal.ZERO)
                 .enabled(true)
                 .build();
 
         var saved = salesOrderRepository.save(so);
+        // ADR-0004 decision 5 side A: a document born without its creation row cannot commit, so the two
+        // writes share this transaction and the deferred trigger judges them together.
+        flushDocuments();
+        statusTransitionRecorder.recordCreation(
+                StatusSubject.SALES_ORDER, companyId, saved.getId(), INITIAL_ORDER_STATE);
         logger.info("Sales order created: id={}, orderNumber={}", saved.getId(), saved.getOrderNumber());
 
         // Persist the lines first so each one has the id the ledger reference needs (W3-D6), then
@@ -225,9 +237,12 @@ public class SalesOrderService {
                         .finalPrice(reqItem.listPrice().subtract(discount))
                         .promotionId(reqItem.promotionId())
                         .statusId(defaultItemStatus.getId())
+                        .status(INITIAL_ITEM_STATE)
                         .enabled(true)
                         .build();
-                savedItems.add(itemRepository.save(newItem));
+                var savedItem = itemRepository.save(newItem);
+                recordItemCreated(companyId, savedItem);
+                savedItems.add(savedItem);
             }
 
             var operations = new ArrayList<SaleChange>();
@@ -298,13 +313,11 @@ public class SalesOrderService {
             // the item status machine, so re-enabling a cancelled line revives no hold and it
             // contributes no stock work at all. The status is resolved fail-closed: guessing here
             // would classify a cancelled line as live and sell the stock it already gave back (F-2).
-            var cancelledItemStatusId = resolveCancelledItemStatusId();
-
             var oldQuantities = new HashMap<UUID, BigDecimal>();
             var itemIdToVariantId = new HashMap<UUID, UUID>();
             var deadItemIds = new HashSet<UUID>();
             for (var existing : existingItems) {
-                if (isCancelledLine(existing, cancelledItemStatusId)) {
+                if (isCancelledLine(existing)) {
                     deadItemIds.add(existing.getId());
                 } else if (existing.getEnabled()) {
                     oldQuantities.put(existing.getId(), existing.getQuantity());
@@ -368,9 +381,12 @@ public class SalesOrderService {
                             .finalPrice(reqItem.listPrice().subtract(discount))
                             .promotionId(reqItem.promotionId())
                             .statusId(defaultItemStatus.getId())
+                            .status(INITIAL_ITEM_STATE)
                             .enabled(true)
                             .build();
-                    savedItems.add(itemRepository.save(newItem));
+                    var savedItem = itemRepository.save(newItem);
+                    recordItemCreated(so.getCompanyId(), savedItem);
+                    savedItems.add(savedItem);
                 }
             }
 
@@ -434,32 +450,22 @@ public class SalesOrderService {
         so.setPaymentMethodId(request.paymentMethodId());
 
         // Transition header to Completed
-        so.setStatusId(completedStatus.getId());
-        salesOrderRepository.save(so);
+        moveOrder(so, completedStatus.getId(), SalesOrderState.COMPLETED, "charge");
 
-        // Transition non-Cancelled items to Added
+        // Transition the lines that are waiting for it to Added. A line's classification is its typed
+        // state and not a catalog lookup: CANCELLED is terminal (its reversal is booked, so there is no
+        // edge out of it) and ADDED is already charged, so only PENDING moves — the same rule that used
+        // to be the `!"Cancelled".equals(statusName)` test, stated once, next to the enum (ADR-0004
+        // decision 3).
         var items = itemRepository.findBySalesOrderId(id);
-
-        var itemStatusIds = items.stream()
-                .filter(SalesOrderItem::getEnabled)
-                .map(SalesOrderItem::getStatusId)
-                .collect(Collectors.toSet());
-
-        var itemStatusesById = statusRepository.findAllById(itemStatusIds).stream()
-                .collect(Collectors.toMap(Status::getId, status -> status));
 
         var itemsToUpdate = new ArrayList<SalesOrderItem>();
         for (var item : items) {
-            if (item.getEnabled()) {
-                var itemStatus = itemStatusesById.get(item.getStatusId());
-                if (itemStatus == null) {
-                    throw new StatusNotFoundException(item.getStatusId());
-                }
-                if (!"Cancelled".equals(itemStatus.getStatusName())) {
-                    item.setStatusId(addedStatus.getId());
-                    itemsToUpdate.add(item);
-                }
+            if (!Boolean.TRUE.equals(item.getEnabled()) || item.getStatus() != SalesOrderItemState.PENDING) {
+                continue;
             }
+            moveItem(item, so.getCompanyId(), addedStatus.getId(), SalesOrderItemState.ADDED, "charge");
+            itemsToUpdate.add(item);
         }
         itemRepository.saveAll(itemsToUpdate);
 
@@ -477,23 +483,17 @@ public class SalesOrderService {
      * Any other status throws InvalidSalesOrderChargeException.
      */
     private void ensureOrderIsPending(SalesOrder so) {
-        var currentStatus = statusRepository
-                .findById(so.getStatusId())
-                .orElseThrow(() -> new StatusNotFoundException(so.getStatusId()));
-        var name = currentStatus.getStatusName();
-        if ("Pending".equals(name)) return;
-        if ("Active".equals(name)) {
+        var currentState = so.getStatus();
+        if (currentState == SalesOrderState.PENDING) return;
+        if (currentState == SalesOrderState.ACTIVE) {
             var pendingStatus = statusRepository
                     .findByTypeNameAndStatusName("SALES_ORDER", "Pending")
                     .orElseThrow(() -> new StatusNotFoundException("Status 'Pending' not found for SALES_ORDER type"));
-            var pendingStatusId = pendingStatus.getId();
-            validateSOTransition(currentStatus, pendingStatus);
-            so.setStatusId(pendingStatusId);
-            salesOrderRepository.save(so);
+            moveOrder(so, pendingStatus.getId(), SalesOrderState.PENDING, "auto-promoted before charge");
             logger.info("Order {} auto-promoted Active→Pending for charge", so.getId());
             return;
         }
-        throw new InvalidSalesOrderChargeException(so.getId(), name);
+        throw new InvalidSalesOrderChargeException(so.getId(), currentState == null ? "missing" : currentState.name());
     }
 
     @Transactional
@@ -502,22 +502,22 @@ public class SalesOrderService {
 
         var so = salesOrderRepository.findById(id).orElseThrow(() -> new SalesOrderNotFoundException(id));
 
-        var currentStatus = statusRepository
-                .findById(so.getStatusId())
-                .orElseThrow(() -> new StatusNotFoundException(so.getStatusId()));
-
-        var newStatus = StatusValidator.requireStatusOfType(statusRepository, request.statusId(), "SALES_ORDER");
-        validateSOTransition(currentStatus, newStatus);
+        // The request names a catalog row; the machine only reads its code (ADR-0004 decision 7). This is
+        // also where a status of another family, an uncoded row or a code the enum lacks is refused.
+        var newState = statusCatalog.requireOrderState(request.statusId());
+        // The guard runs BEFORE the reversal below, and the order of the two is the invariant: a refused
+        // move is a 409 that leaves the row, the history and the stock exactly as they were, so a stock
+        // side effect that ran first would be a refusal that already changed something (ADR-0004 T2).
+        DocumentStates.requireTransition(so.getStatus(), newState);
 
         // Restore stock when transitioning to Cancelled. Only enabled items still hold stock:
         // soft-deleted items were already reversed when deleted, and a line cancelled individually
         // was already reversed then, so the ledger makes those reversals a no-op here (W3-D4).
-        if ("Cancelled".equals(newStatus.getStatusName())) {
+        if (newState == SalesOrderState.CANCELLED) {
             restoreAllLines(so.getCompanyStoreId(), itemRepository.findBySalesOrderIdAndEnabledTrue(id));
         }
 
-        so.setStatusId(newStatus.getId());
-        var updated = salesOrderRepository.save(so);
+        var updated = moveOrder(so, request.statusId(), newState, "status update");
 
         return toResponse(updated);
     }
@@ -528,15 +528,11 @@ public class SalesOrderService {
 
         var so = salesOrderRepository.findById(id).orElseThrow(() -> new SalesOrderNotFoundException(id));
 
-        var currentStatus = statusRepository
-                .findById(so.getStatusId())
-                .orElseThrow(() -> new StatusNotFoundException(so.getStatusId()));
-
         // Restore stock ONLY if the order was not already Cancelled: the cancel transition already
         // restored it, and restoring again would duplicate stock. Only enabled items still hold
         // stock (soft-deleted items were reversed on delete); a line already restored keeps a zero
         // ledger remainder, so the engine's reversal no-ops it and cannot credit it twice.
-        if (!"Cancelled".equals(currentStatus.getStatusName())) {
+        if (so.getStatus() != SalesOrderState.CANCELLED) {
             restoreAllLines(so.getCompanyStoreId(), itemRepository.findBySalesOrderIdAndEnabledTrue(id));
         }
 
@@ -602,10 +598,12 @@ public class SalesOrderService {
                 .finalPrice(finalPrice)
                 .promotionId(request.promotionId())
                 .statusId(defaultItemStatus.getId())
+                .status(INITIAL_ITEM_STATE)
                 .enabled(true)
                 .build();
 
         var saved = itemRepository.save(item);
+        recordItemCreated(so.getCompanyId(), saved);
         logger.info("Item added: id={}, soId={}", saved.getId(), salesOrderId);
 
         // Deduct stock for the new item, referencing its id so a later reversal is exact (W3-D6).
@@ -618,22 +616,12 @@ public class SalesOrderService {
         // Auto-transition from Draft → Active when the first item is added. Only a draft activates:
         // a Pending order whose lines were all soft-deleted has no transition back to Active, so
         // asking for one would refuse a legal add with a 409 that says nothing about it.
-        if (isFirstItem) {
-            var currentStatus = statusRepository
-                    .findById(so.getStatusId())
-                    .orElseThrow(() -> new StatusNotFoundException(so.getStatusId()));
-
-            if ("Draft".equals(currentStatus.getStatusName())) {
-                var activeStatus = statusRepository
-                        .findByTypeNameAndStatusName("SALES_ORDER", "Active")
-                        .orElseThrow(
-                                () -> new StatusNotFoundException("Status 'Active' not found for SALES_ORDER type"));
-                validateSOTransition(currentStatus, activeStatus);
-
-                so.setStatusId(activeStatus.getId());
-                salesOrderRepository.save(so);
-                logger.info("Order {} auto-transitioned from Draft to Active", salesOrderId);
-            }
+        if (isFirstItem && so.getStatus() == SalesOrderState.DRAFT) {
+            var activeStatus = statusRepository
+                    .findByTypeNameAndStatusName("SALES_ORDER", "Active")
+                    .orElseThrow(() -> new StatusNotFoundException("Status 'Active' not found for SALES_ORDER type"));
+            moveOrder(so, activeStatus.getId(), SalesOrderState.ACTIVE, "first line added");
+            logger.info("Order {} auto-transitioned from Draft to Active", salesOrderId);
         }
 
         return toItemResponse(saved);
@@ -736,23 +724,20 @@ public class SalesOrderService {
             throw new SalesOrderItemNotFoundException(itemId);
         }
 
-        var currentStatus = statusRepository
-                .findById(item.getStatusId())
-                .orElseThrow(() -> new StatusNotFoundException(item.getStatusId()));
-
-        var newStatus = StatusValidator.requireStatusOfType(statusRepository, request.statusId(), "SALES_ORDER_ITEM");
-        validateSOItemTransition(currentStatus, newStatus);
+        var newState = statusCatalog.requireItemState(request.statusId());
+        // Same order as the order-level put and for the same reason: the guard decides before the line's
+        // reversal runs, so a refused move restores nothing.
+        DocumentStates.requireTransition(item.getStatus(), newState);
 
         // W3-D4: cancelling a line restores it exactly as deleting it does, writing the reversal
         // that matches its SALE movement. A line cancelled and later deleted must not restore
         // twice: the first reversal leaves a zero uncovered remainder for the line's reference, so
         // the second reversal is a no-op by the engine's remainder arithmetic (W3-D6).
-        if ("Cancelled".equals(newStatus.getStatusName())) {
+        if (newState == SalesOrderItemState.CANCELLED) {
             applyStockChanges(List.of(reverse(so.getCompanyStoreId(), item.getProductVariantId(), item.getId())));
         }
 
-        item.setStatusId(newStatus.getId());
-        var updated = itemRepository.save(item);
+        var updated = moveItem(item, so.getCompanyId(), request.statusId(), newState, "status update");
 
         return toItemResponse(updated);
     }
@@ -792,22 +777,12 @@ public class SalesOrderService {
      * @throws SalesOrderAlreadyFinalizedException (409) when the status is terminal
      */
     private void requireOrderNotTerminal(SalesOrder so) {
-        var status = statusRepository
-                .findById(so.getStatusId())
-                .orElseThrow(() -> new StatusNotFoundException(so.getStatusId()));
-        var name = status.getStatusName();
-        if (isTerminalStatus(name)) {
-            throw new SalesOrderAlreadyFinalizedException(so.getId(), name);
+        var state = so.getStatus();
+        // `DocumentStates.isTerminal` answers true for a document with no state as well, and that is the
+        // fail-closed side: a state this enum does not know cannot be moved by anything this service does.
+        if (DocumentStates.isTerminal(state)) {
+            throw new SalesOrderAlreadyFinalizedException(so.getId(), state == null ? "missing" : state.name());
         }
-    }
-
-    /**
-     * A status with no outgoing transition is terminal. An unknown status counts as terminal as
-     * well: {@link #validateSOTransition} accepts nothing from it either.
-     */
-    private static boolean isTerminalStatus(String statusName) {
-        var allowed = SO_TRANSITIONS.get(statusName);
-        return allowed == null || allowed.isEmpty();
     }
 
     /**
@@ -825,8 +800,8 @@ public class SalesOrderService {
         if (!item.getEnabled()) {
             throw new SalesOrderItemNotModifiableException(item.getId(), "deleted");
         }
-        if (isCancelledLine(item, resolveCancelledItemStatusId())) {
-            throw new SalesOrderItemNotModifiableException(item.getId(), "Cancelled");
+        if (isCancelledLine(item)) {
+            throw new SalesOrderItemNotModifiableException(item.getId(), SalesOrderItemState.CANCELLED.name());
         }
     }
 
@@ -921,26 +896,96 @@ public class SalesOrderService {
         }
     }
 
-    // ─── Status Transition Validation ───────────────────────────────────
+    // ─── The typed state machine ────────────────────────────────────────
+    //
+    // Every path that moves an order or a line goes through the two helpers below and through nothing else.
+    // The decision itself is `DocumentStates` over `SalesOrderState`/`SalesOrderItemState` (ADR-0004
+    // decisions 2 and 3), which replaced the two `Map<String, Set<String>>` tables and the four name
+    // comparisons that used to sit next to them.
 
-    private void validateSOTransition(Status current, Status target) {
-        var currentName = current.getStatusName();
-        var targetName = target.getStatusName();
-
-        var allowed = SO_TRANSITIONS.get(currentName);
-        if (allowed == null || !allowed.contains(targetName)) {
-            throw new InvalidStatusTransitionException(currentName, targetName);
-        }
+    /**
+     * Writes a document's state and the catalog pointer together, and that pairing is the only reason this
+     * method exists: {@code status} is the enum's column and {@code status_id} is the pointer the screens and
+     * every existing reader still use, so a path that writes one and forgets the other either trips
+     * {@code V66}'s bridge (which refuses the two disagreeing) or leaves the response and the row saying
+     * different things.
+     *
+     * <p><b>This is the seam T8 deletes.</b> ADR-0004 migration step 9 drops {@code status_id} and its four
+     * indexes once every reader uses the new column; when that lands, this method loses one of its two
+     * arguments, its body becomes the {@code setStatus} that is left, and each of its call sites keeps
+     * working with the unused id removed. Until then it is the one place the pair is written — not repeated
+     * at the eight call sites — so T8 has one thing to delete instead of eight to find.</p>
+     */
+    private static void writeState(SalesOrder order, UUID statusId, SalesOrderState state) {
+        order.setStatusId(statusId);
+        order.setStatus(state);
     }
 
-    private void validateSOItemTransition(Status current, Status target) {
-        var currentName = current.getStatusName();
-        var targetName = target.getStatusName();
+    /** The line's half of {@link #writeState(SalesOrder, UUID, SalesOrderState)}, deleted by the same T8. */
+    private static void writeState(SalesOrderItem line, UUID statusId, SalesOrderItemState state) {
+        line.setStatusId(statusId);
+        line.setStatus(state);
+    }
 
-        var allowed = SO_ITEM_TRANSITIONS.get(currentName);
-        if (allowed == null || !allowed.contains(targetName)) {
-            throw new InvalidStatusTransitionException(currentName, targetName);
-        }
+    /**
+     * Moves an order: the guard decides, the pair is written, the row is saved and the move is appended to
+     * the history — all in the caller's transaction, which is what makes the deferred checks of ADR-0004
+     * decision 5 judge the state and its row together.
+     *
+     * @throws InvalidStatusTransitionException (409) when the enum does not declare the move; nothing is
+     *     written in that case, because the guard runs before the first write
+     */
+    private SalesOrder moveOrder(SalesOrder so, UUID targetStatusId, SalesOrderState to, String reason) {
+        var from = so.getStatus();
+        DocumentStates.requireTransition(from, to);
+        writeState(so, targetStatusId, to);
+        var saved = salesOrderRepository.save(so);
+        flushDocuments();
+        statusTransitionRecorder.recordMove(StatusSubject.SALES_ORDER, so.getCompanyId(), so.getId(), from, to, reason);
+        return saved;
+    }
+
+    /**
+     * The line's half of {@link #moveOrder(SalesOrder, UUID, SalesOrderState, String)}. The tenant is passed
+     * in because a line carries none: {@code sales_order_items} has no {@code company_id}, and the history row
+     * names the tenant of its parent order.
+     */
+    private SalesOrderItem moveItem(
+            SalesOrderItem line, UUID companyId, UUID targetStatusId, SalesOrderItemState to, String reason) {
+        var from = line.getStatus();
+        DocumentStates.requireTransition(from, to);
+        writeState(line, targetStatusId, to);
+        var saved = itemRepository.save(line);
+        flushDocuments();
+        statusTransitionRecorder.recordMove(StatusSubject.SALES_ORDER_ITEM, companyId, line.getId(), from, to, reason);
+        return saved;
+    }
+
+    /**
+     * Makes the document writes visible to the trigger that is about to judge them.
+     *
+     * <p><b>Why a flush, and not just an order of writes.</b> ADR-0004 decision 5's own checks are
+     * <em>deferred</em> to commit, which is what lets the two writes of a transaction happen in either order.
+     * Decision 6's check is not: it is a {@code BEFORE INSERT} trigger on {@code status_transition}, so it is
+     * immediate — it resolves the document the row names and refuses a row whose document it cannot see under
+     * that {@code company_id}. Hibernate defers its INSERTs and UPDATEs to the flush, so without this call the
+     * resolver reads a document the database has not received yet, and the history row is refused with a
+     * message about the wrong tenant that actually means "not written yet". It flushes the whole persistence
+     * context on purpose: a line's tenant is its parent order's, so a line's row needs the order's write
+     * visible as well.</p>
+     */
+    private void flushDocuments() {
+        salesOrderRepository.flush();
+    }
+
+    /**
+     * Appends the row that creates a line. The state itself is written by the builder of a line that has just
+     * been born, because the row does not exist until it is saved — and a creation row needs the id.
+     */
+    private void recordItemCreated(UUID companyId, SalesOrderItem line) {
+        flushDocuments();
+        statusTransitionRecorder.recordCreation(
+                StatusSubject.SALES_ORDER_ITEM, companyId, line.getId(), INITIAL_ITEM_STATE);
     }
 
     // ─── Stock Movement Through the Inventory Engine ───────────────────
@@ -1011,29 +1056,18 @@ public class SalesOrderService {
     }
 
     /**
-     * Resolves the terminal {@code Cancelled} status of a sales-order item, and fails closed when the
-     * row is missing (F-2 of {@code odd/tasks/sales-location-aware-stock.md}). Without it a line that
-     * was already given back by the engine cannot be told apart from one that still holds stock, and
-     * the previous {@code orElse(null)} answered "not cancelled" for every line: the item-level
-     * endpoints let a cancelled line be modified again and the order-level PUT sold it as if it held
-     * stock. A write that cannot classify its lines is refused, never classified on a guess.
+     * A line in the terminal {@code CANCELLED} state: it holds no stock and is not revived.
      *
-     * @throws StatusNotFoundException when the reference row V3 seeds is absent
+     * <p><b>Classification cannot fail any more, and that is the repair of F-2.</b>
+     * {@code odd/tasks/sales-location-aware-stock.md} records the original defect — a lookup that answered
+     * {@code orElse(null)} classified every line as "not cancelled", so a cancelled line was modified again
+     * and the order-level PUT sold it as if it still held stock — and the fix then was to refuse the write
+     * when the {@code Cancelled} catalog row could not be read. The state is a column now (ADR-0004 decision
+     * 3), so there is nothing to read and nothing to guess: a line whose state is not {@code CANCELLED} is
+     * live, and the question has one answer.</p>
      */
-    private UUID resolveCancelledItemStatusId() {
-        return statusRepository
-                .findByTypeNameAndStatusName("SALES_ORDER_ITEM", "Cancelled")
-                .map(Status::getId)
-                .orElseThrow(
-                        () -> new StatusNotFoundException("Status 'Cancelled' not found for SALES_ORDER_ITEM type"));
-    }
-
-    /**
-     * A line whose status is the terminal {@code Cancelled}: it holds no stock and is not revived.
-     * The id is never null — {@link #resolveCancelledItemStatusId()} refuses instead of guessing.
-     */
-    private static boolean isCancelledLine(SalesOrderItem line, UUID cancelledItemStatusId) {
-        return cancelledItemStatusId.equals(line.getStatusId());
+    private static boolean isCancelledLine(SalesOrderItem line) {
+        return line.getStatus() == SalesOrderItemState.CANCELLED;
     }
 
     private SaleChange deduct(UUID companyStoreId, UUID variantId, BigDecimal quantity, UUID itemId) {
@@ -1079,6 +1113,7 @@ public class SalesOrderService {
                 so.getOrderDate(),
                 so.getStatusId(),
                 statusName,
+                so.getStatus() == null ? null : so.getStatus().name(),
                 so.getTotalAmount(),
                 so.getPaymentMethodId(),
                 so.getEnabled(),
@@ -1104,6 +1139,7 @@ public class SalesOrderService {
                 item.getPromotionId(),
                 item.getStatusId(),
                 statusName,
+                item.getStatus() == null ? null : item.getStatus().name(),
                 item.getCreatedAt(),
                 item.getUpdatedAt());
     }
