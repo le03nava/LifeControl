@@ -577,18 +577,26 @@ public class InventoryService {
                     + " referenceType=" + referenceType + ", referenceId=" + referenceId);
         }
 
-        // 1. The ledger, not a fresh allocation, says what each location gave.
-        var uncovered = uncoveredRemainder(referenceType, referenceId);
-        if (uncovered.isEmpty()) {
+        // 1. The ledger, not the legacy table, says what each location gave: the rows still open are the
+        //    remainder. There is no subtraction to do and nothing to compare it against — the set of open rows
+        //    IS the amount a reversal credits, which is why no remainder arithmetic survives this slice
+        //    (odd/tasks/ledger-mirror-retirement.md, S3).
+        var openSales = openLedgerSales(referenceType, referenceId);
+        if (openSales.isEmpty()) {
             // Nothing was sold under this reference, or everything is already reversed: no-op.
             return;
         }
+        var uncovered = new LinkedHashMap<SaleBalanceKey, BigDecimal>();
+        openSales.forEach((key, sales) -> {
+            var total = BigDecimal.ZERO;
+            for (var sale : sales) {
+                total = total.add(sale.quantity());
+            }
+            uncovered.put(key, total);
+        });
 
         // 2. Group per (variant, store) in a deterministic order, then reverse each scope with the
-        //    documented lock order storeStock -> locationBalance. The ledger needs one more fact per scope:
-        //    which of the sale's ledger rows are still open, because a reversal names the row it reverses
-        //    and never re-derives a remainder (decision 3).
-        var openSales = openLedgerSales(referenceType, referenceId);
+        //    documented lock order storeStock -> locationBalance.
         var keys = new ArrayList<>(uncovered.keySet());
         keys.sort(Comparator.comparing(SaleBalanceKey::productVariantId)
                 .thenComparing(SaleBalanceKey::companyStoreId)
@@ -954,26 +962,6 @@ public class InventoryService {
     }
 
     /**
-     * The per-location remainder of one reference: {@code SUM(SALE) - SUM(SALE_REVERSAL)}, keeping
-     * only positive amounts. A non-positive amount is already reversed and must not be credited
-     * again. Rows of any other type are ignored: only a sale and its reversal share a sale reference.
-     */
-    private Map<SaleBalanceKey, BigDecimal> uncoveredRemainder(String referenceType, UUID referenceId) {
-        var uncovered = new LinkedHashMap<SaleBalanceKey, BigDecimal>();
-        for (var movement : inventoryMovementRepository.findByReferenceTypeAndReferenceId(referenceType, referenceId)) {
-            var key = new SaleBalanceKey(
-                    movement.getProductVariantId(), movement.getCompanyStoreId(), movement.getStoreLocationId());
-            if (movement.getMovementType() == MovementType.SALE) {
-                uncovered.merge(key, orZero(movement.getQuantity()), BigDecimal::add);
-            } else if (movement.getMovementType() == MovementType.SALE_REVERSAL) {
-                uncovered.merge(key, orZero(movement.getQuantity()).negate(), BigDecimal::add);
-            }
-        }
-        uncovered.values().removeIf(amount -> amount.signum() <= 0);
-        return uncovered;
-    }
-
-    /**
      * Credits one {@code (variant, store)} scope back to the locations of its remainder and to the
      * store's aggregate. The balance rows are locked in {@code store_location_id} order, after the
      * per-store stock row.
@@ -987,11 +975,11 @@ public class InventoryService {
      * in it, and {@code uq_movement_one_reversal} is what bounds the set instead — at most one reversal per
      * reversed row.</p>
      *
-     * <p>The one case the ledger cannot express is refused loudly rather than repaired:
-     * {@code V61}'s shape rule demands that a reversal move <em>exactly</em> the quantity of the row it
-     * names, so a legacy remainder that is a strict part of an open sale row (a partial reversal) has no shape
-     * in the ledger. Raising there is the point: a silent partial reversal would free a fraction of the rows
-     * the original consumed, which is the remainder arithmetic decision 3 removes.</p>
+     * <p>Each reversal states the caller's source and moves exactly the quantity of the row it names
+     * ({@code V61}), and {@code uq_movement_one_reversal} bounds the set: at most one reversal per movement. The
+     * "partial remainder" this method used to refuse cannot arise any more, and that is a consequence worth
+     * naming: the amount to credit is now the sum of the open rows themselves, so there is no second arithmetic
+     * that could disagree with them.</p>
      */
     private void reverseScope(
             UUID productVariantId,
@@ -1014,7 +1002,6 @@ public class InventoryService {
             var amount = entry.getValue();
             var open = openSales.getOrDefault(
                     new SaleBalanceKey(productVariantId, companyStoreId, entry.getKey()), List.of());
-            requireTheWholeRemainderIsOpen(productVariantId, companyStoreId, entry.getKey(), amount, open);
             location.setStock(orZero(location.getStock()).add(amount));
             productVariantLocationRepository.save(location);
             var reversalMovement = newMovement(
@@ -1028,15 +1015,19 @@ public class InventoryService {
                     createdBy);
             inventoryMovementRepository.save(reversalMovement);
             for (var sale : open) {
+                // The reversal names the SALE LINE, not the mirrored row it used to hang off: its own source
+                // travels from the caller, and reverses_movement_id is what says which movement it corrects.
+                // A reversal row is outside uq_movement_source (the predicate is reverses_movement_id IS NULL),
+                // so it needs no write sequence of its own.
                 stockLedgerWriter.bookSaleReversal(
                         booking(
-                                StockLedgerWriter.MIRRORED_SOURCE_TYPE,
+                                referenceType,
                                 companyId,
                                 companyStoreId,
                                 entry.getKey(),
                                 productVariantId,
                                 createdBy,
-                                reversalMovement.getId(),
+                                referenceId,
                                 StockLedgerWriter.SINGLE_WRITE),
                         sale.quantity(),
                         sale.ledgerMovementId());
@@ -1087,6 +1078,27 @@ public class InventoryService {
      * One remainder the ledger still holds open: a {@code SALE} row no reversal names yet, and the quantity
      * it moved. It is what a reversal has to name to free exactly the rows the sale consumed.
      */
+    private static InventoryMovement newMovement(
+            UUID productVariantId,
+            UUID companyStoreId,
+            UUID storeLocationId,
+            MovementType movementType,
+            BigDecimal quantity,
+            String referenceType,
+            UUID referenceId,
+            String createdBy) {
+        return InventoryMovement.builder()
+                .productVariantId(productVariantId)
+                .companyStoreId(companyStoreId)
+                .storeLocationId(storeLocationId)
+                .movementType(movementType)
+                .quantity(quantity)
+                .referenceType(referenceType)
+                .referenceId(referenceId)
+                .createdBy(createdBy)
+                .build();
+    }
+
     private record OpenSale(UUID ledgerMovementId, BigDecimal quantity) {}
 
     /**
@@ -1172,12 +1184,13 @@ public class InventoryService {
      * grown and sold again holds two open rows at one location — and it is the set a reversal has to name, because
      * {@code V61} demands a reversal move exactly the quantity of the row it names.</p>
      *
-     * <p><b>Rows booked before this identity existed are still reachable</b>, and that is why the mirror is read
-     * as a second source instead of being deleted: a sale written before the deploy carries {@code
-     * INVENTORY_MOVEMENT} and the id of the legacy row beside it, so the per-reference read answers nothing and
-     * {@link #openLedgerSalesBookedOnTheMirror} answers for it. A reference with rows of both identities is
-     * answered by the first read and then refused by {@link #requireTheWholeRemainderIsOpen} if the legacy
-     * remainder is larger — loudly, which is the correct answer to a ledger holding two identities for one line.
+     * <p><b>Rows booked before this identity existed are still reachable, and both identities are merged</b>: a
+     * sale written before the deploy carries {@code INVENTORY_MOVEMENT} and the id of the legacy row beside it, so
+     * {@link #openLedgerSalesBookedOnTheMirror} answers for those by the mirror. The two reads are unioned by
+     * ledger movement id rather than one replacing the other, because a reference whose stock spans the deploy
+     * holds rows of both shapes and a reversal has to give back every open row it can name — refusing that
+     * reference, which is what the legacy remainder arithmetic used to do, was an artefact of deriving the amount
+     * from a second table. The mirror half dies with the table (T4); this method, its name and its caller do not.
      * </p>
      */
     private Map<SaleBalanceKey, List<OpenSale>> openLedgerSales(String referenceType, UUID referenceId) {
@@ -1188,10 +1201,23 @@ public class InventoryService {
                             key -> new ArrayList<>())
                     .add(new OpenSale(sale.movementId(), orZero(sale.quantity())));
         }
-        if (!open.isEmpty()) {
-            return open;
-        }
-        return openLedgerSalesBookedOnTheMirror(referenceType, referenceId);
+        return mergeOpenSales(open, openLedgerSalesBookedOnTheMirror(referenceType, referenceId));
+    }
+
+    /** Both identities of one reference, by key and deduplicated by the ledger row each entry names. */
+    private static Map<SaleBalanceKey, List<OpenSale>> mergeOpenSales(
+            Map<SaleBalanceKey, List<OpenSale>> first, Map<SaleBalanceKey, List<OpenSale>> second) {
+        second.forEach((key, sales) -> {
+            var known = first.computeIfAbsent(key, ignored -> new ArrayList<>());
+            for (var sale : sales) {
+                var alreadyThere = known.stream()
+                        .anyMatch(entry -> entry.ledgerMovementId().equals(sale.ledgerMovementId()));
+                if (!alreadyThere) {
+                    known.add(sale);
+                }
+            }
+        });
+        return first;
     }
 
     /**
@@ -1218,12 +1244,16 @@ public class InventoryService {
 
         var open = new LinkedHashMap<SaleBalanceKey, List<OpenSale>>();
         for (var sale : sales) {
-            var ledgerMovementId = stockLedgerWriter
-                    .mirroredMovementId(sale.getId(), StockLedgerWriter.SALE)
-                    .orElseThrow(() -> new IllegalStateException("The legacy ledger holds SALE movement " + sale.getId()
-                            + " of reference " + referenceType + "/" + referenceId + " and the stock ledger holds no"
-                            + " movement that mirrors it, so it cannot be reversed: a sale booked before this"
-                            + " slice's writers existed has no ledger row to name (ADR-0001 decision 3)"));
+            var mirrored = stockLedgerWriter.mirroredMovementId(sale.getId(), StockLedgerWriter.SALE);
+            if (mirrored.isEmpty()) {
+                // No mirror twin. Since T2 that is the NORMAL case for a sale booked by the current writer: its
+                // ledger row names the line, and the primary read above already carries it. A row that is neither
+                // mirrored nor line-keyed is a deploy-window sale, and the migration that drops the mirror refuses
+                // while one is still unreversed (odd/tasks/ledger-mirror-retirement.md, D-1) rather than this read
+                // guessing at it.
+                continue;
+            }
+            var ledgerMovementId = mirrored.get();
             if (stockLedgerWriter.isReversed(ledgerMovementId)) {
                 continue;
             }
@@ -1234,49 +1264,6 @@ public class InventoryService {
                     .add(new OpenSale(ledgerMovementId, orZero(sale.getQuantity())));
         }
         return open;
-    }
-
-    /**
-     * Refuses a remainder the ledger cannot express as a set of whole reversals.
-     *
-     * <p>{@code V61} allows a reversal to move exactly the quantity of the row it names, and no more than one
-     * reversal per row. If the legacy remainder at one location is not the sum of the sale rows still open
-     * there, the legacy path is reversing a part of a sale — the remainder arithmetic decision 3 removes — and
-     * the ledger has no shape for it. The message says so instead of booking a reversal that frees the wrong
-     * rows.</p>
-     */
-    private static void requireTheWholeRemainderIsOpen(
-            UUID productVariantId, UUID companyStoreId, UUID storeLocationId, BigDecimal amount, List<OpenSale> open) {
-        var openTotal = open.stream().map(OpenSale::quantity).reduce(BigDecimal.ZERO, BigDecimal::add);
-        if (openTotal.compareTo(amount) != 0) {
-            throw new IllegalStateException("The legacy ledger holds a remainder of " + amount + " for variant "
-                    + productVariantId + " in store " + companyStoreId + " at location " + storeLocationId
-                    + ", and the stock ledger holds " + openTotal
-                    + " of sale rows no reversal names there. A reversal must move exactly the quantity of the row"
-                    + " it names and may happen once per row (V61), so a partial remainder has no ledger shape: a"
-                    + " partial correction is a new movement, not a reversal (ADR-0001 decision 3)");
-        }
-    }
-
-    private static InventoryMovement newMovement(
-            UUID productVariantId,
-            UUID companyStoreId,
-            UUID storeLocationId,
-            MovementType movementType,
-            BigDecimal quantity,
-            String referenceType,
-            UUID referenceId,
-            String createdBy) {
-        return InventoryMovement.builder()
-                .productVariantId(productVariantId)
-                .companyStoreId(companyStoreId)
-                .storeLocationId(storeLocationId)
-                .movementType(movementType)
-                .quantity(quantity)
-                .referenceType(referenceType)
-                .referenceId(referenceId)
-                .createdBy(createdBy)
-                .build();
     }
 
     /** NULL stock only means "never set" — a row read back before its default is materialized. */

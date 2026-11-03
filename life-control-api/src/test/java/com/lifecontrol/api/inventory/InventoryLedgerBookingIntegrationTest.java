@@ -540,25 +540,22 @@ class InventoryLedgerBookingIntegrationTest extends AbstractPostgresIntegrationT
     }
 
     /**
-     * A reference whose ledger holds <b>both</b> identities is refused, and nothing is credited.
+     * A reference whose ledger holds <b>both</b> identities reverses every row it can name, and both copies of the
+     * fact end at the same numbers.
      *
-     * <p><b>Why the refusal is the correct answer and not a missing feature.</b> The legacy remainder of this
-     * reference is the hand-written sale <em>plus</em> the post-{@code V73} one, while the per-reference read can
-     * only name the rows the line identity holds open. Reversing the whole remainder would credit 7 back to the two
-     * legacy balances while the ledger booked a reversal of 3 — the quantity of the only row that read can name —
-     * and nothing downstream would catch it: {@code V61}'s shape rule is satisfied, because the reversal row does
-     * move exactly the quantity of the row it names. That is the half-reversal, and it is measured rather than
-     * argued: with {@code requireTheWholeRemainderIsOpen} removed, this case's reference reverses silently and the
-     * two copies of the fact end at different numbers.</p>
-     *
-     * <p><b>The tempting fix is refused for its own reason.</b> Merging the two identities into one open set would
-     * book a reversal of a row the remainder did not name — and it does not even get that far: the mirror read
-     * resolves each legacy row to the ledger row that mirrors it, and a post-{@code V73} sale has none, so the merge
-     * throws about a missing mirror instead of deciding anything. Measured the same way.</p>
+     * <p><b>What changed, and why this case used to be the opposite one.</b> Until T2 the amount a reversal
+     * credited was computed from {@code inventory_movements} and then compared, row by row, against the ledger's
+     * open rows; a reference holding 4 under the mirror identity and 3 under the line identity had a legacy
+     * remainder of 7 the ledger could only name 3 of, so it was refused. The refusal was never a property of the
+     * ledger — it was an artefact of deriving the amount from a second table. From T2 the amount <b>is</b> the set
+     * of open rows ({@code odd/tasks/ledger-mirror-retirement.md}, S3), the two reads are unioned by ledger
+     * movement id, and each reversal names the row it gives back, so the whole reference is reversible in one go:
+     * two reversal rows, 4 and 3, each satisfying {@code V61}'s rule that a reversal moves exactly the quantity of
+     * the row it names.</p>
      */
     @Test
-    @DisplayName("a reference holding both the mirror and the line identity is refused, not half-reversed")
-    void aReferenceHoldingBothIdentitiesIsRefusedInsteadOfHalfReversed() {
+    @DisplayName("a reference holding both the mirror and the line identity reverses both, not half of it")
+    void aReferenceHoldingBothIdentitiesReversesBothOfThem() {
         applyReceipt(variantId, salesLocationId, "10", UUID.randomUUID());
         var referenceId = UUID.randomUUID();
         insertALegacySaleAndItsLedgerTwin(referenceId, "4");
@@ -568,27 +565,29 @@ class InventoryLedgerBookingIntegrationTest extends AbstractPostgresIntegrationT
                 .as("the state this case is about: two SALE rows of one reference, one on each identity")
                 .hasSize(2);
 
-        assertThatThrownBy(() -> reverse(referenceId))
-                .as("the legacy remainder is 7 and the ledger can name only the 3 the line identity holds open, so "
-                        + "the reversal is refused instead of crediting 7 while naming 3")
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("no ledger shape")
-                .hasMessageContaining("variant " + variantId);
+        reverse(referenceId);
 
-        assertThat(ledgerMovementsOf(variantId, StockLedgerWriter.SALE_REVERSAL))
-                .as("the refusal stored nothing: no reversal row in the ledger")
-                .isEmpty();
-        assertThat(legacyMovementsOf(variantId, "SALE_REVERSAL"))
-                .as("and no legacy reversal row either, so the refusal happened before the first write")
-                .isEmpty();
+        var reversals = ledgerMovementsOf(variantId, StockLedgerWriter.SALE_REVERSAL);
+        assertThat(reversals)
+                .as("one reversal per open row, because a reversal moves exactly the quantity of the row it names")
+                .hasSize(2);
+        assertThat(reversals)
+                .extracting(LedgerMovement::quantity)
+                .usingElementComparator(BigDecimal::compareTo)
+                .containsExactlyInAnyOrder(new BigDecimal("4"), new BigDecimal("3"));
+        assertThat(reversals)
+                .as("and the reversal names the line beside the sale it corrects, so the ledger states one source "
+                        + "for both halves of the reference")
+                .allSatisfy(reversal -> assertThat(reversal.sourceId()).isEqualTo(referenceId));
         assertThat(storeStockOf(variantId))
-                .as("the two legacy balances are what the two sales left, untouched")
-                .isEqualByComparingTo("3");
+                .as("the receipt put 10 in, the two sales took 7 out, and the reversal gives the 7 back")
+                .isEqualByComparingTo("10");
         assertThat(locationStockOf(variantId, salesLocationId))
-                .hasValueSatisfying(stock -> assertThat(stock).isEqualByComparingTo("3"));
+                .hasValueSatisfying(stock -> assertThat(stock).isEqualByComparingTo("10"));
         assertThat(positionOf(variantId))
-                .as("and the projection is the same number, so nothing was credited on one side only")
-                .isEqualByComparingTo("3");
+                .as("and the projection agrees, so the two copies end at the same number")
+                .isEqualByComparingTo("10");
+        assertTheLedgerAgreesWithTheLegacyBalances("10", "0", "10");
     }
 
     /**

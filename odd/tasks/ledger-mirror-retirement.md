@@ -6,7 +6,16 @@
 **Status**: implemented — T1 is the receipt's own line identity; T2–T5 are the rest of ADR-0001's last stage
 (the reversal's identity, the write path that stops maintaining two balances, the drops that delete
 `inventory_movements` and the two legacy `stock` columns, and the deletion of `InventoryService` with the
-package-cycle break). `## Tasks` names what each one owes and `## Log` states what was measured before any of
+package-cycle break). `## Tasks` names what each one owes and `## Decisions taken here
+
+**D-1 — a sale booked before `V73` is reversible until the mirror is dropped, and not after.** The fallback that
+finds those rows is deleted with `inventory_movements` in T4, and from that moment nothing maps a sale line id to a
+ledger row whose source is the mirror. The drop's migration therefore asserts that no unreversed sale movement
+carrying the mirror identity exists, and refuses with the operator's next step in the message. The alternative — a
+backfill that rewrites those sources to the line identity — was refused because it would have to invent a
+`write_seq` for rows that never had one, and an invented identity is the one thing `V73` exists to stop.
+
+## Log` states what was measured before any of
 it was written.
 **Created**: 2026-11-03
 **Risk**: items **1**, **2**, **3** and **6** — item 1 because the drops delete the only remaining copy of two
@@ -46,12 +55,19 @@ S2. **A receipt line's ledger identity is its own row.** `RECEIPT` movements car
     location** book two `RECEIPT` rows whose sources name the line, and no source states the mirror. Its RED is
     the assertion at `:449-455`, which today requires `MIRRORED_SOURCE_TYPE` and would fail under the new shape.
 
-S3. **A sale reversal resolves identity without the mirror.** The remainder a reversal credits is computed from
-    `stock_movement` by source (`SUM(SALE) − SUM(SALE_REVERSAL)` per variant, store and location) instead of
-    from `inventory_movements:960-968`, and the reversal row's `source_id` is the sale line's identity — not the
-    legacy reversal row's id (`InventoryService:1028-1040`). `reverses_movement_id` still names the movement
-    being corrected, which is what keeps the reversal outside `uq_movement_source` (its predicate is
-    `reverses_movement_id IS NULL`).
+S3. **A sale reversal resolves identity from the ledger.** What a reversal credits per location is the sum of
+    the sale rows the ledger still holds open — `StockLedgerWriter.openSales` already answers that, per variant,
+    store and location — and the legacy arithmetic `SUM(SALE) − SUM(SALE_REVERSAL)` over
+    `inventory_movements:960-968` stops being the source of that number. The reversal row's own source is the
+    **sale line**, not the mirrored reversal row's id (`InventoryService:1028-1040`); `reverses_movement_id` still
+    names the movement being corrected, which is what keeps a reversal outside `uq_movement_source` (its predicate
+    is `reverses_movement_id IS NULL`).
+    **Two consequences, both stated rather than discovered later**: (a) the refusal
+    `requireTheWholeRemainderIsOpen` has nothing left to compare once the remainder *is* the set of open rows, so
+    it goes and the case that pinned it is rewritten to what is now true — a reference whose stock spans the
+    deploy reverses **both** identities instead of being refused, because the ledger holds both rows and each
+    reversal names its own; (b) the mirror read survives this slice **only** as the fallback that finds a sale
+    booked before `V73` by the row it mirrors, and it dies with the table in T4.
 
 S4. **The write path stops maintaining a second balance.** Receipts, sales and adjustments stop writing
     `product_variant_locations.stock` and `product_variant_store_stock.stock`; `stock_movement` plus `V61`'s
@@ -79,10 +95,19 @@ S8. Every rule above gets a case that fails before it is implemented, and the tw
 | ID | S# | Work | Route |
 | --- | --- | --- | --- |
 | T1 | S2, S8 | The receipt's line identity: `GoodsReceiptService` hands the writer the line, `InventoryService.applyReceipt` books `GOODS_RECEIPT_ITEM` + `goods_receipt_items.id` while the legacy row keeps the document, and the grain case (two lines, one variant, one location) is written first | **done** — `4fb4c6c4` |
-| T2 | S3, S8 | The reversal's identity off the mirror: the remainder read moves to `stock_movement`, the reversal names the line, and the mixed-identity refusal that only existed because of the mirror is retired with a case that states why | inline |
+| T2 | S3, S8 | The reversal's identity off the mirror: the remainder read moves to `stock_movement`, the reversal names the line, and the mixed-identity refusal that only existed because of the mirror is retired with a case that states why | **done** — inline, `5ad8fa7a` |
 | T3 | S4, S7, S8 | The write path: receipts, sales and adjustments stop writing the two legacy columns, and the measure-unit guard asks the ledger | inline |
 | T4 | S5, S6, S8 | The drops, the deletion of `InventoryService`, the move of `InsufficientStockException` and the cycle break, with the ~14 test files that name the dropped objects updated | inline |
 | T5 | S1, S5 | The records: `odd/tasks/inventory-ledger.md` T5d/T6 closed with what landed and what the drops removed, and this record's evidence | inline |
+
+## Decisions taken here
+
+**D-1 — a sale booked before `V73` is reversible until the mirror is dropped, and not after.** The fallback that
+finds those rows is deleted with `inventory_movements` in T4, and from that moment nothing maps a sale line id to a
+ledger row whose source is the mirror. The drop's migration therefore asserts that no unreversed sale movement
+carrying the mirror identity exists, and refuses with the operator's next step in the message. The alternative — a
+backfill that rewrites those sources to the line identity — was refused because it would have to invent a
+`write_seq` for rows that never had one, and an invented identity is the one thing `V73` exists to stop.
 
 ## Log
 
@@ -150,3 +175,27 @@ Evidence: the six suites this touches (`InventoryLedgerBookingIntegrationTest`, 
 other cases state it: the legacy row names the line too. That failure is the reason the fixture list above is not
 the evidence of record — the whole suite is, and six suites agreeing with a change is not the same claim as the
 tree agreeing with it.
+
+**2026-11-03 — T2 landed: the reversal names the line, and the remainder is the open set.** What the code had to
+learn, in the order it learned it:
+
+- **The union, not the fallback.** Keeping "primary read first, mirror only if empty" would have been the smaller
+  edit and the wrong one: a reference whose stock spans the deploy holds rows of both shapes, and with `if empty`
+  it would silently reverse only the half the first read sees. The two reads are now unioned by ledger movement
+  id, and the mixed-identity case asserts both halves are reversed.
+- **The mirror reader had to stop throwing.** It used to raise when a legacy SALE row had no ledger twin, because
+  a missing twin meant a broken deploy window. From T2 a post-`V73` sale's ledger row names the LINE, so "no
+  mirror twin" is the normal case, and the throw fired on **31 tests** across the sales surfaces before it was
+  changed to skip. Learning that took one full-suite run: the six suites I would have chosen were not the ones
+  that broke.
+- **The unit fixture had to stop claiming every legacy row was mirrored.** `InventoryServiceSaleMovementTest`
+  stubbed `mirroredMovementId` to a random id for every row, which the union turned into "every legacy sale is
+  open", so cases began locking store rows they never stated. The stub now answers `Optional.empty()`, which is
+  what the post-T2 world looks like, and cases that want a reversal to actually happen state what the ledger
+  holds open through a new `givenOpenSales` helper.
+- **The refusal case became its opposite**, and its javadoc says so: it used to argue that refusing was correct,
+  now it argues that the refusal was an artefact of deriving the amount from a second table.
+
+Evidence: `InventoryLedgerBookingIntegrationTest` 15/15 and `InventoryServiceSaleMovementTest` 37/37 green, and
+the full suite: **1066 result files, 4504 tests, 0 failures, 0 errors, 0 skipped**, `spotlessCheck` and
+`spotbugsMain` clean. The slice is **374 changed lines** (236+/138−).

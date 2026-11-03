@@ -47,6 +47,7 @@ import com.lifecontrol.api.store.model.CompanyStore;
 import com.lifecontrol.api.store.repository.CompanyStoreRepository;
 import com.lifecontrol.api.store.service.CompanyStoreOwnerResolver;
 import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -185,9 +186,11 @@ class InventoryServiceSaleMovementTest {
         // healthy ledger answers the two questions the reversal path asks it (which ledger row mirrors a
         // legacy sale row, and whether a reversal already names it), so the legacy behaviour the cases
         // below assert is reached instead of the writer's own refusal.
-        lenient()
-                .when(stockLedgerWriter.mirroredMovementId(any(), anyString()))
-                .thenReturn(Optional.of(UUID.randomUUID()));
+        // The fixture models the world after T2: a sale's ledger row names the LINE, so a legacy row has no
+        // mirror twin and the reversal must not go looking for one. With a twin stubbed here the fixture would be
+        // claiming every legacy sale is also reachable by the mirror, which is exactly the second truth S3
+        // removes — and it would make unrelated cases consult a store row they never stated.
+        lenient().when(stockLedgerWriter.mirroredMovementId(any(), anyString())).thenReturn(Optional.empty());
 
         // The engine derives the tenant from the store argument before it reads the definition, so
         // every non-quantity path needs the fixture's store to exist. Lenient because the quantity
@@ -333,9 +336,50 @@ class InventoryServiceSaleMovementTest {
                 .build();
     }
 
+    /** What the ledger holds open for a reference: the set a reversal credits (S3). */
+    private void givenOpenSales(InventoryMovement... sales) {
+        var open = new ArrayList<StockLedgerWriter.OpenSale>();
+        for (var sale : sales) {
+            open.add(new StockLedgerWriter.OpenSale(
+                    sale.getId(),
+                    sale.getCompanyStoreId(),
+                    sale.getStoreLocationId(),
+                    sale.getProductVariantId(),
+                    sale.getQuantity()));
+        }
+        lenient()
+                .when(stockLedgerWriter.openSales(REFERENCE_TYPE, REFERENCE_ID))
+                .thenReturn(open);
+    }
+
     private void givenLedger(InventoryMovement... movements) {
         when(inventoryMovementRepository.findByReferenceTypeAndReferenceId(REFERENCE_TYPE, REFERENCE_ID))
                 .thenReturn(List.of(movements));
+        // The reversal no longer derives its amount from the legacy rows: it credits the rows the LEDGER holds
+        // open (odd/tasks/ledger-mirror-retirement.md, S3), so the fixture has to answer that question. It states
+        // it by netting the very rows the case states — a sale whose location was already reversed in full is not
+        // open — which keeps each case's intent readable instead of hiding a second truth in the stub.
+        var open = new ArrayList<StockLedgerWriter.OpenSale>();
+        var net = new LinkedHashMap<UUID, BigDecimal>();
+        for (var movement : movements) {
+            var location = movement.getStoreLocationId();
+            if (movement.getMovementType() == MovementType.SALE) {
+                net.merge(location, movement.getQuantity(), BigDecimal::add);
+                open.add(new StockLedgerWriter.OpenSale(
+                        movement.getId(),
+                        movement.getCompanyStoreId(),
+                        movement.getStoreLocationId(),
+                        movement.getProductVariantId(),
+                        movement.getQuantity()));
+            } else if (movement.getMovementType() == MovementType.SALE_REVERSAL) {
+                net.merge(location, movement.getQuantity().negate(), BigDecimal::add);
+            }
+        }
+        open.removeIf(sale ->
+                net.getOrDefault(sale.storeLocationId(), BigDecimal.ZERO).signum() <= 0);
+        lenient()
+                .when(stockLedgerWriter.openSales(REFERENCE_TYPE, REFERENCE_ID))
+                .thenReturn(open);
     }
 
     // ---------------------------------------------------------------- quantity guard
@@ -983,6 +1027,16 @@ class InventoryServiceSaleMovementTest {
                             .referenceId(REFERENCE_ID)
                             .createdBy(ACTOR)
                             .build()));
+            givenOpenSales(InventoryMovement.builder()
+                    .productVariantId(SECOND_VARIANT_ID)
+                    .companyStoreId(STORE_ID)
+                    .storeLocationId(LOCATION_A)
+                    .movementType(MovementType.SALE)
+                    .quantity(new BigDecimal("4.00"))
+                    .referenceType(REFERENCE_TYPE)
+                    .referenceId(REFERENCE_ID)
+                    .createdBy(ACTOR)
+                    .build());
 
             // The naive order: the deduction first, and its key sorts first too. A batch that trusted
             // its input order would write the SALE row before the reversal read the ledger, and the
@@ -1036,6 +1090,16 @@ class InventoryServiceSaleMovementTest {
                             .referenceId(REFERENCE_ID)
                             .createdBy(ACTOR)
                             .build()));
+            givenOpenSales(InventoryMovement.builder()
+                    .productVariantId(SECOND_VARIANT_ID)
+                    .companyStoreId(STORE_ID)
+                    .storeLocationId(LOCATION_A)
+                    .movementType(MovementType.SALE)
+                    .quantity(new BigDecimal("4.00"))
+                    .referenceType(REFERENCE_TYPE)
+                    .referenceId(REFERENCE_ID)
+                    .createdBy(ACTOR)
+                    .build());
 
             // The reversal (higher key) runs first, so without a pre-lock phase its own re-lock would take
             // SECOND_VARIANT before the deduction's re-lock takes VARIANT and the captured order would be
