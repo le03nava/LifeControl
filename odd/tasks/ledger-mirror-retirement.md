@@ -259,3 +259,12 @@ Two decisions recorded here so the next slice does not have to re-derive them: *
 `MANUAL_ADJUSTMENT` and the movement's own id — not shape (b) of the document identity, because nothing retries a
 manual edit) and **the guard move** (the measure-unit refusal must ask `stock_movement` or it disappears silently
 with the columns).
+
+**2026-11-03 — delivered as ONE pull request, on the maintainer's choice.** The branch is 1042 authored lines in
+four commits (three of code and records, one parking T3c), above the ~400-line advisory budget. The one honest
+slicing pass was done and its boundaries are real: T1+T2 (the ledger's identity stops needing the mirror) and
+T3a+b (the split reads the projection) are each green and each separately reviewable, which is why they are
+separate commits with separate evidence. The maintainer chose a single PR over a chain after seeing both cuts, so
+the budget is exceeded deliberately and with the reason stated here rather than in a review comment later. T3c and
+T4 — which are where the columns and the service actually die — are **not** in this PR and the issue stays open for
+them.
