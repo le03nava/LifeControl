@@ -1,7 +1,7 @@
 package com.lifecontrol.api.product.service;
 
 import com.lifecontrol.api.common.auth.CurrentUserContext;
-import com.lifecontrol.api.inventory.repository.InventoryMovementRepository;
+import com.lifecontrol.api.inventory.ledger.StockLedgerWriter;
 import com.lifecontrol.api.inventory.repository.StockPositionRepository;
 import com.lifecontrol.api.inventory.service.InventoryService;
 import com.lifecontrol.api.measureunit.exception.MeasureUnitNotFoundException;
@@ -89,9 +89,9 @@ public class ProductVariantService {
     private final CurrentUserContext currentUserContext;
     private final InventoryService inventoryService;
     private final MeasureUnitRepository measureUnitRepository;
-    private final InventoryMovementRepository inventoryMovementRepository;
     private final ProductAttributeCatalogService productAttributeCatalogService;
     private final StockPositionRepository stockPositionRepository;
+    private final StockLedgerWriter stockLedgerWriter;
 
     public ProductVariantService(
             ProductVariantRepository productVariantRepository,
@@ -103,9 +103,9 @@ public class ProductVariantService {
             CurrentUserContext currentUserContext,
             InventoryService inventoryService,
             MeasureUnitRepository measureUnitRepository,
-            InventoryMovementRepository inventoryMovementRepository,
             ProductAttributeCatalogService productAttributeCatalogService,
-            StockPositionRepository stockPositionRepository) {
+            StockPositionRepository stockPositionRepository,
+            StockLedgerWriter stockLedgerWriter) {
         this.productVariantRepository = productVariantRepository;
         this.productVariantStoreStockRepository = productVariantStoreStockRepository;
         this.variantListingRepository = variantListingRepository;
@@ -115,9 +115,9 @@ public class ProductVariantService {
         this.currentUserContext = currentUserContext;
         this.inventoryService = inventoryService;
         this.measureUnitRepository = measureUnitRepository;
-        this.inventoryMovementRepository = inventoryMovementRepository;
         this.productAttributeCatalogService = productAttributeCatalogService;
         this.stockPositionRepository = stockPositionRepository;
+        this.stockLedgerWriter = stockLedgerWriter;
     }
 
     @Transactional(readOnly = true)
@@ -695,23 +695,20 @@ public class ProductVariantService {
      * blocking it would make the feature unusable on existing data — and since ADR-0006 decision 3 it is
      * the only way a row the {@code V55} report names ever becomes valid, because the new value is
      * required and the stored one is absent. <strong>Any other</strong>
-     * transition — {@code unit A -> unit B} — is allowed only when
-     * no store row holds stock above zero (a {@code stock} of exactly {@code 0} is not a history: it
-     * is the default of a row that was never filled) and {@code inventory_movements} has no row for
+     * transition — {@code unit A -> unit B} — is allowed only while the stock ledger holds no movement for
      * the variant. Otherwise the write is refused with 409 and the entity is left untouched.</p>
      *
      * <p>{@code unit -> null} is no longer reachable from here: the request itself refuses an absent
      * unit ({@link #validateMeasureUnit}) and {@code V55} makes the column reject it.</p>
      *
-     * <p><b>Why the stock floor still reads {@code product_variant_store_stock} after T5b.</b> The two
-     * store-scoped <b>reads</b> and this response answer from {@code stock_position}, because they answer "how
-     * much". This guard answers a different question — "is there a stored quantity a unit change would
-     * reinterpret" — and it is half of a write-path refusal whose other half already reads the legacy
-     * {@code inventory_movements} table. It therefore moves with that write path in T5c, when the legacy
-     * ledger stops and its readers are the last thing pointing at it, instead of being split across two
-     * slices: a guard with one foot on the projection and one on {@code inventory_movements} would refuse on
-     * two different clocks. Recorded as a deliberate leave on {@code odd/tasks/inventory-ledger.md}, not as an
-     * omission.</p>
+     * <p><b>Why the question is one question now (T3c, S7).</b> It used to be two reads — a legacy store
+     * column above zero plus any row in {@code inventory_movements} — with a note on
+     * {@code odd/tasks/inventory-ledger.md} saying this guard would move with the write path rather than be
+     * split across two slices. This is that move. The write path stops maintaining both reads, so keeping
+     * them would answer "no history" for a variant with plenty and the refusal would disappear without a
+     * single failing test. The ledger is the history, so {@link StockLedgerWriter#hasMovements} is the whole
+     * guard: a quantity above zero is now nothing but a projection of the movements it counts, which is why
+     * one probe answers what two used to</p>
      */
     private void verifyMeasureUnitChangeAllowed(ProductVariant variant, UUID newMeasureUnitId) {
         var currentMeasureUnitId = variant.getMeasureUnitId();
@@ -723,13 +720,12 @@ public class ProductVariantService {
             return;
         }
 
-        if (productVariantStoreStockRepository.existsByProductVariantIdAndStockNot(variant.getId(), BigDecimal.ZERO)) {
+        // The history question is asked of the LEDGER (S7). The two reads this replaces — the legacy store column
+        // and inventory_movements — are no longer maintained by the write path, so asking them would answer "no
+        // history" for a variant with plenty and let the refusal disappear without a single failing test.
+        if (stockLedgerWriter.hasMovements(variant.getId())) {
             throw new MeasureUnitChangeNotAllowedException(
-                    variant.getId(), "it holds a non-zero stock balance in at least one store");
-        }
-        if (inventoryMovementRepository.existsByProductVariantId(variant.getId())) {
-            throw new MeasureUnitChangeNotAllowedException(
-                    variant.getId(), "the inventory ledger already holds movements for it");
+                    variant.getId(), "the stock ledger already holds movements for it");
         }
     }
 

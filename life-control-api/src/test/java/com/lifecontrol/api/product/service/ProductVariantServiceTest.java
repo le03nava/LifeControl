@@ -15,7 +15,7 @@ import com.lifecontrol.api.company.model.CompanyCountry;
 import com.lifecontrol.api.company.model.CompanyRegion;
 import com.lifecontrol.api.company.model.CompanyZone;
 import com.lifecontrol.api.inventory.exception.StoreInventorySettingsNotFoundException;
-import com.lifecontrol.api.inventory.repository.InventoryMovementRepository;
+import com.lifecontrol.api.inventory.ledger.StockLedgerWriter;
 import com.lifecontrol.api.inventory.repository.StockPositionRepository;
 import com.lifecontrol.api.inventory.service.InventoryService;
 import com.lifecontrol.api.measureunit.exception.MeasureUnitNotFoundException;
@@ -74,6 +74,10 @@ class ProductVariantServiceTest {
     @Mock
     private ProductVariantRepository productVariantRepository;
 
+    /** The ledger the measure-unit guard asks about history since T3c (S7). */
+    @Mock
+    private StockLedgerWriter stockLedgerWriter;
+
     @Mock
     private ProductVariantStoreStockRepository productVariantStoreStockRepository;
 
@@ -94,9 +98,6 @@ class ProductVariantServiceTest {
 
     @Mock
     private MeasureUnitRepository measureUnitRepository;
-
-    @Mock
-    private InventoryMovementRepository inventoryMovementRepository;
 
     @Mock
     private ProductAttributeCatalogService productAttributeCatalogService;
@@ -219,9 +220,9 @@ class ProductVariantServiceTest {
                 currentUserContext,
                 inventoryService,
                 measureUnitRepository,
-                inventoryMovementRepository,
                 productAttributeCatalogService,
-                stockPositionRepository);
+                stockPositionRepository,
+                stockLedgerWriter);
     }
 
     /**
@@ -1672,22 +1673,20 @@ class ProductVariantServiceTest {
 
             assertThat(result.measureUnitId()).isEqualTo(pieceUnitId);
             assertThat(testVariant.getMeasureUnitId()).isEqualTo(pieceUnitId);
-            // null -> unit reinterprets nothing, so the quantity probes are never consulted.
-            verify(productVariantStoreStockRepository, never()).existsByProductVariantIdAndStockNot(any(), any());
-            verify(inventoryMovementRepository, never()).existsByProductVariantId(any());
+            // null -> unit reinterprets nothing, so the history question is never asked.
+            verify(stockLedgerWriter, never()).hasMovements(any());
         }
 
         @Test
-        @DisplayName("should reject unit -> unit while a store holds stock, leaving the variant untouched")
-        void updateVariant_ChangeWithStock_IsRejected() {
+        @DisplayName("should reject unit -> unit while the stock ledger holds a movement")
+        void updateVariant_ChangeWithLedgerHistory_IsRejected() {
             testVariant.setMeasureUnitId(pieceUnitId);
             when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
             when(productVariantRepository.findById(variantId)).thenReturn(Optional.of(testVariant));
             when(measureUnitRepository.findById(kilogramUnitId)).thenReturn(Optional.of(kilogramUnit));
             when(productVariantRepository.findUsedMeasureUnitTypesByProductIdExcludingVariantId(productId, variantId))
                     .thenReturn(List.of(MeasureUnitType.PRODUCT));
-            when(productVariantStoreStockRepository.existsByProductVariantIdAndStockNot(variantId, BigDecimal.ZERO))
-                    .thenReturn(true);
+            when(stockLedgerWriter.hasMovements(variantId)).thenReturn(true);
 
             assertThatThrownBy(() -> productVariantService.updateVariant(
                             companyId,
@@ -1703,44 +1702,15 @@ class ProductVariantServiceTest {
         }
 
         @Test
-        @DisplayName("should reject unit -> unit while the ledger holds a movement")
-        void updateVariant_ChangeWithMovement_IsRejected() {
+        @DisplayName("should allow unit -> unit when the ledger holds nothing for the variant")
+        void updateVariant_ChangeWithoutLedgerHistory_IsAllowed() {
             testVariant.setMeasureUnitId(pieceUnitId);
             when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
             when(productVariantRepository.findById(variantId)).thenReturn(Optional.of(testVariant));
             when(measureUnitRepository.findById(kilogramUnitId)).thenReturn(Optional.of(kilogramUnit));
             when(productVariantRepository.findUsedMeasureUnitTypesByProductIdExcludingVariantId(productId, variantId))
                     .thenReturn(List.of(MeasureUnitType.PRODUCT));
-            when(productVariantStoreStockRepository.existsByProductVariantIdAndStockNot(variantId, BigDecimal.ZERO))
-                    .thenReturn(false);
-            when(inventoryMovementRepository.existsByProductVariantId(variantId))
-                    .thenReturn(true);
-
-            assertThatThrownBy(() -> productVariantService.updateVariant(
-                            companyId,
-                            productId,
-                            variantId,
-                            new ProductVariantRequest("7501234567890", "Talla M", kilogramUnitId)))
-                    .isInstanceOf(MeasureUnitChangeNotAllowedException.class)
-                    .hasMessageContaining("the inventory ledger already holds movements");
-
-            assertThat(testVariant.getMeasureUnitId()).isEqualTo(pieceUnitId);
-            verify(productVariantRepository, never()).save(any(ProductVariant.class));
-        }
-
-        @Test
-        @DisplayName("should allow unit -> unit when there is no stock and no movement")
-        void updateVariant_ChangeWithoutQuantityMeaning_IsAllowed() {
-            testVariant.setMeasureUnitId(pieceUnitId);
-            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(testProduct));
-            when(productVariantRepository.findById(variantId)).thenReturn(Optional.of(testVariant));
-            when(measureUnitRepository.findById(kilogramUnitId)).thenReturn(Optional.of(kilogramUnit));
-            when(productVariantRepository.findUsedMeasureUnitTypesByProductIdExcludingVariantId(productId, variantId))
-                    .thenReturn(List.of(MeasureUnitType.PRODUCT));
-            when(productVariantStoreStockRepository.existsByProductVariantIdAndStockNot(variantId, BigDecimal.ZERO))
-                    .thenReturn(false);
-            when(inventoryMovementRepository.existsByProductVariantId(variantId))
-                    .thenReturn(false);
+            when(stockLedgerWriter.hasMovements(variantId)).thenReturn(false);
             when(productVariantRepository.save(any(ProductVariant.class))).thenAnswer(inv -> inv.getArgument(0));
 
             var result = productVariantService.updateVariant(
@@ -1751,6 +1721,10 @@ class ProductVariantServiceTest {
 
             assertThat(result.measureUnitId()).isEqualTo(kilogramUnitId);
             assertThat(testVariant.getMeasureUnitId()).isEqualTo(kilogramUnitId);
+            // The one probe the guard makes is the ledger's. The frozen store column is never asked: it stopped
+            // being maintained with the write path (S4/S7), so its answer would be a stale zero forever.
+            verify(stockLedgerWriter).hasMovements(variantId);
+            verify(productVariantStoreStockRepository, never()).existsByProductVariantIdAndStockNot(any(), any());
         }
 
         @Test
@@ -1773,7 +1747,6 @@ class ProductVariantServiceTest {
             // refused before the 409 probe, and V55's NOT NULL is the same rule in the schema.
             assertThat(testVariant.getMeasureUnitId()).isEqualTo(pieceUnitId);
             verify(measureUnitRepository, never()).findById(any());
-            verify(productVariantStoreStockRepository, never()).existsByProductVariantIdAndStockNot(any(), any());
             verify(productVariantRepository, never()).save(any(ProductVariant.class));
         }
 
@@ -1795,8 +1768,7 @@ class ProductVariantServiceTest {
                     new ProductVariantRequest("7501234567890", "Talla M", pieceUnitId));
 
             assertThat(result.measureUnitId()).isEqualTo(pieceUnitId);
-            verify(productVariantStoreStockRepository, never()).existsByProductVariantIdAndStockNot(any(), any());
-            verify(inventoryMovementRepository, never()).existsByProductVariantId(any());
+            verify(stockLedgerWriter, never()).hasMovements(any());
         }
 
         @Test
@@ -1815,8 +1787,7 @@ class ProductVariantServiceTest {
                     .isInstanceOf(MeasureUnitNotFoundException.class);
 
             // A request that is not even valid never reaches the state conflict.
-            verify(productVariantStoreStockRepository, never()).existsByProductVariantIdAndStockNot(any(), any());
-            verify(inventoryMovementRepository, never()).existsByProductVariantId(any());
+            verify(stockLedgerWriter, never()).hasMovements(any());
         }
 
         @Test

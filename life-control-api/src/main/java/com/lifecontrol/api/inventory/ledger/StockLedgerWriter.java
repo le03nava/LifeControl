@@ -133,6 +133,18 @@ public class StockLedgerWriter {
     public static final String RECEIPT_LINE_SOURCE_TYPE = "GOODS_RECEIPT_ITEM";
 
     /**
+     * The source type of a manual per-store edit: the movement's own id, because a manual edit names no document.
+     *
+     * <p><b>Why an edit's own id is not shape (b) of the ledger's identity.</b> Shape (b) — the ledger generating
+     * the key for a document line — was refused because it hands I5 to the caller's memory: two writes of one line
+     * would be indistinguishable from a retry. A manual edit is the opposite case: nothing retries it, no document
+     * states it, and the only thing its key must guarantee is that the row it states is one row. Stating its own
+     * id does exactly that, and it is the identity that survives the mirror
+     * ({@code odd/tasks/ledger-mirror-retirement.md}, D-2).</p>
+     */
+    public static final String MANUAL_ADJUSTMENT_SOURCE_TYPE = "MANUAL_ADJUSTMENT";
+
+    /**
      * The {@code write_seq} of a source that books at most one row per direction and location.
      *
      * <p>Every writer whose source is the row it mirrors states this value explicitly rather than leaving the
@@ -376,6 +388,24 @@ public class StockLedgerWriter {
 
     /** One location's balance in the ledger: the grain a sale consumes and a reversal credits. */
     public record LocationBalance(UUID storeLocationId, BigDecimal quantity) {}
+
+    /**
+     * Whether the ledger holds any movement for a variant, which is the question the measure-unit guard asks.
+     *
+     * <p>It used to be asked of {@code inventory_movements} and of the legacy store column
+     * ({@code ProductVariantService:726,730}). Both answers stop being maintained with the rest of the legacy
+     * write path, and a guard that asks a frozen column answers "no history" for a variant that has plenty: the
+     * refusal would disappear quietly, which is exactly the failure S7 exists to prevent. The ledger is the
+     * history, so the ledger answers.</p>
+     */
+    public boolean hasMovements(UUID productVariantId) {
+        var count = jdbcTemplate.queryForObject(MOVEMENTS_OF_VARIANT, Integer.class, productVariantId);
+        return count != null && count > 0;
+    }
+
+    private static final String MOVEMENTS_OF_VARIANT = """
+            SELECT count(*) FROM stock_movement WHERE product_variant_id = ?
+            """;
 
     /**
      * The operating currency of a company — the only currency a document can be in (ADR-0002 decision 2),
