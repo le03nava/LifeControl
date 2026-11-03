@@ -604,11 +604,12 @@ class StatusTransitionRecorderIntegrationTest extends AbstractPostgresIntegratio
     }
 
     /**
-     * One sales order, written in the shape {@code V65} leaves behind: an identity in parts (ADR-0003) and one
-     * {@code status_id} from the catalog.
+     * One sales order, written in the shape {@code V71} leaves behind: an identity in parts (ADR-0003) and the
+     * typed {@code status} column.
      *
-     * <p>{@code status} is deliberately omitted: {@code V66}'s bridge derives it from {@code statuses.code},
-     * which is how every writer today reaches the new {@code NOT NULL} while {@code status_id} still exists.</p>
+     * <p>{@code status} is the state, and it is the only column that holds one: {@code V66} added it beside
+     * {@code status_id} behind a temporary bridge, and {@code V71} (ADR-0004 task T8) dropped the pointer, its
+     * indexes and the bridge, so a writer names the constant and nothing else.</p>
      *
      * <p><b>The document and its creation row are written in ONE transaction, and that is not a
      * convenience.</b> {@code V68} arms ADR-0004 decision 5's side A for this table: a sales order that
@@ -626,18 +627,17 @@ class StatusTransitionRecorderIntegrationTest extends AbstractPostgresIntegratio
                 company,
                 () -> jdbcTemplate.queryForObject(
                         "SELECT id FROM company_stores WHERE company_id = ?", UUID.class, company));
-        var catalog = statusId("SALES_ORDER", catalogStatus);
         var state = SalesOrderState.valueOf(catalogStatus.toUpperCase(Locale.ROOT));
         TenantFixtures.inTenant(company, () -> {
             jdbcTemplate.update(
-                    "INSERT INTO sales_orders (id, order_number, customer_id, company_store_id, order_date, status_id,"
+                    "INSERT INTO sales_orders (id, order_number, customer_id, company_store_id, order_date, status,"
                             + " company_id, doc_type, seq_period, seq_value, doc_number)"
                             + " VALUES (?, ?, ?, ?, '2026-11-05 10:00:00', ?, ?, 'SALES_ORDER', '202611', ?, ?)",
                     id,
                     number,
                     customer,
                     store,
-                    catalog,
+                    state.name(),
                     company,
                     seq,
                     number);
@@ -655,16 +655,6 @@ class StatusTransitionRecorderIntegrationTest extends AbstractPostgresIntegratio
         var id = UUID.randomUUID();
         jdbcTemplate.update("INSERT INTO customers (id, name, sales_channel) VALUES (?, 'V67 Customer', 'STORE')", id);
         return id;
-    }
-
-    /** The catalog row of one family and one label: {@code statuses} is not a tenant table. */
-    private UUID statusId(String typeName, String statusName) {
-        return jdbcTemplate.queryForObject(
-                "SELECT s.id FROM statuses s JOIN status_types st ON st.id = s.status_type_id"
-                        + " WHERE st.status_type_name = ? AND s.status_name = ?",
-                UUID.class,
-                typeName,
-                statusName);
     }
 
     // ─── the writes the cases need ───────────────────────────────────────────────────────────────────
@@ -727,23 +717,14 @@ class StatusTransitionRecorderIntegrationTest extends AbstractPostgresIntegratio
     }
 
     /**
-     * Moves the document's typed state, and the catalog pointer beside it.
+     * Moves the document's typed state, which since {@code V71} is the only column that holds one.
      *
-     * <p>Both columns are written because {@code V66}'s bridge refuses a stored state that disagrees with the
-     * catalog code while {@code status_id} still exists; passing only {@code status} would be refused by the
-     * bridge, which is the bridge working, not an obstacle to work around.</p>
+     * <p>There used to be a second assignment here: {@code status_id} had to move beside {@code status} because
+     * {@code V66}'s bridge refused the two disagreeing. The bridge and the column are gone, so the move is one
+     * column and the history row the caller appends beside it is what makes the commit legal.</p>
      */
     private void moveDocument(UUID company, UUID document, String constant) {
-        jdbcTemplate.update(
-                "UPDATE sales_orders SET status = ?, status_id = ? WHERE id = ?",
-                constant,
-                statusId("SALES_ORDER", titleCase(constant)),
-                document);
-    }
-
-    /** {@code ACTIVE} is stored and {@code Active} is the label the catalog carries. */
-    private static String titleCase(String constant) {
-        return constant.substring(0, 1) + constant.substring(1).toLowerCase();
+        jdbcTemplate.update("UPDATE sales_orders SET status = ? WHERE id = ?", constant, document);
     }
 
     // ─── reads ───────────────────────────────────────────────────────────────────────────────────────

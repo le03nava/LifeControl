@@ -2,7 +2,6 @@ package com.lifecontrol.api.goodsreceipt.model;
 
 import com.lifecontrol.api.common.model.Auditable;
 import com.lifecontrol.api.purchaseorder.model.PurchaseOrder;
-import com.lifecontrol.api.status.model.Status;
 import com.lifecontrol.api.store.model.CompanyStore;
 import com.lifecontrol.api.store.model.StoreLocation;
 import jakarta.persistence.*;
@@ -67,27 +66,21 @@ public class GoodsReceipt extends Auditable {
     @JoinColumn(name = "receiving_location_id", nullable = false)
     private StoreLocation receivingLocation;
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "status_id", nullable = false)
-    private Status status;
-
     /**
-     * The receipt's typed state (ADR-0004 decision 1), and the column {@code V70} now keeps history for.
+     * The receipt's typed state (ADR-0004 decision 1), and the only column that answers where the receipt is.
      *
-     * <p><b>Two columns, one fact.</b> {@code status} (this field, the {@code VARCHAR(24)} of {@code V66}) is the
-     * state; {@code status_id} (the {@link Status} above) is the catalog pointer the screens read until T8 drops
-     * it. {@code V66}'s bridge refuses the two ever disagreeing, so a writer that sets one and not the other
-     * cannot commit a row that says two things.</p>
+     * <p><b>This is what {@code getStatus()} used to be, and the rename is the drop.</b> Until {@code V71} a
+     * receipt carried a {@code Status} catalog pointer beside this enum and {@code V66}'s bridge refused the two
+     * disagreeing; T8 deleted the pointer with its column and its indexes, so the enum is the whole state —
+     * which for a receipt is always {@code REGISTERED}, because a receipt is written once and never moved.</p>
      *
      * <p>Mapped as the enum and not as a string, exactly as {@code SalesOrder.status} is: the stored value is the
      * constant's name, which is what the column's {@code CHECK} lists, so an unmapped value is a load failure
-     * rather than a guess. It is deliberately not marked {@code nullable = false}: the column is, and leaving the
-     * annotation silent lets a fixture that omits it reach {@code V66}'s bridge, which derives it from the
-     * catalog's code — the path every receipt took before this slice.</p>
+     * rather than a guess.</p>
      */
     @Enumerated(EnumType.STRING)
     @Column(name = "status", length = 24)
-    private GoodsReceiptState state;
+    private GoodsReceiptState status;
 
     @Column(name = "received_by")
     private String receivedBy;
@@ -158,13 +151,9 @@ public class GoodsReceipt extends Auditable {
         return receivingLocation;
     }
 
-    public Status getStatus() {
+    /** The receipt's typed state (ADR-0004 decision 1); see {@link #status}. */
+    public GoodsReceiptState getStatus() {
         return status;
-    }
-
-    /** The receipt's typed state (ADR-0004 decision 1); see {@link #state} for why the pointer keeps its name. */
-    public GoodsReceiptState getState() {
-        return state;
     }
 
     public String getReceivedBy() {
@@ -220,12 +209,8 @@ public class GoodsReceipt extends Auditable {
         this.receivingLocation = receivingLocation;
     }
 
-    public void setStatus(Status status) {
+    public void setStatus(GoodsReceiptState status) {
         this.status = status;
-    }
-
-    public void setState(GoodsReceiptState state) {
-        this.state = state;
     }
 
     public void setReceivedBy(String receivedBy) {
@@ -296,13 +281,8 @@ public class GoodsReceipt extends Auditable {
             return this;
         }
 
-        public Builder status(Status status) {
+        public Builder status(GoodsReceiptState status) {
             receipt.status = status;
-            return this;
-        }
-
-        public Builder state(GoodsReceiptState state) {
-            receipt.state = state;
             return this;
         }
 

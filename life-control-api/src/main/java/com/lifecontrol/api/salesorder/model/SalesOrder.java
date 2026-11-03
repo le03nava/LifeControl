@@ -59,20 +59,18 @@ public class SalesOrder extends Auditable {
     @Column(name = "order_date", nullable = false)
     private LocalDateTime orderDate;
 
-    @Column(name = "status_id", nullable = false)
-    private UUID statusId;
-
     /**
-     * The order's typed state (ADR-0004 decision 1), and the column the service decides every move with.
-     * {@code status_id} stays beside it until ADR-0004's T8 drops that column, and {@code V66}'s bridge
-     * refuses the two ever disagreeing.
+     * The order's typed state (ADR-0004 decision 1), and the only column that answers where the order is.
+     *
+     * <p><b>There used to be a {@code status_id} beside it and there is not one any more.</b> {@code V66}
+     * added this column and a temporary bridge that derived it from the catalog while the pointer still
+     * existed; {@code V71} (task T8) dropped the pointer, its indexes and the bridge, so what is left is the
+     * enum's column and nothing to keep coherent with it. The catalog row a screen renders is a projection of
+     * this code, read back by {@code StatusRepository#findByTypeNameAndCode} — a label, never an authority.</p>
      *
      * <p>Mapped as the enum and not as a string: {@code @Enumerated(STRING)} stores the constant's name,
      * which is exactly what the column's {@code CHECK} lists, and it makes an unmapped value a load failure
-     * inside Hibernate instead of a guess in a service. The field is deliberately not marked
-     * {@code nullable = false}: the column is (the migration states it), and leaving the annotation silent
-     * keeps a fixture that omits it reaching {@code V66}'s bridge, which derives it from the catalog's code
-     * — the same path every writer took before this slice.</p>
+     * inside Hibernate instead of a guess in a service.</p>
      */
     @Enumerated(EnumType.STRING)
     @Column(name = "status", length = 24)
@@ -139,10 +137,6 @@ public class SalesOrder extends Auditable {
         return orderDate;
     }
 
-    public UUID getStatusId() {
-        return statusId;
-    }
-
     public SalesOrderState getStatus() {
         return status;
     }
@@ -206,10 +200,6 @@ public class SalesOrder extends Auditable {
 
     public void setOrderDate(LocalDateTime orderDate) {
         this.orderDate = orderDate;
-    }
-
-    public void setStatusId(UUID statusId) {
-        this.statusId = statusId;
     }
 
     public void setStatus(SalesOrderState status) {
@@ -293,11 +283,6 @@ public class SalesOrder extends Auditable {
 
         public Builder orderDate(LocalDateTime orderDate) {
             order.orderDate = orderDate;
-            return this;
-        }
-
-        public Builder statusId(UUID statusId) {
-            order.statusId = statusId;
             return this;
         }
 

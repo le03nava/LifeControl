@@ -43,6 +43,8 @@ import com.lifecontrol.api.salesorder.dto.ChargeSalesOrderRequest;
 import com.lifecontrol.api.salesorder.dto.SalesOrderItemRequest;
 import com.lifecontrol.api.salesorder.dto.SalesOrderRequest;
 import com.lifecontrol.api.salesorder.dto.UpdateSalesOrderStatusRequest;
+import com.lifecontrol.api.salesorder.model.SalesOrderItemState;
+import com.lifecontrol.api.salesorder.model.SalesOrderState;
 import com.lifecontrol.api.salesorder.repository.SalesOrderItemRepository;
 import com.lifecontrol.api.salesorder.repository.SalesOrderRepository;
 import com.lifecontrol.api.shift.model.Shift;
@@ -1553,8 +1555,14 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             // since `V65`, so a bare `findById` answers no row for an order the request just committed.
             var orderAfterFirstItem = inTransaction(() ->
                     salesOrderRepository.findById(UUID.fromString(orderId)).orElseThrow());
-            var statusAfterFirstItem =
-                    statusRepository.findById(orderAfterFirstItem.getStatusId()).orElseThrow();
+            // The state is the row's, and the label is projected from its code: `V71` dropped the pointer this
+            // read used to follow, so the pair is asked of the catalog by (family, code) — the same projection
+            // every response makes.
+            assertThat(orderAfterFirstItem.getStatus()).isEqualTo(SalesOrderState.ACTIVE);
+            var statusAfterFirstItem = inTransaction(() -> statusRepository
+                    .findByTypeNameAndCode(
+                            "SALES_ORDER", orderAfterFirstItem.getStatus().name())
+                    .orElseThrow());
             assertThat(statusAfterFirstItem.getStatusName()).isEqualTo("Active");
 
             // Verify stock deducted: 100 - 3 = 97
@@ -1577,9 +1585,11 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             // Verify order is still Active (not re-transitioned)
             var orderAfterSecondItem = inTransaction(() ->
                     salesOrderRepository.findById(UUID.fromString(orderId)).orElseThrow());
-            var statusAfterSecondItem = statusRepository
-                    .findById(orderAfterSecondItem.getStatusId())
-                    .orElseThrow();
+            assertThat(orderAfterSecondItem.getStatus()).isEqualTo(SalesOrderState.ACTIVE);
+            var statusAfterSecondItem = inTransaction(() -> statusRepository
+                    .findByTypeNameAndCode(
+                            "SALES_ORDER", orderAfterSecondItem.getStatus().name())
+                    .orElseThrow());
             assertThat(statusAfterSecondItem.getStatusName()).isEqualTo("Active");
 
             // Verify stock deducted: 97 - 2 = 95
@@ -1608,8 +1618,10 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             // Verify final order status is Completed
             var finalOrder = inTransaction(() ->
                     salesOrderRepository.findById(UUID.fromString(orderId)).orElseThrow());
-            var finalStatus =
-                    statusRepository.findById(finalOrder.getStatusId()).orElseThrow();
+            assertThat(finalOrder.getStatus()).isEqualTo(SalesOrderState.COMPLETED);
+            var finalStatus = inTransaction(() -> statusRepository
+                    .findByTypeNameAndCode("SALES_ORDER", finalOrder.getStatus().name())
+                    .orElseThrow());
             assertThat(finalStatus.getStatusName()).isEqualTo("Completed");
             assertThat(finalOrder.getPaymentMethodId()).isEqualTo(paymentMethodId);
 
@@ -1622,8 +1634,11 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             var items = itemRepository.findBySalesOrderId(UUID.fromString(orderId));
             for (var item : items) {
                 if (item.getEnabled()) {
-                    var itemStatus =
-                            statusRepository.findById(item.getStatusId()).orElseThrow();
+                    assertThat(item.getStatus()).isEqualTo(SalesOrderItemState.ADDED);
+                    var itemStatus = inTransaction(() -> statusRepository
+                            .findByTypeNameAndCode(
+                                    "SALES_ORDER_ITEM", item.getStatus().name())
+                            .orElseThrow());
                     assertThat(itemStatus.getStatusName()).isEqualTo("Added");
                 }
             }
@@ -1961,7 +1976,14 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             // is wrongly treated as still holding its deduction.
             updateOrderItems(placed.orderId(), line(itemId, variant.getId(), "5.00"));
 
-            assertThat(itemRepository.findById(itemId).orElseThrow().getStatusId())
+            // The claim was "the row's status_id is Cancelled"; the column is gone, so it is asked twice: the
+            // row's state is the constant, and the pair a screen reads is the catalog row of that code.
+            assertThat(itemRepository.findById(itemId).orElseThrow().getStatus())
+                    .isEqualTo(SalesOrderItemState.CANCELLED);
+            assertThat(inTransaction(() -> statusRepository
+                            .findByTypeNameAndCode("SALES_ORDER_ITEM", SalesOrderItemState.CANCELLED.name())
+                            .orElseThrow()
+                            .getId()))
                     .isEqualTo(cancelledItemStatusId);
             assertThat(storeStockOf(variant.getId()).getStock()).isEqualByComparingTo(new BigDecimal("100.00"));
             assertThat(locationStockOf(variant.getId(), salesLocationId))

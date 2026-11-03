@@ -24,7 +24,6 @@ import com.lifecontrol.api.purchaseorder.model.PurchaseOrder;
 import com.lifecontrol.api.purchaseorder.repository.PurchaseOrderDetailRepository;
 import com.lifecontrol.api.purchaseorder.repository.PurchaseOrderRepository;
 import com.lifecontrol.api.purchaseorder.service.PurchaseOrderService;
-import com.lifecontrol.api.status.model.Status;
 import com.lifecontrol.api.status.repository.StatusRepository;
 import com.lifecontrol.api.store.model.CompanyStore;
 import com.lifecontrol.api.store.model.StoreLocation;
@@ -88,7 +87,6 @@ class GoodsReceiptScopeAgreementTest {
     private static final UUID RECEIPT = UUID.fromString("00000000-0000-0000-0000-0000000000d7");
     private static final UUID PO = UUID.fromString("00000000-0000-0000-0000-0000000000d8");
     private static final UUID LOCATION = UUID.fromString("00000000-0000-0000-0000-0000000000d9");
-    private static final UUID STATUS = UUID.fromString("00000000-0000-0000-0000-0000000000da");
 
     @Mock
     private PurchaseOrderRepository purchaseOrderRepository;
@@ -170,18 +168,13 @@ class GoodsReceiptScopeAgreementTest {
                 .locationName("Receiving")
                 .enabled(true)
                 .build();
-        var status = new Status();
-        status.setId(STATUS);
-        status.setStatusName("Registered");
-
         var receipt = GoodsReceipt.builder()
                 .id(RECEIPT)
                 .receiptNumber("GR-SCOPE-1")
                 .purchaseOrder(purchaseOrder)
                 .companyStore(store)
                 .receivingLocation(location)
-                .status(status)
-                .state(GoodsReceiptState.REGISTERED)
+                .status(GoodsReceiptState.REGISTERED)
                 .receivedBy("subject")
                 .receivedAt(LocalDateTime.now())
                 .enabled(true)

@@ -177,10 +177,10 @@ class PurchaseOrderStatusHistoryMigrationIntegrationTest extends AbstractPostgre
 
         assertThatThrownBy(() -> executeInOneTransaction(
                         company,
-                        // Both columns move, as a writer that forgot only the history row would move them: the
-                        // bridge of V66 stays silent, and the only thing that can refuse this is side A.
-                        "UPDATE purchase_orders SET status = 'SENT', status_id = '" + statusId("PURCHASE_ORDER", "SENT")
-                                + "' WHERE id = '" + order + "'",
+                        // The state moves and no row says so. Since `V71` there is no second column to move: the
+                        // bridge of V66 is gone with `status_id`, so side A is the only thing left that can refuse
+                        // this commit — which is the invariant, not a leftover.
+                        "UPDATE purchase_orders SET status = 'SENT' WHERE id = '" + order + "'",
                         "COMMIT"))
                 .as("`trg_purchase_orders_transition_recorded` is DEFERRABLE INITIALLY DEFERRED, so the UPDATE "
                         + "itself succeeds and only the commit can judge it against the history")
@@ -192,8 +192,7 @@ class PurchaseOrderStatusHistoryMigrationIntegrationTest extends AbstractPostgre
 
         assertThatThrownBy(() -> executeInOneTransaction(
                         company,
-                        "UPDATE purchase_order_details SET status = 'IN_PROCESS', status_id = '"
-                                + statusId("PURCHASE_ORDER_DETAIL", "IN_PROCESS") + "' WHERE id = '" + detail + "'",
+                        "UPDATE purchase_order_details SET status = 'IN_PROCESS' WHERE id = '" + detail + "'",
                         "COMMIT"))
                 .as("the detail table has its own pair of triggers and its own deferred check")
                 .isInstanceOf(SQLException.class)
@@ -215,7 +214,8 @@ class PurchaseOrderStatusHistoryMigrationIntegrationTest extends AbstractPostgre
 
         assertThatThrownBy(() -> executeInOneTransaction(
                         company,
-                        insertPurchaseOrderStatement(company, UUID.randomUUID(), 2, "DRAFT", "2026-11-07 08:00:00"),
+                        insertPurchaseOrderStatementAtHead(
+                                company, UUID.randomUUID(), 2, "DRAFT", "2026-11-07 08:00:00"),
                         "COMMIT"))
                 .as("side A's INSERT branch: a document born with no creation row cannot commit")
                 .isInstanceOf(SQLException.class)
@@ -226,7 +226,7 @@ class PurchaseOrderStatusHistoryMigrationIntegrationTest extends AbstractPostgre
 
         assertThatThrownBy(() -> executeInOneTransaction(
                         company,
-                        insertPurchaseOrderDetailStatement(
+                        insertPurchaseOrderDetailStatementAtHead(
                                 company, order, UUID.randomUUID(), "PENDING", "2026-11-06 08:10:00"),
                         "COMMIT"))
                 .as("the line's own pair refuses a line born without its row, exactly as it refuses a document")
@@ -347,6 +347,30 @@ class PurchaseOrderStatusHistoryMigrationIntegrationTest extends AbstractPostgre
                 + " VALUES ('" + id + "', '" + number + "', '" + supplierOf(company) + "', '" + storeOf(company)
                 + "', '" + paymentMethodId() + "', '" + statusId("PURCHASE_ORDER", state) + "', '" + state + "', '"
                 + company + "', 'PURCHASE_ORDER', '202611', " + seq + ", '" + number + "', '" + createdAt + "')";
+    }
+
+    /**
+     * The same order insert at head, where {@code V71} has dropped {@code status_id}: the typed state is the
+     * only column a writer names.
+     */
+    private String insertPurchaseOrderStatementAtHead(UUID company, UUID id, long seq, String state, String createdAt)
+            throws SQLException {
+        var number =
+                "PO-202611-" + String.format("%05d", seq) + "-" + id.toString().substring(0, 4);
+        return "INSERT INTO purchase_orders (id, order_number, supplier_id, company_store_id, payment_method_id,"
+                + " status, company_id, doc_type, seq_period, seq_value, doc_number, created_at)"
+                + " VALUES ('" + id + "', '" + number + "', '" + supplierOf(company) + "', '" + storeOf(company)
+                + "', '" + paymentMethodId() + "', '" + state + "', '"
+                + company + "', 'PURCHASE_ORDER', '202611', " + seq + ", '" + number + "', '" + createdAt + "')";
+    }
+
+    /** The line's half of {@link #insertPurchaseOrderStatementAtHead}, same reason. */
+    private String insertPurchaseOrderDetailStatementAtHead(
+            UUID company, UUID purchaseOrder, UUID id, String state, String createdAt) throws SQLException {
+        return "INSERT INTO purchase_order_details (id, purchase_order_id, product_id, product_variant_id,"
+                + " quantity, unit_price, total, received_quantity, status, created_at)"
+                + " VALUES ('" + id + "', '" + purchaseOrder + "', '" + productOf(company) + "', '"
+                + variantOf(company) + "', 2, 50.00, 100.00, 0, '" + state + "', '" + createdAt + "')";
     }
 
     /** A creation row written the way the recorder writes it, for the window between {@code V68} and {@code V69}. */

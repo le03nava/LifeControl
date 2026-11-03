@@ -35,9 +35,6 @@ public class SalesOrderItem extends Auditable {
     @Column(name = "promotion_id")
     private UUID promotionId;
 
-    @Column(name = "status_id", nullable = false)
-    private UUID statusId;
-
     /**
      * The line's typed state (ADR-0004 decision 3), the reason "an item of a charged order cannot be
      * cancelled" stops being a {@code !"Cancelled".equals(…)} test and becomes the absence of an edge out of
@@ -45,8 +42,9 @@ public class SalesOrderItem extends Auditable {
      *
      * <p>Read by the service to classify a line — a {@code CANCELLED} line holds no stock — so that
      * classification cannot fail on a catalog lookup and never falls back to a guess (the defect
-     * {@code odd/tasks/sales-location-aware-stock.md} records as F-2). Not marked {@code nullable = false}
-     * for the reason {@link SalesOrder#getStatus()} gives.</p>
+     * {@code odd/tasks/sales-location-aware-stock.md} records as F-2). {@code V71} dropped the {@code status_id}
+     * pointer that used to sit above it, so this column is the line's whole state and the label a screen shows
+     * is projected from this code.</p>
      */
     @Enumerated(EnumType.STRING)
     @Column(name = "status", length = 24)
@@ -91,10 +89,6 @@ public class SalesOrderItem extends Auditable {
         return promotionId;
     }
 
-    public UUID getStatusId() {
-        return statusId;
-    }
-
     public SalesOrderItemState getStatus() {
         return status;
     }
@@ -134,10 +128,6 @@ public class SalesOrderItem extends Auditable {
 
     public void setPromotionId(UUID promotionId) {
         this.promotionId = promotionId;
-    }
-
-    public void setStatusId(UUID statusId) {
-        this.statusId = statusId;
     }
 
     public void setStatus(SalesOrderItemState status) {
@@ -193,11 +183,6 @@ public class SalesOrderItem extends Auditable {
 
         public Builder promotionId(UUID promotionId) {
             item.promotionId = promotionId;
-            return this;
-        }
-
-        public Builder statusId(UUID statusId) {
-            item.statusId = statusId;
             return this;
         }
 

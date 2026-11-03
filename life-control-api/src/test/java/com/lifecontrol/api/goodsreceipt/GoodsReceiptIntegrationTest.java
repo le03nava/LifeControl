@@ -31,6 +31,7 @@ import com.lifecontrol.api.goodsreceipt.exception.OverReceiptException;
 import com.lifecontrol.api.goodsreceipt.exception.UnreceivableDetailStatusException;
 import com.lifecontrol.api.goodsreceipt.model.GoodsReceipt;
 import com.lifecontrol.api.goodsreceipt.model.GoodsReceiptItem;
+import com.lifecontrol.api.goodsreceipt.model.GoodsReceiptState;
 import com.lifecontrol.api.goodsreceipt.repository.GoodsReceiptItemRepository;
 import com.lifecontrol.api.goodsreceipt.repository.GoodsReceiptRepository;
 import com.lifecontrol.api.goodsreceipt.service.GoodsReceiptService;
@@ -50,9 +51,10 @@ import com.lifecontrol.api.product.repository.ProductVariantRepository;
 import com.lifecontrol.api.product.repository.ProductVariantStoreStockRepository;
 import com.lifecontrol.api.purchaseorder.model.PurchaseOrder;
 import com.lifecontrol.api.purchaseorder.model.PurchaseOrderDetail;
+import com.lifecontrol.api.purchaseorder.model.PurchaseOrderDetailState;
+import com.lifecontrol.api.purchaseorder.model.PurchaseOrderState;
 import com.lifecontrol.api.purchaseorder.repository.PurchaseOrderDetailRepository;
 import com.lifecontrol.api.purchaseorder.repository.PurchaseOrderRepository;
-import com.lifecontrol.api.status.model.Status;
 import com.lifecontrol.api.status.repository.StatusRepository;
 import com.lifecontrol.api.store.model.CompanyStore;
 import com.lifecontrol.api.store.model.StoreArea;
@@ -230,9 +232,9 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
     private StoreLocation receivingLocation;
     private Supplier supplier;
     private PaymentMethod paymentMethod;
-    private Status draftStatus;
-    private Status pendingDetailStatus;
-    private Status registeredStatus;
+    private PurchaseOrderState draftStatus;
+    private PurchaseOrderDetailState pendingDetailStatus;
+    private GoodsReceiptState registeredStatus;
 
     @BeforeEach
     void setUp() {
@@ -402,15 +404,11 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
                         .enabled(true)
                         .build()));
 
-        draftStatus = statusRepository
-                .findByTypeNameAndStatusName("PURCHASE_ORDER", "Draft")
-                .orElseThrow();
-        pendingDetailStatus = statusRepository
-                .findByTypeNameAndStatusName("PURCHASE_ORDER_DETAIL", "Pending")
-                .orElseThrow();
-        registeredStatus = statusRepository
-                .findByTypeNameAndStatusName("GOODS_RECEIPT", "Registered")
-                .orElseThrow();
+        // The states, not the catalog rows: `V71` dropped `status_id`, so a fixture that writes a document
+        // writes the enum constant and the label is projected from it.
+        draftStatus = PurchaseOrderState.DRAFT;
+        pendingDetailStatus = PurchaseOrderDetailState.PENDING;
+        registeredStatus = GoodsReceiptState.REGISTERED;
     }
 
     private StoreArea findOrCreateArea(CompanyStore companyStore, String code, String name, int displayOrder) {
@@ -507,7 +505,7 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
                     .build());
             // ADR-0004 decision 5 side A: the fixture inserts a document, so it owes the creation row the
             // trigger checks — in the same transaction, because the pair is deferred to commit.
-            recordCreation("PURCHASE_ORDER", order.getId(), order.getStatus());
+            recordCreation("PURCHASE_ORDER", order.getId(), order.getStatus().name());
 
             var detail = purchaseOrderDetailRepository.saveAndFlush(PurchaseOrderDetail.builder()
                     .purchaseOrder(order)
@@ -521,7 +519,8 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
                     .status(pendingDetailStatus)
                     .enabled(true)
                     .build());
-            recordCreation("PURCHASE_ORDER_DETAIL", detail.getId(), detail.getStatus());
+            recordCreation(
+                    "PURCHASE_ORDER_DETAIL", detail.getId(), detail.getStatus().name());
 
             return new ReceptionFixtures(order, detail, variant);
         });
@@ -606,12 +605,12 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
                     // V43: the owner is the company of the store the order hangs off.
                     .company(company)
                     .paymentMethod(paymentMethod)
-                    .status(statusByName("PURCHASE_ORDER", statusName))
+                    .status(orderState(statusName))
                     .comments("Reception order")
                     .enabled(true)
                     .build());
             // The order is a document: without its creation row the commit that stores it is refused.
-            recordCreation("PURCHASE_ORDER", order.getId(), order.getStatus());
+            recordCreation("PURCHASE_ORDER", order.getId(), order.getStatus().name());
             return order;
         });
     }
@@ -643,11 +642,12 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
                     .total(new BigDecimal("50.00"))
                     .receivedQuantity(BigDecimal.ZERO)
                     .comments("Reception line")
-                    .status(statusByName("PURCHASE_ORDER_DETAIL", detailStatusName))
+                    .status(detailState(detailStatusName))
                     .enabled(true)
                     .build());
             // A line is a document of its own family, with its own pair of triggers.
-            recordCreation("PURCHASE_ORDER_DETAIL", detail.getId(), detail.getStatus());
+            recordCreation(
+                    "PURCHASE_ORDER_DETAIL", detail.getId(), detail.getStatus().name());
             return detail;
         });
     }
@@ -664,10 +664,19 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
         return TenantFixtures.inTenant(company.getId(), () -> goodsReceiptService.createReceipt(request));
     }
 
-    private Status statusByName(String typeName, String statusName) {
-        return statusRepository
-                .findByTypeNameAndStatusName(typeName, statusName)
-                .orElseThrow();
+    /**
+     * The order constant a catalog label spells: the fixtures name states the way the catalog labels them
+     * ({@code "In Transit"}), and the document stores the constant ({@code IN_TRANSIT}).
+     */
+    private static PurchaseOrderState orderState(String label) {
+        return PurchaseOrderState.valueOf(
+                label.toUpperCase(java.util.Locale.ROOT).replace(' ', '_'));
+    }
+
+    /** The line's half of {@link #orderState(String)}, over the detail machine — which is not the item set. */
+    private static PurchaseOrderDetailState detailState(String label) {
+        return PurchaseOrderDetailState.valueOf(
+                label.toUpperCase(java.util.Locale.ROOT).replace(' ', '_'));
     }
 
     /** A request that uses the store's configured receiving location (no operator override). */
@@ -704,20 +713,37 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
         return TenantFixtures.inTenant(company.getId(), reader);
     }
 
+    /**
+     * The label of a line's state, <b>projected from its code</b>.
+     *
+     * <p>These two helpers used to read {@code detail.getStatus().getStatusName()}, the catalog pointer the row
+     * stored. {@code V71} dropped that column, so the same question is asked the way every response asks it now:
+     * the document carries the constant and the catalog row is found by {@code (family, code)}. The assertions
+     * that call this helper are unchanged, which is the point — the label still has to be the one the screens
+     * show, and it is now derived instead of stored.</p>
+     */
     private String detailStatusName(UUID detailId) {
-        return inTransaction(() -> purchaseOrderDetailRepository
-                .findById(detailId)
-                .orElseThrow()
-                .getStatus()
-                .getStatusName());
+        return inTransaction(() -> {
+            var state = purchaseOrderDetailRepository
+                    .findById(detailId)
+                    .orElseThrow()
+                    .getStatus();
+            return statusRepository
+                    .findByTypeNameAndCode("PURCHASE_ORDER_DETAIL", state.name())
+                    .orElseThrow()
+                    .getStatusName();
+        });
     }
 
+    /** The order's half of {@link #detailStatusName(UUID)}, same projection. */
     private String orderStatusName(UUID orderId) {
-        return inTransaction(() -> purchaseOrderRepository
-                .findById(orderId)
-                .orElseThrow()
-                .getStatus()
-                .getStatusName());
+        return inTransaction(() -> {
+            var state = purchaseOrderRepository.findById(orderId).orElseThrow().getStatus();
+            return statusRepository
+                    .findByTypeNameAndCode("PURCHASE_ORDER", state.name())
+                    .orElseThrow()
+                    .getStatusName();
+        });
     }
 
     private static boolean hasConstraintViolationCause(Throwable thrown) {
@@ -745,18 +771,19 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
      * Appends the creation row ADR-0004 decision 5 side A requires of the writer, for a fixture that inserts a
      * document directly instead of through its service.
      *
-     * <p>{@code to_status} is read from the catalog row the document points at — the same {@code code}
-     * {@code V66}'s bridge derives for the column — so the fixture cannot state a state that disagrees with the
-     * pointer, and the actor says a fixture wrote it: {@code unknown:migration} belongs to the migration alone.
-     * It must run in the same transaction as the document's insert, which is what {@link #saveReceipt} arranges:
-     * the check is deferred to commit, so two commits are one commit too many.</p>
+     * <p>{@code to_status} is the document's own typed state, which is the only thing the row stores since
+     * {@code V71} dropped {@code status_id}: the fixture cannot state a state that disagrees with the document,
+     * because there is no second column to disagree with. The actor says a fixture wrote it:
+     * {@code unknown:migration} belongs to the migration alone. It must run in the same transaction as the
+     * document's insert, which is what {@link #saveReceipt} arranges: the check is deferred to commit, so two
+     * commits are one commit too many.</p>
      */
-    private void recordCreation(String documentType, UUID documentId, Status status) {
+    private void recordCreation(String documentType, UUID documentId, String state) {
         jdbcTemplate.update("""
                 INSERT INTO status_transition (company_id, document_type, document_id, from_status, to_status,
                                                actor, reason)
-                SELECT ?, ?, ?, NULL, s.code, 'unknown:test', 'fixture' FROM statuses s WHERE s.id = ?
-                """, company.getId(), documentType, documentId, status.getId());
+                VALUES (?, ?, ?, NULL, ?, 'unknown:test', 'fixture')
+                """, company.getId(), documentType, documentId, state);
     }
 
     /**
@@ -769,7 +796,7 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
     private GoodsReceipt saveReceipt(GoodsReceipt receipt) {
         return inTransaction(() -> {
             var saved = goodsReceiptRepository.saveAndFlush(receipt);
-            recordCreation("GOODS_RECEIPT", saved.getId(), saved.getStatus());
+            recordCreation("GOODS_RECEIPT", saved.getId(), saved.getStatus().name());
             return saved;
         });
     }
@@ -793,16 +820,18 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
     }
 
     @Test
-    @DisplayName("should resolve the seeded GOODS_RECEIPT / Registered status by type and name")
+    @DisplayName("should resolve the seeded GOODS_RECEIPT / REGISTERED catalog row by type and code")
     void registeredStatusResolves() {
         var status = statusRepository
-                .findByTypeNameAndStatusName("GOODS_RECEIPT", "Registered")
+                .findByTypeNameAndCode("GOODS_RECEIPT", GoodsReceiptState.REGISTERED.name())
                 .orElseThrow();
 
-        assertThat(status.getStatusName()).isEqualTo("Registered");
+        assertThat(status.getStatusName())
+                .as("the catalog keeps its label: it is what every response projects the pair from")
+                .isEqualTo("Registered");
         assertThat(status.getStatusType().getStatusTypeName()).isEqualTo("GOODS_RECEIPT");
         assertThat(status.getEnabled()).isTrue();
-        assertThat(status.getId()).isEqualTo(registeredStatus.getId());
+        assertThat(status.getCode()).isEqualTo(GoodsReceiptState.REGISTERED.name());
     }
 
     @Test
@@ -876,7 +905,15 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
                 .isEqualTo(fixtures.order().getId());
         assertThat(reloaded.getCompanyStore().getId()).isEqualTo(store.getId());
         assertThat(reloaded.getReceivingLocation().getId()).isEqualTo(receivingLocation.getId());
-        assertThat(reloaded.getStatus().getId()).isEqualTo(registeredStatus.getId());
+        assertThat(reloaded.getStatus())
+                .as("the row stores the state, and the label it used to store is now projected from it")
+                .isEqualTo(GoodsReceiptState.REGISTERED);
+        assertThat(statusRepository
+                        .findByTypeNameAndCode(
+                                "GOODS_RECEIPT", reloaded.getStatus().name())
+                        .orElseThrow()
+                        .getStatusName())
+                .isEqualTo("Registered");
         assertThat(reloaded.getReceivedBy()).isEqualTo("receiver");
         assertThat(reloaded.getReceivedAt()).isNotNull();
         assertThat(reloaded.getComments()).isEqualTo("Reception");
@@ -1556,7 +1593,8 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
                         .comments("List order")
                         .enabled(true)
                         .build());
-                recordCreation("PURCHASE_ORDER", order.getId(), order.getStatus());
+                recordCreation(
+                        "PURCHASE_ORDER", order.getId(), order.getStatus().name());
                 return order;
             });
         }

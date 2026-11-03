@@ -31,6 +31,7 @@ import com.lifecontrol.api.purchaseorder.dto.PurchaseOrderDetailRequest;
 import com.lifecontrol.api.purchaseorder.dto.PurchaseOrderRequest;
 import com.lifecontrol.api.purchaseorder.dto.UpdatePurchaseOrderStatusRequest;
 import com.lifecontrol.api.purchaseorder.model.PurchaseOrderDetail;
+import com.lifecontrol.api.purchaseorder.model.PurchaseOrderDetailState;
 import com.lifecontrol.api.purchaseorder.repository.PurchaseOrderDetailRepository;
 import com.lifecontrol.api.purchaseorder.repository.PurchaseOrderRepository;
 import com.lifecontrol.api.purchaseorder.service.PurchaseOrderService;
@@ -794,7 +795,7 @@ class PurchaseOrderDetailVariantIntegrationTest extends AbstractPostgresIntegrat
                                 .total(new BigDecimal("30.00"))
                                 .receivedQuantity(BigDecimal.ZERO)
                                 .comments("Legacy row")
-                                .status(pendingStatus)
+                                .status(PurchaseOrderDetailState.PENDING)
                                 .enabled(true)
                                 .build());
                     }))
@@ -963,9 +964,9 @@ class PurchaseOrderDetailVariantIntegrationTest extends AbstractPostgresIntegrat
             assertThat(persisted).hasSize(1);
             // The status association is a lazy proxy once the transaction is gone, so the persisted
             // default is pinned by its id: reading the name here would need a session.
-            assertThat(persisted.getFirst().getStatus().getId())
-                    .as("persisted status of the line created without statusId")
-                    .isEqualTo(pendingDetailStatusId);
+            assertThat(persisted.getFirst().getStatus())
+                    .as("persisted state of the line created without statusId")
+                    .isEqualTo(PurchaseOrderDetailState.PENDING);
         }
 
         /**

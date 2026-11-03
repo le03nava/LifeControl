@@ -181,7 +181,7 @@ class PurchaseOrderListNullSearchIntegrationTest extends AbstractPostgresIntegra
         try {
             purchaseOrderRepository.flush();
             statusTransitionRecorder.recordCreation(
-                    StatusSubject.PURCHASE_ORDER, order.getCompany().getId(), order.getId(), order.getState());
+                    StatusSubject.PURCHASE_ORDER, order.getCompany().getId(), order.getId(), order.getStatus());
         } finally {
             SecurityContextHolder.clearContext();
         }
@@ -248,9 +248,7 @@ class PurchaseOrderListNullSearchIntegrationTest extends AbstractPostgresIntegra
                             .paymentMethodShortName("POFT")
                             .enabled(true)
                             .build()));
-            var status = statusRepository
-                    .findByTypeNameAndStatusName("PURCHASE_ORDER", "Draft")
-                    .orElseThrow();
+            var status = PurchaseOrderState.DRAFT;
 
             // ADR-0003 identity parts, allocated from the real counter. The allocation runs in the tenant
             // this fixture already states and <b>not</b> in a nested `TenantFixtures.inTenant`: that wrapper
@@ -272,7 +270,6 @@ class PurchaseOrderListNullSearchIntegrationTest extends AbstractPostgresIntegra
                     .company(company)
                     .paymentMethod(paymentMethod)
                     .status(status)
-                    .state(PurchaseOrderState.DRAFT)
                     .comments("PO null search fixture")
                     .enabled(true)
                     .build());

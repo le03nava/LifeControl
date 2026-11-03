@@ -47,7 +47,6 @@ import com.lifecontrol.api.purchaseorder.model.PurchaseOrderDetail;
 import com.lifecontrol.api.purchaseorder.repository.PurchaseOrderDetailRepository;
 import com.lifecontrol.api.purchaseorder.repository.PurchaseOrderRepository;
 import com.lifecontrol.api.purchaseorder.service.PurchaseOrderService;
-import com.lifecontrol.api.status.exception.StatusNotFoundException;
 import com.lifecontrol.api.status.model.Status;
 import com.lifecontrol.api.status.model.StatusType;
 import com.lifecontrol.api.status.repository.StatusRepository;
@@ -261,7 +260,10 @@ class GoodsReceiptServiceTest {
                         .salesLocationId(OTHER_LOCATION_ID)
                         .build()));
         when(goodsReceiptRepository.countByPurchaseOrderId(PO_ID)).thenReturn(0L);
-        when(statusRepository.findByTypeNameAndStatusName("GOODS_RECEIPT", "Registered"))
+        // The response projects `statusId`/`statusName` from the code, which is the only thing the row stores
+        // since `V71` dropped `status_id`: this is the read the mapper makes, and it is the only status read the
+        // create path makes at all.
+        when(statusRepository.findByTypeNameAndCode("GOODS_RECEIPT", "REGISTERED"))
                 .thenReturn(Optional.of(registeredStatus));
         when(currentUserContext.getUsername()).thenReturn("receiver");
         when(goodsReceiptRepository.save(any(GoodsReceipt.class))).thenAnswer(invocation -> {
@@ -759,23 +761,37 @@ class GoodsReceiptServiceTest {
         }
     }
 
-    // ── Step 7: status resolution ───────────────────────────────────────
+    // ── Step 7: status projection ───────────────────────────────────────
 
     @Nested
     @DisplayName("receipt status")
     class ReceiptStatusTests {
 
+        /**
+         * The claim the drop changed, kept and asked from the other side.
+         *
+         * <p>Before {@code V71} this case asserted that a missing {@code GOODS_RECEIPT / Registered} catalog row
+         * refused the write, because creating a receipt resolved that row for {@code status_id}. The column is
+         * gone, so the write no longer needs the row at all: the state is the constant, and the catalog is the
+         * label a response projects. The claim that survives is the one a screen depends on — a document can be
+         * written without a label, and the read answers the code with a null pair instead of failing.</p>
+         */
         @Test
-        @DisplayName("should fail with StatusNotFoundException when GOODS_RECEIPT/Registered is missing")
-        void registeredStatusMissing() {
+        @DisplayName("should still register the receipt when the catalog row is missing, and answer the code")
+        void registeredStatusMissingStillWritesTheReceipt() {
             stubHappyPath();
-            when(statusRepository.findByTypeNameAndStatusName("GOODS_RECEIPT", "Registered"))
+            when(statusRepository.findByTypeNameAndCode("GOODS_RECEIPT", "REGISTERED"))
                     .thenReturn(Optional.empty());
 
-            assertThatThrownBy(() -> service.createReceipt(requestWith(LOCATION_ID, line(DETAIL_ID, "1"))))
-                    .isInstanceOf(StatusNotFoundException.class);
+            var response = service.createReceipt(requestWith(LOCATION_ID, line(DETAIL_ID, "1")));
 
-            assertNoWrites();
+            assertThat(response.status())
+                    .as("the state is the document's own column and does not depend on the catalog")
+                    .isEqualTo("REGISTERED");
+            assertThat(response.statusId()).isNull();
+            assertThat(response.statusName()).isNull();
+            verify(statusTransitionRecorder)
+                    .recordCreation(StatusSubject.GOODS_RECEIPT, COMPANY_ID, RECEIPT_ID, GoodsReceiptState.REGISTERED);
         }
     }
 }

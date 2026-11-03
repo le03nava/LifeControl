@@ -174,10 +174,10 @@ class SalesOrderStatusHistoryMigrationIntegrationTest extends AbstractPostgresIn
 
         assertThatThrownBy(() -> executeInOneTransaction(
                         company,
-                        // Both columns move, as a writer that forgot only the history row would move them:
-                        // the bridge of V66 stays silent, and the only thing that can refuse this is side A.
-                        "UPDATE sales_orders SET status = 'ACTIVE', status_id = '" + statusId("SALES_ORDER", "ACTIVE")
-                                + "' WHERE id = '" + order + "'",
+                        // The state moves and no row says so. Since `V71` there is no second column to move:
+                        // the bridge of V66 is gone with `status_id`, so side A is the only thing left that can
+                        // refuse this commit — which is the invariant, not a leftover.
+                        "UPDATE sales_orders SET status = 'ACTIVE' WHERE id = '" + order + "'",
                         "COMMIT"))
                 .as("`trg_sales_orders_transition_recorded` is DEFERRABLE INITIALLY DEFERRED, so the UPDATE "
                         + "itself succeeds and only the commit can judge it against the history")
@@ -188,10 +188,7 @@ class SalesOrderStatusHistoryMigrationIntegrationTest extends AbstractPostgresIn
                 .isEqualTo("DRAFT");
 
         assertThatThrownBy(() -> executeInOneTransaction(
-                        company,
-                        "UPDATE sales_order_items SET status = 'ADDED', status_id = '"
-                                + statusId("SALES_ORDER_ITEM", "ADDED") + "' WHERE id = '" + line + "'",
-                        "COMMIT"))
+                        company, "UPDATE sales_order_items SET status = 'ADDED' WHERE id = '" + line + "'", "COMMIT"))
                 .as("the line has its own pair of triggers and its own deferred check")
                 .isInstanceOf(SQLException.class)
                 .hasMessageContaining("moved PENDING -> ADDED without its status_transition row");
@@ -208,7 +205,7 @@ class SalesOrderStatusHistoryMigrationIntegrationTest extends AbstractPostgresIn
 
         assertThatThrownBy(() -> executeInOneTransaction(
                         company,
-                        insertSalesOrderStatement(company, UUID.randomUUID(), 1, "DRAFT", "2026-11-05 08:00:00"),
+                        insertSalesOrderStatementAtHead(company, UUID.randomUUID(), 1, "DRAFT", "2026-11-05 08:00:00"),
                         "COMMIT"))
                 .as("side A's INSERT branch: a document born with no creation row cannot commit")
                 .isInstanceOf(SQLException.class)
@@ -325,6 +322,21 @@ class SalesOrderStatusHistoryMigrationIntegrationTest extends AbstractPostgresIn
                 + " status, company_id, doc_type, seq_period, seq_value, doc_number, created_at)"
                 + " VALUES ('" + id + "', '" + number + "', '" + customerId() + "', '" + storeOf(company)
                 + "', '" + createdAt + "', '" + statusId("SALES_ORDER", state) + "', '" + state + "', '" + company
+                + "', 'SALES_ORDER', '202611', " + seq + ", '" + number + "', '" + createdAt + "')";
+    }
+
+    /**
+     * The same insert at head, where {@code V71} has dropped {@code status_id}: the typed state is the only
+     * column a writer names, and the creation row is still what the commit is judged by.
+     */
+    private String insertSalesOrderStatementAtHead(UUID company, UUID id, long seq, String state, String createdAt)
+            throws SQLException {
+        var number =
+                "SO-202611-" + String.format("%05d", seq) + "-" + id.toString().substring(0, 4);
+        return "INSERT INTO sales_orders (id, order_number, customer_id, company_store_id, order_date, status,"
+                + " company_id, doc_type, seq_period, seq_value, doc_number, created_at)"
+                + " VALUES ('" + id + "', '" + number + "', '" + customerId() + "', '" + storeOf(company)
+                + "', '" + createdAt + "', '" + state + "', '" + company
                 + "', 'SALES_ORDER', '202611', " + seq + ", '" + number + "', '" + createdAt + "')";
     }
 

@@ -3,7 +3,6 @@ package com.lifecontrol.api.purchaseorder.model;
 import com.lifecontrol.api.common.model.Auditable;
 import com.lifecontrol.api.company.model.Company;
 import com.lifecontrol.api.paymentmethod.model.PaymentMethod;
-import com.lifecontrol.api.status.model.Status;
 import com.lifecontrol.api.store.model.CompanyStore;
 import com.lifecontrol.api.supplier.model.Supplier;
 import jakarta.persistence.*;
@@ -18,7 +17,6 @@ import java.util.UUID;
             @NamedAttributeNode("supplier"),
             @NamedAttributeNode(value = "companyStore", subgraph = "store-graph"),
             @NamedAttributeNode("paymentMethod"),
-            @NamedAttributeNode("status"),
             @NamedAttributeNode("details")
         },
         subgraphs = {
@@ -108,32 +106,22 @@ public class PurchaseOrder extends Auditable {
     @JoinColumn(name = "payment_method_id", nullable = false)
     private PaymentMethod paymentMethod;
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "status_id", nullable = false)
-    private Status status;
-
     /**
-     * The order's typed state (ADR-0004 decision 1), and the column every move is decided with.
+     * The order's typed state (ADR-0004 decision 1), and the only column that answers where the order is.
      *
-     * <p><b>Two columns, one fact, and only one of them is the machine.</b> {@code status} (this field, the
-     * {@code VARCHAR(24)} of {@code V66}) is the state; {@code status_id} (the {@link Status} above) is the
-     * catalog pointer that still feeds every screen and read route, refuses to disagree with the code through
-     * {@code V66}'s bridge, and is dropped by ADR-0004 task T8 together with this field's neighbour. Until then
-     * {@code PurchaseOrderService} writes both through one helper, so the pair cannot drift.
+     * <p><b>This is what {@code getStatus()} used to be, and the rename is the drop.</b> Until {@code V71}
+     * there were two fields: this enum in {@code state} and a {@code Status} catalog pointer in
+     * {@code status}, kept coherent by {@code V66}'s bridge and by one service helper. T8 deleted the pointer,
+     * its indexes and the bridge, so the enum is the whole state and the accessor keeps the name the rest of
+     * the tree reads: {@link #getStatus()}.</p>
      *
-     * <p><b>Why the enum is not named {@code status} here, as it is on {@code SalesOrder}.</b> The pointer keeps
-     * the accessor the rest of the tree already reads — {@code getStatus().getStatusName()} is how the receipt
-     * flow and its suites render a label — and renaming it would change four files outside this slice's surface
-     * to buy a name. {@code getState()} is the machine; {@code getStatus()} is the pointer; T8 deletes the
-     * second.
-     *
-     * <p>Mapped as the enum and not as a string: {@code @Enumerated(STRING)} stores the constant's name, which is
-     * exactly what the column's {@code CHECK} lists, and an unmapped value becomes a load failure inside
+     * <p>Mapped as the enum and not as a string: {@code @Enumerated(STRING)} stores the constant's name, which
+     * is exactly what the column's {@code CHECK} lists, and an unmapped value becomes a load failure inside
      * Hibernate instead of a guess in a service.</p>
      */
     @Enumerated(EnumType.STRING)
     @Column(name = "status", length = 24)
-    private PurchaseOrderState state;
+    private PurchaseOrderState status;
 
     @Column(length = 500)
     private String comments;
@@ -188,13 +176,9 @@ public class PurchaseOrder extends Auditable {
         return paymentMethod;
     }
 
-    public Status getStatus() {
+    /** The order's typed state (ADR-0004 decision 1); see {@link #status} for what the drop changed. */
+    public PurchaseOrderState getStatus() {
         return status;
-    }
-
-    /** The order's typed state (ADR-0004 decision 1); see {@link #state} for why the pointer keeps its name. */
-    public PurchaseOrderState getState() {
-        return state;
     }
 
     public String getComments() {
@@ -250,12 +234,8 @@ public class PurchaseOrder extends Auditable {
         this.paymentMethod = paymentMethod;
     }
 
-    public void setStatus(Status status) {
+    public void setStatus(PurchaseOrderState status) {
         this.status = status;
-    }
-
-    public void setState(PurchaseOrderState state) {
-        this.state = state;
     }
 
     public void setComments(String comments) {
@@ -328,13 +308,8 @@ public class PurchaseOrder extends Auditable {
             return this;
         }
 
-        public Builder status(Status status) {
+        public Builder status(PurchaseOrderState status) {
             purchaseOrder.status = status;
-            return this;
-        }
-
-        public Builder state(PurchaseOrderState state) {
-            purchaseOrder.state = state;
             return this;
         }
 

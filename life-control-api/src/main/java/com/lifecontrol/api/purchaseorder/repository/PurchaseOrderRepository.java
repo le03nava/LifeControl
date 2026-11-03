@@ -71,7 +71,6 @@ public interface PurchaseOrderRepository extends JpaRepository<PurchaseOrder, UU
         LEFT JOIN FETCH cr.companyCountry cc
         LEFT JOIN FETCH cc.company c
         LEFT JOIN FETCH po.paymentMethod
-        LEFT JOIN FETCH po.status
         WHERE po.enabled = true
           AND (cast(:search as string) IS NULL
              OR LOWER(po.supplier.supplierName) LIKE LOWER(CONCAT('%', cast(:search as string), '%'))

@@ -18,8 +18,6 @@ public interface SalesOrderRepository extends JpaRepository<SalesOrder, UUID> {
 
     List<SalesOrder> findByCustomerId(UUID customerId);
 
-    List<SalesOrder> findByStatusId(UUID statusId);
-
     List<SalesOrder> findByShiftId(UUID shiftId);
 
     Page<SalesOrder> findByEnabledTrueOrderByCreatedAtDesc(Pageable pageable);

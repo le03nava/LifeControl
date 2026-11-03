@@ -50,13 +50,14 @@ import org.junit.jupiter.api.Test;
  * report the rewrite working while delivery's {@code NOSUPERUSER} owner matched zero rows in silence; that is
  * the premise {@code V66} step 0 opens its window for, and case 6 pins it from the other side.</p>
  *
- * <p><b>Why the {@code CHECK} case disables the bridge trigger for one statement.</b> While {@code status_id}
- * exists, the bridge is the <b>first</b> thing that answers a wrong {@code status} — it raises before the row
- * ever reaches the {@code CHECK} — so the constraint underneath it is unobservable with the bridge live. The
- * case therefore disables that one trigger on this class's own scratch database (nothing else shares it),
- * asks the question, and re-enables it: what it wants to know is whether the {@code CHECK} exists and names
- * itself, and the answer cannot come from the layer above it. Case 5 is the bridge's own case, and it asserts
- * the opposite verdict.</p>
+ * <p><b>Two units meet in this file, and the later one owns the end state.</b> {@code V66} is task T2's
+ * schema half and {@code V71} is task T8's drop, so the head these cases run to is the head the ADR ends at:
+ * the typed {@code status} column, the catalog with its codes, and <b>no</b> {@code status_id} and no bridge.
+ * The cases written for the bridge ({@code derivesTheStateFromTheCatalogWhileStatusIdLives}) were the ones
+ * that pinned it while it lived; T8 removes the bridge, so what is left of that claim is asked from the other
+ * side — a document is written with its state and nothing else, and the column a writer used to name is
+ * refused by the schema for not existing. The {@code CHECK} case no longer has to disable a trigger to be
+ * heard: the bridge was the layer above it and it is gone, so the constraint answers directly.</p>
  */
 @DisplayName("Document state typed (V66)")
 class DocumentStateSchemaMigrationIntegrationTest extends AbstractPostgresIntegrationTest {
@@ -73,6 +74,11 @@ class DocumentStateSchemaMigrationIntegrationTest extends AbstractPostgresIntegr
     /** The five families ADR-0004 types, spelled as {@code status_types.status_type_name} carries them. */
     private static final String IN_SCOPE_FAMILIES =
             "'SALES_ORDER', 'SALES_ORDER_ITEM', 'PURCHASE_ORDER'," + " 'PURCHASE_ORDER_DETAIL', 'GOODS_RECEIPT'";
+
+    /** The five document tables, in the order ADR-0004 names them. */
+    private static final String[] FIVE_DOCUMENT_TABLES = {
+        "sales_orders", "sales_order_items", "purchase_orders", "purchase_order_details", "goods_receipts"
+    };
 
     /** The two families the same ADR puts out of scope <b>by decision</b>, so their rows carry no code. */
     private static final String OUT_OF_SCOPE_FAMILIES = "'APPOINTMENT', 'EMPLOYEE_STATUS'";
@@ -210,37 +216,104 @@ class DocumentStateSchemaMigrationIntegrationTest extends AbstractPostgresIntegr
     }
 
     @Test
-    @DisplayName("the bridge derives the state from the pointer, one way, and fails closed on a gap")
-    void derivesTheStateFromTheCatalogWhileStatusIdLives() throws Exception {
+    @DisplayName("S9: the five document tables lose status_id, and the two out-of-scope tables keep theirs")
+    void dropsThePointerFromTheFiveTablesAndKeepsItOnTheTwoOutOfScopeOnes() throws Exception {
+        migrateTo(PRE_UNIT_HEAD);
+        var company = seedCompany();
+        // Rows written in the pre-unit shape, so the drop has documents to leave alone instead of an empty
+        // table: a column that no row carried and a column whose rows were rewritten look the same.
+        insertSalesOrder(company, 1, "Draft");
+        insertPurchaseOrder(company, 1, "Draft");
+        migrateToHead();
+
+        assertThat(tablesCarrying("status_id", FIVE_DOCUMENT_TABLES))
+                .as("the five commerce families store their state and nothing else (ADR-0004 decision 1)")
+                .isEmpty();
+        assertThat(tablesCarrying("status_id", "scheduling_appointments"))
+                .as("an appointment is not a commerce document, and the ADR says so by decision (S1)")
+                .containsExactly("scheduling_appointments");
+        assertThat(tablesCarrying("employment_status_id", "employees"))
+                .as("the employment status keeps its own column name and its own pointer, untouched")
+                .containsExactly("employees");
+    }
+
+    @Test
+    @DisplayName("S9: the temporary bridge is gone with the column, and the deferred pair is not")
+    void dropsTheTemporaryBridgeAndKeepsTheDeferredPair() throws Exception {
+        migrateTo(PRE_UNIT_HEAD);
+        migrateToHead();
+
+        assertThat(count("SELECT count(*) FROM pg_proc WHERE proname = 'sync_document_status_from_catalog'"))
+                .as("a bridge that derives one column from another outlives its column as a second authority")
+                .isZero();
+        assertThat(count("SELECT count(*) FROM pg_trigger WHERE NOT tgisinternal AND tgname IN"
+                        + " ('trg_sales_orders_status_bridge', 'trg_sales_order_items_status_bridge',"
+                        + " 'trg_purchase_orders_status_bridge', 'trg_purchase_order_details_status_bridge',"
+                        + " 'trg_goods_receipts_status_bridge')"))
+                .as("V66 named the five triggers temporary, and T8 is the task it named")
+                .isZero();
+        assertThat(count("SELECT count(*) FROM pg_trigger WHERE NOT tgisinternal AND tgdeferrable"
+                        + " AND tgfoid = 'assert_document_transition_recorded'::regproc"
+                        + " AND tgrelid IN (SELECT unnest(ARRAY['sales_orders', 'sales_order_items',"
+                        + " 'purchase_orders', 'purchase_order_details', 'goods_receipts'])::regclass)"))
+                .as("the pair that refuses a commit without its history row belongs to the state, not to the"
+                        + " pointer, so the drop must not take it (ADR-0004 decision 5)")
+                .isEqualTo(5);
+    }
+
+    @Test
+    @DisplayName("S9: the catalog keeps one row per constant with its code, and the two out-of-scope families too")
+    void keepsTheCatalogIntactAcrossTheDrop() throws Exception {
+        migrateTo(PRE_UNIT_HEAD);
+        seedCompany();
+        migrateToHead();
+
+        var constants = constantsByFamily();
+        for (var family : constants.entrySet()) {
+            assertThat(count("SELECT count(*) FROM statuses s JOIN status_types st ON st.id = s.status_type_id"
+                            + " WHERE st.status_type_name = '" + family.getKey() + "' AND s.code IS NOT NULL"))
+                    .as(
+                            "%s keeps one coded row per constant: that row is the label every response projects",
+                            family.getKey())
+                    .isEqualTo(family.getValue().size());
+        }
+        assertThat(count("SELECT count(*) FROM statuses s JOIN status_types st ON st.id = s.status_type_id"
+                        + " WHERE st.status_type_name IN (" + OUT_OF_SCOPE_FAMILIES + ") AND s.code IS NULL"))
+                .as("the nine out-of-scope rows are the catalog of two families this ADR does not type")
+                .isEqualTo(9);
+    }
+
+    @Test
+    @DisplayName("S9: a document is born with its typed state and no status_id, which is now the only way")
+    void createsADocumentWithoutAStatusId() throws Exception {
         migrateTo(PRE_UNIT_HEAD);
         var company = seedCompany();
         migrateToHead();
 
-        // A writer of today sets `status_id` and nothing else; the new `NOT NULL` would refuse it wholesale
-        // without this trigger, which is the only reason the column can be required before T8 drops the old one.
-        //
-        // Since `V68` the same writer also appends its creation row, and the two writes are one transaction:
-        // decision 5's side A refuses a document that commits without it. The row states the state the bridge
-        // is about to derive, which is how the admission is the bridge's and not the fixture's.
-        var derived = insertSalesOrderWithItsCreationRow(company, 1, statusId("SALES_ORDER", "Draft"), "DRAFT");
-        assertThat(readScoped(company, "SELECT status FROM sales_orders WHERE id = '" + derived + "'"))
-                .as("an insert that names only status_id is derived from the catalog's code")
-                .isEqualTo("DRAFT");
+        // The state and its creation row in one transaction: `V68`'s side A refuses a document that commits
+        // without its history, so this is the whole shape of a writer once the pointer is gone.
+        var id = insertSalesOrderAtHead(company, 1, "ACTIVE");
+        assertThat(readScoped(company, "SELECT status FROM sales_orders WHERE id = '" + id + "'"))
+                .as("the enum's column is the whole write: there is no second column to keep coherent")
+                .isEqualTo("ACTIVE");
         assertThat(countScoped(
                         company,
-                        "SELECT count(*) FROM status_transition WHERE document_id = '" + derived + "'"
-                                + " AND from_status IS NULL AND to_status = 'DRAFT'"))
-                .as("and the document's history begins with the row its own transaction wrote")
+                        "SELECT count(*) FROM status_transition WHERE document_id = '" + id + "'"
+                                + " AND from_status IS NULL AND to_status = 'ACTIVE'"))
+                .as("and the creation row is still required and still written")
                 .isEqualTo(1);
 
-        var overwritten = insertSalesOrderWithItsCreationRow(company, 2, statusId("SALES_ORDER", "Draft"), "DRAFT");
-        assertThat(readScoped(company, "SELECT status FROM sales_orders WHERE id = '" + overwritten + "'"))
-                .as("the pointer wins: the row stores the catalog's code, not the value the writer supplied")
-                .isEqualTo("DRAFT");
-
-        assertThatThrownBy(() -> insertSalesOrder(company, 3, statusId("APPOINTMENT", "Scheduled"), null))
-                .as("a status_id whose catalog row has no code leaves status null, and NOT NULL then refuses it")
-                .hasStackTraceContaining("null value in column \"status\"");
+        assertThatThrownBy(() -> execute(
+                        company,
+                        "INSERT INTO sales_orders (id, order_number, customer_id, company_store_id, order_date,"
+                                + " status_id, status, company_id, doc_type, seq_period, seq_value, doc_number)"
+                                + " VALUES ('" + UUID.randomUUID() + "', 'SO-202610-09999', '" + customerId()
+                                + "', '" + storeOf(company) + "', '2026-10-05 10:00:00', '" + UUID.randomUUID()
+                                + "', 'DRAFT', '" + company + "', 'SALES_ORDER', '202610', 9999,"
+                                + " 'SO-202610-09999')"))
+                .as("a writer still naming the old column is refused by the schema instead of silently"
+                        + " writing a state beside a pointer nothing reads")
+                .hasStackTraceContaining("status_id");
     }
 
     @Test
@@ -309,27 +382,19 @@ class DocumentStateSchemaMigrationIntegrationTest extends AbstractPostgresIntegr
     // ─── the CHECK, observed underneath the bridge ─────────────────────────────────────────────────
 
     /**
-     * Asks the {@code CHECK} its own question, with the bridge out of the way for exactly one statement.
+     * Asks the {@code CHECK} its own question.
      *
-     * <p>The bridge overwrites every {@code status} it sees with the catalog's code, and every value a
-     * {@code CHECK} refuses is overwritten with one the {@code CHECK} admits — so while the bridge lives the
-     * constraint is unreachable and its existence is unpinned. Disabling <b>that one trigger</b>, on this
-     * class's own scratch database, is what lets the net that stays after T8 drops the bridge be observed; the
-     * trigger is re-enabled in a {@code finally} so a failing assertion cannot leave the table weaker than the
-     * next statement expects.</p>
+     * <p>While {@code status_id} lived, the bridge of {@code V66} answered a wrong {@code status} first and
+     * this case had to disable that one trigger to be heard. T8 drops the bridge with the column, so the
+     * constraint is now the only layer between a writer and the table and it is asked directly — which is
+     * also what the screens' state machine rests on after the drop.</p>
      */
     private void assertCheckRefusesTheValue(UUID company, String table, UUID id, String value, String constraint)
             throws SQLException {
-        var trigger = "trg_" + table + "_status_bridge";
-        execute(company, "ALTER TABLE " + table + " DISABLE TRIGGER " + trigger);
-        try {
-            assertThatThrownBy(() -> execute(
-                            company, "UPDATE " + table + " SET status = '" + value + "' WHERE id = '" + id + "'"))
-                    .as("%s must refuse %s, a value no enum of that family declares", table, value)
-                    .hasStackTraceContaining(constraint);
-        } finally {
-            execute(company, "ALTER TABLE " + table + " ENABLE TRIGGER " + trigger);
-        }
+        assertThatThrownBy(() ->
+                        execute(company, "UPDATE " + table + " SET status = '" + value + "' WHERE id = '" + id + "'"))
+                .as("%s must refuse %s, a value no enum of that family declares", table, value)
+                .hasStackTraceContaining(constraint);
     }
 
     /** Every constant of each family's enum, keyed by the {@code status_types} name that family carries. */
@@ -472,20 +537,19 @@ class DocumentStateSchemaMigrationIntegrationTest extends AbstractPostgresIntegr
     }
 
     /**
-     * A sales order whose {@code status} column is omitted, plus the creation row {@code V68} requires, in
-     * <b>one</b> transaction: a document that commits without its history is refused by decision 5's side A,
-     * so this is the only shape a post-{@code V68} writer has.
+     * A sales order written at head, where {@code status_id} no longer exists, plus the creation row
+     * {@code V68} requires, in <b>one</b> transaction: a document that commits without its history is refused
+     * by decision 5's side A, so this is the only shape a post-{@code V71} writer has.
      *
-     * @param state the state the row claims, which is the one {@code V66}'s bridge is expected to derive
+     * @param state the typed state, which is the only column a writer names now
      */
-    private UUID insertSalesOrderWithItsCreationRow(UUID company, long seq, UUID statusId, String state)
-            throws SQLException {
+    private UUID insertSalesOrderAtHead(UUID company, long seq, String state) throws SQLException {
         var id = UUID.randomUUID();
         var number = "SO-202610-" + String.format("%05d", seq);
         var document = "INSERT INTO sales_orders (id, order_number, customer_id, company_store_id, order_date,"
-                + " status_id, company_id, doc_type, seq_period, seq_value, doc_number) VALUES ('" + id + "', '"
+                + " status, company_id, doc_type, seq_period, seq_value, doc_number) VALUES ('" + id + "', '"
                 + number + "', '" + customerId() + "', '" + storeOf(company) + "', '2026-10-05 10:00:00', '"
-                + statusId + "', '" + company + "', 'SALES_ORDER', '202610', " + seq + ", '" + number + "')";
+                + state + "', '" + company + "', 'SALES_ORDER', '202610', " + seq + ", '" + number + "')";
         var creation = "INSERT INTO status_transition (company_id, document_type, document_id, from_status,"
                 + " to_status, actor, reason) VALUES ('" + company + "', 'SALES_ORDER', '" + id + "', NULL, '"
                 + state + "', 'unknown:test', 'fixture')";
@@ -696,6 +760,17 @@ class DocumentStateSchemaMigrationIntegrationTest extends AbstractPostgresIntegr
             }
         }
         return result;
+    }
+
+    /** Which of the named tables still carry a column of that name: the drop's own answer, per table. */
+    private List<String> tablesCarrying(String column, String... tables) throws SQLException {
+        var found = new ArrayList<String>();
+        for (var row : rows("SELECT table_name FROM information_schema.columns"
+                + " WHERE table_schema = 'public' AND column_name = '" + column + "'"
+                + " AND table_name IN ('" + String.join("', '", tables) + "') ORDER BY table_name")) {
+            found.add(row[0]);
+        }
+        return found;
     }
 
     // ─── writes ────────────────────────────────────────────────────────────────────────────────────
