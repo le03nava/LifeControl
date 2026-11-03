@@ -95,6 +95,7 @@ class PurchaseOrderControllerTest {
                 "Note",
                 UUID.randomUUID(),
                 "Pending",
+                "PENDING",
                 LocalDateTime.now(),
                 LocalDateTime.now());
 
@@ -113,6 +114,7 @@ class PurchaseOrderControllerTest {
                 "Transfer",
                 UUID.randomUUID(),
                 "Draft",
+                "DRAFT",
                 "Comments",
                 true,
                 LocalDateTime.now(),

@@ -1,5 +1,7 @@
 package com.lifecontrol.api.common.state;
 
+import java.util.ArrayDeque;
+import java.util.HashSet;
 import java.util.Set;
 
 /**
@@ -52,5 +54,55 @@ public final class DocumentStates {
     /** The successors of {@code state}, or the empty set when there is no state to ask about. */
     public static <S extends Enum<S> & DocumentState<S>> Set<S> successorsOf(S state) {
         return state == null ? Set.of() : state.successors();
+    }
+
+    /**
+     * Whether {@code to} is reachable from {@code from} through zero or more declared moves.
+     *
+     * <p><b>Reachability is not a transition, and the difference is deliberate.</b> The guard that refuses a
+     * requested move is {@link #canTransition}: a request names one target, and a target outside the current
+     * state's successor set is a {@code 409}. This question is for the paths that <em>derive</em> a state from a
+     * fact the document just recorded — a purchase-order line whose goods physically arrived is
+     * {@code PARTIAL_RECEIVED} whether or not anyone marked it {@code IN_TRANSIT} first — where the honest
+     * question is whether the machine admits that state at all from here, not whether it is one hop away.
+     * Expressing it over {@link DocumentState#successors()} is what replaces the four string tables the
+     * services used to walk: the graph is the enum's, so a state added to one path is admitted by every
+     * path.</p>
+     *
+     * <p>Reflexive on purpose ({@code from == to} answers {@code true}): a line already partially received can
+     * go on receiving. That is a property of this question and not of a move, which is why a caller that finds
+     * {@code from == to} has <em>nothing to record</em> — the state did not change.</p>
+     *
+     * <p>The walk is bounded by the family's constant count, so it terminates whatever an enum declares, and
+     * {@code null} answers {@code false} on either side rather than throwing in the middle of a transaction.</p>
+     */
+    public static <S extends Enum<S> & DocumentState<S>> boolean isReachable(S from, S to) {
+        if (from == null || to == null) {
+            return false;
+        }
+        var visited = new HashSet<S>();
+        var pending = new ArrayDeque<S>();
+        visited.add(from);
+        pending.add(from);
+        while (!pending.isEmpty()) {
+            var current = pending.poll();
+            if (current == to) {
+                return true;
+            }
+            for (var next : current.successors()) {
+                if (visited.add(next)) {
+                    pending.add(next);
+                }
+            }
+        }
+        return false;
+    }
+
+    /** The same question, refused with the two ends named. Used by the paths that derive a state. */
+    public static <S extends Enum<S> & DocumentState<S>> void requireReachable(S from, S to) {
+        if (!isReachable(from, to)) {
+            throw new InvalidStatusTransitionException(
+                    from == null ? "missing" : from.name(), to == null ? "missing" : to.name());
+        }
     }
 }
