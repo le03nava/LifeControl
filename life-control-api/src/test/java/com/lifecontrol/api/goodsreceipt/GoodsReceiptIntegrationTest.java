@@ -10,6 +10,10 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.lifecontrol.api.common.document.DocumentNumberRenderer;
+import com.lifecontrol.api.common.document.DocumentSequenceAllocator;
+import com.lifecontrol.api.common.document.DocumentType;
+import com.lifecontrol.api.common.tenant.TenantScope;
 import com.lifecontrol.api.company.model.Company;
 import com.lifecontrol.api.company.model.CompanyCountry;
 import com.lifecontrol.api.company.model.CompanyRegion;
@@ -63,6 +67,7 @@ import com.lifecontrol.api.supplier.repository.SupplierRepository;
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
 import com.lifecontrol.api.support.TenantFixtures;
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
@@ -96,9 +101,9 @@ import tools.jackson.databind.ObjectMapper;
  * the {@link GoodsReceipt}/{@link GoodsReceiptItem} entity mappings agree.
  *
  * <p>Covers the V12 flight-check, the seeded {@code GOODS_RECEIPT}/{@code Registered} status, the
- * database-level guards the schema promises (the {@code receipt_number} UNIQUE, the positive-quantity
- * CHECK and the required {@code product_variant_id} NOT NULL), the round trip of a receipt with one
- * line, and the count-based per-order receipt counter.</p>
+ * database-level guards the schema promises (the per-tenant {@code uq_goods_receipts_doc_number}, the
+ * positive-quantity CHECK and the required {@code product_variant_id} NOT NULL), the round trip of a receipt
+ * with one line, and the count-based per-order receipt counter.</p>
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -112,6 +117,9 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
 
     @Autowired
     private Flyway flyway;
+
+    @Autowired
+    private DocumentSequenceAllocator documentSequenceAllocator;
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
@@ -214,6 +222,14 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
 
     @BeforeEach
     void setUp() {
+        // ADR-0003 made `goods_receipts` a tenant table, so every statement about it needs the scope the
+        // application's filter installs per request. Without it the deletes below delete NOTHING — RLS
+        // answers zero rows and reports success — and the receipts this suite leaves behind pin its store
+        // location, which the store suites then cannot delete (measured: 125 failures in a full run, and
+        // none in an isolated one). The scope is stated here, once, and cleared at the end of the teardown.
+        seedCompanyHierarchy();
+        TenantScope.set(company.getId(), null);
+
         // Goods receipt rows reference purchase orders, products/variants, company stores, store
         // locations and statuses with no cascade. Leaked rows would break the deleteAll() calls of
         // later integration classes in this shared JVM, so clean leaf-first before and after.
@@ -226,7 +242,6 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
         purchaseOrderDetailRepository.deleteAll();
         purchaseOrderRepository.deleteAll();
 
-        seedCompanyHierarchy();
         seedStoreAndLocation();
         seedOrderReferences();
     }
@@ -265,10 +280,17 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
         productVariantLocationRepository.deleteAll();
         productVariantStoreStockRepository.deleteAll();
         storeInventorySettingsRepository.deleteAll();
+        // Every receipt, not only this tenant's: the scoping cases of this suite deliberately write receipts
+        // for a second company, and a scoped delete cannot reach them (they would pin a store location no
+        // other class can delete). The helper states why it uses the superuser.
+        deleteAllGoodsReceipts();
         goodsReceiptItemRepository.deleteAll();
         goodsReceiptRepository.deleteAll();
         purchaseOrderDetailRepository.deleteAll();
         purchaseOrderRepository.deleteAll();
+        // Clear the scope last: with it installed every delete above actually matched rows, and a scope left
+        // on the thread would leak into whatever suite runs next on this one.
+        TenantScope.clear();
     }
 
     /**
@@ -416,9 +438,27 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
                         .build()));
     }
 
+    /**
+     * The identity parts ADR-0003 requires on a document fixture, taken from the real counter.
+     *
+     * <p>A hand-written {@code seq_value} would repeat across the orders one company's fixtures create in
+     * one period, and {@code uq_purchase_orders_doc_identity} would refuse the second one for a reason that
+     * says nothing about the case under test. The allocator needs an open transaction, which every caller
+     * here already has through {@code TenantFixtures.inTenant}.</p>
+     */
+    private DocIdentity allocateIdentity(DocumentType type, UUID companyId) {
+        var period = DocumentNumberRenderer.periodOf(LocalDate.now());
+        var seqValue = documentSequenceAllocator.allocate(companyId, type, period);
+        return new DocIdentity(period, seqValue, DocumentNumberRenderer.renderPeriodNumber(type, period, seqValue));
+    }
+
+    /** A period-numbered document's identity parts, so a fixture states all three together. */
+    private record DocIdentity(String period, long seqValue, String docNumber) {}
+
     /** A purchase order with one variant-backed line, wired to the seeded store and statuses. */
     private ReceptionFixtures createReceptionFixtures() {
         return TenantFixtures.inTenant(company.getId(), () -> {
+            var identity = allocateIdentity(DocumentType.PURCHASE_ORDER, company.getId());
             var product = productRepository.save(Product.builder()
                     .sku("GR-SKU-" + UUID.randomUUID().toString().substring(0, 12))
                     .name("Goods Receipt Product")
@@ -437,7 +477,11 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
             saveStoreStock(variant.getId());
 
             var order = purchaseOrderRepository.save(PurchaseOrder.builder()
-                    .orderNumber("PO-GR-" + UUID.randomUUID().toString().substring(0, 8))
+                    .orderNumber(identity.docNumber())
+                    .docType(DocumentType.PURCHASE_ORDER.code())
+                    .seqPeriod(identity.period())
+                    .seqValue(identity.seqValue())
+                    .docNumber(identity.docNumber())
                     .supplier(supplier)
                     .companyStore(store)
                     // V43: the order's owner is the company of its store, which this fixture already owns.
@@ -468,6 +512,9 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
     private GoodsReceipt newReceipt(PurchaseOrder order, String receiptNumber) {
         return GoodsReceipt.builder()
                 .receiptNumber(receiptNumber)
+                .companyId(order.getCompany().getId())
+                .docType(DocumentType.GOODS_RECEIPT.code())
+                .docNumber(receiptNumber)
                 .purchaseOrder(order)
                 .companyStore(store)
                 .receivingLocation(receivingLocation)
@@ -528,19 +575,24 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
 
     /** A purchase order in the given header status, ready to be received against. */
     private PurchaseOrder createReceivableOrder(String statusName) {
-        return TenantFixtures.inTenant(
-                company.getId(),
-                () -> purchaseOrderRepository.save(PurchaseOrder.builder()
-                        .orderNumber("PO-GR-" + UUID.randomUUID().toString().substring(0, 8))
-                        .supplier(supplier)
-                        .companyStore(store)
-                        // V43: the owner is the company of the store the order hangs off.
-                        .company(company)
-                        .paymentMethod(paymentMethod)
-                        .status(statusByName("PURCHASE_ORDER", statusName))
-                        .comments("Reception order")
-                        .enabled(true)
-                        .build()));
+        return TenantFixtures.inTenant(company.getId(), () -> {
+            var identity = allocateIdentity(DocumentType.PURCHASE_ORDER, company.getId());
+            return purchaseOrderRepository.save(PurchaseOrder.builder()
+                    .orderNumber(identity.docNumber())
+                    .docType(DocumentType.PURCHASE_ORDER.code())
+                    .seqPeriod(identity.period())
+                    .seqValue(identity.seqValue())
+                    .docNumber(identity.docNumber())
+                    .supplier(supplier)
+                    .companyStore(store)
+                    // V43: the owner is the company of the store the order hangs off.
+                    .company(company)
+                    .paymentMethod(paymentMethod)
+                    .status(statusByName("PURCHASE_ORDER", statusName))
+                    .comments("Reception order")
+                    .enabled(true)
+                    .build());
+        });
     }
 
     /** One variant-backed line of a receivable order, with its own product and variant. */
@@ -607,6 +659,22 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
      * Reads a lazy association inside a transaction that states this class's company: the service commits
      * its own transaction, so reading {@code detail.status} afterwards on the detached entity would throw,
      * and a policy-armed row such as a purchase order is invisible to a read with no tenant stated.
+     *
+     * <p><b>Two ways a read on the test thread ends up with no tenant stated, and both are this helper's</b>
+     * (measured while closing the five failures {@code V65}'s arming produced):</p>
+     *
+     * <ul>
+     *   <li><b>A declared finder runs with no transaction.</b> Spring Data gives a transaction to the methods
+     *       {@code SimpleJpaRepository} implements ({@code count}, {@code findById}, {@code saveAndFlush}),
+     *       and to nothing else — a finder the interface declares logs {@code No need to create transaction
+     *       ...: This method is not transactional}. The scope is installed at {@code doBegin}, so a declared
+     *       finder on an armed table reads zero rows.</li>
+     *   <li><b>The request filter clears the thread's scope.</b> {@code TenantScopeFilter} clears in its
+     *       {@code finally}, and clearing is right for a served request; it also means the scope this
+     *       class's {@code @BeforeEach} states is gone after the first {@code mockMvc.perform} of a test.
+     *       Any read of an armed table after a request therefore has to state it again, which is what this
+     *       helper does instead of widening anything.</li>
+     * </ul>
      */
     private <T> T inTransaction(java.util.function.Supplier<T> reader) {
         return TenantFixtures.inTenant(company.getId(), reader);
@@ -669,14 +737,16 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
     }
 
     @Test
-    @DisplayName("should reject a duplicate receipt_number at the database level")
+    @DisplayName("should reject a duplicate doc_number of one tenant at the database level")
     void duplicateReceiptNumberIsRejected() {
         var fixtures = createReceptionFixtures();
         goodsReceiptRepository.saveAndFlush(newReceipt(fixtures.order(), "GR-DUP-001"));
 
         assertThatThrownBy(() -> goodsReceiptRepository.saveAndFlush(newReceipt(fixtures.order(), "GR-DUP-001")))
                 .satisfies(thrown -> assertThat(hasConstraintViolationCause(thrown))
-                        .as("database constraint violation for the duplicate receipt_number")
+                        // `V64` dropped the global UNIQUE on `receipt_number`; what refuses the duplicate now
+                        // is ADR-0003 decision 5's per-tenant net over the rendered string.
+                        .as("database constraint violation for the duplicate doc_number")
                         .isTrue());
 
         assertThat(goodsReceiptRepository.count()).isEqualTo(1);
@@ -769,6 +839,9 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
         // NULL, so only the entity-level callback can fill it.
         var receipt = GoodsReceipt.builder()
                 .receiptNumber("GR-DEF-001")
+                .companyId(company.getId())
+                .docType(DocumentType.GOODS_RECEIPT.code())
+                .docNumber("GR-DEF-001")
                 .purchaseOrder(fixtures.order())
                 .companyStore(store)
                 .receivingLocation(receivingLocation)
@@ -792,20 +865,34 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
     @DisplayName("should count zero receipts for an order without receptions and increment after one")
     void perOrderCounterCountsReceipts() {
         var fixtures = createReceptionFixtures();
-        assertThat(goodsReceiptRepository.countByPurchaseOrderId(
-                        fixtures.order().getId()))
-                .isZero();
+        assertThat(receiptsOf(fixtures.order())).isZero();
 
         goodsReceiptRepository.saveAndFlush(newReceipt(fixtures.order(), "GR-CNT-001"));
 
-        assertThat(goodsReceiptRepository.countByPurchaseOrderId(
-                        fixtures.order().getId()))
-                .isEqualTo(1);
+        assertThat(receiptsOf(fixtures.order())).isEqualTo(1);
 
         // A different order keeps its own count: the counter is scoped to the purchase order.
         var other = createReceptionFixtures();
-        assertThat(goodsReceiptRepository.countByPurchaseOrderId(other.order().getId()))
-                .isZero();
+        assertThat(receiptsOf(other.order())).isZero();
+    }
+
+    /**
+     * The per-order receipt counter, read inside a transaction that states this class's company.
+     *
+     * <p><b>Why the read cannot be the bare repository call.</b> {@code countByPurchaseOrderId} is a
+     * <i>declared</i> finder, and Spring Data runs a declared finder with <b>no transaction</b>
+     * (measured: {@code TransactionInterceptor - No need to create transaction for
+     * SimpleJpaRepository.countByPurchaseOrderId: This method is not transactional}); only the methods
+     * {@code SimpleJpaRepository} itself implements — {@code count}, {@code findById}, {@code save} — get
+     * one. ADR-0005's scope is installed at {@code doBegin} and nowhere else, so with no transaction no
+     * scope is stated and an armed table answers zero rows whatever is stored: since {@code V65} armed
+     * {@code goods_receipts}, the bare call reported 0 for a receipt the same thread had just committed, while
+     * {@code count()} — a method {@code SimpleJpaRepository} implements, so it does get a transaction —
+     * reported 1 on the same table in the same case. The counter is a read of a tenant table like any other,
+     * so it states the tenant the write used — not a wider scope, and not a changed expectation.
+     */
+    private long receiptsOf(PurchaseOrder order) {
+        return inTransaction(() -> goodsReceiptRepository.countByPurchaseOrderId(order.getId()));
     }
 
     @Nested
@@ -962,7 +1049,11 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
                     .get("id")
                     .asText());
 
-            assertThat(goodsReceiptRepository.count()).isEqualTo(1);
+            // The receipt count is a read of an armed table on the test thread <b>after</b> a request, and
+            // `TenantScopeFilter` clears the thread's scope in its `finally`: read unscoped it answers zero
+            // for the receipt the POST just committed, so the scope the write used is stated here again.
+            long receiptsAfterPost = inTransaction(goodsReceiptRepository::count);
+            assertThat(receiptsAfterPost).isEqualTo(1L);
             assertThat(goodsReceiptItemRepository.count()).isEqualTo(1);
             var movements = inventoryMovementRepository.findAll();
             assertThat(movements).hasSize(1);
@@ -1304,25 +1395,33 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
         }
 
         private PurchaseOrder persistedOrder(CompanyStore companyStore, String orderNumber) {
-            return TenantFixtures.inTenant(
-                    company.getId(),
-                    () -> purchaseOrderRepository.save(PurchaseOrder.builder()
-                            .orderNumber(orderNumber)
-                            .supplier(supplier)
-                            .companyStore(companyStore)
-                            // V43: the store may be the other one of the same zone; its company is still this
-                            // fixture's, and that is the owner the order stores.
-                            .company(company)
-                            .paymentMethod(paymentMethod)
-                            .status(draftStatus)
-                            .comments("List order")
-                            .enabled(true)
-                            .build()));
+            return TenantFixtures.inTenant(company.getId(), () -> {
+                var identity = allocateIdentity(DocumentType.PURCHASE_ORDER, company.getId());
+                return purchaseOrderRepository.save(PurchaseOrder.builder()
+                        .orderNumber(orderNumber)
+                        .docType(DocumentType.PURCHASE_ORDER.code())
+                        .seqPeriod(identity.period())
+                        .seqValue(identity.seqValue())
+                        .docNumber(identity.docNumber())
+                        .supplier(supplier)
+                        .companyStore(companyStore)
+                        // V43: the store may be the other one of the same zone; its company is still this
+                        // fixture's, and that is the owner the order stores.
+                        .company(company)
+                        .paymentMethod(paymentMethod)
+                        .status(draftStatus)
+                        .comments("List order")
+                        .enabled(true)
+                        .build());
+            });
         }
 
         private GoodsReceipt receiptFor(CompanyStore companyStore, PurchaseOrder order, String receiptNumber) {
             return GoodsReceipt.builder()
                     .receiptNumber(receiptNumber)
+                    .companyId(order.getCompany().getId())
+                    .docType(DocumentType.GOODS_RECEIPT.code())
+                    .docNumber(receiptNumber)
                     .purchaseOrder(order)
                     .companyStore(companyStore)
                     .receivingLocation(receivingLocation)

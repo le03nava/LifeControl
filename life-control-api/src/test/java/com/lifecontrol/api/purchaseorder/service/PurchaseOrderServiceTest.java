@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
@@ -13,6 +14,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.lifecontrol.api.common.auth.CurrentUserContext;
+import com.lifecontrol.api.common.document.DocumentSequenceAllocator;
+import com.lifecontrol.api.common.document.DocumentType;
 import com.lifecontrol.api.company.model.Company;
 import com.lifecontrol.api.company.model.CompanyCountry;
 import com.lifecontrol.api.company.model.CompanyRegion;
@@ -114,6 +117,9 @@ class PurchaseOrderServiceTest {
 
     @Mock
     private CurrentUserContext currentUserContext;
+
+    @Mock
+    private DocumentSequenceAllocator documentSequenceAllocator;
 
     /**
      * The real derivation, not a mock: the store fixture carries the whole
@@ -301,7 +307,8 @@ class PurchaseOrderServiceTest {
                 paymentMethodRepository,
                 statusRepository,
                 eventPublisher,
-                currentUserContext);
+                currentUserContext,
+                documentSequenceAllocator);
 
         detail = PurchaseOrderDetail.builder()
                 .id(detailId)
@@ -431,9 +438,10 @@ class PurchaseOrderServiceTest {
             when(companyStoreRepository.findById(storeId)).thenReturn(Optional.of(store));
             when(paymentMethodRepository.findById(pmId)).thenReturn(Optional.of(paymentMethod));
             when(statusRepository.findById(draftStatusId)).thenReturn(Optional.of(draftStatus));
-            when(purchaseOrderRepository.findTopByOrderNumberStartingWithOrderByOrderNumberDesc(anyString()))
-                    .thenReturn(Optional.empty());
-            when(purchaseOrderRepository.save(any(PurchaseOrder.class))).thenAnswer(inv -> {
+            when(documentSequenceAllocator.allocate(eq(companyId), eq(DocumentType.PURCHASE_ORDER), anyString()))
+                    .thenReturn(1L);
+            var captor = ArgumentCaptor.forClass(PurchaseOrder.class);
+            when(purchaseOrderRepository.save(captor.capture())).thenAnswer(inv -> {
                 var po = inv.getArgument(0, PurchaseOrder.class);
                 po.setId(poId);
                 return po;
@@ -444,10 +452,20 @@ class PurchaseOrderServiceTest {
             assertThat(result).isNotNull();
             assertThat(result.statusName()).isEqualTo("Draft");
             assertThat(result.orderNumber()).startsWith("PO-");
+            assertThat(result.orderNumber()).containsPattern("PO-\\d{6}-00001");
             assertThat(result.supplierName()).isEqualTo("Test Supplier");
             assertThat(result.companyStoreName()).isEqualTo("Test Store");
             assertThat(result.paymentMethodName()).isEqualTo("Transfer");
             verify(eventPublisher).publishEvent(any(PurchaseOrderCreatedEvent.class));
+
+            // ADR-0003 decisions 4 and 5: the parts are stored, the rendered string is written once,
+            // and the period is the frozen date's, not a second clock read.
+            var created = captor.getValue();
+            assertThat(created.getOrderNumber()).isEqualTo("PO-" + created.getSeqPeriod() + "-00001");
+            assertThat(created.getDocNumber()).isEqualTo(created.getOrderNumber());
+            assertThat(created.getDocType()).isEqualTo("PURCHASE_ORDER");
+            assertThat(created.getSeqValue()).isEqualTo(1L);
+            verify(documentSequenceAllocator).allocate(companyId, DocumentType.PURCHASE_ORDER, created.getSeqPeriod());
         }
 
         @Test
@@ -459,8 +477,8 @@ class PurchaseOrderServiceTest {
             when(companyStoreRepository.findById(storeId)).thenReturn(Optional.of(store));
             when(paymentMethodRepository.findById(pmId)).thenReturn(Optional.of(paymentMethod));
             when(statusRepository.findById(draftStatusId)).thenReturn(Optional.of(draftStatus));
-            when(purchaseOrderRepository.findTopByOrderNumberStartingWithOrderByOrderNumberDesc(anyString()))
-                    .thenReturn(Optional.empty());
+            when(documentSequenceAllocator.allocate(eq(companyId), eq(DocumentType.PURCHASE_ORDER), anyString()))
+                    .thenReturn(1L);
 
             var captor = ArgumentCaptor.forClass(PurchaseOrder.class);
             when(purchaseOrderRepository.save(captor.capture())).thenAnswer(inv -> {
@@ -504,8 +522,8 @@ class PurchaseOrderServiceTest {
                     .thenReturn(Optional.of(productVariant));
             when(productVariantStoreStockRepository.existsByProductVariantIdAndCompanyStoreId(variantId, storeId))
                     .thenReturn(true);
-            when(purchaseOrderRepository.findTopByOrderNumberStartingWithOrderByOrderNumberDesc(anyString()))
-                    .thenReturn(Optional.empty());
+            when(documentSequenceAllocator.allocate(eq(companyId), eq(DocumentType.PURCHASE_ORDER), anyString()))
+                    .thenReturn(1L);
 
             var captor = ArgumentCaptor.forClass(PurchaseOrder.class);
             when(purchaseOrderRepository.save(captor.capture())).thenAnswer(inv -> {
@@ -538,6 +556,10 @@ class PurchaseOrderServiceTest {
             when(paymentMethodRepository.findById(pmId)).thenReturn(Optional.of(paymentMethod));
             when(statusRepository.findById(draftStatusId)).thenReturn(Optional.of(draftStatus));
             when(productRepository.findById(productId)).thenReturn(Optional.of(product));
+            // The allocation runs before the lines are resolved, so even a refused line has already taken a
+            // value; the case is about the refusal, not about numbering.
+            when(documentSequenceAllocator.allocate(eq(companyId), eq(DocumentType.PURCHASE_ORDER), anyString()))
+                    .thenReturn(1L);
             // The order's store belongs to companyId, and no variant of that company carries this id:
             // that is what a variant of another tenant looks like once the lookup is scoped.
             when(productVariantRepository.findByIdAndProductIdAndCompanyIdAndEnabledTrue(
@@ -1010,8 +1032,8 @@ class PurchaseOrderServiceTest {
             when(paymentMethodRepository.findById(pmId)).thenReturn(Optional.of(paymentMethod));
             when(statusRepository.findById(draftStatusId)).thenReturn(Optional.of(draftStatus));
             when(productRepository.findById(productId)).thenReturn(Optional.of(product));
-            when(purchaseOrderRepository.findTopByOrderNumberStartingWithOrderByOrderNumberDesc(anyString()))
-                    .thenReturn(Optional.empty());
+            when(documentSequenceAllocator.allocate(eq(companyId), eq(DocumentType.PURCHASE_ORDER), anyString()))
+                    .thenReturn(1L);
 
             // The column is NOT NULL since V14 and the request is @NotNull, so the null branch of
             // resolveProductVariant was removed: a null id now fails the resolution instead of
@@ -1046,8 +1068,8 @@ class PurchaseOrderServiceTest {
                     .thenReturn(Optional.of(productVariant));
             when(productVariantStoreStockRepository.existsByProductVariantIdAndCompanyStoreId(variantId, storeId))
                     .thenReturn(true);
-            when(purchaseOrderRepository.findTopByOrderNumberStartingWithOrderByOrderNumberDesc(anyString()))
-                    .thenReturn(Optional.empty());
+            when(documentSequenceAllocator.allocate(eq(companyId), eq(DocumentType.PURCHASE_ORDER), anyString()))
+                    .thenReturn(1L);
 
             var captor = ArgumentCaptor.forClass(PurchaseOrder.class);
             when(purchaseOrderRepository.save(captor.capture())).thenAnswer(inv -> {
@@ -1080,6 +1102,8 @@ class PurchaseOrderServiceTest {
             when(paymentMethodRepository.findById(pmId)).thenReturn(Optional.of(paymentMethod));
             when(statusRepository.findById(draftStatusId)).thenReturn(Optional.of(draftStatus));
             when(productRepository.findById(productId)).thenReturn(Optional.of(product));
+            when(documentSequenceAllocator.allocate(eq(companyId), eq(DocumentType.PURCHASE_ORDER), anyString()))
+                    .thenReturn(1L);
             when(productVariantRepository.findByIdAndProductIdAndCompanyIdAndEnabledTrue(
                             variantId, productId, companyId))
                     .thenReturn(Optional.empty());

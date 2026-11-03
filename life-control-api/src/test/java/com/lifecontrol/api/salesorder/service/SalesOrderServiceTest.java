@@ -3,6 +3,7 @@ package com.lifecontrol.api.salesorder.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeast;
@@ -14,6 +15,9 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.lifecontrol.api.common.auth.CurrentUserContext;
+import com.lifecontrol.api.common.document.DocumentNumberRenderer;
+import com.lifecontrol.api.common.document.DocumentSequenceAllocator;
+import com.lifecontrol.api.common.document.DocumentType;
 import com.lifecontrol.api.company.model.Company;
 import com.lifecontrol.api.company.model.CompanyCountry;
 import com.lifecontrol.api.company.model.CompanyRegion;
@@ -108,6 +112,9 @@ class SalesOrderServiceTest {
 
     @Mock
     private CurrentUserContext currentUserContext;
+
+    @Mock
+    private DocumentSequenceAllocator documentSequenceAllocator;
 
     /**
      * The real derivation, not a mock: the store fixture carries the whole
@@ -291,7 +298,8 @@ class SalesOrderServiceTest {
                 inventoryService,
                 statusRepository,
                 paymentMethodRepository,
-                currentUserContext);
+                currentUserContext,
+                documentSequenceAllocator);
 
         testItem = SalesOrderItem.builder()
                 .id(itemId)
@@ -500,16 +508,21 @@ class SalesOrderServiceTest {
     class CreateSalesOrderTests {
 
         @Test
-        @DisplayName("should create sales order with Draft status and auto-generated order number")
+        @DisplayName("should create sales order with Draft status and a per-tenant allocated number")
         void createSalesOrder_Success() {
             when(customerRepository.existsById(customerId)).thenReturn(true);
             when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
             when(shiftRepository.findById(shiftId)).thenReturn(Optional.of(openShift("ABIERTO")));
             when(statusRepository.findByTypeNameAndStatusName("SALES_ORDER", "Draft"))
                     .thenReturn(Optional.of(borradorStatus));
-            when(salesOrderRepository.findTopByOrderNumberStartingWithOrderByOrderNumberDesc(any()))
-                    .thenReturn(Optional.empty());
-            when(salesOrderRepository.save(any(SalesOrder.class))).thenReturn(testOrder);
+            when(documentSequenceAllocator.allocate(eq(companyId), eq(DocumentType.SALES_ORDER), anyString()))
+                    .thenReturn(1L);
+            var captor = ArgumentCaptor.forClass(SalesOrder.class);
+            when(salesOrderRepository.save(captor.capture())).thenAnswer(invocation -> {
+                var order = invocation.getArgument(0, SalesOrder.class);
+                order.setId(orderId);
+                return order;
+            });
             when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId)).thenReturn(List.of());
             when(statusRepository.findById(borradorStatus.getId())).thenReturn(Optional.of(borradorStatus));
 
@@ -518,11 +531,24 @@ class SalesOrderServiceTest {
             assertThat(result).isNotNull();
             assertThat(result.id()).isEqualTo(orderId);
             assertThat(result.orderNumber()).startsWith("SO-");
-            assertThat(result.orderNumber()).containsPattern("SO-\\d{8}-\\d{5}");
+            assertThat(result.orderNumber()).containsPattern("SO-\\d{6}-00001");
             assertThat(result.statusName()).isEqualTo("Draft");
             assertThat(result.totalAmount()).isEqualByComparingTo(BigDecimal.ZERO);
             assertThat(result.enabled()).isTrue();
             verify(salesOrderRepository).save(any(SalesOrder.class));
+
+            // ADR-0003 decisions 4 and 5: the row carries the identity in parts, the rendered string is
+            // written once, and the period is the one the frozen order date produces.
+            var created = captor.getValue();
+            assertThat(created.getOrderNumber()).isEqualTo("SO-" + created.getSeqPeriod() + "-00001");
+            assertThat(created.getDocNumber()).isEqualTo(created.getOrderNumber());
+            assertThat(created.getDocType()).isEqualTo("SALES_ORDER");
+            assertThat(created.getSeqValue()).isEqualTo(1L);
+            assertThat(created.getCompanyId()).isEqualTo(companyId);
+            assertThat(created.getSeqPeriod())
+                    .isEqualTo(DocumentNumberRenderer.periodOf(
+                            created.getOrderDate().toLocalDate()));
+            verify(documentSequenceAllocator).allocate(companyId, DocumentType.SALES_ORDER, created.getSeqPeriod());
         }
 
         @Test

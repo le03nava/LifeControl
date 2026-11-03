@@ -31,6 +31,4 @@ public interface SalesOrderRepository extends JpaRepository<SalesOrder, UUID> {
         ORDER BY so.createdAt DESC
         """)
     Page<SalesOrder> findBySearchTerm(@Param("search") String search, Pageable pageable);
-
-    Optional<SalesOrder> findTopByOrderNumberStartingWithOrderByOrderNumberDesc(String orderNumberPrefix);
 }

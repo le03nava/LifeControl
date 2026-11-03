@@ -491,8 +491,9 @@ class SupplierSchemaMigrationIntegrationTest extends AbstractPostgresIntegration
                 () -> jdbcTemplate.update(
                         """
                 INSERT INTO purchase_orders (id, order_number, supplier_id, company_store_id,
-                                             payment_method_id, status_id, company_id, enabled)
-                VALUES (?, ?, ?, ?, ?, ?, ?, true)
+                                             payment_method_id, status_id, company_id, enabled,
+                                             doc_type, seq_period, seq_value, doc_number)
+                VALUES (?, ?, ?, ?, ?, ?, ?, true, 'PURCHASE_ORDER', '202601', 1, ?)
                 """,
                         id,
                         orderNumber,
@@ -500,7 +501,8 @@ class SupplierSchemaMigrationIntegrationTest extends AbstractPostgresIntegration
                         storeId,
                         paymentMethodId,
                         draftPurchaseOrderStatusId,
-                        companyId));
+                        companyId,
+                        "PO-SCHEMA-" + orderNumber));
         insertedPurchaseOrders.add(new InsertedRow(companyId, id));
     }
 

@@ -112,8 +112,6 @@ public interface PurchaseOrderRepository extends JpaRepository<PurchaseOrder, UU
 
     boolean existsByOrderNumber(String orderNumber);
 
-    Optional<PurchaseOrder> findTopByOrderNumberStartingWithOrderByOrderNumberDesc(String orderNumberPrefix);
-
     /**
      * Pessimistic write lock on the purchase order. The goods receipt takes this lock before it
      * numbers the receipt and applies the reception, so two concurrent receptions against the same

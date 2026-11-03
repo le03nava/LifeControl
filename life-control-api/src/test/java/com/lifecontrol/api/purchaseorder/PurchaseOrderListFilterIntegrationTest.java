@@ -5,6 +5,9 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.lifecontrol.api.common.document.DocumentNumberRenderer;
+import com.lifecontrol.api.common.document.DocumentSequenceAllocator;
+import com.lifecontrol.api.common.document.DocumentType;
 import com.lifecontrol.api.company.model.Company;
 import com.lifecontrol.api.company.model.CompanyCountry;
 import com.lifecontrol.api.company.model.CompanyRegion;
@@ -27,6 +30,7 @@ import com.lifecontrol.api.supplier.model.Supplier;
 import com.lifecontrol.api.supplier.repository.SupplierRepository;
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
 import com.lifecontrol.api.support.TenantFixtures;
+import java.time.LocalDate;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
@@ -80,6 +84,9 @@ class PurchaseOrderListFilterIntegrationTest extends AbstractPostgresIntegration
 
     @Autowired
     private PurchaseOrderRepository purchaseOrderRepository;
+
+    @Autowired
+    private DocumentSequenceAllocator documentSequenceAllocator;
 
     @Autowired
     private PurchaseOrderDetailRepository purchaseOrderDetailRepository;
@@ -329,20 +336,28 @@ class PurchaseOrderListFilterIntegrationTest extends AbstractPostgresIntegration
      */
     private String createOrder(UUID storeId, Supplier supplier, Company company, boolean enabled) {
         var status = draftStatus();
-        var order = TenantFixtures.inTenant(
-                company.getId(),
-                () -> purchaseOrderRepository.save(PurchaseOrder.builder()
-                        .orderNumber("PO-FILTER-" + UUID.randomUUID().toString().substring(0, 12))
-                        .supplier(supplier)
-                        .companyStore(companyStoreRepository.findById(storeId).orElseThrow())
-                        // V43: the order stores the company of its store. It is passed in because the caller is
-                        // the fixture that built the store, so nothing is derived a second way here.
-                        .company(company)
-                        .paymentMethod(paymentMethodOf())
-                        .status(status)
-                        .comments("PO filter fixture")
-                        .enabled(enabled)
-                        .build()));
+        var order = TenantFixtures.inTenant(company.getId(), () -> {
+            // ADR-0003 identity parts: one company's fixtures write several orders in one period, so the
+            // sequence value has to come from the counter instead of a literal that would repeat.
+            var period = DocumentNumberRenderer.periodOf(LocalDate.now());
+            var seqValue = documentSequenceAllocator.allocate(company.getId(), DocumentType.PURCHASE_ORDER, period);
+            return purchaseOrderRepository.save(PurchaseOrder.builder()
+                    .orderNumber("PO-FILTER-" + UUID.randomUUID().toString().substring(0, 12))
+                    .docType(DocumentType.PURCHASE_ORDER.code())
+                    .seqPeriod(period)
+                    .seqValue(seqValue)
+                    .docNumber(DocumentNumberRenderer.renderPeriodNumber(DocumentType.PURCHASE_ORDER, period, seqValue))
+                    .supplier(supplier)
+                    .companyStore(companyStoreRepository.findById(storeId).orElseThrow())
+                    // V43: the order stores the company of its store. It is passed in because the caller is
+                    // the fixture that built the store, so nothing is derived a second way here.
+                    .company(company)
+                    .paymentMethod(paymentMethodOf())
+                    .status(status)
+                    .comments("PO filter fixture")
+                    .enabled(enabled)
+                    .build());
+        });
         return order.getOrderNumber();
     }
 

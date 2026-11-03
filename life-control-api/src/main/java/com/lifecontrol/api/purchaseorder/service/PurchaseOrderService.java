@@ -1,6 +1,9 @@
 package com.lifecontrol.api.purchaseorder.service;
 
 import com.lifecontrol.api.common.auth.CurrentUserContext;
+import com.lifecontrol.api.common.document.DocumentNumberRenderer;
+import com.lifecontrol.api.common.document.DocumentSequenceAllocator;
+import com.lifecontrol.api.common.document.DocumentType;
 import com.lifecontrol.api.company.exception.CompanyNotFoundException;
 import com.lifecontrol.api.company.model.Company;
 import com.lifecontrol.api.company.model.CompanyCountry;
@@ -47,7 +50,6 @@ import com.lifecontrol.api.supplier.repository.SupplierRepository;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -89,8 +91,6 @@ public class PurchaseOrderService {
             Map.entry("Rejected", Set.of()),
             Map.entry("Cancelled", Set.of()));
 
-    private static final DateTimeFormatter DATE_FORMAT = DateTimeFormatter.ofPattern("yyyyMMdd");
-
     private final PurchaseOrderRepository purchaseOrderRepository;
     private final PurchaseOrderDetailRepository detailRepository;
     private final SupplierRepository supplierRepository;
@@ -104,6 +104,7 @@ public class PurchaseOrderService {
     private final StatusRepository statusRepository;
     private final ApplicationEventPublisher eventPublisher;
     private final CurrentUserContext currentUserContext;
+    private final DocumentSequenceAllocator documentSequenceAllocator;
 
     public PurchaseOrderService(
             PurchaseOrderRepository purchaseOrderRepository,
@@ -118,7 +119,8 @@ public class PurchaseOrderService {
             PaymentMethodRepository paymentMethodRepository,
             StatusRepository statusRepository,
             ApplicationEventPublisher eventPublisher,
-            CurrentUserContext currentUserContext) {
+            CurrentUserContext currentUserContext,
+            DocumentSequenceAllocator documentSequenceAllocator) {
         this.purchaseOrderRepository = purchaseOrderRepository;
         this.detailRepository = detailRepository;
         this.supplierRepository = supplierRepository;
@@ -132,6 +134,7 @@ public class PurchaseOrderService {
         this.statusRepository = statusRepository;
         this.eventPublisher = eventPublisher;
         this.currentUserContext = currentUserContext;
+        this.documentSequenceAllocator = documentSequenceAllocator;
     }
 
     // ─── Purchase Order CRUD ────────────────────────────────────────────
@@ -189,10 +192,28 @@ public class PurchaseOrderService {
                         .orElseThrow(() -> new StatusNotFoundException(
                                 "Default status 'Draft' not found for PURCHASE_ORDER type"));
 
-        var orderNumber = generateOrderNumber();
+        // ADR-0003 decision 4: ONE date is read and the period comes from it, so the allocation and the
+        // render cannot disagree about which period the document belongs to. `purchase_orders` carries no
+        // `order_date` column (V1:313-325 has only created_at/updated_at), so this value is the document's
+        // own date for numbering purposes and nothing else — the ADR names a column the table does not have.
+        var documentDate = LocalDate.now();
+        var period = DocumentNumberRenderer.periodOf(documentDate);
+
+        // The allocation is the last write before the row is created, not the last write before commit:
+        // `purchase_orders` needs its number at INSERT time, so "allocate as the last write before commit"
+        // is unattainable on this path. The sequence row's lock is therefore held while the lines are
+        // resolved and written, which is the cost the ADR records rather than one this code can avoid.
+        var seqValue = documentSequenceAllocator.allocate(companyId, DocumentType.PURCHASE_ORDER, period);
+        var docNumber = DocumentNumberRenderer.renderPeriodNumber(DocumentType.PURCHASE_ORDER, period, seqValue);
 
         var po = PurchaseOrder.builder()
-                .orderNumber(orderNumber)
+                // `V64` dropped the global key on `order_number`: it carries the same string as
+                // `doc_number` for one more release, and two tenants may legally print the same number.
+                .orderNumber(docNumber)
+                .docType(DocumentType.PURCHASE_ORDER.code())
+                .seqPeriod(period)
+                .seqValue(seqValue)
+                .docNumber(docNumber)
                 .supplier(supplier)
                 .companyStore(store)
                 // The owner comes from the store, never from the supplier: the supplier is the thing the
@@ -809,29 +830,6 @@ public class PurchaseOrderService {
             }
         }
         return enabledLines > 0;
-    }
-
-    // ─── Order Number Generation ────────────────────────────────────────
-
-    private String generateOrderNumber() {
-        var today = LocalDate.now();
-        var dateStr = today.format(DATE_FORMAT);
-        var prefix = "PO-" + dateStr + "-";
-
-        var maxOrder = purchaseOrderRepository.findTopByOrderNumberStartingWithOrderByOrderNumberDesc(prefix);
-
-        var nextSeq = 1;
-        if (maxOrder.isPresent()) {
-            var lastOrderNumber = maxOrder.get().getOrderNumber();
-            var seqPart = lastOrderNumber.substring(prefix.length());
-            try {
-                nextSeq = Integer.parseInt(seqPart) + 1;
-            } catch (NumberFormatException e) {
-                logger.warn("Failed to parse sequence from order number: {}", lastOrderNumber);
-            }
-        }
-
-        return prefix + String.format("%05d", nextSeq);
     }
 
     // ─── Response Mappers ───────────────────────────────────────────────

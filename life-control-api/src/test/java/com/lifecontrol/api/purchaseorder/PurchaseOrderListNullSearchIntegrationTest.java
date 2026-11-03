@@ -5,6 +5,9 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.lifecontrol.api.common.document.DocumentNumberRenderer;
+import com.lifecontrol.api.common.document.DocumentSequenceAllocator;
+import com.lifecontrol.api.common.document.DocumentType;
 import com.lifecontrol.api.company.model.CompanyCountry;
 import com.lifecontrol.api.company.model.CompanyRegion;
 import com.lifecontrol.api.company.model.CompanyZone;
@@ -25,6 +28,7 @@ import com.lifecontrol.api.supplier.model.Supplier;
 import com.lifecontrol.api.supplier.repository.SupplierRepository;
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
 import com.lifecontrol.api.support.TenantFixtures;
+import java.time.LocalDate;
 import java.util.HashSet;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
@@ -75,6 +79,9 @@ class PurchaseOrderListNullSearchIntegrationTest extends AbstractPostgresIntegra
 
     @Autowired
     private PurchaseOrderRepository purchaseOrderRepository;
+
+    @Autowired
+    private DocumentSequenceAllocator documentSequenceAllocator;
 
     @Autowired
     private PurchaseOrderDetailRepository purchaseOrderDetailRepository;
@@ -216,11 +223,23 @@ class PurchaseOrderListNullSearchIntegrationTest extends AbstractPostgresIntegra
                     .findByTypeNameAndStatusName("PURCHASE_ORDER", "Draft")
                     .orElseThrow();
 
+            // ADR-0003 identity parts, allocated from the real counter. The allocation runs in the tenant
+            // this fixture already states and <b>not</b> in a nested `TenantFixtures.inTenant`: that wrapper
+            // is a REQUIRES_NEW transaction, so it would open a second connection while this one still held
+            // the store, the supplier and the payment method as pending inserts — which the second
+            // connection cannot see, and the order's foreign keys then fail against rows that exist.
+            var period = DocumentNumberRenderer.periodOf(LocalDate.now());
+            var seqValue = documentSequenceAllocator.allocate(company.getId(), DocumentType.PURCHASE_ORDER, period);
             var order = purchaseOrderRepository.save(PurchaseOrder.builder()
                     .orderNumber("PO-NULLSEARCH-" + UUID.randomUUID().toString().substring(0, 12))
+                    .docType(DocumentType.PURCHASE_ORDER.code())
+                    .seqPeriod(period)
+                    .seqValue(seqValue)
+                    .docNumber(DocumentNumberRenderer.renderPeriodNumber(DocumentType.PURCHASE_ORDER, period, seqValue))
                     .supplier(supplier)
                     .companyStore(store)
-                    // The order's owner (V43) is the company of its store — the one this fixture just built.
+                    // The order's owner (V43) is the company of its store — the one this fixture
+                    // just built.
                     .company(company)
                     .paymentMethod(paymentMethod)
                     .status(status)
