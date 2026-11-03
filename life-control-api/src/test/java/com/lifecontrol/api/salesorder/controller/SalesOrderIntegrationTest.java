@@ -1168,6 +1168,11 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             assertThat(movementsOfType(variant.getId(), MovementType.SALE))
                     .as("the legacy ledger agrees, which is what lets the two copies be compared row for row")
                     .hasSize(1);
+            assertThat(writeSeqOf(itemId))
+                    .as("the retry books nothing, so it bumps nothing: a gap in the sequence is allowed, a "
+                            + "busted counter is not, and a bump on the zero-delta branch would pass every "
+                            + "assertion above while quietly disagreeing with the movements")
+                    .isEqualTo(1L);
             assertThat(storeStockOf(variant.getId()).getStock()).isEqualByComparingTo(new BigDecimal("95.00"));
             assertThat(locationStockOf(variant.getId(), salesLocationId)).isEqualByComparingTo(new BigDecimal("95.00"));
         }

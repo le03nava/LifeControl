@@ -549,6 +549,48 @@ class StockLedgerSchemaMigrationIntegrationTest extends AbstractPostgresIntegrat
     }
 
     // ──────────────────────────────────────
+    // V73 — uq_movement_source gains the write, so one line can book twice in one location
+    // ──────────────────────────────────────
+
+    /**
+     * {@code V73__stock_ledger_per_write_identity.sql} widens the same index {@code V63} widened, and the file
+     * checks itself. This class exists because a file that checks itself proves the check ran, not that an
+     * independent reader agrees with it: the expected shape is read back out of the catalog here, by column name
+     * and in order, so a key that merely *contains* the five names, or holds a sixth, or lost its predicate, is a
+     * different key and fails.
+     */
+    @Nested
+    @DisplayName("V73: uq_movement_source keys the write")
+    class SourceIndexKeyedOnTheWriteTests {
+
+        @Test
+        @DisplayName("the key is unique on exactly the five columns, still partial on reverses_movement_id")
+        void theKeyIsUniqueOnExactlyTheFiveColumnsStillPartialOnReversesMovementId() {
+            assertThat(jdbcTemplate.queryForList("""
+                    SELECT a.attname FROM pg_index i
+                      CROSS JOIN LATERAL unnest(i.indkey::int2[]) WITH ORDINALITY AS k(attnum, ord)
+                      JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = k.attnum
+                     WHERE i.indexrelid = 'uq_movement_source'::regclass ORDER BY k.ord""", String.class))
+                    .as("I5 (:184) is one movement per source, direction and location and write. Without the fifth "
+                            + "column a line that books twice in one location is refused again; a sixth or a "
+                            + "reordered column leaves the key refusing something other than the write")
+                    .containsExactly("source_type", "source_id", "movement_type", "store_location_id", "write_seq");
+            assertThat(jdbcTemplate.queryForObject("""
+                    SELECT indrelid = 'stock_movement'::regclass AND indisunique
+                      FROM pg_index WHERE indexrelid = 'uq_movement_source'::regclass""", Boolean.class))
+                    .as("a key on another table keys nothing this ledger writes, and a non-unique index refuses "
+                            + "nothing at all")
+                    .isTrue();
+            assertThat(jdbcTemplate.queryForObject("""
+                    SELECT regexp_replace(lower(pg_get_expr(indpred, indrelid)), '[[:space:]()]', '', 'g')
+                      FROM pg_index WHERE indexrelid = 'uq_movement_source'::regclass""", String.class))
+                    .as("the predicate is what keeps a reversal from being counted against its own source: a lost "
+                            + "predicate makes every reversal collide with the movement it corrects")
+                    .isEqualTo("reverses_movement_idisnull");
+        }
+    }
+
+    // ──────────────────────────────────────
     // helpers
     // ──────────────────────────────────────
 
