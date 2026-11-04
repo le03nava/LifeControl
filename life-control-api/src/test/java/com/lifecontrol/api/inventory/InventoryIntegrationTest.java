@@ -15,7 +15,6 @@ import com.lifecontrol.api.company.repository.CompanyRepository;
 import com.lifecontrol.api.company.repository.CompanyZoneRepository;
 import com.lifecontrol.api.country.repository.CountryRepository;
 import com.lifecontrol.api.inventory.ledger.StockLedgerWriter;
-import com.lifecontrol.api.inventory.model.MovementType;
 import com.lifecontrol.api.inventory.model.ProductVariantLocation;
 import com.lifecontrol.api.inventory.repository.InventoryMovementRepository;
 import com.lifecontrol.api.inventory.repository.ProductVariantLocationRepository;
@@ -39,6 +38,7 @@ import com.lifecontrol.api.store.repository.StoreZoneRepository;
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
 import com.lifecontrol.api.support.TenantFixtures;
 import java.math.BigDecimal;
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -69,11 +69,13 @@ import tools.jackson.databind.ObjectMapper;
  * and {@code ddl-auto=validate}, so a green run proves {@code V10__inventory.sql} and the entity
  * mappings agree.
  *
- * <p>Covers the additive receipt and the {@code aggregate = SUM(locations)} invariant after a
- * receipt and after a sale, the create-then-reuse behaviour of the {@code (variant, location)}
- * balance, the database-level uniqueness and the append-only ledger. The store/location fixtures are
- * built through the real store endpoints, exactly like the other store-chain integration tests, so
- * the chain comes from the same code path the API uses.</p>
+ * <p>Covers the receipt as one {@code stock_movement} row and the {@code stock_position =
+ * SUM(stock_balance)} invariant after a receipt and after a sale, the create-then-reuse behaviour of the
+ * {@code (variant, location)} row, the database-level uniqueness and the append-only ledger. Every balance
+ * here is read from the ledger's projections, because since T3c of {@code odd/tasks/ledger-mirror-retirement.md}
+ * nothing maintains the two legacy {@code stock} columns. The store/location fixtures are built through the
+ * real store endpoints, exactly like the other store-chain integration tests, so the chain comes from the
+ * same code path the API uses.</p>
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -343,8 +345,16 @@ class InventoryIntegrationTest extends AbstractPostgresIntegrationTest {
         return measureUnitRepository.findBySatCode("H87").orElseThrow().getId();
     }
 
+    /**
+     * A variant registered in this suite's store with {@code stock} units on hand.
+     *
+     * <p><b>The stock is booked through the ledger, and that is the point since T3c.</b> This fixture used to
+     * write {@code product_variant_store_stock.stock} and nothing else, which was a second truth beside the
+     * ledger; the write path stops maintaining that column, so a fixture that still seeded it would describe a
+     * world the code no longer lives in. A receipt is the only way to seed stock now.</p>
+     */
     private ProductVariant createVariant(String stock) {
-        return TenantFixtures.inTenant(companyId, () -> {
+        var created = TenantFixtures.inTenant(companyId, () -> {
             var product = productRepository.save(Product.builder()
                     .sku("INV-SKU-" + UUID.randomUUID().toString().substring(0, 12))
                     .name("Inventory Test Product")
@@ -366,21 +376,30 @@ class InventoryIntegrationTest extends AbstractPostgresIntegrationTest {
                     .companyStoreId(storeId)
                     .costPrice(new BigDecimal("10.00"))
                     .listPrice(new BigDecimal("20.00"))
-                    .stock(new BigDecimal(stock))
                     .build());
             return variant;
         });
+
+        var seeded = new BigDecimal(stock);
+        if (seeded.signum() > 0) {
+            applyReceipt(created.getId(), stock);
+        }
+        return created;
     }
 
     /**
-     * Applies a receipt under this class's company.
+     * Applies a receipt under this class's company and answers the line identity it booked.
      *
      * <p>{@link InventoryService} derives its tenant from the request principal at the transaction
      * boundary; a test that calls it without an HTTP request has no principal, so the fixture states the
      * company the store belongs to. Without it the service's first read of {@code company_stores} answers
      * not-found instead of reaching the rule under test.</p>
+     *
+     * @return the {@code goods_receipt_items} id the ledger row names as its source, so a case can point at the
+     *     row it booked instead of counting rows and trusting their order
      */
-    private void applyReceipt(UUID variantId, String quantity) {
+    private UUID applyReceipt(UUID variantId, String quantity) {
+        var referenceId = UUID.randomUUID();
         TenantFixtures.inTenant(
                 companyId,
                 () -> inventoryService.applyReceipt(
@@ -389,19 +408,96 @@ class InventoryIntegrationTest extends AbstractPostgresIntegrationTest {
                         locationId,
                         new BigDecimal(quantity),
                         StockLedgerWriter.RECEIPT_LINE_SOURCE_TYPE,
-                        UUID.randomUUID(),
+                        referenceId,
                         "receiver"));
+        return referenceId;
     }
 
     private Optional<ProductVariantLocation> balanceOf(UUID variantId) {
         return productVariantLocationRepository.findByProductVariantIdAndStoreLocationId(variantId, locationId);
     }
 
-    private BigDecimal aggregateStockOf(UUID variantId) {
-        return productVariantStoreStockRepository
-                .findByProductVariantIdAndCompanyStoreId(variantId, storeId)
-                .orElseThrow()
-                .getStock();
+    /**
+     * The sellable aggregate of this store, read from the ledger's projection.
+     *
+     * <p>It used to read {@code product_variant_store_stock.stock}. Since T3c nothing maintains that column, so
+     * reading it would make every assertion about a receipt or a sale agree with a frozen number - the silent
+     * agreement this slice exists to remove. {@code stock_position} is derived from the movements by trigger,
+     * which is what makes it the answer.</p>
+     */
+    private BigDecimal storePositionOf(UUID variantId) {
+        return storePositionOptionally(variantId)
+                .orElseThrow(() ->
+                        new AssertionError("no stock_position row for variant " + variantId + " in store " + storeId));
+    }
+
+    /**
+     * The same projection, or empty when the trigger never booked one.
+     *
+     * <p>A refusal case asserts emptiness instead of a number: nothing was written, so there is no position to
+     * read at all, and asking for one row would report "no row" - the right answer stated in a way that could
+     * not also catch a row that landed on the wrong quantity.</p>
+     */
+    private Optional<BigDecimal> storePositionOptionally(UUID variantId) {
+        var quantities = TenantFixtures.inTenant(
+                companyId,
+                () -> jdbcTemplate.queryForList(
+                        "SELECT quantity FROM stock_position WHERE company_store_id = ? AND product_variant_id = ?",
+                        BigDecimal.class,
+                        storeId,
+                        variantId));
+        return quantities.stream().findFirst();
+    }
+
+    /** One location's balance, from the projection the trigger maintains. */
+    private BigDecimal locationStockOf(UUID variantId, UUID storeLocationId) {
+        return TenantFixtures.inTenant(
+                companyId,
+                () -> jdbcTemplate.queryForObject(
+                        "SELECT quantity FROM stock_balance WHERE store_location_id = ? AND product_variant_id = ?",
+                        BigDecimal.class,
+                        storeLocationId,
+                        variantId));
+    }
+
+    /**
+     * One row of {@code stock_movement}, as the fields a booking case asserts.
+     *
+     * <p>Since T3c the ledger is the only record of a movement: {@code inventory_movements} is no longer
+     * written, so a case that wants to say what was booked reads here. The projections above are the only
+     * balances.</p>
+     */
+    private record LedgerRow(
+            String movementType,
+            String sourceType,
+            UUID sourceId,
+            BigDecimal quantity,
+            UUID companyStoreId,
+            UUID storeLocationId,
+            String actor,
+            OffsetDateTime occurredAt) {}
+
+    private List<LedgerRow> ledgerRowsOf(UUID variantId) {
+        return TenantFixtures.inTenant(
+                companyId,
+                () -> jdbcTemplate.query(
+                        """
+                        SELECT movement_type, source_type, source_id, quantity, company_store_id,
+                               store_location_id, actor, occurred_at
+                          FROM stock_movement
+                         WHERE product_variant_id = ?
+                         ORDER BY occurred_at, id
+                        """,
+                        (rs, row) -> new LedgerRow(
+                                rs.getString("movement_type"),
+                                rs.getString("source_type"),
+                                rs.getObject("source_id", UUID.class),
+                                rs.getBigDecimal("quantity"),
+                                rs.getObject("company_store_id", UUID.class),
+                                rs.getObject("store_location_id", UUID.class),
+                                rs.getString("actor"),
+                                rs.getObject("occurred_at", OffsetDateTime.class)),
+                        variantId));
     }
 
     @Nested
@@ -425,29 +521,30 @@ class InventoryIntegrationTest extends AbstractPostgresIntegrationTest {
                             referenceId,
                             "receiver"));
 
+            // The (variant, location) row still exists and still names the pair the lock order is keyed by;
+            // its stock column has been frozen since T3c, so the number on hand is read from the projections.
             var balance = balanceOf(variant.getId()).orElseThrow();
-            assertThat(balance.getStock()).isEqualByComparingTo("12.50");
             assertThat(balance.getProductVariantId()).isEqualTo(variant.getId());
             assertThat(balance.getStoreLocationId()).isEqualTo(locationId);
             assertThat(balance.getCreatedAt()).isNotNull();
             assertThat(balance.getUpdatedAt()).isNotNull();
 
-            assertThat(aggregateStockOf(variant.getId())).isEqualByComparingTo("12.50");
+            assertThat(locationStockOf(variant.getId(), locationId)).isEqualByComparingTo("12.50");
+            assertThat(storePositionOf(variant.getId())).isEqualByComparingTo("12.50");
 
-            var movements = inventoryMovementRepository.findAll();
+            var movements = ledgerRowsOf(variant.getId());
             assertThat(movements).hasSize(1);
             var movement = movements.getFirst();
-            assertThat(movement.getMovementType()).isEqualTo(MovementType.RECEIPT);
-            assertThat(movement.getQuantity()).isEqualByComparingTo("12.50");
-            assertThat(movement.getProductVariantId()).isEqualTo(variant.getId());
-            assertThat(movement.getCompanyStoreId()).isEqualTo(storeId);
-            assertThat(movement.getStoreLocationId()).isEqualTo(locationId);
-            assertThat(movement.getReferenceType())
-                    .as("the legacy row names the same fact the ledger names: the receipt line")
+            assertThat(movement.movementType()).isEqualTo(StockLedgerWriter.RECEIPT);
+            assertThat(movement.quantity()).isEqualByComparingTo("12.50");
+            assertThat(movement.companyStoreId()).isEqualTo(storeId);
+            assertThat(movement.storeLocationId()).isEqualTo(locationId);
+            assertThat(movement.sourceType())
+                    .as("the row names the source the caller stated: the receipt line")
                     .isEqualTo(StockLedgerWriter.RECEIPT_LINE_SOURCE_TYPE);
-            assertThat(movement.getReferenceId()).isEqualTo(referenceId);
-            assertThat(movement.getCreatedBy()).isEqualTo("receiver");
-            assertThat(movement.getOccurredAt()).isNotNull();
+            assertThat(movement.sourceId()).isEqualTo(referenceId);
+            assertThat(movement.actor()).isEqualTo("receiver");
+            assertThat(movement.occurredAt()).isNotNull();
         }
     }
 
@@ -460,40 +557,61 @@ class InventoryIntegrationTest extends AbstractPostgresIntegrationTest {
         void secondReceiptAccumulatesAndLedgerRowsAreImmutable() {
             var variant = createVariant("0.00");
 
-            applyReceipt(variant.getId(), "6.00");
-            var firstMovement = inventoryMovementRepository.findAll().getFirst();
-            var firstOccurredAt = firstMovement.getOccurredAt();
+            var firstReference = applyReceipt(variant.getId(), "6.00");
+            var bookedFirst = ledgerRowsOf(variant.getId());
+            assertThat(bookedFirst).hasSize(1);
+            var firstMovement = bookedFirst.getFirst();
 
-            applyReceipt(variant.getId(), "2.25");
+            var secondReference = applyReceipt(variant.getId(), "2.25");
 
-            assertThat(balanceOf(variant.getId()).orElseThrow().getStock()).isEqualByComparingTo("8.25");
-            assertThat(aggregateStockOf(variant.getId())).isEqualByComparingTo("8.25");
+            assertThat(locationStockOf(variant.getId(), locationId)).isEqualByComparingTo("8.25");
+            assertThat(storePositionOf(variant.getId())).isEqualByComparingTo("8.25");
 
-            // The second receipt reuses the existing balance row instead of duplicating it...
+            // The second receipt reuses the existing (variant, location) row instead of duplicating it...
             assertThat(productVariantLocationRepository.count()).isEqualTo(1);
             // ...and appends a second movement without modifying the first one (append-only ledger).
-            assertThat(inventoryMovementRepository.count()).isEqualTo(2);
-            var reloadedFirst =
-                    inventoryMovementRepository.findById(firstMovement.getId()).orElseThrow();
-            assertThat(reloadedFirst.getQuantity()).isEqualByComparingTo("6.00");
-            assertThat(reloadedFirst.getMovementType()).isEqualTo(MovementType.RECEIPT);
-            assertThat(reloadedFirst.getOccurredAt()).isEqualTo(firstOccurredAt);
+            var bookedAfter = ledgerRowsOf(variant.getId());
+            assertThat(bookedAfter).hasSize(2);
+            assertThat(bookedAfter)
+                    .filteredOn(row -> row.sourceId().equals(firstReference))
+                    .as("the first movement is still there, with the quantity and timestamp it was booked with")
+                    .singleElement()
+                    .satisfies(row -> {
+                        assertThat(row.movementType()).isEqualTo(StockLedgerWriter.RECEIPT);
+                        assertThat(row.quantity()).isEqualByComparingTo("6.00");
+                        assertThat(row.occurredAt()).isEqualTo(firstMovement.occurredAt());
+                    });
+            assertThat(bookedAfter)
+                    .filteredOn(row -> row.sourceId().equals(secondReference))
+                    .as("the second receipt appended a row of its own")
+                    .singleElement()
+                    .satisfies(row -> assertThat(row.quantity()).isEqualByComparingTo("2.25"));
         }
     }
 
     /**
-     * The W3-D5 invariant, read store-wide: the sellable aggregate equals the sum of every location
-     * balance the store owns. It resolves the locations through the same
-     * {@code product_variant_locations -> store_locations -> ... -> company_stores} chain the
-     * production allocation uses, so a stray balance row is caught instead of silently summed past.
+     * The W3-D5 invariant, as the ledger states it since T3c: the store's projection equals the sum of the
+     * location balances the store owns.
+     *
+     * <p>Both sides are the ledger's now. The left side used to be {@code product_variant_store_stock.stock} and
+     * the right side {@code SUM(product_variant_locations.stock)} - two columns nothing maintains any more, so
+     * reading them would compare two frozen numbers and call it agreement. {@code stock_position} and
+     * {@code stock_balance} are derived from {@code stock_movement} by the V61 trigger, so the sum is taken
+     * over the projection and the locations are resolved through {@code store_locations.company_store_id} - the
+     * same ownership the store projection is keyed by, which keeps a balance row of another store from being
+     * summed in silently.</p>
      */
     private void assertInvariant(UUID variantId) {
-        var locationSum =
-                productVariantLocationRepository.findByProductVariantIdAndCompanyStoreId(variantId, storeId).stream()
-                        .map(ProductVariantLocation::getStock)
-                        .reduce(BigDecimal.ZERO, BigDecimal::add);
-        assertThat(aggregateStockOf(variantId))
-                .as("aggregate must equal SUM(product_variant_locations.stock)")
+        var locationSum = TenantFixtures.inTenant(
+                companyId, () -> jdbcTemplate.queryForObject("""
+                        SELECT COALESCE(SUM(b.quantity), 0)
+                          FROM stock_balance b
+                          JOIN store_locations l ON l.id = b.store_location_id
+                         WHERE b.product_variant_id = ?
+                           AND l.company_store_id = ?
+                        """, BigDecimal.class, variantId, storeId));
+        assertThat(storePositionOf(variantId))
+                .as("stock_position must equal SUM(stock_balance) over the locations the store owns")
                 .isEqualByComparingTo(locationSum);
     }
 
@@ -501,33 +619,18 @@ class InventoryIntegrationTest extends AbstractPostgresIntegrationTest {
     @DisplayName("balance invariant")
     class BalanceInvariantTests {
 
-        @Test
-        @DisplayName("should add a receipt to the aggregate instead of recomputing it from the location sum")
-        void receiptIsAdditiveAndNeverRecomputesFromTheLocationSum() {
-            // A divergent state seeded directly, because the application can no longer produce one:
-            // sales is location-aware and V15 reset the old divergence, so every writer moves both
-            // sides. It is seeded only to pin the one operation applyReceipt must never perform —
-            // deriving the aggregate from SUM(product_variant_locations.stock). A recompute would
-            // answer 105 here and resurrect the 60 units the sellable row no longer holds.
-            var variant = createVariant("40.00");
-            productVariantLocationRepository.save(ProductVariantLocation.builder()
-                    .productVariantId(variant.getId())
-                    .storeLocationId(locationId)
-                    .stock(new BigDecimal("100.00"))
-                    .build());
-
-            applyReceipt(variant.getId(), "5.00");
-
-            assertThat(aggregateStockOf(variant.getId()))
-                    .as("aggregate must be stockBeforeReceipt + quantity, never the location sum")
-                    .isEqualByComparingTo("45.00");
-            assertThat(balanceOf(variant.getId()).orElseThrow().getStock())
-                    .as("location must be locationBefore + quantity")
-                    .isEqualByComparingTo("105.00");
-        }
+        /*
+         * Deleted with T3c of odd/tasks/ledger-mirror-retirement.md: "should add a receipt to the aggregate
+         * instead of recomputing it from the location sum" seeded product_variant_store_stock.stock = 40
+         * against product_variant_locations.stock = 100 by hand - a divergence no writer could produce, built
+         * only to pin that a receipt adds to the aggregate instead of re-deriving it from the location sum.
+         * Both columns are frozen now and V61's trigger derives both projections from the one movement, so
+         * there is no second copy that could disagree and no recompute left to forbid: rewritten against the
+         * projections it would assert 45 == 45, which is a weaker case rather than the same one.
+         */
 
         @Test
-        @DisplayName("should keep aggregate = SUM(locations) after a receipt")
+        @DisplayName("should keep stock_position = SUM(stock_balance) after a receipt")
         void invariantHoldsAfterAReceipt() {
             var variant = createVariant("0.00");
 
@@ -537,7 +640,7 @@ class InventoryIntegrationTest extends AbstractPostgresIntegrationTest {
         }
 
         @Test
-        @DisplayName("should keep aggregate = SUM(locations) after a sale and after its reversal")
+        @DisplayName("should keep stock_position = SUM(stock_balance) after a sale and after its reversal")
         void invariantHoldsAfterASaleAndItsReversal() {
             var variant = createVariant("0.00");
             applyReceipt(variant.getId(), "10.00");
@@ -554,12 +657,12 @@ class InventoryIntegrationTest extends AbstractPostgresIntegrationTest {
                             referenceId,
                             "seller"));
             assertInvariant(variant.getId());
-            assertThat(aggregateStockOf(variant.getId())).isEqualByComparingTo("6.00");
+            assertThat(storePositionOf(variant.getId())).isEqualByComparingTo("6.00");
 
             TenantFixtures.inTenant(
                     companyId, () -> inventoryService.applySaleReversal("SALES_ORDER_ITEM", referenceId, "seller"));
             assertInvariant(variant.getId());
-            assertThat(aggregateStockOf(variant.getId())).isEqualByComparingTo("10.00");
+            assertThat(storePositionOf(variant.getId())).isEqualByComparingTo("10.00");
         }
     }
 
@@ -593,8 +696,10 @@ class InventoryIntegrationTest extends AbstractPostgresIntegrationTest {
         }
 
         @Test
-        @DisplayName("should reject a non-positive quantity and write no balance row and no movement")
+        @DisplayName("should reject a non-positive quantity and leave the ledger and both projections unchanged")
         void nonPositiveQuantityWritesNothing() {
+            // The seed is a booked receipt now, so "writes nothing" is stated as the ledger still holding
+            // exactly that one row: a refused receipt appends nothing to it.
             var variant = createVariant("7.00");
 
             assertThatThrownBy(() -> applyReceipt(variant.getId(), "0.00"))
@@ -602,9 +707,9 @@ class InventoryIntegrationTest extends AbstractPostgresIntegrationTest {
             assertThatThrownBy(() -> applyReceipt(variant.getId(), "-2.00"))
                     .isInstanceOf(IllegalArgumentException.class);
 
-            assertThat(balanceOf(variant.getId())).isEmpty();
-            assertThat(inventoryMovementRepository.count()).isZero();
-            assertThat(aggregateStockOf(variant.getId())).isEqualByComparingTo("7.00");
+            assertThat(ledgerRowsOf(variant.getId())).hasSize(1);
+            assertThat(locationStockOf(variant.getId(), locationId)).isEqualByComparingTo("7.00");
+            assertThat(storePositionOf(variant.getId())).isEqualByComparingTo("7.00");
         }
 
         private boolean hasConstraintViolationCause(Throwable thrown) {
@@ -676,7 +781,7 @@ class InventoryIntegrationTest extends AbstractPostgresIntegrationTest {
 
             var expectedFinal = SEEDED_STOCK.subtract(DEDUCTION_PER_THREAD.multiply(BigDecimal.valueOf(2L * ROUNDS)));
             for (var variantId : ascendingVariants) {
-                assertThat(aggregateStockOf(variantId))
+                assertThat(storePositionOf(variantId))
                         .as("aggregate must be initial minus what both threads deducted over %d rounds", ROUNDS)
                         .isEqualByComparingTo(expectedFinal);
                 assertInvariant(variantId);
@@ -715,7 +820,7 @@ class InventoryIntegrationTest extends AbstractPostgresIntegrationTest {
         @Test
         @DisplayName("should refuse a receipt of another company's variant and write nothing")
         void receiptOfForeignVariant_IsRefusedAndWritesNothing() {
-            var foreignVariant = createForeignVariant("0.00");
+            var foreignVariant = createForeignVariant();
 
             assertThatThrownBy(() -> TenantFixtures.inTenant(
                             companyId,
@@ -729,16 +834,17 @@ class InventoryIntegrationTest extends AbstractPostgresIntegrationTest {
                                     "receiver")))
                     .isInstanceOf(ProductVariantNotFoundException.class);
 
-            // Nothing persisted: no ledger row, no location balance and no aggregate move.
-            assertThat(inventoryMovementRepository.count()).isZero();
+            // Nothing persisted: no ledger row, no location balance and no aggregate move. The ledger read runs
+            // under this company's scope, which is the tenant the refusal had to leave untouched.
+            assertThat(ledgerRowsOf(foreignVariant.getId())).isEmpty();
             assertThat(productVariantLocationRepository.count()).isZero();
-            assertThat(aggregateStockOf(foreignVariant.getId())).isEqualByComparingTo("0.00");
+            assertThat(storePositionOptionally(foreignVariant.getId())).isEmpty();
         }
 
         @Test
         @DisplayName("should refuse a sale of another company's variant and write nothing")
         void saleOfForeignVariant_IsRefusedAndWritesNothing() {
-            var foreignVariant = createForeignVariant("5.00");
+            var foreignVariant = createForeignVariant();
 
             assertThatThrownBy(() -> TenantFixtures.inTenant(
                             companyId,
@@ -751,9 +857,9 @@ class InventoryIntegrationTest extends AbstractPostgresIntegrationTest {
                                     "seller")))
                     .isInstanceOf(ProductVariantNotFoundException.class);
 
-            assertThat(inventoryMovementRepository.count()).isZero();
+            assertThat(ledgerRowsOf(foreignVariant.getId())).isEmpty();
             assertThat(productVariantLocationRepository.count()).isZero();
-            assertThat(aggregateStockOf(foreignVariant.getId())).isEqualByComparingTo("5.00");
+            assertThat(storePositionOptionally(foreignVariant.getId())).isEmpty();
         }
 
         /**
@@ -761,9 +867,11 @@ class InventoryIntegrationTest extends AbstractPostgresIntegrationTest {
          * pair nothing in the schema forbids, because {@code company_stores} carries no
          * {@code company_id} and the composite foreign keys only tie a variant to its own product.
          * The seeded store row is what makes the receipt and the sale reachable — without it they
-         * would be refused for the wrong reason.
+         * would be refused for the wrong reason, a variant the store never registered. It states no
+         * stock: since T3c nothing here holds a balance, and seeding the frozen column would make the
+         * store row a second truth beside the one the refusal is actually about.
          */
-        private ProductVariant createForeignVariant(String stock) {
+        private ProductVariant createForeignVariant() {
             var foreignCompany = TenantFixtures.findOrCreate(
                     companyRepository, FOREIGN_COMPANY_KEY, "Inventory Foreign Company", "INVF010101ABC");
 
@@ -791,7 +899,6 @@ class InventoryIntegrationTest extends AbstractPostgresIntegrationTest {
                         .companyStoreId(storeId)
                         .costPrice(new BigDecimal("10.00"))
                         .listPrice(new BigDecimal("20.00"))
-                        .stock(new BigDecimal(stock))
                         .build());
                 return variant;
             });
