@@ -64,7 +64,7 @@ S7. **T1 does not change a single read path or write path.** `product_variant_st
 | T3 | S1, S3, S4 | `V56`: `bar_code DROP NOT NULL`, the partial `uq_variant_bar_code` replacing `uq_product_variants_company_bar_code`, and `trg_variant_matches_mode` — with the **minimum** write path that keeps the trigger truthful: `Product.variantMode` mapped, `POST /products` accepting it with `SIMPLE` as the creation default, and the barcode requirement decided by the product's mode in the service instead of `@NotBlank`. The response exposure, the `variants[]` list and the Angular form stay in T5 | T2 | inline |
 | T4 | S1, S6 | `variant_listing` and the price split out of `product_variant_store_stock` (decision 5, steps 4–5), armed in `tenant_table` in the migration that creates it | **blocked** — `currency` is ADR-0002's T1 and `tax_rate` its T4, which D-d still gates; step 5 also needs ADR-0001's position projection | — |
 | T5 | S1, S2 | Decision 2, the rest of it: `variants[]` on the creation request, product and variants written in **one** transaction, `variantMode` on the response, C1's delete guard, and the Angular form split into "the article" and "its variants" with the barcode required only for `MULTI` | T3 | inline |
-| T6 | S1, S6 | Decision 1's immutability: refuse a `variant_mode` change once a variant holds stock | **blocked** — ADR migration step 6 states this lands with ADR-0001's ledger, and today the only "movement" is the per-store row | — |
+| T6 | S1, S6 | Decision 1's immutability: refuse a `variant_mode` change once a variant holds stock | T3, and ADR-0001's ledger (`V60`), which is step 6's own condition | delegated; done — `V76` refuses the change by reading `stock_movement`, pinned by `ProductVariantModeImmutabilityMigrationIntegrationTest`; `variant_listing` is deliberately not a freeze condition (#774) |
 
 ## Log
 
@@ -290,3 +290,33 @@ Verification observed by the parent: **504 cases** in `product` and **506** acro
 `salesorder`/`inventory`/`purchaseorder`/`goodsreceipt`, all green; `spotlessCheck` and `spotbugsMain`
 clean. The writer's RED was 11 failing cases, and it re-measured the search one deliberately after
 discovering its first attempt was contaminated by a fixture 404 rather than by the rule.
+
+**2026-11-04 — T6: the guard step 6 deferred, and the state it now refuses.**
+`V76__product_variant_mode_immutable.sql` installs `refuse_variant_mode_change()` and
+`trg_product_variant_mode_immutable` (`BEFORE UPDATE OF variant_mode ON products FOR EACH ROW`), and its
+`EXISTS` reads `stock_movement` — the condition step 6 named, which `V60:116-153` made true. The measurement
+that turns this row from blocked into done is the hole itself: there is **no trigger on `products`** in the
+tree, so `UPDATE products SET variant_mode = 'SIMPLE'` on a product with two variants was reachable, and it
+left a row that `V56`'s `assert_variant_matches_mode` refuses every write to re-create (`V56:95-98`) — a rule
+enforced on the way in and not on the way out. `stock_movement` names a `product_variant_id` (`V60:121`) and
+nothing of the mode, so a reclassification reinterprets rows `V60:260-283` makes append-only, and the
+correction that would undo it cannot be written. The API never changes the mode
+(`ProductService.updateProduct` does not read `variantMode`), so the guard is the database's and holds for
+every writer.
+
+`variant_listing` is **deliberately not** a freeze condition, and the omission is recorded rather than
+implied: step 6's pre-ledger wording named "a listing or non-zero stock", while decision 1 — the accepted
+decision, and the letter of #774's approved criteria — names stock movements. A price row is not a fact the
+ledger has to reinterpret, and freezing on it would refuse a reclassification nothing would misread; adding
+it later is additive, one more `EXISTS`.
+
+Evidence. The suite holds a scratch database at `V75`, seeds the store/location/product/variant tree a
+movement's composite keys demand, and migrates to head as `lifecontrol_owner`, so every refusal is observed
+as a change in behaviour: **8 cases green**, both refusal directions, the `SIMPLE`-with-two-variants state,
+and four regressions that pin what the guard must **not** refuse — a product with no movements is still
+reclassifiable in both directions, a re-sent value is not a change, an `UPDATE` that names another column is
+untouched, and a writer scoped to another company changes `0` rows because the policy — not the trigger — is
+what it meets. Observed RED before the file existed: the three refusals did not raise (`Expecting code to
+raise a throwable`) and the trigger read back `null`; the four regressions were already green, which is what
+makes them pins. `./gradlew test --tests '*Product*'` ran **521 cases across 108 classes, 0 failures**; the
+full gate is green.
