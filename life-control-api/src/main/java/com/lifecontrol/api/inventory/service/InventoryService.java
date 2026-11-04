@@ -1,5 +1,6 @@
 package com.lifecontrol.api.inventory.service;
 
+import com.lifecontrol.api.inventory.exception.InsufficientStockException;
 import com.lifecontrol.api.inventory.exception.StoreInventorySettingsNotFoundException;
 import com.lifecontrol.api.inventory.ledger.StockLedgerWriter;
 import com.lifecontrol.api.inventory.model.InventoryMovement;
@@ -13,7 +14,6 @@ import com.lifecontrol.api.inventory.repository.StoreInventorySettingsRepository
 import com.lifecontrol.api.product.exception.ProductVariantNotFoundException;
 import com.lifecontrol.api.product.repository.ProductVariantRepository;
 import com.lifecontrol.api.product.repository.ProductVariantStoreStockRepository;
-import com.lifecontrol.api.salesorder.exception.InsufficientStockException;
 import com.lifecontrol.api.store.exception.CompanyStoreNotFoundException;
 import com.lifecontrol.api.store.repository.CompanyStoreRepository;
 import com.lifecontrol.api.store.service.CompanyStoreOwnerResolver;
