@@ -32,7 +32,7 @@ import java.util.UUID;
  *
  * <p>The three associations are lazy {@code @ManyToOne} joins and {@code contractType} is a
  * {@code VARCHAR(30)} validated by a Java enum, following the
- * {@code inventory_movements.movement_type} + {@code MovementType} precedent: this schema contains no
+ * {@code sales_orders.status} + {@code SalesOrderState} precedent: this schema contains no
  * native enum and no CHECK on a type column.</p>
  */
 @Entity

@@ -6,35 +6,24 @@ import java.math.BigDecimal;
 import java.util.UUID;
 
 /**
- * Stock and cost of one product variant in one company store: the <b>position</b>.
+ * What one company store records about one product variant: the <b>cost</b>, and a price column nothing writes.
  *
  * <p>Exactly one row per {@code (product_variant_id, company_store_id)} pair, enforced by
- * {@code UNIQUE(product_variant_id, company_store_id)}. This is the store-scoped half of the
- * variant model: {@link ProductVariant} holds the global sellable definition (product, variant
- * name, barcode) while this row holds what differs per store — the units held there and their cost.</p>
+ * {@code UNIQUE(product_variant_id, company_store_id)}. It is no longer a position: ADR-0001 decision 1 made
+ * {@code stock_movement} the only authority on quantity and {@code stock_position} its projection, so the
+ * {@code (variant, store)} row keeps the two facts the ledger still needs from it — the cost every inbound
+ * movement has to state ({@code ck_movement_inbound_cost}) — and an identity the per-store editor serializes on.
+ * {@code V74} dropped the {@code stock} column this table carried since {@code V10}.</p>
  *
  * <p><b>{@code listPrice} is a leftover, and nothing writes it any more.</b> ADR-0006 decision 5 made the
  * price a {@link VariantListing} — {@code (variant, store)} with a price, a currency and no stock and no
  * cost — because price and quantity have different owners: a receipt may create stock in a store that
  * never priced the article (decision 6), and that state has to be representable. Since the price write
- * moved, {@code list_price} here holds only what {@code V58} copied out of it, and the column survives
- * because dropping it waits for ADR-0001's ledger: it is the same slice that turns {@code stock} into
- * movements ({@code docs/adr/0006-catalog-identity.md:150-152}), and this table drops with it. A reader
- * that needs a price reads the listing; a reader that reads this column is reading history.</p>
+ * moved, {@code list_price} here holds only what {@code V58} copied out of it. A reader that needs a price
+ * reads the listing; a reader that reads this column is reading history.</p>
  *
- * <p>Shape mirrors {@link com.lifecontrol.api.inventory.model.ProductVariantLocation}: plain UUID
- * foreign keys instead of JPA relations, and no {@code @Version} — concurrency is handled by
- * explicit pessimistic locks at the call sites, as documented there.</p>
- *
- * <p><b>{@code stock} is a legacy mirror since T5b, and no read answers with it.</b> ADR-0001 decision 1 makes
- * {@code stock_movement} the only authority on quantity, and {@code stock_position} — its projection — is what
- * the store-scoped list, the POS search and the store-stock response now report, and what a sale is refused by.
- * The column still moves because T5a booked the ledger beside the legacy write and T5c is the slice that stops
- * it; until then it is the second copy whose agreement with the projection is the evidence those slices exist
- * for. The <b>only</b> reader left on it deliberately is the measure-unit guard
- * ({@code ProductVariantService#verifyMeasureUnitChangeAllowed}), which asks whether a stored quantity would
- * be reinterpreted and moves with the write path. It is also the last remaining user of this table's
- * pessimistic lock, which stands in for the projection row's row lock.</p>
+ * <p>Shape: plain UUID foreign keys instead of JPA relations, and no {@code @Version} — concurrency is handled
+ * by explicit pessimistic locks at the call sites.</p>
  */
 @Entity
 @Table(name = "product_variant_store_stock")
@@ -49,9 +38,6 @@ public class ProductVariantStoreStock extends Auditable {
 
     @Column(name = "company_store_id", nullable = false)
     private UUID companyStoreId;
-
-    @Column(name = "stock", nullable = false, precision = 12, scale = 2)
-    private BigDecimal stock = BigDecimal.ZERO;
 
     @Column(name = "list_price", precision = 12, scale = 2)
     private BigDecimal listPrice;
@@ -75,10 +61,6 @@ public class ProductVariantStoreStock extends Auditable {
         return companyStoreId;
     }
 
-    public BigDecimal getStock() {
-        return stock;
-    }
-
     public BigDecimal getListPrice() {
         return listPrice;
     }
@@ -98,10 +80,6 @@ public class ProductVariantStoreStock extends Auditable {
 
     public void setCompanyStoreId(UUID companyStoreId) {
         this.companyStoreId = companyStoreId;
-    }
-
-    public void setStock(BigDecimal stock) {
-        this.stock = stock;
     }
 
     public void setListPrice(BigDecimal listPrice) {
@@ -132,11 +110,6 @@ public class ProductVariantStoreStock extends Auditable {
 
         public Builder companyStoreId(UUID companyStoreId) {
             storeStock.companyStoreId = companyStoreId;
-            return this;
-        }
-
-        public Builder stock(BigDecimal stock) {
-            storeStock.stock = stock;
             return this;
         }
 

@@ -15,8 +15,6 @@ import com.lifecontrol.api.company.repository.CompanyRepository;
 import com.lifecontrol.api.company.repository.CompanyZoneRepository;
 import com.lifecontrol.api.country.repository.CountryRepository;
 import com.lifecontrol.api.inventory.ledger.StockLedgerEngine;
-import com.lifecontrol.api.inventory.repository.InventoryMovementRepository;
-import com.lifecontrol.api.inventory.repository.ProductVariantLocationRepository;
 import com.lifecontrol.api.measureunit.repository.MeasureUnitRepository;
 import com.lifecontrol.api.product.model.Product;
 import com.lifecontrol.api.product.model.ProductVariant;
@@ -152,13 +150,6 @@ class ProductVariantListingReadIntegrationTest extends AbstractPostgresIntegrati
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
-    /** The two legacy tables a receipt also writes, which reference the variants with no cascade. */
-    @Autowired
-    private ProductVariantLocationRepository productVariantLocationRepository;
-
-    @Autowired
-    private InventoryMovementRepository inventoryMovementRepository;
-
     private UUID companyId;
     private UUID productId;
 
@@ -216,17 +207,6 @@ class ProductVariantListingReadIntegrationTest extends AbstractPostgresIntegrati
         }
         createdListingIds.clear();
         if (!createdStoreStockIds.isEmpty()) {
-            // The receipts also wrote a balance row per location and a legacy movement per receipt, and both
-            // reference the variant with no cascade: they go before the store row and the variant do.
-            var variantIds = new java.util.HashSet<>(createdVariantIds);
-            if (!variantIds.isEmpty()) {
-                inventoryMovementRepository.deleteAll(inventoryMovementRepository.findAll().stream()
-                        .filter(movement -> variantIds.contains(movement.getProductVariantId()))
-                        .toList());
-                productVariantLocationRepository.deleteAll(productVariantLocationRepository.findAll().stream()
-                        .filter(balance -> variantIds.contains(balance.getProductVariantId()))
-                        .toList());
-            }
             productVariantStoreStockRepository.deleteAllById(createdStoreStockIds);
         }
         createdStoreStockIds.clear();
@@ -362,49 +342,14 @@ class ProductVariantListingReadIntegrationTest extends AbstractPostgresIntegrati
 
     // ─── the source of the number ────────────────
 
-    /**
-     * The number a store read answers with is the ledger's position, and this is the only state that proves
-     * it: a key whose two copies disagree.
-     *
-     * <p>While both copies exist the read can answer with either and every other case passes, which is what
-     * makes this one the evidence. The fixture seeds the agreement first — 4 units received through the engine,
-     * so {@code product_variant_store_stock.stock} and {@code stock_position.quantity} are both 4 — and then
-     * raises <b>only</b> the legacy column, the divergence {@code V62} reports and an operator decides about
-     * (record T5a, finding 2). A reader still on the legacy table answers 99; a reader on the projection answers
-     * 4, and 4 is the number a sale would be gated by.</p>
-     *
-     * <p>Both reads are asserted: the query level, because it is the one the list uses, and the search endpoint,
-     * because it is the POS read and the one that carries the client's contract.</p>
+    /*
+     * Deleted with V74 of odd/tasks/ledger-mirror-retirement.md: "a store read answers the ledger's position,
+     * not the legacy store row, where the two disagree" was built on exactly one state — 4 units received
+     * through the engine and then only `product_variant_store_stock.stock` raised to 99 by hand — and that
+     * column no longer exists. Its subject was the divergence between two copies of one quantity, so there is
+     * no state left to construct and no read left that could answer 99: the store reads answering the
+     * projection is what the cases above already assert, on the projection.
      */
-    @Test
-    @DisplayName("a store read answers the ledger's position, not the legacy store row, where the two disagree")
-    void theStoreReadsAnswerTheLedgerPositionAndNotTheLegacyColumns() throws Exception {
-        var divergentId = createVariant("Divergent position");
-        storeRow(divergentId, "4", "5.00");
-        setTheLegacyStockByHand(divergentId, "99");
-
-        var page = TenantFixtures.inTenant(
-                companyId,
-                () -> productVariantRepository.findStoreScopedByProductIdAndStoreId(
-                        companyId, productId, storeId, PageRequest.of(0, 20)));
-        var listed = page.getContent().stream()
-                .filter(response -> response.id().equals(divergentId))
-                .findFirst()
-                .orElseThrow();
-        assertThat(listed.stock())
-                .as("the store-scoped variant read answers the projection, and the legacy column it disagrees "
-                        + "with is not the number")
-                .isEqualByComparingTo("4");
-
-        mockMvc.perform(get(SEARCH_URL)
-                        .param("q", "Divergent position")
-                        .param("storeId", storeId.toString())
-                        .with(adminJwt()))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.content.length()").value(1))
-                .andExpect(jsonPath("$.content[0].id").value(divergentId.toString()))
-                .andExpect(jsonPath("$.content[0].stock").value(4));
-    }
 
     // ─── the row V58 backfilled ───────────────────────────────────────────
 
@@ -523,9 +468,10 @@ class ProductVariantListingReadIntegrationTest extends AbstractPostgresIntegrati
     /**
      * A per-store row with no price and {@code stock} units of stock, seeded the way a receipt leaves it.
      *
-     * <p>The row is created with the column default and the quantity arrives through
-     * {@link StockLedgerEngine#applyReceipt} — the public writer — so the legacy aggregate and the ledger's
-     * position both hold {@code stock} and this fixture cannot disagree with the read it feeds.</p>
+     * <p>The row carries what the store records about the variant — its cost — and the quantity arrives through
+     * {@link StockLedgerEngine#applyReceipt}, the public writer, so the ledger's position holds {@code stock} and
+     * this fixture cannot disagree with the read it feeds. {@code V74} dropped the row's own {@code stock}
+     * column, so the movement is the only place the quantity exists.</p>
      */
     private UUID storeRow(UUID variantId, String stock, String costPrice) {
         return storeRowWithPrice(variantId, stock, null, costPrice);
@@ -535,7 +481,6 @@ class ProductVariantListingReadIntegrationTest extends AbstractPostgresIntegrati
         var row = productVariantStoreStockRepository.save(ProductVariantStoreStock.builder()
                 .productVariantId(variantId)
                 .companyStoreId(storeId)
-                .stock(BigDecimal.ZERO)
                 .listPrice(listPrice == null ? null : new BigDecimal(listPrice))
                 .costPrice(costPrice == null ? null : new BigDecimal(costPrice))
                 .build());
@@ -555,17 +500,6 @@ class ProductVariantListingReadIntegrationTest extends AbstractPostgresIntegrati
                             "fixture"));
         }
         return row.getId();
-    }
-
-    /** The legacy column of one store row, read and rewritten by hand — only the divergence case needs it. */
-    private void setTheLegacyStockByHand(UUID variantId, String stock) {
-        var row = TenantFixtures.inTenant(
-                companyId,
-                () -> productVariantStoreStockRepository
-                        .findByProductVariantIdAndCompanyStoreId(variantId, storeId)
-                        .orElseThrow());
-        row.setStock(new BigDecimal(stock));
-        productVariantStoreStockRepository.save(row);
     }
 
     /**

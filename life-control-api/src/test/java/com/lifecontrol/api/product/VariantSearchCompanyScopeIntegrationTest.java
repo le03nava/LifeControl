@@ -297,7 +297,6 @@ class VariantSearchCompanyScopeIntegrationTest extends AbstractPostgresIntegrati
                 .companyStoreId(companyStoreId)
                 .listPrice(new BigDecimal("10.00"))
                 .costPrice(new BigDecimal("5.00"))
-                .stock(BigDecimal.ZERO)
                 .build());
         createdStoreStockIds.add(storeStock.getId());
     }

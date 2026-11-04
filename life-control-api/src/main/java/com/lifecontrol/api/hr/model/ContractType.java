@@ -3,7 +3,7 @@ package com.lifecontrol.api.hr.model;
 /**
  * Legal form of an employment contract, persisted as a string in the
  * {@code employee_contracts.contract_type VARCHAR(30)} column, following the existing
- * enum-in-a-column convention of the module ({@code MovementType#movementType},
+ * enum-in-a-column convention of the module ({@code SalesOrderState},
  * {@code MeasureUnit#unitType}): the column carries no CHECK, and the enum is the Java counterpart
  * of the stored value (decision D13).
  *

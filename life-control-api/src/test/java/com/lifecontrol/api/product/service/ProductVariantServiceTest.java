@@ -1147,7 +1147,6 @@ class ProductVariantServiceTest {
                     .id(UUID.randomUUID())
                     .productVariantId(variantId)
                     .companyStoreId(companyStoreId)
-                    .stock(new BigDecimal("50.00"))
                     .costPrice(new BigDecimal("120.00"))
                     .build();
 
@@ -1199,7 +1198,6 @@ class ProductVariantServiceTest {
                     .id(UUID.randomUUID())
                     .productVariantId(variantId)
                     .companyStoreId(companyStoreId)
-                    .stock(new BigDecimal("50.00"))
                     .costPrice(new BigDecimal("120.00"))
                     .build();
 
@@ -1238,7 +1236,6 @@ class ProductVariantServiceTest {
                     .id(UUID.randomUUID())
                     .productVariantId(variantId)
                     .companyStoreId(companyStoreId)
-                    .stock(BigDecimal.ZERO)
                     .build();
 
             when(productVariantRepository.findById(variantId)).thenReturn(Optional.of(testVariant));
@@ -1271,7 +1268,6 @@ class ProductVariantServiceTest {
                     .id(UUID.randomUUID())
                     .productVariantId(variantId)
                     .companyStoreId(companyStoreId)
-                    .stock(BigDecimal.ZERO)
                     .build();
 
             when(productVariantRepository.findById(variantId)).thenReturn(Optional.of(testVariant));
@@ -1289,8 +1285,9 @@ class ProductVariantServiceTest {
                     .isInstanceOf(StoreInventorySettingsNotFoundException.class)
                     .hasMessageContaining("Store inventory settings not found");
 
-            // The [row] was never touched: the refused write must not reach the aggregate either.
-            assertThat(row.getStock()).isEqualByComparingTo("0");
+            // The claim that the refused write reached no balance was stated on the store row's `stock`
+            // column; V74 dropped that column, so there is nothing left here to read: the refusal above is the
+            // whole observable, and the engine that raised it is a mock.
         }
 
         @Test
@@ -1722,10 +1719,9 @@ class ProductVariantServiceTest {
 
             assertThat(result.measureUnitId()).isEqualTo(kilogramUnitId);
             assertThat(testVariant.getMeasureUnitId()).isEqualTo(kilogramUnitId);
-            // The one probe the guard makes is the ledger's. The frozen store column is never asked: it stopped
-            // being maintained with the write path (S4/S7), so its answer would be a stale zero forever.
+            // The one probe the guard makes is the ledger's. The frozen store column it used to ask as well is
+            // gone with V74, and its repository method with it, so `hasMovements` is the guard's only question.
             verify(stockLedgerWriter).hasMovements(variantId);
-            verify(productVariantStoreStockRepository, never()).existsByProductVariantIdAndStockNot(any(), any());
         }
 
         @Test

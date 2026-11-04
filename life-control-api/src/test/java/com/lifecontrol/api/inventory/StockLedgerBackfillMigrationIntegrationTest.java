@@ -171,10 +171,16 @@ class StockLedgerBackfillMigrationIntegrationTest extends AbstractPostgresIntegr
                 .as("and the per-store projection is the number the operator saw in the store row")
                 .isEqualByComparingTo("12");
 
-        assertThat(storeStockOf(seeded.company(), variant, seeded.store()))
-                .as("the store row is not rewritten by this file: retiring product_variant_store_stock.stock "
-                        + "is T6's slice, and a migration that also edited it would be two facts in one diff")
-                .isEqualByComparingTo("12");
+        // The store row is not rewritten by this file. The column the claim used to read is gone from T4's V74 on,
+        // so it is asserted in the form that still exists: the column is not there, and the number the operator
+        // read in it is the position asserted above. A backfill that also rewrote the store row would be two facts
+        // in one diff, and a column dropped by a later file is how that claim survives its subject.
+        assertThat(countScoped(
+                        seeded.company(),
+                        "SELECT count(*) FROM information_schema.columns "
+                                + "WHERE table_name = 'product_variant_store_stock' AND column_name = 'stock'"))
+                .as("product_variant_store_stock.stock is dropped by V74, not by V62")
+                .isZero();
 
         assertThat(unarmedArmedTables())
                 .as("the NO FORCE window is closed again: all seven tables are ENABLE + FORCE, or the next "
@@ -571,6 +577,14 @@ class StockLedgerBackfillMigrationIntegrationTest extends AbstractPostgresIntegr
                         + "' AND product_variant_id = '" + variant + "'");
     }
 
+    /**
+     * The legacy store column, read where a case deliberately stops before {@code V74} drops it.
+     *
+     * <p>Two cases below assert that a migration did not rewrite the store row, and both leave the schema at a
+     * version where the column still exists: one because {@code V62} refused and the head was never reached, the
+     * other because it runs {@code V62}'s own file and nothing after it. The case that migrates to the head cannot
+     * read it any more and says so where it stands.</p>
+     */
     private BigDecimal storeStockOf(UUID company, UUID variant, UUID store) throws SQLException {
         return decimalScoped(
                 company,

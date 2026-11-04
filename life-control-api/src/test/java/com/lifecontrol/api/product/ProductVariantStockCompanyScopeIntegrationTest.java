@@ -14,7 +14,6 @@ import com.lifecontrol.api.company.repository.CompanyRegionRepository;
 import com.lifecontrol.api.company.repository.CompanyRepository;
 import com.lifecontrol.api.company.repository.CompanyZoneRepository;
 import com.lifecontrol.api.country.repository.CountryRepository;
-import com.lifecontrol.api.inventory.repository.InventoryMovementRepository;
 import com.lifecontrol.api.measureunit.repository.MeasureUnitRepository;
 import com.lifecontrol.api.product.model.Product;
 import com.lifecontrol.api.product.model.ProductVariant;
@@ -39,6 +38,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
@@ -105,7 +105,7 @@ class ProductVariantStockCompanyScopeIntegrationTest extends AbstractPostgresInt
     private VariantListingRepository variantListingRepository;
 
     @Autowired
-    private InventoryMovementRepository inventoryMovementRepository;
+    private JdbcTemplate jdbcTemplate;
 
     @Autowired
     private CompanyRepository companyRepository;
@@ -187,9 +187,11 @@ class ProductVariantStockCompanyScopeIntegrationTest extends AbstractPostgresInt
             assertThat(productVariantStoreStockRepository.existsByProductVariantIdAndCompanyStoreId(
                             variantBId, storeAId))
                     .isFalse();
-            assertThat(inventoryMovementRepository.findAll().stream()
-                            .filter(movement -> variantBId.equals(movement.getProductVariantId())))
-                    .isEmpty();
+            assertThat(ledgerRowsOf(companyAId, variantBId))
+                    .as("a refused write books no movement. The legacy `inventory_movements` row this case used "
+                            + "to count went with V75, and a movement wrongly booked for pair (company B's variant, "
+                            + "company A's store) would carry the store's tenant, which is why it is counted there")
+                    .isZero();
         }
 
         @Test
@@ -353,6 +355,21 @@ class ProductVariantStockCompanyScopeIntegrationTest extends AbstractPostgresInt
     private record StoreFront(UUID companyId, UUID storeId) {}
 
     /**
+     * How many {@code stock_movement} rows the ledger holds for one variant, read under a stated tenant.
+     *
+     * <p>The tenant is an argument because the ledger's tables are armed on {@code company_id} and {@code FORCE}d
+     * ({@code V60}), so a read with no scope answers zero rows for rows that exist. A movement's tenant is derived
+     * from the store that owns it, which is what makes the caller's company the scope a wrongly booked row would
+     * carry — and therefore the one that can see it.</p>
+     */
+    private int ledgerRowsOf(UUID tenantId, UUID variantId) {
+        return TenantFixtures.inTenant(
+                tenantId,
+                () -> jdbcTemplate.queryForObject(
+                        "SELECT count(*) FROM stock_movement WHERE product_variant_id = ?", Integer.class, variantId));
+    }
+
+    /**
      * Find-or-create the company &rarr; country &rarr; region &rarr; zone &rarr; store chain of one
      * tenant, so a suite that runs twice against the shared per-JVM container does not collide on the
      * unique keys. The catalog rows are per run and are removed in teardown.
@@ -435,9 +452,6 @@ class ProductVariantStockCompanyScopeIntegrationTest extends AbstractPostgresInt
                         .ifPresent(row -> productVariantStoreStockRepository.deleteById(row.getId()));
             }
         }
-        inventoryMovementRepository.deleteAll(inventoryMovementRepository.findAll().stream()
-                .filter(movement -> createdVariantIds.contains(movement.getProductVariantId()))
-                .toList());
         // `products` and `product_variants` are armed, so the ids are deleted once per tenant: a delete
         // under a tenant that does not own the id removes nothing, which is what makes two passes enough.
         for (var tenant : java.util.stream.Stream.of(companyAId, companyBId)

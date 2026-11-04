@@ -409,7 +409,7 @@ public class ProductVariantService {
      * the two representations indistinguishable forever.</p>
      *
      * <p>The row itself is still created here, with its conflict-tolerant insert before the pessimistic
-     * lock, mirroring {@code ProductVariantLocationRepository#insertBalanceIfAbsent}: an {@code ON CONFLICT
+     * lock, the way the ledger's own writers took theirs before the mirror was dropped: an {@code ON CONFLICT
      * DO NOTHING} avoids the unique violation that would abort the transaction, so the lock that follows
      * is always held over an existing row. The listing has no equivalent step because it cannot exist
      * without a price ({@code list_price} is {@code NOT NULL}), so its own statement inserts or updates in

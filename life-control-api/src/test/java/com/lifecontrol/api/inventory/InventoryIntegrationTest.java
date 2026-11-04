@@ -16,9 +16,6 @@ import com.lifecontrol.api.company.repository.CompanyZoneRepository;
 import com.lifecontrol.api.country.repository.CountryRepository;
 import com.lifecontrol.api.inventory.ledger.StockLedgerEngine;
 import com.lifecontrol.api.inventory.ledger.StockLedgerWriter;
-import com.lifecontrol.api.inventory.model.ProductVariantLocation;
-import com.lifecontrol.api.inventory.repository.InventoryMovementRepository;
-import com.lifecontrol.api.inventory.repository.ProductVariantLocationRepository;
 import com.lifecontrol.api.measureunit.repository.MeasureUnitRepository;
 import com.lifecontrol.api.product.exception.ProductVariantNotFoundException;
 import com.lifecontrol.api.product.model.Product;
@@ -49,7 +46,6 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
-import org.hibernate.exception.ConstraintViolationException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -109,12 +105,6 @@ class InventoryIntegrationTest extends AbstractPostgresIntegrationTest {
     private StockLedgerEngine stockLedgerEngine;
 
     @Autowired
-    private InventoryMovementRepository inventoryMovementRepository;
-
-    @Autowired
-    private ProductVariantLocationRepository productVariantLocationRepository;
-
-    @Autowired
     private ProductVariantRepository productVariantRepository;
 
     @Autowired
@@ -162,11 +152,10 @@ class InventoryIntegrationTest extends AbstractPostgresIntegrationTest {
 
     @BeforeEach
     void setUp() throws Exception {
-        // inventory_movements and product_variant_locations reference product_variants and
-        // store_locations with no cascade: delete the inventory rows first so any integration class
-        // that runs later in this shared JVM can delete products and locations wholesale.
-        inventoryMovementRepository.deleteAll();
-        productVariantLocationRepository.deleteAll();
+        // The two legacy stock tables are not cleaned here any more: V74 dropped their `stock` columns and V75
+        // dropped `inventory_movements`, so a receipt creates neither row and there is nothing to delete before
+        // the children of the store tree go. The store row below is still written, and it references the
+        // variants with no cascade.
         productVariantStoreStockRepository.deleteAll();
 
         seedCompanyHierarchy();
@@ -176,8 +165,6 @@ class InventoryIntegrationTest extends AbstractPostgresIntegrationTest {
 
     @AfterEach
     void tearDown() {
-        inventoryMovementRepository.deleteAll();
-        productVariantLocationRepository.deleteAll();
         productVariantStoreStockRepository.deleteAll();
         deleteTheStockLedger();
     }
@@ -413,10 +400,6 @@ class InventoryIntegrationTest extends AbstractPostgresIntegrationTest {
         return referenceId;
     }
 
-    private Optional<ProductVariantLocation> balanceOf(UUID variantId) {
-        return productVariantLocationRepository.findByProductVariantIdAndStoreLocationId(variantId, locationId);
-    }
-
     /**
      * The sellable aggregate of this store, read from the ledger's projection.
      *
@@ -458,6 +441,19 @@ class InventoryIntegrationTest extends AbstractPostgresIntegrationTest {
                         BigDecimal.class,
                         storeLocationId,
                         variantId));
+    }
+
+    /**
+     * How many {@code stock_balance} rows this tenant's ledger holds.
+     *
+     * <p>This is what a refusal case asks instead of counting the legacy {@code product_variant_locations} rows:
+     * {@code V74} dropped that table's `stock` column and nothing creates one any more, so the per-location
+     * balance is the projection {@code V61}'s trigger derives — and an empty projection is the ledger saying no
+     * quantity was ever booked here.</p>
+     */
+    private Integer balanceRows() {
+        return TenantFixtures.inTenant(
+                companyId, () -> jdbcTemplate.queryForObject("SELECT COUNT(*) FROM stock_balance", Integer.class));
     }
 
     /**
@@ -674,30 +670,13 @@ class InventoryIntegrationTest extends AbstractPostgresIntegrationTest {
     @DisplayName("database constraints and guards")
     class ConstraintAndGuardTests {
 
-        @Test
-        @DisplayName("should reject a duplicate (variant, location) balance row at the database level")
-        void duplicateBalancePairIsRejectedByTheUniqueConstraint() {
-            var variant = createVariant("0.00");
-            var pair = ProductVariantLocation.builder()
-                    .productVariantId(variant.getId())
-                    .storeLocationId(locationId)
-                    .stock(BigDecimal.ZERO)
-                    .build();
-            productVariantLocationRepository.save(pair);
-
-            var duplicate = ProductVariantLocation.builder()
-                    .productVariantId(variant.getId())
-                    .storeLocationId(locationId)
-                    .stock(new BigDecimal("99.00"))
-                    .build();
-
-            assertThatThrownBy(() -> productVariantLocationRepository.saveAndFlush(duplicate))
-                    .satisfies(thrown -> assertThat(hasConstraintViolationCause(thrown))
-                            .as("database constraint violation for the duplicate pair")
-                            .isTrue());
-
-            assertThat(productVariantLocationRepository.count()).isEqualTo(1);
-        }
+        /*
+         * Deleted with V74 of odd/tasks/ledger-mirror-retirement.md: "should reject a duplicate (variant,
+         * location) balance row at the database level" seeded two `product_variant_locations` rows and asserted
+         * the pair's unique constraint refused the second. That table lost its `stock` column and no longer holds
+         * a balance — the location balance is `stock_balance`, which no caller inserts — so the case's only
+         * subject was the dropped row shape, and there is nothing left for a duplicate to describe.
+         */
 
         @Test
         @DisplayName("should reject a non-positive quantity and leave the ledger and both projections unchanged")
@@ -714,15 +693,6 @@ class InventoryIntegrationTest extends AbstractPostgresIntegrationTest {
             assertThat(ledgerRowsOf(variant.getId())).hasSize(1);
             assertThat(locationStockOf(variant.getId(), locationId)).isEqualByComparingTo("7.00");
             assertThat(storePositionOf(variant.getId())).isEqualByComparingTo("7.00");
-        }
-
-        private boolean hasConstraintViolationCause(Throwable thrown) {
-            for (var cause = thrown; cause != null; cause = cause.getCause()) {
-                if (cause instanceof ConstraintViolationException) {
-                    return true;
-                }
-            }
-            return false;
         }
     }
 
@@ -841,7 +811,7 @@ class InventoryIntegrationTest extends AbstractPostgresIntegrationTest {
             // Nothing persisted: no ledger row, no location balance and no aggregate move. The ledger read runs
             // under this company's scope, which is the tenant the refusal had to leave untouched.
             assertThat(ledgerRowsOf(foreignVariant.getId())).isEmpty();
-            assertThat(productVariantLocationRepository.count()).isZero();
+            assertThat(balanceRows()).isZero();
             assertThat(storePositionOptionally(foreignVariant.getId())).isEmpty();
         }
 
@@ -862,7 +832,7 @@ class InventoryIntegrationTest extends AbstractPostgresIntegrationTest {
                     .isInstanceOf(ProductVariantNotFoundException.class);
 
             assertThat(ledgerRowsOf(foreignVariant.getId())).isEmpty();
-            assertThat(productVariantLocationRepository.count()).isZero();
+            assertThat(balanceRows()).isZero();
             assertThat(storePositionOptionally(foreignVariant.getId())).isEmpty();
         }
 

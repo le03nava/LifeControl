@@ -3,7 +3,7 @@ package com.lifecontrol.api.provisioning.model;
 /**
  * Life-cycle status of an access-provisioning task, persisted as a string in the
  * {@code access_provisioning_tasks.status VARCHAR(20)} column, following the enum-in-a-column
- * convention of the module ({@code hr.model.ContractType}, {@code MovementType}): the column carries
+ * convention of the module ({@code hr.model.ContractType}, {@code SalesOrderState}): the column carries
  * no CHECK, and the enum is the Java counterpart of the stored value.
  *
  * <p>The states are the contract between the worker (W4), the approval gate (W5) and the UI

@@ -19,7 +19,7 @@ import java.util.UUID;
  * {@code @Version} and the table has no {@code version} column.</p>
  *
  * <p>The receipt is an immutable fact: it is inserted once and never updated. {@link #receivedAt} is
- * assigned at persist time by the JPA pre-persist callback below (the {@code InventoryMovement}
+ * assigned at persist time by the JPA pre-persist callback below (the convention {@code inventory_movements} used
  * precedent), and {@code created_at} / {@code updated_at} come from {@link Auditable}. The table's
  * {@code DEFAULT CURRENT_TIMESTAMP} never applies, because Hibernate always names the column in the
  * {@code INSERT} with an explicit {@code NULL}.</p>

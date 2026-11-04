@@ -25,7 +25,6 @@ import com.lifecontrol.api.customer.repository.CustomerRepository;
 import com.lifecontrol.api.inventory.ledger.StockLedgerEngine;
 import com.lifecontrol.api.inventory.ledger.StockLedgerWriter;
 import com.lifecontrol.api.inventory.model.StoreInventorySettings;
-import com.lifecontrol.api.inventory.repository.ProductVariantLocationRepository;
 import com.lifecontrol.api.inventory.repository.StoreInventorySettingsRepository;
 import com.lifecontrol.api.measureunit.repository.MeasureUnitRepository;
 import com.lifecontrol.api.paymentmethod.model.PaymentMethod;
@@ -166,9 +165,6 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
     private CompanyZoneRepository companyZoneRepository;
 
     @Autowired
-    private ProductVariantLocationRepository productVariantLocationRepository;
-
-    @Autowired
     private StoreInventorySettingsRepository storeInventorySettingsRepository;
 
     @Autowired
@@ -222,10 +218,8 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
         TenantScope.set(companyId, null);
 
         // Clean up mutable data in reverse FK dependency order. The ledger's projections are removed by
-        // `deleteStockLedger` in the teardown; `product_variant_locations` still holds a row per (variant,
-        // location) that the sale path locks, and it references product_variants with no cascade, so it must go
-        // before the variants (and before the products) or the delete fails on the FK.
-        productVariantLocationRepository.deleteAll();
+        // `deleteStockLedger` in the teardown, and the per-location balance rows the sale path used to lock are
+        // gone with V74, so the store row below is the only inventory row a fixture still writes.
         itemRepository.deleteAll();
         salesOrderRepository.deleteAll();
         productVariantStoreStockRepository.deleteAll();
@@ -247,9 +241,6 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             deleteStockLedger(jdbcTemplate, companyId);
         }
 
-        // Leave no inventory rows behind: this JVM shares its PostgreSQL container with the other
-        // integration classes, and a leftover balance row would block their product deletes.
-        productVariantLocationRepository.deleteAll();
         // store_inventory_settings references store_locations, so the store-tree integration
         // classes cannot delete locations wholesale while this row exists. It is recreated by
         // seedReferenceData on the next test.
@@ -662,6 +653,22 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
     }
 
     /**
+     * Every {@code stock_balance} row this store holds for the variant, read under the tenant that owns it.
+     *
+     * <p>A list instead of a number, because a refusal case asks whether <b>any</b> balance row exists: a query
+     * for one row would report "no row", which is the right answer stated in a way that could not also catch a
+     * row that landed at the wrong location.</p>
+     */
+    private List<BigDecimal> locationBalancesOf(UUID variantId) {
+        return TenantFixtures.inTenant(
+                companyId,
+                () -> jdbcTemplate.queryForList(
+                        "SELECT quantity FROM stock_balance WHERE product_variant_id = ?",
+                        BigDecimal.class,
+                        variantId));
+    }
+
+    /**
      * One {@code stock_movement} row: the only record of a booked fact since the legacy table stopped being
      * written. The columns are the ledger's own — {@code sourceId} is the sale line for a sale, and whatever
      * discriminator the writer stated for a receipt.
@@ -717,11 +724,9 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                         + ", so the ledger's position and this split could not agree");
             }
 
-            // The legacy balance row is still the row a sale locks, so the second location needs one too.
-            // Production creates it with this same insert before it writes a quantity; the quantity itself
-            // lives in the ledger now, so nothing is written into the column.
-            productVariantLocationRepository.insertBalanceIfAbsent(variantId, secondaryLocationId);
-
+            // The ledger's per-location balances ARE the split, and nothing else has to be created for it: the
+            // row the sale path used to lock at the second location went with V74, and a movement names the
+            // location it moves through the booking below.
             var relocated = aggregate.subtract(salesLocationStock);
             if (relocated.signum() > 0) {
                 stockLedgerWriter.bookAdjustmentOut(
@@ -960,8 +965,9 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             assertThat(productVariantStoreStockRepository.findByProductVariantIdAndCompanyStoreId(
                             variant.getId(), companyStoreId))
                     .isEmpty();
-            assertThat(productVariantLocationRepository.findByProductVariantIdAndCompanyStoreId(
-                            variant.getId(), companyStoreId))
+            assertThat(locationBalancesOf(variant.getId()))
+                    .as("no balance at either location: the per-location row is the ledger's projection now "
+                            + "(V74), and `stock_balance` holds only keys a movement named")
                     .isEmpty();
             assertThat(movementsOf(variant.getId())).isEmpty();
         }
