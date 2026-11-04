@@ -135,6 +135,35 @@ public class PurchaseOrder extends Auditable {
     // Default constructor for JPA
     public PurchaseOrder() {}
 
+    /**
+     * Keeps the instant the order was numbered across persist, and still lets the inherited callback stamp an
+     * entity that froze none.
+     *
+     * <p><b>Why an override and not a second callback.</b> {@link Auditable} stamps both audit columns from its
+     * own {@code @PrePersist}, and this override <i>replaces</i> it: exactly one callback body runs, and
+     * {@code super.onCreate()} is called explicitly rather than left to the hierarchy's callback ordering. A
+     * separate {@code @PrePersist} beside the inherited one would hand the outcome to that ordering, and an
+     * override that skipped {@code super.onCreate()} would leave both columns null and fail their
+     * {@code NOT NULL} constraints (the failure mode {@code GoodsReceiptIntegrationTest} records for a
+     * callback that shadows the inherited one).</p>
+     *
+     * <p><b>Why the frozen instant wins.</b> {@code PurchaseOrderService} reads the clock once and derives both
+     * the number's period and this instant from that one value, because {@code purchase_orders} carries no
+     * {@code order_date} column ({@code V1__baseline_schema.sql:317-328}) and {@code created_at} is therefore
+     * the document's only recorded date (ADR-0003 decision 4). A second reading at flush would put a number for
+     * one month on a row dated the next, which is the defect issue #772 fixes.</p>
+     */
+    @Override
+    @PrePersist
+    protected void onCreate() {
+        var frozen = getCreatedAt();
+        super.onCreate();
+        if (frozen != null) {
+            setCreatedAt(frozen);
+            setUpdatedAt(frozen);
+        }
+    }
+
     // Getters
     public UUID getId() {
         return id;
