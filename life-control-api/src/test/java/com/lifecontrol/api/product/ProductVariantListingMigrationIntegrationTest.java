@@ -329,7 +329,7 @@ class ProductVariantListingMigrationIntegrationTest extends AbstractPostgresInte
     /**
      * The stock every seeded store row holds, in one place. The store row and the location that holds the
      * same quantity are two halves of one fact (`product_variant_store_stock.stock = SUM(
-     * product_variant_locations.stock)`, {@code InventoryService.java:57}), so a fixture where the two
+     * product_variant_locations.stock)`, {@code StockLedgerEngine.java:57}), so a fixture where the two
      * could drift apart would seed exactly the divergence {@code V62} refuses to interpret.
      */
     private static final int SEEDED_STORE_STOCK = 4;

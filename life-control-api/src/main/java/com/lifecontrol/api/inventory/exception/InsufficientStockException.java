@@ -1,4 +1,4 @@
-package com.lifecontrol.api.salesorder.exception;
+package com.lifecontrol.api.inventory.exception;
 
 import com.lifecontrol.api.exception.ConflictException;
 import java.math.BigDecimal;

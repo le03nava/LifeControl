@@ -6,7 +6,7 @@ import java.util.UUID;
  * {@code 400} when a received line references a product variant that is soft-deleted ({@code
  * enabled = false}).
  *
- * <p>This rule exists because {@code InventoryService#applyReceipt} rejects a variant whose
+ * <p>This rule exists because {@code StockLedgerEngine#applyReceipt} rejects a variant whose
  * definition is missing or soft-deleted with {@code ProductVariantNotFoundException} (404) before
  * writing anything, and because the goods receipt validates every line before the first write: a
  * variant disabled after the purchase order was raised would otherwise pass the whole validation

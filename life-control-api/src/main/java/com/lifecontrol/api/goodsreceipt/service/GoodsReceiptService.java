@@ -28,9 +28,9 @@ import com.lifecontrol.api.goodsreceipt.model.GoodsReceiptState;
 import com.lifecontrol.api.goodsreceipt.repository.GoodsReceiptRepository;
 import com.lifecontrol.api.inventory.exception.StoreInventorySettingsNotFoundException;
 import com.lifecontrol.api.inventory.exception.StoreLocationNotInStoreException;
+import com.lifecontrol.api.inventory.ledger.StockLedgerEngine;
 import com.lifecontrol.api.inventory.ledger.StockLedgerWriter;
 import com.lifecontrol.api.inventory.repository.StoreInventorySettingsRepository;
-import com.lifecontrol.api.inventory.service.InventoryService;
 import com.lifecontrol.api.product.model.ProductVariant;
 import com.lifecontrol.api.product.repository.ProductVariantStoreStockRepository;
 import com.lifecontrol.api.purchaseorder.exception.PurchaseOrderDetailNotFoundException;
@@ -68,7 +68,7 @@ import org.springframework.util.StringUtils;
  *
  * <h2>Lock order of the slice</h2>
  * <p>{@code purchaseOrder -> storeStock -> locationBalance}. The receipt takes the purchase-order row
- * lock first and keeps it for the whole transaction; {@link InventoryService#applyReceipt} then locks
+ * lock first and keeps it for the whole transaction; {@link StockLedgerEngine#applyReceipt} then locks
  * the per-store stock row (the serialization point after the variant-identity split) and the location
  * balance. No existing path locks a store stock row before a purchase order, so the global order is
  * cycle-free.</p>
@@ -105,7 +105,7 @@ public class GoodsReceiptService {
     private final PurchaseOrderRepository purchaseOrderRepository;
     private final PurchaseOrderDetailRepository purchaseOrderDetailRepository;
     private final PurchaseOrderService purchaseOrderService;
-    private final InventoryService inventoryService;
+    private final StockLedgerEngine stockLedgerEngine;
     private final GoodsReceiptRepository goodsReceiptRepository;
     private final StoreInventorySettingsRepository storeInventorySettingsRepository;
     private final StoreLocationRepository storeLocationRepository;
@@ -120,7 +120,7 @@ public class GoodsReceiptService {
             PurchaseOrderRepository purchaseOrderRepository,
             PurchaseOrderDetailRepository purchaseOrderDetailRepository,
             PurchaseOrderService purchaseOrderService,
-            InventoryService inventoryService,
+            StockLedgerEngine stockLedgerEngine,
             GoodsReceiptRepository goodsReceiptRepository,
             StoreInventorySettingsRepository storeInventorySettingsRepository,
             StoreLocationRepository storeLocationRepository,
@@ -133,7 +133,7 @@ public class GoodsReceiptService {
         this.purchaseOrderRepository = purchaseOrderRepository;
         this.purchaseOrderDetailRepository = purchaseOrderDetailRepository;
         this.purchaseOrderService = purchaseOrderService;
-        this.inventoryService = inventoryService;
+        this.stockLedgerEngine = stockLedgerEngine;
         this.goodsReceiptRepository = goodsReceiptRepository;
         this.storeInventorySettingsRepository = storeInventorySettingsRepository;
         this.storeLocationRepository = storeLocationRepository;
@@ -309,7 +309,7 @@ public class GoodsReceiptService {
                 throw new IllegalStateException("The receipt " + saved.getId() + " persisted no id for line " + index
                         + ", so the stock it received has no line to name and is not booked");
             }
-            inventoryService.applyReceipt(
+            stockLedgerEngine.applyReceipt(
                     line.variant().getId(),
                     companyStore.getId(),
                     receivingLocationId,
@@ -527,7 +527,7 @@ public class GoodsReceiptService {
                     variant.getId(), companyStore.getId())) {
                 throw new PurchaseOrderVariantNotInStoreException(lineIndex, detail.getId(), variant.getId());
             }
-            // A disabled variant must be rejected here and not left to InventoryService.applyReceipt:
+            // A disabled variant must be rejected here and not left to StockLedgerEngine.applyReceipt:
             // that mutator locks with enabled = true, so a variant disabled after the order was raised
             // passes this far, the receipt row is written, and only then the mutator throws a 404. The
             // more specific diagnoses above (NULL variant, foreign store) keep their own errors first.

@@ -22,11 +22,11 @@ import com.lifecontrol.api.country.model.Country;
 import com.lifecontrol.api.country.repository.CountryRepository;
 import com.lifecontrol.api.customer.model.Customer;
 import com.lifecontrol.api.customer.repository.CustomerRepository;
+import com.lifecontrol.api.inventory.ledger.StockLedgerEngine;
 import com.lifecontrol.api.inventory.ledger.StockLedgerWriter;
 import com.lifecontrol.api.inventory.model.StoreInventorySettings;
 import com.lifecontrol.api.inventory.repository.ProductVariantLocationRepository;
 import com.lifecontrol.api.inventory.repository.StoreInventorySettingsRepository;
-import com.lifecontrol.api.inventory.service.InventoryService;
 import com.lifecontrol.api.measureunit.repository.MeasureUnitRepository;
 import com.lifecontrol.api.paymentmethod.model.PaymentMethod;
 import com.lifecontrol.api.paymentmethod.repository.PaymentMethodRepository;
@@ -109,7 +109,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
 
     /** The production receipt entry point the fixture's opening goes through: stock is booked, never seeded. */
     @Autowired
-    private InventoryService inventoryService;
+    private StockLedgerEngine stockLedgerEngine;
 
     @Autowired
     private ObjectMapper objectMapper;
@@ -204,7 +204,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
      * {@code goods_receipt_items} row, while this stock belongs to no document at all — it is the state a store
      * carries before its first one, which {@code V62}'s Path A replay books for the whole tree under
      * {@code source_type = 'MIGRATION'}. The opening is booked as a real {@code RECEIPT} through
-     * {@link InventoryService#applyReceipt}, the production path, so the fixture states stock exactly the way
+     * {@link StockLedgerEngine#applyReceipt}, the production path, so the fixture states stock exactly the way
      * production does; the discriminator is what lets every assertion answer "what did the document under test
      * book?" instead of counting the fixture's own receipt.</p>
      */
@@ -392,7 +392,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                             .enabled(true)
                             .build()));
 
-            // The sales path now deducts through InventoryService, which needs a per-location balance
+            // The sales path now deducts through StockLedgerEngine, which needs a per-location balance
             // and the store's sales location to allocate against. Seed them once per store.
             ensureInventoryLocations(store);
 
@@ -578,7 +578,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
      * <p><b>Two writes, and the units are one of them — a movement, never a column.</b> The
      * {@code product_variant_store_stock} row is what this store records about the variant (its cost, which every
      * inbound ledger row has to state) and it is created with the column's own default; the units are one
-     * {@code RECEIPT} booked through {@link InventoryService#applyReceipt}, the production path, so the
+     * {@code RECEIPT} booked through {@link StockLedgerEngine#applyReceipt}, the production path, so the
      * projection trigger is what fills {@code stock_balance} and {@code stock_position}. Seeding the legacy columns
      * instead would restore the second truth T3c removed: nothing maintains them any more, so an assertion that
      * read one would agree for ever with a number the application never reads.</p>
@@ -607,7 +607,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
         if (quantity == null || quantity.signum() == 0) {
             return;
         }
-        inventoryService.applyReceipt(
+        stockLedgerEngine.applyReceipt(
                 variantId, companyStoreId, storeLocationId, quantity, FIXTURE_OPENING, UUID.randomUUID(), "fixture");
     }
 

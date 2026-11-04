@@ -3,9 +3,9 @@ package com.lifecontrol.api.inventory;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.lifecontrol.api.inventory.exception.InsufficientStockException;
+import com.lifecontrol.api.inventory.ledger.StockLedgerEngine;
 import com.lifecontrol.api.inventory.ledger.StockLedgerWriter;
-import com.lifecontrol.api.inventory.service.InventoryService;
-import com.lifecontrol.api.salesorder.exception.InsufficientStockException;
 import com.lifecontrol.api.store.exception.CompanyStoreNotFoundException;
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
 import com.lifecontrol.api.support.TenantFixtures;
@@ -32,10 +32,10 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * T5a of {@code odd/tasks/inventory-ledger.md}, as T3c leaves it: the writers of {@link InventoryService} book the
+ * T5a of {@code odd/tasks/inventory-ledger.md}, as T3c leaves it: the writers of {@link StockLedgerEngine} book the
  * ledger, and the ledger is the only place stock is written.
  *
- * <p><b>What this suite is the witness of.</b> Every case drives a public writer of {@link InventoryService} — the
+ * <p><b>What this suite is the witness of.</b> Every case drives a public writer of {@link StockLedgerEngine} — the
  * same entry point {@code GoodsReceiptService}, {@code SalesOrderService} and {@code ProductVariantService} call —
  * and then asserts the movement it booked (its type, its quantity, its cost and currency, and — for an outbound
  * row — the allocations the engine recorded for it, invariant I6) and the balances {@code V61}'s trigger derived
@@ -84,7 +84,7 @@ class InventoryLedgerBookingIntegrationTest extends AbstractPostgresIntegrationT
     private JdbcTemplate jdbcTemplate;
 
     @Autowired
-    private InventoryService inventoryService;
+    private StockLedgerEngine stockLedgerEngine;
 
     @Autowired
     private StockLedgerWriter stockLedgerWriter;
@@ -533,25 +533,26 @@ class InventoryLedgerBookingIntegrationTest extends AbstractPostgresIntegrationT
     // ──────────────────────────────────────
 
     /**
-     * A sale written <b>before</b> {@code V73} is still reversible, which is the half of the widening the deploy
-     * window depends on.
+     * A sale written <b>before</b> {@code V73} is no longer reachable through its line reference, and the loss is
+     * stated here instead of being discovered after the drop ({@code odd/tasks/ledger-mirror-retirement.md}, D-1).
      *
-     * <p><b>The fixture is the state, not a shortcut.</b> A sale written before this slice carries
-     * {@code source_type = 'INVENTORY_MOVEMENT'} and the id of the {@code inventory_movements} row beside it, so
-     * {@code openSales('SALES_ORDER_ITEM', line)} answers nothing for it and the reversal has to read the mirror as
-     * a <b>second</b> source ({@code InventoryService.openLedgerSalesBookedOnTheMirror}). Both parts of that state
-     * that a reversal reads are therefore written by hand — the legacy row and the ledger movement that mirrors it
-     * — because no writer in this tree produces the pair any more, which is exactly what "predates the deploy"
-     * means. The two legacy balance columns are not seeded: since T3c nothing maintains them and no assertion here
-     * reads them (S4).</p>
+     * <p><b>Why this case inverted.</b> Until T4 the reversal read a second source: it also looked up
+     * {@code inventory_movements} rows and resolved each to the ledger row that mirrored it, so a pre-{@code V73}
+     * sale — whose ledger row names the legacy row rather than the document line — was still reversible. That
+     * fallback is deleted with the table it reads, so from the drop on nothing maps a sale line id to a ledger row
+     * carrying the mirror identity. The fixture is unchanged and still states the state: the legacy row and the
+     * ledger movement that mirrors it, written by hand because no writer in this tree produces the pair any more,
+     * which is exactly what "predates the deploy" means. What the case pins now is the consequence — a reversal by
+     * the line reference answers nothing and books nothing — because that is the behaviour the drop ships, and a
+     * silent one is what D-1 exists to price.</p>
      *
-     * <p><b>What it would take to make this pass for the wrong reason.</b> Nothing here reads a default: the mirror
-     * row's identity and its {@code SINGLE_WRITE} are asserted before the reversal runs, so a case that accidentally
-     * booked the line identity would fail instead of silently proving the other path.</p>
+     * <p><b>What makes that loss safe to ship.</b> The migration that drops the mirror refuses while a movement of
+     * this shape is still unreversed and names the operator's next step (D-1), so this state cannot outlive the
+     * table by accident.</p>
      */
     @Test
-    @DisplayName("a sale booked on the pre-V73 mirror identity still reverses by its line reference")
-    void aSaleBookedOnTheMirrorIdentityStillReverses() {
+    @DisplayName("a sale booked on the pre-V73 mirror identity is no longer reachable by its line reference")
+    void aSaleBookedOnTheMirrorIdentityIsNotReachableByItsLine() {
         applyReceipt(variantId, salesLocationId, "10", UUID.randomUUID());
         var referenceId = UUID.randomUUID();
         var legacySaleId = insertALegacySaleAndItsLedgerTwin(referenceId, "4");
@@ -568,38 +569,35 @@ class InventoryLedgerBookingIntegrationTest extends AbstractPostgresIntegrationT
 
         reverse(referenceId);
 
-        var reversals = ledgerMovementsOf(variantId, StockLedgerWriter.SALE_REVERSAL);
-        assertThat(reversals)
-                .as("the reversal found the row the line reference no longer names: the per-reference read answers "
-                        + "nothing for a pre-V73 sale, and the mirror answers for it")
-                .hasSize(1);
-        assertThat(reversals.getFirst().reversesMovementId())
-                .as("and it names the exact row, which is what V61's shape rules demand")
-                .isEqualTo(mirrored.id());
-        assertThat(reversals.getFirst().quantity()).isEqualByComparingTo("4");
+        assertThat(ledgerMovementsOf(variantId, StockLedgerWriter.SALE_REVERSAL))
+                .as("nothing is booked: the per-reference read answers nothing for a pre-V73 sale, and the mirror "
+                        + "fallback that answered for it went with the table (D-1)")
+                .isEmpty();
         assertThat(ledgerMovementsOf(variantId, StockLedgerWriter.SALE))
-                .as("the reversed sale is untouched — the ledger is append-only")
+                .as("and the sale stays where it is: the ledger is append-only, so a row nothing can name keeps "
+                        + "its quantity instead of being given back")
                 .hasSize(1);
-        assertTheLedgerHolds("10", "0", "10");
+        assertThat(positionOf(variantId))
+                .as("the receipt put 10 in and the unreachable sale took 4 out, with nothing giving it back")
+                .isEqualByComparingTo("6");
+        assertTheLedgerHolds("6", "0", "6");
     }
 
     /**
-     * A reference whose ledger holds <b>both</b> identities reverses every row it can name, and both copies of the
-     * fact end at the same numbers.
+     * A reference whose ledger holds <b>both</b> identities reverses exactly the row the ledger can still name.
      *
-     * <p><b>What changed, and why this case used to be the opposite one.</b> Until T2 the amount a reversal
-     * credited was computed from {@code inventory_movements} and then compared, row by row, against the ledger's
-     * open rows; a reference holding 4 under the mirror identity and 3 under the line identity had a legacy
-     * remainder of 7 the ledger could only name 3 of, so it was refused. The refusal was never a property of the
-     * ledger — it was an artefact of deriving the amount from a second table. From T2 the amount <b>is</b> the set
-     * of open rows ({@code odd/tasks/ledger-mirror-retirement.md}, S3), the two reads are unioned by ledger
-     * movement id, and each reversal names the row it gives back, so the whole reference is reversible in one go:
-     * two reversal rows, 4 and 3, each satisfying {@code V61}'s rule that a reversal moves exactly the quantity of
-     * the row it names.</p>
+     * <p><b>What changed twice, and why the second change is the honest one.</b> Until T2 a reference holding 4
+     * under the mirror identity and 3 under the line identity was REFUSED: the amount a reversal credited came from
+     * {@code inventory_movements} and the ledger could only name part of it. From T2 the amount is the set of open
+     * rows and the two reads were unioned by ledger movement id, so the whole reference reversed in one go — two
+     * reversal rows, one per row it could name. From T4 the mirror read is gone ({@code
+     * odd/tasks/ledger-mirror-retirement.md}, S3(b)), so the union has one side left: the reversal credits the 3 it
+     * can name and the pre-{@code V73} row stays open. That is the same loss the case above states, and the answer
+     * is the same one: the drop refuses while such a row is unreversed (D-1).</p>
      */
     @Test
-    @DisplayName("a reference holding both the mirror and the line identity reverses both, not half of it")
-    void aReferenceHoldingBothIdentitiesReversesBothOfThem() {
+    @DisplayName("a reference holding both identities reverses the row the ledger can still name")
+    void aReferenceHoldingBothIdentitiesReversesTheLineItCanName() {
         applyReceipt(variantId, salesLocationId, "10", UUID.randomUUID());
         var referenceId = UUID.randomUUID();
         insertALegacySaleAndItsLedgerTwin(referenceId, "4");
@@ -613,20 +611,16 @@ class InventoryLedgerBookingIntegrationTest extends AbstractPostgresIntegrationT
 
         var reversals = ledgerMovementsOf(variantId, StockLedgerWriter.SALE_REVERSAL);
         assertThat(reversals)
-                .as("one reversal per open row, because a reversal moves exactly the quantity of the row it names")
-                .hasSize(2);
-        assertThat(reversals)
-                .extracting(LedgerMovement::quantity)
-                .usingElementComparator(BigDecimal::compareTo)
-                .containsExactlyInAnyOrder(new BigDecimal("4"), new BigDecimal("3"));
-        assertThat(reversals)
-                .as("and the reversal names the line beside the sale it corrects, so the ledger states one source "
-                        + "for both halves of the reference")
-                .allSatisfy(reversal -> assertThat(reversal.sourceId()).isEqualTo(referenceId));
+                .as("one reversal, for the one open row the line reference still names")
+                .hasSize(1);
+        assertThat(reversals.getFirst().quantity()).isEqualByComparingTo("3");
+        assertThat(reversals.getFirst().sourceId())
+                .as("and it states the line it corrects, so the ledger gives one source for a reversal")
+                .isEqualTo(referenceId);
         assertThat(positionOf(variantId))
-                .as("the receipt put 10 in, the two sales took 7 out, and the reversal gives the 7 back")
-                .isEqualByComparingTo("10");
-        assertTheLedgerHolds("10", "0", "10");
+                .as("the receipt put 10 in, the two sales took 7 out, and the reachable reversal gives 3 back")
+                .isEqualByComparingTo("6");
+        assertTheLedgerHolds("6", "0", "6");
     }
 
     /**
@@ -962,7 +956,7 @@ class InventoryLedgerBookingIntegrationTest extends AbstractPostgresIntegrationT
 
         assertThat(countLedgerMovements()).as("and the refusal stored nothing").isZero();
 
-        assertThatThrownBy(() -> inventoryService.applyReceipt(
+        assertThatThrownBy(() -> stockLedgerEngine.applyReceipt(
                         variantId,
                         storeId,
                         salesLocationId,
@@ -994,7 +988,7 @@ class InventoryLedgerBookingIntegrationTest extends AbstractPostgresIntegrationT
     private void applyReceipt(UUID variant, UUID location, String quantity, UUID receiptLineId) {
         TenantFixtures.inTenant(
                 companyId,
-                () -> inventoryService.applyReceipt(
+                () -> stockLedgerEngine.applyReceipt(
                         variant,
                         storeId,
                         location,
@@ -1018,19 +1012,19 @@ class InventoryLedgerBookingIntegrationTest extends AbstractPostgresIntegrationT
     private void sell(UUID variant, String quantity, UUID referenceId, long writeSeq) {
         TenantFixtures.inTenant(
                 companyId,
-                () -> inventoryService.applySaleDeduction(
+                () -> stockLedgerEngine.applySaleDeduction(
                         variant, storeId, new BigDecimal(quantity), SALES_ORDER_ITEM, referenceId, "seller", writeSeq));
     }
 
     private void reverse(UUID referenceId) {
         TenantFixtures.inTenant(
-                companyId, () -> inventoryService.applySaleReversal(SALES_ORDER_ITEM, referenceId, "seller"));
+                companyId, () -> stockLedgerEngine.applySaleReversal(SALES_ORDER_ITEM, referenceId, "seller"));
     }
 
     private void setStock(UUID variant, String absoluteStock) {
         TenantFixtures.inTenant(
                 companyId,
-                () -> inventoryService.applyStockAdjustment(
+                () -> stockLedgerEngine.applyStockAdjustment(
                         variant, storeId, new BigDecimal(absoluteStock), "operator"));
     }
 

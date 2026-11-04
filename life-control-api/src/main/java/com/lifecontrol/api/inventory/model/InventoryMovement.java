@@ -8,7 +8,7 @@ import java.util.UUID;
 /**
  * One immutable entry of the append-only inventory ledger.
  *
- * <p>A movement is a fact: it is inserted once by {@code InventoryService} and never updated or
+ * <p>A movement is a fact: it is inserted once by {@code StockLedgerEngine} and never updated or
  * deleted. The entity therefore has no {@code updated_at} column and no setters, and
  * {@link #occurredAt} is assigned once by the JPA pre-persist callback (the
  * {@code ActivityLog} precedent).</p>

@@ -35,10 +35,10 @@ import com.lifecontrol.api.goodsreceipt.model.GoodsReceiptState;
 import com.lifecontrol.api.goodsreceipt.repository.GoodsReceiptRepository;
 import com.lifecontrol.api.inventory.exception.StoreInventorySettingsNotFoundException;
 import com.lifecontrol.api.inventory.exception.StoreLocationNotInStoreException;
+import com.lifecontrol.api.inventory.ledger.StockLedgerEngine;
 import com.lifecontrol.api.inventory.ledger.StockLedgerWriter;
 import com.lifecontrol.api.inventory.model.StoreInventorySettings;
 import com.lifecontrol.api.inventory.repository.StoreInventorySettingsRepository;
-import com.lifecontrol.api.inventory.service.InventoryService;
 import com.lifecontrol.api.product.model.ProductVariant;
 import com.lifecontrol.api.product.repository.ProductVariantStoreStockRepository;
 import com.lifecontrol.api.purchaseorder.exception.PurchaseOrderDetailNotFoundException;
@@ -111,7 +111,7 @@ class GoodsReceiptServiceTest {
     private PurchaseOrderService purchaseOrderService;
 
     @Mock
-    private InventoryService inventoryService;
+    private StockLedgerEngine stockLedgerEngine;
 
     @Mock
     private GoodsReceiptRepository goodsReceiptRepository;
@@ -161,7 +161,7 @@ class GoodsReceiptServiceTest {
                 purchaseOrderRepository,
                 purchaseOrderDetailRepository,
                 purchaseOrderService,
-                inventoryService,
+                stockLedgerEngine,
                 goodsReceiptRepository,
                 storeInventorySettingsRepository,
                 storeLocationRepository,
@@ -289,7 +289,7 @@ class GoodsReceiptServiceTest {
 
     /** Every writer of the use case: a rejection must not touch any of them. */
     private void assertNoWrites() {
-        verifyNoInteractions(inventoryService);
+        verifyNoInteractions(stockLedgerEngine);
         verify(purchaseOrderService, never()).registerReceivedQuantity(any(), any(), any());
         verify(goodsReceiptRepository, never()).save(any(GoodsReceipt.class));
         // A rejected request is not a document either: no creation row may be appended for one.
@@ -341,7 +341,7 @@ class GoodsReceiptServiceTest {
             assertThat(savedReceipt.getDocNumber()).isEqualTo("GR-PO-202606-00001-01");
             assertThat(savedReceipt.getReceiptNumber()).isEqualTo(savedReceipt.getDocNumber());
 
-            verify(inventoryService)
+            verify(stockLedgerEngine)
                     .applyReceipt(
                             VARIANT_ID,
                             STORE_ID,
@@ -361,7 +361,7 @@ class GoodsReceiptServiceTest {
             service.createReceipt(requestWith(null, line(DETAIL_ID, "1")));
 
             verify(storeInventorySettingsRepository).findById(STORE_ID);
-            verify(inventoryService)
+            verify(stockLedgerEngine)
                     .applyReceipt(
                             VARIANT_ID,
                             STORE_ID,
@@ -391,7 +391,7 @@ class GoodsReceiptServiceTest {
             var response = service.createReceipt(requestWith(LOCATION_ID, line(DETAIL_ID, "2.5")));
 
             assertThat(response.lines().getFirst().quantityReceived()).isEqualByComparingTo("2.5");
-            verify(inventoryService)
+            verify(stockLedgerEngine)
                     .applyReceipt(
                             VARIANT_ID,
                             STORE_ID,
@@ -410,8 +410,8 @@ class GoodsReceiptServiceTest {
 
             service.createReceipt(requestWith(LOCATION_ID, line(DETAIL_ID, "3")));
 
-            InOrder order = inOrder(inventoryService, purchaseOrderService);
-            order.verify(inventoryService)
+            InOrder order = inOrder(stockLedgerEngine, purchaseOrderService);
+            order.verify(stockLedgerEngine)
                     .applyReceipt(
                             VARIANT_ID,
                             STORE_ID,

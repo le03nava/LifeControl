@@ -17,8 +17,8 @@ import com.lifecontrol.api.goodsreceipt.dto.GoodsReceiptFilter;
 import com.lifecontrol.api.goodsreceipt.model.GoodsReceipt;
 import com.lifecontrol.api.goodsreceipt.model.GoodsReceiptState;
 import com.lifecontrol.api.goodsreceipt.repository.GoodsReceiptRepository;
+import com.lifecontrol.api.inventory.ledger.StockLedgerEngine;
 import com.lifecontrol.api.inventory.repository.StoreInventorySettingsRepository;
-import com.lifecontrol.api.inventory.service.InventoryService;
 import com.lifecontrol.api.product.repository.ProductVariantStoreStockRepository;
 import com.lifecontrol.api.purchaseorder.model.PurchaseOrder;
 import com.lifecontrol.api.purchaseorder.repository.PurchaseOrderDetailRepository;
@@ -98,7 +98,7 @@ class GoodsReceiptScopeAgreementTest {
     private PurchaseOrderService purchaseOrderService;
 
     @Mock
-    private InventoryService inventoryService;
+    private StockLedgerEngine stockLedgerEngine;
 
     @Mock
     private GoodsReceiptRepository goodsReceiptRepository;
@@ -135,7 +135,7 @@ class GoodsReceiptScopeAgreementTest {
                 purchaseOrderRepository,
                 purchaseOrderDetailRepository,
                 purchaseOrderService,
-                inventoryService,
+                stockLedgerEngine,
                 goodsReceiptRepository,
                 storeInventorySettingsRepository,
                 storeLocationRepository,

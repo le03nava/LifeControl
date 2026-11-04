@@ -14,11 +14,11 @@ import com.lifecontrol.api.company.repository.CompanyRegionRepository;
 import com.lifecontrol.api.company.repository.CompanyRepository;
 import com.lifecontrol.api.company.repository.CompanyZoneRepository;
 import com.lifecontrol.api.country.repository.CountryRepository;
+import com.lifecontrol.api.inventory.ledger.StockLedgerEngine;
 import com.lifecontrol.api.inventory.ledger.StockLedgerWriter;
 import com.lifecontrol.api.inventory.model.ProductVariantLocation;
 import com.lifecontrol.api.inventory.repository.InventoryMovementRepository;
 import com.lifecontrol.api.inventory.repository.ProductVariantLocationRepository;
-import com.lifecontrol.api.inventory.service.InventoryService;
 import com.lifecontrol.api.measureunit.repository.MeasureUnitRepository;
 import com.lifecontrol.api.product.exception.ProductVariantNotFoundException;
 import com.lifecontrol.api.product.model.Product;
@@ -106,7 +106,7 @@ class InventoryIntegrationTest extends AbstractPostgresIntegrationTest {
     private ObjectMapper objectMapper;
 
     @Autowired
-    private InventoryService inventoryService;
+    private StockLedgerEngine stockLedgerEngine;
 
     @Autowired
     private InventoryMovementRepository inventoryMovementRepository;
@@ -390,7 +390,7 @@ class InventoryIntegrationTest extends AbstractPostgresIntegrationTest {
     /**
      * Applies a receipt under this class's company and answers the line identity it booked.
      *
-     * <p>{@link InventoryService} derives its tenant from the request principal at the transaction
+     * <p>{@link StockLedgerEngine} derives its tenant from the request principal at the transaction
      * boundary; a test that calls it without an HTTP request has no principal, so the fixture states the
      * company the store belongs to. Without it the service's first read of {@code company_stores} answers
      * not-found instead of reaching the rule under test.</p>
@@ -402,7 +402,7 @@ class InventoryIntegrationTest extends AbstractPostgresIntegrationTest {
         var referenceId = UUID.randomUUID();
         TenantFixtures.inTenant(
                 companyId,
-                () -> inventoryService.applyReceipt(
+                () -> stockLedgerEngine.applyReceipt(
                         variantId,
                         storeId,
                         locationId,
@@ -512,7 +512,7 @@ class InventoryIntegrationTest extends AbstractPostgresIntegrationTest {
 
             TenantFixtures.inTenant(
                     companyId,
-                    () -> inventoryService.applyReceipt(
+                    () -> stockLedgerEngine.applyReceipt(
                             variant.getId(),
                             storeId,
                             locationId,
@@ -521,14 +521,10 @@ class InventoryIntegrationTest extends AbstractPostgresIntegrationTest {
                             referenceId,
                             "receiver"));
 
-            // The (variant, location) row still exists and still names the pair the lock order is keyed by;
-            // its stock column has been frozen since T3c, so the number on hand is read from the projections.
-            var balance = balanceOf(variant.getId()).orElseThrow();
-            assertThat(balance.getProductVariantId()).isEqualTo(variant.getId());
-            assertThat(balance.getStoreLocationId()).isEqualTo(locationId);
-            assertThat(balance.getCreatedAt()).isNotNull();
-            assertThat(balance.getUpdatedAt()).isNotNull();
-
+            // Nothing creates a product_variant_locations row any more (T4 of
+            // odd/tasks/ledger-mirror-retirement.md): the balance a receipt produces is the ledger's projection, and
+            // that is what this case reads. `locationStockOf` is a plain query, so an absent row fails here instead
+            // of answering a zero.
             assertThat(locationStockOf(variant.getId(), locationId)).isEqualByComparingTo("12.50");
             assertThat(storePositionOf(variant.getId())).isEqualByComparingTo("12.50");
 
@@ -567,8 +563,16 @@ class InventoryIntegrationTest extends AbstractPostgresIntegrationTest {
             assertThat(locationStockOf(variant.getId(), locationId)).isEqualByComparingTo("8.25");
             assertThat(storePositionOf(variant.getId())).isEqualByComparingTo("8.25");
 
-            // The second receipt reuses the existing (variant, location) row instead of duplicating it...
-            assertThat(productVariantLocationRepository.count()).isEqualTo(1);
+            // The second receipt accumulates on the one (location, variant) balance instead of duplicating it —
+            // and since T4 that balance is the projection, because no legacy row is created any more.
+            var projectionRows = TenantFixtures.inTenant(
+                    companyId,
+                    () -> jdbcTemplate.queryForObject(
+                            "SELECT count(*) FROM stock_balance WHERE store_location_id = ? AND product_variant_id = ?",
+                            Integer.class,
+                            locationId,
+                            variant.getId()));
+            assertThat(projectionRows).isEqualTo(1);
             // ...and appends a second movement without modifying the first one (append-only ledger).
             var bookedAfter = ledgerRowsOf(variant.getId());
             assertThat(bookedAfter).hasSize(2);
@@ -649,7 +653,7 @@ class InventoryIntegrationTest extends AbstractPostgresIntegrationTest {
             var referenceId = UUID.randomUUID();
             TenantFixtures.inTenant(
                     companyId,
-                    () -> inventoryService.applySaleDeduction(
+                    () -> stockLedgerEngine.applySaleDeduction(
                             variant.getId(),
                             storeId,
                             new BigDecimal("4.00"),
@@ -660,7 +664,7 @@ class InventoryIntegrationTest extends AbstractPostgresIntegrationTest {
             assertThat(storePositionOf(variant.getId())).isEqualByComparingTo("6.00");
 
             TenantFixtures.inTenant(
-                    companyId, () -> inventoryService.applySaleReversal("SALES_ORDER_ITEM", referenceId, "seller"));
+                    companyId, () -> stockLedgerEngine.applySaleReversal("SALES_ORDER_ITEM", referenceId, "seller"));
             assertInvariant(variant.getId());
             assertThat(storePositionOf(variant.getId())).isEqualByComparingTo("10.00");
         }
@@ -796,17 +800,17 @@ class InventoryIntegrationTest extends AbstractPostgresIntegrationTest {
                 }
                 TenantFixtures.inTenant(
                         companyId,
-                        () -> inventoryService.applySaleBatch("SALES_ORDER_ITEM", "seller", deductionsOf(variantIds)));
+                        () -> stockLedgerEngine.applySaleBatch("SALES_ORDER_ITEM", "seller", deductionsOf(variantIds)));
             } catch (InterruptedException interrupted) {
                 Thread.currentThread().interrupt();
                 throw new IllegalStateException("raced sale-batch thread was interrupted", interrupted);
             }
         }
 
-        private List<InventoryService.SaleChange> deductionsOf(List<UUID> variantIds) {
-            var changes = new ArrayList<InventoryService.SaleChange>();
+        private List<StockLedgerEngine.SaleChange> deductionsOf(List<UUID> variantIds) {
+            var changes = new ArrayList<StockLedgerEngine.SaleChange>();
             for (var variantId : variantIds) {
-                changes.add(InventoryService.SaleChange.deduction(
+                changes.add(StockLedgerEngine.SaleChange.deduction(
                         storeId, variantId, DEDUCTION_PER_THREAD, UUID.randomUUID()));
             }
             return changes;
@@ -824,7 +828,7 @@ class InventoryIntegrationTest extends AbstractPostgresIntegrationTest {
 
             assertThatThrownBy(() -> TenantFixtures.inTenant(
                             companyId,
-                            () -> inventoryService.applyReceipt(
+                            () -> stockLedgerEngine.applyReceipt(
                                     foreignVariant.getId(),
                                     storeId,
                                     locationId,
@@ -848,7 +852,7 @@ class InventoryIntegrationTest extends AbstractPostgresIntegrationTest {
 
             assertThatThrownBy(() -> TenantFixtures.inTenant(
                             companyId,
-                            () -> inventoryService.applySaleDeduction(
+                            () -> stockLedgerEngine.applySaleDeduction(
                                     foreignVariant.getId(),
                                     storeId,
                                     new BigDecimal("1.00"),

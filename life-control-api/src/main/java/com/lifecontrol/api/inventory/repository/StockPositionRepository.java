@@ -31,7 +31,7 @@ import org.springframework.stereotype.Repository;
  * ({@code V60}), and this interface states no scope of its own: it runs inside the caller's transaction, whose
  * boundary installed ADR-0005's {@code app.company_id} ({@code TenantScopeJpaTransactionManager}). A read with
  * no scope answers no rows — which is why no caller may treat {@code empty()} as "zero" without having stated
- * a tenant, and why the two callers here ({@code ProductVariantService} and {@code InventoryService}) both run
+ * a tenant, and why the two callers here ({@code ProductVariantService} and {@code StockLedgerEngine}) both run
  * inside a boundary that derives the tenant from the store, never from the request.</p>
  */
 @Repository
@@ -63,7 +63,7 @@ public interface StockPositionRepository
      * <p><b>Why the gate needs the lock and not just the number.</b> A sale's availability gate reads this row
      * and then writes a movement whose projection trigger updates it, so the decision and the write must be
      * serialized on the same row. Until T5c the only thing serializing two deductions of one key was the legacy
-     * {@code product_variant_store_stock} lock taken earlier in {@code InventoryService.applySaleDeduction} — a
+     * {@code product_variant_store_stock} lock taken earlier in {@code StockLedgerEngine.applySaleDeduction} — a
      * lock T5b's readers already stopped needing and that the deferred T5d would remove — so the gate was correct
      * by accident of an unrelated lock. Locking the row it decides about makes it correct on its own, and a
      * caller can no longer pass the gate on a quantity another transaction is changing.</p>
