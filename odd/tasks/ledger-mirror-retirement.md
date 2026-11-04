@@ -2,21 +2,14 @@
 
 **Repository**: LifeControl — `life-control-api` (migrations, `inventory`, `salesorder`, `goodsreceipt`,
 `product`), `odd/tasks/`
-**Branch**: `feat/ledger-mirror-retirement` · **Worktree**: `~/workspace/LifeControl-worktrees/feat-ledger-mirror-retirement`
-**Status**: implemented — T1 is the receipt's own line identity; T2–T5 are the rest of ADR-0001's last stage
-(the reversal's identity, the write path that stops maintaining two balances, the drops that delete
-`inventory_movements` and the two legacy `stock` columns, and the deletion of `InventoryService` with the
-package-cycle break). `## Tasks` names what each one owes and `## Decisions taken here
-
-**D-1 — a sale booked before `V73` is reversible until the mirror is dropped, and not after.** The fallback that
-finds those rows is deleted with `inventory_movements` in T4, and from that moment nothing maps a sale line id to a
-ledger row whose source is the mirror. The drop's migration therefore asserts that no unreversed sale movement
-carrying the mirror identity exists, and refuses with the operator's next step in the message. The alternative — a
-backfill that rewrites those sources to the line identity — was refused because it would have to invent a
-`write_seq` for rows that never had one, and an invented identity is the one thing `V73` exists to stop.
-
-## Log` states what was measured before any of
-it was written.
+**Branch**: `feat/ledger-mirror-retirement` (T1–T3c) · `feat/ledger-mirror-drops` (T4a, PR #770) ·
+`feat/ledger-mirror-drops-columns` (T4b, T5). Worktrees under `~/workspace/LifeControl-worktrees/`, one per
+branch.
+**Status**: implemented — ADR-0001's last stage is closed: the receipt and the sale book their own lines, the write
+path maintains the ledger only, the two legacy `stock` columns and `inventory_movements` are dropped, and
+`InventoryService` is gone with the package cycle it carried. `## Tasks` names what each slice owes and
+`## Decisions taken here` carries the decisions the slices could not take by themselves; `## Log` states what was
+measured before any of it was written.
 **Created**: 2026-11-03
 **Risk**: items **1**, **2**, **3** and **6** — item 1 because the drops delete the only remaining copy of two
 balances and a table that claims to explain every change; item 2 because the ledger is the thing that decides
@@ -98,8 +91,9 @@ S8. Every rule above gets a case that fails before it is implemented, and the tw
 | T2 | S3, S8 | The reversal's identity off the mirror: the remainder read moves to `stock_movement`, the reversal names the line, and the mixed-identity refusal that only existed because of the mirror is retired with a case that states why | **done** — inline, `5ad8fa7a` |
 | T3a/T3b | S4, S8 | The sale's split reads the projection (`StockLedgerWriter.openBalances`) while the columns are still maintained, because an intermediate state where one writer stops and another reads is not shippable | **done** — `444979ce` |
 | T3c | S4, S7, S8 | The write path: receipts, sales and adjustments stop writing the two legacy columns and the five `inventory_movements` writes stop, the store-aggregate gate goes, the measure-unit guard asks `StockLedgerWriter.hasMovements`, and the 87 dual-truth cases across 8 suites are rewritten to a single truth | **done** — inline; the branch's write-path commit (T4's record update names its hash) |
-| T4 | S5, S6, S8 | The drops, the deletion of `InventoryService`, the move of `InsufficientStockException` and the cycle break, with the ~14 test files that name the dropped objects updated | inline |
-| T5 | S1, S5 | The records: `odd/tasks/inventory-ledger.md` T5d/T6 closed with what landed and what the drops removed, and this record's evidence | inline |
+| T4a | S3(b), S4, S6, S8 | The cycle break and the engine: `InsufficientStockException` to `inventory.exception`, `InventoryService` → `inventory.ledger.StockLedgerEngine` with no legacy lock, no legacy column and no mirror fallback, `openBalances` ordering by the ledger's own FIFO, and the two cases that pinned the mirror fallback rewritten to pin its deletion | **done** — `c9bf83b0`, PR #770, merged `3eb890fb` |
+| T4b | S5, S6, S8 | The drops (`V74` for the two `stock` columns, `V75` for `inventory_movements`), the deletion of `InventoryMovement`, `MovementType`, `InventoryMovementRepository` and the stock field of the two surviving entities, and the ~14 test files that name the dropped objects | **done** — `6a06a9b3` |
+| T5 | S1, S5 | The records: `odd/tasks/inventory-ledger.md` T5d/T6 closed with what landed and what the drops removed, and this record's evidence | **done** — the commit that carries this row |
 
 ## Decisions taken here
 
@@ -109,6 +103,16 @@ ledger row whose source is the mirror. The drop's migration therefore asserts th
 carrying the mirror identity exists, and refuses with the operator's next step in the message. The alternative — a
 backfill that rewrites those sources to the line identity — was refused because it would have to invent a
 `write_seq` for rows that never had one, and an invented identity is the one thing `V73` exists to stop.
+**Amended on 2026-11-04, when the drop was written: the refusal is a report, and the reason is measured.**
+`V62`'s backfill creates a mirror-identity `SALE` for every sale this deployment ever booked, and almost none of
+them is reversed, so "refuse while one is unreversed" fires on every database that has sold anything before
+`V73` — the dev datadir included. The maintainer was shown the three shapes and answered «Reportar y seguir (como
+V62)»: `V75` counts them, prints the count and a sample as a `RAISE NOTICE`, and drops. The cost stays exactly the
+one this decision named — a pre-`V73` sale is not reversible after the drop — and what changed is who pays it and
+when: an operator who wants those sales reversible reverses them before upgrading, and the report tells them the
+size of the job. The refusal survives only where it costs nothing: `V74`'s guard, which refuses a legacy balance
+the ledger never moved (a number that would otherwise disappear without anyone booking it) and passes on any tree
+`V62` already replayed.
 
 ## Log
 
@@ -357,3 +361,62 @@ one changed:
 Re-verified on the corrected tree: **1066 result files, 4500 tests, 0 failures**, `spotbugsMain` and
 `spotlessCheck` clean. The verifier did not re-run the suite (it checked the artifacts of the run that produced them
 and re-ran `spotlessCheck` in a scratch copy); this run is the one the delivered tree states.
+
+**2026-11-04 — T4a landed (`c9bf83b0`, PR #770, merged `3eb890fb`): the cycle breaks and the engine stops reading the
+mirror, with one defect found by the suite rather than by reading.** `InsufficientStockException` moved to
+`inventory.exception` — the package that raises it — and `InventoryPackageDependencyTest` now pins the direction a
+compiler cannot, because a cycle of two packages compiles happily and an unused import to a package a file no longer
+builds against is the shape a later reader copies. `InventoryService` became
+`inventory.ledger.StockLedgerEngine`: the four entry points keep their 400/404/409 contracts and lose the legacy
+lock, the legacy write and the pre-`V73` fallback, so the serialization point is now the row each decision is about
+(`stock_position` `FOR UPDATE`, and `V61`'s trigger for every writer that reaches the table).
+
+The defect is the part worth keeping. `StockLedgerWriter.openBalances` joined `product_variant_locations` for one
+reason only — to read that row's `created_at` for the FIFO order — and it was an **inner** join. The moment the
+engine stopped creating those rows (`insertBalanceIfAbsent` was the only writer left), every balance vanished from
+the split, so a sale the position had just authorized was refused by the second fail-closed check with
+`available 0`. 46 integration cases said so before any test was written for it. The order is now the instant each
+location first moved, which is where FIFO actually lives. Two consequences the slice states instead of hiding: a
+pre-`V73` sale is no longer reachable by its line reference (the two cases that pinned the fallback now pin its
+deletion), and the split answers from the ledger even when the frozen column holds another number.
+
+Verification: the module suite green (`BUILD SUCCESSFUL`, 8m22s) and the four required checks green on PR #770.
+
+**2026-11-04 — T4b landed (`6a06a9b3`): the drops, and the guard that had to be written twice.** `V74` drops the two
+`stock` columns and keeps both tables — the store row still records the cost every inbound movement states, and both
+carry identity rows the ledger's foreign keys point at. `V75` drops `inventory_movements` after reporting what that
+costs.
+
+- **`V74`'s first draft refused every database.** Its guard compares the legacy columns against `stock_balance` and
+  `stock_position`, which `V60` armed with `ENABLE` **and** `FORCE`: the owner is filtered too, and a migration runs
+  as the owner with no `app.company_id`, so both `NOT EXISTS` saw zero rows and every non-zero legacy balance looked
+  unbooked. Four migration suites caught it (`V58`'s and `V62`'s among them) with the file's own message. The fix is
+  the transactional `NO FORCE` window `V57`/`V62`/`V64`/`V66`/`V72` established, checked open before it is relied on
+  and checked closed after, because a window that did not take answers every question with zero rows **and passes**.
+- **`V75`'s refusal became a report, and D-1 above records why.** Measured before deciding: `V62` creates a
+  mirror-identity `SALE` for every historical sale and almost none is reversed, so the refusal fired on every
+  database that has sold anything before `V73` — the dev datadir included, which sits at `V09` and runs `V10`→`V75`
+  in one go on its next start. The maintainer was shown the shapes and chose the report.
+- **The legacy Java surface is gone**: `InventoryMovement`, `MovementType`, `ProductVariantLocation`,
+  `InventoryMovementRepository`, `ProductVariantLocationRepository`, the surface suite that pinned the ledger
+  repository, and `ProductVariantStoreStock.stock` with its accessors.
+- **The suites moved with it**: a fixture that seeded a quantity seeds it through `applyReceipt` inside the tenant
+  transaction, an assertion that read a legacy column reads the projection, and the three cases whose only subject
+  was a dropped object are deleted with a note where they stood — never an assertion relaxed. One extra case needed
+  the same treatment after the window fix let it run: `StockLedgerBackfillMigrationIntegrationTest` asserted the
+  store column after migrating to head, and now asserts the column is absent while the two cases that deliberately
+  stop before `V74` keep reading it.
+- `StockLedgerMirrorDropMigrationIntegrationTest` is the new witness: no `stock` column on either survivor, both
+  tables alive with `cost_price`, `inventory_movements` absent from `pg_class`, the five ledger tables and the two
+  unique keys intact, and a receipt through `applyReceipt` still moving `stock_balance` and `stock_position`.
+
+Verification: 944 cases over the `inventory`, `salesorder`, `goodsreceipt`, `product` and `tenant` packages, 0
+failures; `spotlessCheck` clean.
+
+**2026-11-04 — the unit closes.** ADR-0001's last stage is delivered as a chain on issue #739: T1 `4fb4c6c4`, T2
+`5ad8fa7a`, T3a/T3b `444979ce`, T3c (#767, `19df0395`), T4a (#770, `3eb890fb`) and T4b `6a06a9b3`. What `main` now
+enforces that it did not before this record: a receipt books its own line, a sale books its line and its write, a
+manual edit books its own movement id, and nothing outside `stock_movement` writes quantity — the two legacy columns
+and the table that claimed to explain every change are gone, `InventoryService` with them, and `inventory` no longer
+imports `salesorder`. The debt this record named is paid; the cost this record accepted is the one in D-1, printed by
+`V75` on every deploy that has history.

@@ -318,7 +318,6 @@ class PurchaseOrderDetailVariantIntegrationTest extends AbstractPostgresIntegrat
                     .companyStoreId(variantStoreId)
                     .costPrice(new BigDecimal("10.00"))
                     .listPrice(new BigDecimal("20.00"))
-                    .stock(BigDecimal.ZERO)
                     .build());
             return saved;
         });

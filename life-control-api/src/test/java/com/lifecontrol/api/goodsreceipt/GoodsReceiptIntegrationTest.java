@@ -37,8 +37,6 @@ import com.lifecontrol.api.goodsreceipt.repository.GoodsReceiptRepository;
 import com.lifecontrol.api.goodsreceipt.service.GoodsReceiptService;
 import com.lifecontrol.api.inventory.ledger.StockLedgerWriter;
 import com.lifecontrol.api.inventory.model.StoreInventorySettings;
-import com.lifecontrol.api.inventory.repository.InventoryMovementRepository;
-import com.lifecontrol.api.inventory.repository.ProductVariantLocationRepository;
 import com.lifecontrol.api.inventory.repository.StoreInventorySettingsRepository;
 import com.lifecontrol.api.measureunit.repository.MeasureUnitRepository;
 import com.lifecontrol.api.paymentmethod.model.PaymentMethod;
@@ -192,12 +190,6 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
     private GoodsReceiptService goodsReceiptService;
 
     @Autowired
-    private InventoryMovementRepository inventoryMovementRepository;
-
-    @Autowired
-    private ProductVariantLocationRepository productVariantLocationRepository;
-
-    @Autowired
     private StoreInventorySettingsRepository storeInventorySettingsRepository;
 
     @Autowired
@@ -248,9 +240,9 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
 
         // Goods receipt rows reference purchase orders, products/variants, company stores, store
         // locations and statuses with no cascade. Leaked rows would break the deleteAll() calls of
-        // later integration classes in this shared JVM, so clean leaf-first before and after.
-        inventoryMovementRepository.deleteAll();
-        productVariantLocationRepository.deleteAll();
+        // later integration classes in this shared JVM, so clean leaf-first before and after. The two
+        // legacy stock tables are not in that list any more: V74 dropped their `stock` columns and V75
+        // dropped `inventory_movements`, so the store row below is the only one a receipt still reads.
         productVariantStoreStockRepository.deleteAll();
         storeInventorySettingsRepository.deleteAll();
         goodsReceiptItemRepository.deleteAll();
@@ -292,8 +284,6 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
         if (company != null) {
             deleteStockLedger(jdbcTemplate, company.getId());
         }
-        inventoryMovementRepository.deleteAll();
-        productVariantLocationRepository.deleteAll();
         productVariantStoreStockRepository.deleteAll();
         storeInventorySettingsRepository.deleteAll();
         // Every receipt, not only this tenant's: the scoping cases of this suite deliberately write receipts
@@ -554,7 +544,6 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
                 .build();
     }
 
-    /** Per-store row backing the variant: stock starts at zero, prices mirror the old fixture. */
     /**
      * A real {@code measure_units} row: {@code V3} seeds "Pieza" as {@code H87}. The unit is required
      * since ADR-0006 decision 3 ({@code V55}), and a random uuid would be refused by the foreign key —
@@ -564,21 +553,18 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
         return measureUnitRepository.findBySatCode("H87").orElseThrow().getId();
     }
 
+    /**
+     * The per-store row backing the variant: the cost an inbound movement has to state and the price the old
+     * fixture seeded. No stock: {@code V74} dropped the column, and every unit a case asserts on entered through
+     * a writer.
+     */
     private void saveStoreStock(UUID variantId) {
         productVariantStoreStockRepository.save(ProductVariantStoreStock.builder()
                 .productVariantId(variantId)
                 .companyStoreId(store.getId())
-                .stock(BigDecimal.ZERO)
                 .costPrice(new BigDecimal("10.00"))
                 .listPrice(new BigDecimal("20.00"))
                 .build());
-    }
-
-    /** Reads the per-store stock row, the only place stock lives after the variant split. */
-    private ProductVariantStoreStock storeStockOf(UUID variantId) {
-        return productVariantStoreStockRepository
-                .findByProductVariantIdAndCompanyStoreId(variantId, store.getId())
-                .orElseThrow();
     }
 
     /**
@@ -624,6 +610,22 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
                 BigDecimal.class,
                 store.getId(),
                 variantId));
+    }
+
+    /**
+     * How many {@code stock_movement} rows the ledger holds, read under this suite's tenant.
+     *
+     * <p>This is the count a rejected request is judged by, and it is asked here instead of on a legacy row count:
+     * {@code inventory_movements} was the table that used to answer "was a movement written", and {@code V75}
+     * dropped it. The ledger is the only record of a movement, so the ledger answers.</p>
+     */
+    private Integer ledgerMovementRows() {
+        return inTransaction(() -> jdbcTemplate.queryForObject("SELECT COUNT(*) FROM stock_movement", Integer.class));
+    }
+
+    /** The same question for the per-location projection {@code V61}'s trigger derives from the movements. */
+    private Integer balanceRows() {
+        return inTransaction(() -> jdbcTemplate.queryForObject("SELECT COUNT(*) FROM stock_balance", Integer.class));
     }
 
     /** A store configured to receive at {@link #receivingLocation}. */
@@ -1146,8 +1148,8 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
 
             assertThat(goodsReceiptRepository.count()).isZero();
             assertThat(goodsReceiptItemRepository.count()).isZero();
-            assertThat(inventoryMovementRepository.count()).isZero();
-            assertThat(productVariantLocationRepository.count()).isZero();
+            assertThat(ledgerMovementRows()).isZero();
+            assertThat(balanceRows()).isZero();
             assertThat(purchaseOrderDetailRepository
                             .findById(firstLine.getId())
                             .orElseThrow()
@@ -1160,7 +1162,10 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
                     .isZero();
             assertThat(detailStatusName(firstLine.getId())).isEqualTo("In Transit");
             assertThat(orderStatusName(order.getId())).isEqualTo("In Transit");
-            assertThat(storeStockOf(secondVariantId).getStock()).isEqualByComparingTo("0");
+            assertThat(ledgerRowsOf(secondVariantId))
+                    .as("and the over-received line booked no movement: the ledger is the only record of a receipt, "
+                            + "so a rejected document leaves nothing behind there")
+                    .isEmpty();
         }
     }
 
@@ -1327,16 +1332,18 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
                 PurchaseOrder order, long historyRowsBefore, PurchaseOrderDetail... lines) {
             assertThat(goodsReceiptRepository.count()).isZero();
             assertThat(goodsReceiptItemRepository.count()).isZero();
-            assertThat(inventoryMovementRepository.count()).isZero();
-            assertThat(productVariantLocationRepository.count()).isZero();
+            assertThat(ledgerMovementRows()).isZero();
+            assertThat(balanceRows()).isZero();
             for (var detail : lines) {
                 assertThat(purchaseOrderDetailRepository
                                 .findById(detail.getId())
                                 .orElseThrow()
                                 .getReceivedQuantity())
                         .isZero();
-                assertThat(storeStockOf(detail.getProductVariant().getId()).getStock())
-                        .isEqualByComparingTo("0");
+                assertThat(ledgerRowsOf(detail.getProductVariant().getId()))
+                        .as("a rejected request books no movement for any line it named, including the valid one "
+                                + "a per-line loop could have half-applied")
+                        .isEmpty();
             }
             assertThat(orderStatusName(order.getId())).isEqualTo("In Transit");
             // ADR-0004 decision 5: a rejected request writes no receipt, so it writes no receipt history
@@ -1500,7 +1507,9 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
 
             assertThat(goodsReceiptRepository.count()).isZero();
             assertThat(goodsReceiptItemRepository.count()).isZero();
-            assertThat(inventoryMovementRepository.count()).isZero();
+            assertThat(ledgerMovementRows())
+                    .as("and no movement: the write phase never started, so the ledger booked nothing")
+                    .isZero();
         }
 
         @Test

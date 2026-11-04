@@ -2,7 +2,6 @@ package com.lifecontrol.api.inventory.ledger;
 
 import java.math.BigDecimal;
 import java.util.List;
-import java.util.Optional;
 import java.util.UUID;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -44,22 +43,20 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
  *       the movement by {@code V73}'s fifth column. That is the identity a sale now books:
  *       {@code source_type = 'SALES_ORDER_ITEM'}, {@code source_id = <the line id>},
  *       {@code write_seq = <the write that produced it>}.</li>
- *   <li><b>A receipt's writer is handed the document, not the line.</b> {@code GoodsReceiptService:269}
- *       passes {@code saved.getId()} — the {@code goods_receipts} row — once per line, so any receipt with two
- *       lines would book two {@code RECEIPT} movements under one id, and the key does not carry the variant to
- *       keep them apart. Receipts, manual edits and reversals therefore still state
- *       {@link #MIRRORED_SOURCE_TYPE}: their source is the {@code inventory_movements} row written beside them,
- *       one fact per row, unique by construction because it is a primary key. That shape is
- *       {@code odd/tasks/inventory-ledger.md}'s remaining T5d work and it is deliberately not this class's.</li>
+ *   <li><b>A receipt line books on its own line, and a manual edit on its own id.</b> A receipt is immutable, so
+ *       a line books exactly once and needs no counter ({@link #RECEIPT_LINE_SOURCE_TYPE}); a manual edit names no
+ *       document, so its source is the movement's own id ({@link #MANUAL_ADJUSTMENT_SOURCE_TYPE}). A reversal
+ *       names the movement it corrects in {@code reverses_movement_id} and states the sale line as its source.</li>
  * </ol>
- * <p><b>What the mirror costs, stated rather than hidden.</b> For a receipt or a manual edit the document
- * identity ({@code reference_type} / {@code reference_id}) stays on the legacy row, so the ledger alone cannot
- * yet answer "which receipt line caused this". For a sale it can: the line is the source. The mirror is a
- * transition shape of the dual-write window, not a destination — it survives exactly as long as the writers that
- * have no line identity do, and it dies with {@code inventory_movements} in T5d. What does <b>not</b> die is this
- * class: {@link Booking} and {@link #SINGLE_WRITE} are the seam the receipt takes when its own counter arrives.</p>
- * <p>{@code InventoryLedgerBookingIntegrationTest} pins each of the three shapes, including the one that stays on
- * the mirror, so the gap is measured instead of discovered.</p>
+ * <p><b>The mirror is gone and this is what replaced it.</b> Until T4 a receipt, a manual edit and a reversal
+ * stated {@code INVENTORY_MOVEMENT} — the {@code inventory_movements} row written beside them — because no writer
+ * had an identity of its own, and a document id repeated once per line. Every shape above was built while that
+ * table existed and none of them needs it now, which is why {@code V75} could drop it: the source of a movement is
+ * the document that caused it, and {@code V74} dropped the two legacy {@code stock} columns the same slice
+ * retired. A row booked before {@code V73} still carries the mirror's value in {@code source_type}, and its
+ * {@code source_id} now names nothing — the drop's own report says how many there are.</p>
+ * <p>{@code InventoryLedgerBookingIntegrationTest} pins each of those shapes, and the two cases that used to
+ * reach a pre-{@code V73} sale through the mirror now pin that it is unreachable.</p>
  *
  * <h2>The order chosen: the legacy write first, the ledger row immediately after it</h2>
  * <p>Both runs in one transaction, so the outcome of a divergence is the same either way: everything rolls
@@ -97,38 +94,17 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 public class StockLedgerWriter {
 
     /**
-     * The {@code stock_movement.source_type} of a movement that mirrors one {@code inventory_movements} row.
-     *
-     * <p><b>This is the identity of the writers that have no line of their own</b>: a receipt ({@code
-     * GoodsReceiptService} hands its writer the document id once per line, so a document id repeats), the two
-     * sides of a manual per-store edit, and the reversal that names a movement. For all of them the {@code
-     * inventory_movements} row written beside the ledger row is the source, one fact per row, unique by
-     * construction because it is a primary key — and it is the same shape {@code V62} established for the
-     * backfill. A sale does <b>not</b> use it any more: {@code sales_order_items.write_seq} ({@code V73}) is the
-     * per-write identity of a line, so a sale books {@code source_type = 'SALES_ORDER_ITEM'} and the line id. A
-     * receipt does not either: it books {@link #RECEIPT_LINE_SOURCE_TYPE} and its own
-     * {@code goods_receipt_items} row.
-     * What remains on the mirror is {@code odd/tasks/inventory-ledger.md}'s remaining T5d — a manual edit and a
-     * reversal — and this constant dies with the writers that outlive {@code inventory_movements} — which is why
-     * the source type is a {@link Booking} component the caller states rather than a constant baked into every
-     * insert here.</p>
-     */
-    public static final String MIRRORED_SOURCE_TYPE = "INVENTORY_MOVEMENT";
-
-    /**
      * The source type of a {@code RECEIPT}: the {@code goods_receipt_items} row that booked it.
      *
      * <p><b>The line, not the document, and not the mirror.</b> A receipt is immutable — nothing edits or deletes
      * one ({@code GoodsReceiptService:242-246}) — so a line books exactly once and needs no counter, which is why
      * the receipt states {@link #SINGLE_WRITE} rather than counting writes. The document id cannot be the
      * identity: {@code uq_movement_source} does not carry the variant, so a document id would make the second
-     * line of every multi-line receipt collide with the first. And the mirror cannot be it either, because that
-     * row dies with {@code inventory_movements}.
+     * line of every multi-line receipt collide with the first. And the mirror could not be it either, because that
+     * row died with {@code inventory_movements}.
      *
-     * <p>This is the seam the class javadoc names: a {@link Booking} states its own {@code sourceType} so a writer
-     * can leave {@link #MIRRORED_SOURCE_TYPE} without a second constant being baked into the insert. What still
-     * states the mirror is a manual per-store edit and a reversal, which is {@code odd/tasks/inventory-ledger.md}'s
-     * remaining T5d.
+     * <p>This is the seam the class javadoc names: a {@link Booking} states its own {@code sourceType}, so a writer
+     * leaves the mirror without a second constant being baked into the insert.
      */
     public static final String RECEIPT_LINE_SOURCE_TYPE = "GOODS_RECEIPT_ITEM";
 
@@ -148,7 +124,7 @@ public class StockLedgerWriter {
     /**
      * The {@code write_seq} of a source that books at most one row per direction and location.
      *
-     * <p>Every writer whose source is the row it mirrors states this value explicitly rather than leaving the
+     * <p>Every writer that books at most one row per source states this value explicitly rather than leaving the
      * column to its default, because the two cases are different facts: a receipt, a manual edit and a reversal
      * are stated once per location and have no counter, whereas a sale line counts its writes and books {@code
      * 1}, {@code 2}, {@code 3}… under the same line id ({@code V73}). Saying {@code 0} here is saying "this
@@ -176,11 +152,11 @@ public class StockLedgerWriter {
      * @param actor the username that caused the fact, when there is one
      * @param sourceType what kind of thing {@code sourceId} names. The caller states it, never this class: a sale
      *     states the line's own discriminator, and a receipt, a manual edit or a reversal states
-     *     {@link #MIRRORED_SOURCE_TYPE}. There is deliberately no default and no overload without it — a default
-     *     would let a later call site fall back into the mirror silently, which is the failure mode the parameter
-     *     exists to remove
-     * @param sourceId the row that states this fact: the sale line for a sale, or the {@code inventory_movements}
-     *     row the movement mirrors for the writers that have no line identity (see the class javadoc)
+     *     {@link #RECEIPT_LINE_SOURCE_TYPE} or {@link #MANUAL_ADJUSTMENT_SOURCE_TYPE}. There is deliberately no
+     *     default and no overload without it — a default would let a later call site inherit an identity nobody
+     *     chose, which is the failure mode the parameter exists to remove
+     * @param sourceId the row that states this fact: the sale line for a sale, the {@code goods_receipt_items}
+     *     row for a receipt, and the movement's own id for a manual edit (D-2)
      * @param writeSeq which write of that source this movement is: the line's counter for a sale ({@code V73}),
      *     and {@link #SINGLE_WRITE} for a source that books at most one row per direction and location. Stated by
      *     the caller for the same reason as {@code sourceType} — the number is the document's, and this class
@@ -227,10 +203,6 @@ public class StockLedgerWriter {
     private static final String ALLOCATE = "SELECT allocate_stock_movement(?)";
 
     private static final String OPERATING_CURRENCY = "SELECT currency FROM companies WHERE id = ?";
-
-    /** The ledger row one legacy row was mirrored into, which is what a reversal has to name. */
-    private static final String MIRRORED_MOVEMENT =
-            "SELECT id FROM stock_movement WHERE source_type = ? AND source_id = ? AND movement_type = ?";
 
     /**
      * Every {@code SALE} row of one source that no reversal names yet.
@@ -283,8 +255,6 @@ public class StockLedgerWriter {
                       b.store_location_id ASC
             """;
 
-    private static final String REVERSAL_OF = "SELECT count(*) FROM stock_movement WHERE reverses_movement_id = ?";
-
     private final JdbcTemplate jdbcTemplate;
 
     public StockLedgerWriter(JdbcTemplate jdbcTemplate) {
@@ -336,28 +306,6 @@ public class StockLedgerWriter {
     /** Books the decrease side of a manual per-store edit and records what it consumed (its own id, D-2). */
     public UUID bookAdjustmentOut(Booking booking, BigDecimal quantity) {
         return bookAndAllocate(booking, ADJUSTMENT_OUT, quantity, booking.sourceId());
-    }
-
-    /**
-     * The ledger row one {@code inventory_movements} row was mirrored into.
-     *
-     * <p>Read by the reversal path, which needs the {@code SALE} row's id to name in
-     * {@code reverses_movement_id}. Empty means the legacy row predates this slice's writers: a sale booked
-     * before the deploy has no ledger movement, and the caller refuses instead of inventing one.</p>
-     */
-    public Optional<UUID> mirroredMovementId(UUID sourceId, String movementType) {
-        try {
-            return Optional.ofNullable(jdbcTemplate.queryForObject(
-                    MIRRORED_MOVEMENT, UUID.class, MIRRORED_SOURCE_TYPE, sourceId, movementType));
-        } catch (EmptyResultDataAccessException absent) {
-            return Optional.empty();
-        }
-    }
-
-    /** Whether a reversal already names this movement ({@code uq_movement_one_reversal} allows one). */
-    public boolean isReversed(UUID movementId) {
-        var reversals = jdbcTemplate.queryForObject(REVERSAL_OF, Integer.class, movementId);
-        return reversals != null && reversals > 0;
     }
 
     /**

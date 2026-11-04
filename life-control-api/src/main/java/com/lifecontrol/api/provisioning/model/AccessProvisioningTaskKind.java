@@ -3,7 +3,7 @@ package com.lifecontrol.api.provisioning.model;
 /**
  * Kind of work an access-provisioning task represents, persisted as a string in the
  * {@code access_provisioning_tasks.kind VARCHAR(20)} column, following the enum-in-a-column
- * convention of the module ({@code hr.model.ContractType}, {@code MovementType}): the column carries
+ * convention of the module ({@code hr.model.ContractType}, {@code SalesOrderState}): the column carries
  * no CHECK, and the enum is the Java counterpart of the stored value.
  *
  * <p>The kind is the task's <b>immutable reference</b> (record T3): the row names the employee and

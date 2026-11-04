@@ -2,7 +2,6 @@ package com.lifecontrol.api.product.repository;
 
 import com.lifecontrol.api.product.model.ProductVariantStoreStock;
 import jakarta.persistence.LockModeType;
-import java.math.BigDecimal;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -18,9 +17,9 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p>This repository now owns the serialization point of the variant model: the pessimistic write
  * lock that used to live on {@code ProductVariantRepository#findByIdForUpdate} moved here as
- * {@link #findByProductVariantIdAndCompanyStoreIdForUpdate(UUID, UUID)}, mirroring
- * {@code ProductVariantLocationRepository}'s lock pattern and javadoc. Two movers of the same
- * variant's stock in the same store queue on this row instead of on the shared global definition.</p>
+ * {@link #findByProductVariantIdAndCompanyStoreIdForUpdate(UUID, UUID)}. Two movers of the same variant's stock
+ * in the same store queue on this row instead of on the shared global definition — and since the ledger owns
+ * quantity, what they queue for is the {@code stock_position} row this table's {@code cost_price} feeds.</p>
  */
 @Repository
 public interface ProductVariantStoreStockRepository extends JpaRepository<ProductVariantStoreStock, UUID> {
@@ -33,25 +32,11 @@ public interface ProductVariantStoreStockRepository extends JpaRepository<Produc
     boolean existsByProductVariantIdAndCompanyStoreId(UUID productVariantId, UUID companyStoreId);
 
     /**
-     * Whether the variant holds stock different from the given value in <strong>any</strong> store.
+     * Pessimistic write lock on the {@code (variant, store)} row.
      *
-     * <p><b>Nothing asks this any more.</b> It used to be half of the measure-unit guard of decision D3; since
-     * T3c the guard asks the stock ledger ({@code StockLedgerWriter#hasMovements}), because this column stops
-     * being maintained by the write path and a guard reading it would answer "no history" for a variant with
-     * plenty. The method survives only so {@code ProductVariantServiceTest} can assert it is <em>never</em>
-     * called, and it goes with the column in T4. Do not wire a new reader to it: the number it returns is a
-     * frozen copy of a fact the ledger owns.</p>
-     */
-    boolean existsByProductVariantIdAndStockNot(UUID productVariantId, BigDecimal stock);
-
-    /**
-     * Pessimistic write lock on the {@code (variant, store)} stock row, mirroring
-     * {@code ProductVariantLocationRepository#findByProductVariantIdAndStoreLocationIdForUpdate}.
-     * Callers must take this lock before moving a variant's stock so two concurrent movers of the
-     * same store row queue instead of losing an update. It is the FIRST lock a stock mover takes on
-     * the store-scoped row; the lock order documented by the callers is
-     * {@code storeStock -> locationBalance}, and the goods-receipt path additionally takes the
-     * purchase-order lock ahead of both.
+     * <p>The stock engine no longer takes it: quantity lives in {@code stock_position}, and the row a decision
+     * serializes on is that projection's. What still asks for it is the per-store editor, which owns this row's
+     * {@code cost_price} and must not interleave two writes of it.</p>
      */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("""

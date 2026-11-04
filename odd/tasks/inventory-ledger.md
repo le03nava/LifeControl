@@ -3,24 +3,15 @@
 **Repository**: LifeControl — `life-control-api` (migrations, `inventory`, `salesorder`, `purchaseorder`,
 `goodsreceipt`, `product`), `docker/`, `odd/tasks/`
 **Branch**: `feat/inventory-ledger` · **Worktree**: `~/workspace/LifeControl-worktrees/feat-inventory-ledger`
-**Status**: implemented — T1–T5c are in `main`: the location hierarchy carries its store (`V59`), the ledger
-exists with its engine (`V60`, `V61`), today's balances were replayed into it (`V62`), the five write paths
-book it beside the legacy update, the readers answer from its position, and its source key includes the
-location (`V63`). **T5d's per-write identity is built — shape (a), derived from the document state — and what
-it still waits on is the receipt shape, the reversal flip and the drops themselves.** The earlier statement
-of this header said T5d was blocked on ADR-0004's "per-transition identity"; reading that ADR against this
-tree shows it does not and cannot supply one — its `status_transition` records **state moves**, and raising a
-line's quantity books a second `SALE` movement under the same `itemId` with no state move at all
-(`SalesOrderService:985-989`) — and the entry that replaced it said the identity itself was open, which it no
-longer is: the maintainer decided shape (a) on 2026-11-03 and the slice that builds it is
-`odd/tasks/ledger-per-write-identity.md`, where `V73` adds `write_seq` to the line and to the movement and
-`uq_movement_source` keys a sale by the line, the direction, the location and the write. A `SALES_ORDER_ITEM`
-movement no longer needs the mirror to be written; a `RECEIPT` still does (`GoodsReceiptService:269` hands the
-writer the document id once per line), a reversal still does, and
-`source_id` cannot outlive `inventory_movements` until those two move — so the
-drops, the deletion of `InventoryService` and the move of `InsufficientStockException` stay open. The debt
-that leaves — one stock fact still stored three times, and the `inventory` ↔ `salesorder` package cycle — is
-named here rather than closed quietly.
+**Status**: implemented — the unit is closed. T1–T5c landed through 2026-11-02 (the location hierarchy carries
+its store, the ledger with its engine, the replayed balances, the dual write, the readers on the projection, the
+source key with its location), the per-write identity landed as `V73` in `odd/tasks/ledger-per-write-identity.md`,
+and T5d/T6 closed on 2026-11-04 as `odd/tasks/ledger-mirror-retirement.md`: a receipt books its own line, a
+reversal flips to the line, the two legacy `stock` columns and `inventory_movements` are dropped (`V74`, `V75`),
+`InventoryService` is gone and `InsufficientStockException` lives in `inventory.exception`, so the package cycle
+this header named as debt is broken. What the header used to say — that the receipt shape, the reversal flip and the
+drops waited on a mirror nothing could replace — is kept in `## Log`, not softened here: the identity arrived, and
+with it the drops.
 **Created**: 2026-11-02
 **Risk**: items 1, 2, 3 and 6 — item 1 because the backfill rewrites stored quantities and the drops
 delete the only copy of two balances, item 2 because the ledger decides who may write stock and a missing
@@ -88,7 +79,7 @@ S9. **Out of scope, from the ADR and the issue**: the money side of a sale (ADR-
 | T3 | S3, S4, S6 | The projection trigger, the full-replay rebuild function, the allocation writer, and the `I2`/`I6` verification query — with the decisions the ADR leaves open (whether `stock_valuation` is trigger-maintained or rebuild-only, and where the verification job lives), taken here and recorded under `## Log` | T2 | delegated writer, disjoint from T4 |
 | T4 | S6 | The backfill by replay (Path A) and the `I2`/`I6` assertions before commit | T2 | inline |
 | T5 | S1, S6 | The readers move: POS search, the store-scoped variant reads and the stock search answer from `variant_listing` ⨝ the projection; the per-store manual edit becomes a movement with a `reason` | T3, T4 | delegated writer |
-| T6 | S2, S9 | The drops (`product_variant_locations.stock`, `product_variant_store_stock.stock`, `inventory_movements` after migration) and the deletion of `InventoryService`, with `InsufficientStockException` moved to `inventory.exception` | T5 | inline |
+| T6 | S2, S9 | The drops (`product_variant_locations.stock`, `product_variant_store_stock.stock`, `inventory_movements` after migration) and the deletion of `InventoryService`, with `InsufficientStockException` moved to `inventory.exception` | T5 | **done** — `odd/tasks/ledger-mirror-retirement.md` T4a (`c9bf83b0`, PR #770) and T4b (`6a06a9b3`) |
 
 ## Log
 

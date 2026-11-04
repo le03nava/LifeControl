@@ -18,7 +18,6 @@ import com.lifecontrol.api.country.repository.CountryRepository;
 import com.lifecontrol.api.inventory.ledger.StockLedgerEngine;
 import com.lifecontrol.api.inventory.ledger.StockLedgerWriter;
 import com.lifecontrol.api.inventory.model.StoreInventorySettings;
-import com.lifecontrol.api.inventory.repository.ProductVariantLocationRepository;
 import com.lifecontrol.api.inventory.repository.StoreInventorySettingsRepository;
 import com.lifecontrol.api.measureunit.repository.MeasureUnitRepository;
 import com.lifecontrol.api.product.model.Product;
@@ -40,7 +39,6 @@ import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
 import com.lifecontrol.api.support.TenantFixtures;
 import java.math.BigDecimal;
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -130,9 +128,6 @@ class ProductVariantStoreStockWriteIntegrationTest extends AbstractPostgresInteg
     private StoreInventorySettingsRepository storeInventorySettingsRepository;
 
     @Autowired
-    private ProductVariantLocationRepository productVariantLocationRepository;
-
-    @Autowired
     private StockLedgerEngine stockLedgerEngine;
 
     /** The writer the measure-unit guard asks whether the variant has history (S7). */
@@ -218,16 +213,6 @@ class ProductVariantStoreStockWriteIntegrationTest extends AbstractPostgresInteg
                     }
                 }
             });
-        }
-
-        // The balance rows reference this test's variants and have no cascade, so they must go before the
-        // variants do. Only the location rows: since T3c nothing writes `inventory_movements` any more, and
-        // the ledger's own rows were removed above by `deleteStockLedger`.
-        var variantIds = new HashSet<>(createdVariantIds);
-        if (!variantIds.isEmpty()) {
-            productVariantLocationRepository.deleteAll(productVariantLocationRepository.findAll().stream()
-                    .filter(location -> variantIds.contains(location.getProductVariantId()))
-                    .toList());
         }
 
         // Delete only this test's rows: the Testcontainers database is shared per JVM and the
@@ -389,10 +374,11 @@ class ProductVariantStoreStockWriteIntegrationTest extends AbstractPostgresInteg
         var row = productVariantStoreStockRepository
                 .findByProductVariantIdAndCompanyStoreId(bareVariantId, storeAId)
                 .orElseThrow();
-        // stock still has a NOT NULL DEFAULT 0 in the migration, and this asserts the INSERT's default — not a
-        // balance: the column is written by nobody since T3c, so the quantity on hand is the ledger's position,
-        // which no row exists for yet. The two prices have no default.
-        assertThat(row.getStock()).isEqualByComparingTo("0");
+        // The quantity on hand is the ledger's position, and no movement was booked, so no row exists. The
+        // stored `stock` column this case asserted the INSERT default of is gone with V74, so what is left to
+        // read is the projection: an empty list is the ledger saying nothing was ever booked for this key. The
+        // two prices have no default and still say so.
+        assertThat(positionRowsOf(storeAId, bareVariantId)).isEmpty();
         assertThat(row.getListPrice()).isNull();
         assertThat(row.getCostPrice()).isNull();
         // And no listing: `variant_listing.list_price` is NOT NULL, so there is no such thing as a
@@ -778,7 +764,20 @@ class ProductVariantStoreStockWriteIntegrationTest extends AbstractPostgresInteg
      * it the answer.</p>
      */
     private BigDecimal storePositionOf(UUID storeId, UUID variantId) {
-        var quantities = TenantFixtures.inTenant(
+        return positionRowsOf(storeId, variantId).stream()
+                .findFirst()
+                .orElseThrow(() ->
+                        new AssertionError("no stock_position row for variant " + variantId + " in store " + storeId));
+    }
+
+    /**
+     * The {@code stock_position} rows of one key, read under this suite's tenant.
+     *
+     * <p>An empty list is a state and not an error: the projection only holds a key the ledger moved, so "no
+     * movement" and "no row" are the same fact — which is what a case that asserts nothing was written reads.</p>
+     */
+    private List<BigDecimal> positionRowsOf(UUID storeId, UUID variantId) {
+        return TenantFixtures.inTenant(
                 companyId,
                 () -> jdbcTemplate.queryForList(
                         "SELECT quantity FROM stock_position WHERE company_store_id = ? AND product_variant_id"
@@ -786,10 +785,6 @@ class ProductVariantStoreStockWriteIntegrationTest extends AbstractPostgresInteg
                         BigDecimal.class,
                         storeId,
                         variantId));
-        return quantities.stream()
-                .findFirst()
-                .orElseThrow(() ->
-                        new AssertionError("no stock_position row for variant " + variantId + " in store " + storeId));
     }
 
     /** One location's balance, from the projection the trigger maintains. A location with no row holds none. */

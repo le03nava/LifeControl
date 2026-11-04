@@ -77,6 +77,17 @@ class InventoryLedgerBookingIntegrationTest extends AbstractPostgresIntegrationT
      */
     private static final String SALES_ORDER_ITEM = "SALES_ORDER_ITEM";
 
+    /**
+     * The {@code source_type} a movement booked <b>before</b> {@code V73} carries: the discriminator of the
+     * {@code inventory_movements} row it mirrored, which {@code V75} left on the rows it kept while dropping the
+     * table the {@code source_id} named.
+     *
+     * <p>It is a literal here because {@code StockLedgerWriter} no longer declares it: no writer has stated it since
+     * T4, so the constant went with the writers that used it. A fixture that has to represent a pre-deploy row still
+     * has to state the value, and stating it literally is more honest than exporting a retired constant.</p>
+     */
+    private static final String PRE_V73_MIRROR_SOURCE_TYPE = "INVENTORY_MOVEMENT";
+
     /** What the store records for the variant as its cost, which is what an inbound row must state. */
     private static final String RECORDED_COST = "12.50";
 
@@ -382,10 +393,6 @@ class InventoryLedgerBookingIntegrationTest extends AbstractPostgresIntegrationT
                 .as("and the three projections go with the ledger they were derived from, so nothing is left "
                         + "describing stock no movement explains")
                 .isZero();
-        assertThat(countLegacyMovements())
-                .as("and the receipt booked no legacy row at all: the five legacy writers stopped with T3c (S4), so "
-                        + "the only ledger this helper has to own is stock_movement")
-                .isZero();
 
         // and the same helper is what this class's @AfterEach runs, so the teardown is the thing just proven
     }
@@ -489,47 +496,19 @@ class InventoryLedgerBookingIntegrationTest extends AbstractPostgresIntegrationT
     }
 
     // ──────────────────────────────────────
-    // the split reads the ledger's projection (T3) — its divergence-only case is gone
+    // the split reads the ledger's projection (T3)
     // ──────────────────────────────────────
 
-    /**
-     * The rollout window this slice creates: an upgraded database whose frozen column still holds the last number
-     * the old writer set. A sale must split by the projection, not by that number.
-     *
-     * <p><b>Why this case survives the deletion rule the others of its kind met.</b> Their state — two copies both
-     * maintained, disagreeing — cannot exist any more. This one can: nothing in this tree writes the column, so a
-     * deployment that upgrades keeps whatever it held, and a hand with a psql prompt can still set it. That is
-     * exactly the window between T3c and T4's drop, and it is the case that proves the split's source moved rather
-     * than that the column happened to read zero.</p>
+    /*
+     * Deleted with V74 of odd/tasks/ledger-mirror-retirement.md: "a sale splits by the ledger's projection even
+     * when the frozen column holds another number" raised `product_variant_locations.stock` to 999 by hand and
+     * asserted the split ignored it. That column was the last place a quantity could be read from that the
+     * ledger did not own, and V74 dropped it, so the divergence the case existed to construct is no longer
+     * representable — and the split reading the projection is what every sale case above already asserts.
      */
-    @Test
-    @DisplayName("a sale splits by the ledger's projection even when the frozen column holds another number")
-    void aSaleSplitsByTheProjectionNotByTheStaleColumn() {
-        applyReceipt(variantId, salesLocationId, "10", UUID.randomUUID());
-        TenantFixtures.inTenant(
-                companyId,
-                () -> jdbcTemplate.update(
-                        "UPDATE product_variant_locations SET stock = 999 "
-                                + "WHERE product_variant_id = ? AND store_location_id = ?",
-                        variantId,
-                        salesLocationId));
-
-        sell(variantId, "5", UUID.randomUUID());
-
-        assertThat(ledgerMovementsOf(variantId, StockLedgerWriter.SALE))
-                .as("the projection holds 10 at that location, so a sale of 5 has a shape even though the frozen "
-                        + "column claims 999: the split's source is the ledger")
-                .hasSize(1);
-        assertThat(ledgerMovementsOf(variantId, StockLedgerWriter.SALE)
-                        .getFirst()
-                        .quantity())
-                .isEqualByComparingTo("5");
-        assertThat(positionOf(variantId)).as("and the position followed it").isEqualByComparingTo("5");
-        assertThat(verifyStockProjections()).isEmpty();
-    }
 
     // ──────────────────────────────────────
-    // the mirror identity the deploy window still holds, and the key that still refuses a duplicate on it
+    // the mirror identity the deploy window still holds
     // ──────────────────────────────────────
 
     /**
@@ -539,29 +518,29 @@ class InventoryLedgerBookingIntegrationTest extends AbstractPostgresIntegrationT
      * <p><b>Why this case inverted.</b> Until T4 the reversal read a second source: it also looked up
      * {@code inventory_movements} rows and resolved each to the ledger row that mirrored it, so a pre-{@code V73}
      * sale — whose ledger row names the legacy row rather than the document line — was still reversible. That
-     * fallback is deleted with the table it reads, so from the drop on nothing maps a sale line id to a ledger row
-     * carrying the mirror identity. The fixture is unchanged and still states the state: the legacy row and the
-     * ledger movement that mirrors it, written by hand because no writer in this tree produces the pair any more,
-     * which is exactly what "predates the deploy" means. What the case pins now is the consequence — a reversal by
-     * the line reference answers nothing and books nothing — because that is the behaviour the drop ships, and a
-     * silent one is what D-1 exists to price.</p>
+     * fallback is deleted with the table it reads, and {@code V75} dropped the table, so from the drop on nothing
+     * maps a sale line id to a ledger row carrying the mirror identity. The fixture still states the state: a
+     * {@code SALE} row whose {@code source_type} is the mirror's discriminator and whose {@code source_id} names a
+     * row that no longer exists, which is exactly what "predates the deploy" means now — it is booked straight into
+     * {@code stock_movement}, because the table the pair used to live in is gone and the ledger row is the half that
+     * survived. What the case pins is the consequence — a reversal by the line reference answers nothing and books
+     * nothing — because that is the behaviour the drop ships, and a silent one is what D-1 exists to price.</p>
      *
-     * <p><b>What makes that loss safe to ship.</b> The migration that drops the mirror refuses while a movement of
-     * this shape is still unreversed and names the operator's next step (D-1), so this state cannot outlive the
-     * table by accident.</p>
+     * <p><b>What makes that loss safe to ship.</b> The migration that drops the mirror counts these movements and
+     * names the unreversed ones before it drops (D-1), so this state cannot outlive the table by accident.</p>
      */
     @Test
     @DisplayName("a sale booked on the pre-V73 mirror identity is no longer reachable by its line reference")
     void aSaleBookedOnTheMirrorIdentityIsNotReachableByItsLine() {
         applyReceipt(variantId, salesLocationId, "10", UUID.randomUUID());
         var referenceId = UUID.randomUUID();
-        var legacySaleId = insertALegacySaleAndItsLedgerTwin(referenceId, "4");
+        var legacySaleId = bookAPreV73Sale(referenceId, "4");
 
         var mirrored = ledgerMovementsOf(variantId, StockLedgerWriter.SALE).getFirst();
         assertThat(mirrored.sourceType())
-                .as("the identity this case is about: a sale booked before V73 names the legacy row it mirrors, "
+                .as("the identity this case is about: a sale booked before V73 names the legacy row it mirrored, "
                         + "not the document line")
-                .isEqualTo(StockLedgerWriter.MIRRORED_SOURCE_TYPE);
+                .isEqualTo(PRE_V73_MIRROR_SOURCE_TYPE);
         assertThat(mirrored.sourceId()).isEqualTo(legacySaleId);
         assertThat(mirrored.writeSeq())
                 .as("a source with no counter states SINGLE_WRITE, which is what every pre-V73 row carries")
@@ -593,14 +572,14 @@ class InventoryLedgerBookingIntegrationTest extends AbstractPostgresIntegrationT
      * reversal rows, one per row it could name. From T4 the mirror read is gone ({@code
      * odd/tasks/ledger-mirror-retirement.md}, S3(b)), so the union has one side left: the reversal credits the 3 it
      * can name and the pre-{@code V73} row stays open. That is the same loss the case above states, and the answer
-     * is the same one: the drop refuses while such a row is unreversed (D-1).</p>
+     * is the same one: the drop counts such a row and names it before it drops the table (D-1).</p>
      */
     @Test
     @DisplayName("a reference holding both identities reverses the row the ledger can still name")
     void aReferenceHoldingBothIdentitiesReversesTheLineItCanName() {
         applyReceipt(variantId, salesLocationId, "10", UUID.randomUUID());
         var referenceId = UUID.randomUUID();
-        insertALegacySaleAndItsLedgerTwin(referenceId, "4");
+        bookAPreV73Sale(referenceId, "4");
         sell(variantId, "3", referenceId, 1L);
 
         assertThat(ledgerMovementsOf(variantId, StockLedgerWriter.SALE))
@@ -707,9 +686,6 @@ class InventoryLedgerBookingIntegrationTest extends AbstractPostgresIntegrationT
                 .hasValueSatisfying(balance -> assertThat(balance).isEqualByComparingTo("10"));
         assertThat(ledgerMovementsOf(variantId, StockLedgerWriter.SALE))
                 .as("the refusal stored no movement: a refused sale is not a fact")
-                .isEmpty();
-        assertThat(legacyMovementsOf(variantId, "SALE"))
-                .as("and no legacy row either, because nothing writes that table any more (S4)")
                 .isEmpty();
     }
 
@@ -829,9 +805,6 @@ class InventoryLedgerBookingIntegrationTest extends AbstractPostgresIntegrationT
                         .isEqualByComparingTo("8");
                 assertThat(ledgerMovementsOf(variantId, StockLedgerWriter.SALE))
                         .as("a refused sale is not a fact, so the ledger holds no SALE row")
-                        .isEmpty();
-                assertThat(legacyMovementsOf(variantId, "SALE"))
-                        .as("and no legacy row either: the gate refuses before the first write of the loop")
                         .isEmpty();
                 assertThat(balanceOf(variantId, salesLocationId))
                         .as("the location's balance is still the 10 the receipt booked: the refused deduction "
@@ -970,7 +943,6 @@ class InventoryLedgerBookingIntegrationTest extends AbstractPostgresIntegrationT
         assertThat(countProjections())
                 .as("and nothing was projected: no balance, no position, no valuation")
                 .isZero();
-        assertThat(countLegacyMovements()).isZero();
         assertThat(countLedgerMovements()).isZero();
     }
 
@@ -1029,37 +1001,26 @@ class InventoryLedgerBookingIntegrationTest extends AbstractPostgresIntegrationT
     }
 
     /**
-     * A sale as the tree wrote it <b>before</b> {@code V73}, both parts that matter to a reversal: the
-     * {@code inventory_movements} row it wrote, and the ledger movement that mirrors it by primary key.
+     * A sale as the tree wrote it <b>before</b> {@code V73}, which is now a single row: the ledger movement whose
+     * {@code source_type} is the mirror's discriminator and whose {@code source_id} named an
+     * {@code inventory_movements} row.
      *
-     * <p>The two legacy {@code stock} columns that row also moved are deliberately left alone: since T3c nothing
-     * maintains them and no case in this file reads them, so seeding them would be constructing a second truth a
-     * fixture would have to keep in step for no assertion's benefit.</p>
+     * <p><b>What the fixture lost with {@code V75}, and why the case it feeds survives.</b> It used to insert the
+     * legacy row and then the ledger twin that named it. The table is gone, so the {@code source_id} now names
+     * nothing — which is precisely the state {@code V75} left behind for every sale booked before {@code V73}, and
+     * the state the case is about. Writing the row through the production writer instead of by a hand-written
+     * {@code INSERT} is what makes it legal: an outbound row needs its allocations ({@code I6}), and a hand-written
+     * one would be refused by {@code allocate_stock_movement} the moment the reversal ran.</p>
      *
-     * <p>The columns are the ones {@code V10__inventory.sql} declares for {@code inventory_movements} —
-     * {@code product_variant_id}, {@code company_store_id}, {@code store_location_id}, {@code movement_type},
-     * {@code quantity}, {@code reference_type}, {@code reference_id}, {@code created_by} — with {@code id} and
-     * {@code occurred_at} left to their defaults, which is what the legacy engine's own insert does.</p>
+     * <p>The two legacy {@code stock} columns that row also moved are gone with {@code V74} and no case in this file
+     * reads a legacy balance.</p>
      *
-     * <p>The ledger twin is booked through the production writer instead of by a hand-written {@code INSERT}: it is
-     * the same statement, and the allocation the writer performs is what invariant I6 requires of an outbound row —
-     * a hand-written row would be refused by {@code allocate_stock_movement} the moment the reversal ran.</p>
-     *
-     * @return the legacy row's id, which is the {@code source_id} a pre-V73 ledger row carries
+     * @return the {@code source_id} the movement carries, which is the legacy row id a pre-{@code V73} row names and
+     *     which now resolves to nothing
      */
-    private UUID insertALegacySaleAndItsLedgerTwin(UUID referenceId, String quantity) {
+    private UUID bookAPreV73Sale(UUID referenceId, String quantity) {
+        var danglingLegacyId = UUID.randomUUID();
         var amount = new BigDecimal(quantity);
-        var legacySaleId = TenantFixtures.inTenant(
-                companyId,
-                () -> jdbcTemplate.queryForObject(
-                        """
-                        INSERT INTO inventory_movements (product_variant_id, company_store_id, store_location_id,
-                                                         movement_type, quantity, reference_type, reference_id,
-                                                         created_by)
-                        VALUES (?, ?, ?, 'SALE', ?, ?, ?, 'seller')
-                        RETURNING id
-                        """, UUID.class, variantId, storeId, salesLocationId, amount, SALES_ORDER_ITEM, referenceId));
-
         TenantFixtures.inTenant(
                 companyId,
                 () -> stockLedgerWriter.bookSale(
@@ -1069,11 +1030,11 @@ class InventoryLedgerBookingIntegrationTest extends AbstractPostgresIntegrationT
                                 salesLocationId,
                                 variantId,
                                 "seller",
-                                StockLedgerWriter.MIRRORED_SOURCE_TYPE,
-                                legacySaleId,
+                                PRE_V73_MIRROR_SOURCE_TYPE,
+                                danglingLegacyId,
                                 StockLedgerWriter.SINGLE_WRITE),
                         amount));
-        return legacySaleId;
+        return danglingLegacyId;
     }
 
     // ──────────────────────────────────────
@@ -1131,21 +1092,6 @@ class InventoryLedgerBookingIntegrationTest extends AbstractPostgresIntegrationT
                                 rs.getObject("source_id", UUID.class),
                                 rs.getLong("write_seq"),
                                 rs.getObject("reverses_movement_id", UUID.class)),
-                        variant,
-                        movementType));
-    }
-
-    /**
-     * The ids of the legacy ledger rows of one type. Read only by the cases whose subject is what the pre-V73
-     * fallback answers, and never to compare a balance: the legacy table is not a balance any more.
-     */
-    private List<UUID> legacyMovementsOf(UUID variant, String movementType) {
-        return TenantFixtures.inTenant(
-                companyId,
-                () -> jdbcTemplate.query(
-                        "SELECT id FROM inventory_movements WHERE product_variant_id = ? AND movement_type = ? "
-                                + "ORDER BY occurred_at, id",
-                        (rs, rowNum) -> rs.getObject("id", UUID.class),
                         variant,
                         movementType));
     }
@@ -1240,10 +1186,6 @@ class InventoryLedgerBookingIntegrationTest extends AbstractPostgresIntegrationT
                         .findFirst());
     }
 
-    private int countLegacyMovements() {
-        return jdbcTemplate.queryForObject("SELECT COUNT(*) FROM inventory_movements", Integer.class);
-    }
-
     private int countAllocations() {
         return TenantFixtures.inTenant(
                 companyId, () -> jdbcTemplate.queryForObject("SELECT COUNT(*) FROM stock_allocation", Integer.class));
@@ -1288,12 +1230,18 @@ class InventoryLedgerBookingIntegrationTest extends AbstractPostgresIntegrationT
         deleteStockLedger(jdbcTemplate, companyId);
     }
 
+    /**
+     * Deletes the per-store rows this class's fixtures write, leaf first.
+     *
+     * <p>{@code inventory_movements} is not in the list any more: {@code V75} dropped it, and the delete would be the
+     * drop's own failure. What is left is the store row and its settings, plus the two legacy balance tables that
+     * still exist as identities even though nothing reads a quantity out of them.</p>
+     */
     private void deleteTheLegacyBalances() {
         if (companyId == null) {
             return;
         }
         TenantFixtures.inTenant(companyId, () -> {
-            jdbcTemplate.update("DELETE FROM inventory_movements WHERE company_store_id = ?", storeId);
             jdbcTemplate.update("DELETE FROM product_variant_locations");
             jdbcTemplate.update("DELETE FROM product_variant_store_stock WHERE company_store_id = ?", storeId);
             jdbcTemplate.update("DELETE FROM store_inventory_settings WHERE company_store_id = ?", storeId);
