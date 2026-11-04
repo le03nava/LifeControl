@@ -2,11 +2,15 @@
 
 **Repository**: LifeControl — `life-control-api/` (migrations, product and variant modules), `life-control-app-angular/` (the product form and the variant dialog), `docs/adr/`, `odd/tasks/`
 **Branch**: `feat/catalog-identity` · **Worktree**: `~/workspace/LifeControl-worktrees/feat-catalog-identity`
-**Status**: implemented — T1 is the mode column of the accepted ADR-0006 (`V54`) and T2 is the mandatory
-measure unit (`V55`) with the write path that states it. T3 (the optional barcode and the mode trigger) and
-T5 (the single creation transaction and the Angular form) are the remainder this record still owes, in that
-order, each with the write-path change that keeps the branch green; T4 is **blocked** on ADR-0002 and is
-named as such in its own row.
+**Status**: implemented — T1–T6 are on `main` and nothing is owed here: the mode column (`V54`), the
+mandatory measure unit (`V55`), the optional barcode behind the mode trigger (`V56`), the currency catalog
+and the listing with the reads that live on it (`V57`, `V58`), the one-transaction creation with the split
+Angular form, and the mode immutability guard that reads the ledger (`V76`, #775). Nothing is blocked
+either: every dependency the rows once named — ADR-0002's `currency`, ADR-0001's `stock_movement` — is in
+the tree. The three things this record leaves out are tracked, not absorbed: `variant_listing` as a second
+freeze condition (#778), `variant_listing.enabled` without a writer (#777) and the stale
+`product_variant_store_stock.list_price` (#779). `variant_listing.tax_rate_id` is not one of them: it is
+ADR-0002's T4 in `odd/tasks/money-first-class.md`.
 **Created**: 2026-11-01
 **Risk**: items 1, 3 and 6 — item 1 because `measure_unit_id SET NOT NULL` and the `variant_mode`
 backfill rewrite stored catalogue facts, item 3 because `POST /products` changes shape under an Angular
@@ -17,7 +21,8 @@ form that already calls it, and item 6 because the mode trigger is the only thin
 
 Implement accepted ADR-0006 (`docs/adr/0006-catalog-identity.md`) in `life-control-api` and the Angular
 product surface: a product is a family with at least one variant, a variant declares a unit, and price
-becomes a listing. This unit delivers the first two of those three.
+becomes a listing. This unit delivers all three — the family with its mode and its unit in T1–T5, the
+listing and the reads that live on it in T4.
 
 ## Specs
 
@@ -43,12 +48,17 @@ S5. **Migration step 2, verbatim**: «The migration runs a report first, not a w
     listing those rows, and guesses nothing.» The report is part of the migration, so a refused run is
     atomic with it — a half-applied V54 would leave the next run colliding with a column it already added.
 
-S6. **What this unit does not deliver, and the dependency that holds it**: decision 5 and steps 4–5
-    (`variant_listing`, the `product_variant_store_stock` split, the read paths) cannot run yet, because
-    the accepted `## Schema` block declares `currency CHAR(3) NOT NULL REFERENCES currency (code)` and
-    `tax_rate_id UUID REFERENCES tax_rate (id)` and **no migration in the tree provides either table** —
-    they are ADR-0002's T1 and T4. Step 6 (mode immutability) is stated by the ADR as landing with
-    ADR-0001's ledger. Recorded at acceptance in the ADR's `Accepted:` line and in `docs/adr/README.md`.
+S6. **What the ADR defers past this unit, and which record owns each part.** Decision 5 and steps 4–5
+    (`variant_listing`, the `product_variant_store_stock` split, the read paths) were held at acceptance
+    because the `## Schema` block declares `currency CHAR(3) NOT NULL REFERENCES currency (code)` and
+    `tax_rate_id UUID REFERENCES tax_rate (id)` and **no migration in the tree provided either table**.
+    The first dependency was satisfied by ADR-0002's T1 (`V57__company_currency.sql`), so the listing
+    landed in `V58` and the reads moved onto it; the tax half is still absent, which is why a listing
+    states its price and its currency and nothing about tax, and the `ALTER` that adds `tax_rate_id`
+    belongs to the slice that creates the table — ADR-0002's T4 in `odd/tasks/money-first-class.md`.
+    Step 6 (mode immutability) was stated by the ADR as landing with ADR-0001's ledger, and it did: `V60`
+    created `stock_movement` and `V76` reads it. Recorded at acceptance in the ADR's `Accepted:` line and
+    in `docs/adr/README.md`.
 
 S7. **T1 does not change a single read path or write path.** `product_variant_store_stock` keeps holding price and
     stock together until step 4, so the two store-scoped `INNER JOIN` queries
@@ -61,9 +71,9 @@ S7. **T1 does not change a single read path or write path.** `product_variant_st
 | --- | --- | --- | --- | --- |
 | T1 | S1, S5, S7 | `V54`: `products.variant_mode` (`SIMPLE`/`MULTI`, CHECK, derived backfill) plus the self-check that refuses a derivation which read nothing, inside the `NO FORCE` window ADR-0005's `FORCE` makes mandatory | — | inline; done |
 | T2 | S1, S6 | `V55`: `product_variants.measure_unit_id SET NOT NULL` behind the report that aborts, and the write path that agrees with it — `ProductVariant` maps the column as required, `ProductVariantRequest` demands it, and the suites that build a variant today declare a unit | T1 | inline; done |
-| T3 | S1, S3, S4 | `V56`: `bar_code DROP NOT NULL`, the partial `uq_variant_bar_code` replacing `uq_product_variants_company_bar_code`, and `trg_variant_matches_mode` — with the **minimum** write path that keeps the trigger truthful: `Product.variantMode` mapped, `POST /products` accepting it with `SIMPLE` as the creation default, and the barcode requirement decided by the product's mode in the service instead of `@NotBlank`. The response exposure, the `variants[]` list and the Angular form stay in T5 | T2 | inline |
-| T4 | S1, S6 | `variant_listing` and the price split out of `product_variant_store_stock` (decision 5, steps 4–5), armed in `tenant_table` in the migration that creates it | **blocked** — `currency` is ADR-0002's T1 and `tax_rate` its T4, which D-d still gates; step 5 also needs ADR-0001's position projection | — |
-| T5 | S1, S2 | Decision 2, the rest of it: `variants[]` on the creation request, product and variants written in **one** transaction, `variantMode` on the response, C1's delete guard, and the Angular form split into "the article" and "its variants" with the barcode required only for `MULTI` | T3 | inline |
+| T3 | S1, S3, S4 | `V56`: `bar_code DROP NOT NULL`, the partial `uq_variant_bar_code` replacing `uq_product_variants_company_bar_code`, and `trg_variant_matches_mode` — with the **minimum** write path that keeps the trigger truthful: `Product.variantMode` mapped, `POST /products` accepting it with `SIMPLE` as the creation default, and the barcode requirement decided by the product's mode in the service instead of `@NotBlank`. The response exposure, the `variants[]` list and the Angular form stay in T5 | T2 | inline; done — `V56__variant_barcode_optional.sql` lands the partial `uq_variant_bar_code`, makes `bar_code` nullable and installs `trg_variant_matches_mode` with the two messages S4 quotes, plus the write path that keeps it truthful |
+| T4 | S1, S6 | `variant_listing` and the price split out of `product_variant_store_stock` (decision 5, steps 4–5), armed in `tenant_table` in the migration that creates it | ADR-0002's `currency` (T1) and D-d's `tax_rate` (T4); ADR-0001's ledger | inline; done — `V57__company_currency.sql` unblocked it and `V58__variant_listing.sql` copied the price instead of moving it, so the legacy column stays until the projection; the two store-scoped reads and the search moved onto the listing, and `tax_rate_id` still waits on ADR-0002's T4 |
+| T5 | S1, S2 | Decision 2, the rest of it: `variants[]` on the creation request, product and variants written in **one** transaction, `variantMode` on the response, C1's delete guard, and the Angular form split into "the article" and "its variants" with the barcode required only for `MULTI` | T3 | inline; done — the backend half is the creation transaction (product and variants written once, `variantMode` on the response, C1's delete guard) and the Angular half is the form split by mode |
 | T6 | S1, S6 | Decision 1's immutability: refuse a `variant_mode` change once a variant holds stock | T3, and ADR-0001's ledger (`V60`), which is step 6's own condition | delegated; done — `V76` refuses the change by reading `stock_movement`, pinned by `ProductVariantModeImmutabilityMigrationIntegrationTest`; `variant_listing` is deliberately not a freeze condition (#774) |
 
 ## Log
@@ -320,3 +330,23 @@ what it meets. Observed RED before the file existed: the three refusals did not 
 raise a throwable`) and the trigger read back `null`; the four regressions were already green, which is what
 makes them pins. `./gradlew test --tests '*Product*'` ran **521 cases across 108 classes, 0 failures**; the
 full gate is green.
+
+**2026-11-04 — the header and three rows reconciled with what `main` carries (#776).** The record said T3
+and T5 were "the remainder this record still owes" and that T4 was **blocked** on ADR-0002. All three were
+on `main`: `V56` (T3), `V57` + `V58` and the T4b reads (T4), and both halves of T5 — the creation
+transaction and the split Angular form — with their own entries above. Only the header and the rows were
+wrong; not one dated entry was, which is why the fix is here and not a rewrite of the narrative.
+
+The stale state was not detectable by a guard, and that is the point worth recording: `odd-status-headers.test.sh`
+validates the **opening token** of the `**Status**:` paragraph, and `implemented` is one of the five legal
+tokens, so a legal token over an untrue sentence passes. This entry is the manual half of that guard.
+
+`S6` was rewritten for the same reason, and the reason is stated instead of smoothed: it declared as a
+standing fact that decision 5 and steps 4–5 "cannot run yet", which stopped being true when `V57` and `V58`
+landed. The dependency it named is still real, but only for the tax half — `variant_listing.tax_rate_id` has
+no table, and that belongs to ADR-0002's T4 in `odd/tasks/money-first-class.md`, not here.
+
+What remains is named, not absorbed: #778 (is a listing a second freeze condition for `variant_mode`? the
+ADR's decision 1 and its step 6 say it differently), #777 (`variant_listing.enabled` has no writer, so
+"listed" is read as "has the row") and #779 (`product_variant_store_stock.list_price` is stale and still
+mapped). None of the three is a task of this record.
