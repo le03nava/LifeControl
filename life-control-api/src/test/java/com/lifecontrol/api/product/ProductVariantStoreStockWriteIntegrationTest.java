@@ -15,11 +15,11 @@ import com.lifecontrol.api.company.repository.CompanyRegionRepository;
 import com.lifecontrol.api.company.repository.CompanyRepository;
 import com.lifecontrol.api.company.repository.CompanyZoneRepository;
 import com.lifecontrol.api.country.repository.CountryRepository;
+import com.lifecontrol.api.inventory.ledger.StockLedgerEngine;
 import com.lifecontrol.api.inventory.ledger.StockLedgerWriter;
 import com.lifecontrol.api.inventory.model.StoreInventorySettings;
 import com.lifecontrol.api.inventory.repository.ProductVariantLocationRepository;
 import com.lifecontrol.api.inventory.repository.StoreInventorySettingsRepository;
-import com.lifecontrol.api.inventory.service.InventoryService;
 import com.lifecontrol.api.measureunit.repository.MeasureUnitRepository;
 import com.lifecontrol.api.product.model.Product;
 import com.lifecontrol.api.product.model.ProductVariant;
@@ -133,7 +133,7 @@ class ProductVariantStoreStockWriteIntegrationTest extends AbstractPostgresInteg
     private ProductVariantLocationRepository productVariantLocationRepository;
 
     @Autowired
-    private InventoryService inventoryService;
+    private StockLedgerEngine stockLedgerEngine;
 
     /** The writer the measure-unit guard asks whether the variant has history (S7). */
     @Autowired
@@ -574,7 +574,7 @@ class ProductVariantStoreStockWriteIntegrationTest extends AbstractPostgresInteg
             // needs — the same fact the write above states by naming the company in the path.
             TenantFixtures.inTenant(
                     companyId,
-                    () -> inventoryService.applyReceipt(
+                    () -> stockLedgerEngine.applyReceipt(
                             bareVariantId,
                             storeAId,
                             dock.getId(),

@@ -11,7 +11,7 @@ import java.util.UUID;
  * <p>Exactly one row per {@code (product_variant_id, store_location_id)} pair, enforced by
  * {@code UNIQUE(product_variant_id, store_location_id)}. It is the per-location balance of the
  * inventory model (decision D1) and a separate row from the store-level aggregate in
- * {@code product_variant_store_stock}. Every writer — {@code InventoryService.applyReceipt},
+ * {@code product_variant_store_stock}. Every writer — {@code StockLedgerEngine.applyReceipt},
  * {@code applySaleDeduction} and {@code applyStockAdjustment} — moves this balance and the aggregate
  * by the same amount, so the aggregate equals the sum of the store's location balances.</p>
  */

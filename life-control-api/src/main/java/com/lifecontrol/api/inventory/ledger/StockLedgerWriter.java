@@ -11,7 +11,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 
 /**
  * The one place the stock ledger ({@code stock_movement}, {@code stock_allocation}) is written from Java, and
- * the binding of {@link com.lifecontrol.api.inventory.service.InventoryService}'s four entry points to it
+ * the binding of {@link com.lifecontrol.api.inventory.ledger.StockLedgerEngine}'s four entry points to it
  * (T5a of {@code odd/tasks/inventory-ledger.md}).
  *
  * <h2>What this class is for, and what it deliberately is not</h2>
@@ -32,7 +32,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
  * column is what makes the second of them legal:</p>
  * <ol>
  *   <li><b>A sale line that spans locations books more than one movement.</b>
- *       {@code InventoryService.applySaleDeduction} writes one {@code SALE} row per location it drains
+ *       {@code StockLedgerEngine.applySaleDeduction} writes one {@code SALE} row per location it drains
  *       (priority location first, then FIFO), and a {@code stock_movement} names exactly one
  *       {@code store_location_id}. The rows share the line id and differ by location, which is what
  *       {@code V63}'s fourth column is for.</li>
@@ -250,22 +250,25 @@ public class StockLedgerWriter {
             """;
 
     /**
-     * The ledger's own balance per location of one store, in the order the legacy rows state.
+     * The ledger's own balance per location of one store, in the order the ledger first moved each location.
      *
      * <p><b>Why the projections and not the legacy column.</b> The split of a sale across a store's locations
      * is a read, and from T3 the reader answers from {@code stock_balance} — the projection {@code V61}'s trigger
-     * maintains from every movement — instead of {@code product_variant_locations.stock}, which the write path is
-     * about to stop maintaining and the migration after that drops. The join to
-     * {@code product_variant_locations} is for the ORDER only ({@code created_at, store_location_id}, the pair the
-     * legacy query ordered by): a row that names no location of this store contributes nothing, and the order is
-     * kept so the change is a change of source, not of behaviour.</p>
+     * maintains from every movement — instead of {@code product_variant_locations.stock}, which the write path
+     * stopped maintaining.</p>
+     *
+     * <p><b>And why the order no longer comes from the legacy table.</b> This query used to {@code JOIN}
+     * {@code product_variant_locations} for one reason only: to read that row's {@code created_at}, the FIFO order
+     * the legacy query used. A join for an order is still a dependency — and a load-bearing one, because it is an
+     * <em>inner</em> join: the moment the write path stopped creating those rows, every balance vanished from the
+     * answer and a sale the position had just authorized was refused by the second check with {@code available 0}.
+     * FIFO is a fact about the ledger anyway, so the order is now read from the ledger: the instant each location
+     * first moved, then {@code store_location_id} as the deterministic tie-break. That is the same order the
+     * legacy rows recorded for every location the backfill and the writers created, and it survives the table.</p>
      */
     private static final String OPEN_BALANCES = """
             SELECT b.store_location_id, b.quantity
               FROM stock_balance b
-              JOIN product_variant_locations pvl
-                ON pvl.product_variant_id = b.product_variant_id
-               AND pvl.store_location_id = b.store_location_id
              WHERE b.product_variant_id = ?
                AND b.store_location_id IN (
                    SELECT sl.id
@@ -273,7 +276,11 @@ public class StockLedgerWriter {
                      JOIN store_zones sz ON sz.id = sl.store_zone_id
                      JOIN store_areas sa ON sa.id = sz.store_area_id
                     WHERE sa.company_store_id = ?)
-             ORDER BY pvl.created_at ASC, pvl.store_location_id ASC
+             ORDER BY (SELECT min(m.occurred_at)
+                         FROM stock_movement m
+                        WHERE m.store_location_id = b.store_location_id
+                          AND m.product_variant_id = b.product_variant_id) ASC,
+                      b.store_location_id ASC
             """;
 
     private static final String REVERSAL_OF = "SELECT count(*) FROM stock_movement WHERE reverses_movement_id = ?";
@@ -358,7 +365,7 @@ public class StockLedgerWriter {
      *
      * <p>This is what a reversal names, and it is read by the source the movements carry instead of by the
      * legacy rows beside them: since {@code V73} a sale's source is the line, so the ledger alone answers "what
-     * does this reference still hold open" — the question {@code InventoryService.applySaleReversal} asks. The
+     * does this reference still hold open" — the question {@code StockLedgerEngine.applySaleReversal} asks. The
      * old answer, one lookup per legacy row, cannot express a line that booked more than one {@code SALE} at one
      * location, which is exactly the case the fifth key column made legal.</p>
      */

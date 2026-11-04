@@ -1,9 +1,9 @@
 package com.lifecontrol.api.product.service;
 
 import com.lifecontrol.api.common.auth.CurrentUserContext;
+import com.lifecontrol.api.inventory.ledger.StockLedgerEngine;
 import com.lifecontrol.api.inventory.ledger.StockLedgerWriter;
 import com.lifecontrol.api.inventory.repository.StockPositionRepository;
-import com.lifecontrol.api.inventory.service.InventoryService;
 import com.lifecontrol.api.measureunit.exception.MeasureUnitNotFoundException;
 import com.lifecontrol.api.measureunit.model.MeasureUnit;
 import com.lifecontrol.api.measureunit.repository.MeasureUnitRepository;
@@ -87,7 +87,7 @@ public class ProductVariantService {
     private final CompanyStoreRepository companyStoreRepository;
     private final CompanyStoreOwnerResolver companyStoreOwnerResolver;
     private final CurrentUserContext currentUserContext;
-    private final InventoryService inventoryService;
+    private final StockLedgerEngine stockLedgerEngine;
     private final MeasureUnitRepository measureUnitRepository;
     private final ProductAttributeCatalogService productAttributeCatalogService;
     private final StockPositionRepository stockPositionRepository;
@@ -101,7 +101,7 @@ public class ProductVariantService {
             CompanyStoreRepository companyStoreRepository,
             CompanyStoreOwnerResolver companyStoreOwnerResolver,
             CurrentUserContext currentUserContext,
-            InventoryService inventoryService,
+            StockLedgerEngine stockLedgerEngine,
             MeasureUnitRepository measureUnitRepository,
             ProductAttributeCatalogService productAttributeCatalogService,
             StockPositionRepository stockPositionRepository,
@@ -113,7 +113,7 @@ public class ProductVariantService {
         this.companyStoreRepository = companyStoreRepository;
         this.companyStoreOwnerResolver = companyStoreOwnerResolver;
         this.currentUserContext = currentUserContext;
-        this.inventoryService = inventoryService;
+        this.stockLedgerEngine = stockLedgerEngine;
         this.measureUnitRepository = measureUnitRepository;
         this.productAttributeCatalogService = productAttributeCatalogService;
         this.stockPositionRepository = stockPositionRepository;
@@ -416,7 +416,7 @@ public class ProductVariantService {
      * one go.</p>
      *
      * <p>Stock is not written here at all: every stock move belongs to the engine, so this method delegates
-     * a stock edit to {@link InventoryService#applyStockAdjustment} (W3-D14). Writing
+     * a stock edit to {@link StockLedgerEngine#applyStockAdjustment} (W3-D14). Writing
      * {@code product_variant_store_stock.stock} here directly is the F16 defect — the aggregate moved
      * while no location row and no movement did — so the arithmetic stays in the engine, and a store
      * without a settings row is refused by it rather than guessed here.</p>
@@ -498,7 +498,7 @@ public class ProductVariantService {
         // returns, because the number this response reports is read back from the ledger's projection below. A
         // null stock means "leave stock untouched", as before.
         if (request.stock() != null) {
-            inventoryService.applyStockAdjustment(
+            stockLedgerEngine.applyStockAdjustment(
                     variantId, companyStoreId, request.stock(), currentUserContext.getUsername());
         }
 

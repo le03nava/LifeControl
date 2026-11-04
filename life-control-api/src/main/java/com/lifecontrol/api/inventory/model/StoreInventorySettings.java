@@ -15,7 +15,7 @@ import java.util.UUID;
  * <p>The store is the identity, so {@code company_store_id} is the assigned primary key and there
  * is exactly one row per store. {@code receivingLocationId} is consumed by the goods receipt (W2c).
  * {@code salesLocationId} is read by both stock movers of a store: the sale deduction draws from it
- * first and the manual stock increase credits it ({@code InventoryService.applySaleDeduction},
+ * first and the manual stock increase credits it ({@code StockLedgerEngine.applySaleDeduction},
  * {@code applyStockAdjustment}).</p>
  *
  * <p>The two location columns are plain foreign keys, which only prove that the location exists.

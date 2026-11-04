@@ -9,8 +9,8 @@ import com.lifecontrol.api.common.state.StatusSubject;
 import com.lifecontrol.api.common.state.StatusTransitionRecorder;
 import com.lifecontrol.api.customer.exception.CustomerNotFoundException;
 import com.lifecontrol.api.customer.repository.CustomerRepository;
-import com.lifecontrol.api.inventory.service.InventoryService;
-import com.lifecontrol.api.inventory.service.InventoryService.SaleChange;
+import com.lifecontrol.api.inventory.ledger.StockLedgerEngine;
+import com.lifecontrol.api.inventory.ledger.StockLedgerEngine.SaleChange;
 import com.lifecontrol.api.paymentmethod.exception.PaymentMethodNotFoundException;
 import com.lifecontrol.api.paymentmethod.repository.PaymentMethodRepository;
 import com.lifecontrol.api.product.exception.ProductVariantNotFoundException;
@@ -91,7 +91,7 @@ public class SalesOrderService {
     private final CompanyStoreOwnerResolver companyStoreOwnerResolver;
     private final ShiftRepository shiftRepository;
     private final ProductVariantRepository productVariantRepository;
-    private final InventoryService inventoryService;
+    private final StockLedgerEngine stockLedgerEngine;
     private final StatusRepository statusRepository;
     private final PaymentMethodRepository paymentMethodRepository;
     private final CurrentUserContext currentUserContext;
@@ -107,7 +107,7 @@ public class SalesOrderService {
             CompanyStoreOwnerResolver companyStoreOwnerResolver,
             ShiftRepository shiftRepository,
             ProductVariantRepository productVariantRepository,
-            InventoryService inventoryService,
+            StockLedgerEngine stockLedgerEngine,
             StatusRepository statusRepository,
             PaymentMethodRepository paymentMethodRepository,
             CurrentUserContext currentUserContext,
@@ -121,7 +121,7 @@ public class SalesOrderService {
         this.companyStoreOwnerResolver = companyStoreOwnerResolver;
         this.shiftRepository = shiftRepository;
         this.productVariantRepository = productVariantRepository;
-        this.inventoryService = inventoryService;
+        this.stockLedgerEngine = stockLedgerEngine;
         this.statusRepository = statusRepository;
         this.paymentMethodRepository = paymentMethodRepository;
         this.currentUserContext = currentUserContext;
@@ -935,7 +935,7 @@ public class SalesOrderService {
     // ─── Stock Movement Through the Inventory Engine ───────────────────
 
     /**
-     * Sends one batch of stock work to {@link InventoryService}, the only writer of the per-store
+     * Sends one batch of stock work to {@link StockLedgerEngine}, the only writer of the per-store
      * aggregate, the per-location balances and the ledger. The batch's ordering is the engine's
      * contract (F-1), not this caller's: it locks every distinct {@code (store, variant)} row in key
      * order before it runs anything, and runs every reversal before every deduction. A reversal is
@@ -946,7 +946,7 @@ public class SalesOrderService {
         if (changes.isEmpty()) {
             return;
         }
-        inventoryService.applySaleBatch(SALE_REFERENCE_TYPE, currentUserContext.getUsername(), changes);
+        stockLedgerEngine.applySaleBatch(SALE_REFERENCE_TYPE, currentUserContext.getUsername(), changes);
     }
 
     /**

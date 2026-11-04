@@ -14,9 +14,9 @@ import com.lifecontrol.api.company.repository.CompanyRegionRepository;
 import com.lifecontrol.api.company.repository.CompanyRepository;
 import com.lifecontrol.api.company.repository.CompanyZoneRepository;
 import com.lifecontrol.api.country.repository.CountryRepository;
+import com.lifecontrol.api.inventory.ledger.StockLedgerEngine;
 import com.lifecontrol.api.inventory.repository.InventoryMovementRepository;
 import com.lifecontrol.api.inventory.repository.ProductVariantLocationRepository;
-import com.lifecontrol.api.inventory.service.InventoryService;
 import com.lifecontrol.api.measureunit.repository.MeasureUnitRepository;
 import com.lifecontrol.api.product.model.Product;
 import com.lifecontrol.api.product.model.ProductVariant;
@@ -146,7 +146,7 @@ class ProductVariantListingReadIntegrationTest extends AbstractPostgresIntegrati
      * exactly the ones this suite stated before the swap.</p>
      */
     @Autowired
-    private InventoryService inventoryService;
+    private StockLedgerEngine stockLedgerEngine;
 
     /** The handle the shared ledger cleanup deletes the projections through (see the base class). */
     @Autowired
@@ -524,7 +524,7 @@ class ProductVariantListingReadIntegrationTest extends AbstractPostgresIntegrati
      * A per-store row with no price and {@code stock} units of stock, seeded the way a receipt leaves it.
      *
      * <p>The row is created with the column default and the quantity arrives through
-     * {@link InventoryService#applyReceipt} — the public writer — so the legacy aggregate and the ledger's
+     * {@link StockLedgerEngine#applyReceipt} — the public writer — so the legacy aggregate and the ledger's
      * position both hold {@code stock} and this fixture cannot disagree with the read it feeds.</p>
      */
     private UUID storeRow(UUID variantId, String stock, String costPrice) {
@@ -545,7 +545,7 @@ class ProductVariantListingReadIntegrationTest extends AbstractPostgresIntegrati
         if (quantity.signum() > 0) {
             TenantFixtures.inTenant(
                     companyId,
-                    () -> inventoryService.applyReceipt(
+                    () -> stockLedgerEngine.applyReceipt(
                             variantId,
                             storeId,
                             salesLocationId,

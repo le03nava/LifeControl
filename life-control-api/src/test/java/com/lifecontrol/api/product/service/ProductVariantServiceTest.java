@@ -15,9 +15,9 @@ import com.lifecontrol.api.company.model.CompanyCountry;
 import com.lifecontrol.api.company.model.CompanyRegion;
 import com.lifecontrol.api.company.model.CompanyZone;
 import com.lifecontrol.api.inventory.exception.StoreInventorySettingsNotFoundException;
+import com.lifecontrol.api.inventory.ledger.StockLedgerEngine;
 import com.lifecontrol.api.inventory.ledger.StockLedgerWriter;
 import com.lifecontrol.api.inventory.repository.StockPositionRepository;
-import com.lifecontrol.api.inventory.service.InventoryService;
 import com.lifecontrol.api.measureunit.exception.MeasureUnitNotFoundException;
 import com.lifecontrol.api.measureunit.model.MeasureUnit;
 import com.lifecontrol.api.measureunit.model.MeasureUnitType;
@@ -94,7 +94,7 @@ class ProductVariantServiceTest {
     private CurrentUserContext currentUserContext;
 
     @Mock
-    private InventoryService inventoryService;
+    private StockLedgerEngine stockLedgerEngine;
 
     @Mock
     private MeasureUnitRepository measureUnitRepository;
@@ -218,7 +218,7 @@ class ProductVariantServiceTest {
                 companyStoreRepository,
                 companyStoreOwnerResolver,
                 currentUserContext,
-                inventoryService,
+                stockLedgerEngine,
                 measureUnitRepository,
                 productAttributeCatalogService,
                 stockPositionRepository,
@@ -1159,7 +1159,7 @@ class ProductVariantServiceTest {
             when(productVariantStoreStockRepository.save(any(ProductVariantStoreStock.class)))
                     .thenAnswer(inv -> inv.getArgument(0));
             when(currentUserContext.getUsername()).thenReturn("tester");
-            when(inventoryService.applyStockAdjustment(variantId, companyStoreId, new BigDecimal("50.00"), "tester"))
+            when(stockLedgerEngine.applyStockAdjustment(variantId, companyStoreId, new BigDecimal("50.00"), "tester"))
                     .thenReturn(new BigDecimal("50.00"));
             // The price is a listing since ADR-0006 decision 6, so the response reports the listing's.
             when(variantListingRepository.upsertListPrice(variantId, companyStoreId, new BigDecimal("199.99")))
@@ -1185,7 +1185,8 @@ class ProductVariantServiceTest {
                     .as("`product_variant_store_stock.list_price` is no longer written by this endpoint")
                     .isNull();
             // The stock half is delegated to the engine, never written here (W3-D14).
-            verify(inventoryService).applyStockAdjustment(variantId, companyStoreId, new BigDecimal("50.00"), "tester");
+            verify(stockLedgerEngine)
+                    .applyStockAdjustment(variantId, companyStoreId, new BigDecimal("50.00"), "tester");
         }
 
         @Test
@@ -1226,7 +1227,7 @@ class ProductVariantServiceTest {
             assertThat(result.costPrice()).isEqualByComparingTo(new BigDecimal("120.00"));
             assertThat(result.stock()).isEqualByComparingTo(new BigDecimal("50.00"));
             // No stock was sent, so the engine is never asked to move it.
-            verify(inventoryService, never()).applyStockAdjustment(any(), any(), any(), any());
+            verify(stockLedgerEngine, never()).applyStockAdjustment(any(), any(), any(), any());
         }
 
         @Test
@@ -1248,7 +1249,7 @@ class ProductVariantServiceTest {
             when(productVariantStoreStockRepository.save(any(ProductVariantStoreStock.class)))
                     .thenAnswer(inv -> inv.getArgument(0));
             when(currentUserContext.getUsername()).thenReturn("tester");
-            when(inventoryService.applyStockAdjustment(variantId, companyStoreId, new BigDecimal("5.00"), "tester"))
+            when(stockLedgerEngine.applyStockAdjustment(variantId, companyStoreId, new BigDecimal("5.00"), "tester"))
                     .thenReturn(new BigDecimal("5.00"));
             // The listing this suite cannot see is the one that must survive: the response reports it.
             when(variantListingRepository.findByProductVariantIdAndCompanyStoreId(variantId, companyStoreId))
@@ -1281,7 +1282,7 @@ class ProductVariantServiceTest {
             when(productVariantStoreStockRepository.save(any(ProductVariantStoreStock.class)))
                     .thenAnswer(inv -> inv.getArgument(0));
             when(currentUserContext.getUsername()).thenReturn("tester");
-            when(inventoryService.applyStockAdjustment(variantId, companyStoreId, new BigDecimal("5.00"), "tester"))
+            when(stockLedgerEngine.applyStockAdjustment(variantId, companyStoreId, new BigDecimal("5.00"), "tester"))
                     .thenThrow(new StoreInventorySettingsNotFoundException(companyStoreId));
 
             assertThatThrownBy(() -> productVariantService.upsertStoreStock(variantId, companyStoreId, request))
@@ -1370,7 +1371,7 @@ class ProductVariantServiceTest {
             // of a foreign tenant are all untouched.
             verify(productVariantStoreStockRepository, never()).insertStoreStockIfAbsent(any(), any());
             verify(productVariantStoreStockRepository, never()).save(any());
-            verify(inventoryService, never()).applyStockAdjustment(any(), any(), any(), any());
+            verify(stockLedgerEngine, never()).applyStockAdjustment(any(), any(), any(), any());
         }
     }
 

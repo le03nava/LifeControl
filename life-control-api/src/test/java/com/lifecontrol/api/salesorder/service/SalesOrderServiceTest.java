@@ -29,8 +29,8 @@ import com.lifecontrol.api.company.model.CompanyZone;
 import com.lifecontrol.api.customer.exception.CustomerNotFoundException;
 import com.lifecontrol.api.customer.repository.CustomerRepository;
 import com.lifecontrol.api.inventory.exception.InsufficientStockException;
-import com.lifecontrol.api.inventory.service.InventoryService;
-import com.lifecontrol.api.inventory.service.InventoryService.SaleChange;
+import com.lifecontrol.api.inventory.ledger.StockLedgerEngine;
+import com.lifecontrol.api.inventory.ledger.StockLedgerEngine.SaleChange;
 import com.lifecontrol.api.paymentmethod.exception.PaymentMethodNotFoundException;
 import com.lifecontrol.api.paymentmethod.repository.PaymentMethodRepository;
 import com.lifecontrol.api.product.exception.ProductVariantNotFoundException;
@@ -106,7 +106,7 @@ class SalesOrderServiceTest {
     private ProductVariantRepository productVariantRepository;
 
     @Mock
-    private InventoryService inventoryService;
+    private StockLedgerEngine stockLedgerEngine;
 
     @Mock
     private StatusRepository statusRepository;
@@ -333,7 +333,7 @@ class SalesOrderServiceTest {
                 companyStoreOwnerResolver,
                 shiftRepository,
                 productVariantRepository,
-                inventoryService,
+                stockLedgerEngine,
                 statusRepository,
                 paymentMethodRepository,
                 currentUserContext,
@@ -374,10 +374,10 @@ class SalesOrderServiceTest {
      * quantity and the line-level ledger reference (W3-D6). This is the unit-level replacement for the
      * old assertion on the mocked per-store row; the resulting stock itself is asserted against real
      * PostgreSQL in {@code SalesOrderIntegrationTest} and against the mocked rows in
-     * {@code InventoryServiceSaleMovementTest}.
+     * {@code StockLedgerEngineSaleMovementTest}.
      */
     private void verifyDeducted(UUID variantId, String quantity, UUID itemId) {
-        verify(inventoryService)
+        verify(stockLedgerEngine)
                 .applySaleBatch(
                         eq("SALES_ORDER_ITEM"),
                         any(),
@@ -408,7 +408,7 @@ class SalesOrderServiceTest {
     }
 
     private void verifyReversed(UUID itemId) {
-        verify(inventoryService)
+        verify(stockLedgerEngine)
                 .applySaleBatch(
                         eq("SALES_ORDER_ITEM"),
                         any(),
@@ -419,7 +419,7 @@ class SalesOrderServiceTest {
 
     /** Asserts that no batch carried a deduction: what a restore-only operation looks like. */
     private void verifyNoDeduction() {
-        verify(inventoryService, never())
+        verify(stockLedgerEngine, never())
                 .applySaleBatch(
                         any(),
                         any(),
@@ -750,7 +750,7 @@ class SalesOrderServiceTest {
 
             // The rejection must leave the order and the engine untouched.
             verify(salesOrderRepository, never()).save(any(SalesOrder.class));
-            verifyNoInteractions(inventoryService);
+            verifyNoInteractions(stockLedgerEngine);
         }
 
         @Test
@@ -811,7 +811,7 @@ class SalesOrderServiceTest {
                     .hasMessageContaining("cannot be modified");
 
             verify(salesOrderRepository, never()).save(any(SalesOrder.class));
-            verifyNoInteractions(inventoryService);
+            verifyNoInteractions(stockLedgerEngine);
         }
 
         @Test
@@ -847,7 +847,7 @@ class SalesOrderServiceTest {
             // The terminal item status is the only signal that the line holds nothing, so the guard
             // must read the "SALES_ORDER_ITEM"/"Cancelled" status. With the lookup broken the line
             // would look like it still held 4 and the engine would deduct the 1-unit delta.
-            verifyNoInteractions(inventoryService);
+            verifyNoInteractions(stockLedgerEngine);
         }
     }
 
@@ -914,7 +914,7 @@ class SalesOrderServiceTest {
             verify(salesOrderRepository).save(any(SalesOrder.class));
             verify(itemRepository).save(any(SalesOrderItem.class));
             // A cancelled order already restored its stock — delete must NOT ask the engine again.
-            verifyNoInteractions(inventoryService);
+            verifyNoInteractions(stockLedgerEngine);
         }
 
         @Test
@@ -1252,7 +1252,7 @@ class SalesOrderServiceTest {
             verify(productVariantRepository).existsByIdAndCompanyIdAndEnabledTrue(variantId, companyId);
             // Nothing persisted and nothing sold: no line, no deduction, no total recalculation.
             verify(itemRepository, never()).save(any());
-            verify(inventoryService, never()).applySaleBatch(any(), any(), any());
+            verify(stockLedgerEngine, never()).applySaleBatch(any(), any(), any());
             verify(salesOrderRepository, never()).save(any());
         }
 
@@ -1594,7 +1594,7 @@ class SalesOrderServiceTest {
             salesOrderService.updateSalesOrderItem(orderId, itemId, testItemRequest);
 
             // An unchanged line must not reach the engine at all.
-            verifyNoInteractions(inventoryService);
+            verifyNoInteractions(stockLedgerEngine);
         }
 
         @Test
@@ -1655,7 +1655,7 @@ class SalesOrderServiceTest {
             when(productVariantRepository.existsByIdAndCompanyIdAndEnabledTrue(variantId, companyId))
                     .thenReturn(true);
             doThrow(new InsufficientStockException(variantId, new BigDecimal("8.00"), new BigDecimal("1.00")))
-                    .when(inventoryService)
+                    .when(stockLedgerEngine)
                     .applySaleBatch(any(), any(), any());
 
             assertThatThrownBy(() -> salesOrderService.updateSalesOrderItem(orderId, itemId, request))
@@ -1694,7 +1694,7 @@ class SalesOrderServiceTest {
 
             assertThat(foreignLine.getEnabled()).isTrue();
             verify(itemRepository, never()).save(any(SalesOrderItem.class));
-            verifyNoInteractions(inventoryService);
+            verifyNoInteractions(stockLedgerEngine);
         }
 
         @Test
@@ -1811,7 +1811,7 @@ class SalesOrderServiceTest {
                     .hasMessageContaining("cannot be modified");
 
             verify(itemRepository, never()).save(any(SalesOrderItem.class));
-            verifyNoInteractions(inventoryService);
+            verifyNoInteractions(stockLedgerEngine);
         }
 
         @Test
@@ -1837,7 +1837,7 @@ class SalesOrderServiceTest {
                     .hasMessageContaining("cannot be modified");
 
             verify(itemRepository, never()).save(any(SalesOrderItem.class));
-            verifyNoInteractions(inventoryService);
+            verifyNoInteractions(stockLedgerEngine);
         }
     }
 
@@ -1891,7 +1891,7 @@ class SalesOrderServiceTest {
 
             assertThat(foreignLine.getEnabled()).isTrue();
             verify(itemRepository, never()).save(any(SalesOrderItem.class));
-            verifyNoInteractions(inventoryService);
+            verifyNoInteractions(stockLedgerEngine);
         }
 
         @Test
@@ -1920,7 +1920,7 @@ class SalesOrderServiceTest {
 
             assertThat(cancelledLine.getEnabled()).isTrue();
             verify(itemRepository, never()).save(any(SalesOrderItem.class));
-            verifyNoInteractions(inventoryService);
+            verifyNoInteractions(stockLedgerEngine);
         }
 
         @Test
@@ -1949,7 +1949,7 @@ class SalesOrderServiceTest {
 
             assertThat(deletedLine.getEnabled()).isFalse();
             verify(itemRepository, never()).save(any(SalesOrderItem.class));
-            verifyNoInteractions(inventoryService);
+            verifyNoInteractions(stockLedgerEngine);
         }
 
         @Test
@@ -2115,7 +2115,7 @@ class SalesOrderServiceTest {
                     .hasMessageContaining("CANCELLED");
 
             verify(itemRepository, never()).save(any(SalesOrderItem.class));
-            verifyNoInteractions(inventoryService);
+            verifyNoInteractions(stockLedgerEngine);
         }
     }
 
@@ -3030,7 +3030,7 @@ class SalesOrderServiceTest {
             when(itemRepository.findById(testItem.getId())).thenReturn(Optional.of(testItem));
             when(itemRepository.save(any(SalesOrderItem.class))).thenAnswer(inv -> inv.getArgument(0));
             doThrow(new InsufficientStockException(variantId, new BigDecimal("3.00"), new BigDecimal("1.00")))
-                    .when(inventoryService)
+                    .when(stockLedgerEngine)
                     .applySaleBatch(any(), any(), any());
 
             assertThatThrownBy(() -> salesOrderService.updateSalesOrder(orderId, request))
@@ -3185,7 +3185,7 @@ class SalesOrderServiceTest {
                     .isEqualTo(SalesOrderState.DRAFT);
             verify(salesOrderRepository, never()).save(any(SalesOrder.class));
             verifyNoInteractions(statusTransitionRecorder);
-            verifyNoInteractions(inventoryService);
+            verifyNoInteractions(stockLedgerEngine);
         }
 
         @Test
@@ -3215,7 +3215,7 @@ class SalesOrderServiceTest {
                     .hasMessageContaining("COMPLETED")
                     .hasMessageContaining("CANCELLED");
 
-            verifyNoInteractions(inventoryService);
+            verifyNoInteractions(stockLedgerEngine);
             verifyNoInteractions(statusTransitionRecorder);
             verify(salesOrderRepository, never()).save(any(SalesOrder.class));
         }

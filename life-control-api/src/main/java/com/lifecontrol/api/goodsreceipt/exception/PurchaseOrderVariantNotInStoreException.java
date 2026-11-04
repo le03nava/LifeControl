@@ -6,7 +6,7 @@ import java.util.UUID;
  * {@code 400} when a received line references a product variant that does not belong to the purchase
  * order's store.
  *
- * <p>This is checked before {@code InventoryService.applyReceipt} runs, so the operator never sees
+ * <p>This is checked before {@code StockLedgerEngine.applyReceipt} runs, so the operator never sees
  * the mutator's bare {@link IllegalArgumentException} (W2b debt #4); the failure is typed and names
  * the offending line.</p>
  */

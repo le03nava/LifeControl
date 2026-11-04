@@ -437,8 +437,8 @@ class StockLedgerSchemaMigrationIntegrationTest extends AbstractPostgresIntegrat
      * stock from two locations books one movement per location under one line's source — so the second row it
      * needs was refused.
      *
-     * <p>Measured, not supposed: {@code InventoryService.applySaleDeduction} writes one legacy {@code SALE} row
-     * per location it drains ({@code InventoryService:474-500}), a {@code stock_movement} names exactly one
+     * <p>Measured, not supposed: {@code StockLedgerEngine.applySaleDeduction} writes one legacy {@code SALE} row
+     * per location it drains ({@code StockLedgerEngine:474-500}), a {@code stock_movement} names exactly one
      * {@code store_location_id} ({@code V60:120}), and {@code StockLedgerWriter}'s javadoc records the collision
      * as the first of the three shapes the index cannot satisfy. The legacy table had no such rule —
      * {@code inventory_movements} ({@code V10:30-38}) carries no unique key over its reference at all.</p>

@@ -20,7 +20,7 @@ import org.junit.jupiter.api.Test;
  * imports the sales-order package. The stock ledger is the thing that decides whether a sale may happen, so
  * the exception belongs to the side that raises it and {@code salesorder} is the caller. {@code
  * odd/tasks/ledger-mirror-retirement.md} S6 makes that the rule, together with the deletion of {@code
- * InventoryService}; this test is the half that cannot be expressed as a compile error, because a cycle of
+ * StockLedgerEngine}; this test is the half that cannot be expressed as a compile error, because a cycle of
  * two packages compiles happily.</p>
  *
  * <p>It scans the module's own sources rather than class files: an unused import would not survive into the
