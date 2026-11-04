@@ -53,7 +53,7 @@ import com.lifecontrol.api.supplier.model.Supplier;
 import com.lifecontrol.api.supplier.repository.SupplierRepository;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
-import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -190,10 +190,11 @@ public class PurchaseOrderService {
 
         // ADR-0003 decision 4: ONE date is read and the period comes from it, so the allocation and the
         // render cannot disagree about which period the document belongs to. `purchase_orders` carries no
-        // `order_date` column (V1:313-325 has only created_at/updated_at), so this value is the document's
-        // own date for numbering purposes and nothing else — the ADR names a column the table does not have.
-        var documentDate = LocalDate.now();
-        var period = DocumentNumberRenderer.periodOf(documentDate);
+        // `order_date` column (`V1__baseline_schema.sql:317-328` declares only created_at/updated_at), so the
+        // instant below is also written to the row: `created_at` IS the document's own date, and a second
+        // `LocalDateTime.now()` at flush is how a number for one month lands on a row dated the next.
+        var numberedAt = LocalDateTime.now();
+        var period = DocumentNumberRenderer.periodOf(numberedAt.toLocalDate());
 
         // The allocation is the last write before the row is created, not the last write before commit:
         // `purchase_orders` needs its number at INSERT time, so "allocate as the last write before commit"
@@ -220,6 +221,10 @@ public class PurchaseOrderService {
                 .status(orderState)
                 .comments(request.comments())
                 .enabled(true)
+                // Both audit columns carry the same instant the period was taken from, so the row and its
+                // number state the same date; `PurchaseOrder` keeps them across persist.
+                .createdAt(numberedAt)
+                .updatedAt(numberedAt)
                 .build();
 
         // Build the lines first: a line cannot be written before the order it belongs to has an id.

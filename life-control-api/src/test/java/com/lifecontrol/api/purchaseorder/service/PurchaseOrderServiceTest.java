@@ -15,6 +15,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.lifecontrol.api.common.auth.CurrentUserContext;
+import com.lifecontrol.api.common.document.DocumentNumberRenderer;
 import com.lifecontrol.api.common.document.DocumentSequenceAllocator;
 import com.lifecontrol.api.common.document.DocumentType;
 import com.lifecontrol.api.common.state.DocumentStateCatalog;
@@ -515,6 +516,44 @@ class PurchaseOrderServiceTest {
             assertThat(created.getDocType()).isEqualTo("PURCHASE_ORDER");
             assertThat(created.getSeqValue()).isEqualTo(1L);
             verify(documentSequenceAllocator).allocate(companyId, DocumentType.PURCHASE_ORDER, created.getSeqPeriod());
+        }
+
+        @Test
+        @DisplayName("should number the order in the period of the date its own row records")
+        void numbersTheOrderInThePeriodOfTheDateItsRowRecords() {
+            var request = new PurchaseOrderRequest(supplierId, storeId, pmId, draftStatusId, "Comments", List.of());
+
+            when(supplierRepository.findByIdAndCompanyId(supplierId, companyId)).thenReturn(Optional.of(supplier));
+            when(companyStoreRepository.findById(storeId)).thenReturn(Optional.of(store));
+            when(paymentMethodRepository.findById(pmId)).thenReturn(Optional.of(paymentMethod));
+            catalogRow(draftStatus);
+            when(documentSequenceAllocator.allocate(eq(companyId), eq(DocumentType.PURCHASE_ORDER), anyString()))
+                    .thenReturn(1L);
+            var captor = ArgumentCaptor.forClass(PurchaseOrder.class);
+            when(purchaseOrderRepository.save(captor.capture())).thenAnswer(inv -> {
+                var po = inv.getArgument(0, PurchaseOrder.class);
+                po.setId(poId);
+                return po;
+            });
+
+            service.createPurchaseOrder(request);
+
+            // `purchase_orders` carries no order_date (V1:317-328 has only created_at/updated_at), so the
+            // date the row records IS the document's own date, and ADR-0003 decision 4 says one date is read
+            // for the period. A period taken from one clock read and a created_at stamped by a second one is
+            // how a number for October ends up on a row dated November, so the order has to carry the very
+            // instant its number was allocated in and the pair has to agree.
+            var created = captor.getValue();
+            assertThat(created.getCreatedAt())
+                    .as("the order carries the instant its number was allocated in, not a later reading at flush")
+                    .isNotNull();
+            assertThat(created.getSeqPeriod())
+                    .as("the period is the period of the date the row records")
+                    .isEqualTo(DocumentNumberRenderer.periodOf(
+                            created.getCreatedAt().toLocalDate()));
+            assertThat(created.getUpdatedAt())
+                    .as("a row born just now has not been updated since")
+                    .isEqualTo(created.getCreatedAt());
         }
 
         @Test
