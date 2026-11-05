@@ -38,15 +38,15 @@
 
 | ID | Specs | Task | Depends | Route | Commit |
 | --- | --- | --- | --- | --- | --- |
-| T1 | S1, S2, S3 | API: `currency/dto/CurrencyResponse`, `currency/service/CurrencyService` (`@Cacheable("currencies")`), `currency/controller/CurrencyController` (`GET`, `@PreAuthorize("isAuthenticated()")`, `includeDisabled`), `findByEnabledTrue()` on `CurrencyRepository`, the `TENANT_AGNOSTIC_PATHS` entry, and the `currencies` region in `CacheConfig.simpleCacheManager()` | — | writer (backend unit) | C1 |
-| T2 | S1, S2, S3 | API tests: `CurrencyControllerTest`, `CurrencyControllerSecurityTest` (401 without token, 200 with any authenticated role, `includeDisabled` filtering), the `TenantScopeFilterIntegrationTest` case that fails without the S3 entry, and the two cache parity tests the new region moves (`CacheManagerSelectionTest`, `CacheValueCodecTest`) | T1 | writer (backend unit) | C1 |
-| T2b | S1 | Pin the one-entry-per-shape invariant with `CurrencyServiceCacheTest`, and correct the stale "six cache regions" prose in `RedisOutagePolicyTest` | T2 | inline | C1 |
-| T3 | S4, S5 | Angular model: `currency` on `Company`, `CompanyRequest` and `CompanyControl` | — | writer (web unit) | C2 |
-| T4 | S1 | Angular data: `Currency` model and `CurrencyService` cloned from `country.service.ts` (signals + `getCurrencies(force)`, no `includeDisabled` per D2) | T1, T3 | writer (web unit) | C2 |
-| T5 | S4, S5, S6 | Angular UI: required `currency` control, catalog-loaded `<mat-select>` following `address-form.html`'s country select, catalog passed as an `input()` from the page, and `currency` in `buildCompanyRequest()` | T3, T4 | writer (web unit) | C2 |
-| T6 | S4, S5, S6 | Angular tests: `fillRequiredFields()` fills the new control, exact POST/PUT body assertions, and every `Company` mock that gains a required field — including the nineteen literals in the fifteen sibling specs the spec-wide typecheck surfaced | T5 | writer (web unit) | C2 |
-| T7 | S4, S5 | E2E: `e2e/specs/companies.spec.ts` fills the select and adjusts the required-error count, and `e2e/mocks/api.ts` serves `/api/currencies` | T5 | writer (web unit) | C2 |
-| T8 | S1, S3, S6 | Docs: `AGENTS.md` (the catalog endpoint, the tenancy-agnostic list, the cached-region list, and the company form's required field) and `docs/` | T1–T7 | inline | C3 |
+| T1 | S1, S2, S3 | API: `currency/dto/CurrencyResponse`, `currency/service/CurrencyService` (`@Cacheable("currencies")`), `currency/controller/CurrencyController` (`GET`, `@PreAuthorize("isAuthenticated()")`, `includeDisabled`), `findByEnabledTrue()` on `CurrencyRepository`, the `TENANT_AGNOSTIC_PATHS` entry, and the `currencies` region in `CacheConfig.simpleCacheManager()` | — | writer (backend unit) | `1ae71bce` |
+| T2 | S1, S2, S3 | API tests: `CurrencyControllerTest`, `CurrencyControllerSecurityTest` (401 without token, 200 with any authenticated role, `includeDisabled` filtering), the `TenantScopeFilterIntegrationTest` case that fails without the S3 entry, and the two cache parity tests the new region moves (`CacheManagerSelectionTest`, `CacheValueCodecTest`) | T1 | writer (backend unit) | `1ae71bce` |
+| T2b | S1 | Pin the one-entry-per-shape invariant with `CurrencyServiceCacheTest`, and correct the stale "six cache regions" prose in `RedisOutagePolicyTest` | T2 | inline | `1ae71bce` |
+| T3 | S4, S5 | Angular model: `currency` on `Company`, `CompanyRequest` and `CompanyControl` | — | writer (web unit) | `40e0f8a3` |
+| T4 | S1 | Angular data: `Currency` model and `CurrencyService` cloned from `country.service.ts` (signals + `getCurrencies(force)`, no `includeDisabled` per D2) | T1, T3 | writer (web unit) | `40e0f8a3` |
+| T5 | S4, S5, S6 | Angular UI: required `currency` control, catalog-loaded `<mat-select>` following `address-form.html`'s country select, catalog passed as an `input()` from the page, and `currency` in `buildCompanyRequest()` | T3, T4 | writer (web unit) | `40e0f8a3` |
+| T6 | S4, S5, S6 | Angular tests: `fillRequiredFields()` fills the new control, exact POST/PUT body assertions, and every `Company` mock that gains a required field — including the nineteen literals in the fifteen sibling specs the spec-wide typecheck surfaced | T5 | writer (web unit) | `40e0f8a3`, `6d2650b1` |
+| T7 | S4, S5 | E2E: `e2e/specs/companies.spec.ts` fills the select and adjusts the required-error count, and `e2e/mocks/api.ts` serves `/api/currencies` | T5 | writer (web unit) | `40e0f8a3` |
+| T8 | S1, S3, S6 | Docs: `AGENTS.md` (the catalog endpoint, the tenancy-agnostic list, the cached-region list, and the company form's required field) and `life-control-api/AGENTS.md` | T1–T7 | inline | this commit |
 | T9 | — | Verification: the API slice, `npm run test:coverage:check`, `npm run lint`, `npm run test:e2e` | T2b, T6, T7 | inline | — |
 
 **Total task count: 10.**
@@ -92,3 +92,14 @@
 **L7 — the client's required field reaches further than one screen** (2026-11-05): making `Company.currency` required turned up nineteen `Company` literals in fifteen sibling specs across `countries`, `regions`, `stores`, `zones`, `hr`, `products` and `profile`. `angular.json` compiles every `src/**/*.spec.ts`, so they are a red suite, not a style nit; each gained one `currency: 'MXN'` line and nothing else. `tsc -p tsconfig.spec.json --noEmit` is clean.
 
 **L8 — a follow-up this unit does not take** (2026-11-05): an existing company whose currency is later disabled cannot be saved at all today, because `CompanyService.updateCompany` calls `resolveCurrency` on every update and `resolveCurrency` refuses a disabled code **even when the value is unchanged**. Pre-existing API behaviour; today the catalog holds one enabled row (`MXN`), so the state is unreachable. Left out of scope on purpose — and the UI does not invent a disabled option for it either (D1/D2): the catalog renders as the catalog.
+
+**L9 — D3's "docs/" resolves to the two `AGENTS.md` surfaces** (2026-11-05): `docs/` holds only `adr/`, and every file there is a frozen decision record. Writing a new ADR for a catalogue endpoint would be a decision nobody took, and rewriting `0002-money-first-class.md` would destroy frozen evidence — so the human-readable half of D3 lands in the root `AGENTS.md` (`## Moneda de la empresa`) and the module one (`/api/currencies` in the endpoint map, `currencies` in the cached regions, and a new subsection on `TenantScopeFilter`'s closed exemption list, which is the trap this unit walked into).
+
+## Evidence log
+
+| Date | Evidence |
+| --- | --- |
+| 2026-11-05 | `1ae71bce` — API unit: `GET /api/currencies`, the `TENANT_AGNOSTIC_PATHS` entry (RED `expected:<200> but was:<403>` observed first), the `currencies` cache region, and the one-entry-per-shape test (RED observed against a constant key: 2 of 3 failed) |
+| 2026-11-05 | `40e0f8a3` — web unit: required `Moneda` select starting empty, `CurrencyService`, one key in `buildCompanyRequest()`, e2e mocks. Focused vitest 24 files / 514 tests green; `ng test --no-coverage` on the companies feature 19/19 after the REDs |
+| 2026-11-05 | `6d2650b1` — the nineteen `Company` literals in twenty-five sibling spec files, which `tsc -p tsconfig.spec.json --noEmit` reported as `TS2741` before and accepts after |
+| 2026-11-05 | `.github/scripts/tests/odd-status-headers.test.sh` — 78 passed, 0 failed, 41 fixtures asserted |

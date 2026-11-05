@@ -201,6 +201,7 @@ com.lifecontrol.api/
 | `/api/companies/{id}/countries/{cid}/regions/{rid}/zones` | `lc-admin\|lc-company\|lc-company-country\|lc-company-region\|lc-company-zone\|lc-company-zone-read` (read) / `lc-admin\|lc-company\|lc-company-country\|lc-company-region\|lc-company-zone` (write, method-level) | Zones within a region              |
 | `/api/companies/{id}/countries/{cid}/regions/{rid}/zones/{zid}/stores` | `lc-admin\|lc-company\|lc-company-country\|lc-company-region\|lc-company-zone\|lc-company-store\|lc-company-store-read` (read) / `lc-admin\|lc-company\|lc-company-country\|lc-company-region\|lc-company-zone\|lc-company-store` (write, method-level) | Stores within a zone               |
 | `/api/countries, /api/measure-units, /api/payment-methods, /api/statuses, /api/status-types` | authenticated (read) / `lc-admin\|lc-country\|lc-measure-unit\|lc-payment-method\|lc-status\|lc-status-type` (write) | Catalog CRUD — method-level `@PreAuthorize` (`Roles.ADMIN` + domain role for writes) |
+| `/api/currencies`                               | authenticated (read)                  | Platform currency catalog, read-only: seeded by migration (`V57`), no write path. Enabled codes only unless `?includeDisabled=true` |
 | `/api/activity-logs`                            | `lc-admin`                 | Audit trail query (paginated, filterable) |
 | `/api/purchase-orders`                          | authenticated (read) / `lc-admin\|lc-sales` (write, method-level) | Purchase order CRUD + line items (sales "orders" domain); a line's variant is resolved **inside the company that owns the order's store**, so a variant of another tenant is a 404 and nothing is written |
 | `/api/goods-receipts`                           | `lc-admin\|lc-company\|lc-company-country\|lc-company-region\|lc-company-zone\|lc-company-store\|lc-receiving` (write) / same set + `lc-company-store-read` (read, method-level) | Goods receipts (receptions): register against a purchase order (`POST`, 201) and read (paginated list + `GET /{id}`); non-admins are scoped to their `company_store_id` claim, and the receipt refuses a variant the receiving store's company does not own (404, no stock and no ledger row) |
@@ -564,6 +565,18 @@ Role-based access:
     .anyRequest().permitAll())
 ```
 
+### Tenant-scope exemption list (`TenantScopeFilter`)
+
+`TenantScopeFilter` refuses a request whose token carries **more than one scope value** on any path that
+is not on its closed `TENANT_AGNOSTIC_PATHS` list, and it refuses **before routing** — so the answer is a
+403 that looks like a permissions problem and is actually a missing list entry. Every platform catalog is
+on that list (`/api/countries`, `/api/measure-units`, `/api/currencies`, `/api/companies`, …), and adding a
+catalog endpoint without adding its path is the trap: the controller, its service and its security test
+can all be green while a real multi-claim token gets 403.
+
+`TenantScopeFilterIntegrationTest` pins each entry, and the new entry's case is written to **fail with 403
+first** — that observation is the only proof the entry is what makes it work.
+
 ### Role Setup in Keycloak
 
 | Property          | Value                    |
@@ -697,8 +710,12 @@ app.rate-limit.endpoints./api/users-admin/users.duration=1m
   `spring-boot-starter-cache`, so nothing else supplies one: `redis` (also what an absent value
   means) is a `RedisCacheManager` with a 1-hour TTL, shared by every instance; `simple` is the
   in-memory `SimpleCacheManager` the `test` profile selects; `none` disables caching.
-- Cached regions: `countries`, `statusTypes`, `statuses`, `measureUnits`, `paymentMethods`,
-  `seniorityLevels`. The company-scoped store-tree catalogs (`companyRegions`, `companyZones`) are
+- Cached regions: `countries`, `currencies`, `statusTypes`, `statuses`, `measureUnits`, `paymentMethods`,
+  `seniorityLevels`. `currencies` is one region holding one entry per shape of its read
+  (`includeDisabled` false and true), because the two are different answers: an entry of one served to
+  the other is the failure `CurrencyServiceCacheTest` pins. It is read-only and has no `@CacheEvict`
+  counterpart — the catalog is seeded by migration, so nothing in the application can change a cached
+  row. The company-scoped store-tree catalogs (`companyRegions`, `companyZones`) are
   deliberately **not** cached: their reads run a scope check whose *result* depends on the caller —
   the claim-filtered list for a region-scoped caller, the whole country for a broader one — so an
   entry warmed by one caller was served to the other, and a cache hit skipped the check entirely
