@@ -44,7 +44,11 @@ stock into a store that never priced it hides the variant instead of showing it 
 **A product is a family with at least one variant; a variant declares a unit; price is a listing.**
 
 1. **`product.variant_mode` is `SIMPLE` or `MULTI`**, set at creation, immutable once its variant has
-   stock movements. The mode is a property of the article, not of the request that created it.
+   stock movements. The mode is a property of the article, not of the request that created it. **Stock
+   movements are the only freeze condition**: step 6's "a listing or non-zero stock" named a substitute,
+   not an addition — when it was written a per-store stock row was the only "movement" there was, and the
+   listing clause expired with the ledger that replaced it (#778). `V76` enforces this decision and not
+   step 6's wording, and states the omission in its own header.
 2. **A product always has at least one variant, and creating one is one transaction.** `SIMPLE` means
    exactly one, written by the backend with the product and never shown as a step; `MULTI` means the
    variants are declared in the creation request and at least one is required — none is refused.
@@ -164,7 +168,8 @@ that classifies it.
    stock and no listing is returned, flagged, instead of missing.
 6. **Mode immutability lands with ADR-0001.** Today the only "movement" is a per-store stock row, so the
    guard is "refuse a mode change while any variant holds a listing or non-zero stock"; once
-   `stock_movement` exists, the guard reads the ledger.
+   `stock_movement` exists, the guard reads the ledger. *(Settled: `stock_movement` exists, the guard
+   reads it, and the listing clause did not survive it — decision 1, #778.)*
 
 ## Rejected alternatives
 

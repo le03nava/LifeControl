@@ -51,13 +51,17 @@ import org.junit.jupiter.api.Test;
  * re-sends an unchanged value is not refused (the column being in the {@code SET} list fires the trigger even
  * when the value does not move), an {@code UPDATE} that does not name the column is untouched, and a writer
  * scoped to another company changes nothing at all, so the guard is not reachable from outside the tenant.
- * Case 8 pins the installation itself.</p>
+ * Case 8 pins the installation itself. Case 9 pins the boundary decision 1 rests on: a product whose variant
+ * holds only a listing — a price in a store, with no ledger row behind it — is still reclassifiable.</p>
  *
- * <p><b>What this suite deliberately does not cover.</b> {@code variant_listing} is not a freeze condition in
- * this slice: ADR-0006 migration step 6 (the pre-ledger formulation) named "a listing or non-zero stock", and
- * decision 1 — the accepted decision — names stock movements. Adding the listing later is additive; #774's
- * approval is decision 1's letter, and the migration's header records the omission so it is a decision and not
- * an oversight.</p>
+ * <p><b>What this suite settles instead of leaving open.</b> {@code variant_listing} is not a freeze condition,
+ * and that is a decision rather than a gap: #778 asked whether it should be one, the answer was no, and
+ * decision 1 now says so in one sentence. Migration step 6 named "a listing or non-zero stock" when it was
+ * written, before the ledger existed and when a per-store stock row was the only "movement" there was; the
+ * listing clause expired with the ledger that replaced it, which is why {@code V76}'s header records the
+ * omission. The listing case below pins the current behaviour — accepted, not refused — so the gap is a
+ * decision and not an accident, and widening it later is still additive: one more {@code EXISTS} in the guard,
+ * and nothing here to unwind.</p>
  */
 @DisplayName("Product variant mode immutability migration (V76)")
 class ProductVariantModeImmutabilityMigrationIntegrationTest extends AbstractPostgresIntegrationTest {
@@ -348,6 +352,27 @@ class ProductVariantModeImmutabilityMigrationIntegrationTest extends AbstractPos
                 .contains("FOR EACH ROW EXECUTE FUNCTION refuse_variant_mode_change()");
     }
 
+    // --- the settled boundary: a price in a store is not a movement ---
+
+    @Test
+    @DisplayName("a product whose variant holds only a listing is still reclassifiable: a price is not a movement")
+    void multiToSimple_WithOnlyAListing_IsAccepted() throws Exception {
+        migrateToHead();
+        var company = insertCompany();
+        var tree = insertTree(company);
+        var product = insertProduct(company, "V76-LIST-1", "Listing Only", "MULTI");
+        var variant = insertVariant(company, product, "LIST-1", "Only");
+        insertListing(company, tree, variant, "99.9000");
+
+        assertThat(countMovements(company))
+                .as("the case is about a listing with no ledger row behind it")
+                .isZero();
+        assertThat(setMode(company, product, "SIMPLE"))
+                .as("a listing is a price in a store, not a movement: it does not freeze the mode")
+                .isEqualTo(1);
+        assertThat(storedMode(company, product)).isEqualTo("SIMPLE");
+    }
+
     // --- migrations ---
 
     private void migrateTo(String target) {
@@ -484,6 +509,15 @@ class ProductVariantModeImmutabilityMigrationIntegrationTest extends AbstractPos
                         '%s', 'variant mode immutability fixture')
                 """.formatted(
                         UUID.randomUUID(), company, tree.storeId(), tree.locationId(), variant, UUID.randomUUID()));
+    }
+
+    /** A price in a store — the fact the decision is about: one `variant_listing` row and nothing in the ledger. */
+    private void insertListing(UUID company, Tree tree, UUID variant, String price) throws SQLException {
+        execute(
+                company,
+                "INSERT INTO variant_listing (company_id, product_variant_id, company_store_id, list_price, currency)"
+                        + " VALUES ('" + company + "', '" + variant + "', '" + tree.storeId() + "', " + price
+                        + ", 'MXN')");
     }
 
     /** The {@code measure_units} row {@code V3} seeds as "Pieza": read, never invented. */
