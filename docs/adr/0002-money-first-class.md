@@ -305,11 +305,13 @@ the amount, so a card payment cannot carry a change value even by mistake.
    > `listPrice - discountApplied` — the **unit** net price — and `recalculateTotalAmount` sums those unit
    > prices into `total_amount`, so a legacy document's total is a sum of unit prices. Backfilling
    > `subtotal` from line totals would leave every existing document disagreeing with its own parts by its
-   > own quantity per line, which `ck_order_rounding_bounded` refuses. `V80` therefore records a legacy
+   > own quantity per line, and it is `V80`'s step-6 report — not `ck_order_rounding_bounded`, which bounds
+   > `rounding_adjustment` and stays `0` — that refuses it, measured as
+   > `V80 read 1 documents whose parts do not add up to their total`. `V80` therefore records a legacy
    > document as `subtotal = total_amount` with the other three parts at `0`, and `total_amount` keeps its
-   > value exactly. M2 is **forward-only** for documents written before `V80`, and `ck_item_total` waits for
-   > the slice that also moves the writer, because it would otherwise refuse every legacy line with
-   > `quantity <> 1`.
+   > value exactly. M2 is **forward-only**: false for every row written before the slice that computes the
+   > parts (T6/T7), and `ck_item_total` waits for that same slice, because it would otherwise refuse every
+   > legacy line with `quantity <> 1`.
 4. **For orders already `Completed`, insert one `sale_payment` per order** with `amount = total_amount`,
    `direction = 'CHARGE'`, the order's `payment_method_id` and `paid_at = coalesce(o.updated_at,
    o.order_date)` — **not `now()`**, which would date every historical payment the day of the deploy
