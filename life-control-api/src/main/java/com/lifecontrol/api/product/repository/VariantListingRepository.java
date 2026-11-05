@@ -17,8 +17,10 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p>Two operations, and the small surface is the point: this slice moves the price <b>reads</b> onto the
  * listing and gives the store-stock endpoint a single writer for it, while {@code product_variant_store_stock}
- * keeps the position. There is no delete and no "disable": nothing in the tree may make a listing disappear
- * without the operator seeing it, and {@code enabled} has no writer yet (see {@link VariantListing}).</p>
+ * keeps the position. There is no delete and no disable: nothing in the tree may make a listing disappear
+ * without the operator seeing it, and a per-store availability flag is out of scope by decision (issue #777,
+ * ADR-0006 decision 5) — a listing is a price, and the row's existence is what makes the variant sellable
+ * there (decision 6).</p>
  */
 @Repository
 public interface VariantListingRepository extends JpaRepository<VariantListing, UUID> {
@@ -47,8 +49,8 @@ public interface VariantListingRepository extends JpaRepository<VariantListing, 
      * <p><b>What an update does NOT touch.</b> On conflict only {@code list_price} changes: the stored
      * currency is the currency that price was stated in, and rewriting it would reinterpret an amount the
      * company already published under a different one — the failure class ADR-0002 decision 2 refuses
-     * ({@code V57:35-37}). {@code enabled} is left as it is for the same reason: a price write is not an
-     * availability toggle.</p>
+     * ({@code V57:35-37}). A price write is not an availability toggle, and there is no toggle to write:
+     * the per-store availability flag is out of scope by decision and {@code V79} dropped its column.</p>
      *
      * <p>The method carries its own read-write transaction, like
      * {@code ProductVariantStoreStockRepository#insertStoreStockIfAbsent}, so a direct call cannot land in

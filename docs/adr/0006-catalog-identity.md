@@ -89,8 +89,13 @@ stock into a store that never priced it hides the variant instead of showing it 
 4. **`variant.bar_code` is required for `MULTI` and optional for `SIMPLE`**, unique per tenant when
    present. A single-variant article has no barcode to give.
 5. **`variant_listing` replaces the price half of `product_variant_store_stock`**: `(variant, store)`
-   with `list_price`, `currency`, `tax_rate_id`, `enabled`, and **no stock and no cost** — stock is
-   ADR-0001's ledger, cost is the inbound movement's and the valuation projection's.
+   with `list_price`, `currency`, `tax_rate_id`, and **no stock and no cost** — stock is ADR-0001's
+   ledger, cost is the inbound movement's and the valuation projection's. **A per-store availability
+   toggle is out of scope by decision** (#777): `V58` shipped an `enabled` column and nothing in the
+   tree ever wrote it, so "listed" was decided by the presence of the row while the column promised a
+   state no client could reach. `V79` drops the column rather than building the toggle, and "sellable
+   in this store" keeps meaning exactly what decision 6 says it means — the row exists — instead of
+   leaving two answers that would disagree the day an availability flag landed.
 6. **"Sellable in this store" is `variant_listing`; "there is stock here" is the ledger.** A sale needs
    both. A receipt may create stock in a store with no listing (S1) — a legitimate state the POS reports
    as **stock without price**, not one it hides.
@@ -141,7 +146,7 @@ END $$;
 CREATE TRIGGER trg_variant_matches_mode BEFORE INSERT OR UPDATE ON product_variants
     FOR EACH ROW EXECUTE FUNCTION assert_variant_matches_mode();
 
--- ─── listing: price and availability per store, never stock, never cost ──────
+-- ─── listing: price per store, never stock, never cost, no availability flag ─
 CREATE TABLE variant_listing (
     id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     company_id         UUID NOT NULL,
@@ -150,7 +155,6 @@ CREATE TABLE variant_listing (
     list_price         NUMERIC(19,4) NOT NULL CHECK (list_price >= 0),
     currency           CHAR(3) NOT NULL REFERENCES currency (code),
     tax_rate_id        UUID REFERENCES tax_rate (id),
-    enabled            BOOLEAN NOT NULL DEFAULT true,
     CONSTRAINT fk_listing_variant
         FOREIGN KEY (company_id, product_variant_id) REFERENCES product_variants (company_id, id),
     CONSTRAINT fk_listing_store
