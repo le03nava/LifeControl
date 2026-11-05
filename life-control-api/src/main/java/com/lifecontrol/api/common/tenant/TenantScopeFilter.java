@@ -71,8 +71,8 @@ import org.springframework.web.filter.OncePerRequestFilter;
  * <ul>
  *   <li>{@code /api/profile} — the subject's own row, and the caller's chosen company context;</li>
  *   <li>{@code /api/countries}, {@code /api/measure-units}, {@code /api/payment-methods},
- *       {@code /api/statuses}, {@code /api/status-types}, {@code /api/seniority-levels} — global catalogs
- *       with no {@code company_id} column;</li>
+ *       {@code /api/currencies}, {@code /api/statuses}, {@code /api/status-types},
+ *       {@code /api/seniority-levels} — global catalogs with no {@code company_id} column;</li>
  *   <li>{@code /api/activity-logs} — no tenant table;</li>
  *   <li>{@code /api/users-admin} — Keycloak administration, and it writes another subject's preferences;
  *       </li>
@@ -109,6 +109,7 @@ public class TenantScopeFilter extends OncePerRequestFilter {
             "/api/countries",
             "/api/measure-units",
             "/api/payment-methods",
+            "/api/currencies",
             "/api/statuses",
             "/api/status-types",
             "/api/seniority-levels",
