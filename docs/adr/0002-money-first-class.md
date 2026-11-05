@@ -299,6 +299,17 @@ the amount, so a card payment cannot carry a change value even by mistake.
    `NOT NULL` lands, and `total_amount`'s `NULL` becomes 0 for a document with no total yet — a
    `NULL` in a `CHECK` is not a refusal, it is a pass, and that is the one way a breakdown can be
    bypassed without an error.
+
+   > **Amended 2026-11-05 (D-f, `odd/tasks/money-first-class.md`).** The backfill above assumes
+   > `sales_order_items.final_price` is a line total. It is not: `SalesOrderService:555` writes
+   > `listPrice - discountApplied` — the **unit** net price — and `recalculateTotalAmount` sums those unit
+   > prices into `total_amount`, so a legacy document's total is a sum of unit prices. Backfilling
+   > `subtotal` from line totals would leave every existing document disagreeing with its own parts by its
+   > own quantity per line, which `ck_order_rounding_bounded` refuses. `V80` therefore records a legacy
+   > document as `subtotal = total_amount` with the other three parts at `0`, and `total_amount` keeps its
+   > value exactly. M2 is **forward-only** for documents written before `V80`, and `ck_item_total` waits for
+   > the slice that also moves the writer, because it would otherwise refuse every legacy line with
+   > `quantity <> 1`.
 4. **For orders already `Completed`, insert one `sale_payment` per order** with `amount = total_amount`,
    `direction = 'CHARGE'`, the order's `payment_method_id` and `paid_at = coalesce(o.updated_at,
    o.order_date)` — **not `now()`**, which would date every historical payment the day of the deploy
