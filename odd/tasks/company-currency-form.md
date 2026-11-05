@@ -49,8 +49,9 @@
 | T8 | S1, S3, S6 | Docs: `AGENTS.md` (the catalog endpoint, the tenancy-agnostic list, the cached-region list, and the company form's required field) and `life-control-api/AGENTS.md` | T1–T7 | inline | this commit |
 | T9 | — | Verification: the API slice, `npm run test:coverage:check`, `npm run lint`, `npm run test:e2e` | T2b, T6, T7 | inline | — |
 | T10 | S3 | `V78__seed_currency_process.sql` — seed the `CURRENCY` activity process the new controller derives, which the full API suite refused without (`ActivityLogIntegrationTest`) | T1 | inline | this commit |
+| T11 | S1 | `api-gateway/.../routes/Routes.java` — proxy `/api/currencies/**`, which `GatewayRouteCoverageTests` refused without: it derives every `/api` prefix from `life-control-api`'s controllers and fails any prefix the gateway does not route, because a request to it would be a gateway 404 | T1 | inline | this commit |
 
-**Total task count: 11.**
+**Total task count: 12.**
 
 ## Decisions
 
@@ -97,6 +98,8 @@
 **L9 — D3's "docs/" resolves to the two `AGENTS.md` surfaces** (2026-11-05): `docs/` holds only `adr/`, and every file there is a frozen decision record. Writing a new ADR for a catalogue endpoint would be a decision nobody took, and rewriting `0002-money-first-class.md` would destroy frozen evidence — so the human-readable half of D3 lands in the root `AGENTS.md` (`## Moneda de la empresa`) and the module one (`/api/currencies` in the endpoint map, `currencies` in the cached regions, and a new subsection on `TenantScopeFilter`'s closed exemption list, which is the trap this unit walked into).
 
 **L10 — the full suite caught a coupling the plan did not see** (2026-11-05): `./gradlew test` failed 2 of 4524 with `activity process 'CURRENCY' should be seeded — ActivityLogService discards its entries with only a WARN`. The guard derives a process name from every production controller's **package**, so `currency.controller` derives `CURRENCY`, and a process absent from `activity_processes` is dropped with a WARN — a catalog read would have been logged and thrown away, invisibly. That is the failure `V27` documents for `HR`, `PROVISIONING` and `GOODSRECEIPT`, and the guard exists precisely so the next domain added without a seed turns the suite red instead of going dark. `V78` seeds it, idempotent on the natural key. This is why the full suite runs even when the focused slices are green: `spotlessCheck` also failed on a line of `CurrencyServiceCacheTest`, which no focused run checks.
+
+**L11 — the third derived guard, and the first one my own verification missed** (2026-11-05): CI failed `api-gateway` with `GatewayRouteCoverageTests > everyApiPrefixIsReachableThroughTheGateway()` — the guard derives every `/api` prefix from `life-control-api`'s controllers and fails any prefix the gateway does not proxy, because such a request is a gateway 404 with the API healthy behind it. `/api/currencies/**` joined `Routes.java`. I ran the API suite, the Angular gates and the e2e but **not `api-gateway`**, so this is a gap in my gate list, not in CI: the branch added a controller, and three separate guards derive their expectations from controllers — the activity process from the package, the gateway route from the mapping, and the tenancy list from a hand-maintained closed list. Any future controller must run all three suites. Writing the fix here rather than arguing the guard is over-strict: it is right, and a 404 at the edge would have been invisible to every test I did run.
 
 ## Evidence log
 
