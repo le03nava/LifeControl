@@ -506,6 +506,8 @@ npm run test:coverage:check # unit + enforcement de umbrales de cobertura (local
 npm run test:e2e            # E2E con Playwright (mocks de Keycloak y API)
 ```
 
+> **`npm run test:e2e` con el stack de dev arriba**: Playwright reusa el servidor que ya escucha en `E2E_PORT` (4200 por default) cuando no hay `CI`, así que si el contenedor `life-control-app-angular` está corriendo ahí, la suite mide **esa imagen** y no tu worktree. El síntoma es engañoso: fallan justo las aserciones nuevas, con el DOM de una revisión anterior. Corré `E2E_PORT=4300 npm run test:e2e` en vez de bajar el stack.
+
 > CI: `.github/workflows/angular-ci.yml` corre `Lint & Build` y, en dos shards en paralelo, los unit
 > tests; un tercer job (`Coverage`) recombina los reportes blob de los shards con
 > `npm run test:coverage:merge:check` y falla si el merge baja del umbral — el comando local
