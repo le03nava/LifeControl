@@ -2,8 +2,8 @@
 
 **Repository**: LifeControl — `life-control-api` (`currency/`, `common/tenant/TenantScopeFilter`), `life-control-app-angular` (`features/companies/companies`), `odd/tasks/`
 **Branch**: `feat/company-currency-form`
-**Status**: implemented — the unit is the read-only currency catalog endpoint, its tenancy-agnostic registration, and the company form's required currency select (create and edit). T1–T5 are the code, T6–T7 the tests that pin both ends, T8 the docs. Nothing is deferred, and no migration is written: `V57__company_currency.sql` already created the catalog and the `NOT NULL` tenant column.
-**Created**: 2026-11-05 · **Risk**: none — no migration, no stored-data rewrite, and no consumed contract changes: `GET /api/currencies` is added, and `currency` already existed on `CompanyRequest` and `CompanyResponse` before this unit (the Angular client simply never sent it).
+**Status**: implemented — the unit is the read-only currency catalog endpoint, its tenancy-agnostic registration, the activity process the new controller derives, and the company form's required currency select (create and edit). T1–T5 are the code, T6–T7 the tests that pin both ends, T8 the docs and T10 the one reference row the full suite demanded. Nothing is deferred: no schema is changed, and the single migration is an idempotent seed (`V78`), because `V57__company_currency.sql` already created the catalog and the `NOT NULL` tenant column.
+**Created**: 2026-11-05 · **Risk**: none — no stored data is rewritten, no format changes, and no consumed contract breaks: `GET /api/currencies` is added, and `currency` already existed on `CompanyRequest` and `CompanyResponse` before this unit (the Angular client simply never sent it). `V78` inserts one reference row guarded on its natural key, the shape `V27` uses.
 
 ## Problem
 
@@ -48,8 +48,9 @@
 | T7 | S4, S5 | E2E: `e2e/specs/companies.spec.ts` fills the select and adjusts the required-error count, and `e2e/mocks/api.ts` serves `/api/currencies` | T5 | writer (web unit) | `40e0f8a3` |
 | T8 | S1, S3, S6 | Docs: `AGENTS.md` (the catalog endpoint, the tenancy-agnostic list, the cached-region list, and the company form's required field) and `life-control-api/AGENTS.md` | T1–T7 | inline | this commit |
 | T9 | — | Verification: the API slice, `npm run test:coverage:check`, `npm run lint`, `npm run test:e2e` | T2b, T6, T7 | inline | — |
+| T10 | S3 | `V78__seed_currency_process.sql` — seed the `CURRENCY` activity process the new controller derives, which the full API suite refused without (`ActivityLogIntegrationTest`) | T1 | inline | this commit |
 
-**Total task count: 10.**
+**Total task count: 11.**
 
 ## Decisions
 
@@ -95,6 +96,8 @@
 
 **L9 — D3's "docs/" resolves to the two `AGENTS.md` surfaces** (2026-11-05): `docs/` holds only `adr/`, and every file there is a frozen decision record. Writing a new ADR for a catalogue endpoint would be a decision nobody took, and rewriting `0002-money-first-class.md` would destroy frozen evidence — so the human-readable half of D3 lands in the root `AGENTS.md` (`## Moneda de la empresa`) and the module one (`/api/currencies` in the endpoint map, `currencies` in the cached regions, and a new subsection on `TenantScopeFilter`'s closed exemption list, which is the trap this unit walked into).
 
+**L10 — the full suite caught a coupling the plan did not see** (2026-11-05): `./gradlew test` failed 2 of 4524 with `activity process 'CURRENCY' should be seeded — ActivityLogService discards its entries with only a WARN`. The guard derives a process name from every production controller's **package**, so `currency.controller` derives `CURRENCY`, and a process absent from `activity_processes` is dropped with a WARN — a catalog read would have been logged and thrown away, invisibly. That is the failure `V27` documents for `HR`, `PROVISIONING` and `GOODSRECEIPT`, and the guard exists precisely so the next domain added without a seed turns the suite red instead of going dark. `V78` seeds it, idempotent on the natural key. This is why the full suite runs even when the focused slices are green: `spotlessCheck` also failed on a line of `CurrencyServiceCacheTest`, which no focused run checks.
+
 ## Evidence log
 
 | Date | Evidence |
@@ -103,3 +106,5 @@
 | 2026-11-05 | `40e0f8a3` — web unit: required `Moneda` select starting empty, `CurrencyService`, one key in `buildCompanyRequest()`, e2e mocks. Focused vitest 24 files / 514 tests green; `ng test --no-coverage` on the companies feature 19/19 after the REDs |
 | 2026-11-05 | `6d2650b1` — the nineteen `Company` literals in twenty-five sibling spec files, which `tsc -p tsconfig.spec.json --noEmit` reported as `TS2741` before and accepts after |
 | 2026-11-05 | `.github/scripts/tests/odd-status-headers.test.sh` — 78 passed, 0 failed, 41 fixtures asserted |
+| 2026-11-05 | Angular gates — `npx prettier --check "src/**/*.{ts,html,scss}"` clean, `npm run lint` clean, `npm run build` complete, `npm run test:coverage:check` OK on all four thresholds (86.57 / 86.22 / 80.91 / 89.51). The full unit suite ran inside the gate **without** the ten hook timeouts an earlier standalone `ng test` produced under load — contention, not regressions |
+| 2026-11-05 | API suite — `./gradlew test`: 4524 tests, 2 failed, both the `CURRENCY` activity seed. `spotlessCheck` failed on `CurrencyServiceCacheTest`. Both closed by `spotlessApply` and `V78`; the focused re-run is green (`spotlessCheck`, `spotbugsMain`, `ActivityLogIntegrationTest`, `*Currency*`, `CompanyCurrencyMigrationIntegrationTest`) |

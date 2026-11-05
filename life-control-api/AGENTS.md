@@ -700,6 +700,7 @@ app.rate-limit.endpoints./api/users-admin/users.duration=1m
 
 - `@Aspect` auto-logs every `@RestController` invocation
 - Resolves process from package (e.g. `company` → `COMPANY`) and event from HTTP method (GET → READ, POST → CREATE, etc.)
+- **A new controller package needs its process seeded in `activity_processes`, or its entries are discarded with only a WARN** — invisible, because a dropped row and a request that produced none look identical. `ProcessNameResolver` derives the name from the package segment, and `ActivityLogIntegrationTest` derives the same names from the production controllers, so the suite goes red on the next domain added without a seed (`V27` closed it for `HR`, `PROVISIONING`, `GOODSRECEIPT`; `V78` for `CURRENCY`). A focused test run will not catch it: the guard lives in the full suite
 - Override with `@ActivityLog(process = "CUSTOM", event = "CUSTOM")`
 - Best-effort: never fails the original request
 - Requires `ContentCachingFilter` to read request body multiple times

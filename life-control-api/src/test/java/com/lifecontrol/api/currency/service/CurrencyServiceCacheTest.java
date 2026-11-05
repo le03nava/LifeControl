@@ -107,7 +107,8 @@ class CurrencyServiceCacheTest {
 
             var first = codes(currencyService.getAllCurrencies(false));
 
-            when(currencyRepository.findByEnabledTrue()).thenThrow(new RuntimeException("the cache should have answered"));
+            when(currencyRepository.findByEnabledTrue())
+                    .thenThrow(new RuntimeException("the cache should have answered"));
 
             var second = codes(currencyService.getAllCurrencies(false));
 

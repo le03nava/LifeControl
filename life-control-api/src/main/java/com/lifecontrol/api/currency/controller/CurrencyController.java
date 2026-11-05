@@ -47,9 +47,8 @@ public class CurrencyController {
     @PreAuthorize("isAuthenticated()")
     @Operation(
             summary = "Get all currencies",
-            description =
-                    "Returns the platform currency catalog. Only enabled codes are returned unless "
-                            + "?includeDisabled=true is passed, which also returns the retired ones.")
+            description = "Returns the platform currency catalog. Only enabled codes are returned unless "
+                    + "?includeDisabled=true is passed, which also returns the retired ones.")
     public ResponseEntity<List<CurrencyResponse>> getAllCurrencies(
             @RequestParam(name = "includeDisabled", defaultValue = "false") boolean includeDisabled) {
         return ResponseEntity.ok(currencyService.getAllCurrencies(includeDisabled));
