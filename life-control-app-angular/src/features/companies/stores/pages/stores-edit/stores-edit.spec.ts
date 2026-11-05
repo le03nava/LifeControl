@@ -37,6 +37,7 @@ describe('StoresEdit', () => {
       rfc: 'RFC123',
       email: 'test@company.com',
       phone: '+525512345678',
+      currency: 'MXN',
       enabled: true,
       createdAt: '',
       updatedAt: '',

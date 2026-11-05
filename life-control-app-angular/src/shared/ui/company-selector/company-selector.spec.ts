@@ -14,6 +14,7 @@ function createCompany(id: string, key: string, name: string): Company {
     rfc: `RFC${id}`,
     email: `contact@${key}.com`,
     phone: '5551234567',
+    currency: 'MXN',
     enabled: true,
     createdAt: '2024-01-01',
     updatedAt: '2024-01-01',
