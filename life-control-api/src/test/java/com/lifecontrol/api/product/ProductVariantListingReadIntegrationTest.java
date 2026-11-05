@@ -58,9 +58,9 @@ import tools.jackson.databind.ObjectMapper;
 /**
  * The four states of ADR-0006 decision 6, read where they are decided: the two store-scoped queries.
  *
- * <p>Decision 6 (<code>docs/adr/0006-catalog-identity.md:60-64</code>) splits one fact into two — "sellable
- * in this store" is {@code variant_listing}, "there is stock here" is the position — and migration step 5
- * (<code>:153-156</code>) states the read consequence: the POS and the search "join the listing (price) and
+ * <p>ADR-0006 decision 6 splits one fact into two — "sellable
+ * in this store" is {@code variant_listing}, "there is stock here" is the position — and ADR-0006
+ * migration step 5 states the read consequence: the POS and the search "join the listing (price) and
  * the position projection (quantity) independently, so all four states are representable and a variant with
  * stock and no listing is returned, flagged, instead of missing".</p>
  *

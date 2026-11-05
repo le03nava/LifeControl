@@ -14,6 +14,38 @@
 - **Blocks**: ADR-0001 (the ledger's key is the variant; the listing is the price half of a sale)
 - **Replaces**: `V13`'s per-store row, and the barcode and unit rules of `V14`, `V29` and `V40`
 
+## Referring to this ADR
+
+This document is cited by **name**, never by line range. It is a living ADR: every paragraph added
+above a citation moves it, and nothing in this tree re-measures those numbers. When this rule was
+written (#785) all nine citations in the tree pointed at text that was not what they claimed, and
+three of them could not be repaired at all.
+
+Name one of these instead — a reader can grep for each of them, and none of them moves:
+
+| Address | Example |
+| --- | --- |
+| a decision number | `ADR-0006 decision 5` |
+| an invariant id | `ADR-0006 C7` |
+| a migration step | `ADR-0006 migration step 5` |
+| a section heading | this ADR's `## Schema` block |
+
+**The three frozen exceptions.** `V58__variant_listing.sql` cites this document by line range at
+lines 11, 23 and 90, and those can never be repaired: `V58` is a shipped migration, so editing a
+comment there changes its Flyway checksum and fails validation on every database that already ran it.
+What each one intended to say is recorded here so the stale numbers are not mistaken for a
+measurement:
+
+| Citation | What it intended to say |
+| --- | --- |
+| `V58:11` | decision 5 — the listing replaces the price half of `product_variant_store_stock` |
+| `V58:23` | this ADR's `## Schema` block — the two deliberate departures from it |
+| `V58:90` | this ADR's `## Schema` block — the column order, types and constraint names it mirrors |
+
+`.github/scripts/tests/adr-line-citations.test.sh` fails a new line-range citation anywhere under
+`life-control-api/src` or `docs`, and fails when one of the three entries stops citing, so the
+exemption is re-read on every run instead of assumed.
+
 ## Context
 
 **A barcode for everything.** `V14` made the variant the global sellable definition and in the same

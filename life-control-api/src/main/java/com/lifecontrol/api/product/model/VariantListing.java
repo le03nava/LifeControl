@@ -14,16 +14,16 @@ import org.hibernate.type.SqlTypes;
 /**
  * A price in one store: the listing of ADR-0006 decision 5 ({@code variant_listing}, {@code V58}).
  *
- * <p><b>Why this is a separate row from {@link ProductVariantStoreStock}.</b> Decision 5
- * (<code>docs/adr/0006-catalog-identity.md:57-59</code>) splits two facts that shared one lifecycle until
+ * <p><b>Why this is a separate row from {@link ProductVariantStoreStock}.</b> ADR-0006 decision 5
+ * splits two facts that shared one lifecycle until
  * {@code V58}: "this store sells the variant, at this price" is a listing, and "there are units here" is the
  * position. Before the split the price screen was also a stock editor, and a receipt into a store that had
  * never priced an article hid it instead of reporting "stock without price" — the state decision 6
- * (<code>:60-64</code>) names and this slice stops hiding.</p>
+ * names and this slice stops hiding.</p>
  *
  * <p><b>What it deliberately does not carry.</b> No {@code stock} and no {@code cost_price}: quantity is
- * ADR-0001's ledger and cost is the inbound movement's (invariant C7,
- * <code>docs/adr/0006-catalog-identity.md:138</code>). No {@code tax_rate_id} either, and that is a
+ * ADR-0001's ledger and cost is the inbound movement's (ADR-0006 C7).
+ * No {@code tax_rate_id} either, and that is a
  * reported departure rather than an omission: {@code tax_rate} does not exist in the tree yet — it is
  * ADR-0002's T4, gated on its decision D-d — so {@code V58:33-39} adds the column later, by
  * {@code ALTER}, in the slice that creates the table it references.</p>
