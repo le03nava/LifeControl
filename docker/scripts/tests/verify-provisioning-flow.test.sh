@@ -739,7 +739,10 @@ root="$(new_root)"
 if build_layout "$root"; then
 	export VPF_SHIM_STATE_DIR="$root/state"
 	unset PROVISIONING_VERIFY_COMPANY_ID
-	export PROVISIONING_VERIFY_TOKEN="$(make_jwt "$COMPANY_ID")"
+	# Declared and exported separately: `export X="$(cmd)"` masks cmd's exit status (SC2155), and
+	# this suite is linted by the pinned shellcheck in CI.
+	PROVISIONING_VERIFY_TOKEN="$(make_jwt "$COMPANY_ID")"
+	export PROVISIONING_VERIFY_TOKEN
 	run_verify "$root"
 	state="$root/state"
 	assert_rc "case 5 (d): a claim-bearing supplied token resolves and stops at the position" 1 "$RUN_RC" "$RUN_OUT"
