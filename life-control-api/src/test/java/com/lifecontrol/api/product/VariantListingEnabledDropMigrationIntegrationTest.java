@@ -63,7 +63,8 @@ class VariantListingEnabledDropMigrationIntegrationTest extends AbstractPostgres
 
     @BeforeEach
     void createScratchDatabase() throws Exception {
-        databaseName = "scratch_drop_listing_enabled_" + UUID.randomUUID().toString().replace("-", "");
+        databaseName =
+                "scratch_drop_listing_enabled_" + UUID.randomUUID().toString().replace("-", "");
         try (var connection =
                         DriverManager.getConnection(adminJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
                 var statement = connection.createStatement()) {
@@ -101,17 +102,16 @@ class VariantListingEnabledDropMigrationIntegrationTest extends AbstractPostgres
         assertThat(columnExists("variant_listing", "enabled"))
                 .as("the whole point of the unit: the flag nobody can set stops being promised")
                 .isFalse();
-        for (var survivor : new String[] {
-            "id", "company_id", "product_variant_id", "company_store_id", "list_price", "currency"
-        }) {
+        for (var survivor :
+                new String[] {"id", "company_id", "product_variant_id", "company_store_id", "list_price", "currency"}) {
             assertThat(columnExists("variant_listing", survivor))
                     .as("the drop must reach exactly one column, not the listing's identity or its price")
                     .isTrue();
         }
         assertThat(readScoped(
                         company.companyId(),
-                        "SELECT list_price FROM variant_listing WHERE product_variant_id = '"
-                                + company.variantId() + "' AND company_store_id = '" + company.storeId() + "'"))
+                        "SELECT list_price FROM variant_listing WHERE product_variant_id = '" + company.variantId()
+                                + "' AND company_store_id = '" + company.storeId() + "'"))
                 .as("the row is what makes a variant listed (ADR-0006 decision 6), and it is untouched")
                 .isEqualTo("99.9000");
     }
@@ -136,7 +136,8 @@ class VariantListingEnabledDropMigrationIntegrationTest extends AbstractPostgres
     // --- the refusal: a false is the only record of an intent ---
 
     @Test
-    @DisplayName("a listing disabled by hand is refused, and the message names the variant, the store and the next step")
+    @DisplayName(
+            "a listing disabled by hand is refused, and the message names the variant, the store and the next step")
     void refusesWhenAListingHoldsFalse() throws Exception {
         migrateTo(PRE_UNIT_HEAD);
         var company = seedListing("AC-79-C", Boolean.FALSE);
@@ -150,8 +151,7 @@ class VariantListingEnabledDropMigrationIntegrationTest extends AbstractPostgres
                 .isTrue();
         assertThat(readScoped(
                         company.companyId(),
-                        "SELECT enabled FROM variant_listing WHERE product_variant_id = '" + company.variantId()
-                                + "'"))
+                        "SELECT enabled FROM variant_listing WHERE product_variant_id = '" + company.variantId() + "'"))
                 .as("the value the guard refused over is still readable by whoever has to decide what to do with it")
                 .isEqualTo("f");
     }
@@ -166,8 +166,9 @@ class VariantListingEnabledDropMigrationIntegrationTest extends AbstractPostgres
 
         migrateToHead();
 
-        assertThat(readUnscoped(
-                        "SELECT c.relforcerowsecurity FROM pg_class c WHERE c.relname = 'variant_listing' AND c.relkind = 'r'"))
+        assertThat(
+                        readUnscoped(
+                                "SELECT c.relforcerowsecurity FROM pg_class c WHERE c.relname = 'variant_listing' AND c.relkind = 'r'"))
                 .as("V79 opens NO FORCE on variant_listing to read it; a window left open weakens the table for "
                         + "everything that runs after it (V55)")
                 .isEqualTo("t");
@@ -212,8 +213,8 @@ class VariantListingEnabledDropMigrationIntegrationTest extends AbstractPostgres
         assertThat(columnExists("variant_listing", "enabled")).isFalse();
         assertThat(readScoped(
                         company.companyId(),
-                        "SELECT list_price FROM variant_listing WHERE product_variant_id = '"
-                                + company.variantId() + "'"))
+                        "SELECT list_price FROM variant_listing WHERE product_variant_id = '" + company.variantId()
+                                + "'"))
                 .as("the row the operator kept keeps its price")
                 .isEqualTo("99.9000");
     }
@@ -273,8 +274,8 @@ class VariantListingEnabledDropMigrationIntegrationTest extends AbstractPostgres
         var suffix = id.toString().replace("-", "").substring(0, 10).toUpperCase();
         execute(
                 id,
-                "INSERT INTO companies (id, company_key, company_name, rfc, currency) VALUES ('" + id + "', '"
-                        + sku + "', 'V79 Company', 'V79" + suffix + "', 'MXN')");
+                "INSERT INTO companies (id, company_key, company_name, rfc, currency) VALUES ('" + id + "', '" + sku
+                        + "', 'V79 Company', 'V79" + suffix + "', 'MXN')");
         return id;
     }
 

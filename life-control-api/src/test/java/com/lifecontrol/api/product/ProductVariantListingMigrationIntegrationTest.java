@@ -186,12 +186,7 @@ class ProductVariantListingMigrationIntegrationTest extends AbstractPostgresInte
                         + "`enabled` is absent because the per-store availability toggle is out of scope by "
                         + "decision and `V79` dropped it (#777)")
                 .containsExactly(
-                        "company_id",
-                        "company_store_id",
-                        "currency",
-                        "id",
-                        "list_price",
-                        "product_variant_id");
+                        "company_id", "company_store_id", "currency", "id", "list_price", "product_variant_id");
     }
 
     @Test
