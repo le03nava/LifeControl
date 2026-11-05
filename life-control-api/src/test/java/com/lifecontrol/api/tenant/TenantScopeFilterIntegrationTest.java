@@ -200,6 +200,47 @@ class TenantScopeFilterIntegrationTest extends AbstractPostgresIntegrationTest {
     }
 
     @Test
+    @DisplayName("the currency catalog is tenancy-agnostic, so a two-claim token reads it")
+    void theCurrencyCatalogIsTenantAgnostic() throws Exception {
+        // `/api/currencies` reads `currency`, which has no `company_id` and no policy (V57's header says
+        // so and keeps it out of `tenant_table`). Without its entry on the closed list a multi-company
+        // caller is refused with a 403 while plainly authenticated — the silent failure the list exists
+        // to make loud — so this test is the one that would notice the entry going missing.
+        mockMvc.perform(get("/api/currencies").with(tokenOf(claimedCompany, foreignCompany)))
+                .andExpect(status().isOk());
+
+        assertThat(ScopeRecorderConfiguration.SEEN.get())
+                .as("exempt and company-less: a platform catalog needs no tenant, and inventing one from a "
+                        + "multi-valued claim is the widening this filter refuses")
+                .isEqualTo(new TenantScope.Scope(null, SUBJECT));
+        assertThat(TenantScope.current())
+                .as("and the filter still cleared the holder in its finally")
+                .isEmpty();
+    }
+
+    @Test
+    @DisplayName("the currency exemption is segment-safe: a neighbour path keeps the two-claim refusal")
+    void theCurrencyExemptionDoesNotCoverANeighbourPath() throws Exception {
+        // The exemption is matched as `path.equals(prefix) || path.startsWith(prefix + "/")`, so an entry
+        // names a path and its subtree — never a bare prefix. Relaxing that to a plain `startsWith` would
+        // silently exempt every path that merely begins with these characters, and `/api/currency` and
+        // `/api/currencies-archive` read tenant tables just like any other company-less path: a two-claim
+        // token there is an undeterminable tenant, and the 403 is how that stays loud. Both neighbours are
+        // checked because the same relaxation admits both, one by the separator and one by the substring.
+        for (String neighbour : new String[] {"/api/currencies-archive", "/api/currency"}) {
+            mockMvc.perform(get(neighbour).with(tokenOf(claimedCompany, foreignCompany)))
+                    .andExpect(status().isForbidden());
+
+            assertThat(ScopeRecorderConfiguration.SEEN.get())
+                    .as("a neighbour of an exempt path is not exempt: no controller saw a scope for %s", neighbour)
+                    .isNull();
+            assertThat(TenantScope.current())
+                    .as("and the refusal stated nothing on the thread that served %s", neighbour)
+                    .isEmpty();
+        }
+    }
+
+    @Test
     @DisplayName("two requests on the same thread do not share a scope")
     void aSecondRequestOnTheSameThreadStartsWithoutAScope() throws Exception {
         mockMvc.perform(get("/api/companies/{id}", claimedCompany).with(token(claimedCompany)))

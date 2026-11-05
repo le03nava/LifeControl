@@ -3,6 +3,7 @@ package com.lifecontrol.api.config.cache;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.lifecontrol.api.country.dto.CountryResponse;
+import com.lifecontrol.api.currency.dto.CurrencyResponse;
 import com.lifecontrol.api.hr.dto.SeniorityLevelResponse;
 import com.lifecontrol.api.measureunit.dto.MeasureUnitResponse;
 import com.lifecontrol.api.paymentmethod.dto.PaymentMethodResponse;
@@ -196,6 +197,10 @@ class CacheValueCodecTest {
                 UUID.randomUUID(), "Cash", "CASH", true, LocalDateTime.now(), LocalDateTime.now());
         values.put(PaymentMethodResponse.class.getName(), paymentMethod);
         values.put(listOf(PaymentMethodResponse.class), List.of(paymentMethod));
+
+        var currency = new CurrencyResponse("MXN", (short) 2, "$", true);
+        values.put(CurrencyResponse.class.getName(), currency);
+        values.put(listOf(CurrencyResponse.class), List.of(currency));
 
         return Map.copyOf(values);
     }

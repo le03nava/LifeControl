@@ -202,6 +202,26 @@ formulario. Es decir, el esquema lo escribía el operador. V37/V38 le ponen cat�
 
 ---
 
+## Moneda de la empresa (`companies.currency`)
+
+`companies.currency` es `CHAR(3) NOT NULL REFERENCES currency (code)` desde `V57`, y **la empresa la
+declara: el servidor no adivina**. El campo viaja en el mismo `CompanyRequest` para `POST` y `PUT`.
+
+| Regla | Valor |
+|-------|-------|
+| Obligatoria, sin default | `CompanyRequest.currency` es `@NotBlank` y `CompanyService.resolveCurrency` rechaza blank también para todo caller que no pase por HTTP. Un body sin `currency` es **400** `"currency is required"`, en el alta y en la edición |
+| Por qué no hay default | Un `MXN` silencioso escribe la moneda de un país sobre las ventas de otro sin decirlo (ADR-0002, decisión 2, `D-c`). Pre-seleccionar en la pantalla sería ese mismo default una capa arriba, así que el select arranca **vacío** y es requerido |
+| El catálogo | `GET /api/currencies` devuelve una lista plana `{code, minorUnits, symbol, enabled}`, sólo habilitadas salvo `?includeDisabled=true`, para cualquier principal autenticado. Es lectura pura: se siembra por migración y no hay ABM |
+| La clave es el **código** | ISO 4217 (`MXN`), nunca el símbolo ni el nombre: `symbol` es presentación y se puede reescribir |
+| Qué resuelve el servidor | El código se resuelve contra el catálogo dentro de la transacción: un código que el catálogo no tiene es **404**, uno que tiene pero está retirado es **400**, y ninguno de los dos llega a la fila. La pantalla ofrece sólo las habilitadas |
+| Lo que **no** cubre | El desglose de impuestos, `tax_rate`, `sale_payment` y la escala de las ventas son `T2` y posteriores de `odd/tasks/money-first-class.md`. Tampoco hay pantalla de administración del catálogo: se edita por migración |
+
+> **Follow-up abierto.** Una empresa cuya moneda se retire del catálogo (`enabled = false`) no se podría
+guardar ni sin tocarla, porque `updateCompany` llama a `resolveCurrency` en cada actualización y
+`resolveCurrency` rechaza el código retirado aunque el valor no haya cambiado. Hoy es inalcanzable —el
+catálogo tiene una sola fila habilitada, `MXN`— y queda registrado en el `## Log` de
+`odd/tasks/company-currency-form.md`.
+
 ## Docker Scripts
 
 Scripts en `docker/scripts/`:
@@ -485,6 +505,8 @@ npm test                    # unit tests (Vitest)
 npm run test:coverage:check # unit + enforcement de umbrales de cobertura (local)
 npm run test:e2e            # E2E con Playwright (mocks de Keycloak y API)
 ```
+
+> **`npm run test:e2e` con el stack de dev arriba**: Playwright reusa el servidor que ya escucha en `E2E_PORT` (4200 por default) cuando no hay `CI`, así que si el contenedor `life-control-app-angular` está corriendo ahí, la suite mide **esa imagen** y no tu worktree. El síntoma es engañoso: fallan justo las aserciones nuevas, con el DOM de una revisión anterior. Corré `E2E_PORT=4300 npm run test:e2e` en vez de bajar el stack.
 
 > CI: `.github/workflows/angular-ci.yml` corre `Lint & Build` y, en dos shards en paralelo, los unit
 > tests; un tercer job (`Coverage`) recombina los reportes blob de los shards con

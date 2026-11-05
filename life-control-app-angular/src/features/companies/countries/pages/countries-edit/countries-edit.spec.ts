@@ -72,6 +72,7 @@ describe('CountriesEdit', () => {
       rfc: 'RFC123456789',
       email: 'test@test.com',
       phone: '+521234567890',
+      currency: 'MXN',
       enabled: true,
       createdAt: '2024-01-01',
       updatedAt: '2024-01-01',

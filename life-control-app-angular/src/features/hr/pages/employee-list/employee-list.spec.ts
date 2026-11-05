@@ -65,6 +65,7 @@ describe('EmployeeList', () => {
     rfc: 'ACM200101010',
     email: 'contacto@acme.example',
     phone: '+525512345678',
+    currency: 'MXN',
     enabled: true,
     createdAt: '2026-01-01',
     updatedAt: '2026-01-01',

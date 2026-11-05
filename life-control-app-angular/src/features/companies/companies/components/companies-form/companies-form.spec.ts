@@ -1,8 +1,11 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { FormControl, FormGroup, Validators } from '@angular/forms';
+import { By } from '@angular/platform-browser';
+import { MatSelect } from '@angular/material/select';
 import { CompaniesForm } from './companies-form';
 import { CompanyControl, CompanyFormValue } from '../../models/company.models';
 import { AddressControl } from '@shared/models/address.models';
+import { Currency } from '../../data/currency.models';
 
 describe('CompaniesForm', () => {
   let component: CompaniesForm;
@@ -49,6 +52,7 @@ describe('CompaniesForm', () => {
         nonNullable: true,
         validators: [Validators.pattern(/^\+?\d{10,13}$/)],
       }),
+      currency: new FormControl('', { nonNullable: true, validators: Validators.required }),
       address: createAddressGroup(),
       enabled: new FormControl<boolean>(true, { nonNullable: true }),
     });
@@ -147,6 +151,124 @@ describe('CompaniesForm', () => {
     );
   });
 
+  describe('currency select', () => {
+    const catalog: Currency[] = [
+      { code: 'MXN', minorUnits: 2, symbol: '$', enabled: true },
+      { code: 'USD', minorUnits: 2, symbol: 'US$', enabled: true },
+    ];
+
+    function currencySelect(): Element | null {
+      return fixture.nativeElement.querySelector('mat-select[formControlName="currency"]');
+    }
+
+    function currencyFormField(): HTMLElement | null {
+      return fixture.nativeElement
+        .querySelector('mat-select[formControlName="currency"]')
+        ?.closest('mat-form-field');
+    }
+
+    /** Material renders the options lazily, so the panel has to be open to read the labels. */
+    function openCurrencySelect(): MatSelect {
+      const select = fixture.debugElement.query(By.css('mat-select[formControlName="currency"]'))
+        .componentInstance as MatSelect;
+      select.open();
+      fixture.detectChanges();
+      return select;
+    }
+
+    function optionLabels(): string[] {
+      return Array.from(document.querySelectorAll('mat-option') as NodeListOf<Element>).map(
+        (option) => option.textContent?.trim() ?? '',
+      );
+    }
+
+    it('should render the currency select from the catalog input', () => {
+      fixture.componentRef.setInput('currencies', catalog);
+      fixture.detectChanges();
+
+      expect(currencySelect()).not.toBeNull();
+      expect(currencyFormField()?.querySelector('mat-label')?.textContent?.trim()).toBe('Moneda');
+
+      const select = openCurrencySelect();
+
+      // The empty option is how the operator's first answer stays "no currency yet" (D1).
+      expect(optionLabels()).toEqual(['— Seleccionar moneda —', 'MXN — $', 'USD — US$']);
+
+      select.close();
+      fixture.detectChanges();
+    });
+
+    it('should leave the currency empty on a new form', () => {
+      const control = component.formGroup().controls.currency;
+
+      expect(control.value).toBe('');
+      expect(control.hasError('required')).toBe(true);
+    });
+
+    it('should render the shared required message when the currency is empty', () => {
+      const control = component.formGroup().controls.currency;
+      control.markAsTouched();
+      fixture.detectChanges();
+
+      // No bespoke message: the field reuses `defaultErrorMessages.required`.
+      expect(currencyFormField()?.querySelector('mat-error')?.textContent?.trim()).toBe(
+        'Este campo es obligatorio.',
+      );
+    });
+
+    it('should not emit when every required field is complete except the currency', () => {
+      const fields = component.formGroup().controls;
+      fields.companyKey.setValue('KEY01');
+      fields.companyName.setValue('Test Corp');
+      fields.razonSocial.setValue('Test Corp SA');
+      fields.rfc.setValue('XAXX010101000');
+      fields.email.setValue('test@test.com');
+      fields.phone.setValue('5551234567');
+
+      const emitted: CompanyFormValue[] = [];
+      component.saveCompany.subscribe((value: CompanyFormValue) => emitted.push(value));
+
+      component.onSave();
+
+      expect(emitted).toEqual([]);
+    });
+
+    it('should emit the selected currency', () => {
+      fixture.componentRef.setInput('currencies', catalog);
+      fixture.detectChanges();
+
+      fillRequiredFields();
+
+      let emitted: CompanyFormValue | undefined;
+      component.saveCompany.subscribe((value: CompanyFormValue) => {
+        emitted = value;
+      });
+
+      component.onSave();
+
+      expect(emitted).toBeDefined();
+      expect(emitted!.currency).toBe('MXN');
+    });
+
+    it('should not block a stored code the catalog no longer offers', () => {
+      // A retired code is unreachable today: the catalog holds one row and it is enabled. If it ever
+      // happens, the select has no option to render, but the control keeps the stored value, so the
+      // form still states what the company states instead of demanding a new answer.
+      fixture.componentRef.setInput('currencies', catalog);
+      component.formGroup().controls.currency.setValue('ARS');
+      fixture.detectChanges();
+
+      const select = openCurrencySelect();
+
+      expect(optionLabels()).toEqual(['— Seleccionar moneda —', 'MXN — $', 'USD — US$']);
+      expect(component.formGroup().controls.currency.value).toBe('ARS');
+      expect(component.formGroup().controls.currency.valid).toBe(true);
+
+      select.close();
+      fixture.detectChanges();
+    });
+  });
+
   describe('serverErrors', () => {
     it('should apply server errors to matching controls', () => {
       fixture.componentRef.setInput('serverErrors', {
@@ -193,17 +315,22 @@ describe('CompaniesForm', () => {
     });
   });
 
-  describe('onSave — address emission', () => {
-    function fillRequiredFields(): void {
-      const fields = component.formGroup().controls;
-      fields.companyKey.setValue('KEY01');
-      fields.companyName.setValue('Test Corp');
-      fields.razonSocial.setValue('Test Corp SA');
-      fields.rfc.setValue('XAXX010101000');
-      fields.email.setValue('test@test.com');
-      fields.phone.setValue('5551234567');
-    }
+  /**
+   * Every control the page marks `Validators.required`, in one place: a form that is complete
+   * except one of them must not emit, and that is only provable if "complete" is written once.
+   */
+  function fillRequiredFields(): void {
+    const fields = component.formGroup().controls;
+    fields.companyKey.setValue('KEY01');
+    fields.companyName.setValue('Test Corp');
+    fields.razonSocial.setValue('Test Corp SA');
+    fields.rfc.setValue('XAXX010101000');
+    fields.email.setValue('test@test.com');
+    fields.phone.setValue('5551234567');
+    fields.currency.setValue('MXN');
+  }
 
+  describe('onSave — address emission', () => {
     it('should emit Company with nested address when filled', () => {
       fillRequiredFields();
       const addressGroup = component.formGroup().controls.address;

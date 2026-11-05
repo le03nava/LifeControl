@@ -22,9 +22,18 @@ export interface CompanyMock {
   rfc: string;
   email: string;
   phone: string;
+  currency: string;
   enabled: boolean;
   createdAt: string;
   updatedAt: string;
+}
+
+/** One row of `GET /api/currencies`: the enabled platform currency catalog. */
+export interface CurrencyMock {
+  code: string;
+  minorUnits: number;
+  symbol: string;
+  enabled: boolean;
 }
 
 export interface CountryMock {
@@ -306,6 +315,7 @@ const SAMPLE_COMPANIES: CompanyMock[] = [
     rfc: 'ACM200101010',
     email: 'contacto@acme.example',
     phone: '+525512345678',
+    currency: 'MXN',
     enabled: true,
     createdAt: '2026-01-01T00:00:00Z',
     updatedAt: '2026-01-01T00:00:00Z',
@@ -319,6 +329,7 @@ const SAMPLE_COMPANIES: CompanyMock[] = [
     rfc: 'LOG980101012',
     email: 'hola@log-norte.example',
     phone: '+525598765432',
+    currency: 'MXN',
     enabled: false,
     createdAt: '2026-02-01T00:00:00Z',
     updatedAt: '2026-02-01T00:00:00Z',
@@ -342,6 +353,11 @@ const SAMPLE_COUNTRIES: CountryMock[] = [
     createdAt: '2026-01-01T00:00:00Z',
     updatedAt: '2026-01-01T00:00:00Z',
   },
+];
+
+/** `GET /api/currencies` with no `includeDisabled` flag: enabled codes only. */
+const SAMPLE_CURRENCIES: CurrencyMock[] = [
+  { code: 'MXN', minorUnits: 2, symbol: '$', enabled: true },
 ];
 
 const SAMPLE_DEPARTMENTS: DepartmentMock[] = [
@@ -770,6 +786,8 @@ const SAMPLE_ACTIVITY_LOGS: ActivityLogMock[] = [
 export interface ApiMockOptions {
   companies?: CompanyMock[];
   countries?: CountryMock[];
+  /** The enabled platform currency catalog the company form's select draws from. */
+  currencies?: CurrencyMock[];
   purchaseOrders?: PurchaseOrderMock[];
   goodsReceipts?: GoodsReceiptMock[];
   storeLocations?: StoreLocationMock[];
@@ -806,6 +824,9 @@ export async function installApiMock(page: Page, options: ApiMockOptions = {}): 
   const countries: CountryMock[] = options.countries
     ? [...options.countries]
     : [...SAMPLE_COUNTRIES];
+  const currencies: CurrencyMock[] = options.currencies
+    ? [...options.currencies]
+    : [...SAMPLE_CURRENCIES];
   const purchaseOrders: PurchaseOrderMock[] = options.purchaseOrders
     ? [...options.purchaseOrders]
     : [...SAMPLE_PURCHASE_ORDERS];
@@ -951,6 +972,14 @@ export async function installApiMock(page: Page, options: ApiMockOptions = {}): 
 
     if (path === '/api/countries' && method === 'GET') {
       await fulfillJson(route, countries, cors);
+      return;
+    }
+
+    if (path === '/api/currencies' && method === 'GET') {
+      // The company form's currency select. Without this route the form renders an empty select
+      // and the create/validation specs fail for a reason that has nothing to do with the rule
+      // they pin.
+      await fulfillJson(route, currencies, cors);
       return;
     }
 

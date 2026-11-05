@@ -32,6 +32,14 @@ export interface Company {
   email: string;
   emailDomain?: string;
   phone: string;
+  /**
+   * ISO 4217 code the company states as its operating currency.
+   *
+   * The API has returned it since `V57__company_currency.sql` and it is `NOT NULL` there, so the read
+   * model declares it: an interface that omits a field the endpoint always sends is how the client kept
+   * dropping a value it had already received.
+   */
+  currency: string;
   address?: AddressValue;
   enabled: boolean;
   createdAt: string;
@@ -49,6 +57,8 @@ export interface CompanyRequest {
   email: string;
   /** Optional like the API DTO, but the page always sends it (`''` when blank, which the API normalizes to null). */
   emailDomain?: string;
+  /** Required by `CompanyRequest` with no default: the operator states it, the API refuses a blank. */
+  currency: string;
   enabled: boolean;
   address?: AddressRequest;
 }
@@ -77,6 +87,7 @@ export interface CompanyControl {
   email: FormControl<string>;
   emailDomain: FormControl<string>;
   phone: FormControl<string>;
+  currency: FormControl<string>;
   address: FormGroup<AddressControl>;
   enabled: FormControl<boolean>;
 }

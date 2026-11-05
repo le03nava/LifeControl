@@ -21,6 +21,8 @@ import {
 } from '@features/companies/companies/models/company.models';
 import { CountryService } from '@features/countries/data/country.service';
 import { Country } from '@features/companies/countries/models/country.models';
+import { CurrencyService } from '@features/companies/companies/data/currency.service';
+import { Currency } from '@features/companies/companies/data/currency.models';
 import type { AddressControl } from '@shared/models/address.models';
 import {
   NonNullableFormBuilder,
@@ -50,6 +52,7 @@ export class CompanyEdit implements OnInit {
   private readonly fb = inject(NonNullableFormBuilder);
   private readonly router = inject(Router);
   private readonly countryService = inject(CountryService);
+  private readonly currencyService = inject(CurrencyService);
   private readonly destroyRef = inject(DestroyRef);
 
   companyId = signal<string | null>(this.route.snapshot.paramMap.get('id'));
@@ -64,6 +67,12 @@ export class CompanyEdit implements OnInit {
   // Country catalog for address country selector (error → empty, matching previous behavior)
   countries = toSignal(
     this.countryService.getCountries().pipe(catchError(() => of([] as Country[]))),
+    { initialValue: [] },
+  );
+
+  // Currency catalog for the required currency select (error → empty, same convention as countries)
+  currencies = toSignal(
+    this.currencyService.getCurrencies().pipe(catchError(() => of([] as Currency[]))),
     { initialValue: [] },
   );
 
@@ -103,6 +112,7 @@ export class CompanyEdit implements OnInit {
                 Validators.maxLength(255),
               ]),
               phone: this.fb.control(company.phone, Validators.pattern(/^(\+52\d{10}|\d{10})$/)),
+              currency: this.fb.control(company.currency, Validators.required),
               address: new FormGroup<AddressControl>({
                 street: new FormControl<string | null>(company.address?.street ?? null, {
                   nonNullable: false,
@@ -156,6 +166,9 @@ export class CompanyEdit implements OnInit {
         Validators.maxLength(255),
       ]),
       phone: this.fb.control('', Validators.pattern(/^(\+52\d{10}|\d{10})$/)),
+      // D1: starts empty. Pre-selecting `MXN` would restore, one layer up, exactly the default
+      // ADR-0002 decision 2 (D-c) refuses on the server.
+      currency: this.fb.control('', Validators.required),
       address: new FormGroup<AddressControl>({
         street: new FormControl<string | null>(null, { nonNullable: false }),
         streetNumber: new FormControl<string | null>(null, { nonNullable: false }),
@@ -228,6 +241,7 @@ export class CompanyEdit implements OnInit {
       email: company.email,
       // Always present: the API normalizes `''` to `null`, and a PUT is a full replacement.
       emailDomain: company.emailDomain ?? '',
+      currency: company.currency,
       enabled: company.enabled,
       ...(hasAddress ? { address } : {}),
     };

@@ -185,6 +185,7 @@ public class CacheConfig {
         // defect, so the absence is pinned rather than accidental.
         cacheManager.setCaches(Set.of(
                 new ConcurrentMapCache("countries"),
+                new ConcurrentMapCache("currencies"),
                 new ConcurrentMapCache("statusTypes"),
                 new ConcurrentMapCache("statuses"),
                 new ConcurrentMapCache("measureUnits"),

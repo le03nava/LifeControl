@@ -10,6 +10,7 @@ import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { MatIconModule } from '@angular/material/icon';
 import { AddressFormComponent } from '@shared/ui/address-form';
 import { Country } from '@features/companies/countries/models/country.models';
+import { Currency } from '../../data/currency.models';
 
 @Component({
   selector: 'app-companies-form',
@@ -33,6 +34,7 @@ export class CompaniesForm {
   serverErrors = input<Record<string, string>>({});
   addressServerErrors = input<Record<string, string>>({});
   countries = input<Country[]>([]);
+  currencies = input<Currency[]>([]);
   saveCompany = output<CompanyFormValue>();
   cancelForm = output<void>();
 
@@ -149,6 +151,7 @@ export class CompaniesForm {
         email: raw.email,
         emailDomain: raw.emailDomain ?? '',
         phone: raw.phone,
+        currency: raw.currency,
         enabled: raw.enabled,
         ...(hasAddress ? { address: raw.address } : {}),
       };

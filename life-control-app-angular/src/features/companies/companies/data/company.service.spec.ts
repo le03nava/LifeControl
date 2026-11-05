@@ -18,6 +18,7 @@ describe('CompanyService', () => {
     email: 'test@a.com',
     emailDomain: 'a.com',
     phone: '5551234567',
+    currency: 'MXN',
     enabled: true,
     createdAt: '',
     updatedAt: '',
