@@ -108,7 +108,8 @@ class StoreStockListPriceDropMigrationIntegrationTest extends AbstractPostgresIn
         assertThat(columnExists("product_variant_store_stock", "cost_price"))
                 .as("the cost an inbound movement has to state is not this file's to remove")
                 .isTrue();
-        assertThat(columnExists("product_variant_store_stock", "company_store_id")).isTrue();
+        assertThat(columnExists("product_variant_store_stock", "company_store_id"))
+                .isTrue();
         assertThat(readScoped(
                         fixture.companyId(),
                         "SELECT cost_price FROM product_variant_store_stock WHERE product_variant_id = '"
@@ -179,8 +180,9 @@ class StoreStockListPriceDropMigrationIntegrationTest extends AbstractPostgresIn
 
         migrateToHead();
 
-        assertThat(readUnscoped(
-                        "SELECT c.relforcerowsecurity FROM pg_class c WHERE c.relname = 'variant_listing' AND c.relkind = 'r'"))
+        assertThat(
+                        readUnscoped(
+                                "SELECT c.relforcerowsecurity FROM pg_class c WHERE c.relname = 'variant_listing' AND c.relkind = 'r'"))
                 .as("V77 opens NO FORCE on variant_listing to read it; a window left open weakens the table for "
                         + "everything that runs after it (V55)")
                 .isEqualTo("t");
@@ -359,9 +361,10 @@ class StoreStockListPriceDropMigrationIntegrationTest extends AbstractPostgresIn
     // --- the catalog, read unscoped: information_schema and pg_class carry no policy ---
 
     private boolean columnExists(String table, String column) throws SQLException {
-        return "t".equals(readUnscoped(
-                "SELECT 't' FROM information_schema.columns WHERE table_schema = 'public' AND table_name = '"
-                        + table + "' AND column_name = '" + column + "'"));
+        return "t"
+                .equals(readUnscoped(
+                        "SELECT 't' FROM information_schema.columns WHERE table_schema = 'public' AND table_name = '"
+                                + table + "' AND column_name = '" + column + "'"));
     }
 
     private String readUnscoped(String sql) throws SQLException {
