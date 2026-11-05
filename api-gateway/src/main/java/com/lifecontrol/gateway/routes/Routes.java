@@ -92,11 +92,23 @@ public class Routes {
         .build();
   }
 
+  /**
+   * The answer a tripped circuit breaker gives.
+   *
+   * <p>Matched by <b>path only</b>, never by method: the four routes above forward to
+   * {@code forward:/fallbackRoute}, and a forward keeps the original method. Declared as {@code .GET} it
+   * matched only a tripped read, so every tripped write (POST/PUT/PATCH/DELETE) missed the fallback,
+   * fell through to the static resource handler and answered 404 — measured on 2026-11-04, where a
+   * {@code POST /api/companies} the API committed with 201 was reported to the caller as 404. The
+   * status a write receives is the one place a wrong status is most expensive, so the predicate is
+   * method-agnostic by design.
+   */
   @Bean
   public RouterFunction<ServerResponse> fallbackRoute() {
     return route("fallbackRoute")
-        .GET("/fallbackRoute", request -> ServerResponse.status(HttpStatus.SERVICE_UNAVAILABLE)
-            .body("Service Unavailable, please try again later"))
+        .route(RequestPredicates.path("/fallbackRoute"), request ->
+            ServerResponse.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .body("Service Unavailable, please try again later"))
         .build();
   }
 }
