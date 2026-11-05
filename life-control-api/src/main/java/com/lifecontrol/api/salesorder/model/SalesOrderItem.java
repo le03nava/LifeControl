@@ -20,16 +20,22 @@ public class SalesOrderItem extends Auditable {
     @Column(name = "product_variant_id", nullable = false)
     private UUID productVariantId;
 
-    @Column(name = "quantity", precision = 12, scale = 2, nullable = false)
+    // ADR-0002 decision 1: `V81` moves the four line amounts to `NUMERIC(19,4)`, because two decimals
+    // cannot hold a per-gram price or the quantity a unit price implies. The mapping states the same
+    // shape: `ddl-auto=validate` compares them, and a widened column against a two-decimal mapping fails
+    // every integration test at boot instead of one assertion.
+    @Column(name = "quantity", precision = 19, scale = 4, nullable = false)
     private BigDecimal quantity;
 
-    @Column(name = "list_price", precision = 12, scale = 2, nullable = false)
+    @Column(name = "list_price", precision = 19, scale = 4, nullable = false)
     private BigDecimal listPrice;
 
-    @Column(name = "discount_applied", precision = 12, scale = 2)
+    // `V81` backfills the `NULL`s to 0 before the `NOT NULL` lands: a `NULL` here makes the line's checks
+    // pass as `NULL` instead of refusing, which is the one way a breakdown is bypassed without an error.
+    @Column(name = "discount_applied", precision = 19, scale = 4, nullable = false)
     private BigDecimal discountApplied = BigDecimal.ZERO;
 
-    @Column(name = "final_price", precision = 12, scale = 2, nullable = false)
+    @Column(name = "final_price", precision = 19, scale = 4, nullable = false)
     private BigDecimal finalPrice;
 
     @Column(name = "promotion_id")

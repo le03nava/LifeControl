@@ -121,6 +121,53 @@ class SalesMoneyBreakdownMigrationIntegrationTest extends AbstractPostgresIntegr
                 .as("the document inherits the operating currency of the company that owns it, which V57 "
                         + "already made mandatory")
                 .isEqualTo(SEEDED_CODE);
+
+        assertThat(lineMoney(document.lineA(), "final_price"))
+                .as("the line's stored price is not rewritten: ck_item_total would have demanded 190.0000 "
+                        + "here, and this file does not add a constraint against history (D-f)")
+                .isEqualTo("90.0000");
+        assertThat(lineMoney(document.lineA(), "subtotal"))
+                .as("the line's own subtotal is price times quantity, the one number this file can state "
+                        + "about a legacy line without reading anything but the row")
+                .isEqualTo("200.0000");
+        assertThat(lineMoney(document.lineB(), "discount_applied"))
+                .as("a NULL discount becomes 0 before the NOT NULL lands, because a NULL in a CHECK passes "
+                        + "instead of refusing")
+                .isEqualTo("0.0000");
+        assertThat(readUnscoped("SELECT tax_code || ':' || tax_rate || ':' || tax_amount FROM sales_order_items"
+                        + " WHERE id = '" + document.lineA() + "'"))
+                .as("no rate existed when the sale was made, and a migration does not invent one for a sale "
+                        + "that was never taxed")
+                .isEqualTo("NA:0.000000:0.0000");
+        assertThat(readUnscoped("SELECT product_name_snapshot || '|' || variant_name_snapshot"
+                        + " FROM sales_order_items WHERE id = '" + document.lineA() + "'"))
+                .as("the line says what it sold, read from the catalog through the variant it names")
+                .isEqualTo(document.productName() + "|" + document.variantName());
+    }
+
+    @Test
+    @DisplayName("the money columns carry four decimals and the total is no longer optional")
+    void theMoneyColumnsCarryFourDecimals() throws Exception {
+        migrateTo(PRE_UNIT_HEAD);
+        seedLegacyDocument();
+        migrateToHead();
+
+        assertThat(readUnscoped("SELECT data_type || ':' || numeric_precision || ':' || numeric_scale || ':'"
+                        + " || is_nullable FROM information_schema.columns"
+                        + " WHERE table_name = 'sales_orders' AND column_name = 'total_amount'"))
+                .as("total_amount is NUMERIC(19,4) NOT NULL: decision 1's scale and the NOT NULL a NULL "
+                        + "total could not satisfy")
+                .isEqualTo("numeric:19:4:NO");
+        assertThat(readUnscoped("SELECT string_agg(column_name || ':' || numeric_scale, ',' ORDER BY column_name)"
+                        + " FROM information_schema.columns WHERE table_name = 'sales_order_items'"
+                        + " AND column_name IN ('quantity', 'list_price', 'discount_applied', 'final_price')"))
+                .as("the four line amounts are at the same scale — quantities and prices included, because "
+                        + "a per-gram price implies a quantity two decimals cannot hold")
+                .isEqualTo("discount_applied:4,final_price:4,list_price:4,quantity:4");
+        assertThat(readUnscoped("SELECT is_nullable FROM information_schema.columns"
+                        + " WHERE table_name = 'sales_order_items' AND column_name = 'discount_applied'"))
+                .as("discount_applied is NOT NULL now: it was the nullable one, and a NULL is a check that " + "passes")
+                .isEqualTo("NO");
     }
 
     @Test
@@ -202,6 +249,27 @@ class SalesMoneyBreakdownMigrationIntegrationTest extends AbstractPostgresIntegr
         assertThat(money(document.company(), document.orderId(), "subtotal"))
                 .as("accepted on purpose — the parts are enforced by T6, not by this file")
                 .isEqualTo("141.0000");
+    }
+
+    @Test
+    @DisplayName("the line's subtotal is refused when it is not its price times its quantity")
+    void theLineSubtotalIsRefused() throws Exception {
+        migrateTo(PRE_UNIT_HEAD);
+        var document = seedLegacyDocument();
+        migrateToHead();
+
+        assertThat(constraintOf(
+                        null, "UPDATE sales_order_items SET subtotal = 199 WHERE id = '" + document.lineA() + "'"))
+                .as("ck_item_subtotal states the expression the backfill wrote, so the column cannot drift "
+                        + "from the two numbers it is made of")
+                .isEqualTo("ck_item_subtotal");
+
+        assertThat(constraintOf(
+                        null,
+                        "UPDATE sales_order_items SET tax_rate = 0.16, tax_amount = 1 WHERE id = '" + document.lineA()
+                                + "'"))
+                .as("ck_item_tax holds the taxable base times the rate copied onto the line")
+                .isEqualTo("ck_item_tax");
     }
 
     @Test
@@ -419,6 +487,10 @@ class SalesMoneyBreakdownMigrationIntegrationTest extends AbstractPostgresIntegr
         return readScoped(company, "SELECT " + column + " FROM sales_orders WHERE id = '" + order + "'");
     }
 
+    /** One money column of one line. */
+    private String lineMoney(UUID line, String column) throws SQLException {
+        return readUnscoped("SELECT " + column + " FROM sales_order_items WHERE id = '" + line + "'");
+    }
     /** A read of a tenant table with the scope set: without it the policies answer with no row at all. */
     private String readScoped(UUID scope, String sql) throws SQLException {
         try (Connection connection = DriverManager.getConnection(jdbcUrl, OWNER, OWNER_PASSWORD)) {
