@@ -235,7 +235,6 @@ class ProductVariantServiceTest {
                 .id(UUID.randomUUID())
                 .listPrice(new BigDecimal(listPrice))
                 .currency("MXN")
-                .enabled(true)
                 .build();
     }
 

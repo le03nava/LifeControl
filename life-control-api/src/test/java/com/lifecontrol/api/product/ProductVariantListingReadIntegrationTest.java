@@ -459,7 +459,6 @@ class ProductVariantListingReadIntegrationTest extends AbstractPostgresIntegrati
                         .companyStoreId(storeId)
                         .listPrice(new BigDecimal(listPrice))
                         .currency(TenantFixtures.SEED_CURRENCY)
-                        .enabled(true)
                         .build()));
         createdListingIds.add(saved.getId());
         return saved.getId();

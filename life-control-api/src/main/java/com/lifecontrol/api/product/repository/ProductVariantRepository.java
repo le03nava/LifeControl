@@ -194,10 +194,11 @@ public interface ProductVariantRepository extends JpaRepository<ProductVariant, 
      * receipt into a store that never stocked the variant creates the projection — and is what keeps the row
      * answerable once the legacy membership row stops being written (T5c).
      *
-     * <p>{@code enabled} is <b>not</b> read from the listing: {@code variant_listing.enabled} has no writer
-     * in the tree yet, and a predicate over a column nothing can set would be a rule no test could
-     * exercise. The flag this projection carries is {@code case when l.id is null then false else true},
-     * which is "is there a listing here" — the question decision 6 asks.</p>
+     * <p><b>The listing contributes no flag.</b> {@code variant_listing} carries a price and nothing else:
+     * issue #777 decided the per-store availability toggle is out of scope, and {@code V79} dropped the
+     * {@code enabled} column that had no writer, so the field this projection carries is
+     * {@code case when l.id is null then false else true} — "is there a listing here" — which is exactly
+     * the question ADR-0006 decision 6 asks. There is no second answer left to disagree with it.</p>
      */
     @Query("""
             SELECT new com.lifecontrol.api.product.dto.ProductVariantResponse(
@@ -240,7 +241,7 @@ public interface ProductVariantRepository extends JpaRepository<ProductVariant, 
      * search is where the POS finds an article, so the two states have to be readable here too — a variant
      * that holds stock and no listing <b>returned and flagged</b> rather than indistinguishable, and a
      * listing with no position returned at all instead of dropped by the {@code INNER JOIN}. The structure,
-     * the {@code COALESCE} on the store and the reason {@code enabled} is not consulted are documented on
+     * the {@code COALESCE} on the store and the reason the listing contributes no flag are documented on
      * {@link #findStoreScopedByProductIdAndStoreId(UUID, UUID, UUID, Pageable)} — including the third
      * {@code LEFT JOIN} since T5b, which is the one that makes {@code stock} the ledger's projection
      * ({@code stock_position}) instead of the store row's retired column.</p>

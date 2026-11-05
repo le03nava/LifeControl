@@ -182,12 +182,13 @@ class ProductVariantListingMigrationIntegrationTest extends AbstractPostgresInte
 
         assertThat(columns)
                 .as("quantity is ADR-0001's ledger and cost is the inbound movement's, so neither is a "
-                        + "column here — and `tax_rate_id` is absent because `tax_rate` does not exist yet")
+                        + "column here; `tax_rate_id` is absent because `tax_rate` does not exist yet; and "
+                        + "`enabled` is absent because the per-store availability toggle is out of scope by "
+                        + "decision and `V79` dropped it (#777)")
                 .containsExactly(
                         "company_id",
                         "company_store_id",
                         "currency",
-                        "enabled",
                         "id",
                         "list_price",
                         "product_variant_id");

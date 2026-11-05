@@ -76,15 +76,6 @@ public class VariantListing {
     @Column(name = "currency", nullable = false, length = 3)
     private String currency;
 
-    /**
-     * Availability flag, {@code true} by default in the schema. Nothing in this slice writes {@code false}:
-     * the reads decide "listed" by the presence of the row, and a flag nobody can set is not read as if it
-     * could be — that is why {@code enabled} is carried here and not consulted by the two store-scoped
-     * queries yet.
-     */
-    @Column(name = "enabled", nullable = false)
-    private Boolean enabled = Boolean.TRUE;
-
     // Default constructor for JPA
     public VariantListing() {}
 
@@ -113,10 +104,6 @@ public class VariantListing {
         return currency;
     }
 
-    public Boolean getEnabled() {
-        return enabled;
-    }
-
     // Setters
     public void setId(UUID id) {
         this.id = id;
@@ -140,10 +127,6 @@ public class VariantListing {
 
     public void setCurrency(String currency) {
         this.currency = currency;
-    }
-
-    public void setEnabled(Boolean enabled) {
-        this.enabled = enabled;
     }
 
     // Builder pattern
@@ -181,11 +164,6 @@ public class VariantListing {
 
         public Builder currency(String currency) {
             listing.currency = currency;
-            return this;
-        }
-
-        public Builder enabled(Boolean enabled) {
-            listing.enabled = enabled;
             return this;
         }
 
