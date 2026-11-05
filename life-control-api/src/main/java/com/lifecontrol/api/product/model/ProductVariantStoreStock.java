@@ -6,7 +6,7 @@ import java.math.BigDecimal;
 import java.util.UUID;
 
 /**
- * What one company store records about one product variant: the <b>cost</b>, and a price column nothing writes.
+ * What one company store records about one product variant: the <b>cost</b>.
  *
  * <p>Exactly one row per {@code (product_variant_id, company_store_id)} pair, enforced by
  * {@code UNIQUE(product_variant_id, company_store_id)}. It is no longer a position: ADR-0001 decision 1 made
@@ -15,12 +15,12 @@ import java.util.UUID;
  * movement has to state ({@code ck_movement_inbound_cost}) — and an identity the per-store editor serializes on.
  * {@code V74} dropped the {@code stock} column this table carried since {@code V10}.</p>
  *
- * <p><b>{@code listPrice} is a leftover, and nothing writes it any more.</b> ADR-0006 decision 5 made the
- * price a {@link VariantListing} — {@code (variant, store)} with a price, a currency and no stock and no
- * cost — because price and quantity have different owners: a receipt may create stock in a store that
- * never priced the article (decision 6), and that state has to be representable. Since the price write
- * moved, {@code list_price} here holds only what {@code V58} copied out of it. A reader that needs a price
- * reads the listing; a reader that reads this column is reading history.</p>
+ * <p><b>There is no price here.</b> ADR-0006 decision 5 made the price a {@link VariantListing} —
+ * {@code (variant, store)} with a price, a currency and no stock and no cost — because price and quantity have
+ * different owners: a receipt may create stock in a store that never priced the article (decision 6), and that
+ * state has to be representable. The {@code list_price} column this entity carried until {@code V77} held only
+ * what {@code V58} had copied out of it, with no writer and no reader since T4b moved the reads; {@code V77}
+ * dropped it. A reader that needs a price reads the listing.</p>
  *
  * <p>Shape: plain UUID foreign keys instead of JPA relations, and no {@code @Version} — concurrency is handled
  * by explicit pessimistic locks at the call sites.</p>
@@ -38,9 +38,6 @@ public class ProductVariantStoreStock extends Auditable {
 
     @Column(name = "company_store_id", nullable = false)
     private UUID companyStoreId;
-
-    @Column(name = "list_price", precision = 12, scale = 2)
-    private BigDecimal listPrice;
 
     @Column(name = "cost_price", precision = 12, scale = 2)
     private BigDecimal costPrice;
@@ -61,10 +58,6 @@ public class ProductVariantStoreStock extends Auditable {
         return companyStoreId;
     }
 
-    public BigDecimal getListPrice() {
-        return listPrice;
-    }
-
     public BigDecimal getCostPrice() {
         return costPrice;
     }
@@ -80,10 +73,6 @@ public class ProductVariantStoreStock extends Auditable {
 
     public void setCompanyStoreId(UUID companyStoreId) {
         this.companyStoreId = companyStoreId;
-    }
-
-    public void setListPrice(BigDecimal listPrice) {
-        this.listPrice = listPrice;
     }
 
     public void setCostPrice(BigDecimal costPrice) {
@@ -110,11 +99,6 @@ public class ProductVariantStoreStock extends Auditable {
 
         public Builder companyStoreId(UUID companyStoreId) {
             storeStock.companyStoreId = companyStoreId;
-            return this;
-        }
-
-        public Builder listPrice(BigDecimal listPrice) {
-            storeStock.listPrice = listPrice;
             return this;
         }
 

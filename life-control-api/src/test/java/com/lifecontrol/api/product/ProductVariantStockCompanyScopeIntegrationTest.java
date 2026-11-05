@@ -211,8 +211,8 @@ class ProductVariantStockCompanyScopeIntegrationTest extends AbstractPostgresInt
                     .findByProductVariantIdAndCompanyStoreId(variantBId, storeBId)
                     .orElseThrow();
             // The price is a listing since ADR-0006 decision 6: the store row is the position and carries
-            // no price of its own any more, so this assertion names the listing it now lives in.
-            assertThat(row.getListPrice()).isNull();
+            // no price of its own any more — V77 dropped the column — so this assertion names the listing it
+            // now lives in.
             assertThat(TenantFixtures.inTenant(
                             companyBId,
                             () -> variantListingRepository

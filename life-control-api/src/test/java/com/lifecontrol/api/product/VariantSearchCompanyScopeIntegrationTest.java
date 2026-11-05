@@ -295,7 +295,6 @@ class VariantSearchCompanyScopeIntegrationTest extends AbstractPostgresIntegrati
         var storeStock = productVariantStoreStockRepository.save(ProductVariantStoreStock.builder()
                 .productVariantId(targetVariantId)
                 .companyStoreId(companyStoreId)
-                .listPrice(new BigDecimal("10.00"))
                 .costPrice(new BigDecimal("5.00"))
                 .build());
         createdStoreStockIds.add(storeStock.getId());

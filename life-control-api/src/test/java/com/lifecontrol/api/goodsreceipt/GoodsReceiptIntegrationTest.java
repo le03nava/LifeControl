@@ -563,7 +563,6 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
                 .productVariantId(variantId)
                 .companyStoreId(store.getId())
                 .costPrice(new BigDecimal("10.00"))
-                .listPrice(new BigDecimal("20.00"))
                 .build());
     }
 

@@ -1180,9 +1180,6 @@ class ProductVariantServiceTest {
             verify(productVariantStoreStockRepository).insertStoreStockIfAbsent(variantId, companyStoreId);
             // The price half goes to the listing and NOT to the store row: one price, one writer.
             verify(variantListingRepository).upsertListPrice(variantId, companyStoreId, new BigDecimal("199.99"));
-            assertThat(row.getListPrice())
-                    .as("`product_variant_store_stock.list_price` is no longer written by this endpoint")
-                    .isNull();
             // The stock half is delegated to the engine, never written here (W3-D14).
             verify(stockLedgerEngine)
                     .applyStockAdjustment(variantId, companyStoreId, new BigDecimal("50.00"), "tester");

@@ -418,7 +418,6 @@ class ProductVariantStoreFilterIntegrationTest extends AbstractPostgresIntegrati
         var storeStock = productVariantStoreStockRepository.save(ProductVariantStoreStock.builder()
                 .productVariantId(targetVariantId)
                 .companyStoreId(targetStoreId)
-                .listPrice(new BigDecimal("10.00"))
                 .costPrice(new BigDecimal("5.00"))
                 .build());
         createdStoreStockIds.add(storeStock.getId());
