@@ -19,6 +19,9 @@
 #   - the stack up: ./docker/scripts/deploy.sh dev up
 #   - the realm provisioned: ./docker/scripts/keycloak-setup.sh dev
 #   - docker/secrets/keycloak_admin_client_secret materialized
+#   - the company this run operates on, named in PROVISIONING_VERIFY_COMPANY_ID
+#     (see "the order is load-bearing" below for why the default mode cannot
+#     discover it)
 #   - the provisioning worker ON. In dev that is the default
 #     (docker-compose.override.yml: WORKER_ENABLED=${WORKER_ENABLED:-true}); the
 #     script reads the *effective* switch from the API's own `workerEnabled`
@@ -58,16 +61,44 @@
 #
 #   (a) default — it provisions its OWN DISPOSABLE OPERATOR: a password generated
 #       here with $RANDOM, never printed and never written to disk, `lc-admin`
-#       granted on the app client, the `company_id` attribute set to the chosen
-#       company and read back, and the user DELETED on exit. Nothing is hardcoded
-#       and nothing survives the run; the admin client secret this script already
-#       reads can create such a user anyway, so this adds no authority it did not
-#       have.
+#       granted on the app client, the `company_id` attribute set to the company
+#       this run operates on and read back, and the user DELETED on exit. Nothing
+#       is hardcoded and nothing survives the run; the admin client secret this
+#       script already reads can create such a user anyway, so this adds no
+#       authority it did not have.
+#
+#       THE ORDER IS LOAD-BEARING (measured 2026-11-01). CompanyService
+#       .claimedCompaniesPage answers an EMPTY page for a token that carries no
+#       `company_id` claim, deliberately: the role guards the endpoint, it does
+#       not widen the tenant ("isAdmin() is not consulted here at all"). Same
+#       operator, same realm: no claim -> totalElements 0; attribute set ->
+#       totalElements 1. An operator this script has just created carries no
+#       claim, so it can neither list a company nor read one by id until its own
+#       attribute says which. Writing the attribute after resolving the company
+#       therefore inverts the dependency — the run needed the company to write
+#       the claim, and needed the claim to read the company — and that inverted
+#       order is exactly the defect that made the default mode useless. There is
+#       one function that writes the claim, reads it BACK (Keycloak discards
+#       unmanaged attributes silently, so 204 alone proves nothing) and
+#       re-obtains the token; both paths below call it, and the named-company
+#       path calls it BEFORE its first read.
+#
+#       How the company is chosen:
+#         (a.1) PROVISIONING_VERIFY_COMPANY_ID=<uuid> — the company is an input.
+#               The claim is written first and the company is read directly by id
+#               (GET /api/companies/{id}); its emailDomain and enabled are still
+#               checked, and the run stops naming the cause when either fails.
+#         (a.2) without it, the script falls back to listing GET /api/companies.
+#               That only answers for a token that already carries the claim —
+#               which is the supplied-token mode (b) — so when the page comes
+#               back empty the run stops and names PROVISIONING_VERIFY_COMPANY_ID,
+#               because the empty page is the symptom, not the missing company.
 #   (b) export PROVISIONING_VERIFY_TOKEN=<jwt> — an operator token supplied by a
-#       human (an `lc-admin` token from a real login). This mode writes NO
-#       identity into the realm: no user, no role, no attribute, no password. It
-#       still reads the account back through the admin client, which is what lets
-#       the roles and the five claims be asserted at all.
+#       human (an `lc-admin` token from a real login, carrying its own
+#       `company_id` claim). This mode writes NO identity into the realm: no user,
+#       no role, no attribute, no password, and the token is used exactly as it
+#       came. It still reads the account back through the admin client, which is
+#       what lets the roles and the five claims be asserted at all.
 #
 # WHAT IT DOES NOT CLAIM. It exercises the API the screens call, not the screens.
 # It asserts the role set the position template of the chosen position declares,
@@ -134,6 +165,11 @@ MAILPIT_BASE="http://localhost:$(get_env MAILPIT_PORT 8025)"
 WORKER_INTERVAL="$(get_env WORKER_INTERVAL_SECONDS 60)"
 ADM_CLIENT_SECRET_FILE="$SECRETS_DIR/keycloak_admin_client_secret"
 OPERATOR_TOKEN="${PROVISIONING_VERIFY_TOKEN:-}"
+# The company this run operates on, when the caller names it. It is an input
+# rather than something discovered, because an operator provisioned by this
+# script carries no company_id claim yet and the API answers an empty company
+# list without one (see the resolution section).
+COMPANY_ID_INPUT="${PROVISIONING_VERIFY_COMPANY_ID:-}"
 
 # The interval is only used for arithmetic; anything that is not a number falls
 # back to the same default the API uses, instead of failing inside $(( )).
@@ -390,9 +426,11 @@ trap cleanup EXIT
 
 # ============================================
 # The operator identity: supplied by a human, or provisioned as its own
-# disposable object. The provisioned one is created without attributes, because
-# the company the flow will use can only be read with a token; the attribute is
-# written and read back once the company is known.
+# disposable object. The provisioned one is created WITHOUT attributes: the
+# company it will operate on is an input of the run, and its `company_id` claim
+# is written, read back and turned into a fresh token by apply_company_claim
+# below — before the first company read when the company is named, and only once
+# it is known when it is discovered by listing.
 # ============================================
 if [ -z "$OPERATOR_TOKEN" ]; then
 	OPERATOR_USERNAME="w6b-provision-ops-$STAMP"
@@ -451,6 +489,47 @@ else
 	print_status "Using the operator token supplied in PROVISIONING_VERIFY_TOKEN (no identity is written to the realm)"
 fi
 
+# apply_company_claim <company-id>
+# Writes the disposable operator's company_id attribute, reads it BACK and
+# re-obtains its token, in that order, so every request after this carries the
+# claim. It is the one place that does the three steps, which is what keeps the
+# ordering in one spot instead of two copies that can drift apart.
+#
+# Why the ordering is not cosmetic (measured 2026-11-01):
+# `CompanyService.claimedCompaniesPage` answers an EMPTY page to a token without
+# the `company_id` claim — the role guards the endpoint, it does not widen the
+# tenant — and a scoped company read answers 403 for the same reason. A freshly
+# provisioned operator therefore has no company it can see until the claim is on
+# its token.
+#
+# A token supplied in PROVISIONING_VERIFY_TOKEN has no operator to write: it is
+# used exactly as the human minted it, so this function only reports that.
+apply_company_claim() {
+	local company_id="$1"
+	local attr_code read_back
+	if [ -z "$OPERATOR_ID" ]; then
+		print_status "The operator token came from PROVISIONING_VERIFY_TOKEN; no attribute is written (nothing to set)."
+		return 0
+	fi
+	print_status "Writing the disposable operator's company_id attribute ($company_id) and reading it back..."
+	attr_code="$(kc_admin_code PUT "/users/$OPERATOR_ID" \
+		"{\"username\":\"$OPERATOR_USERNAME\",\"email\":\"$OPERATOR_EMAIL\",\"firstName\":\"Provisioning\",\"lastName\":\"Verifier\",\"enabled\":true,\"emailVerified\":true,\"attributes\":{\"company_id\":[\"$company_id\"]}}")"
+	expect_code 204 "$attr_code" "Writing the disposable operator's attributes" || exit 1
+	# READ BACK, never trust the write: this is the trap AGENTS.md documents —
+	# with the default user-profile policy Keycloak answers 204 and stores nothing,
+	# so an attribute that did not stick is the difference between a scoped token
+	# and a 403 nobody can explain.
+	read_back="$(json_array company_id "$(kc_admin GET "/users/$OPERATOR_ID")")"
+	if [ "$read_back" != "$company_id" ]; then
+		print_error "The operator's company_id attribute did not persist (read back '${read_back:-<empty>}')."
+		print_error "Keycloak discards unmanaged user attributes silently unless the realm's user profile allows them:"
+		print_error "run ./docker/scripts/keycloak-setup.sh $ENV, which sets unmanagedAttributePolicy=ADMIN_EDIT and verifies it."
+		exit 1
+	fi
+	OPERATOR_TOKEN="$(obtain_operator_token "$OPERATOR_USERNAME" "$OPERATOR_PASSWORD")"
+	print_success "Operator token re-obtained with company_id=$company_id"
+}
+
 # ============================================
 # API helpers (operator token)
 # ============================================
@@ -476,39 +555,79 @@ api_write() {
 # ============================================
 # Resolve the company and the facts the writes need.
 # ============================================
-print_status "Resolving a company with a configured email domain..."
-api_write GET /api/companies
-if [ "$W_CODE" != "200" ]; then
-	print_error "GET /api/companies answered HTTP $W_CODE."
-	print_error "An 401/403 here means the operator token lacks lc-admin, or its issuer is not the one this stack"
-	print_error "accepts (KEYCLOAK_ISSUER_URI). A supplied PROVISIONING_VERIFY_TOKEN must come from this realm."
-	exit 1
-fi
-COMPANY_IDS="$(printf '%s' "$W_BODY" | flatten | grep -o '"id"[[:space:]]*:[[:space:]]*"[^"]*"' | cut -d'"' -f4 || true)"
-if [ -z "$COMPANY_IDS" ]; then
-	print_error "The API answered no companies. Create one in the UI first: this procedure creates its employee"
-	print_error "inside an existing company and never creates the company itself."
-	exit 1
-fi
-EMAIL_DOMAIN=""
-while IFS= read -r candidate; do
-	[ -n "$candidate" ] || continue
-	api_write GET "/api/companies/$candidate"
-	[ "$W_CODE" = "200" ] || continue
+if [ -n "$COMPANY_ID_INPUT" ]; then
+	# The named-company path: the claim goes on the operator BEFORE the first
+	# company read, because the read itself needs it. This is the order the
+	# default mode was missing — see apply_company_claim above.
+	print_status "Using the company named in PROVISIONING_VERIFY_COMPANY_ID: $COMPANY_ID_INPUT"
+	# Called plainly, never as `fn || exit`: a `||` context would disable `set -e`
+	# inside the function and let a failed Admin API read continue unnoticed.
+	apply_company_claim "$COMPANY_ID_INPUT"
+	print_status "Reading company $COMPANY_ID_INPUT..."
+	api_write GET "/api/companies/$COMPANY_ID_INPUT"
+	if [ "$W_CODE" != "200" ]; then
+		print_error "GET /api/companies/$COMPANY_ID_INPUT answered HTTP $W_CODE."
+		print_error "A 404 means no company with that id exists in realm $REALM; a 403 means the operator token's"
+		print_error "company_id claim does not cover it (see AGENTS.md, 'Claims de tenancy')."
+		exit 1
+	fi
 	DOMAIN="$(json_string emailDomain "$W_BODY")"
 	ENABLED="$(json_bool enabled "$W_BODY")"
-	if [ -n "$DOMAIN" ] && [ "$ENABLED" != "false" ]; then
-		COMPANY_ID="$candidate"
-		EMAIL_DOMAIN="$DOMAIN"
-		break
+	if [ -z "$DOMAIN" ] || [ "$ENABLED" = "false" ]; then
+		print_error "Company $COMPANY_ID_INPUT cannot be used: its emailDomain is '${DOMAIN:-<empty>}' and its enabled is '${ENABLED:-<absent>}'."
+		print_error "The employee write fails closed without an email domain, and a disabled company takes no"
+		print_error "employee at all. Set the domain in the UI (or via PUT /api/companies/{id}), enable the"
+		print_error "company, and run this again."
+		exit 1
 	fi
-done <<<"$COMPANY_IDS"
-if [ -z "$COMPANY_ID" ]; then
-	print_error "No enabled company declares an email_domain, and the employee write fails closed without one."
-	print_error "Set the company's domain in the UI (or via PUT /api/companies/{id}) and run this again."
-	exit 1
+	COMPANY_ID="$COMPANY_ID_INPUT"
+	EMAIL_DOMAIN="$DOMAIN"
+	print_success "Company $COMPANY_ID (email domain $EMAIL_DOMAIN)"
+else
+	# The listing path stays for a token that already carries the claim. It cannot
+	# serve a disposable operator, and when it comes back empty the run names the
+	# input that replaces it rather than blaming the data.
+	print_status "Resolving a company with a configured email domain..."
+	api_write GET /api/companies
+	if [ "$W_CODE" != "200" ]; then
+		print_error "GET /api/companies answered HTTP $W_CODE."
+		print_error "An 401/403 here means the operator token lacks lc-admin, or its issuer is not the one this stack"
+		print_error "accepts (KEYCLOAK_ISSUER_URI). A supplied PROVISIONING_VERIFY_TOKEN must come from this realm."
+		exit 1
+	fi
+	COMPANY_IDS="$(printf '%s' "$W_BODY" | flatten | grep -o '"id"[[:space:]]*:[[:space:]]*"[^"]*"' | cut -d'"' -f4 || true)"
+	if [ -z "$COMPANY_IDS" ]; then
+		print_error "The API answered no companies for this operator token. CompanyService.claimedCompaniesPage"
+		print_error "returns an EMPTY page for a token without the company_id claim — the lc-admin role guards the"
+		print_error "endpoint, it does not widen the tenant — so this listing can only work for a token that already"
+		print_error "carries the claim, which is what PROVISIONING_VERIFY_TOKEN supplies."
+		print_error "Name the company this run should operate on instead:"
+		print_error "  PROVISIONING_VERIFY_COMPANY_ID=<uuid> ./docker/scripts/verify-provisioning-flow.sh $ENV"
+		print_error "That writes the claim to the disposable operator BEFORE the first read, and reads the company by id."
+		print_error "If the stack holds no company at all, create one in the UI first: this procedure creates its"
+		print_error "employee inside an existing company and never creates the company itself."
+		exit 1
+	fi
+	EMAIL_DOMAIN=""
+	while IFS= read -r candidate; do
+		[ -n "$candidate" ] || continue
+		api_write GET "/api/companies/$candidate"
+		[ "$W_CODE" = "200" ] || continue
+		DOMAIN="$(json_string emailDomain "$W_BODY")"
+		ENABLED="$(json_bool enabled "$W_BODY")"
+		if [ -n "$DOMAIN" ] && [ "$ENABLED" != "false" ]; then
+			COMPANY_ID="$candidate"
+			EMAIL_DOMAIN="$DOMAIN"
+			break
+		fi
+	done <<<"$COMPANY_IDS"
+	if [ -z "$COMPANY_ID" ]; then
+		print_error "No enabled company declares an email_domain, and the employee write fails closed without one."
+		print_error "Set the company's domain in the UI (or via PUT /api/companies/{id}) and run this again."
+		exit 1
+	fi
+	print_success "Company $COMPANY_ID (email domain $EMAIL_DOMAIN)"
 fi
-print_success "Company $COMPANY_ID (email domain $EMAIL_DOMAIN)"
 
 print_status "Resolving a position and a seniority level..."
 api_write GET "/api/companies/$COMPANY_ID/positions"
@@ -528,26 +647,12 @@ print_success "Position $POSITION_ID, seniority level $SENIORITY_ID"
 
 # ============================================
 # The operator's own claims, reported so a 401/403 below is explained instead of
-# mysterious. The provisioned operator gets its company_id attribute here, once
-# the company is known, and the token is re-obtained so it carries it.
+# mysterious. With PROVISIONING_VERIFY_COMPANY_ID the claim was already written
+# before the first company read; the listing mode writes it here, once the
+# company is known, which is the only point at which that mode can know it.
 # ============================================
-if [ -n "$OPERATOR_ID" ]; then
-	print_status "Writing the disposable operator's company_id attribute and reading it back..."
-	ATTR_CODE="$(kc_admin_code PUT "/users/$OPERATOR_ID" \
-		"{\"username\":\"$OPERATOR_USERNAME\",\"email\":\"$OPERATOR_EMAIL\",\"firstName\":\"Provisioning\",\"lastName\":\"Verifier\",\"enabled\":true,\"emailVerified\":true,\"attributes\":{\"company_id\":[\"$COMPANY_ID\"]}}")"
-	expect_code 204 "$ATTR_CODE" "Writing the disposable operator's attributes" || exit 1
-	# READ BACK, never trust the write: this is the trap AGENTS.md documents —
-	# with the default user-profile policy Keycloak answers 204 and stores nothing,
-	# so an attribute that did not stick is the difference between a scoped token
-	# and a 403 nobody can explain.
-	READ_BACK="$(json_array company_id "$(kc_admin GET "/users/$OPERATOR_ID")")"
-	if [ "$READ_BACK" != "$COMPANY_ID" ]; then
-		print_error "The operator's company_id attribute did not persist (read back '${READ_BACK:-<empty>}')."
-		print_error "Keycloak discards unmanaged user attributes silently unless the realm's user profile allows them:"
-		print_error "run ./docker/scripts/keycloak-setup.sh $ENV, which sets unmanagedAttributePolicy=ADMIN_EDIT and verifies it."
-		exit 1
-	fi
-	OPERATOR_TOKEN="$(obtain_operator_token "$OPERATOR_USERNAME" "$OPERATOR_PASSWORD")"
+if [ -z "$COMPANY_ID_INPUT" ]; then
+	apply_company_claim "$COMPANY_ID"
 fi
 
 OPERATOR_PAYLOAD="$(decode_jwt_payload "$OPERATOR_TOKEN" || true)"
