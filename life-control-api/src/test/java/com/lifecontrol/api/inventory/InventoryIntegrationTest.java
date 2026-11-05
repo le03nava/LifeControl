@@ -362,7 +362,6 @@ class InventoryIntegrationTest extends AbstractPostgresIntegrationTest {
                     .productVariantId(variant.getId())
                     .companyStoreId(storeId)
                     .costPrice(new BigDecimal("10.00"))
-                    .listPrice(new BigDecimal("20.00"))
                     .build());
             return variant;
         });
@@ -872,7 +871,6 @@ class InventoryIntegrationTest extends AbstractPostgresIntegrationTest {
                         .productVariantId(variant.getId())
                         .companyStoreId(storeId)
                         .costPrice(new BigDecimal("10.00"))
-                        .listPrice(new BigDecimal("20.00"))
                         .build());
                 return variant;
             });

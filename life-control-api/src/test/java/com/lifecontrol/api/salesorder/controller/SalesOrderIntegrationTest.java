@@ -513,7 +513,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             variant.setVariantName("Variant-" + UUID.randomUUID().toString().substring(0, 8));
             variant.setEnabled(true);
             var saved = productVariantRepository.save(variant);
-            saveStoreStock(saved.getId(), stock, new BigDecimal("100.00"), new BigDecimal("60.00"));
+            saveStoreStock(saved.getId(), stock, new BigDecimal("60.00"));
             return saved;
         });
     }
@@ -540,7 +540,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             variant.setVariantName("VariantB-" + UUID.randomUUID().toString().substring(0, 8));
             variant.setEnabled(true);
             var saved = productVariantRepository.save(variant);
-            saveStoreStock(saved.getId(), stock, new BigDecimal("50.00"), new BigDecimal("30.00"));
+            saveStoreStock(saved.getId(), stock, new BigDecimal("30.00"));
             return saved;
         });
     }
@@ -577,11 +577,10 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
      * <p>Runs inside the caller's tenant transaction, like every other writer call in this suite: the receipt reads
      * the variant and the store row it locks, so opening a transaction of its own here would read neither.</p>
      */
-    private void saveStoreStock(UUID variantId, BigDecimal stock, BigDecimal listPrice, BigDecimal costPrice) {
+    private void saveStoreStock(UUID variantId, BigDecimal stock, BigDecimal costPrice) {
         productVariantStoreStockRepository.save(ProductVariantStoreStock.builder()
                 .productVariantId(variantId)
                 .companyStoreId(companyStoreId)
-                .listPrice(listPrice)
                 .costPrice(costPrice)
                 .build());
         seedOpeningReceipt(variantId, salesLocationId, stock);

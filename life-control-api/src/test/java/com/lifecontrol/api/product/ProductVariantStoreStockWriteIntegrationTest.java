@@ -273,8 +273,7 @@ class ProductVariantStoreStockWriteIntegrationTest extends AbstractPostgresInteg
         var inserted = productVariantStoreStockRepository
                 .findByProductVariantIdAndCompanyStoreId(bareVariantId, storeAId)
                 .orElseThrow();
-        // The price is a listing since ADR-0006 decision 6, so it is NOT on the store row any more.
-        assertThat(inserted.getListPrice()).isNull();
+        // The price is a listing since ADR-0006 decision 6; V77 dropped the store row's own column.
         assertThat(listingPriceOf(bareVariantId, storeAId)).isEqualByComparingTo("25.50");
         assertThat(inserted.getCostPrice()).isEqualByComparingTo("12.00");
         // The quantity the write stated is the ledger's position: the row's own `stock` column is written by
@@ -328,13 +327,7 @@ class ProductVariantStoreStockWriteIntegrationTest extends AbstractPostgresInteg
                                 .orElseThrow()
                                 .getCurrency()));
 
-        // The transitional copy is NOT kept up to date: `product_variant_store_stock.list_price` is the
-        // column ADR-0001 retires, and two writers of one price is the defect this slice removes.
-        assertThat(productVariantStoreStockRepository
-                        .findByProductVariantIdAndCompanyStoreId(bareVariantId, storeAId)
-                        .orElseThrow()
-                        .getListPrice())
-                .isNull();
+        // One price, one writer: since V77 the store row has no price column left to disagree with the listing.
 
         // A second price updates the same listing instead of stacking a second row.
         writePrice(bareVariantId, storeAId, "30.00");
@@ -377,9 +370,8 @@ class ProductVariantStoreStockWriteIntegrationTest extends AbstractPostgresInteg
         // The quantity on hand is the ledger's position, and no movement was booked, so no row exists. The
         // stored `stock` column this case asserted the INSERT default of is gone with V74, so what is left to
         // read is the projection: an empty list is the ledger saying nothing was ever booked for this key. The
-        // two prices have no default and still say so.
+        // cost has no default and still says so.
         assertThat(positionRowsOf(storeAId, bareVariantId)).isEmpty();
-        assertThat(row.getListPrice()).isNull();
         assertThat(row.getCostPrice()).isNull();
         // And no listing: `variant_listing.list_price` is NOT NULL, so there is no such thing as a
         // price-less listing to create here.

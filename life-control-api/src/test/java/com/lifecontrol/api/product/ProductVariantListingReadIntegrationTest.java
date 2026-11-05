@@ -351,22 +351,22 @@ class ProductVariantListingReadIntegrationTest extends AbstractPostgresIntegrati
      * projection is what the cases above already assert, on the projection.
      */
 
-    // ─── the row V58 backfilled ───────────────────────────────────────────
+    // ─── the price V58 copied lives in its listing ────────────────────────
 
     @Test
-    @DisplayName("a priced row from before the split keeps serving its price, and the listing is what is read")
-    void aPreSlicePricedRow_KeepsServingItsBackfilledPrice() throws Exception {
-        // The state V58 left behind: the store row still carries the price it always had, and the migration
-        // copied it into `variant_listing`. Both variants below hold the same store-row price; only the
-        // second one has a listing that disagrees, and that is what tells "the copy is read" apart from
-        // "the old column is still the source".
-        var backfilledId = createVariant("Backfilled");
-        storeRow(backfilledId, "2", "15.00");
-        listing(backfilledId, "100.50");
+    @DisplayName("each store row serves the price of its own listing, and nothing else")
+    void eachStoreRowServesThePriceOfItsListing() throws Exception {
+        // Since V77 the store row carries no price column at all, so the listing is the only representation a
+        // price has. The two variants below differ only in the number their listing states — which is what makes
+        // "the read answers the listing" observable: a read that answered anything else would have to be reading
+        // something that no longer exists.
+        var first = createVariant("First");
+        storeRow(first, "2", "15.00");
+        listing(first, "100.50");
 
-        var divergedId = createVariant("Diverged");
-        storeRowWithPrice(divergedId, "3", "100.50", "15.00");
-        listing(divergedId, "200.00");
+        var second = createVariant("Second");
+        storeRow(second, "3", "15.00");
+        listing(second, "200.00");
 
         var result = mockMvc.perform(get(VARIANTS_URL, companyId, productId)
                         .param("storeId", storeId.toString())
@@ -377,11 +377,11 @@ class ProductVariantListingReadIntegrationTest extends AbstractPostgresIntegrati
 
         var byId = contentById(result.getResponse().getContentAsString());
 
-        assertThat(decimal(byId.get(backfilledId.toString()).get("listPrice")))
-                .as("the row V58 copied still serves the price it was copied with")
+        assertThat(decimal(byId.get(first.toString()).get("listPrice")))
+                .as("the price is the listing's, not a second copy somewhere else")
                 .isEqualByComparingTo("100.50");
-        assertThat(decimal(byId.get(divergedId.toString()).get("listPrice")))
-                .as("with both representations present and disagreeing, the listing is the price")
+        assertThat(decimal(byId.get(second.toString()).get("listPrice")))
+                .as("a second store row priced differently answers its own listing")
                 .isEqualByComparingTo("200.00");
     }
 
@@ -474,14 +474,9 @@ class ProductVariantListingReadIntegrationTest extends AbstractPostgresIntegrati
      * column, so the movement is the only place the quantity exists.</p>
      */
     private UUID storeRow(UUID variantId, String stock, String costPrice) {
-        return storeRowWithPrice(variantId, stock, null, costPrice);
-    }
-
-    private UUID storeRowWithPrice(UUID variantId, String stock, String listPrice, String costPrice) {
         var row = productVariantStoreStockRepository.save(ProductVariantStoreStock.builder()
                 .productVariantId(variantId)
                 .companyStoreId(storeId)
-                .listPrice(listPrice == null ? null : new BigDecimal(listPrice))
                 .costPrice(costPrice == null ? null : new BigDecimal(costPrice))
                 .build());
         createdStoreStockIds.add(row.getId());
