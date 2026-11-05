@@ -273,6 +273,69 @@ class SalesMoneyBreakdownMigrationIntegrationTest extends AbstractPostgresIntegr
     }
 
     @Test
+    @DisplayName("a line inserted without a subtotal gets round(price x quantity, 4) from the schema")
+    void theLineSubtotalIsDerivedOnInsert() throws Exception {
+        migrateTo(PRE_UNIT_HEAD);
+        var document = seedLegacyDocument();
+        migrateToHead();
+
+        var variant =
+                readUnscoped("SELECT product_variant_id FROM sales_order_items WHERE id = '" + document.lineA() + "'");
+        var order = UUID.randomUUID();
+        var line = UUID.randomUUID();
+        // The writer that exists today sends no subtotal (`SalesOrderService:225,351,364`), so this is the
+        // path every order in the tree takes: the trigger derives the column and the constraint agrees.
+        inOneTransaction(
+                document.company(),
+                insertOrderStatement(document, order, 3, "0"),
+                creationRow(document.company(), "SALES_ORDER", order, "DRAFT"),
+                "INSERT INTO sales_order_items (id, sales_order_id, product_variant_id, quantity, list_price,"
+                        + " final_price, status, created_at) VALUES ('" + line + "', '" + order + "', '" + variant
+                        + "', 3.0000, 12.3456, 12.3456, 'PENDING', '2026-11-06 10:00:00')",
+                creationRow(document.company(), "SALES_ORDER_ITEM", line, "PENDING"));
+
+        assertThat(lineMoney(line, "subtotal"))
+                .as("price times quantity at four decimals, derived by the schema instead of trusted to the "
+                        + "caller")
+                .isEqualTo("37.0368");
+    }
+
+    @Test
+    @DisplayName("a document cannot be restated into another currency by an update")
+    void theCurrencyCannotBeRestated() throws Exception {
+        migrateTo(PRE_UNIT_HEAD);
+        var document = seedLegacyDocument();
+        migrateToHead();
+
+        var refusal = refusalOf(
+                document.company(), "UPDATE sales_orders SET currency = 'USD' WHERE id = '" + document.orderId() + "'");
+
+        assertThat(refusal.getMessage())
+                .as("the derivation runs on update too, so decision 2 is not a rule about inserts only")
+                .contains("cannot be in a currency other than the company's operating currency")
+                .contains("USD");
+    }
+
+    @Test
+    @DisplayName("a rounding of exactly one unit is accepted")
+    void theRoundingBoundAcceptsOneUnit() throws Exception {
+        migrateTo(PRE_UNIT_HEAD);
+        var document = seedLegacyDocument();
+        migrateToHead();
+
+        // The boundary of `abs(rounding_adjustment) <= 1` is inclusive, and this is the case a `abs(…) < 1`
+        // would break while the refusal case above still passed.
+        inOneTransaction(
+                document.company(),
+                "UPDATE sales_orders SET rounding_adjustment = 1, subtotal = 139, total_amount = 140" + " WHERE id = '"
+                        + document.orderId() + "'");
+
+        assertThat(money(document.company(), document.orderId(), "rounding_adjustment"))
+                .as("one minor unit is the widest bound any currency allows, and it is accepted")
+                .isEqualTo("1.0000");
+    }
+
+    @Test
     @DisplayName("the premise: with the window closed again, the owner reads no company")
     void theOwnerReadsNoCompanyWithoutTheScope() throws Exception {
         migrateTo(PRE_UNIT_HEAD);
