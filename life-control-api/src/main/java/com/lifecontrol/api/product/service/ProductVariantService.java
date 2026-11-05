@@ -394,8 +394,8 @@ public class ProductVariantService {
      * Upserts the PER-STORE row of a variant and the store's price of it. Stock is the row
      * ({@code product_variant_store_stock}); the price is the listing ({@code variant_listing}).
      *
-     * <p><b>The price is written to the listing, from ADR-0006 decision 6</b>
-     * (<code>docs/adr/0006-catalog-identity.md:60-64</code>). "Sellable in this store" is a listing,
+     * <p><b>The price is written to the listing, from ADR-0006 decision 6</b>. "Sellable in this store"
+     * is a listing,
      * "there is stock here" is the position, and this endpoint is the pair's editor — so it writes its
      * two halves where they belong instead of writing a price and a quantity into one row. The listing is
      * created on the first price with the currency the variant's company states ({@code V57}), through

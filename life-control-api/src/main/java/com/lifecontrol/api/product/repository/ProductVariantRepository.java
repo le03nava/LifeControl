@@ -165,8 +165,8 @@ public interface ProductVariantRepository extends JpaRepository<ProductVariant, 
      * reaches are rows of whatever tenant wrote them. The company passed here is the one the store
      * itself belongs to, so a store of another tenant cannot be used to read this product's variants.</p>
      *
-     * <p><b>Two independent {@code LEFT JOIN}s, and that is the whole of ADR-0006 migration step 5</b>
-     * (<code>docs/adr/0006-catalog-identity.md:153-156</code>). Until this slice both reads
+     * <p><b>Two independent {@code LEFT JOIN}s, and that is the whole of ADR-0006 migration step 5</b>.
+     * Until this slice both reads
      * {@code INNER JOIN}ed {@code product_variant_store_stock}, one row holding the price <em>and</em> the
      * position, and the two states decision 6's table separates were lost in different ways: a
      * <b>price with no position</b> had no store row at all and was therefore invisible, and a
@@ -236,7 +236,7 @@ public interface ProductVariantRepository extends JpaRepository<ProductVariant, 
      * rule written where the leak already happened, so it is written here, in the query.</p>
      *
      * <p>The two independent {@code LEFT JOIN}s are the same change as the list's and the same
-     * requirement (ADR-0006 migration step 5, <code>docs/adr/0006-catalog-identity.md:153-156</code>): the
+     * requirement (ADR-0006 migration step 5): the
      * search is where the POS finds an article, so the two states have to be readable here too — a variant
      * that holds stock and no listing <b>returned and flagged</b> rather than indistinguishable, and a
      * listing with no position returned at all instead of dropped by the {@code INNER JOIN}. The structure,
