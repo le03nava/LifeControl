@@ -8,6 +8,8 @@ import { CompanyContextService } from '@shared/data/company-context.service';
 import { CompanyCountryService } from '@features/companies/countries/data';
 import { CountryService } from '@features/countries/data/country.service';
 import { Country } from '@features/companies/countries/models/country.models';
+import { CurrencyService } from '@features/companies/companies/data/currency.service';
+import { Currency } from '@features/companies/companies/data/currency.models';
 import { ActivatedRoute, Router } from '@angular/router';
 import { ReactiveFormsModule } from '@angular/forms';
 import { of, throwError } from 'rxjs';
@@ -35,6 +37,11 @@ describe('CompanyEdit', () => {
     });
   }
 
+  const mockCurrencies: Currency[] = [
+    { code: 'MXN', minorUnits: 2, symbol: '$', enabled: true },
+    { code: 'USD', minorUnits: 2, symbol: 'US$', enabled: true },
+  ];
+
   function createCompanyData(overrides: Partial<Company> = {}): Company {
     return {
       id: '',
@@ -46,6 +53,7 @@ describe('CompanyEdit', () => {
       email: 'test@test.com',
       emailDomain: 'test.com',
       phone: '5551234567',
+      currency: 'MXN',
       enabled: true,
       createdAt: '',
       updatedAt: '',
@@ -75,6 +83,9 @@ describe('CompanyEdit', () => {
       email: 'corp@test.com',
       emailDomain: 'test.com',
       phone: '555-0001',
+      // A stored code that is NOT the catalog's first row: the body has to carry what the
+      // company says, not a value the client guessed.
+      currency: 'USD',
       address: { ...defaultAddress },
       enabled: true,
       createdAt: '2024-01-01',
@@ -116,6 +127,16 @@ describe('CompanyEdit', () => {
             loading: signal(false).asReadonly(),
             error: signal<string | null>(null).asReadonly(),
             getCountries: vi.fn().mockReturnValue(of([])),
+          },
+        },
+        {
+          provide: CurrencyService,
+          useValue: {
+            currencies: signal<Currency[]>([]).asReadonly(),
+            loading: signal(false).asReadonly(),
+            loaded: signal(false).asReadonly(),
+            error: signal<string | null>(null).asReadonly(),
+            getCurrencies: vi.fn().mockReturnValue(of(mockCurrencies)),
           },
         },
         { provide: Router, useValue: routerMock },
@@ -308,6 +329,44 @@ describe('CompanyEdit', () => {
     });
   });
 
+  describe('currency field', () => {
+    it('sets the currency control on a new company, and it starts empty', () => {
+      // D1: no `MXN` pre-selection. A pre-filled value is the default ADR-0002 decision 2 (D-c)
+      // refuses on the server, restored one layer up where nobody would look for it.
+      expect(component.companyForm().controls.currency.value).toBe('');
+      expect(component.companyForm().controls.currency.hasError('required')).toBe(true);
+    });
+
+    it('hydrates the stored currency from the loaded company', () => {
+      const company = createCompanyWithAddress({ currency: 'USD' });
+      companyServiceMock.getCompanyById = vi.fn().mockReturnValue(of(company));
+
+      (component as unknown as { loadCompany: (id: string) => void }).loadCompany(company.id);
+      fixture.detectChanges();
+
+      expect(component.companyForm().controls.currency.value).toBe('USD');
+    });
+
+    it('keeps a stored code that the live catalog no longer carries, so saving is not blocked', () => {
+      // A retired code on an existing company is a real case: `companies.currency` may point at a row
+      // a later migration disabled. The control keeps what the company states, so the form does not
+      // demand the operator restate a value it already holds.
+      const company = createCompanyWithAddress({ currency: 'ARS' });
+      companyServiceMock.getCompanyById = vi.fn().mockReturnValue(of(company));
+
+      (component as unknown as { loadCompany: (id: string) => void }).loadCompany(company.id);
+      fixture.detectChanges();
+
+      const control = component.companyForm().controls.currency;
+      expect(control.value).toBe('ARS');
+      expect(control.valid).toBe(true);
+    });
+
+    it('loads the currency catalog with countries and hands it to the form', () => {
+      expect(component.currencies()).toEqual(mockCurrencies);
+    });
+  });
+
   describe('request body', () => {
     /**
      * The API refuses the body *before* it validates any field — it is configured with
@@ -325,6 +384,7 @@ describe('CompanyEdit', () => {
       phone: '555-0001',
       email: 'corp@test.com',
       emailDomain: 'test.com',
+      currency: 'USD',
       enabled: true,
     };
 
@@ -407,6 +467,7 @@ describe('CompanyEdit', () => {
         phone: '5551234567',
         email: 'test@test.com',
         emailDomain: 'test.com',
+        currency: 'MXN',
         enabled: true,
       });
     });

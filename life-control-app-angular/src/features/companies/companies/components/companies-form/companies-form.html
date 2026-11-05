@@ -83,6 +83,22 @@
       }
     </mat-form-field>
 
+    <!-- Moneda (required, starts empty on purpose: the operator states it) -->
+    <mat-form-field appearance="outline">
+      <mat-label>Moneda</mat-label>
+      <mat-select formControlName="currency">
+        <mat-option value="">— Seleccionar moneda —</mat-option>
+        @for (currency of currencies(); track currency.code) {
+          <mat-option [value]="currency.code"
+            >{{ currency.code }} — {{ currency.symbol }}</mat-option
+          >
+        }
+      </mat-select>
+      @if (getErrorMessage(formGroup().controls.currency); as msg) {
+        <mat-error>{{ msg }}</mat-error>
+      }
+    </mat-form-field>
+
     <!-- Address section (delegated to shared AddressFormComponent) -->
     <app-address-form
       [addressFormGroup]="formGroup().controls.address"
