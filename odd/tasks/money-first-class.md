@@ -2,9 +2,11 @@
 
 **Repository**: LifeControl — `life-control-api` (migrations, `salesorder`, `paymentmethod`), `life-control-app-angular` (the POS money surface), `odd/tasks/`
 **Branch (planned)**: `feat/money-first-class`
-**Status**: implemented — T1 is the currency catalog and `companies.currency`, and the rest of the code is
-not the content yet; the record, the evidence under `## Problem`, the ADR acceptance that travels with it and
-the slice order are. Nothing else is dropped or deferred silently: T4 waits on **D-d**, T5 on ADR-0003 and T6
+**Status**: implemented — T1 is the currency catalog and `companies.currency`, T2 the breakdown and the scale on
+both sales tables, T3 the runnable pre-flight of migration step 2 (`docker/scripts/preflight-money-parts.sh`,
+its suite and the `AGENTS.md` entry), and T4 the platform `tax_code` catalog with its tenant rate table and the
+resolver. The rest of the code is not the content yet; the record, the evidence under `## Problem`, the ADR
+acceptance that travels with it and the slice order are. Nothing else is dropped or deferred silently: T4 waits on **D-d**, T5 on ADR-0003 and T6
 on ADR-0001 and ADR-0004, each named in its own `Tasks` row. One thing outside this record holds the work:
 T5–T7 consume `sales_orders.company_id`, the document state guard and the ledger booking, which ADR-0003,
 ADR-0004 and ADR-0001 own and which no migration in the tree provides. Two decisions are taken: D-c
@@ -86,7 +88,7 @@ every cash report by date wrong from that minute on».
 | --- | --- | --- | --- | --- |
 | T1 | S1, S2 | **(done, 2026-11-01)** Migration: the `currency` catalog (`code CHAR(3)`, `minor_units` bounded 0–4, `symbol`, `enabled`), its seed, and `companies.currency CHAR(3) NOT NULL REFERENCES currency (code)` with its backfill and the now-required field on the company create path — **D-c**, decided 2026-10-30: no `DEFAULT`, because a silent `MXN` is the default-that-hides failure class. Its one-sentence amendment to decision 2 precedes it | — | inline |
 | T2 | S1, S2, S3, S7 | **(done, 2026-11-05)** Migration: the breakdown and the scale on both sales tables — `sales_orders` (`currency`, `subtotal`, `discount_total`, `tax_total`, `rounding_adjustment`, `total_amount` → `19,4` and `NOT NULL`, `ck_order_parts_not_negative`, `ck_order_rounding_bounded`) and `sales_order_items` (four widened columns, `subtotal`, `tax_code`, `tax_rate`, `tax_amount`, the three name/attribute snapshots, `ck_item_subtotal`, `ck_item_tax`), plus `discount_applied`'s `NULL` → 0 and `total_amount`'s `NULL` → 0 before the `NOT NULL`s. Additive, backfill, then constrain — never the reverse. **`ck_order_total` and `ck_item_total` are not in it**: measured on the tree, `final_price` is the *unit* net price and not a line total — so the one would refuse every legacy line with `quantity <> 1` and the other would refuse the tree's own service, which writes `total_amount` from unit prices while the parts stay 0 (41 cases answered `409` on the first run). Both move to T6/T7, which also move the writer — see **D-f** | T1 | inline; two commits, one per table |
-| T3 | S1, S7 | The pre-flight report of migration step 2 as a runnable script, emitting the drift per order and naming the two verdicts (≤ one minor unit → `rounding_adjustment`; larger → a manual decision, not the migration's) | — | inline |
+| T3 | S1, S7 | **(done, 2026-11-05)** The pre-flight report of migration step 2 as a runnable script: `docker/scripts/preflight-money-parts.sh`, its offline suite (43 assertions) and the `AGENTS.md` entry. It emits the drift per order and names the two verdicts —≤ one minor unit of the order's own `currency.minor_units` → `rounding_adjustment`; larger → a manual decision, not the migration's— in ten-thousandths, as integers. It reads as a **superuser** (`sales_orders` is `FORCE ROW LEVEL SECURITY` since `V65`, so the owner reads zero rows and prints a clean dataset) and takes the line sum from `sales_order_items.subtotal`, which `V81` derives under `ck_item_subtotal`, instead of re-deriving the ADR's inline candidate. Nothing calls it yet | — | inline |
 | T4 | S1 | **(done, 2026-11-05)** The platform `tax_code` catalog (**D-d**, decided 2026-11-05) with four codes (`NA`, `IVA`, `TASA_0`, `EXENTO`) and no policy, plus `tax_rate` (`company_id`, `tax_code` FK, `rate`, `effective_from`, `enabled`, the unique key) armed by `apply_tenant_isolation` in its own migration. `V82`. The server-side resolution is `TaxRateService.resolve(companyId, taxCode, documentDate)`: the latest `effective_from ≤` the document's date among the enabled rows, mapped to a `TaxRateResolution`, with `lineTaxAmount` providing `ck_item_tax`'s own arithmetic (`subtotal - discount_applied`, scale 4, half away from zero) so Java cannot disagree with the check. **The copy onto the line is not in this slice**: nothing in the tree states a line's `tax_code` — not `products`, not the category, not the company — and the ADR's named consumer is `chargeSalesOrder`, which is T6. See `## Log` | T1, D-d | inline |
 | T5 | S1, S4 | Migration: `sale_payment`, `sale_payment_void`, the three indexes, the append-only pair **on both tables** — trigger plus `REVOKE UPDATE, DELETE`, because `V52:196-197` hands the application role all four privileges on every new table — `payment_methods.is_cash` **with its backfill** (D-b), and the registration of all three sales tables in `tenant_table`. Blocked: `fk_payment_order_same_company` needs `sales_orders.company_id`, which ADR-0003 owns | ADR-0003 | inline |
 | T6 | S1, S5, S6 | `chargeSalesOrder` rewritten: lock the order, validate ADR-0004's guard, insert the payments, compute the breakdown, book the stock through ADR-0001's API, append the transition and publish `SaleCharged` **only with a named consumer** (g) — one transaction | T2, T4, T5, ADR-0001, ADR-0004, **D-e** | inline |
@@ -487,6 +489,48 @@ drift meets the arithmetic; T4 (`tax_rate`) is the catalog, the table and the re
 that column already exists since `V64`, so that row's blocker note is stale and belongs to whoever picks T5),
 T7 (the API surface, which is what will state a currency instead of deriving it), T8 (the POS) and T10 (the
 suite) remain untouched.
+
+**2026-11-05 — T3 is a runnable report, and three of its rules are decisions ADR-0002 does not take.** The
+step-2 pre-flight is `docker/scripts/preflight-money-parts.sh`, with its offline suite
+`docker/scripts/tests/preflight-money-parts.test.sh` and its `AGENTS.md` entry — the first runnable
+pre-flight in the tree: ADR-0003's equivalent was delivered **inside** `V64`, as a `DO` block with a
+`RAISE NOTICE`, because a migration can report and a script cannot migrate. RED first (`127`, the script did
+not exist), then the suite's **43 assertions** green; the whole `docker/scripts/tests` glob (26 suites) and
+the whole `.github/scripts/tests` glob (12) green on this tree, and `shellcheck --severity=warning` over
+`docker/scripts`, which is what CI runs, exit 0.
+
+Three rules are decisions and each one is measurably the only option against the schema this runs on.
+(a) **The reader is a superuser and the owner is not a candidate.** `sales_orders` carries `ENABLE` +
+`FORCE` ROW LEVEL SECURITY since `V65`, and `apply_tenant_isolation` subjects the owner to the policy too, so
+the same report run as `lifecontrol_owner` —Flyway's role— **reads zero rows and prints a clean dataset**;
+that is the failure mode `V54` and `V64` already record, and a candidate that connects but reads nothing is
+worse than no candidate. The role is resolved by asking `pg_roles` for `rolsuper`, in the wrapper's order
+(`lifecontrol_bootstrap`, `postgres`, then the declared initdb role), and the exit code separates "the report
+could not run" (1) from "a human has to decide" (2) so a failed report can never read as a clean one.
+(b) **The line sum is read from `sales_order_items.subtotal`**, which `V81` derives and `ck_item_subtotal`
+enforces, instead of re-deriving the ADR's inline candidate: the ADR computed it inline because no column
+held it, and two ways of computing one line's money is how a report and a constraint end up disagreeing.
+(c) **The tolerance is the order's `currency.minor_units`**, not the literal `1` of
+`ck_order_rounding_bounded` — that constraint is the currency-agnostic half (`M8`), the widest bound any
+currency allows, and the comparison is done in ten-thousandths as integers, the scale every part carries
+since `V80`, so no rounding and no floating point stands between the measurement and the verdict.
+
+**One deliberate deviation from the ADR's literal SQL, and it is not cosmetic.** The block filters
+`abs(drift) > 0.0001`; the script filters `drift <> 0`, because every part is `NUMERIC(19,4)` since `V80`
+and a drift of one ten-thousandth is therefore a row `ck_order_total` refuses, not a rounding artifact —
+`V80`'s own step-6 self-check asks the same question with `<>` for that reason, and `S3` states the equality
+as exact. Copying `> 0.0001` would have hidden exactly the rows the report exists to find.
+
+**D-a's measurement is deliberately not carried here.** D-a's recommendation says "T3's pre-flight emits the
+count and the ids"; those are the `Completed` orders with no `payment_method_id`, which ADR-0002 step 4
+needs, and they are **not** the rows this report names. T3's own row asks for the step-2 report and this is
+it: the method-less count is a separate measurement, still untaken, and this entry exists so nobody assumes
+the script already answers it.
+
+**The review slice is 586 authored lines, and it is deliberately not split.** 553 of them are two new
+files — the script and its suite — and a report without its RED is not a reviewable unit: the split a
+chained PR would buy is the one the repository's own rule forbids, because tests travel in the commit that
+carries the behaviour they pin. The record is the second slice, this one.
 
 **2026-11-05 — D-d and D-b answered by the maintainer, and T4 unblocked.** Both were taken as written in the
 table above, with the alternative each row already refutes. **D-d: a platform `tax_code` catalog**, the same

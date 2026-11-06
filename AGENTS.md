@@ -341,6 +341,39 @@ deja la API conectada como el dueño, sin policy que aplique. Y un volumen cuyo 
 que ese datadir hay que recrearlo una vez (es el caso del volumen de dev de hoy). `db-roles.test.sh` fija
 las dos mitades.
 
+### preflight-money-parts.sh
+Reporta, antes de que exista la restricción, cada orden de venta cuyo `total_amount` no cuadra con la suma
+de sus líneas.
+```bash
+./docker/scripts/preflight-money-parts.sh [dev|staging|prod]
+```
+> Es el paso 2 de la migración de ADR-0002 hecho ejecutable: «Without this step the constraint aborts the
+> deploy on production data instead of on a report». Es **sólo lectura** y nombra un veredicto por orden,
+> con las dos frases del ADR: un drift **dentro de una unidad mínima** de la moneda de esa orden es
+> `rounding_adjustment` —la migración lo absorbe en esa fila y nadie decide—, y uno mayor es una **decisión
+> manual por fila**, tomada antes de que corra la migración y no por la migración. Los códigos de salida son
+> la otra mitad del contrato: **0** nada que decidir (sin drift, o todo absorbible por su propio
+> `rounding_adjustment`), **2** al menos una decisión manual, **1** el reporte no pudo correr. El 2 no es 1 a
+> propósito: un deploy tiene que poder distinguir "necesita un humano" de "no pudo preguntar", y un
+> reporte que falla **nunca** se lee como un dataset limpio.
+>
+> Lee como **superusuario**, y no por comodidad: `sales_orders` está con `ENABLE` + `FORCE ROW LEVEL
+> SECURITY` desde `V65`, y `apply_tenant_isolation` alcanza también al dueño, así que el mismo reporte
+> corrido como `lifecontrol_owner` —el rol de Flyway— **lee cero filas e imprime un dataset limpio**, que es
+> el modo de falla que ya registran `V54` y `V64`. Por eso resuelve el lector preguntando `pg_roles.rolsuper`
+> en el orden del wrapper de roles, y el dueño **no** es candidato: uno que conecta y no lee nada es peor que
+> ninguno.
+>
+> La suma de líneas se lee de `sales_order_items.subtotal`, que `V81` deriva y `ck_item_subtotal` hace
+> cumplir, en vez de re-derivar la expresión inline del ADR: la plata de una línea tiene **una** definición,
+> y dos formas de calcularla es cómo un reporte y una restricción terminan discrepando. La tolerancia sale
+> de `currency.minor_units` (0.01 para `MXN`) y no del literal 1 de `ck_order_rounding_bounded`, que es la
+> mitad agnóstica de la moneda. La comparación se hace en diezmilésimos enteros —la escala que toda parte
+> lleva desde `V80`—, así que no hay redondeo ni coma flotante entre lo medido y el veredicto. **Nada lo
+> llama todavía**: es el pre-flight que corre un operador antes de la migración que agrega `ck_order_total`
+> (T6/T7 de `odd/tasks/money-first-class.md`). `preflight-money-parts.test.sh` lo fija offline, y el glob
+> del job `Shell & Artifact Integrity` la cablea por existir.
+
 ### cleanup.sh
 Limpia recursos de Docker y archivos locales.
 ```bash
