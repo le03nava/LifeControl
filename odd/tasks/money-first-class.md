@@ -2,12 +2,11 @@
 
 **Repository**: LifeControl — `life-control-api` (migrations, `salesorder`, `paymentmethod`), `life-control-app-angular` (the POS money surface), `odd/tasks/`
 **Branch (planned)**: `feat/money-first-class`
-**Status**: implemented — T1 is the currency catalog and `companies.currency`, T2 the breakdown and the
-scale on both sales tables, and T3 the runnable pre-flight of migration step 2
-(`docker/scripts/preflight-money-parts.sh`, its suite and the `AGENTS.md` entry), which names
-`rounding_adjustment` for a drift within one minor unit of the order's own currency and a manual decision
-for anything wider. The rest of the code is not the content yet; the record, the evidence under `## Problem`,
-the ADR acceptance that travels with it and the slice order are. Nothing else is dropped or deferred silently: T4 waits on **D-d**, T5 on ADR-0003 and T6
+**Status**: implemented — T1 is the currency catalog and `companies.currency`, T2 the breakdown and the scale on
+both sales tables, T3 the runnable pre-flight of migration step 2 (`docker/scripts/preflight-money-parts.sh`,
+its suite and the `AGENTS.md` entry), and T4 the platform `tax_code` catalog with its tenant rate table and the
+resolver. The rest of the code is not the content yet; the record, the evidence under `## Problem`, the ADR
+acceptance that travels with it and the slice order are. Nothing else is dropped or deferred silently: T4 waits on **D-d**, T5 on ADR-0003 and T6
 on ADR-0001 and ADR-0004, each named in its own `Tasks` row. One thing outside this record holds the work:
 T5–T7 consume `sales_orders.company_id`, the document state guard and the ledger booking, which ADR-0003,
 ADR-0004 and ADR-0001 own and which no migration in the tree provides. Two decisions are taken: D-c
@@ -90,7 +89,7 @@ every cash report by date wrong from that minute on».
 | T1 | S1, S2 | **(done, 2026-11-01)** Migration: the `currency` catalog (`code CHAR(3)`, `minor_units` bounded 0–4, `symbol`, `enabled`), its seed, and `companies.currency CHAR(3) NOT NULL REFERENCES currency (code)` with its backfill and the now-required field on the company create path — **D-c**, decided 2026-10-30: no `DEFAULT`, because a silent `MXN` is the default-that-hides failure class. Its one-sentence amendment to decision 2 precedes it | — | inline |
 | T2 | S1, S2, S3, S7 | **(done, 2026-11-05)** Migration: the breakdown and the scale on both sales tables — `sales_orders` (`currency`, `subtotal`, `discount_total`, `tax_total`, `rounding_adjustment`, `total_amount` → `19,4` and `NOT NULL`, `ck_order_parts_not_negative`, `ck_order_rounding_bounded`) and `sales_order_items` (four widened columns, `subtotal`, `tax_code`, `tax_rate`, `tax_amount`, the three name/attribute snapshots, `ck_item_subtotal`, `ck_item_tax`), plus `discount_applied`'s `NULL` → 0 and `total_amount`'s `NULL` → 0 before the `NOT NULL`s. Additive, backfill, then constrain — never the reverse. **`ck_order_total` and `ck_item_total` are not in it**: measured on the tree, `final_price` is the *unit* net price and not a line total — so the one would refuse every legacy line with `quantity <> 1` and the other would refuse the tree's own service, which writes `total_amount` from unit prices while the parts stay 0 (41 cases answered `409` on the first run). Both move to T6/T7, which also move the writer — see **D-f** | T1 | inline; two commits, one per table |
 | T3 | S1, S7 | **(done, 2026-11-05)** The pre-flight report of migration step 2 as a runnable script: `docker/scripts/preflight-money-parts.sh`, its offline suite (43 assertions) and the `AGENTS.md` entry. It emits the drift per order and names the two verdicts —≤ one minor unit of the order's own `currency.minor_units` → `rounding_adjustment`; larger → a manual decision, not the migration's— in ten-thousandths, as integers. It reads as a **superuser** (`sales_orders` is `FORCE ROW LEVEL SECURITY` since `V65`, so the owner reads zero rows and prints a clean dataset) and takes the line sum from `sales_order_items.subtotal`, which `V81` derives under `ck_item_subtotal`, instead of re-deriving the ADR's inline candidate. Nothing calls it yet | — | inline |
-| T4 | S1 | Migration: `tax_rate` (`company_id`, `tax_code`, `rate`, `effective_from`, `enabled`, the unique key) and the server-side resolution of the latest rate with `effective_from ≤` the document date, copied onto the line at write time. The `tax_code` vocabulary is **D-d** | T1, D-d | inline |
+| T4 | S1 | **(done, 2026-11-05)** The platform `tax_code` catalog (**D-d**, decided 2026-11-05) with four codes (`NA`, `IVA`, `TASA_0`, `EXENTO`) and no policy, plus `tax_rate` (`company_id`, `tax_code` FK, `rate`, `effective_from`, `enabled`, the unique key) armed by `apply_tenant_isolation` in its own migration. `V82`. The server-side resolution is `TaxRateService.resolve(companyId, taxCode, documentDate)`: the latest `effective_from ≤` the document's date among the enabled rows, mapped to a `TaxRateResolution`, with `lineTaxAmount` providing `ck_item_tax`'s own arithmetic (`subtotal - discount_applied`, scale 4, half away from zero) so Java cannot disagree with the check. **The copy onto the line is not in this slice**: nothing in the tree states a line's `tax_code` — not `products`, not the category, not the company — and the ADR's named consumer is `chargeSalesOrder`, which is T6. See `## Log` | T1, D-d | inline |
 | T5 | S1, S4 | Migration: `sale_payment`, `sale_payment_void`, the three indexes, the append-only pair **on both tables** — trigger plus `REVOKE UPDATE, DELETE`, because `V52:196-197` hands the application role all four privileges on every new table — `payment_methods.is_cash` **with its backfill** (D-b), and the registration of all three sales tables in `tenant_table`. Blocked: `fk_payment_order_same_company` needs `sales_orders.company_id`, which ADR-0003 owns | ADR-0003 | inline |
 | T6 | S1, S5, S6 | `chargeSalesOrder` rewritten: lock the order, validate ADR-0004's guard, insert the payments, compute the breakdown, book the stock through ADR-0001's API, append the transition and publish `SaleCharged` **only with a named consumer** (g) — one transaction | T2, T4, T5, ADR-0001, ADR-0004, **D-e** | inline |
 | T7 | S1, S3 | API surface: `SalesOrderRequest`, `SalesOrderItemRequest`, `SalesOrderResponse`, `SalesOrderItemResponse`, `ChargeSalesOrderRequest` (many payments, tender and change, direction) and the controller contract, with the breakdown read-only and computed by the server | T2, T5 | inline |
@@ -320,14 +319,15 @@ set. (g) `SaleCharged` has no producer and no consumer in the tree. Both are edi
 decisions, and T5/T6 now say so. No schema, ADR or source line was touched.
 
 **2026-10-30 — the four open decisions, with the recommendation each one has.** Recorded as
-recommendations, not decisions: the maintainer has not answered them. **D-e was answered on 2026-11-01**
-(see the table row and `## Log`); D-a, D-b and D-d are still open.
+recommendations, not decisions: the maintainer has not answered them. **D-e was answered on 2026-11-01 and
+D-b and D-d on 2026-11-05** (see each table row and `## Log`); **D-a is the one still open**, and it is a
+measurement before it is a decision.
 
 | ID | Recommendation | Why not the alternative |
 | --- | --- | --- |
 | D-a | **Skip the order and report it — and measure before deciding.** T3's pre-flight emits the count and the ids; at zero the decision evaporates, at a non-zero count it is taken per row with the list in hand | A sentinel method lands in a **global** catalog with a full ABM (`PaymentMethodController` has POST/PUT/DELETE/PATCH, `PaymentMethodRequest` is name/short-name/enabled), visible in every tenant's POS. A missing payment row says "unknown", which is true; an invented one states how a sale was paid when the data never said |
-| D-b | **Backfill in the migration, by the seed's exact name (`Efectivo`, `V3:385`), with a `RAISE NOTICE` when it affects zero rows — and give the ABM an `isCash`.** `PaymentMethodRequest` carries no such field today, so a method created after the deploy can never be cash and M4 refuses its change forever with no UI path | An operator step in a comment fails at the counter, not at the deploy: the cashier discovers it when the customer asks for change. The notice is what makes a renamed catalog say so instead of passing silently |
-| D-d | **A platform `tax_code` catalog**, the same shape as `currency` (no `company_id`, no policy): `tax_rate` gets the FK, the line keeps the text snapshot that decision 4 requires | Free text cannot carry what the tax actually needs: CFDI separates Tasa 0% from Exento, and both have `rate = 0` — a string plus a rate cannot tell them apart, and the first typo taxes a line at zero without an error. If T4 slips, T2's `'NA'` with `tax_total = 0` stays valid |
+| D-b | **Decided 2026-11-05, by the maintainer: backfill in the migration by the seed's exact name (`Efectivo`, `V3:385`), with a `RAISE NOTICE` when it affects zero rows, and give the ABM an `isCash`.** `PaymentMethodRequest` carries no such field today, so a method created after the deploy can never be cash and M4 refuses its change forever with no UI path | An operator step in a comment fails at the counter, not at the deploy: the cashier discovers it when the customer asks for change. The notice is what makes a renamed catalog say so instead of passing silently |
+| D-d | **Decided 2026-11-05, by the maintainer: a platform `tax_code` catalog**, the same shape as `currency` (no `company_id`, no policy): `tax_rate` gets the FK, the line keeps the text snapshot that decision 4 requires | Free text cannot carry what the tax actually needs: CFDI separates Tasa 0% from Exento, and both have `rate = 0` — a string plus a rate cannot tell them apart, and the first typo taxes a line at zero without an error. If T4 slips, T2's `'NA'` with `tax_total = 0` stays valid |
 | D-e | **Decided 2026-11-01, by the maintainer: add the 0002 → 0004 edge and move ADR-0004 ahead of T6. Do not split T6.** | M3, M4 and M10 *are* the safety properties of taking money (no Completed sale uncovered by payments, change only on cash, no double charge on a retry). Splitting T6 writes `chargeSalesOrder` twice, the second time under a different state mechanism, and leaves that window open precisely while the payment code is least proven. `docs/adr/README.md` justifies 0004 last as "benefits from a settled shape" — backwards: its shape is an **input** of money |
 
 The order that follows: accept and implement ADR-0003, then T5 and ADR-0004 in parallel, then T6. Money's
@@ -484,8 +484,8 @@ two offline shell suites the record touches, `odd-status-headers.test.sh` (78 as
 **What is left, named so it is not discovered later.** `ck_order_total` (M1) and `ck_item_total` are T6/T7's,
 in the slice that writes the parts; until then `subtotal` on a **new** document is 0 by default and
 `total_amount` is the unit-price sum, so M2 is not merely forward-only — it is unmet for every row written
-before that slice. T3 (the pre-flight report) now runs as `docker/scripts/preflight-money-parts.sh`, and it is what has to
-run before any dataset with drift meets the arithmetic; T4 (`tax_rate`, D-d), T5 (payments, which needs `sales_orders.company_id` — and
+before that slice. T3 (the pre-flight report) is still the thing that has to run before any dataset with
+drift meets the arithmetic; T4 (`tax_rate`) is the catalog, the table and the resolver, and it owes the copy onto the line until some unit states a line's `tax_code`; T5 (payments, which needs `sales_orders.company_id` — and
 that column already exists since `V64`, so that row's blocker note is stale and belongs to whoever picks T5),
 T7 (the API surface, which is what will state a currency instead of deriving it), T8 (the POS) and T10 (the
 suite) remain untouched.
@@ -531,3 +531,56 @@ the script already answers it.
 files — the script and its suite — and a report without its RED is not a reviewable unit: the split a
 chained PR would buy is the one the repository's own rule forbids, because tests travel in the commit that
 carries the behaviour they pin. The record is the second slice, this one.
+
+**2026-11-05 — D-d and D-b answered by the maintainer, and T4 unblocked.** Both were taken as written in the
+table above, with the alternative each row already refutes. **D-d: a platform `tax_code` catalog**, the same
+shape as `currency` — `code`, label, `enabled`, no `company_id` and no policy — with `tax_rate.tax_code` a
+**FK** to it and the line keeping its text snapshot (decision 4), so a reprint never depends on the catalog.
+The reason the decision existed stands: CFDI separates Tasa 0% from Exento, both are `rate = 0`, and a string
+cannot tell them apart — a typo would tax a line at zero without an error. **D-b: `payment_methods.is_cash`
+is backfilled in the migration by the seed's exact name (`Efectivo`, `V3:385`) with a `RAISE NOTICE` when the
+backfill affects zero rows, and `PaymentMethodRequest` gains `isCash`** — without that field a method created
+after the deploy could never be cash, and M4 would refuse its change forever with no screen that fixes it.
+D-b belongs to T5, so it is recorded here and not carried by T4. **D-a remains open on purpose**: its
+recommendation says to measure before deciding, and the measurement is the count and the ids of `Completed`
+orders with no `payment_method_id`, which T3 does not emit and which no unit has taken yet.
+
+**2026-11-05 — T4 is the catalog, the table and the resolver; the copy onto the line waits for a source of the code.** `V82` adds
+two tables that are deliberately different from each other. `tax_code` is a platform catalog in the shape of `currency` — `code`,
+`label`, `enabled`, no `company_id`, no policy, no `tenant_table` row — seeded with **four** codes: `NA` because `V81:87` defaults
+every line to it, `IVA` as the taxed bucket whose amount is not stated there, and `TASA_0` and `EXENTO` because CFDI separates them
+and both are `rate = 0`, which is the whole reason **D-d** chose a catalog. `tax_rate` is a tenant table and `V82` arms it with
+`SELECT apply_tenant_isolation('tax_rate')` in the file that creates it, the only way a table gets a policy (`V52:100-101`), and
+which writes its own `tenant_table` row (`V52:161-166`). Neither table needs a `NO FORCE` window: both are born empty, and a window
+that does not need to be open is a hole rather than a habit. The file carries three self-checks of its own decisions — the
+vocabulary is exactly four, `tax_rate` landed as `tenant/company_id`, and `tax_code` landed **without** row security — so a future
+edit that arms the catalog or typos the kind aborts the migration naming the fact.
+
+**The resolver is `TaxRateService`, and two of its rules are decisions.** (a) The date it takes is the **document's**, a parameter,
+never `LocalDate.now()`: the ADR names the document date, and reading the clock would charge today's rate to a document dated last
+month and make every test depend on when it ran. (b) It resolves among **enabled** rows only, which the ADR's sentence does not say.
+That clause is the only meaning `enabled` can have — a rate is corrected by appending the next `effective_from`, so retiring a row is
+the one thing the column is for — and without it retiring a rate would change nothing about what the next line is charged, which is
+worse than not having the column: it would look like a control and behave like a comment. `lineTaxAmount` is `ck_item_tax` reachable
+from Java: `(subtotal - discount_applied) * rate` at scale 4 with `HALF_UP`, because PostgreSQL's `round(numeric, 4)` rounds half away
+from zero and `HALF_EVEN` would disagree on exactly the half cases and get the insert refused. The base is `subtotal - discount_applied`
+and never `final_price`, which is a legacy line's **unit** net price (D-f).
+
+**What this slice deliberately does not do, and what it waits for.** It does not copy the rate onto a line, because the resolution
+needs the line's `tax_code` and **nothing in the tree states it**: `products` carries `sat_code`, the category carries `sat_code`, and
+neither is a tax code; the company states none; the line defaults to `NA`. Writing one there today would mean inventing that source
+inside a migration, and the consumer the ADR names is `chargeSalesOrder` (T6), whose line write is where `ck_item_tax` can be satisfied
+together with the derived `subtotal`. So `TaxRate` is a **read-only** entity — no constructor, no setters, nothing in the application
+writes a rate yet — and the open question this leaves is named: **which unit declares a product's tax code.**
+
+**Evidence on this tree.** The new suites: `TaxRateMigrationIntegrationTest` (7 cases on a scratch database owned by
+`lifecontrol_owner`, migrated to `81` and then to head) and `TaxRateServiceTest` (6 cases) — 13 green. `TenantPoliciesIntegrationTest`
+(23 armed tables) and `TenantScopeFunctionsIntegrationTest` (27) green, which is also where a literal nobody had counted showed up:
+`hasSize(S2_TENANT_TABLES.size() + 11)` became `+ 12`. `MigrationHeadTest`, `ProductVariantListingMigrationIntegrationTest` (which
+asserts `tax_rate_id` is absent, and stays green because `V82` does not add it) and `CompanyCurrencyMigrationIntegrationTest` green.
+`spotlessApply` run, so the `Lint & Build` formatting barrier starts green.
+
+**The slices are 559 and 407 authored lines as committed, and neither is under the ~400 budget.** The schema one is `V82` itself (136), the two
+frozen tenancy lists it invalidates (42) and the migration test that proves it (379); the resolver one is the `tax` package (252) and
+its test (155). Splitting the test away from its behaviour is the thing the repository's rule forbids, and a migration without the
+suite that proves its arming is not a reviewable unit — so the boundary is stated here instead of being hidden.
