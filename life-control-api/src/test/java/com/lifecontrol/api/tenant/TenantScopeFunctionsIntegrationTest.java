@@ -23,7 +23,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
  *
  * <p>The machinery landed in T2, before anything was armed, because a policy without a scope reads zero
  * rows everywhere. {@code V53} (T5c) is the migration that applies it, so this class now asserts the
- * <b>armed</b> state on the two points that flipped: the list is the twenty-six rows the migrations wrote,
+ * <b>armed</b> state on the two points that flipped: the list is the twenty-eight rows the migrations wrote,
  * and the assertion query that listed the unprotected tables returns nothing. The rest of the class is
  * unchanged, and still proves the helper on probe tables inside transactions it rolls back — the only
  * place its three kinds can be exercised without touching a table the whole suite shares.</p>
@@ -41,7 +41,9 @@ import org.springframework.jdbc.core.JdbcTemplate;
  *       {@code document_sequence}, {@code sales_orders} and {@code goods_receipts} — which {@code V65} arms
  *       in the migration that creates and renders them, because a numbered document is only as private as
  *       the counter and the documents that read it. The twenty-sixth is {@code status_transition}, which
- *       {@code V67} arms in the migration that creates it (ADR-0004 task T4). A twenty-seventh table that
+ *       {@code V67} arms in the migration that creates it (ADR-0004 task T4), and the last two are
+ *       {@code sale_payment} and {@code sale_payment_void}, which {@code V83} arms in the migration that
+ *       creates them (ADR-0002 task T5). A twenty-ninth table that
  *       gains the column shows up in the assertion instead of being silently unprotected, and a wrong kind or
  *       key on an armed table shows up in the list instead of filtering the wrong column.</li>
  *   <li>{@code theScopeSettingsDieWithTheTransaction} is invariant <b>T6</b>: the value is readable
@@ -51,7 +53,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
  *
  * <p>Every test that creates anything does so inside one transaction it rolls back, in the container all
  * 64 sibling suites share: a leftover table, policy or list row would leak into them, and a leftover row
- * in {@code tenant_table} would make "the list is exactly the migrations' twenty-six rows" false for the
+ * in {@code tenant_table} would make "the list is exactly the migrations' twenty-eight rows" false for the
  * next reader of this suite. The probe tables are generated from a lower-case alphabet, so no identifier
  * here needs quoting.</p>
  */
@@ -78,14 +80,16 @@ class TenantScopeFunctionsIntegrationTest extends AbstractPostgresIntegrationTes
             "user_preferences");
 
     /**
-     * The twenty-six armed rows of {@code V53}, {@code V58}, {@code V60}, {@code V65} and {@code V67}, as
+     * The twenty-eight armed rows of {@code V53}, {@code V58}, {@code V60}, {@code V65}, {@code V67} and
+     * {@code V83}, as
      * {@code table:kind:key}, frozen literally for the same reason as {@link #S2_TENANT_TABLES}: the kind and
      * the key column <b>are</b> the predicate, so an armed table with the wrong one is a policy that filters
-     * the wrong thing — and it passes any assertion that only counts rows. Twenty-six and not fifteen
+     * the wrong thing — and it passes any assertion that only counts rows. Twenty-eight and not fifteen
      * because {@code companies} is the root, isolated by its own {@code id}, {@code variant_listing} is the one
      * {@code V58} arms, the five {@code stock_*} tables are the ones {@code V60} arms,
      * {@code document_sequence}, {@code goods_receipts} and {@code sales_orders} are the three ADR-0003 arms,
-     * and {@code status_transition} is the one {@code V67} arms.
+     * {@code status_transition} is the one {@code V67} arms, and {@code sale_payment} and
+     * {@code sale_payment_void} are the two {@code V83} arms.
      */
     private static final List<String> ARMED_TENANT_TABLES = List.of(
             "companies:tenant:id",
@@ -104,6 +108,8 @@ class TenantScopeFunctionsIntegrationTest extends AbstractPostgresIntegrationTes
             "product_variants:tenant:company_id",
             "products:tenant:company_id",
             "purchase_orders:tenant:company_id",
+            "sale_payment:tenant:company_id",
+            "sale_payment_void:tenant:company_id",
             "sales_orders:tenant:company_id",
             "status_transition:tenant:company_id",
             "stock_allocation:tenant:company_id",
@@ -203,12 +209,12 @@ class TenantScopeFunctionsIntegrationTest extends AbstractPostgresIntegrationTes
     }
 
     // ──────────────────────────────────────
-    // The list: the twenty-six armed rows, and closed to a fourth kind
+    // The list: the twenty-eight armed rows, and closed to a fourth kind
     // ──────────────────────────────────────
 
     @Test
-    @DisplayName("the list holds exactly the twenty-six armed tables, with their kind and their key")
-    void theListHoldsExactlyTheTwentyFiveArmedTables() {
+    @DisplayName("the list holds exactly the twenty-eight armed tables, with their kind and their key")
+    void theListHoldsExactlyTheTwentyEightArmedTables() {
         var rows = jdbcTemplate.queryForList("""
                 SELECT table_name::text || ':' || policy_kind || ':' || key_column
                   FROM tenant_table
@@ -216,7 +222,8 @@ class TenantScopeFunctionsIntegrationTest extends AbstractPostgresIntegrationTes
                 """, String.class);
 
         assertThat(rows)
-                .as("V53's sixteen rows plus the one V58 arms plus V60's five plus ADR-0003's three, and not a "
+                .as("V53's sixteen rows plus the one V58 arms plus V60's five plus ADR-0003's three plus "
+                        + "V67's status_transition and V83's two payment tables, and not a "
                         + "count of them: a table armed with the wrong kind or the wrong key column filters "
                         + "the wrong thing in silence, which no count can see")
                 .containsExactlyInAnyOrderElementsOf(ARMED_TENANT_TABLES);
@@ -246,7 +253,7 @@ class TenantScopeFunctionsIntegrationTest extends AbstractPostgresIntegrationTes
     // ──────────────────────────────────────
 
     @Test
-    @DisplayName("unprotected_tenant_tables() returns nothing: the frozen fifteen are the armed twenty-six")
+    @DisplayName("unprotected_tenant_tables() returns nothing: the frozen fifteen are the armed twenty-eight")
     void unprotectedTenantTablesReturnsNothingOnceThePoliciesAreArmed() {
         var unprotected = jdbcTemplate.queryForList("SELECT t::text FROM unprotected_tenant_tables() t", String.class);
 
@@ -261,9 +268,10 @@ class TenantScopeFunctionsIntegrationTest extends AbstractPostgresIntegrationTes
                 .as("the flip stated as the fact that changed: the frozen fifteen are armed, the sixteenth "
                         + "is the root, the seventeenth is variant_listing (armed by V58), the five after it "
                         + "are ADR-0001's stock ledger (armed by V60), the next three are ADR-0003's "
-                        + "document identity (armed by V65) and the last is status_transition (armed by V67)")
+                        + "document identity (armed by V65), and the last three are status_transition "
+                        + "(armed by V67) together with sale_payment and sale_payment_void (armed by V83)")
                 .containsAll(S2_TENANT_TABLES)
-                .hasSize(S2_TENANT_TABLES.size() + 11);
+                .hasSize(S2_TENANT_TABLES.size() + 13);
     }
 
     // ──────────────────────────────────────
@@ -538,8 +546,8 @@ class TenantScopeFunctionsIntegrationTest extends AbstractPostgresIntegrationTes
                         probe))
                 .isZero();
         assertThat(countOfTenantTableRows(connection))
-                .as("and writes no list row: the list is unchanged, not empty — the migrations' twenty-six "
-                        + "rows are theirs and this call added none")
+                .as("and no list row is written: the list is unchanged, not empty — the migrations' "
+                        + "twenty-eight rows are theirs and this call added none")
                 .isEqualTo(before);
     }
 
