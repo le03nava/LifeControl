@@ -20,8 +20,8 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
- * Verification of ADR-0005's <b>armed</b> state — the twenty-three tables {@code V53}, {@code V58},
- * {@code V60} and {@code V82} put under Row-Level Security, one case per rule the ADR states for them.
+ * Verification of ADR-0005's <b>armed</b> state — the twenty-five tables {@code V53}, {@code V58},
+ * {@code V60}, {@code V82} and {@code V83} put under Row-Level Security, one case per rule the ADR states for them.
  *
  * <p><b>Every case arms nothing.</b> The policies are the migration's, which is the point of this suite:
  * a case that applied {@code apply_tenant_isolation} itself would prove the helper works, and that is
@@ -49,7 +49,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
  * predicate is built from.</p>
  */
 @SpringBootTest
-@DisplayName("The twenty-three armed tenant tables")
+@DisplayName("The twenty-five armed tenant tables")
 class TenantPoliciesIntegrationTest extends AbstractPostgresIntegrationTest {
 
     /** The role the pool connects as in delivery, and the only one a policy applies to (ADR decision 3). */
@@ -72,7 +72,7 @@ class TenantPoliciesIntegrationTest extends AbstractPostgresIntegrationTest {
     private static final String OWNER_ROLE = "lifecontrol_owner";
 
     /**
-     * The twenty-three rows {@code V53}, {@code V58}, {@code V60} and {@code V82} write, as the three facts a policy is built
+     * The twenty-five rows {@code V53}, {@code V58}, {@code V60}, {@code V82} and {@code V83} write, as the three facts a policy is built
      * from. Frozen literally: a table armed with the wrong kind or the wrong key column filters the wrong thing
      * in silence, and the {@code tenant_table} row is what the policy was generated from.
      */
@@ -91,6 +91,8 @@ class TenantPoliciesIntegrationTest extends AbstractPostgresIntegrationTest {
             new ArmedTable("product_variants", "tenant", "company_id"),
             new ArmedTable("products", "tenant", "company_id"),
             new ArmedTable("purchase_orders", "tenant", "company_id"),
+            new ArmedTable("sale_payment", "tenant", "company_id"),
+            new ArmedTable("sale_payment_void", "tenant", "company_id"),
             new ArmedTable("stock_allocation", "tenant", "company_id"),
             new ArmedTable("stock_balance", "tenant", "company_id"),
             new ArmedTable("stock_movement", "tenant", "company_id"),
@@ -126,7 +128,7 @@ class TenantPoliciesIntegrationTest extends AbstractPostgresIntegrationTest {
     // ──────────────────────────────────────
 
     @Test
-    @DisplayName("all twenty-three tables carry one forced FOR ALL policy, of the kind and key the list names")
+    @DisplayName("all twenty-five tables carry one forced FOR ALL policy, of the kind and key the list names")
     void everyTenantTableIsArmedWithItsPolicy() {
         assertThat(ARMED_TABLES)
                 .as("the count is stated once, here: the fifteen tables S2 froze, plus `companies` — the "
@@ -134,7 +136,7 @@ class TenantPoliciesIntegrationTest extends AbstractPostgresIntegrationTest {
                         + "`variant_listing`, which V58 arms in the migration that creates it (ADR-0006 "
                         + "decision 5), plus the five tables of ADR-0001's stock ledger, which V60 arms in "
                         + "the migration that creates them (ADR-0001 migration step 2)")
-                .hasSize(23);
+                .hasSize(25);
 
         var listed = listedTables();
 

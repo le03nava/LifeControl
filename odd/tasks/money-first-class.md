@@ -3,17 +3,19 @@
 **Repository**: LifeControl — `life-control-api` (migrations, `salesorder`, `paymentmethod`), `life-control-app-angular` (the POS money surface), `odd/tasks/`
 **Branch (planned)**: `feat/money-first-class`
 **Status**: implemented — T1 is the currency catalog and `companies.currency`, T2 the breakdown and the scale on
-both sales tables, T3 the runnable pre-flight of migration step 2 (`docker/scripts/preflight-money-parts.sh`,
-its suite and the `AGENTS.md` entry), and T4 the platform `tax_code` catalog with its tenant rate table and the
-resolver. The rest of the code is not the content yet; the record, the evidence under `## Problem`, the ADR
-acceptance that travels with it and the slice order are. Nothing else is dropped or deferred silently: T4 waits on **D-d**, T5 on ADR-0003 and T6
-on ADR-0001 and ADR-0004, each named in its own `Tasks` row. One thing outside this record holds the work:
-T5–T7 consume `sales_orders.company_id`, the document state guard and the ledger booking, which ADR-0003,
-ADR-0004 and ADR-0001 own and which no migration in the tree provides. Two decisions are taken: D-c
-(`companies.currency`), which decision 2, the `## Schema` block and migration step 1 of the accepted ADR
-state, and **D-e** (2026-11-01), which keeps the 0002 → 0004 edge and moves ADR-0004 ahead of T6 in
-`docs/adr/README.md`'s adoption order so the charge rewrite is written once, after the guard. T9 is closed
-(applied with the acceptance) and edits no decision.
+both sales tables, T3 the runnable pre-flight of migration step 2, T4 the platform `tax_code` catalog with its
+tenant rate table and the resolver, and T5 the payment rows, their voids and the cash flag the guard reads. The
+record, the evidence under `## Problem`, the ADR acceptance that travels with it and the slice order are the
+rest. Nothing is dropped or deferred silently: T4 owes the copy of the rate onto the line until some unit states
+a line's `tax_code`, T5 owes the historical payment backfill of ADR-0002 step 4, and T6 waits on ADR-0001 and
+ADR-0004, each named in its own `Tasks` row. One thing outside this record holds what is left: T6 and T7
+consume the document state guard and the ledger booking, which ADR-0004 and ADR-0001 own — and
+`sales_orders.company_id`, the column that used to be named here as another unit's to deliver, exists since
+`V64`. Four decisions are taken: D-c (`companies.currency`), which decision 2, the `## Schema` block and
+migration step 1 of the accepted ADR state; **D-e** (2026-11-01), which keeps the 0002 → 0004 edge and moves
+ADR-0004 ahead of T6 in `docs/adr/README.md`'s adoption order so the charge rewrite is written once, after the
+guard; and **D-d** and **D-b** (2026-11-05), which the tax and payment slices carry. T9 is closed (applied with
+the acceptance) and edits no decision.
 **Created**: 2026-10-30
 **Risk**: items 1 and 3 — item 1 because the migration rewrites stored totals on financial rows and a
 mis-stated backfill is not detectable by any later test, and item 3 because `SalesOrderRequest`,
@@ -90,7 +92,7 @@ every cash report by date wrong from that minute on».
 | T2 | S1, S2, S3, S7 | **(done, 2026-11-05)** Migration: the breakdown and the scale on both sales tables — `sales_orders` (`currency`, `subtotal`, `discount_total`, `tax_total`, `rounding_adjustment`, `total_amount` → `19,4` and `NOT NULL`, `ck_order_parts_not_negative`, `ck_order_rounding_bounded`) and `sales_order_items` (four widened columns, `subtotal`, `tax_code`, `tax_rate`, `tax_amount`, the three name/attribute snapshots, `ck_item_subtotal`, `ck_item_tax`), plus `discount_applied`'s `NULL` → 0 and `total_amount`'s `NULL` → 0 before the `NOT NULL`s. Additive, backfill, then constrain — never the reverse. **`ck_order_total` and `ck_item_total` are not in it**: measured on the tree, `final_price` is the *unit* net price and not a line total — so the one would refuse every legacy line with `quantity <> 1` and the other would refuse the tree's own service, which writes `total_amount` from unit prices while the parts stay 0 (41 cases answered `409` on the first run). Both move to T6/T7, which also move the writer — see **D-f** | T1 | inline; two commits, one per table |
 | T3 | S1, S7 | **(done, 2026-11-05)** The pre-flight report of migration step 2 as a runnable script: `docker/scripts/preflight-money-parts.sh`, its offline suite (43 assertions) and the `AGENTS.md` entry. It emits the drift per order and names the two verdicts —≤ one minor unit of the order's own `currency.minor_units` → `rounding_adjustment`; larger → a manual decision, not the migration's— in ten-thousandths, as integers. It reads as a **superuser** (`sales_orders` is `FORCE ROW LEVEL SECURITY` since `V65`, so the owner reads zero rows and prints a clean dataset) and takes the line sum from `sales_order_items.subtotal`, which `V81` derives under `ck_item_subtotal`, instead of re-deriving the ADR's inline candidate. Nothing calls it yet | — | inline |
 | T4 | S1 | **(done, 2026-11-05)** The platform `tax_code` catalog (**D-d**, decided 2026-11-05) with four codes (`NA`, `IVA`, `TASA_0`, `EXENTO`) and no policy, plus `tax_rate` (`company_id`, `tax_code` FK, `rate`, `effective_from`, `enabled`, the unique key) armed by `apply_tenant_isolation` in its own migration. `V82`. The server-side resolution is `TaxRateService.resolve(companyId, taxCode, documentDate)`: the latest `effective_from ≤` the document's date among the enabled rows, mapped to a `TaxRateResolution`, with `lineTaxAmount` providing `ck_item_tax`'s own arithmetic (`subtotal - discount_applied`, scale 4, half away from zero) so Java cannot disagree with the check. **The copy onto the line is not in this slice**: nothing in the tree states a line's `tax_code` — not `products`, not the category, not the company — and the ADR's named consumer is `chargeSalesOrder`, which is T6. See `## Log` | T1, D-d | inline |
-| T5 | S1, S4 | Migration: `sale_payment`, `sale_payment_void`, the three indexes, the append-only pair **on both tables** — trigger plus `REVOKE UPDATE, DELETE`, because `V52:196-197` hands the application role all four privileges on every new table — `payment_methods.is_cash` **with its backfill** (D-b), and the registration of all three sales tables in `tenant_table`. Blocked: `fk_payment_order_same_company` needs `sales_orders.company_id`, which ADR-0003 owns | ADR-0003 | inline |
+| T5 | S1, S4 | **(done, 2026-11-05)** `V83`: `sale_payment` and `sale_payment_void` with the three indexes, both append-only halves (the trigger **and** `REVOKE UPDATE, DELETE` + `GRANT SELECT, INSERT`, because `V52:187` and `V52:196-197` hand the pool all four privileges on every new table), `payment_methods.is_cash` with the backfill of **D-b** (decided 2026-11-05) and `isCash` through the ABM, `uq_sales_orders_company_id` — the target of `fk_payment_order_same_company`, which `V64` gave to `purchase_orders` and `goods_receipts` but never to `sales_orders` — and the two new tables armed by `apply_tenant_isolation` in the file that creates them. **`sales_orders` was already armed**: `V65` applies the policy to it, so "all three sales tables" was one table already done and two new. `V83` and not `V82`: that version belongs to the tax unit's own branch, and the gap is Flyway's to tolerate until it lands | ADR-0003 (**stale**, `sales_orders.company_id` exists since `V64`), D-b | inline |
 | T6 | S1, S5, S6 | `chargeSalesOrder` rewritten: lock the order, validate ADR-0004's guard, insert the payments, compute the breakdown, book the stock through ADR-0001's API, append the transition and publish `SaleCharged` **only with a named consumer** (g) — one transaction | T2, T4, T5, ADR-0001, ADR-0004, **D-e** | inline |
 | T7 | S1, S3 | API surface: `SalesOrderRequest`, `SalesOrderItemRequest`, `SalesOrderResponse`, `SalesOrderItemResponse`, `ChargeSalesOrderRequest` (many payments, tender and change, direction) and the controller contract, with the breakdown read-only and computed by the server | T2, T5 | inline |
 | T8 | S1, S2 | Angular POS: the document's currency instead of `DEFAULT_CURRENCY_CODE`, four-decimal amounts without losing the display rounding, mixed tender with change, the item table showing the server's line parts, and the discard notice when a breakdown part cannot be represented | T7 | inline; disjoint surface from T2–T7, so a second writer is admissible |
@@ -322,6 +324,9 @@ decisions, and T5/T6 now say so. No schema, ADR or source line was touched.
 recommendations, not decisions: the maintainer has not answered them. **D-e was answered on 2026-11-01 and
 D-b and D-d on 2026-11-05** (see each table row and `## Log`); **D-a is the one still open**, and it is a
 measurement before it is a decision.
+recommendations, not decisions: the maintainer has not answered them. **D-e was answered on 2026-11-01 and
+D-b on 2026-11-05** (see each table row and `## Log`); D-d was answered the same day by the tax unit, which
+edits this same table, and **D-a is the one still open** — it is a measurement before it is a decision.
 
 | ID | Recommendation | Why not the alternative |
 | --- | --- | --- |
@@ -485,10 +490,10 @@ two offline shell suites the record touches, `odd-status-headers.test.sh` (78 as
 in the slice that writes the parts; until then `subtotal` on a **new** document is 0 by default and
 `total_amount` is the unit-price sum, so M2 is not merely forward-only — it is unmet for every row written
 before that slice. T3 (the pre-flight report) is still the thing that has to run before any dataset with
-drift meets the arithmetic; T4 (`tax_rate`) is the catalog, the table and the resolver, and it owes the copy onto the line until some unit states a line's `tax_code`; T5 (payments, which needs `sales_orders.company_id` — and
-that column already exists since `V64`, so that row's blocker note is stale and belongs to whoever picks T5),
-T7 (the API surface, which is what will state a currency instead of deriving it), T8 (the POS) and T10 (the
-suite) remain untouched.
+drift meets the arithmetic, which is the pre-flight that now runs as a script; T4 (`tax_rate`, D-d) and T5
+(payments, D-b) are the catalog, the tables and their two resolvers — T5 owes only the historical backfill of
+ADR-0002 step 4, which belongs with the charge rewrite; T7 (the API surface, which is what will state a
+currency instead of deriving it), T8 (the POS) and T10 (the suite) remain untouched.
 
 **2026-11-05 — T3 is a runnable report, and three of its rules are decisions ADR-0002 does not take.** The
 step-2 pre-flight is `docker/scripts/preflight-money-parts.sh`, with its offline suite
@@ -584,3 +589,62 @@ asserts `tax_rate_id` is absent, and stays green because `V82` does not add it) 
 frozen tenancy lists it invalidates (42) and the migration test that proves it (379); the resolver one is the `tax` package (252) and
 its test (155). Splitting the test away from its behaviour is the thing the repository's rule forbids, and a migration without the
 suite that proves its arming is not a reviewable unit — so the boundary is stated here instead of being hidden.
+
+**2026-11-05 — T5 is the payment rows, their voids, and the two halves that make them append-only.** `V83` is numbered 83 and not 82
+because `V82` belongs to the tax unit on its own branch: Flyway applies what exists, the head this tree derives is the maximum of the
+versions present, and the gap closes when that unit lands. Four things land, and the fourth is what makes the other three true
+rather than intended.
+
+`uq_sales_orders_company_id UNIQUE (company_id, id)` did not exist. `V64` created exactly that pair for `purchase_orders` and
+`goods_receipts` and left `sales_orders` out, because nothing consumed it until a payment had to state its company and its order
+together. It is the target of `fk_payment_order_same_company`, and that key is what turns a mis-stated `company_id` into a
+**rejection** instead of a row the policy hides — a filtered row is not a rejected write (M9).
+
+`payment_methods.is_cash` arrives with **D-b** as decided: backfilled by the seed's exact name (`Efectivo`, `V3:385`), with a
+`RAISE NOTICE` when the backfill touches zero rows, because a renamed catalog leaves every cash sale unable to return change and the
+cashier finds out at the counter instead of at the deploy. `isCash` travels the whole ABM — entity, request, response, `toEntity`,
+`toResponse` and, the one that would have been silent, `updatePaymentMethod`: the request replaces the method whole and there is no
+merge, so an edit that omitted the flag would have turned a cash method into a non-cash one on its next rename.
+
+`sale_payment` and `sale_payment_void` carry the ADR's constraints verbatim, including `ck_payment_tender`'s arithmetic and
+`ck_void_replacement_differs`; `sale_payment_void.payment_id` is the primary key, because a payment is void once and stating that as
+the key is stronger than a second unique constraint over the same column.
+
+**Append-only is two halves, and the grant half is the one that would be dropped in silence.** `V52:187` and `V52:196-197` grant
+`lifecontrol_app` SELECT, INSERT, UPDATE and DELETE on every table present and future, so omitting a grant restricts nothing: the
+restrictive half is written per table. `SalePaymentSchemaMigrationIntegrationTest` exercises it rather than reading it — the statement
+runs `SET ROLE lifecontrol_app` and PostgreSQL refuses it — because a `REVOKE` nobody exercises is an intention. It connects as the
+container's superuser to do it, and that detail is the point: `SET ROLE` is denied to `lifecontrol_owner` (NOSUPERUSER by ADR-0005),
+and the owner would have been refused by `FORCE` row security for having no tenant scope, so the case would have passed for the wrong
+reason. The trigger half is pinned structurally — present, enabled, on both tables, one function — because exercising it needs a real
+payment row and that fixture chain already proves the same pattern in `StockLedgerSchemaMigrationIntegrationTest` (V60) and
+`StatusTransitionRecorderIntegrationTest` (V67).
+
+**Five defects were mine, in the migration and its test, and each cost a run.** A missing `)`: moving the constraints inside
+`CREATE TABLE` added a nesting level and left the table's paren open, which surfaces as `syntax error at or near ";"` at the end of
+the statement and not at the paren. A `LIKE` against `pg_get_constraintdef`, which prints its own parentheses, so the check uses a
+regexp. A `SET ROLE` from a role that is not a superuser. A single Java backslash where the regexp needed two. And `boolean ||
+boolean` where the query wanted `::text`. The self-check in the migration was the first one to fire wrongly: it had been written as a
+probe that inserted `SELECT ... FROM sales_orders LIMIT 1` to watch `ck_payment_tender` refuse, which passes **vacuously** on the
+empty database a migration runs against — the failure `odd/tasks/v64-vacuous-self-check.md` exists to name — so it now reads the
+constraint from the catalog and the behaviour belongs to the suite.
+
+**Both branches of this feature touch the same two frozen lists and the same decision table, and the conflict is expected.** The tax
+unit's branch edits `TenantPoliciesIntegrationTest`, `TenantScopeFunctionsIntegrationTest` and this record's `D-d` row; this one edits
+the same three places for its own tables and for D-b. Whoever merges second rebases over the other's counts — 23/27 there, 24/28 here,
+and the truth after both is 25/29 with `+ 14` — and neither branch can state that alone.
+
+**Observed here**: `SalePaymentSchemaMigrationIntegrationTest` (5 cases on a scratch database owned by `lifecontrol_owner`),
+`PaymentMethodCashFlagTest` (4), the four `paymentmethod` suites, `CacheValueCodecTest`, `SalesOrderIntegrationTest` and both tenancy
+suites green in one run, with `spotlessApply` applied so the formatting barrier starts green.
+
+**One gap observed and deliberately not taken.** `TenantPoliciesIntegrationTest.ARMED_TABLES` asserts the size of its own constant,
+so it cannot fail on a new table, and after this unit it holds **24 while the tree arms 28**: it is missing `document_sequence`,
+`goods_receipts`, `sales_orders` and `status_transition`, all armed by `V65` and `V67`. Closing that belongs to its own slice —
+conflating a repair with a unit that adds tables would hide which of the two hundred lines to review.
+
+**The review slices are 573 and 182 authored lines, and the first one is over the ~400 budget on purpose.** The schema slice is
+`V83` (234), the two frozen tenancy lists it invalidates (52) and the suite that proves the grant instead of reading it (287); the
+`isCash` slice is the four `paymentmethod` files (the flag cannot land in three of them and not the fourth) plus its own suite and the
+fifteen call sites the record arity changed. Splitting the suite from the migration would leave an append-only claim with no exercised
+`REVOKE`, which is the one thing this unit must not ship — so the boundary is written here instead of being hidden.

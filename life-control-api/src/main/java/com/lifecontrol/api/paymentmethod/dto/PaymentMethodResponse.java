@@ -8,5 +8,6 @@ public record PaymentMethodResponse(
         String paymentMethodName,
         String paymentMethodShortName,
         Boolean enabled,
+        Boolean isCash,
         LocalDateTime createdAt,
         LocalDateTime updatedAt) {}

@@ -76,12 +76,12 @@ class PaymentMethodControllerSecurityTest {
     private final UUID paymentMethodId = UUID.randomUUID();
 
     private PaymentMethodRequest buildRequest() {
-        return new PaymentMethodRequest("Efectivo", "EFE", true);
+        return new PaymentMethodRequest("Efectivo", "EFE", true, false);
     }
 
     private PaymentMethodResponse buildResponse() {
         return new PaymentMethodResponse(
-                paymentMethodId, "Efectivo", "EFE", true, LocalDateTime.now(), LocalDateTime.now());
+                paymentMethodId, "Efectivo", "EFE", true, false, LocalDateTime.now(), LocalDateTime.now());
     }
 
     // ─── GET /api/payment-methods ─────────────────────────────────
