@@ -194,6 +194,15 @@ UPDATE sales_orders SET subtotal = total_amount;
 
 ALTER TABLE sales_orders ALTER COLUMN total_amount SET NOT NULL;
 
+-- And the default stays 0, because 0 is what ADR-0002 step 3 says a document with no total yet holds, and
+-- because a `NOT NULL` without it is a new requirement on every writer rather than a statement about the
+-- column: the tree's own fixtures — and any writer that creates a document before its lines — omit
+-- `total_amount`, and the first run of this branch against CI refused them all (23502 in four suites,
+-- including the ones that only wanted a document to exist). The parts carry the same default for the same
+-- reason, and `ck_order_total` is not enforced yet, so none of the four can claim a breakdown the document
+-- does not have.
+ALTER TABLE sales_orders ALTER COLUMN total_amount SET DEFAULT 0;
+
 -- ─── 6. the reports that run before the constraints ───────────────────────────────────────────────
 DO $$
 DECLARE
