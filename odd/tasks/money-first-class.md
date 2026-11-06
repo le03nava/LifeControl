@@ -85,7 +85,7 @@ every cash report by date wrong from that minute on».
 | ID | S# | Work | Depends on | Route |
 | --- | --- | --- | --- | --- |
 | T1 | S1, S2 | **(done, 2026-11-01)** Migration: the `currency` catalog (`code CHAR(3)`, `minor_units` bounded 0–4, `symbol`, `enabled`), its seed, and `companies.currency CHAR(3) NOT NULL REFERENCES currency (code)` with its backfill and the now-required field on the company create path — **D-c**, decided 2026-10-30: no `DEFAULT`, because a silent `MXN` is the default-that-hides failure class. Its one-sentence amendment to decision 2 precedes it | — | inline |
-| T2 | S1, S2, S3, S7 | Migration: the breakdown and the scale on both sales tables — `sales_orders` (`currency`, `subtotal`, `discount_total`, `tax_total`, `rounding_adjustment`, `total_amount` → `19,4` and `NOT NULL`, `ck_order_total`, `ck_order_parts_not_negative`, `ck_order_rounding_bounded`) and `sales_order_items` (four widened columns, `subtotal`, `tax_code`, `tax_rate`, `tax_amount`, the three name/attribute snapshots, `ck_item_subtotal`, `ck_item_tax`, `ck_item_total`), plus `discount_applied`'s `NULL` → 0 and `total_amount`'s `NULL` → 0 before the `NOT NULL`s. Additive, backfill, then constrain — never the reverse | T1 | inline; two commits, one per table |
+| T2 | S1, S2, S3, S7 | **(done, 2026-11-05)** Migration: the breakdown and the scale on both sales tables — `sales_orders` (`currency`, `subtotal`, `discount_total`, `tax_total`, `rounding_adjustment`, `total_amount` → `19,4` and `NOT NULL`, `ck_order_parts_not_negative`, `ck_order_rounding_bounded`) and `sales_order_items` (four widened columns, `subtotal`, `tax_code`, `tax_rate`, `tax_amount`, the three name/attribute snapshots, `ck_item_subtotal`, `ck_item_tax`), plus `discount_applied`'s `NULL` → 0 and `total_amount`'s `NULL` → 0 before the `NOT NULL`s. Additive, backfill, then constrain — never the reverse. **`ck_order_total` and `ck_item_total` are not in it**: measured on the tree, `final_price` is the *unit* net price and not a line total — so the one would refuse every legacy line with `quantity <> 1` and the other would refuse the tree's own service, which writes `total_amount` from unit prices while the parts stay 0 (41 cases answered `409` on the first run). Both move to T6/T7, which also move the writer — see **D-f** | T1 | inline; two commits, one per table |
 | T3 | S1, S7 | The pre-flight report of migration step 2 as a runnable script, emitting the drift per order and naming the two verdicts (≤ one minor unit → `rounding_adjustment`; larger → a manual decision, not the migration's) | — | inline |
 | T4 | S1 | Migration: `tax_rate` (`company_id`, `tax_code`, `rate`, `effective_from`, `enabled`, the unique key) and the server-side resolution of the latest rate with `effective_from ≤` the document date, copied onto the line at write time. The `tax_code` vocabulary is **D-d** | T1, D-d | inline |
 | T5 | S1, S4 | Migration: `sale_payment`, `sale_payment_void`, the three indexes, the append-only pair **on both tables** — trigger plus `REVOKE UPDATE, DELETE`, because `V52:196-197` hands the application role all four privileges on every new table — `payment_methods.is_cash` **with its backfill** (D-b), and the registration of all three sales tables in `tenant_table`. Blocked: `fk_payment_order_same_company` needs `sales_orders.company_id`, which ADR-0003 owns | ADR-0003 | inline |
@@ -133,6 +133,56 @@ currency, adds **no** `DEFAULT` — a silent `MXN` is the failure class this rep
 and the company create path gains the field as a required one. **Written into the ADR on 2026-10-30**:
 decision 2 now names the owner in its own words, `## Schema` carries the `ALTER TABLE companies`, and
 migration step 1 reads the value from the company instead of assuming it. T1 carries all three.
+
+**D-f — `final_price` is a unit price, and the ADR's `ck_item_total` reads it as a line total** (measured
+2026-11-05, T2). The schema block declares
+`ck_item_total CHECK (final_price = subtotal - discount_applied + tax_amount)` with
+`subtotal = round(list_price * quantity, 4)`, and migration step 3 backfills `subtotal` from the lines'
+price times quantity. In the tree `final_price` is not that number: `SalesOrderService:555` and `:618` write
+`finalPrice = listPrice - discountApplied` — the **unit** net price, quantity-independent — and
+`recalculateTotalAmount:1058` sums those unit prices into `total_amount`, so a legacy document's total is a
+sum of unit prices and never a sum of line totals. `SalesOrderServiceTest`'s own fixture states it:
+`quantity 2.00, listPrice 100.00, discountApplied 10.00 → finalPrice 90.00`, where the line total the
+constraint assumes is `190.00`.
+
+The consequence is not a rounding artifact. Applying the ADR's backfill to a legacy dataset leaves
+`ck_order_total` disagreeing by the document's own quantity per line, and `ck_item_total` refuses every line
+with `quantity <> 1` — the migration aborts on data that is correct under the semantics it was written
+under. Three shapes were on the table: rewrite the line money to line totals, and with it every historical
+total (contradicting step 3's «`total_amount` keeps its value», which is the one thing a financial migration
+may not do); add the constraints as `NOT VALID`, which leaves `final_price` with two meanings in one column
+so any report that sums it without filtering by age lies silently; or land what no reading contradicts and
+defer the single constraint that encodes the change.
+
+**Decided 2026-11-05 by the maintainer: the third shape.** `V80` records a legacy document as
+`subtotal = total_amount` with `discount_total`, `tax_total` and `rounding_adjustment` at 0 — «no breakdown
+was recorded» — so no stored amount moves by one cent and the row states the truth instead of a derivation.
+`V81` derives the line's `subtotal` in the schema (`BEFORE INSERT OR UPDATE OF list_price, quantity`) so
+`ck_item_subtotal` holds for the writer that does not send one, and lands `ck_item_tax` beside it.
+
+**The second measurement, and what it moved.** The first full run of the branch, against the sales suite,
+answered `409` where it expects `201` in **41 cases**: `ck_order_total` refuses the tree's own writer,
+because `recalculateTotalAmount:1058` sets `total_amount` from the lines' `final_price` on every add, edit
+and delete while `subtotal` and the other two parts stay 0. A constraint the current service violates is a
+work order for that service, not a schema statement — so `ck_order_total` (**M1**) is **not** in `V80`
+either, and it is T6/T7's, in the same slice as `ck_item_total`. What lands now is the shape: the columns,
+the scale, the `NOT NULL`s, the currency and its derivation, the catalog foreign key, and the two order
+checks that hold for both writers (`ck_order_parts_not_negative`, `ck_order_rounding_bounded`). The suite
+states the debt instead of hiding it: `theBreakdownArithmeticWaitsForTheWriter` writes a disagreeing
+subtotal and asserts that it is **accepted**, so a green run cannot be mistaken for M1 being bounded.
+`V80`'s self-check still asks the drift question and names the constraint the answer will be judged by. **M2 (`subtotal = Σ line.subtotal`) is forward-only for this table**: true for every
+document T6 writes, false — permanently and visibly — for the ones that predate `V80`, which is why
+`rounding_adjustment` is 0 there and not inflated to hide the difference. `ck_item_total` is T6/T7's to add,
+in the slice that also moves the writer. **Written into the ADR on 2026-11-05**: step 3 carries the
+amendment beside the instruction it corrects.
+
+One more thing T2 had to add, and it is not in the ADR's schema block: `sales_orders.currency` is `NOT
+NULL`, and the tree's writer does not send it (`SalesOrderService.createSalesOrder` builds the row from a
+request that has no currency — T7 is the surface that states one). A `DEFAULT 'MXN'` would be D-c's failure
+class one layer down, so `V80` derives the value instead: a `BEFORE INSERT OR UPDATE OF company_id,
+currency` trigger reads the company the document names, fills the column when it is absent, and **refuses**
+a document that states a different currency than its company's — which is decision 2's sentence and M7,
+enforced in the schema so a caller cannot state what the tenant does not operate in.
 
 ## Log
 
@@ -397,3 +447,43 @@ form is the same component for create and edit
 `400 {"errors":{"currency":"currency is required"}}` until that form states the value. It is the same shape
 as the variant-dialog consequence T2 of the catalog-identity unit carries, and it belongs to the form
 slice, not to this one.
+
+**2026-11-05 — T2, and the two measurements that reshaped it** («dale a T2»). The slice was planned as
+"the migration, two commits, one per table". It landed as that, minus two constraints, because the ADR's
+schema block assumes a `final_price` the tree does not have (D-f above) and a `total_amount` the tree's own
+writer does not keep consistent with the parts.
+
+What `V80` and `V81` are: the document's `currency` (derived from the company by a trigger, and refused when
+a caller states another), the four breakdown parts, `total_amount` widened to `19,4` and made `NOT NULL`,
+the four line amounts widened, `discount_applied` `NULL` → 0 → `NOT NULL`, the line's own `subtotal`
+(derived), `tax_code`/`tax_rate`/`tax_amount`, the three snapshots read from the catalog, and the four
+constraints that hold for both writers: `ck_order_parts_not_negative`, `ck_order_rounding_bounded`,
+`ck_item_subtotal`, `ck_item_tax`. Both files open a `NO FORCE` window on every table they read or write
+(`sales_orders` and `companies`, then `products` and `product_variants`), run their reports before their
+constraints, and fail themselves if the window did not close.
+
+What the first run taught, in the order it taught it: (a) `ALTER TABLE` is refused while deferred trigger
+events are pending (SQLSTATE 55006), because `V68`'s pair is `DEFERRABLE INITIALLY DEFERRED` and both files
+`UPDATE` a table it guards — the fix is the same `SET CONSTRAINTS ALL IMMEDIATE` step `V68` takes for its
+seed, and the header of each file now says so; (b) `sales_orders` is FORCEd, so a fixture read without the
+tenant scope answers **no row** and its assertion fails as "missing", not as "wrong"; (c) `ck_item_subtotal`
+and `ck_order_total` refuse the tree's **current** writer — `SalesOrderService:225,351,364` never send a
+subtotal, and `recalculateTotalAmount:1058` writes the total from unit prices while the parts stay 0, which
+the sales suite reported as **41 cases answering `409` where it expects `201`**.
+
+Observed verification, on this branch: the new scratch-database suite `SalesMoneyBreakdownMigrationIntegrationTest`
+(7 cases, `PRE_UNIT_HEAD = 79`) green — including the case that asserts the legacy total does not move, and
+the one that asserts a disagreeing subtotal is still **accepted** so the debt cannot pass for a bound; the
+`salesorder.*` and `company.*` suites green (the 41 failures above went to 0 with nothing skipped); and the
+two offline shell suites the record touches, `odd-status-headers.test.sh` (78 assertions) and
+`adr-line-citations.test.sh` (11), green.
+
+**What is left, named so it is not discovered later.** `ck_order_total` (M1) and `ck_item_total` are T6/T7's,
+in the slice that writes the parts; until then `subtotal` on a **new** document is 0 by default and
+`total_amount` is the unit-price sum, so M2 is not merely forward-only — it is unmet for every row written
+before that slice. T3 (the pre-flight report) is still the thing that has to run before any dataset with
+drift meets the arithmetic; T4 (`tax_rate`, D-d), T5 (payments, which needs `sales_orders.company_id` — and
+that column already exists since `V64`, so that row's blocker note is stale and belongs to whoever picks T5),
+T7 (the API surface, which is what will state a currency instead of deriving it), T8 (the POS) and T10 (the
+suite) remain untouched.
+

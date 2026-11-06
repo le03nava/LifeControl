@@ -76,7 +76,10 @@ public class SalesOrder extends Auditable {
     @Column(name = "status", length = 24)
     private SalesOrderState status;
 
-    @Column(name = "total_amount", precision = 12, scale = 2)
+    // ADR-0002 decision 1 and 3: `V80` widens this to `NUMERIC(19,4)` and makes it `NOT NULL`. The entity
+    // states the same shape, because `ddl-auto=validate` compares the two and a widened column against a
+    // two-decimal mapping fails the whole suite rather than one assertion.
+    @Column(name = "total_amount", precision = 19, scale = 4, nullable = false)
     private BigDecimal totalAmount;
 
     @Column(name = "payment_method_id")
