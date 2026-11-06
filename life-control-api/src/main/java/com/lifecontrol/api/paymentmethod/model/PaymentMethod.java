@@ -22,6 +22,19 @@ public class PaymentMethod extends Auditable {
     @Column(nullable = false)
     private Boolean enabled = true;
 
+    /**
+     * Whether this method is cash, which is what ADR-0002's M4 reads: change is returned only for a cash
+     * method, never on a refund, and never beyond the tender (the arithmetic half is
+     * {@code ck_payment_tender}).
+     *
+     * <p>A platform fact and not a tenant one: {@code payment_methods} is a global catalog with no
+     * {@code company_id} ({@code V1:302-309}). {@code is_cash} lands in {@code V83} with its backfill by the
+     * seed's exact name ({@code Efectivo}), because a method created after that deploy could never have been
+     * cash without this field on the request.</p>
+     */
+    @Column(name = "is_cash", nullable = false)
+    private Boolean isCash = false;
+
     // Default constructor for JPA
     public PaymentMethod() {}
 
@@ -42,6 +55,10 @@ public class PaymentMethod extends Auditable {
         return enabled;
     }
 
+    public Boolean getIsCash() {
+        return isCash;
+    }
+
     // Setters
     public void setId(UUID id) {
         this.id = id;
@@ -57,6 +74,10 @@ public class PaymentMethod extends Auditable {
 
     public void setEnabled(Boolean enabled) {
         this.enabled = enabled;
+    }
+
+    public void setIsCash(Boolean isCash) {
+        this.isCash = isCash;
     }
 
     // Builder pattern
@@ -84,6 +105,11 @@ public class PaymentMethod extends Auditable {
 
         public Builder enabled(Boolean enabled) {
             paymentMethod.enabled = enabled;
+            return this;
+        }
+
+        public Builder isCash(Boolean isCash) {
+            paymentMethod.isCash = isCash;
             return this;
         }
 

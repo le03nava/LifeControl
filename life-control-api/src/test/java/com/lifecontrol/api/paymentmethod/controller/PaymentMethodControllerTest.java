@@ -56,7 +56,7 @@ class PaymentMethodControllerTest {
 
         testPaymentMethodId = UUID.randomUUID();
         testPaymentMethodResponse = new PaymentMethodResponse(
-                testPaymentMethodId, "Efectivo", "EFECTIVO", true, LocalDateTime.now(), LocalDateTime.now());
+                testPaymentMethodId, "Efectivo", "EFECTIVO", true, false, LocalDateTime.now(), LocalDateTime.now());
     }
 
     @Nested
@@ -117,7 +117,7 @@ class PaymentMethodControllerTest {
         @Test
         @DisplayName("should return 201 when created successfully")
         void createPaymentMethod_Returns201() throws Exception {
-            var request = new PaymentMethodRequest("Efectivo", "EFECTIVO", true);
+            var request = new PaymentMethodRequest("Efectivo", "EFECTIVO", true, false);
             when(paymentMethodService.createPaymentMethod(any(PaymentMethodRequest.class)))
                     .thenReturn(testPaymentMethodResponse);
 
@@ -131,7 +131,7 @@ class PaymentMethodControllerTest {
         @Test
         @DisplayName("should return 400 when request body is invalid")
         void createPaymentMethod_InvalidBody_Returns400() throws Exception {
-            var invalidRequest = new PaymentMethodRequest("", "", true);
+            var invalidRequest = new PaymentMethodRequest("", "", true, false);
 
             mockMvc.perform(post("/api/payment-methods")
                             .contentType(MediaType.APPLICATION_JSON)
@@ -142,7 +142,7 @@ class PaymentMethodControllerTest {
         @Test
         @DisplayName("should return 409 when name already exists")
         void createPaymentMethod_DuplicateName_Returns409() throws Exception {
-            var request = new PaymentMethodRequest("Efectivo", "EFECTIVO", true);
+            var request = new PaymentMethodRequest("Efectivo", "EFECTIVO", true, false);
             when(paymentMethodService.createPaymentMethod(any(PaymentMethodRequest.class)))
                     .thenThrow(new DuplicatePaymentMethodException("Efectivo"));
 
@@ -160,12 +160,13 @@ class PaymentMethodControllerTest {
         @Test
         @DisplayName("should return 200 when updated successfully")
         void updatePaymentMethod_Returns200() throws Exception {
-            var request = new PaymentMethodRequest("Transferencia", "TRANSFERENCIA", true);
+            var request = new PaymentMethodRequest("Transferencia", "TRANSFERENCIA", true, false);
             var updatedResponse = new PaymentMethodResponse(
                     testPaymentMethodId,
                     "Transferencia",
                     "TRANSFERENCIA",
                     true,
+                    false,
                     LocalDateTime.now(),
                     LocalDateTime.now());
             when(paymentMethodService.updatePaymentMethod(eq(testPaymentMethodId), any(PaymentMethodRequest.class)))
@@ -181,7 +182,7 @@ class PaymentMethodControllerTest {
         @Test
         @DisplayName("should return 404 when payment method not found")
         void updatePaymentMethod_NotFound_Returns404() throws Exception {
-            var request = new PaymentMethodRequest("Efectivo", "EFECTIVO", true);
+            var request = new PaymentMethodRequest("Efectivo", "EFECTIVO", true, false);
             when(paymentMethodService.updatePaymentMethod(eq(testPaymentMethodId), any(PaymentMethodRequest.class)))
                     .thenThrow(new PaymentMethodNotFoundException(testPaymentMethodId));
 
@@ -194,7 +195,7 @@ class PaymentMethodControllerTest {
         @Test
         @DisplayName("should return 409 when name conflicts with another payment method")
         void updatePaymentMethod_DuplicateName_Returns409() throws Exception {
-            var request = new PaymentMethodRequest("Transferencia", "TRANSFERENCIA", true);
+            var request = new PaymentMethodRequest("Transferencia", "TRANSFERENCIA", true, false);
             when(paymentMethodService.updatePaymentMethod(eq(testPaymentMethodId), any(PaymentMethodRequest.class)))
                     .thenThrow(new DuplicatePaymentMethodException("Transferencia"));
 
@@ -249,7 +250,13 @@ class PaymentMethodControllerTest {
         @DisplayName("should return 200 when disabled successfully")
         void setPaymentMethodEnabled_Disable_Returns200() throws Exception {
             var disabledResponse = new PaymentMethodResponse(
-                    testPaymentMethodId, "Efectivo", "EFECTIVO", false, LocalDateTime.now(), LocalDateTime.now());
+                    testPaymentMethodId,
+                    "Efectivo",
+                    "EFECTIVO",
+                    false,
+                    false,
+                    LocalDateTime.now(),
+                    LocalDateTime.now());
             when(paymentMethodService.setPaymentMethodEnabled(eq(testPaymentMethodId), eq(false)))
                     .thenReturn(disabledResponse);
 

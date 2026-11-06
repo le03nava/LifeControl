@@ -72,6 +72,9 @@ public class PaymentMethodService {
         paymentMethod.setPaymentMethodName(request.paymentMethodName());
         paymentMethod.setPaymentMethodShortName(request.paymentMethodShortName());
         paymentMethod.setEnabled(request.enabled());
+        // An edit states the whole method, because there is no PATCH-merge here: leaving this line out would
+        // silently turn a cash method into a non-cash one on the next rename (D-b).
+        paymentMethod.setIsCash(request.isCash());
 
         var updated = repository.save(paymentMethod);
         logger.info("Payment method updated successfully with id: {}", updated.getId());
@@ -108,6 +111,7 @@ public class PaymentMethodService {
                 .paymentMethodName(request.paymentMethodName())
                 .paymentMethodShortName(request.paymentMethodShortName())
                 .enabled(request.enabled())
+                .isCash(request.isCash())
                 .build();
     }
 
@@ -117,6 +121,7 @@ public class PaymentMethodService {
                 paymentMethod.getPaymentMethodName(),
                 paymentMethod.getPaymentMethodShortName(),
                 paymentMethod.getEnabled(),
+                paymentMethod.getIsCash(),
                 paymentMethod.getCreatedAt(),
                 paymentMethod.getUpdatedAt());
     }

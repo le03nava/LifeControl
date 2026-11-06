@@ -194,7 +194,7 @@ class CacheValueCodecTest {
         values.put(listOf(SeniorityLevelResponse.class), List.of(seniorityLevel));
 
         var paymentMethod = new PaymentMethodResponse(
-                UUID.randomUUID(), "Cash", "CASH", true, LocalDateTime.now(), LocalDateTime.now());
+                UUID.randomUUID(), "Cash", "CASH", true, false, LocalDateTime.now(), LocalDateTime.now());
         values.put(PaymentMethodResponse.class.getName(), paymentMethod);
         values.put(listOf(PaymentMethodResponse.class), List.of(paymentMethod));
 

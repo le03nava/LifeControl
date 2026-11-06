@@ -47,7 +47,7 @@ class PaymentMethodServiceTest {
                 .enabled(true)
                 .build();
 
-        testPaymentMethodRequest = new PaymentMethodRequest("Efectivo", "EFECTIVO", true);
+        testPaymentMethodRequest = new PaymentMethodRequest("Efectivo", "EFECTIVO", true, false);
     }
 
     @Nested
@@ -153,7 +153,7 @@ class PaymentMethodServiceTest {
         @Test
         @DisplayName("should update payment method successfully")
         void updatePaymentMethod_Success() {
-            var updateRequest = new PaymentMethodRequest("Transferencia", "TRANSFERENCIA", true);
+            var updateRequest = new PaymentMethodRequest("Transferencia", "TRANSFERENCIA", true, false);
             when(paymentMethodRepository.findById(testPaymentMethodId)).thenReturn(Optional.of(testPaymentMethod));
             when(paymentMethodRepository.findByPaymentMethodNameIgnoreCase("Transferencia"))
                     .thenReturn(Optional.empty());
@@ -192,7 +192,8 @@ class PaymentMethodServiceTest {
                     .thenReturn(Optional.of(other));
 
             assertThatThrownBy(() -> paymentMethodService.updatePaymentMethod(
-                            testPaymentMethodId, new PaymentMethodRequest("Transferencia", "TRANSFERENCIA", true)))
+                            testPaymentMethodId,
+                            new PaymentMethodRequest("Transferencia", "TRANSFERENCIA", true, false)))
                     .isInstanceOf(DuplicatePaymentMethodException.class)
                     .hasMessageContaining("Payment method with name 'Transferencia' already exists");
         }
