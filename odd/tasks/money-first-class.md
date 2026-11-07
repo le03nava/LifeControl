@@ -970,3 +970,63 @@ slice settled. It does not touch `tax_amount` or `tax_rate`, which stay 0 until 
 `tax_code` (T4's open question). And it does not edit `V80`/`V81`'s headers, which say `ck_item_total` is absent
 and are frozen by their own checksum: a migration's narrative is a record of what it did, not a promise about what
 comes next.
+
+**The review boundary of `T7c`, recorded because the slice is over the ~400-line budget and the split it would
+take is forbidden.** Measured on the branch: `75323bd8` holds 399 authored lines of migration, entity, service,
+controller and proof, and the record commit `cf6ee299` adds 145 more — 544 in two commits, with the record
+travelling in the one that brings the work, as the repository's rule requires. None of the available cuts is a
+cut: the migration without the writer is a constraint whose own suite is red (`V85` refuses the application that
+sends a unit price), the writer without the migration is the same red from the other side, and the suite cannot
+leave the behaviour it pins. What is not negotiable is that this slice is reviewed alone, because it is the one
+that restates a stored money column: `T7a` and `T7b` change no schema.
+
+**The delivery shape, decided here because the branch will exceed the budget by a factor.** `T7c` is its own PR
+and `T7a`/`T7b` are stacked on it as the second and third slices of the same unit, which is the chained-slice
+form `CONTRIBUTING.md` states for work over ~400 lines. Each staged slice gets its own review, and the record's
+header ends in the last one, so no PR exists merely to flip it.
+
+**2026-11-07 — `T7a` implemented: the sheet a document is read on, and the breakdown stops being invisible.** The
+response now states what the row states: `currency` (the document's own, which `V80` derives from the company and
+refuses otherwise), the four parts (`subtotal`, `discountTotal`, `taxTotal`, `roundingAdjustment`) beside the
+`totalAmount` they add up to, `payments` (oldest first, each with its direction and its tender pair), and on the
+line `subtotal`, `taxCode`, `taxRate`, `taxAmount` and the two catalog snapshots. **The breakdown is read-only in
+both directions**: no request states a part, and no response omits one — which is the whole of T7's "read-only and
+computed by the server" in the surface a client touches.
+
+**Three reads were needed and each one is a decision worth keeping.** `currency` cannot come from the entity —
+`SalesOrder` deliberately maps no field for a column whose only writer is a trigger — so
+`SalesOrderRepository#findCurrencyCode` reads the one column, joining nothing, in the shape
+`findCurrencyMinorUnits` already had. An empty answer is a **refusal** (`IllegalStateException`) and not a null:
+the column is `NOT NULL`, so an empty read means the row is not visible to this caller, and a response that prints
+a total with no currency is the failure class D-c removed from the create path, one layer down. The payments are
+read once per document and never once per line. And the snapshots are mapped read-only, because `V81` is the only
+writer they have ever had and a mapping that could be set is a second moment for the same name.
+
+**One gap this slice exposes rather than closes, and it is the same shape as T4's.** A line written since `V81`
+carries **no** name snapshot: the migration backfilled history, and no application path states one — not the
+create, not the item endpoints, not the `PUT`. So the item response answers `null` there, which is a line with no
+snapshot and not a line with a wrong one; filling it in the reader would invent the moment decision 4 pins to the
+sale. The writer that owes it is the same one that owes the rate: **the line write needs to copy the catalog's
+name and the resolved rate at the moment of sale**, and that is one slice, not two — T4's open question (which
+unit declares a product's tax code) is its first half.
+
+**The cost, measured and not hidden.** Every `toResponse` now issues two more statements, one for the currency and
+one for the payments, on top of the items query the list path already issued per document. A page of twelve
+documents pays twenty-four instead of twelve extra. That is not a new class of defect — the list was already N+1
+over the items — but it doubles it, and the fix when it matters is a projection or a fetch join for the page, not
+a per-line query, so it is named here instead of being discovered on a slow screen.
+
+**RED, observed on the pre-slice tree** (`git archive HEAD` in a scratch directory, only the new integration-test
+bytes copied in): `3 tests completed, 3 failed`, each on the absent field — `[the response states the document's
+own currency…] Expecting actual not to be null`, `[the response states subtotal] Expecting actual not to be null`,
+`[the charge's own response states the row it appended…] Expecting actual not to be null`.
+
+**GREEN, on this tree.** `--tests "com.lifecontrol.api.salesorder.*"`: **216 tests, 0 failed, 0 errors, 0
+skipped**, including the 212 that were already there and `SalesOrderOpenApiContractTest` (8). Three controller
+cases failed on the first full run (`$.finalPrice expected:<90.0> but was:<190.0>`, and `100.0` vs `500.0` on the
+`PUT`): the fixtures' arithmetic had moved with `V85` while their assertions still stated the old numbers, so they
+were retargeted to the values their own fixtures now produce — not deleted, and not relaxed to "anything".
+
+**The review boundary of `T7a`.** ~570 lines, of which ~400 are the three integration cases and their four
+helpers: the read sheet cannot be proven by a unit mock (a mock runs no trigger and has no policy), so the proof
+lives where the schema is, and the slice is stacked on `T7c` in the chained form already recorded.
