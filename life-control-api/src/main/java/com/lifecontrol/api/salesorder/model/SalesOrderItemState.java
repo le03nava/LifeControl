@@ -8,17 +8,18 @@ import java.util.Set;
  * The state machine of a sales-order line (ADR-0004 decision 3), copied edge for edge from
  * {@code SalesOrderService.SO_ITEM_TRANSITIONS}.
  *
- * <p>The line is the unit that moves stock: {@code PENDING} holds nothing, {@code ADDED} is the line
- * whose deduction is booked, and {@code CANCELLED} is the line whose reversal is booked. "An item of a
- * charged order cannot be cancelled" stops being a {@code !"Cancelled".equals(…)} test and becomes the
- * absence of an edge out of {@code ADDED}.</p>
+ * <p>The line is the unit whose stock the charge books: {@code PENDING} is a line the charge has not booked yet,
+ * {@code ADDED} is a line its charge booked, and {@code CANCELLED} is a line the charge skips — it was cancelled
+ * before anything was taken, so it has no movement to reverse (ADR-0002 decision 7). "An item of a charged order
+ * cannot be cancelled" stops being a {@code !"Cancelled".equals(…)} test and becomes the absence of an edge out of
+ * {@code ADDED}.</p>
  */
 public enum SalesOrderItemState implements DocumentState<SalesOrderItemState> {
-    /** The line exists and holds no stock. */
+    /** The line exists and the charge has not booked it. */
     PENDING,
-    /** The line's deduction is booked. */
+    /** The line's deduction is booked, by the charge and by nothing else. */
     ADDED,
-    /** Final. The line's reversal is booked. */
+    /** Final. The charge never booked the line, so there is nothing to give back. */
     CANCELLED;
 
     @Override

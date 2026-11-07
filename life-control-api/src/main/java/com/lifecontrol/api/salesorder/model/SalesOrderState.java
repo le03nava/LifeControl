@@ -9,8 +9,8 @@ import java.util.Set;
  * from {@code SalesOrderService.SO_TRANSITIONS} as it stood on 2026-11-03.
  *
  * <p>A sale is drafted, activated, left pending while it is being paid, and then either completed or
- * cancelled. {@code COMPLETED} and {@code CANCELLED} are terminal: the stock a completed sale moved is
- * what makes a second move unsafe, and a cancellation is the reversal that already happened.</p>
+ * cancelled. {@code COMPLETED} and {@code CANCELLED} are terminal: a charged sale is the document whose stock
+ * the charge booked, and a cancellation happens before that, so it has nothing to give back.</p>
  */
 public enum SalesOrderState implements DocumentState<SalesOrderState> {
     /** Editable, reserves nothing, sells nothing. */
