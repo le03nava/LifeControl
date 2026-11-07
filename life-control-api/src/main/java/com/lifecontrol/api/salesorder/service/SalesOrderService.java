@@ -16,6 +16,7 @@ import com.lifecontrol.api.paymentmethod.repository.PaymentMethodRepository;
 import com.lifecontrol.api.product.exception.ProductVariantNotFoundException;
 import com.lifecontrol.api.product.repository.ProductVariantRepository;
 import com.lifecontrol.api.salesorder.dto.ChargeSalesOrderRequest;
+import com.lifecontrol.api.salesorder.dto.SalePaymentRequest;
 import com.lifecontrol.api.salesorder.dto.SalePaymentResponse;
 import com.lifecontrol.api.salesorder.dto.SalesOrderItemRequest;
 import com.lifecontrol.api.salesorder.dto.SalesOrderItemResponse;
@@ -29,7 +30,10 @@ import com.lifecontrol.api.salesorder.exception.SalesOrderItemNotFoundException;
 import com.lifecontrol.api.salesorder.exception.SalesOrderItemNotModifiableException;
 import com.lifecontrol.api.salesorder.exception.SalesOrderNotFoundException;
 import com.lifecontrol.api.salesorder.exception.SalesOrderPaymentInsufficientException;
+import com.lifecontrol.api.salesorder.exception.SalesOrderPaymentTotalMismatchException;
 import com.lifecontrol.api.salesorder.exception.SalesOrderStoreReassignmentNotAllowedException;
+import com.lifecontrol.api.salesorder.exception.SalesOrderTenderInconsistentException;
+import com.lifecontrol.api.salesorder.exception.SalesOrderTenderNotCashException;
 import com.lifecontrol.api.salesorder.model.SalePayment;
 import com.lifecontrol.api.salesorder.model.SalesOrder;
 import com.lifecontrol.api.salesorder.model.SalesOrderItem;
@@ -369,10 +373,13 @@ public class SalesOrderService {
         // Ensure order is Pending (auto-promotes Active → Pending)
         ensureOrderIsPending(so);
 
-        // Validate payment method exists
-        if (!paymentMethodRepository.existsById(request.paymentMethodId())) {
-            throw new PaymentMethodNotFoundException(request.paymentMethodId());
-        }
+        // The payments the charge is asked to append. Every one of them is judged here, before the breakdown and
+        // before any row exists: the method is resolved (404 if the catalog does not have it, and its `is_cash` is
+        // what M4 reads), the tender is refused on a method that is not cash, and the tender arithmetic is refused
+        // as a 400 rather than met at flush as the constraint's generic 409. Nothing has been written at this point
+        // except the auto-promotion above, which is part of this transaction and rolls back with the refusal.
+        var payments = request.payments();
+        validateChargePayments(so, payments);
 
         // The parts first, and the payment second: the payment states the document's total as its amount, so a
         // payment written before the breakdown would state the previous order of magnitude — or the zero a
@@ -383,19 +390,33 @@ public class SalesOrderService {
         // Nothing to pay is a refusal, not a zero payment. `V83` holds `CHECK (amount > 0)`, so the insert below
         // would be refused at flush as a `DataIntegrityViolationException` — a 409 the handler states as a data
         // constraint and that names neither the order nor the reason. The guard runs here, before the write, so
-        // the business rule explains itself and no payment row is ever attempted.
+        // the business rule explains itself and no payment row is ever attempted. It runs BEFORE the M3 guard
+        // below on purpose: a document whose enabled lines add up to zero has nothing to pay whatever a client
+        // sends, and "there is nothing to pay" is the refusal that says so.
         if (so.getTotalAmount().signum() <= 0) {
             throw new SalesOrderEmptyChargeException(so.getId(), so.getTotalAmount());
         }
 
-        // One row, the whole total, no tender stated: the many-payments surface, the tender and the change are
-        // T7's, and stating a tender here would be the server inventing a number nobody counted (decision 5).
-        salePaymentRepository.save(SalePayment.charge(
-                so.getCompanyId(),
-                so.getId(),
-                request.paymentMethodId(),
-                so.getTotalAmount(),
-                currentUserContext.getUsername()));
+        // ADR-0002 M3, the half that judges the request: the payments apply to the sale, so they add up to the
+        // document's total exactly — not "at least", which would accept a row stating money the document does not
+        // cost. The table-reading guard below the inserts stays: this one judges what was asked for, that one
+        // judges what landed, and only the second can see a previous request's rows or a void.
+        requirePaymentsCoverTheTotalExactly(so, payments);
+
+        // One row per payment, the whole of what the request stated: the direction is written here and not taken
+        // from the request (D-g — the charge takes money in and never gives it back), and the tender pair is
+        // written as the operator counted it, absent when nobody counted cash.
+        var actor = currentUserContext.getUsername();
+        for (var payment : payments) {
+            salePaymentRepository.save(SalePayment.charge(
+                    so.getCompanyId(),
+                    so.getId(),
+                    payment.paymentMethodId(),
+                    payment.amount(),
+                    payment.tenderedAmount(),
+                    payment.changeAmount(),
+                    actor));
+        }
 
         // ADR-0002 M3: the document transitions to Completed only when its non-voided payments cover its total.
         // The sum is the schema's — a refund subtracts and a void row excludes — so this guard and any report
@@ -430,9 +451,11 @@ public class SalesOrderService {
         }
         applyStockChanges(stockOperations);
 
-        // Set payment method on the order. Kept for one more release: ADR-0002 migration step 6 drops this
-        // column once every reader has moved to the payment rows, and that is T7's slice, not this one.
-        so.setPaymentMethodId(request.paymentMethodId());
+        // The document keeps stating one method, taken from the first CHARGE row of the request. This is not a
+        // leftover: ADR-0002 migration step 6 drops the column only once the payment rows are populated AND every
+        // reader has moved, and both are still pending — the historical backfill is migration step 4's debt, and
+        // the POS that reads `paymentMethodId` from the response is T8's.
+        so.setPaymentMethodId(payments.get(0).paymentMethodId());
 
         // Transition header to Completed
         moveOrder(so, SalesOrderState.COMPLETED, "charge");
@@ -474,6 +497,95 @@ public class SalesOrderService {
             return;
         }
         throw new InvalidSalesOrderChargeException(so.getId(), currentState == null ? "missing" : currentState.name());
+    }
+
+    /**
+     * Everything a charge's payments have to satisfy before a row is written: the method exists, a tender is only
+     * stated on a cash method (M4), and the tender arithmetic is the constraint's own (S4).
+     *
+     * <p><b>Why all three run here and not in the schema.</b> {@code fk_sale_payment_method} makes a missing method a
+     * foreign-key error at flush, {@code ck_payment_tender} holds the arithmetic, and neither can read
+     * {@code payment_methods.is_cash} — a {@code CHECK} cannot see another table, so M4 has no schema form at all.
+     * The refusals therefore say what the rule is, in the request's own terms: the payment's position, its method
+     * by name and id, and the two numbers that disagree.</p>
+     *
+     * <p><b>Why the position and not the id.</b> A payment carries no identity until it is inserted, so "payment 2
+     * of 3" is the only handle a client holding the body it just sent can use to find the row being refused.</p>
+     *
+     * <p><b>Why {@code findById} and not {@code existsById}.</b> The charge used to ask only whether the catalog
+     * carried the id, which cannot answer whether change is allowed. The row now carries the answer, so the read
+     * is the same statement with the flag on it — one per payment, and a sale of three payments costs three.</p>
+     */
+    private void validateChargePayments(SalesOrder so, List<SalePaymentRequest> payments) {
+        for (var index = 0; index < payments.size(); index++) {
+            var payment = payments.get(index);
+            var position = (index + 1) + " of " + payments.size();
+            var method = paymentMethodRepository
+                    .findById(payment.paymentMethodId())
+                    .orElseThrow(() -> new PaymentMethodNotFoundException(payment.paymentMethodId()));
+            var methodLabel = "'" + method.getPaymentMethodName() + "' (" + method.getId() + ")";
+
+            // A payment that states no tender is a charge through a card, a transfer or a cash payment nobody
+            // counted, and is judged by nothing here: the column is optional and `null` is not zero.
+            if (payment.tenderedAmount() == null && payment.changeAmount() == null) {
+                continue;
+            }
+
+            // ADR-0002 M4. `is_cash` is a NOT NULL column, so a null here is a row this service cannot judge and
+            // refuses rather than a cash method it guesses.
+            if (!Boolean.TRUE.equals(method.getIsCash())) {
+                throw new SalesOrderTenderNotCashException(
+                        so.getId(),
+                        position,
+                        payment.tenderedAmount(),
+                        payment.changeAmount(),
+                        method.getId(),
+                        method.getPaymentMethodName());
+            }
+
+            // The pair is stated together or not at all, which is `ck_payment_tender`'s first clause read before it
+            // has a row to judge.
+            if (payment.tenderedAmount() == null || payment.changeAmount() == null) {
+                throw SalesOrderTenderInconsistentException.halfAPair(
+                        so.getId(), position, methodLabel, payment.tenderedAmount(), payment.changeAmount());
+            }
+
+            if (payment.tenderedAmount().compareTo(payment.amount()) < 0) {
+                throw SalesOrderTenderInconsistentException.tenderBelowAmount(
+                        so.getId(), position, methodLabel, payment.amount(), payment.tenderedAmount());
+            }
+
+            // `change = tendered - amount`, compared as numbers and not as strings: the column is 19,4, so a
+            // request stating 50 against 100.0000 - 50.0000 is the same change and must not be refused for scale.
+            var expectedChange = payment.tenderedAmount().subtract(payment.amount());
+            if (payment.changeAmount().compareTo(expectedChange) != 0) {
+                throw SalesOrderTenderInconsistentException.changeIsNotTheDifference(
+                        so.getId(),
+                        position,
+                        methodLabel,
+                        payment.amount(),
+                        payment.tenderedAmount(),
+                        payment.changeAmount());
+            }
+        }
+    }
+
+    /**
+     * ADR-0002 M3, read as the brief reads it: the payments apply to the sale, so their sum is the total exactly.
+     *
+     * <p><b>What this is not.</b> Not "at least the total": a sum above it would write a row stating money the
+     * document does not cost, and the document's own tender columns are where "the customer handed over 500"
+     * belongs. It is also not the guard that runs after the inserts — that one sums the rows the table holds, which
+     * is the only statement M3 can make about the document, and it stays.</p>
+     *
+     * <p>The comparison is {@code compareTo} and not {@code equals}: the request states 19,4 (or fewer) decimals and
+     * the column states 19,4, so {@code 200.00} and {@code 200.0000} are the same money.</p>
+     */
+    private void requirePaymentsCoverTheTotalExactly(SalesOrder so, List<SalePaymentRequest> payments) {
+        var statedTotal = payments.stream().map(SalePaymentRequest::amount).reduce(BigDecimal.ZERO, BigDecimal::add);
+        if (statedTotal.compareTo(so.getTotalAmount()) != 0) {
+            throw new SalesOrderPaymentTotalMismatchException(so.getId(), statedTotal, so.getTotalAmount());
+        }
     }
 
     @Transactional

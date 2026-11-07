@@ -33,10 +33,12 @@ import com.lifecontrol.api.inventory.exception.InsufficientStockException;
 import com.lifecontrol.api.inventory.ledger.StockLedgerEngine;
 import com.lifecontrol.api.inventory.ledger.StockLedgerEngine.SaleChange;
 import com.lifecontrol.api.paymentmethod.exception.PaymentMethodNotFoundException;
+import com.lifecontrol.api.paymentmethod.model.PaymentMethod;
 import com.lifecontrol.api.paymentmethod.repository.PaymentMethodRepository;
 import com.lifecontrol.api.product.exception.ProductVariantNotFoundException;
 import com.lifecontrol.api.product.repository.ProductVariantRepository;
 import com.lifecontrol.api.salesorder.dto.ChargeSalesOrderRequest;
+import com.lifecontrol.api.salesorder.dto.SalePaymentRequest;
 import com.lifecontrol.api.salesorder.dto.SalesOrderItemRequest;
 import com.lifecontrol.api.salesorder.dto.SalesOrderItemResponse;
 import com.lifecontrol.api.salesorder.dto.SalesOrderRequest;
@@ -238,6 +240,20 @@ class SalesOrderServiceTest {
                 .when(salePaymentRepository.netPaid(any(), any()))
                 .thenAnswer(invocation ->
                         appendedPayments.stream().map(SalePayment::getAmount).reduce(BigDecimal.ZERO, BigDecimal::add));
+
+        // The charge resolves every method its payments name, because ADR-0002 M4 reads the method's `is_cash`
+        // and a boolean that only says "the row exists" cannot answer whether change is allowed. A card by
+        // default, so a case that states no tender charges through a method that could never have taken one; a
+        // case that wants a cash method states its own answer and wins over this one.
+        lenient()
+                .when(paymentMethodRepository.findById(any()))
+                .thenAnswer(invocation -> Optional.of(PaymentMethod.builder()
+                        .id(invocation.getArgument(0, UUID.class))
+                        .paymentMethodName("Tarjeta")
+                        .paymentMethodShortName("TARJETA")
+                        .enabled(true)
+                        .isCash(false)
+                        .build()));
         customerId = UUID.randomUUID();
         companyStoreId = UUID.randomUUID();
         shiftId = UUID.randomUUID();
@@ -662,7 +678,8 @@ class SalesOrderServiceTest {
         @DisplayName("the response states the document's currency and its payments, which no getter can answer")
         void getSalesOrderById_StatesCurrencyAndPayments() {
             var methodId = UUID.randomUUID();
-            var payment = SalePayment.charge(companyId, orderId, methodId, new BigDecimal("200.0000"), "seller");
+            var payment =
+                    SalePayment.charge(companyId, orderId, methodId, new BigDecimal("200.0000"), null, null, "seller");
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
             when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId)).thenReturn(List.of());
             when(salesOrderRepository.findCurrencyCode(orderId)).thenReturn(Optional.of(TenantFixtures.SEED_CURRENCY));
@@ -2320,6 +2337,27 @@ class SalesOrderServiceTest {
     // ─────────────────────────────────────────────
     // chargeSalesOrder
     // ─────────────────────────────────────────────
+
+    /**
+     * An amount for a case whose document is refused before its money is read — the state guard's 400 and the
+     * missing method's 404. It is not a number any case asserts: it only has to be one a request may state,
+     * because bean validation refuses a charge whose payment applies no money at all.
+     */
+    private static final String UNREAD_AMOUNT = "1.0000";
+
+    /**
+     * One payment for the amount the case states, which is always the sum its {@code sumMoneyParts} stub answers:
+     * since T7b a charge's payments add up to the document's total exactly (ADR-0002 M3), so a case that stubbed
+     * 350.0000 and stated 200.0000 would be asserting a refusal instead of a charge.
+     *
+     * <p>No tender is stated: {@code is_cash} is read only when one is, and the tender's own arithmetic is pinned
+     * where the constraint is — {@code SalesOrderIntegrationTest}.</p>
+     */
+    private ChargeSalesOrderRequest chargeOf(UUID paymentMethodId, String amount) {
+        return new ChargeSalesOrderRequest(
+                List.of(new SalePaymentRequest(paymentMethodId, new BigDecimal(amount), null, null)));
+    }
+
     @Nested
     @DisplayName("chargeSalesOrder")
     class ChargeSalesOrderTests {
@@ -2328,7 +2366,8 @@ class SalesOrderServiceTest {
         @DisplayName("should charge Pending order successfully")
         void chargeSalesOrder_Success() {
             var paymentMethodId = UUID.randomUUID();
-            var request = new ChargeSalesOrderRequest(paymentMethodId);
+            // 350.0000 is what the breakdown below sums to, because a charge's payments add up to it exactly (M3).
+            var request = chargeOf(paymentMethodId, "350.0000");
 
             // Create a Pending order
             var pendingOrder = SalesOrder.builder()
@@ -2388,7 +2427,6 @@ class SalesOrderServiceTest {
             when(salesOrderRepository.findById(orderId))
                     .thenReturn(Optional.of(pendingOrder))
                     .thenReturn(Optional.of(savedOrder));
-            when(paymentMethodRepository.existsById(paymentMethodId)).thenReturn(true);
             when(itemRepository.findBySalesOrderId(orderId)).thenReturn(List.of(item1, item2));
             // Item status lookup: bulk fetch by the set of item statusIds
             // toResponse mocks
@@ -2419,7 +2457,7 @@ class SalesOrderServiceTest {
         @DisplayName("should throw InvalidSalesOrderChargeException when order not in Pending or Active")
         void chargeSalesOrder_NotPendingOrActive_ThrowsException() {
             var paymentMethodId = UUID.randomUUID();
-            var request = new ChargeSalesOrderRequest(paymentMethodId);
+            var request = chargeOf(paymentMethodId, UNREAD_AMOUNT);
 
             // testOrder is DRAFT by default — DRAFT is neither PENDING nor ACTIVE
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
@@ -2437,7 +2475,7 @@ class SalesOrderServiceTest {
         @DisplayName("should throw PaymentMethodNotFoundException when payment method does not exist")
         void chargeSalesOrder_InvalidPaymentMethod_ThrowsException() {
             var paymentMethodId = UUID.randomUUID();
-            var request = new ChargeSalesOrderRequest(paymentMethodId);
+            var request = chargeOf(paymentMethodId, UNREAD_AMOUNT);
 
             var pendingOrder = SalesOrder.builder()
                     .id(orderId)
@@ -2453,7 +2491,7 @@ class SalesOrderServiceTest {
                     .build();
 
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(pendingOrder));
-            when(paymentMethodRepository.existsById(paymentMethodId)).thenReturn(false);
+            when(paymentMethodRepository.findById(paymentMethodId)).thenReturn(Optional.empty());
 
             assertThatThrownBy(() -> salesOrderService.chargeSalesOrder(orderId, request))
                     .isInstanceOf(PaymentMethodNotFoundException.class)
@@ -2467,7 +2505,7 @@ class SalesOrderServiceTest {
         @DisplayName("should leave Cancelled items untouched while transitioning Pending items to Added")
         void chargeSalesOrder_MixedItems_OnlyTransitionsNonCancelled() {
             var paymentMethodId = UUID.randomUUID();
-            var request = new ChargeSalesOrderRequest(paymentMethodId);
+            var request = chargeOf(paymentMethodId, "30.0000");
 
             var pendingOrder = SalesOrder.builder()
                     .id(orderId)
@@ -2530,7 +2568,6 @@ class SalesOrderServiceTest {
             when(salesOrderRepository.findById(orderId))
                     .thenReturn(Optional.of(pendingOrder))
                     .thenReturn(Optional.of(savedOrder));
-            when(paymentMethodRepository.existsById(paymentMethodId)).thenReturn(true);
             when(itemRepository.findBySalesOrderId(orderId))
                     .thenReturn(List.of(itemPending1, itemPending2, itemCancelled));
             // Item status lookup: bulk fetch by the set of item statusIds
@@ -2592,7 +2629,7 @@ class SalesOrderServiceTest {
         void chargeSalesOrder_BooksOneBatchOfOneDeductionPerLiveLine() {
             var paymentMethodId = UUID.randomUUID();
             var secondVariantId = UUID.randomUUID();
-            var request = new ChargeSalesOrderRequest(paymentMethodId);
+            var request = chargeOf(paymentMethodId, "350.0000");
 
             var pendingOrder = SalesOrder.builder()
                     .id(orderId)
@@ -2645,7 +2682,6 @@ class SalesOrderServiceTest {
             when(salesOrderRepository.findById(orderId))
                     .thenReturn(Optional.of(pendingOrder))
                     .thenReturn(Optional.of(savedOrder));
-            when(paymentMethodRepository.existsById(paymentMethodId)).thenReturn(true);
             when(itemRepository.findBySalesOrderId(orderId)).thenReturn(List.of(firstLine, secondLine));
             when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId)).thenReturn(List.of());
             when(itemRepository.sumMoneyParts(orderId))
@@ -2695,7 +2731,7 @@ class SalesOrderServiceTest {
         @DisplayName("should deduct nothing for a cancelled line and for a soft-deleted line")
         void chargeSalesOrder_CancelledAndSoftDeletedLinesAreNotBooked() {
             var paymentMethodId = UUID.randomUUID();
-            var request = new ChargeSalesOrderRequest(paymentMethodId);
+            var request = chargeOf(paymentMethodId, "120.0000");
 
             var pendingOrder = SalesOrder.builder()
                     .id(orderId)
@@ -2757,7 +2793,6 @@ class SalesOrderServiceTest {
             when(salesOrderRepository.findById(orderId))
                     .thenReturn(Optional.of(pendingOrder))
                     .thenReturn(Optional.of(savedOrder));
-            when(paymentMethodRepository.existsById(paymentMethodId)).thenReturn(true);
             when(itemRepository.findBySalesOrderId(orderId))
                     .thenReturn(List.of(liveLine, cancelledLine, softDeletedLine));
             when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId)).thenReturn(List.of());
@@ -2796,7 +2831,7 @@ class SalesOrderServiceTest {
         @DisplayName("should send the engine no batch at all when the document has no live line")
         void chargeSalesOrder_NoLiveLine_BooksNoBatch() {
             var paymentMethodId = UUID.randomUUID();
-            var request = new ChargeSalesOrderRequest(paymentMethodId);
+            var request = chargeOf(paymentMethodId, "40.0000");
 
             var pendingOrder = SalesOrder.builder()
                     .id(orderId)
@@ -2840,7 +2875,6 @@ class SalesOrderServiceTest {
             when(salesOrderRepository.findById(orderId))
                     .thenReturn(Optional.of(pendingOrder))
                     .thenReturn(Optional.of(savedOrder));
-            when(paymentMethodRepository.existsById(paymentMethodId)).thenReturn(true);
             when(itemRepository.findBySalesOrderId(orderId)).thenReturn(List.of(cancelledLine));
             when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId)).thenReturn(List.of());
             when(itemRepository.sumMoneyParts(orderId))
@@ -2857,7 +2891,7 @@ class SalesOrderServiceTest {
         @DisplayName("should auto-promote Active → Pending before charging")
         void chargeSalesOrder_ActiveOrder_AutoPromotesToPending() {
             var paymentMethodId = UUID.randomUUID();
-            var request = new ChargeSalesOrderRequest(paymentMethodId);
+            var request = chargeOf(paymentMethodId, "350.0000");
 
             // Create an Active order
             var activeOrder = SalesOrder.builder()
@@ -2919,7 +2953,6 @@ class SalesOrderServiceTest {
                     .thenReturn(Optional.of(savedOrder));
             // ensureOrderIsPending: lookup Active status
             // ensureOrderIsPending: find Pending status for promotion
-            when(paymentMethodRepository.existsById(paymentMethodId)).thenReturn(true);
             when(itemRepository.findBySalesOrderId(orderId)).thenReturn(List.of(item1, item2));
             // Item status lookup: bulk fetch by the set of item statusIds
             // toResponse mocks — items have been transitioned to Added
@@ -2949,7 +2982,7 @@ class SalesOrderServiceTest {
         @DisplayName("should successfully charge an Active order end-to-end")
         void chargeSalesOrder_ActiveOrder_ThenChargesSuccessfully() {
             var paymentMethodId = UUID.randomUUID();
-            var request = new ChargeSalesOrderRequest(paymentMethodId);
+            var request = chargeOf(paymentMethodId, "350.0000");
 
             // Create an Active order
             var activeOrder = SalesOrder.builder()
@@ -3011,7 +3044,6 @@ class SalesOrderServiceTest {
                     .thenReturn(Optional.of(savedOrder));
             // ensureOrderIsPending: lookup Active status
             // ensureOrderIsPending: find Pending status for promotion
-            when(paymentMethodRepository.existsById(paymentMethodId)).thenReturn(true);
             when(itemRepository.findBySalesOrderId(orderId)).thenReturn(List.of(item1, item2));
             // Item status lookup: bulk fetch by the set of item statusIds
             // toResponse mocks
@@ -3807,7 +3839,6 @@ class SalesOrderServiceTest {
             when(salesOrderRepository.findById(orderId))
                     .thenReturn(Optional.of(pendingOrder))
                     .thenReturn(Optional.of(pendingOrder));
-            when(paymentMethodRepository.existsById(paymentMethodId)).thenReturn(true);
             when(itemRepository.findBySalesOrderId(orderId))
                     .thenReturn(List.of(waitingLine, chargedLine, cancelledLine));
             when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId)).thenReturn(List.of());
@@ -3817,7 +3848,7 @@ class SalesOrderServiceTest {
                     .thenReturn(moneyPartsRow(
                             new BigDecimal("30.0000"), new BigDecimal("0.0000"), new BigDecimal("0.0000")));
 
-            salesOrderService.chargeSalesOrder(orderId, new ChargeSalesOrderRequest(paymentMethodId));
+            salesOrderService.chargeSalesOrder(orderId, chargeOf(paymentMethodId, "30.0000"));
 
             verify(statusTransitionRecorder)
                     .recordMove(
