@@ -1782,6 +1782,156 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                     .isEqualTo(1);
         }
 
+        /**
+         * A cancellation and a charge of one document, released together: exactly one of them happens, and the row
+         * agrees with the answer.
+         *
+         * <p><b>The window, and why no other case would have caught it.</b> Unlocked, the cancellation read
+         * {@code PENDING}, passed the ADR-0004 guard on that read, and then wrote at flush — and its
+         * {@code UPDATE} re-read the row under {@code READ COMMITTED}, found the {@code COMPLETED} the charge had
+         * just committed, and overwrote it. Its own transition row states {@code PENDING -> CANCELLED}, because that
+         * is the move the guard authorised, so the document moved {@code COMPLETED -> CANCELLED} with no row stating
+         * that move: measured on the pre-fix source, {@code V68}'s deferred constraint trigger refuses the commit
+         * ({@code PSQLException: SALES_ORDER … moved COMPLETED -> CANCELLED without its status_transition row}), the
+         * cancellation's transaction rolls back and the request answers <b>500</b>. Without the trigger the same
+         * write commits, and because {@code deleteSalesOrder} reverses only a {@code COMPLETED} document, the
+         * deduction the charge booked is stranded while {@code sale_payment} — append-only — keeps the row that
+         * paid for it.</p>
+         *
+         * <p><b>So the case fails twice over without the lock, and the second half is the point.</b> The loser is a
+         * {@code 500} instead of a refusal that names the reason, which is the outcome a client can actually act on;
+         * and the biconditional below is intact only because the schema caught what the service did not. A
+         * correctness argument that rests on a deferred trigger is not one this document gets to make, so both arms
+         * are asserted: the refusal is 400 or 409, and the partner tables agree with the state. With the lock the
+         * cancellation serializes behind the charge, re-reads {@code COMPLETED} and the guard refuses it by name.</p>
+         *
+         * <p><b>What the case reads.</b> Not the status history, which records nothing wrong from its own point of
+         * view, and not only the responses: the partner tables. The invariant is the biconditional {@code COMPLETED}
+         * ⟺ one payment row and one {@code SALE} movement, and {@code CANCELLED} ⇒ neither. The state that satisfies
+         * no arm of it — a cancellation with both rows under it — is the defect's signature, and a run that ends that
+         * way fails here instead of passing on a plausible-looking sequence of transitions.</p>
+         *
+         * <p><b>The harness is the sibling case's, on one document, and repeated.</b> Two threads, one latch to
+         * release them together and one to wait for both, with the two requests differing only in the verb — which
+         * is the shape that leaves the interleaving to the database rather than to the test. Three rounds, because
+         * the unlocked version won or lost the race by which thread reached the database first: a probe that runs it
+         * once passes by luck about half the time, and a regression case that passes by luck is not one. Each round
+         * owns its document and its variant, so a round cannot inherit the previous one's position or payment.</p>
+         */
+        @Test
+        @DisplayName("should never strand a booked deduction when a cancellation races the charge")
+        void cancelRacingCharge_neverStrandsABookedDeduction() throws Exception {
+            for (var round = 1; round <= 3; round++) {
+                var variant = createTestVariant(new BigDecimal("100.00"));
+                var placed = createOrder(line(null, variant.getId(), "4.00"));
+                var orderId = placed.orderId();
+                // Active is the one state both requests are legal from: the charge auto-promotes it to Pending on
+                // its way to Completed, and the cancellation leaves it directly. A Draft would have no charge edge
+                // at all and the race would be about the guard and not about the lock.
+                transitionOrder(orderId, activeStatusId);
+                assertNothingBooked(variant.getId(), "100.00");
+
+                var paymentMethodId = savedPaymentMethodId();
+                var latch = new CountDownLatch(2);
+                var startSignal = new CountDownLatch(1);
+                var results = new int[2];
+
+                var charge = CompletableFuture.runAsync(
+                        () -> results[0] = chargeStatus(latch, startSignal, orderId, paymentMethodId));
+                var cancel = CompletableFuture.runAsync(() -> results[1] = cancelStatus(latch, startSignal, orderId));
+
+                latch.await(5, TimeUnit.SECONDS);
+                startSignal.countDown();
+                CompletableFuture.allOf(charge, cancel).get(30, TimeUnit.SECONDS);
+
+                var answered = List.of(results[0], results[1]);
+                // One document, one terminal state: both requests answering 200 is the defect, whether or not the
+                // partner tables below happened to agree — a second 200 means one of the two overwrote the other.
+                assertThat(answered)
+                        .as("round %d: exactly one of the cancellation and the charge writes the document", round)
+                        .filteredOn(status -> status == 200)
+                        .hasSize(1);
+                // The loser is refused by the guard it raced into, and never by the database: 409 is the charge's
+                // transition having already happened (Completed is terminal), 400 is the charge finding a document
+                // the cancellation closed. A 5xx here would be a lock or a constraint, which is not this subject.
+                var loser = answered.stream()
+                        .filter(status -> status != 200)
+                        .findFirst()
+                        .orElseThrow();
+                assertThat(loser)
+                        .as("round %d: the loser is a refusal that names the reason, not a 500", round)
+                        .isIn(400, 409);
+
+                // The half that the responses cannot state, read from the tables the charge writes: a document is
+                // money that moved exactly when it is Completed, and a payment or a movement without that state is
+                // a sale nobody can reverse.
+                var state = orderStateOf(orderId);
+                var payments = paymentsOf(orderId);
+                var sales = movementsOfType(variant.getId(), StockLedgerWriter.SALE);
+                assertThat(state)
+                        .as("round %d: the document ends in one of the two states the race can produce", round)
+                        .isIn(SalesOrderState.COMPLETED, SalesOrderState.CANCELLED);
+
+                if (state == SalesOrderState.COMPLETED) {
+                    assertThat(payments)
+                            .as(
+                                    "round %d: a completed document holds exactly one payment, the one its charge "
+                                            + "inserted",
+                                    round)
+                            .hasSize(1);
+                    assertThat(sales)
+                            .as("round %d: and exactly one SALE movement, the one its charge booked", round)
+                            .hasSize(1);
+                    assertThat(stockPositionOf(variant.getId()))
+                            .as("round %d: which is the deduction the position lost", round)
+                            .isEqualByComparingTo(new BigDecimal("96.00"));
+                } else {
+                    // The defect's signature: a CANCELLED document carrying the charge's payment and its movement.
+                    // `sale_payment` is append-only, so such a row cannot be taken back, and the reversal path
+                    // only runs for a COMPLETED document, so nothing gives the units back either.
+                    assertThat(payments)
+                            .as(
+                                    "round %d: a cancelled document holds no payment — the charge that would write "
+                                            + "one is the write the guard refused",
+                                    round)
+                            .isEmpty();
+                    assertThat(sales)
+                            .as(
+                                    "round %d: and no SALE movement — stock booked under a cancelled document is "
+                                            + "stranded, because only a delete of a COMPLETED document reverses",
+                                    round)
+                            .isEmpty();
+                    assertThat(stockPositionOf(variant.getId()))
+                            .as("round %d: the position still holds every unit it started with", round)
+                            .isEqualByComparingTo(new BigDecimal("100.00"));
+                }
+            }
+        }
+
+        /** The document's persisted state, read from the row both of the case's threads wrote. */
+        private SalesOrderState orderStateOf(UUID orderId) {
+            return inTransaction(
+                    () -> salesOrderRepository.findById(orderId).orElseThrow().getStatus());
+        }
+
+        /** Cancels one order from one of the case's threads and answers the status the API stated. */
+        private int cancelStatus(CountDownLatch ready, CountDownLatch start, UUID orderId) {
+            try {
+                ready.countDown();
+                start.await(5, TimeUnit.SECONDS);
+                return mockMvc.perform(patch("/api/sales-orders/{id}/status", orderId)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsString(
+                                        new UpdateSalesOrderStatusRequest(cancelledStatusId)))
+                                .with(scopedSalesJwt()))
+                        .andReturn()
+                        .getResponse()
+                        .getStatus();
+            } catch (Exception failed) {
+                return 500;
+            }
+        }
+
         /** Charges one order from one of the case's threads and answers the status the API stated. */
         private int chargeStatus(CountDownLatch ready, CountDownLatch start, UUID orderId, UUID paymentMethodId) {
             try {
@@ -3470,6 +3620,156 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             assertThat(itemEnabled(foreignItemId)).isTrue();
             // The two refusals wrote nothing: the position is the fixture's and the ledger holds no row.
             assertNothingBooked(variant.getId(), "100.00");
+        }
+    }
+
+    // ─── 5.21 One line's sequence, and only a booked write takes one ───
+
+    /**
+     * {@code sales_order_items.write_seq} ({@code V73}) is what makes a movement attributable to <b>one</b> write of
+     * <b>one</b> line, and the two cases here are the two halves of that claim: a booked write is numbered and the
+     * movement copies the number, and a write that books nothing neither takes a number nor leaves one behind.
+     *
+     * <p><b>Why the column is the identity and not a decoration.</b> A {@code stock_movement} row names its line, and
+     * that alone cannot tell two writes of that line apart: after {@code T6b} a line has exactly one booked write
+     * (the charge), which makes the source key sufficient <em>today</em> and says nothing about the rule. The counter
+     * is the general statement — the pair (line, its n-th write) — and the ledger's unique key on the source states
+     * it, so a second movement under the same number is refused by the schema instead of being averaged into a
+     * balance nobody can explain.</p>
+     *
+     * <p><b>Why they go through the controller and not through a fixture with hand-written numbers.</b> The numbers
+     * are the service's to produce: a case that writes them itself proves the key is wide enough and nothing about
+     * the bump, and the bump is the half that can silently repeat a value, skip one, or spend a number on a write
+     * the database then refused. Both read the columns back, which is the only evidence that exists.</p>
+     */
+    @Nested
+    @DisplayName("5.21 write_seq — one line, one booked write, one number")
+    class WriteSequenceIdentityTests {
+
+        /**
+         * A document with two live lines and one cancelled line: each live line is numbered {@code 1} and its one
+         * {@code SALE} row carries that number, and the cancelled line is numbered nothing and carries nothing.
+         *
+         * <p><b>The asymmetry is the assertion.</b> The charge builds its batch from the enabled, non-cancelled
+         * lines only, so the cancelled one never reaches the engine — and since the bump is the statement that
+         * <em>precedes</em> the movement it numbers, a batch built too eagerly would leave that line at {@code 1}
+         * with no row under it. Read from the columns, the two facts are paired: a counter with a movement, or a
+         * zero and no movement. A line numbered without a movement is a number nobody can attribute, which is what
+         * the third assertion here refuses.</p>
+         */
+        @Test
+        @DisplayName("should number each live line's one movement 1, and leave a cancelled line's counter at 0")
+        void writeSeq_namesTheMovementAndNothingElse() throws Exception {
+            var sold = createTestVariant(new BigDecimal("100.00"));
+            var alsoSold = createTestVariant(new BigDecimal("50.00"));
+            var skipped = createTestVariant(new BigDecimal("80.00"));
+            var placed = createOrder(
+                    line(null, sold.getId(), "4.00"),
+                    line(null, alsoSold.getId(), "3.00"),
+                    line(null, skipped.getId(), "6.00"));
+            var skippedItemId = placed.itemId(skipped.getId());
+
+            cancelItem(placed.orderId(), skippedItemId);
+            assertNothingBooked(skipped.getId(), "80.00");
+
+            chargeFromItsCurrentState(placed.orderId());
+
+            for (var live : List.of(sold, alsoSold)) {
+                var itemId = placed.itemId(live.getId());
+                assertThat(writeSeqOfLine(itemId))
+                        .as("the charge is this line's first and only booked write, so it takes 1")
+                        .isEqualTo(1L);
+                assertThat(saleWritesOfLine(itemId))
+                        .as("one SALE row, numbered by the line it names: the number is what attributes the movement "
+                                + "to that line's one write and to nothing else")
+                        .containsExactly(1L);
+            }
+
+            assertThat(writeSeqOfLine(skippedItemId))
+                    .as("the cancelled line is outside the charge's batch, so it books nothing and numbers nothing")
+                    .isZero();
+            assertThat(saleWritesOfLine(skippedItemId))
+                    .as("and no movement names it: a counter with no row under it would be a number no write spent")
+                    .isEmpty();
+            assertThat(stockPositionOf(skipped.getId())).isEqualByComparingTo(new BigDecimal("80.00"));
+            assertThat(stockPositionOf(sold.getId())).isEqualByComparingTo(new BigDecimal("96.00"));
+            assertThat(stockPositionOf(alsoSold.getId())).isEqualByComparingTo(new BigDecimal("47.00"));
+        }
+
+        /**
+         * A charge the store cannot cover answers {@code 409} and hands <b>both</b> numbers back — including the one
+         * taken by the line that could have been covered.
+         *
+         * <p><b>Why the covered line's counter is the interesting one.</b> The charge takes the bump for every line
+         * of its batch before the engine runs anything, so the failing document has already spent numbers by the time
+         * the insufficiency is thrown. The bump joins the charge's transaction ({@code REQUIRED}), which is what makes
+         * the refusal give them back: a bump that committed on its own would leave the line at {@code 1} with no
+         * movement, and the next charge of that document would number its first movement {@code 2} — a ledger whose
+         * first write of a line is its second, with nothing in the row to say what the missing one was.</p>
+         *
+         * <p>Read from the columns after the refusal, because the responses cannot state whether a number was spent:
+         * a {@code 409} with the counter at {@code 1} is exactly the defect this case exists for.</p>
+         */
+        @Test
+        @DisplayName("should hand both numbers back when the charge refuses the document's stock")
+        void refusedChargeConsumesNoSequence() throws Exception {
+            var covered = createTestVariant(new BigDecimal("10.00"));
+            var uncovered = createTestVariant(new BigDecimal("1.00"));
+            var placed = createOrder(line(null, covered.getId(), "2.00"), line(null, uncovered.getId(), "5.00"));
+            var coveredItemId = placed.itemId(covered.getId());
+            var uncoveredItemId = placed.itemId(uncovered.getId());
+            transitionOrder(placed.orderId(), activeStatusId);
+            assertThat(List.of(writeSeqOfLine(coveredItemId), writeSeqOfLine(uncoveredItemId)))
+                    .as("a document nobody has charged has numbered nothing")
+                    .containsExactly(0L, 0L);
+
+            mockMvc.perform(patch("/api/sales-orders/{id}/charge", placed.orderId())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(
+                                    new ChargeSalesOrderRequest(savedPaymentMethodId())))
+                            .with(scopedSalesJwt()))
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.status").value(409))
+                    .andExpect(jsonPath("$.message")
+                            .value(org.hamcrest.Matchers.containsString(
+                                    "Insufficient stock for variant " + uncovered.getId())));
+
+            assertThat(writeSeqOfLine(coveredItemId))
+                    .as("the covered line's bump rolled back with the transaction that threw, so the number is the "
+                            + "line's to spend again")
+                    .isZero();
+            assertThat(writeSeqOfLine(uncoveredItemId))
+                    .as("and the uncovered line's, taken in the same loop before the engine refused")
+                    .isZero();
+            assertThat(saleWritesOfLine(coveredItemId))
+                    .as("no movement of the covered line survived the refusal")
+                    .isEmpty();
+            assertThat(saleWritesOfLine(uncoveredItemId)).isEmpty();
+            assertThat(paymentsOf(placed.orderId())).isEmpty();
+            assertNothingBooked(covered.getId(), "10.00");
+            assertNothingBooked(uncovered.getId(), "1.00");
+        }
+
+        /** The line's own counter, which is the authority the movement's copy of it comes from. */
+        private long writeSeqOfLine(UUID itemId) {
+            return inTransaction(() -> jdbcTemplate.queryForObject(
+                    "SELECT write_seq FROM sales_order_items WHERE id = ?", Long.class, itemId));
+        }
+
+        /**
+         * The sequence each {@code SALE} row <b>of this line</b> was booked under, one entry per row.
+         *
+         * <p>Filtered on {@code source_id} — the line — and not on the variant, which is what makes the assertion a
+         * statement about a write: the list answers how many movements this line booked <em>and</em> which numbers
+         * they carry, so {@code containsExactly(1L)} refuses both a missing movement and a duplicated one.</p>
+         */
+        private List<Long> saleWritesOfLine(UUID itemId) {
+            return inTransaction(() -> jdbcTemplate.queryForList("""
+                    SELECT write_seq
+                      FROM stock_movement
+                     WHERE source_id = ? AND movement_type = ?
+                     ORDER BY occurred_at, id
+                    """, Long.class, itemId, StockLedgerWriter.SALE));
         }
     }
 
