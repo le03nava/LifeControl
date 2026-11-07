@@ -19,6 +19,7 @@ import com.lifecontrol.api.exception.GlobalExceptionHandler;
 import com.lifecontrol.api.inventory.exception.InsufficientStockException;
 import com.lifecontrol.api.paymentmethod.exception.PaymentMethodNotFoundException;
 import com.lifecontrol.api.salesorder.dto.ChargeSalesOrderRequest;
+import com.lifecontrol.api.salesorder.dto.SalePaymentResponse;
 import com.lifecontrol.api.salesorder.dto.SalesOrderItemRequest;
 import com.lifecontrol.api.salesorder.dto.SalesOrderItemResponse;
 import com.lifecontrol.api.salesorder.dto.SalesOrderRequest;
@@ -31,6 +32,7 @@ import com.lifecontrol.api.salesorder.exception.SalesOrderNotFoundException;
 import com.lifecontrol.api.salesorder.service.SalesOrderService;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
@@ -93,7 +95,13 @@ class SalesOrderControllerTest {
                 new BigDecimal("2.00"),
                 new BigDecimal("100.00"),
                 new BigDecimal("10.00"),
-                new BigDecimal("90.00"),
+                new BigDecimal("200.00"),
+                "NA",
+                BigDecimal.ZERO,
+                BigDecimal.ZERO,
+                new BigDecimal("190.00"),
+                "Test Product",
+                "Variant-1",
                 null,
                 UUID.randomUUID(),
                 "Pending",
@@ -112,11 +120,17 @@ class SalesOrderControllerTest {
                 testStatusId,
                 "Draft",
                 "DRAFT",
+                "MXN",
+                BigDecimal.ZERO,
+                BigDecimal.ZERO,
+                BigDecimal.ZERO,
+                BigDecimal.ZERO,
                 BigDecimal.ZERO,
                 null,
                 true,
                 now,
                 now,
+                List.of(),
                 List.of());
 
         testOrderRequest = new SalesOrderRequest(
@@ -225,12 +239,18 @@ class SalesOrderControllerTest {
                     testStatusId,
                     "Draft",
                     "DRAFT",
+                    "MXN",
+                    new BigDecimal("180.00"),
+                    BigDecimal.ZERO,
+                    BigDecimal.ZERO,
+                    BigDecimal.ZERO,
                     new BigDecimal("180.00"),
                     null,
                     true,
                     testOrderResponse.createdAt(),
                     testOrderResponse.updatedAt(),
-                    List.of(testItemResponse));
+                    List.of(testItemResponse),
+                    List.of());
 
             when(salesOrderService.getSalesOrderById(testOrderId)).thenReturn(responseWithItems);
 
@@ -239,11 +259,23 @@ class SalesOrderControllerTest {
                     .andExpect(jsonPath("$.id").value(testOrderId.toString()))
                     .andExpect(jsonPath("$.orderNumber").value("SO-20260610-00001"))
                     .andExpect(jsonPath("$.statusName").value("Draft"))
+                    .andExpect(jsonPath("$.currency").value("MXN"))
+                    .andExpect(jsonPath("$.subtotal").value(180.00))
+                    .andExpect(jsonPath("$.discountTotal").value(0.00))
+                    .andExpect(jsonPath("$.taxTotal").value(0.00))
+                    .andExpect(jsonPath("$.roundingAdjustment").value(0.00))
                     .andExpect(jsonPath("$.totalAmount").value(180.00))
+                    .andExpect(jsonPath("$.payments").isArray())
+                    .andExpect(jsonPath("$.payments.length()").value(0))
                     .andExpect(jsonPath("$.items").isArray())
                     .andExpect(jsonPath("$.items.length()").value(1))
                     .andExpect(jsonPath("$.items[0].id").value(testItemId.toString()))
-                    .andExpect(jsonPath("$.items[0].finalPrice").value(90.00))
+                    .andExpect(jsonPath("$.items[0].subtotal").value(200.00))
+                    .andExpect(jsonPath("$.items[0].taxCode").value("NA"))
+                    .andExpect(jsonPath("$.items[0].taxAmount").value(0.00))
+                    .andExpect(jsonPath("$.items[0].finalPrice").value(190.00))
+                    .andExpect(jsonPath("$.items[0].productNameSnapshot").value("Test Product"))
+                    .andExpect(jsonPath("$.items[0].variantNameSnapshot").value("Variant-1"))
                     .andExpect(jsonPath("$.items[0].statusName").value("Pending"));
         }
 
@@ -394,11 +426,17 @@ class SalesOrderControllerTest {
                     testStatusId,
                     "Pending",
                     "PENDING",
+                    "MXN",
+                    new BigDecimal("180.00"),
                     BigDecimal.ZERO,
+                    BigDecimal.ZERO,
+                    BigDecimal.ZERO,
+                    new BigDecimal("180.00"),
                     null,
                     true,
                     testOrderResponse.createdAt(),
                     testOrderResponse.updatedAt(),
+                    List.of(),
                     List.of());
 
             when(salesOrderService.updateSalesOrderStatus(eq(testOrderId), any(UpdateSalesOrderStatusRequest.class)))
@@ -458,12 +496,18 @@ class SalesOrderControllerTest {
                     testStatusId,
                     "Completed",
                     "COMPLETED",
+                    "MXN",
+                    new BigDecimal("180.00"),
                     BigDecimal.ZERO,
+                    BigDecimal.ZERO,
+                    BigDecimal.ZERO,
+                    new BigDecimal("180.00"),
                     paymentMethodId,
                     true,
                     testOrderResponse.createdAt(),
                     testOrderResponse.updatedAt(),
-                    List.of());
+                    List.of(),
+                    List.of(chargePaymentOf(paymentMethodId, new BigDecimal("180.00"))));
 
             when(salesOrderService.chargeSalesOrder(eq(testOrderId), any(ChargeSalesOrderRequest.class)))
                     .thenReturn(chargedResponse);
@@ -474,7 +518,12 @@ class SalesOrderControllerTest {
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.id").value(testOrderId.toString()))
                     .andExpect(jsonPath("$.statusName").value("Completed"))
-                    .andExpect(jsonPath("$.paymentMethodId").value(paymentMethodId.toString()));
+                    .andExpect(jsonPath("$.paymentMethodId").value(paymentMethodId.toString()))
+                    .andExpect(jsonPath("$.payments.length()").value(1))
+                    .andExpect(jsonPath("$.payments[0].direction").value("CHARGE"))
+                    .andExpect(jsonPath("$.payments[0].methodId").value(paymentMethodId.toString()))
+                    .andExpect(jsonPath("$.payments[0].amount").value(180.00))
+                    .andExpect(jsonPath("$.payments[0].tenderedAmount").doesNotExist());
         }
 
         @Test
@@ -491,12 +540,18 @@ class SalesOrderControllerTest {
                     testStatusId,
                     "Completed",
                     "COMPLETED",
+                    "MXN",
+                    new BigDecimal("180.00"),
                     BigDecimal.ZERO,
+                    BigDecimal.ZERO,
+                    BigDecimal.ZERO,
+                    new BigDecimal("180.00"),
                     paymentMethodId,
                     true,
                     testOrderResponse.createdAt(),
                     testOrderResponse.updatedAt(),
-                    List.of());
+                    List.of(),
+                    List.of(chargePaymentOf(paymentMethodId, new BigDecimal("180.00"))));
 
             when(salesOrderService.chargeSalesOrder(eq(testOrderId), any(ChargeSalesOrderRequest.class)))
                     .thenReturn(chargedResponse);
@@ -507,7 +562,20 @@ class SalesOrderControllerTest {
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.id").value(testOrderId.toString()))
                     .andExpect(jsonPath("$.statusName").value("Completed"))
-                    .andExpect(jsonPath("$.paymentMethodId").value(paymentMethodId.toString()));
+                    .andExpect(jsonPath("$.paymentMethodId").value(paymentMethodId.toString()))
+                    .andExpect(jsonPath("$.payments.length()").value(1));
+        }
+
+        /**
+         * The one payment row the charge appends, as the response answers it.
+         *
+         * <p>The tender pair is {@code null} on purpose: this slice's charge states the total and no cash in hand,
+         * so a fixture that invented a tender would be asserting a number the server never produces (ADR-0002
+         * decision 5, and the mixed-tender surface is T7b's).</p>
+         */
+        private SalePaymentResponse chargePaymentOf(UUID methodId, BigDecimal amount) {
+            return new SalePaymentResponse(
+                    UUID.randomUUID(), methodId, "CHARGE", amount, null, null, null, OffsetDateTime.now(), "seller");
         }
 
         @Test
@@ -591,7 +659,9 @@ class SalesOrderControllerTest {
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$").isArray())
                     .andExpect(jsonPath("$[0].id").value(testItemId.toString()))
-                    .andExpect(jsonPath("$[0].finalPrice").value(90.00))
+                    .andExpect(jsonPath("$[0].subtotal").value(200.00))
+                    .andExpect(jsonPath("$[0].taxAmount").value(0.00))
+                    .andExpect(jsonPath("$[0].finalPrice").value(190.00))
                     .andExpect(jsonPath("$[0].quantity").value(2.00))
                     .andExpect(jsonPath("$[0].statusName").value("Pending"));
         }
@@ -628,7 +698,8 @@ class SalesOrderControllerTest {
                             .content(objectMapper.writeValueAsString(testItemRequest)))
                     .andExpect(status().isCreated())
                     .andExpect(jsonPath("$.id").value(testItemId.toString()))
-                    .andExpect(jsonPath("$.finalPrice").value(90.00))
+                    .andExpect(jsonPath("$.subtotal").value(200.00))
+                    .andExpect(jsonPath("$.finalPrice").value(190.00))
                     .andExpect(jsonPath("$.quantity").value(2.00))
                     .andExpect(jsonPath("$.statusName").value("Pending"));
         }
@@ -720,7 +791,13 @@ class SalesOrderControllerTest {
                     new BigDecimal("5.00"),
                     new BigDecimal("100.00"),
                     BigDecimal.ZERO,
-                    new BigDecimal("100.00"),
+                    new BigDecimal("500.00"),
+                    "NA",
+                    BigDecimal.ZERO,
+                    BigDecimal.ZERO,
+                    new BigDecimal("500.00"),
+                    "Test Product",
+                    "Variant-1",
                     null,
                     testItemResponse.statusId(),
                     "Pending",
@@ -737,7 +814,8 @@ class SalesOrderControllerTest {
                             .content(objectMapper.writeValueAsString(testItemRequest)))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.id").value(testItemId.toString()))
-                    .andExpect(jsonPath("$.finalPrice").value(100.00))
+                    .andExpect(jsonPath("$.subtotal").value(500.00))
+                    .andExpect(jsonPath("$.finalPrice").value(500.00))
                     .andExpect(jsonPath("$.quantity").value(5.00));
         }
 
@@ -807,7 +885,13 @@ class SalesOrderControllerTest {
                     testItemResponse.quantity(),
                     testItemResponse.listPrice(),
                     testItemResponse.discountApplied(),
+                    testItemResponse.subtotal(),
+                    testItemResponse.taxCode(),
+                    testItemResponse.taxRate(),
+                    testItemResponse.taxAmount(),
                     testItemResponse.finalPrice(),
+                    testItemResponse.productNameSnapshot(),
+                    testItemResponse.variantNameSnapshot(),
                     null,
                     UUID.randomUUID(),
                     "Added",

@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.tuple;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
@@ -89,6 +90,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
+import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 @SpringBootTest
@@ -2264,6 +2266,61 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
     }
 
     /**
+     * One decimal field of a response, refused by name when the response omits it.
+     *
+     * <p><b>Why not {@code node.get(field).decimalValue()}.</b> A field the record does not carry is a JSON node
+     * that is not there, and dereferencing it answers a {@code NullPointerException} that names no field: the very
+     * defect the sheet cases exist for is an absent part, so the absence has to be the assertion. The
+     * comparison then reads the number the response stated.</p>
+     */
+    private BigDecimal decimalOf(JsonNode node, String field) {
+        assertThat(node.get(field)).as("the response states %s", field).isNotNull();
+        return node.get(field).decimalValue();
+    }
+
+    /** The document as the read endpoint answers it — the other side of the write paths this suite usually reads. */
+    private JsonNode orderResponseOf(UUID orderId) throws Exception {
+        var body = mockMvc.perform(get("/api/sales-orders/{id}", orderId).with(scopedSalesJwt()))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        return objectMapper.readTree(body);
+    }
+
+    /** The one line the read endpoint answers for a document, by id. */
+    private JsonNode itemFromReadEndpoint(UUID orderId, UUID itemId) throws Exception {
+        var body = mockMvc.perform(get("/api/sales-orders/{id}/items", orderId).with(scopedSalesJwt()))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        for (var item : objectMapper.readTree(body)) {
+            if (itemId.toString().equals(item.get("id").asText())) {
+                return item;
+            }
+        }
+        throw new AssertionError("the read endpoint states no line " + itemId + " of order " + orderId);
+    }
+
+    /**
+     * The two name snapshots of a line, written where {@code V81} writes them.
+     *
+     * <p><b>Why the fixture is the writer.</b> The migration is the only writer those columns have ever had: it
+     * backfilled every existing line from the variant's product and its own name, and no path in the application
+     * states one yet (ADR-0002 step 5's writer is a later unit). A case that asserts the response reports them
+     * therefore has to state the row the way the migration left it, and the fact that this helper is the only way
+     * to do it is exactly what the column's javadoc records.</p>
+     */
+    private void writeSnapshotsAsV81Did(UUID itemId, String productName, String variantName) {
+        inTransaction(() -> jdbcTemplate.update(
+                "UPDATE sales_order_items SET product_name_snapshot = ?, variant_name_snapshot = ? WHERE id = ?",
+                productName,
+                variantName,
+                itemId));
+    }
+
+    /**
      * An enabled payment method: the fixture the charge step of {@code fullFlow_DraftToActiveToCharge}
      * builds. A fresh row per case, because the catalog is global and a case must not depend on what another
      * one wrote.
@@ -2550,6 +2607,190 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             // would send is empty and nothing reached the engine at all.
             assertThat(movementsOf(variant.getId())).isEmpty();
             assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("10.00"));
+        }
+    }
+
+    // ─── T7a — the read sheet ────────────────────────────────────
+
+    @Nested
+    @DisplayName("T7a The read sheet — the breakdown is visible, and a response omits no part")
+    class SalesOrderReadSurfaceTests {
+
+        /**
+         * The document's money as the API answers it, on the write path and on the read path.
+         *
+         * <p><b>Why the write path is the harder half.</b> The breakdown is written by the service under the
+         * order's lock, so the instance a create leaves behind is not always the row — and a client that reads a
+         * {@code null} part cannot tell it apart from a document with no money. The same sheet is then read back
+         * from the GET, which is a row nobody has just written. Both are the same assertion block because the four
+         * parts only mean something together with the total they make: M1 is exact equality, so a client adds
+         * them up.</p>
+         */
+        @Test
+        @DisplayName("the created order's response states its currency and the four parts that add up to its total")
+        void createdOrder_StatesCurrencyAndTheFourParts() throws Exception {
+            var variant = createTestVariant(new BigDecimal("10.00"));
+
+            // The two lines T6a's breakdown case uses, because they are what makes the parts four different
+            // numbers instead of one: 2 × 100.00 less a 10.00 discount, and 3 × 50.00 with none.
+            var discounted = new SalesOrderItemRequest(
+                    null,
+                    variant.getId(),
+                    new BigDecimal("2.00"),
+                    new BigDecimal("100.00"),
+                    new BigDecimal("10.00"),
+                    null);
+            var plain = new SalesOrderItemRequest(
+                    null, variant.getId(), new BigDecimal("3.00"), new BigDecimal("50.00"), BigDecimal.ZERO, null);
+            var request =
+                    new SalesOrderRequest(customerId, companyStoreId, shiftId, "user123", List.of(discounted, plain));
+
+            var created = mockMvc.perform(post("/api/sales-orders")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request))
+                            .with(scopedSalesJwt()))
+                    .andExpect(status().isCreated())
+                    .andReturn();
+
+            var written = objectMapper.readTree(created.getResponse().getContentAsString());
+            assertSheet(written);
+
+            assertSheet(orderResponseOf(UUID.fromString(written.get("id").asText())));
+        }
+
+        /**
+         * The line's half of the sheet: its parts and the two names a reprint reads.
+         *
+         * <p><b>The parts come from the write path.</b> {@code subtotal} is derived by {@code V81} on the way in
+         * and mapped read-only, so the instance a create leaves behind carries nothing and a mapper that read it
+         * would answer {@code null} here and nowhere else — which is why the assertion is on the create's own
+         * response and not only on a later GET.</p>
+         *
+         * <p><b>The names come from the row, and the fixture states them.</b> {@code V81} is the only writer of
+         * the two snapshot columns today, so the case writes what the migration wrote for an existing line — and
+         * then writes names the catalog never had, because a snapshot that tracked the catalog would not be a
+         * snapshot at all (ADR-0002 decision 4).</p>
+         */
+        @Test
+        @DisplayName("the line's response states its parts and the snapshot names, as the catalog gave them")
+        void line_StatesItsPartsAndTheSnapshotNames() throws Exception {
+            var variant = createTestVariant(new BigDecimal("10.00"));
+            var itemRequest = new SalesOrderItemRequest(
+                    null, variant.getId(), new BigDecimal("2.00"), new BigDecimal("100.00"), BigDecimal.ZERO, null);
+            var request = new SalesOrderRequest(customerId, companyStoreId, shiftId, "user123", List.of(itemRequest));
+
+            var created = mockMvc.perform(post("/api/sales-orders")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request))
+                            .with(scopedSalesJwt()))
+                    .andExpect(status().isCreated())
+                    .andReturn();
+
+            var written = objectMapper.readTree(created.getResponse().getContentAsString());
+            var orderId = UUID.fromString(written.get("id").asText());
+            var line = written.get("items").get(0);
+            var itemId = UUID.fromString(line.get("id").asText());
+
+            assertThat(decimalOf(line, "subtotal"))
+                    .as("V81 derives the line's money on the way in; the response reads the row it produced")
+                    .isEqualByComparingTo(new BigDecimal("200.0000"));
+            assertThat(decimalOf(line, "taxRate"))
+                    .as("no unit states a line's tax code yet, so the rate is the migration's zero")
+                    .isEqualByComparingTo(BigDecimal.ZERO);
+            assertThat(decimalOf(line, "taxAmount")).isEqualByComparingTo(BigDecimal.ZERO);
+            assertThat(decimalOf(line, "finalPrice")).isEqualByComparingTo(new BigDecimal("200.0000"));
+            assertThat(line.get("taxCode").asText()).isEqualTo("NA");
+
+            writeSnapshotsAsV81Did(itemId, "Test Product", variant.getVariantName());
+            var named = itemFromReadEndpoint(orderId, itemId);
+            assertThat(named.get("productNameSnapshot").asText())
+                    .as("the name the catalog gave this line's product")
+                    .isEqualTo("Test Product");
+            assertThat(named.get("variantNameSnapshot").asText()).isEqualTo(variant.getVariantName());
+
+            writeSnapshotsAsV81Did(itemId, "Renamed Product", "Renamed Variant");
+            var reprinted = itemFromReadEndpoint(orderId, itemId);
+            assertThat(reprinted.get("productNameSnapshot").asText())
+                    .as("a snapshot is the name at sale time: the reader reads the column, never the live catalog")
+                    .isEqualTo("Renamed Product");
+            assertThat(reprinted.get("variantNameSnapshot").asText()).isEqualTo("Renamed Variant");
+        }
+
+        /**
+         * The money that came in, as a row the charge's own response states.
+         *
+         * <p>The charged document is the only one that has a payment, and the response that reports it is the one
+         * the charge builds — not a later GET, which would let a mapper that read an empty persistence context
+         * pass a case a client would fail. One {@code CHARGE} for the whole total, and an absent tender: this
+         * slice's charge states the total and no cash in hand (T7b owns the tender and the change).</p>
+         */
+        @Test
+        @DisplayName("the charged order's response states exactly one CHARGE payment for its total, with no tender")
+        void chargedOrder_StatesTheOneChargeAsAPaymentRow() throws Exception {
+            var variant = createTestVariant(new BigDecimal("10.00"));
+            var placed = createOrder(line(null, variant.getId(), "2.00"));
+            // A document born with its lines in the same request stays Draft, and Draft has no charge edge.
+            transitionOrder(placed.orderId(), activeStatusId);
+            var paymentMethodId = savedPaymentMethodId();
+
+            var charged = mockMvc.perform(patch("/api/sales-orders/{id}/charge", placed.orderId())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(new ChargeSalesOrderRequest(paymentMethodId)))
+                            .with(scopedSalesJwt()))
+                    .andExpect(status().isOk())
+                    .andReturn();
+
+            var root = objectMapper.readTree(charged.getResponse().getContentAsString());
+            assertThat(root.get("payments"))
+                    .as("the charge's own response states the row it appended, not only the one a later GET sees")
+                    .isNotNull();
+            assertThat(root.get("payments").size()).isEqualTo(1);
+
+            var payment = root.get("payments").get(0);
+            assertThat(payment.get("direction").asText()).isEqualTo("CHARGE");
+            assertThat(payment.get("methodId").asText()).isEqualTo(paymentMethodId.toString());
+            assertThat(decimalOf(payment, "amount"))
+                    .as("the payment states the document's total, under the lock that produced it")
+                    .isEqualByComparingTo(decimalOf(root, "totalAmount"));
+            assertThat(decimalOf(payment, "amount")).isEqualByComparingTo(new BigDecimal("200.0000"));
+            assertThat(payment.get("tenderedAmount").isNull())
+                    .as("a tender nobody counted is not invented by the server")
+                    .isTrue();
+            assertThat(payment.get("changeAmount").isNull()).isTrue();
+            assertThat(payment.get("reference").isNull()).isTrue();
+            assertThat(payment.get("actor").asText()).isEqualTo("seller");
+            assertThat(payment.get("paidAt").isNull())
+                    .as("the payment states when the money moved")
+                    .isFalse();
+            assertThat(payment.get("id").isNull())
+                    .as("a void cites this identity")
+                    .isFalse();
+        }
+
+        /** The five money fields plus the currency and the payment list, as one sheet. */
+        private void assertSheet(JsonNode root) {
+            assertThat(root.get("currency"))
+                    .as("the response states the document's own currency, which V80 derives from the company")
+                    .isNotNull();
+            assertThat(root.get("currency").asText()).isEqualTo(TenantFixtures.SEED_CURRENCY);
+
+            assertThat(decimalOf(root, "subtotal")).isEqualByComparingTo(new BigDecimal("350.0000"));
+            assertThat(decimalOf(root, "discountTotal")).isEqualByComparingTo(new BigDecimal("10.0000"));
+            assertThat(decimalOf(root, "taxTotal")).isEqualByComparingTo(new BigDecimal("0.0000"));
+            assertThat(decimalOf(root, "roundingAdjustment")).isEqualByComparingTo(new BigDecimal("0.0000"));
+            assertThat(decimalOf(root, "totalAmount")).isEqualByComparingTo(new BigDecimal("340.0000"));
+
+            assertThat(decimalOf(root, "subtotal")
+                            .subtract(decimalOf(root, "discountTotal"))
+                            .add(decimalOf(root, "taxTotal"))
+                            .add(decimalOf(root, "roundingAdjustment")))
+                    .as("ADR-0002 M1 read back from the response: the four parts add up to the total exactly")
+                    .isEqualByComparingTo(decimalOf(root, "totalAmount"));
+
+            assertThat(root.get("payments"))
+                    .as("a document nobody has charged states an empty list, never a missing one")
+                    .isNotNull();
+            assertThat(root.get("payments").size()).isZero();
         }
     }
 
