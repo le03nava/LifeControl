@@ -74,4 +74,32 @@ public interface SalesOrderRepository extends JpaRepository<SalesOrder, UUID> {
             WHERE so.id = :id
             """, nativeQuery = true)
     Optional<Integer> findCurrencyMinorUnits(@Param("id") UUID id);
+
+    /**
+     * The currency code the document itself states (ADR-0002 decision 2), which is what the response reports.
+     *
+     * <p><b>Why the row and not the company.</b> {@code V80}'s trigger derives {@code sales_orders.currency} from
+     * the owning company on the way in and refuses a document that states another code, so the column and the
+     * company agree by construction — but the document is the thing being answered, and a caller that resolved
+     * the code from the company instead would state a second source that happens to agree today. The same reading
+     * {@link #findCurrencyMinorUnits} takes, one column over, and the response needs both: the code to print and
+     * the scale the document was rounded to.</p>
+     *
+     * <p><b>Why this is SQL and not a getter.</b> No entity in this package maps {@code currency} —
+     * {@link SalesOrder} deliberately does not, because the column has one writer (the trigger) and mapping it
+     * would make it a field something could set. A JPQL query cannot read a column no entity maps, so the
+     * narrowest statement that answers the question is the native one below: it joins nothing, because the code
+     * is on the row the caller already named.</p>
+     *
+     * <p>Empty means the row is not there for this caller — the tenant's policy hides another company's document
+     * exactly as it hides a deleted one. An order this service answers has already been loaded through the same
+     * policy, so an empty answer here is a broken read and the caller must say so instead of skipping the
+     * field: a response that omits the currency is the defect this query exists to close.</p>
+     */
+    @Query(value = """
+            SELECT so.currency
+            FROM sales_orders so
+            WHERE so.id = :id
+            """, nativeQuery = true)
+    Optional<String> findCurrencyCode(@Param("id") UUID id);
 }

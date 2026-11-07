@@ -16,6 +16,7 @@ import com.lifecontrol.api.paymentmethod.repository.PaymentMethodRepository;
 import com.lifecontrol.api.product.exception.ProductVariantNotFoundException;
 import com.lifecontrol.api.product.repository.ProductVariantRepository;
 import com.lifecontrol.api.salesorder.dto.ChargeSalesOrderRequest;
+import com.lifecontrol.api.salesorder.dto.SalePaymentResponse;
 import com.lifecontrol.api.salesorder.dto.SalesOrderItemRequest;
 import com.lifecontrol.api.salesorder.dto.SalesOrderItemResponse;
 import com.lifecontrol.api.salesorder.dto.SalesOrderRequest;
@@ -1108,6 +1109,40 @@ public class SalesOrderService {
                 .orElse(null);
     }
 
+    /**
+     * The currency code the document states, which the entity cannot answer because it does not map the column.
+     *
+     * <p><b>Why a read and not a getter.</b> {@code sales_orders.currency} has one writer — {@code V80}'s trigger,
+     * which derives it from the owning company — so {@link SalesOrder} deliberately maps no field for it and no
+     * path in this service can set one. The code a response prints is therefore a read of the row, and the
+     * narrowest one is the repository's own column query, not a second load of the document.</p>
+     *
+     * <p><b>A missing answer is a refusal and never a default.</b> The column is {@code NOT NULL} since {@code V80},
+     * so an order this service has just answered states a currency; an empty answer means the read is broken — or
+     * that the row is not visible to this caller — and printing {@code null} would hand the client a total with no
+     * money behind it. That is the same failure class D-c removed from the create path, one layer down.</p>
+     */
+    private String currencyOf(SalesOrder so) {
+        return salesOrderRepository
+                .findCurrencyCode(so.getId())
+                .orElseThrow(() -> new IllegalStateException("Sales order " + so.getId()
+                        + " states a currency the read could not see, so the response cannot print its money"));
+    }
+
+    /**
+     * The document's payments, oldest first (ADR-0002 decision 5).
+     *
+     * <p><b>One statement per document, never one per line.</b> The payments are read once, by the document, so a
+     * document of fifty lines costs the same as one of a single line. The order is the row's {@code paid_at} and
+     * not its id: two payments of one sale are ordered by when the money moved, which is the order a drawer reads
+     * them in.</p>
+     */
+    private List<SalePaymentResponse> paymentsOf(SalesOrder so) {
+        return salePaymentRepository.findBySalesOrderIdOrderByPaidAtAsc(so.getId()).stream()
+                .map(this::toPaymentResponse)
+                .toList();
+    }
+
     private SalesOrderResponse toResponse(SalesOrder so) {
         var items = itemRepository.findBySalesOrderIdAndEnabledTrue(so.getId()).stream()
                 .map(this::toItemResponse)
@@ -1127,12 +1162,40 @@ public class SalesOrderService {
                 status == null ? null : status.getId(),
                 status == null ? null : status.getStatusName(),
                 so.getStatus() == null ? null : so.getStatus().name(),
+                currencyOf(so),
+                so.getSubtotal(),
+                so.getDiscountTotal(),
+                so.getTaxTotal(),
+                so.getRoundingAdjustment(),
                 so.getTotalAmount(),
                 so.getPaymentMethodId(),
                 so.getEnabled(),
                 so.getCreatedAt(),
                 so.getUpdatedAt(),
-                items);
+                items,
+                paymentsOf(so));
+    }
+
+    /**
+     * One payment row as the API answers it: every column of {@code sale_payment} and nothing derived.
+     *
+     * <p>The direction is answered as its code, like the document's and the line's states, because it is the
+     * vocabulary a report groups by and the label would be a second one. The tender pair is answered as it is
+     * stored, {@code null} together on every method that is not cash and on a cash charge that did not state a
+     * tender: an absent pair is a fact about the payment, and a zero here would report a customer who handed over
+     * nothing.</p>
+     */
+    private SalePaymentResponse toPaymentResponse(SalePayment payment) {
+        return new SalePaymentResponse(
+                payment.getId(),
+                payment.getMethodId(),
+                payment.getDirection() == null ? null : payment.getDirection().name(),
+                payment.getAmount(),
+                payment.getTenderedAmount(),
+                payment.getChangeAmount(),
+                payment.getReference(),
+                payment.getPaidAt(),
+                payment.getActor());
     }
 
     /**
@@ -1171,7 +1234,13 @@ public class SalesOrderService {
                 item.getQuantity(),
                 item.getListPrice(),
                 item.getDiscountApplied(),
+                item.getSubtotal(),
+                item.getTaxCode(),
+                item.getTaxRate(),
+                item.getTaxAmount(),
                 item.getFinalPrice(),
+                item.getProductNameSnapshot(),
+                item.getVariantNameSnapshot(),
                 item.getPromotionId(),
                 status == null ? null : status.getId(),
                 status == null ? null : status.getStatusName(),

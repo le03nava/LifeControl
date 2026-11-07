@@ -74,6 +74,33 @@ public class SalesOrderItem extends Auditable {
     @Column(name = "tax_amount", precision = 19, scale = 4, insertable = false, updatable = false)
     private BigDecimal taxAmount;
 
+    /**
+     * The product's name as the catalog gave it when the line was written, so a ticket reprinted in a year reads
+     * the same whatever the catalog says then (ADR-0002 decision 4).
+     *
+     * <p><b>Why read-only.</b> {@code V81} is the only writer this column has ever had: the migration backfilled
+     * every line from the variant's product, and no application path states one — not the create, not the item
+     * endpoints, not the order's {@code PUT}. The mapping says what is true rather than promising a writer that
+     * does not exist. Mapping it and then editing it would also be the one thing the snapshot must not do: the
+     * whole point is that it is the value read at sale time, not the one read now.</p>
+     *
+     * <p>It is answered by {@link com.lifecontrol.api.salesorder.dto.SalesOrderItemResponse} as it is stored, and
+     * is therefore {@code null} on every line whose sale happened after the migration: that is a line with no
+     * snapshot, not a line with a wrong one, and filling it in the reader would invent the moment decision 4
+     * pins.</p>
+     */
+    @Column(name = "product_name_snapshot", length = 255, insertable = false, updatable = false)
+    private String productNameSnapshot;
+
+    /** The variant's name, on the same terms and with the same single writer as {@link #productNameSnapshot}. */
+    @Column(name = "variant_name_snapshot", length = 255, insertable = false, updatable = false)
+    private String variantNameSnapshot;
+
+    // `V81` also added `attributes_snapshot` (JSONB), and that column stays unmapped on purpose: nothing in the
+    // tree reads it, and the two names above are what ADR-0002 step 5 says a reprint needs. A mapping with no
+    // reader and no writer is a second copy of a `jsonb` payload nothing owns; it can be mapped in the slice that
+    // states what reads it, and the format it arrives in is that slice's decision, not this one's.
+
     @Column(name = "promotion_id")
     private UUID promotionId;
 
@@ -141,6 +168,14 @@ public class SalesOrderItem extends Auditable {
 
     public BigDecimal getTaxAmount() {
         return taxAmount;
+    }
+
+    public String getProductNameSnapshot() {
+        return productNameSnapshot;
+    }
+
+    public String getVariantNameSnapshot() {
+        return variantNameSnapshot;
     }
 
     public UUID getPromotionId() {

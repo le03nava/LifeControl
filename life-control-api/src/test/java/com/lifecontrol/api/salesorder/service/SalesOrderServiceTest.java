@@ -67,6 +67,7 @@ import com.lifecontrol.api.store.exception.CompanyStoreNotFoundException;
 import com.lifecontrol.api.store.model.CompanyStore;
 import com.lifecontrol.api.store.repository.CompanyStoreRepository;
 import com.lifecontrol.api.store.service.CompanyStoreOwnerResolver;
+import com.lifecontrol.api.support.TenantFixtures;
 import jakarta.persistence.EntityManager;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -208,6 +209,12 @@ class SalesOrderServiceTest {
         // ADR-0002 decision 1: the total is rounded to the document's currency, so every case that writes a
         // breakdown asks the catalog. MXN's minor unit is 2, which is the fixture's currency (TenantFixtures).
         lenient().when(salesOrderRepository.findCurrencyMinorUnits(any())).thenReturn(Optional.of(2));
+
+        // The document's currency is a column no entity maps (V80's trigger is its only writer), so a response
+        // reads it: the fixture answers the code every fixture company states.
+        lenient()
+                .when(salesOrderRepository.findCurrencyCode(any()))
+                .thenReturn(Optional.of(TenantFixtures.SEED_CURRENCY));
 
         // M10's lock reads the same row the unlocked read does — in the database it is one row, so a fixture
         // that answered two different objects would be describing a state the schema cannot hold. A case that
@@ -637,6 +644,54 @@ class SalesOrderServiceTest {
             assertThatThrownBy(() -> salesOrderService.getSalesOrderById(orderId))
                     .isInstanceOf(SalesOrderNotFoundException.class)
                     .hasMessageContaining("Sales order not found with id");
+        }
+
+        /**
+         * The two halves of T7a's sheet that no getter of {@link SalesOrder} can answer: the currency, which the
+         * entity deliberately does not map because {@code V80}'s trigger is its only writer, and the payments,
+         * which are rows of their own (ADR-0002 decision 5).
+         *
+         * <p><b>Why this case exists at the unit level and what it does not claim.</b> A mock cannot run the
+         * trigger and cannot make the breakdown add up, so the numbers are pinned by
+         * {@code SalesOrderIntegrationTest}. What it does pin is the shape: the mapper asks the narrow column
+         * query for the code instead of returning null, reports the four parts the entity carries, and answers
+         * the payment rows oldest first with the tender pair as stored — not a zero, which would be a customer
+         * who handed over nothing.</p>
+         */
+        @Test
+        @DisplayName("the response states the document's currency and its payments, which no getter can answer")
+        void getSalesOrderById_StatesCurrencyAndPayments() {
+            var methodId = UUID.randomUUID();
+            var payment = SalePayment.charge(companyId, orderId, methodId, new BigDecimal("200.0000"), "seller");
+            when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
+            when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId)).thenReturn(List.of());
+            when(salesOrderRepository.findCurrencyCode(orderId)).thenReturn(Optional.of(TenantFixtures.SEED_CURRENCY));
+            when(salePaymentRepository.findBySalesOrderIdOrderByPaidAtAsc(orderId))
+                    .thenReturn(List.of(payment));
+
+            var result = salesOrderService.getSalesOrderById(orderId);
+
+            assertThat(result.currency())
+                    .as("the document's own code, read from the row because the entity does not map the column")
+                    .isEqualTo(TenantFixtures.SEED_CURRENCY);
+            assertThat(result.subtotal()).isEqualByComparingTo(BigDecimal.ZERO);
+            assertThat(result.discountTotal()).isEqualByComparingTo(BigDecimal.ZERO);
+            assertThat(result.taxTotal()).isEqualByComparingTo(BigDecimal.ZERO);
+            assertThat(result.roundingAdjustment()).isEqualByComparingTo(BigDecimal.ZERO);
+            assertThat(result.totalAmount()).isEqualByComparingTo(BigDecimal.ZERO);
+            assertThat(result.payments()).hasSize(1);
+
+            var charge = result.payments().get(0);
+            assertThat(charge.direction()).isEqualTo("CHARGE");
+            assertThat(charge.methodId()).isEqualTo(methodId);
+            assertThat(charge.amount()).isEqualByComparingTo(new BigDecimal("200.0000"));
+            assertThat(charge.actor()).isEqualTo("seller");
+            assertThat(charge.tenderedAmount())
+                    .as("an absent tender is answered absent, never as zero")
+                    .isNull();
+            assertThat(charge.changeAmount()).isNull();
+            verify(salesOrderRepository).findCurrencyCode(orderId);
+            verify(salePaymentRepository).findBySalesOrderIdOrderByPaidAtAsc(orderId);
         }
     }
 
