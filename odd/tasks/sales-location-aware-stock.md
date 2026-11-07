@@ -883,3 +883,29 @@ the original forecast, and F15 is the reason the overrun is worth more than its 
 ## Header repair (2026-10-19)
 
 The `**Status**:` line above was rewritten on 2026-10-19 by `odd/tasks/odd-stale-header-reconciliation.md` (issue **#434**), where the inventory and the verification live. It used to decline the delivery state of the follow-ups it had already closed: «This header makes no claim about push, pull-request or merge state: the dated evidence rows are in the task log below, and each unit's delivery is a separate and later row.». Those deliveries became known — `F-1`/`F-2` in PR **#338** (merge `08d4a0b`), `F-3` in PR **#341** (merge `dec82d9`), `F-4`…`F-7` in PR **#343** (merge `8a80418`) and `F-8` in PR **#344** (merge `fd2eba9`), all 2026-10-16 — so the line now carries them. Nothing else in this record was touched.
+
+## Amended by a later unit (2026-11-06)
+
+This record's map, its task list and its findings describe the deduction moment **as it was** when the unit
+shipped, and they stay as written: a frozen narrative is evidence. What changed afterwards is where the stock
+moves.
+
+ADR-0002 decision 7 (record `odd/tasks/money-first-class.md`, task **T6b**) made the charge the only writer:
+`chargeSalesOrder` books one batch for the whole document, inside its own transaction and under the order row
+lock, one `deduct(...)` per enabled non-`CANCELLED` line, each with the line's own `write_seq`. The eight entry
+points of the table above therefore split in two: `createSalesOrder`, `updateSalesOrder`, `addSalesOrderItem`,
+`updateSalesOrderItem`, `deleteSalesOrderItem` and `updateSalesOrderItemStatus` book **nothing**, and there is no delta to compute,
+because nothing was ever taken; `deleteSalesOrder` still reverses, and only for
+a document whose status is `COMPLETED` — the only one its charge booked. `updateSalesOrderStatus` no longer
+reverses at all: a cancellation can only leave Draft, Active or Pending, and `COMPLETED` is terminal for the
+document (`ADR-0004` decision 3).
+
+What this leaves behind, named rather than fixed: `SalesOrderStoreReassignmentNotAllowedException` still
+refuses a store change while the order holds enabled lines, and after T6b that refusal is **stricter** than
+the invariant requires — the charge would simply book at the new store. Narrowing it is a decision of its own,
+recorded as a follow-up in `odd/tasks/money-first-class.md`.
+
+The published contract moved with it: F-8's pin (`SalesOrderOpenApiContractTest`) now asserts that no create or
+line endpoint declares a stock `409` it cannot answer, and that `PATCH /api/sales-orders/{id}/charge` — the one
+endpoint that can — does declare it. The catalogue's other half is unchanged: every endpoint still declares
+the `409` it really produces.

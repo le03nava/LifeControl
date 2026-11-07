@@ -2,6 +2,7 @@ package com.lifecontrol.api.salesorder.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
@@ -420,26 +421,6 @@ class SalesOrderServiceTest {
     }
 
     /**
-     * Asserts that the batch the service asked the engine for carries this deduction: variant, store,
-     * quantity and the line-level ledger reference (W3-D6). This is the unit-level replacement for the
-     * old assertion on the mocked per-store row; the resulting stock itself is asserted against real
-     * PostgreSQL in {@code SalesOrderIntegrationTest} and against the mocked rows in
-     * {@code StockLedgerEngineSaleMovementTest}.
-     */
-    private void verifyDeducted(UUID variantId, String quantity, UUID itemId) {
-        verify(stockLedgerEngine)
-                .applySaleBatch(
-                        eq("SALES_ORDER_ITEM"),
-                        any(),
-                        argThat((List<SaleChange> changes) -> changes.stream()
-                                .anyMatch(change -> !change.reversal()
-                                        && change.productVariantId().equals(variantId)
-                                        && change.companyStoreId().equals(companyStoreId)
-                                        && change.referenceId().equals(itemId)
-                                        && change.quantity().compareTo(new BigDecimal(quantity)) == 0)));
-    }
-
-    /**
      * A live line (enabled, {@code Pending}) that belongs to some other order, so the only check
      * that can refuse an item-level write on it is the one that reads {@code salesOrderId} (F-5).
      */
@@ -467,13 +448,13 @@ class SalesOrderServiceTest {
                                         && change.referenceId().equals(itemId))));
     }
 
-    /** Asserts that no batch carried a deduction: what a restore-only operation looks like. */
-    private void verifyNoDeduction() {
-        verify(stockLedgerEngine, never())
-                .applySaleBatch(
-                        any(),
-                        any(),
-                        argThat((List<SaleChange> changes) -> changes.stream().anyMatch(change -> !change.reversal())));
+    /**
+     * Asserts that nothing at all reached the stock engine. Since ADR-0002 decision 7 the charge is the only
+     * writer of stock: a create, a line edit, a line status change and a deletion of a document that was never
+     * charged all have to ask for no movement, which is what makes the charge the single moment the stock moves.
+     */
+    private void verifyNoStockWork() {
+        verify(stockLedgerEngine, never()).applySaleBatch(any(), any(), any());
     }
 
     /**
@@ -938,8 +919,8 @@ class SalesOrderServiceTest {
     class DeleteSalesOrderTests {
 
         @Test
-        @DisplayName("should soft-delete sales order and all items with stock restoration")
-        void deleteSalesOrder_Success() {
+        @DisplayName("should soft-delete sales order and all items without stock work")
+        void deleteSalesOrder_UnchargedOrder_BooksNoStock() {
             var variantId2 = UUID.randomUUID();
             var item2Id = UUID.randomUUID();
 
@@ -954,23 +935,52 @@ class SalesOrderServiceTest {
                     .enabled(true)
                     .build();
 
-            when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
-            when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId)).thenReturn(List.of(testItem, item2));
+            when(salesOrderRepository.findByIdForUpdate(orderId)).thenReturn(Optional.of(testOrder));
             when(itemRepository.findBySalesOrderId(orderId)).thenReturn(List.of(testItem, item2));
 
             salesOrderService.deleteSalesOrder(orderId);
 
-            verify(salesOrderRepository).findById(orderId);
+            // No `findById` verification here, and none is needed: the stub above is the pin. The deletion reads the
+            // row WITH the lock (the charge takes the order's lock and then the stock positions, so the reverse
+            // order would deadlock), and a regression to the unlocked read would leave that stub unused — which the
+            // suite's strict stubbing refuses as an `UnnecessaryStubbingException` instead of passing quietly.
             verify(salesOrderRepository).save(any(SalesOrder.class));
             verify(itemRepository).findBySalesOrderId(orderId);
             verify(itemRepository, times(2)).save(any(SalesOrderItem.class));
-            // Every line is restored through the engine under its own ledger reference (W3-D6).
-            verifyReversed(itemId);
-            verifyReversed(item2Id);
+            // A document that was never charged holds no stock, so deleting it gives nothing back
+            // (ADR-0002 decision 7).
+            verifyNoStockWork();
         }
 
         @Test
-        @DisplayName("should not restore stock again when deleting an already-cancelled order")
+        @DisplayName("should reverse every live line once when deleting an order its charge booked")
+        void deleteSalesOrder_ChargedOrder_ReversesEveryLiveLine() {
+            var completedOrder = SalesOrder.builder()
+                    .id(orderId)
+                    .orderNumber(testOrder.getOrderNumber())
+                    .customerId(customerId)
+                    .companyStoreId(companyStoreId)
+                    .shiftId(shiftId)
+                    .userId("user123")
+                    .orderDate(testOrder.getOrderDate())
+                    .status(SalesOrderState.COMPLETED)
+                    .totalAmount(BigDecimal.ZERO)
+                    .enabled(true)
+                    .build();
+
+            when(salesOrderRepository.findByIdForUpdate(orderId)).thenReturn(Optional.of(completedOrder));
+            when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId)).thenReturn(List.of(testItem));
+            when(itemRepository.findBySalesOrderId(orderId)).thenReturn(List.of(testItem));
+
+            salesOrderService.deleteSalesOrder(orderId);
+
+            // The charge is what booked the stock, so the deletion of a charged document is the one place a
+            // reversal exists at all.
+            verifyReversed(itemId);
+        }
+
+        @Test
+        @DisplayName("should book no stock when deleting an already-cancelled order")
         void deleteSalesOrder_AlreadyCancelled_NoStockRestoration() {
             var cancelledOrder = SalesOrder.builder()
                     .id(orderId)
@@ -985,20 +995,20 @@ class SalesOrderServiceTest {
                     .enabled(true)
                     .build();
 
-            when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(cancelledOrder));
+            when(salesOrderRepository.findByIdForUpdate(orderId)).thenReturn(Optional.of(cancelledOrder));
             when(itemRepository.findBySalesOrderId(orderId)).thenReturn(List.of(testItem));
 
             salesOrderService.deleteSalesOrder(orderId);
 
             verify(salesOrderRepository).save(any(SalesOrder.class));
             verify(itemRepository).save(any(SalesOrderItem.class));
-            // A cancelled order already restored its stock — delete must NOT ask the engine again.
+            // A cancelled document never charged, so it holds no stock and delete asks the engine for nothing.
             verifyNoInteractions(stockLedgerEngine);
         }
 
         @Test
-        @DisplayName("should restore stock exactly once when cancelling then deleting the order")
-        void deleteSalesOrder_AfterCancel_RestoresStockOnce() {
+        @DisplayName("should book no stock when cancelling then deleting an uncharged order")
+        void deleteSalesOrder_AfterCancel_BooksNoStock() {
             var statusRequest = new UpdateSalesOrderStatusRequest(canceladaStatus.getId());
 
             var cancelledOrder = SalesOrder.builder()
@@ -1015,30 +1025,27 @@ class SalesOrderServiceTest {
                     .build();
 
             // ── Cancel transition ──
-            when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
+            when(salesOrderRepository.findByIdForUpdate(orderId)).thenReturn(Optional.of(testOrder));
             when(statusCatalog.requireOrderState(canceladaStatus.getId())).thenReturn(SalesOrderState.CANCELLED);
-            when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId))
-                    .thenReturn(List.of(testItem))
-                    .thenReturn(List.of());
             when(salesOrderRepository.save(any(SalesOrder.class))).thenReturn(cancelledOrder);
 
             salesOrderService.updateSalesOrderStatus(orderId, statusRequest);
-            verifyReversed(itemId);
+            verifyNoStockWork();
 
             // ── Delete after cancel ──
-            when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(cancelledOrder));
+            when(salesOrderRepository.findByIdForUpdate(orderId)).thenReturn(Optional.of(cancelledOrder));
             when(itemRepository.findBySalesOrderId(orderId)).thenReturn(List.of(testItem));
 
             salesOrderService.deleteSalesOrder(orderId);
 
-            // Reversed exactly once (only during cancel), never again on delete.
-            verifyReversed(itemId);
+            // Neither step books a movement: the document never reached the charge.
+            verifyNoStockWork();
         }
 
         @Test
         @DisplayName("should throw SalesOrderNotFoundException when order not found")
         void deleteSalesOrder_NotFound_ThrowsException() {
-            when(salesOrderRepository.findById(orderId)).thenReturn(Optional.empty());
+            when(salesOrderRepository.findByIdForUpdate(orderId)).thenReturn(Optional.empty());
 
             assertThatThrownBy(() -> salesOrderService.deleteSalesOrder(orderId))
                     .isInstanceOf(SalesOrderNotFoundException.class)
@@ -1096,7 +1103,7 @@ class SalesOrderServiceTest {
         void updateStatus_DraftToActive_Success() {
             var statusRequest = new UpdateSalesOrderStatusRequest(activoStatus.getId());
 
-            when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
+            when(salesOrderRepository.findByIdForUpdate(orderId)).thenReturn(Optional.of(testOrder));
             // The target is resolved through the catalog's code and not through its label (ADR-0004
             // decision 7): the service asks the catalog one question and the enum answers the rest.
             when(statusCatalog.requireOrderState(activoStatus.getId())).thenReturn(SalesOrderState.ACTIVE);
@@ -1128,11 +1135,11 @@ class SalesOrderServiceTest {
         }
 
         @Test
-        @DisplayName("should transition Draft → Cancelled successfully with stock restoration")
+        @DisplayName("should transition Draft → Cancelled without stock work")
         void updateStatus_DraftToCancelled_Success() {
             var statusRequest = new UpdateSalesOrderStatusRequest(canceladaStatus.getId());
 
-            when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
+            when(salesOrderRepository.findByIdForUpdate(orderId)).thenReturn(Optional.of(testOrder));
             when(statusCatalog.requireOrderState(canceladaStatus.getId())).thenReturn(SalesOrderState.CANCELLED);
 
             var updatedOrder = SalesOrder.builder()
@@ -1151,16 +1158,13 @@ class SalesOrderServiceTest {
                     .build();
 
             when(salesOrderRepository.save(any(SalesOrder.class))).thenReturn(updatedOrder);
-            when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId))
-                    .thenReturn(List.of(testItem))
-                    .thenReturn(List.of());
 
             SalesOrderResponse result = salesOrderService.updateSalesOrderStatus(orderId, statusRequest);
 
             assertThat(result).isNotNull();
             assertThat(result.statusName()).isEqualTo("Cancelled");
-            // The line's stock is restored through the engine under its own ledger reference.
-            verifyReversed(itemId);
+            // A cancellation leaves a document that never charged, so it has nothing to give back.
+            verifyNoStockWork();
         }
 
         @Test
@@ -1168,7 +1172,7 @@ class SalesOrderServiceTest {
         void updateStatus_DraftToCompleted_ThrowsInvalidTransition() {
             var statusRequest = new UpdateSalesOrderStatusRequest(cerradaStatus.getId());
 
-            when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
+            when(salesOrderRepository.findByIdForUpdate(orderId)).thenReturn(Optional.of(testOrder));
             when(statusCatalog.requireOrderState(cerradaStatus.getId())).thenReturn(SalesOrderState.COMPLETED);
 
             assertThatThrownBy(() -> salesOrderService.updateSalesOrderStatus(orderId, statusRequest))
@@ -1193,7 +1197,7 @@ class SalesOrderServiceTest {
 
             var statusRequest = new UpdateSalesOrderStatusRequest(wrongTypeStatus.getId());
 
-            when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
+            when(salesOrderRepository.findByIdForUpdate(orderId)).thenReturn(Optional.of(testOrder));
             // The catalog is the one that refuses a row of another family, and the service must not swallow
             // it: the real refusal is asserted against the query in `SalesOrderStatusCatalogTest`.
             when(statusCatalog.requireOrderState(wrongTypeStatus.getId()))
@@ -1212,7 +1216,7 @@ class SalesOrderServiceTest {
         @DisplayName("should throw SalesOrderNotFoundException when order not found")
         void updateStatus_OrderNotFound_ThrowsException() {
             var statusRequest = new UpdateSalesOrderStatusRequest(enviadaStatus.getId());
-            when(salesOrderRepository.findById(orderId)).thenReturn(Optional.empty());
+            when(salesOrderRepository.findByIdForUpdate(orderId)).thenReturn(Optional.empty());
 
             assertThatThrownBy(() -> salesOrderService.updateSalesOrderStatus(orderId, statusRequest))
                     .isInstanceOf(SalesOrderNotFoundException.class)
@@ -1220,10 +1224,10 @@ class SalesOrderServiceTest {
         }
 
         @Test
-        @DisplayName("should restore stock only for enabled items on cancel, not already-restored soft-deleted items")
-        void updateStatus_CancelRestore_EnabledItemsOnly() {
-            // Soft-deleted item (qty 3.00) already had its stock restored when it was
-            // individually deleted, so it must NOT be restored again on cancel.
+        @DisplayName("should book nothing on cancel, whatever state its lines are in")
+        void updateStatus_CancelBooksNoStock() {
+            // A soft-deleted line (qty 3.00) and a live one: neither holds stock, because the charge is what
+            // books it, so the cancellation asks the engine for nothing on either.
             var softDeletedItem = SalesOrderItem.builder()
                     .id(UUID.randomUUID())
                     .salesOrderId(orderId)
@@ -1238,7 +1242,7 @@ class SalesOrderServiceTest {
 
             var statusRequest = new UpdateSalesOrderStatusRequest(canceladaStatus.getId());
 
-            when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
+            when(salesOrderRepository.findByIdForUpdate(orderId)).thenReturn(Optional.of(testOrder));
             when(statusCatalog.requireOrderState(canceladaStatus.getId())).thenReturn(SalesOrderState.CANCELLED);
 
             var updatedOrder = SalesOrder.builder()
@@ -1257,17 +1261,31 @@ class SalesOrderServiceTest {
                     .build();
 
             when(salesOrderRepository.save(any(SalesOrder.class))).thenReturn(updatedOrder);
-            // Only enabled items hold stock — a soft-deleted item was already restored
-            when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId))
-                    .thenReturn(List.of(testItem))
-                    .thenReturn(List.of());
 
             SalesOrderResponse result = salesOrderService.updateSalesOrderStatus(orderId, statusRequest);
 
             assertThat(result).isNotNull();
             assertThat(result.statusName()).isEqualTo("Cancelled");
-            // Only the enabled line is handed to the engine; the soft-deleted one is never touched.
-            verifyReversed(itemId);
+            verifyNoStockWork();
+        }
+
+        @Test
+        @DisplayName("should take the order row lock before cancelling, so a charge cannot be overwritten")
+        void updateStatus_TakesTheRowLock() {
+            // The two reads answer the same row in the database, so the fixture's lenient delegate makes them
+            // indistinguishable by state — which is exactly why the pin is the statement, not the answer: a
+            // regression to the unlocked read leaves the locking one uninvoked, and this case is what says so.
+            // Without the lock, a cancellation that read PENDING can reach a row a concurrent charge already
+            // committed as COMPLETED; the transition it recorded is PENDING -> CANCELLED, so the schema's deferred
+            // history check refuses the commit and a legal cancellation answers 500 instead of 409.
+            when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
+            when(statusCatalog.requireOrderState(canceladaStatus.getId())).thenReturn(SalesOrderState.CANCELLED);
+            when(salesOrderRepository.save(any(SalesOrder.class))).thenReturn(testOrder);
+
+            salesOrderService.updateSalesOrderStatus(
+                    orderId, new UpdateSalesOrderStatusRequest(canceladaStatus.getId()));
+
+            verify(salesOrderRepository).findByIdForUpdate(orderId);
         }
     }
 
@@ -1354,8 +1372,8 @@ class SalesOrderServiceTest {
             assertThat(result.discountApplied()).isEqualByComparingTo(new BigDecimal("10.00"));
             assertThat(result.statusName()).isEqualTo("Pending");
             verify(itemRepository).save(any(SalesOrderItem.class));
-            // Stock is deducted through the engine for the saved line's quantity and reference.
-            verifyDeducted(variantId, "2.00", itemId);
+            // Nothing is deducted here: the line is a line, and the charge books it (ADR-0002 decision 7).
+            verifyNoStockWork();
             // Verify totalAmount was recalculated (findById called in loadAndValidateModifiableSO +
             // recalculateTotalAmount)
             verify(salesOrderRepository, times(2)).findById(orderId);
@@ -1470,7 +1488,7 @@ class SalesOrderServiceTest {
             assertThat(result.finalPrice()).isEqualByComparingTo(new BigDecimal("90.00"));
             assertThat(result.statusName()).isEqualTo("Pending");
             verify(itemRepository).save(any(SalesOrderItem.class));
-            verifyDeducted(variantId, "2.00", itemId);
+            verifyNoStockWork();
         }
 
         @Test
@@ -1503,7 +1521,7 @@ class SalesOrderServiceTest {
             assertThat(result).isNotNull();
             assertThat(result.id()).isEqualTo(itemId);
             verify(itemRepository).save(any(SalesOrderItem.class));
-            verifyDeducted(variantId, "2.00", itemId);
+            verifyNoStockWork();
         }
 
         @Test
@@ -1535,7 +1553,7 @@ class SalesOrderServiceTest {
 
             assertThat(result).isNotNull();
             // Draft → Active belongs to a draft: Pending has no such transition, so it must not be attempted
-            verifyDeducted(variantId, "2.00", itemId);
+            verifyNoStockWork();
         }
 
         @Test
@@ -1636,8 +1654,8 @@ class SalesOrderServiceTest {
         }
 
         @Test
-        @DisplayName("should deduct stock when item quantity increases")
-        void updateSalesOrderItem_QuantityIncrease_DeductsStock() {
+        @DisplayName("should book no stock when item quantity increases")
+        void updateSalesOrderItem_QuantityIncrease_BooksNoStock() {
             var request = new SalesOrderItemRequest(
                     itemId, variantId, new BigDecimal("5.00"), new BigDecimal("100.00"), BigDecimal.ZERO, null);
 
@@ -1650,13 +1668,14 @@ class SalesOrderServiceTest {
 
             salesOrderService.updateSalesOrderItem(orderId, itemId, request);
 
-            // Same variant that grew: only the difference is deducted (5.00 - 2.00 = 3.00).
-            verifyDeducted(variantId, "3.00", itemId);
+            // The line grew, and no engine call follows: there is no delta to book any more, because nothing
+            // was booked when the line was created. The charge books the quantity the line states.
+            verifyNoStockWork();
         }
 
         @Test
-        @DisplayName("should restore stock when item quantity decreases")
-        void updateSalesOrderItem_QuantityDecrease_RestoresStock() {
+        @DisplayName("should book no stock when item quantity decreases")
+        void updateSalesOrderItem_QuantityDecrease_BooksNoStock() {
             var request = new SalesOrderItemRequest(
                     itemId, variantId, new BigDecimal("1.00"), new BigDecimal("100.00"), BigDecimal.ZERO, null);
 
@@ -1669,9 +1688,8 @@ class SalesOrderServiceTest {
 
             salesOrderService.updateSalesOrderItem(orderId, itemId, request);
 
-            // The line is given back in full and re-sold at its new quantity: net 100 + 2 - 1 = 101.
-            verifyReversed(itemId);
-            verifyDeducted(variantId, "1.00", itemId);
+            // Nothing to give back and nothing to re-sell: the line never held stock.
+            verifyNoStockWork();
         }
 
         @Test
@@ -1692,8 +1710,8 @@ class SalesOrderServiceTest {
         }
 
         @Test
-        @DisplayName("should restore old variant stock and deduct new variant stock when productVariantId changes")
-        void updateSalesOrderItem_VariantChange_RestoresOldAndDeductsNew() {
+        @DisplayName("should book no stock when productVariantId changes")
+        void updateSalesOrderItem_VariantChange_BooksNoStock() {
             var newVariantId = UUID.randomUUID();
 
             var request = new SalesOrderItemRequest(
@@ -1708,14 +1726,13 @@ class SalesOrderServiceTest {
 
             salesOrderService.updateSalesOrderItem(orderId, itemId, request);
 
-            // The old line is given back in full and the new variant is sold for the new quantity.
-            verifyReversed(itemId);
-            verifyDeducted(newVariantId, "2.00", itemId);
+            // A variant change on an uncharged document moves no ledger row: the charge books whichever variant
+            // the line carries when it runs.
+            verifyNoStockWork();
         }
 
         @Test
-        @DisplayName("should restore old variant full quantity and deduct new quantity when both variant and quantity"
-                + " change")
+        @DisplayName("should book no stock when both variant and quantity change")
         void updateSalesOrderItem_VariantChange_WithQuantityChange() {
             var newVariantId = UUID.randomUUID();
 
@@ -1731,13 +1748,12 @@ class SalesOrderServiceTest {
 
             salesOrderService.updateSalesOrderItem(orderId, itemId, request);
 
-            verifyReversed(itemId);
-            verifyDeducted(newVariantId, "5.00", itemId);
+            verifyNoStockWork();
         }
 
         @Test
-        @DisplayName("should throw InsufficientStockException on quantity increase beyond stock")
-        void updateSalesOrderItem_InsufficientStock_Throws409() {
+        @DisplayName("should accept a quantity the store cannot cover, leaving the refusal to the charge")
+        void updateSalesOrderItem_BeyondStock_IsAcceptedAndBooksNoStock() {
             var request = new SalesOrderItemRequest(
                     itemId, variantId, new BigDecimal("10.00"), new BigDecimal("100.00"), BigDecimal.ZERO, null);
 
@@ -1746,15 +1762,15 @@ class SalesOrderServiceTest {
             when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
             when(productVariantRepository.existsByIdAndCompanyIdAndEnabledTrue(variantId, companyId))
                     .thenReturn(true);
-            doThrow(new InsufficientStockException(variantId, new BigDecimal("8.00"), new BigDecimal("1.00")))
-                    .when(stockLedgerEngine)
-                    .applySaleBatch(any(), any(), any());
+            when(itemRepository.save(any(SalesOrderItem.class))).thenReturn(testItem);
 
-            assertThatThrownBy(() -> salesOrderService.updateSalesOrderItem(orderId, itemId, request))
-                    .isInstanceOf(InsufficientStockException.class)
-                    .hasMessageContaining("Insufficient stock for variant");
+            // ADR-0002 decision 7: a line edit is not the moment stock is checked. Nothing here asks the engine,
+            // so a quantity the store cannot cover is a document state the charge refuses, not an edit this path
+            // can reject — and the line really is persisted.
+            salesOrderService.updateSalesOrderItem(orderId, itemId, request);
 
-            verify(itemRepository, never()).save(any(SalesOrderItem.class));
+            verify(itemRepository).save(any(SalesOrderItem.class));
+            verifyNoStockWork();
         }
 
         @Test
@@ -1948,7 +1964,7 @@ class SalesOrderServiceTest {
     class DeleteSalesOrderItemTests {
 
         @Test
-        @DisplayName("should soft-delete item with stock restoration and recalculate total")
+        @DisplayName("should soft-delete item without stock work and recalculate total")
         void deleteSalesOrderItem_Success() {
             // The document's money before the delete: the fixture's line was its only one, so these are the
             // parts the previous recomputation left on the row.
@@ -1968,8 +1984,10 @@ class SalesOrderServiceTest {
             assertThat(testOrder.getTaxTotal()).isEqualByComparingTo(new BigDecimal("0.0000"));
             assertThat(testOrder.getRoundingAdjustment()).isEqualByComparingTo(new BigDecimal("0.0000"));
             assertThat(testOrder.getTotalAmount()).isEqualByComparingTo(new BigDecimal("0.00"));
-            // The line is restored through the engine under its own ledger reference.
-            verifyReversed(itemId);
+            // A line of an uncharged document holds no stock, so removing it gives nothing back: the charge is
+            // what would have booked it, and the line it no longer sees is simply not booked (ADR-0002
+            // decision 7). The reversal exists only for a document whose charge booked something.
+            verifyNoStockWork();
         }
 
         @Test
@@ -2061,7 +2079,7 @@ class SalesOrderServiceTest {
         }
 
         @Test
-        @DisplayName("should soft-delete item on Active order with stock restoration")
+        @DisplayName("should soft-delete item on Active order without stock work")
         void deleteSalesOrderItem_ActiveOrder_Success() {
             var activeOrder = SalesOrder.builder()
                     .id(orderId)
@@ -2090,11 +2108,12 @@ class SalesOrderServiceTest {
             assertThat(activeOrder.getTaxTotal()).isEqualByComparingTo(new BigDecimal("0.0000"));
             assertThat(activeOrder.getRoundingAdjustment()).isEqualByComparingTo(new BigDecimal("0.0000"));
             assertThat(activeOrder.getTotalAmount()).isEqualByComparingTo(new BigDecimal("0.00"));
-            verifyReversed(itemId);
+            // Active is not charged either: the document holds no stock until the charge books it.
+            verifyNoStockWork();
         }
 
         @Test
-        @DisplayName("should soft-delete item on Pending order with stock restoration")
+        @DisplayName("should soft-delete item on Pending order without stock work")
         void deleteSalesOrderItem_PendingOrder_Success() {
             var pendingOrder = SalesOrder.builder()
                     .id(orderId)
@@ -2124,7 +2143,9 @@ class SalesOrderServiceTest {
             assertThat(pendingOrder.getTaxTotal()).isEqualByComparingTo(new BigDecimal("0.0000"));
             assertThat(pendingOrder.getRoundingAdjustment()).isEqualByComparingTo(new BigDecimal("0.0000"));
             assertThat(pendingOrder.getTotalAmount()).isEqualByComparingTo(new BigDecimal("0.00"));
-            verifyReversed(itemId);
+            // Pending is the state a charge starts from, not one that holds stock: the line is deleted from a
+            // document that never booked it.
+            verifyNoStockWork();
         }
     }
 
@@ -2195,10 +2216,10 @@ class SalesOrderServiceTest {
 
             assertThat(result).isNotNull();
             assertThat(result.statusName()).isEqualTo("Cancelled");
-            // W3-D4: cancelling a line restores it exactly as deleting it does, through the engine
-            // under the line's own ledger reference. The double-restore guard lives in the engine's
-            // uncovered-remainder arithmetic and is asserted end-to-end in SalesOrderIntegrationTest.
-            verifyReversed(itemId);
+            // A cancelled line holds no stock to give back: nothing is booked before the charge (ADR-0002
+            // decision 7), and the charge skips a line in this state. The reversal that W3-D4 used to run here
+            // has one home now, `deleteSalesOrder`, and only for a document the charge booked.
+            verifyNoStockWork();
         }
 
         @Test
@@ -2481,6 +2502,307 @@ class SalesOrderServiceTest {
                     .allMatch(i -> i.getStatus() == SalesOrderItemState.ADDED)
                     .extracting(SalesOrderItem::getId)
                     .containsExactlyInAnyOrder(itemPending1.getId(), itemPending2.getId());
+        }
+
+        /**
+         * The one batch the charge handed the engine, in the order it handed it over.
+         *
+         * <p>{@code times(1)} is the assertion and not a convenience: ADR-0002 decision 7 says the charge books the
+         * document <b>once</b>, so a second batch would be a second moment the stock moved, and a batch per line
+         * would be the per-line path T6b removed.</p>
+         */
+        @SuppressWarnings("unchecked")
+        private List<SaleChange> theChargeBatch() {
+            var captor = ArgumentCaptor.forClass(List.class);
+            verify(stockLedgerEngine, times(1)).applySaleBatch(eq("SALES_ORDER_ITEM"), any(), captor.capture());
+            return (List<SaleChange>) captor.getValue();
+        }
+
+        /**
+         * ADR-0002 decision 7, the half T6b moved: the charge books the document as <b>one</b> batch, with one
+         * deduction per live line and each line's own write sequence.
+         *
+         * <p><b>Why one batch and not one call per line.</b> The engine orders a batch itself — it locks every
+         * distinct {@code (store, variant)} in key order and runs every reversal before every deduction — so a
+         * caller sending its lines one at a time would own an ordering the engine already owns, and two charges of
+         * one store would be free to invert it.</p>
+         *
+         * <p><b>Why the write sequence is asserted per line and not just counted.</b> {@code V73} keys a movement on
+         * {@code (source, write_seq)}, and the number comes from the line's own counter — which the charge is now
+         * the only writer of. A batch that numbered both lines with the first line's bump would be a plausible
+         * batch (two deductions, correct quantities) and the second movement would be refused by the unique key at
+         * the database instead of here.</p>
+         */
+        @Test
+        @DisplayName("should book one batch with one deduction per live line, each numbered by its own write sequence")
+        void chargeSalesOrder_BooksOneBatchOfOneDeductionPerLiveLine() {
+            var paymentMethodId = UUID.randomUUID();
+            var secondVariantId = UUID.randomUUID();
+            var request = new ChargeSalesOrderRequest(paymentMethodId);
+
+            var pendingOrder = SalesOrder.builder()
+                    .id(orderId)
+                    .orderNumber("SO-20260610-00001")
+                    .customerId(customerId)
+                    .companyId(companyId)
+                    .companyStoreId(companyStoreId)
+                    .shiftId(shiftId)
+                    .userId("user123")
+                    .orderDate(testOrder.getOrderDate())
+                    .status(SalesOrderState.PENDING)
+                    .totalAmount(BigDecimal.ZERO)
+                    .enabled(true)
+                    .build();
+
+            var firstLine = SalesOrderItem.builder()
+                    .id(UUID.randomUUID())
+                    .salesOrderId(orderId)
+                    .productVariantId(variantId)
+                    .quantity(new BigDecimal("2.00"))
+                    .listPrice(new BigDecimal("100.00"))
+                    .finalPrice(new BigDecimal("100.00"))
+                    .status(SalesOrderItemState.PENDING)
+                    .enabled(true)
+                    .build();
+            var secondLine = SalesOrderItem.builder()
+                    .id(UUID.randomUUID())
+                    .salesOrderId(orderId)
+                    .productVariantId(secondVariantId)
+                    .quantity(new BigDecimal("3.00"))
+                    .listPrice(new BigDecimal("50.00"))
+                    .finalPrice(new BigDecimal("50.00"))
+                    .status(SalesOrderItemState.PENDING)
+                    .enabled(true)
+                    .build();
+
+            var savedOrder = SalesOrder.builder()
+                    .id(orderId)
+                    .orderNumber("SO-20260610-00001")
+                    .customerId(customerId)
+                    .companyId(companyId)
+                    .companyStoreId(companyStoreId)
+                    .shiftId(shiftId)
+                    .userId("user123")
+                    .orderDate(testOrder.getOrderDate())
+                    .status(SalesOrderState.COMPLETED)
+                    .totalAmount(new BigDecimal("350.0000"))
+                    .paymentMethodId(paymentMethodId)
+                    .enabled(true)
+                    .build();
+
+            when(salesOrderRepository.findById(orderId))
+                    .thenReturn(Optional.of(pendingOrder))
+                    .thenReturn(Optional.of(savedOrder));
+            when(paymentMethodRepository.existsById(paymentMethodId)).thenReturn(true);
+            when(itemRepository.findBySalesOrderId(orderId)).thenReturn(List.of(firstLine, secondLine));
+            when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId)).thenReturn(List.of());
+            when(itemRepository.sumMoneyParts(orderId))
+                    .thenReturn(moneyPartsRow(
+                            new BigDecimal("350.0000"), new BigDecimal("0.0000"), new BigDecimal("0.0000")));
+            // The counter the charge bumps: the numbers the two movements are booked under (V73).
+            when(itemRepository.bumpWriteSeq(firstLine.getId())).thenReturn(11L);
+            when(itemRepository.bumpWriteSeq(secondLine.getId())).thenReturn(12L);
+
+            salesOrderService.chargeSalesOrder(orderId, request);
+
+            var changes = theChargeBatch();
+            assertThat(changes)
+                    .as("one deduction per live line, and no reversal anywhere in a charge's batch")
+                    .hasSize(2)
+                    .allMatch(change ->
+                            !change.reversal() && change.companyStoreId().equals(companyStoreId));
+            assertThat(changes)
+                    .as("each deduction carries the line's own write sequence, not a shared number")
+                    .extracting(SaleChange::referenceId, SaleChange::writeSeq)
+                    .containsExactlyInAnyOrder(tuple(firstLine.getId(), 11L), tuple(secondLine.getId(), 12L));
+            assertThat(changes)
+                    .anySatisfy(change -> {
+                        assertThat(change.productVariantId()).isEqualTo(variantId);
+                        assertThat(change.quantity()).isEqualByComparingTo(new BigDecimal("2.00"));
+                    })
+                    .anySatisfy(change -> {
+                        assertThat(change.productVariantId()).isEqualTo(secondVariantId);
+                        assertThat(change.quantity()).isEqualByComparingTo(new BigDecimal("3.00"));
+                    });
+            // The bump is taken once per booked line, before the movement it numbers (V73).
+            verify(itemRepository).bumpWriteSeq(firstLine.getId());
+            verify(itemRepository).bumpWriteSeq(secondLine.getId());
+            verify(itemRepository, times(2)).bumpWriteSeq(any());
+        }
+
+        /**
+         * A cancelled line and a soft-deleted line hold nothing, so the charge neither books nor numbers them.
+         *
+         * <p><b>Why the two are one rule here and were two rules before T6b.</b> Under the old arrangement a line
+         * cancelled or deleted individually reversed its own deduction, and the paths that ran later had to tell
+         * the two apart to avoid crediting twice. Nothing is booked before the charge now, so both are simply
+         * lines the charge does not sell — and a bump for either would be a number consumed by a movement that
+         * never happens.</p>
+         */
+        @Test
+        @DisplayName("should deduct nothing for a cancelled line and for a soft-deleted line")
+        void chargeSalesOrder_CancelledAndSoftDeletedLinesAreNotBooked() {
+            var paymentMethodId = UUID.randomUUID();
+            var request = new ChargeSalesOrderRequest(paymentMethodId);
+
+            var pendingOrder = SalesOrder.builder()
+                    .id(orderId)
+                    .orderNumber("SO-20260610-00001")
+                    .customerId(customerId)
+                    .companyId(companyId)
+                    .companyStoreId(companyStoreId)
+                    .shiftId(shiftId)
+                    .userId("user123")
+                    .orderDate(testOrder.getOrderDate())
+                    .status(SalesOrderState.PENDING)
+                    .totalAmount(BigDecimal.ZERO)
+                    .enabled(true)
+                    .build();
+
+            var liveLine = SalesOrderItem.builder()
+                    .id(UUID.randomUUID())
+                    .salesOrderId(orderId)
+                    .productVariantId(variantId)
+                    .quantity(BigDecimal.ONE)
+                    .listPrice(BigDecimal.TEN)
+                    .finalPrice(BigDecimal.TEN)
+                    .status(SalesOrderItemState.PENDING)
+                    .enabled(true)
+                    .build();
+            var cancelledLine = SalesOrderItem.builder()
+                    .id(UUID.randomUUID())
+                    .salesOrderId(orderId)
+                    .productVariantId(variantId)
+                    .quantity(new BigDecimal("4.00"))
+                    .listPrice(BigDecimal.TEN)
+                    .finalPrice(BigDecimal.TEN)
+                    .status(SalesOrderItemState.CANCELLED)
+                    .enabled(true)
+                    .build();
+            var softDeletedLine = SalesOrderItem.builder()
+                    .id(UUID.randomUUID())
+                    .salesOrderId(orderId)
+                    .productVariantId(variantId)
+                    .quantity(new BigDecimal("7.00"))
+                    .listPrice(BigDecimal.TEN)
+                    .finalPrice(BigDecimal.TEN)
+                    .status(SalesOrderItemState.PENDING)
+                    .enabled(false)
+                    .build();
+
+            var savedOrder = SalesOrder.builder()
+                    .id(orderId)
+                    .orderNumber("SO-20260610-00001")
+                    .customerId(customerId)
+                    .companyId(companyId)
+                    .companyStoreId(companyStoreId)
+                    .shiftId(shiftId)
+                    .userId("user123")
+                    .orderDate(testOrder.getOrderDate())
+                    .status(SalesOrderState.COMPLETED)
+                    .totalAmount(new BigDecimal("120.0000"))
+                    .paymentMethodId(paymentMethodId)
+                    .enabled(true)
+                    .build();
+
+            when(salesOrderRepository.findById(orderId))
+                    .thenReturn(Optional.of(pendingOrder))
+                    .thenReturn(Optional.of(savedOrder));
+            when(paymentMethodRepository.existsById(paymentMethodId)).thenReturn(true);
+            when(itemRepository.findBySalesOrderId(orderId))
+                    .thenReturn(List.of(liveLine, cancelledLine, softDeletedLine));
+            when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId)).thenReturn(List.of());
+            // The document's money still sums the cancelled line: it keeps `enabled = true`, which is the
+            // accounting question T4 owes and not this case's subject.
+            when(itemRepository.sumMoneyParts(orderId))
+                    .thenReturn(moneyPartsRow(
+                            new BigDecimal("120.0000"), new BigDecimal("0.0000"), new BigDecimal("0.0000")));
+            when(itemRepository.bumpWriteSeq(liveLine.getId())).thenReturn(5L);
+
+            salesOrderService.chargeSalesOrder(orderId, request);
+
+            var changes = theChargeBatch();
+            assertThat(changes)
+                    .as("the only line that holds anything is the live one")
+                    .singleElement()
+                    .satisfies(change -> {
+                        assertThat(change.referenceId()).isEqualTo(liveLine.getId());
+                        assertThat(change.writeSeq()).isEqualTo(5L);
+                        assertThat(change.quantity()).isEqualByComparingTo(BigDecimal.ONE);
+                    });
+            verify(itemRepository, never()).bumpWriteSeq(cancelledLine.getId());
+            verify(itemRepository, never()).bumpWriteSeq(softDeletedLine.getId());
+        }
+
+        /**
+         * A document with no live line sends the engine no batch at all.
+         *
+         * <p><b>Why the refusal is not what this case asserts.</b> A charge whose lines are all cancelled is
+         * refused only when its total rounds to zero, and a cancelled line still contributes its money — so this
+         * document really does reach {@code Completed} with a payment and no stock work. The assertion is
+         * therefore that the engine is asked for <b>nothing</b>: an empty batch would be a call whose argument says
+         * "book no movement", which is a different statement from never asking.</p>
+         */
+        @Test
+        @DisplayName("should send the engine no batch at all when the document has no live line")
+        void chargeSalesOrder_NoLiveLine_BooksNoBatch() {
+            var paymentMethodId = UUID.randomUUID();
+            var request = new ChargeSalesOrderRequest(paymentMethodId);
+
+            var pendingOrder = SalesOrder.builder()
+                    .id(orderId)
+                    .orderNumber("SO-20260610-00001")
+                    .customerId(customerId)
+                    .companyId(companyId)
+                    .companyStoreId(companyStoreId)
+                    .shiftId(shiftId)
+                    .userId("user123")
+                    .orderDate(testOrder.getOrderDate())
+                    .status(SalesOrderState.PENDING)
+                    .totalAmount(BigDecimal.ZERO)
+                    .enabled(true)
+                    .build();
+
+            var cancelledLine = SalesOrderItem.builder()
+                    .id(UUID.randomUUID())
+                    .salesOrderId(orderId)
+                    .productVariantId(variantId)
+                    .quantity(new BigDecimal("4.00"))
+                    .listPrice(BigDecimal.TEN)
+                    .finalPrice(BigDecimal.TEN)
+                    .status(SalesOrderItemState.CANCELLED)
+                    .enabled(true)
+                    .build();
+
+            var savedOrder = SalesOrder.builder()
+                    .id(orderId)
+                    .orderNumber("SO-20260610-00001")
+                    .customerId(customerId)
+                    .companyId(companyId)
+                    .companyStoreId(companyStoreId)
+                    .shiftId(shiftId)
+                    .userId("user123")
+                    .orderDate(testOrder.getOrderDate())
+                    .status(SalesOrderState.COMPLETED)
+                    .totalAmount(new BigDecimal("40.0000"))
+                    .paymentMethodId(paymentMethodId)
+                    .enabled(true)
+                    .build();
+
+            when(salesOrderRepository.findById(orderId))
+                    .thenReturn(Optional.of(pendingOrder))
+                    .thenReturn(Optional.of(savedOrder));
+            when(paymentMethodRepository.existsById(paymentMethodId)).thenReturn(true);
+            when(itemRepository.findBySalesOrderId(orderId)).thenReturn(List.of(cancelledLine));
+            when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId)).thenReturn(List.of());
+            when(itemRepository.sumMoneyParts(orderId))
+                    .thenReturn(moneyPartsRow(
+                            new BigDecimal("40.0000"), new BigDecimal("0.0000"), new BigDecimal("0.0000")));
+
+            salesOrderService.chargeSalesOrder(orderId, request);
+
+            verifyNoStockWork();
+            verify(itemRepository, never()).bumpWriteSeq(any());
         }
 
         @Test
@@ -2780,9 +3102,10 @@ class SalesOrderServiceTest {
 
             verify(itemRepository)
                     .save(argThat(item -> item.getId().equals(existingItem3.getId()) && !item.getEnabled()));
-            // Only the deleted line reaches the engine; item1 and item2 keep their quantity.
-            verifyReversed(existingItem3.getId());
-            verifyNoDeduction();
+            // The diff is a document edit: the dropped line is soft-deleted and nothing is booked for it,
+            // because a line holds no stock until the charge books it (ADR-0002 decision 7). The retained lines
+            // keep their quantity and the engine is asked nothing at all.
+            verifyNoStockWork();
         }
 
         @Test
@@ -2814,8 +3137,9 @@ class SalesOrderServiceTest {
                             && item.getListPrice().compareTo(newPrice) == 0
                             && item.getDiscountApplied().compareTo(newDiscount) == 0
                             && item.getEnabled()));
-            // Same variant that grew: only the difference 5.00 - 2.00 = 3.00 is deducted.
-            verifyDeducted(variantId, "3.00", testItem.getId());
+            // The line grew and the diff books nothing: the charge books the quantity the line states when it
+            // runs, so there is no delta for this path to compute.
+            verifyNoStockWork();
         }
 
         @Test
@@ -2850,8 +3174,9 @@ class SalesOrderServiceTest {
                             && item.getSalesOrderId().equals(orderId)
                             && item.getProductVariantId().equals(newVariantId)
                             && item.getQuantity().compareTo(new BigDecimal("3.00")) == 0));
-            // The persisted line's generated id is the ledger reference of the deduction.
-            verifyDeducted(newVariantId, "3.00", savedItemId);
+            // The insert is a line and nothing else: its generated id is the reference the charge's ledger
+            // row will name, not a deduction this path runs (ADR-0002 decision 7).
+            verifyNoStockWork();
         }
 
         @Test
@@ -2908,20 +3233,40 @@ class SalesOrderServiceTest {
             assertThat(testOrder.getTaxTotal()).isEqualByComparingTo(new BigDecimal("0.0000"));
             assertThat(testOrder.getRoundingAdjustment()).isEqualByComparingTo(new BigDecimal("0.0000"));
             assertThat(testOrder.getTotalAmount()).isEqualByComparingTo(new BigDecimal("100.00"));
-            verifyDeducted(variantId, "1.00", savedItemId);
+            // The recalculation is the whole write: the new line books no stock here.
+            verifyNoStockWork();
         }
     }
 
     // ─────────────────────────────────────────────
-    // Stock Delta Computation & Restoration
+    // The inline item diff books no stock
     // ─────────────────────────────────────────────
+
+    /**
+     * The order-level line diff, asked the question that is left after ADR-0002 decision 7: does it book anything?
+     *
+     * <p><b>What this class used to be.</b> It was {@code StockDeltaAndRestorationTests}, and it pinned the delta
+     * arithmetic of the inline diff — a new line sold in full, a grown line sold by its difference, a shrunk or
+     * re-pointed line given back and re-sold — because the document held stock from the moment a line existed.
+     * Under decision 7 the booking happens once, in {@code chargeSalesOrder}, from the lines the document holds at
+     * that moment; nothing on the create, the add, the update, the delete or the re-enable path moves a unit.
+     * There is therefore no delta to compute and nothing to restore, and a case that still expected one would be
+     * asserting the arrangement this unit removed.</p>
+     *
+     * <p><b>What it asserts instead, per scenario.</b> Every case keeps its own line diff — the add, the growth, the
+     * shrink, the drop, the variant change, the mixture — and states the new invariant on the same write: the
+     * lines land in the document exactly as the request states them, and the stock engine is asked for
+     * <b>nothing</b>. That is what makes the charge the single moment the stock moves, and it is why the refusal
+     * for a line the store cannot cover is no longer here: it is the charge's, and the case that used to expect
+     * the 409 here asserts that the same request is accepted and books nothing.</p>
+     */
     @Nested
-    @DisplayName("Stock delta computation and restoration")
-    class StockDeltaAndRestorationTests {
+    @DisplayName("the inline item diff books no stock (the charge does)")
+    class InlineItemDiffBooksNoStockTests {
 
         @Test
-        @DisplayName("should deduct stock for new items (create flow via updateSalesOrder)")
-        void deltaComputation_NewItemOnly_DeductsStock() {
+        @DisplayName("a new line is persisted and books no stock")
+        void inlineDiff_NewItemOnly_BooksNoStock() {
             var newVariantId = UUID.randomUUID();
             var savedItemId = UUID.randomUUID();
 
@@ -2946,13 +3291,17 @@ class SalesOrderServiceTest {
 
             salesOrderService.updateSalesOrder(orderId, request);
 
-            // A new line is sold in full, referencing the id the insert generated.
-            verifyDeducted(newVariantId, "10.00", savedItemId);
+            // The line is the whole write, in full and enabled: the quantity the charge will book.
+            verify(itemRepository)
+                    .save(argThat(item -> savedItemId.equals(item.getId())
+                            && item.getQuantity().compareTo(new BigDecimal("10.00")) == 0
+                            && item.getEnabled()));
+            verifyNoStockWork();
         }
 
         @Test
-        @DisplayName("should restore stock for deleted items only")
-        void deltaComputation_DeletedItemOnly_RestoresStock() {
+        @DisplayName("a dropped line is soft-deleted and books no stock")
+        void inlineDiff_DeletedItemOnly_BooksNoStock() {
             var vid2 = UUID.randomUUID();
 
             var existingToDelete = SalesOrderItem.builder()
@@ -2999,14 +3348,18 @@ class SalesOrderServiceTest {
 
             salesOrderService.updateSalesOrder(orderId, request);
 
-            // Only the deleted line is restored; the kept one keeps its quantity.
-            verifyReversed(existingToDelete.getId());
-            verifyNoDeduction();
+            // The dropped line is disabled and the kept one is untouched: the charge books only what remains,
+            // so this path never gives a unit back.
+            verify(itemRepository)
+                    .save(argThat(item -> item.getId().equals(existingToDelete.getId()) && !item.getEnabled()));
+            assertThat(existingKept.getEnabled()).isTrue();
+            assertThat(existingKept.getQuantity()).isEqualByComparingTo(new BigDecimal("2.00"));
+            verifyNoStockWork();
         }
 
         @Test
-        @DisplayName("should deduct additional stock on quantity increase")
-        void deltaComputation_QuantityIncrease_DeductsAdditional() {
+        @DisplayName("a grown line carries the new quantity and books no stock")
+        void inlineDiff_QuantityIncrease_BooksNoStock() {
             var reqItem = new SalesOrderItemRequest(
                     testItem.getId(),
                     testItem.getProductVariantId(),
@@ -3028,13 +3381,15 @@ class SalesOrderServiceTest {
 
             salesOrderService.updateSalesOrder(orderId, request);
 
-            // Same variant that grew: only the difference 7.00 - 2.00 = 5.00 is deducted.
-            verifyDeducted(variantId, "5.00", testItem.getId());
+            verify(itemRepository)
+                    .save(argThat(item -> item.getId().equals(testItem.getId())
+                            && item.getQuantity().compareTo(new BigDecimal("7.00")) == 0));
+            verifyNoStockWork();
         }
 
         @Test
-        @DisplayName("should restore stock on quantity decrease")
-        void deltaComputation_QuantityDecrease_RestoresStock() {
+        @DisplayName("a shrunk line carries the new quantity and books no stock")
+        void inlineDiff_QuantityDecrease_BooksNoStock() {
             var reqItem = new SalesOrderItemRequest(
                     testItem.getId(),
                     testItem.getProductVariantId(),
@@ -3056,14 +3411,17 @@ class SalesOrderServiceTest {
 
             salesOrderService.updateSalesOrder(orderId, request);
 
-            // The line is given back in full and re-sold at its new quantity: net 100 + 2 - 1 = 101.
-            verifyReversed(testItem.getId());
-            verifyDeducted(variantId, "1.00", testItem.getId());
+            // Nothing is given back and nothing is re-sold: the charge books the 1.00 the line now states, and
+            // there was no earlier booking to undo.
+            verify(itemRepository)
+                    .save(argThat(item -> item.getId().equals(testItem.getId())
+                            && item.getQuantity().compareTo(BigDecimal.ONE) == 0));
+            verifyNoStockWork();
         }
 
         @Test
-        @DisplayName("should handle mix of add, modify, and delete in one update")
-        void deltaComputation_MixOfAllThree() {
+        @DisplayName("an add, a change and a drop in one update book no stock")
+        void inlineDiff_MixOfAllThree_BooksNoStock() {
             var vidNew = UUID.randomUUID();
             var vidOld = UUID.randomUUID();
             var savedItemId = UUID.randomUUID();
@@ -3110,16 +3468,23 @@ class SalesOrderServiceTest {
 
             salesOrderService.updateSalesOrder(orderId, request);
 
-            // The modified line deducts its difference, the new line its full quantity and the
-            // deleted line is restored — all three through the engine in one update.
-            verifyDeducted(variantId, "1.00", testItem.getId());
-            verifyDeducted(vidNew, "6.00", savedItemId);
-            verifyReversed(existingToDelete.getId());
+            // The document's three edits are three line writes and no stock work: the charge books what the
+            // surviving lines state, so there is no mixture of units for this path to reconcile.
+            verify(itemRepository)
+                    .save(argThat(item -> item.getId().equals(testItem.getId())
+                            && item.getQuantity().compareTo(new BigDecimal("3.00")) == 0));
+            verify(itemRepository)
+                    .save(argThat(item -> savedItemId.equals(item.getId())
+                            && item.getProductVariantId().equals(vidNew)
+                            && item.getQuantity().compareTo(new BigDecimal("6.00")) == 0));
+            verify(itemRepository)
+                    .save(argThat(item -> item.getId().equals(existingToDelete.getId()) && !item.getEnabled()));
+            verifyNoStockWork();
         }
 
         @Test
-        @DisplayName("should restore old variant and deduct new variant when an item switches variants inline")
-        void deltaComputation_VariantChange_RestoresOldAndDeductsNew() {
+        @DisplayName("a line that switches variant inline books no stock")
+        void inlineDiff_VariantChange_BooksNoStock() {
             var vidOld = UUID.randomUUID();
 
             var existingItem = SalesOrderItem.builder()
@@ -3154,14 +3519,28 @@ class SalesOrderServiceTest {
 
             salesOrderService.updateSalesOrder(orderId, request);
 
-            // The old line is given back in full and the new variant sold for the new quantity.
-            verifyReversed(existingItem.getId());
-            verifyDeducted(variantId, "6.00", existingItem.getId());
+            // The line now names the new variant, which is the variant the charge will sell: the old one is
+            // never given back because this path never took it.
+            verify(itemRepository)
+                    .save(argThat(item -> item.getId().equals(existingItem.getId())
+                            && item.getProductVariantId().equals(variantId)
+                            && item.getQuantity().compareTo(new BigDecimal("6.00")) == 0));
+            verifyNoStockWork();
         }
 
+        /**
+         * A quantity the store cannot cover is a document state, not an edit this path can refuse.
+         *
+         * <p><b>What changed and why the case is kept.</b> It used to assert the engine's
+         * {@code InsufficientStockException} from {@code updateSalesOrder}: the diff deducted, so a quantity
+         * beyond the position failed the write. Under ADR-0002 decision 7 the diff books nothing, so the same
+         * request succeeds, persists the line and asks the engine for no movement — and the refusal belongs to the
+         * charge, which is where {@code SalesOrderIntegrationTest} measures it (409, no payment, no transition, no
+         * movement). Stating that here is the honest retargeting of the old expectation instead of deleting it.</p>
+         */
         @Test
-        @DisplayName("should throw InsufficientStockException on update with insufficient stock")
-        void deltaComputation_InsufficientStock_Throws409() {
+        @DisplayName("a quantity beyond the position is accepted and books no stock, because the charge refuses it")
+        void inlineDiff_BeyondStock_IsAcceptedAndBooksNoStock() {
             var reqItem = new SalesOrderItemRequest(
                     testItem.getId(),
                     testItem.getProductVariantId(),
@@ -3175,17 +3554,18 @@ class SalesOrderServiceTest {
             when(customerRepository.existsById(customerId)).thenReturn(true);
             when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
             when(shiftRepository.existsById(shiftId)).thenReturn(true);
+            when(salesOrderRepository.save(any(SalesOrder.class))).thenAnswer(inv -> inv.getArgument(0));
             when(itemRepository.findBySalesOrderId(orderId)).thenReturn(List.of(testItem));
             when(itemRepository.findById(testItem.getId())).thenReturn(Optional.of(testItem));
             when(itemRepository.save(any(SalesOrderItem.class))).thenAnswer(inv -> inv.getArgument(0));
-            doThrow(new InsufficientStockException(variantId, new BigDecimal("3.00"), new BigDecimal("1.00")))
-                    .when(stockLedgerEngine)
-                    .applySaleBatch(any(), any(), any());
+            when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId)).thenReturn(List.of());
 
-            assertThatThrownBy(() -> salesOrderService.updateSalesOrder(orderId, request))
-                    .isInstanceOf(InsufficientStockException.class)
-                    .hasMessageContaining("Insufficient stock for variant")
-                    .hasMessageContaining(variantId.toString());
+            salesOrderService.updateSalesOrder(orderId, request);
+
+            verify(itemRepository)
+                    .save(argThat(item -> item.getId().equals(testItem.getId())
+                            && item.getQuantity().compareTo(new BigDecimal("5.00")) == 0));
+            verifyNoStockWork();
         }
     }
 

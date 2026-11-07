@@ -50,8 +50,6 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
@@ -185,8 +183,9 @@ public class SalesOrderService {
 
         // The allocation is the last write before the row is created, not the last write before commit:
         // `sales_orders` needs its number at INSERT time, so "allocate as the last write before commit" is
-        // unattainable on this path. The sequence row's lock is therefore held while the lines and their
-        // stock work run, which is the cost the ADR records rather than one this code can avoid.
+        // unattainable on this path. The sequence row's lock is therefore held while the lines are written,
+        // which is the cost the ADR records rather than one this code can avoid. No stock work runs here any
+        // more: the charge books it (ADR-0002 decision 7).
         var seqValue = documentSequenceAllocator.allocate(companyId, DocumentType.SALES_ORDER, period);
         var docNumber = DocumentNumberRenderer.renderPeriodNumber(DocumentType.SALES_ORDER, period, seqValue);
 
@@ -217,11 +216,10 @@ public class SalesOrderService {
                 StatusSubject.SALES_ORDER, companyId, saved.getId(), INITIAL_ORDER_STATE);
         logger.info("Sales order created: id={}, orderNumber={}", saved.getId(), saved.getOrderNumber());
 
-        // Persist the lines first so each one has the id the ledger reference needs (W3-D6), then
-        // move the stock through the engine. Both happen inside this transaction, so a failed
-        // deduction rolls the inserted lines back.
+        // The lines are persisted here and nothing else: a document holds no stock until it is charged
+        // (ADR-0002 decision 7), so the charge is what books the movement and what refuses a sale the
+        // store cannot cover. The id is still what the charge's ledger reference names (W3-D6).
         if (request.items() != null && !request.items().isEmpty()) {
-            var savedItems = new ArrayList<SalesOrderItem>();
             for (var reqItem : request.items()) {
                 var discount = reqItem.discountApplied() != null ? reqItem.discountApplied() : BigDecimal.ZERO;
                 var newItem = SalesOrderItem.builder()
@@ -237,19 +235,7 @@ public class SalesOrderService {
                         .build();
                 var savedItem = itemRepository.save(newItem);
                 recordItemCreated(companyId, savedItem);
-                savedItems.add(savedItem);
             }
-
-            var operations = new ArrayList<SaleChange>();
-            for (var savedItem : savedItems) {
-                operations.add(deduct(
-                        saved.getCompanyStoreId(),
-                        savedItem.getProductVariantId(),
-                        savedItem.getQuantity(),
-                        savedItem.getId(),
-                        nextWriteSeq(savedItem.getId())));
-            }
-            applyStockChanges(operations);
 
             recomputeBreakdown(saved.getId());
             var orderIdForReload = saved.getId();
@@ -273,21 +259,19 @@ public class SalesOrderService {
             validateShiftExists(request.shiftId());
         }
 
-        // The order's store owns the stock its items already deducted: stock lives on the
-        // (variant, store) row and every restoration path credits so.getCompanyStoreId().
-        // Re-attributing an order that still holds items would leave the original store
-        // permanently understated and credit stock to a store that never received the goods,
-        // so the change is refused before anything is mutated. With no active items nothing
-        // is deducted and the reassignment stays allowed.
+        // A store change with active lines stays refused, and after T6b the reason is a narrower one: nothing
+        // is booked before the charge any more, so the charge would simply book at the new store and the
+        // refusal is stricter than the invariant behind it. Narrowing it is a decision of its own and is
+        // recorded as a follow-up in odd/tasks/money-first-class.md (T6b log); relaxing it inside the slice
+        // that moved the booking would be a second, unstated rule change.
         if (!request.companyStoreId().equals(so.getCompanyStoreId())
                 && !itemRepository.findBySalesOrderIdAndEnabledTrue(id).isEmpty()) {
             throw new SalesOrderStoreReassignmentNotAllowedException(
                     id, so.getCompanyStoreId(), request.companyStoreId());
         }
 
-        // A terminal order is closed: no transition leads out of it, charge refuses it, and both
-        // order cancel and order delete skip it, so any line work here would strand its deduction.
-        // Refuse before the header is mutated or the item diff runs.
+        // A terminal order is closed: no transition leads out of it and the charge refuses it, so a line
+        // edited here would be a line no charge can ever book. Refuse before the header is mutated.
         requireOrderNotTerminal(so);
 
         so.setCustomerId(request.customerId());
@@ -301,38 +285,13 @@ public class SalesOrderService {
         if (request.items() != null && !request.items().isEmpty()) {
             var existingItems = itemRepository.findBySalesOrderId(id);
 
-            // Read the pre-mutation state BEFORE any item change: the stock engine needs the old
-            // variant and quantity of every line that actually holds stock. The quantity kept on a
-            // line is not that state — a soft-deleted line and an individually cancelled line were
-            // already given back by the engine — so a line that holds nothing contributes no old
-            // state and is sold in full when it comes back enabled (W3-D11). Cancelled is terminal in
-            // the item status machine, so re-enabling a cancelled line revives no hold and it
-            // contributes no stock work at all. The status is resolved fail-closed: guessing here
-            // would classify a cancelled line as live and sell the stock it already gave back (F-2).
-            var oldQuantities = new HashMap<UUID, BigDecimal>();
-            var itemIdToVariantId = new HashMap<UUID, UUID>();
-            var deadItemIds = new HashSet<UUID>();
-            for (var existing : existingItems) {
-                if (isCancelledLine(existing)) {
-                    deadItemIds.add(existing.getId());
-                } else if (existing.getEnabled()) {
-                    oldQuantities.put(existing.getId(), existing.getQuantity());
-                    itemIdToVariantId.put(existing.getId(), existing.getProductVariantId());
-                }
-            }
-
+            // Every line of the request keeps its identity across the diff: a line the request drops is
+            // soft-deleted and a line it names is re-enabled. Nothing here books stock any more, which is
+            // what makes the whole diff a document edit rather than a stock operation (ADR-0002 decision 7).
             var requestIds = request.items().stream()
                     .map(SalesOrderItemRequest::id)
                     .filter(Objects::nonNull)
                     .collect(Collectors.toSet());
-
-            // Collect items being deleted (in DB but not in request)
-            var deletedItemIds = new HashSet<UUID>();
-            for (var existing : existingItems) {
-                if (!requestIds.contains(existing.getId())) {
-                    deletedItemIds.add(existing.getId());
-                }
-            }
 
             // DELETE: items in DB but not in request → soft-delete
             for (var existing : existingItems) {
@@ -342,9 +301,8 @@ public class SalesOrderService {
                 }
             }
 
-            // UPDATE (existing) or INSERT (new), collecting the persisted lines so a new line's
-            // generated id can be the ledger reference of its deduction (W3-D6).
-            var savedItems = new ArrayList<SalesOrderItem>();
+            // UPDATE (existing) or INSERT (new). A new line's generated id is still the reference the
+            // charge's ledger row names (W3-D6), so it is persisted here and booked there.
             for (var reqItem : request.items()) {
                 if (reqItem.id() != null) {
                     // UPDATE: find by id, update fields, re-enable
@@ -359,7 +317,7 @@ public class SalesOrderService {
                     item.setFinalPrice(reqItem.listPrice().subtract(discount));
                     item.setPromotionId(reqItem.promotionId());
                     item.setEnabled(true);
-                    savedItems.add(itemRepository.save(item));
+                    itemRepository.save(item);
                 } else {
                     // INSERT: new item with default "Pending" status
                     var discount = reqItem.discountApplied() != null ? reqItem.discountApplied() : BigDecimal.ZERO;
@@ -376,32 +334,8 @@ public class SalesOrderService {
                             .build();
                     var savedItem = itemRepository.save(newItem);
                     recordItemCreated(so.getCompanyId(), savedItem);
-                    savedItems.add(savedItem);
                 }
             }
-
-            // Apply stock AFTER the lines exist, through the engine. Deleted lines are registered
-            // first — a deleted line was deducted under its own ledger reference — then every
-            // persisted line contributes its delta. A re-enabled line that held nothing (soft-deleted)
-            // is sold in full; a terminal Cancelled line moves nothing.
-            var operations = new ArrayList<SaleChange>();
-            for (var existing : existingItems) {
-                if (deletedItemIds.contains(existing.getId()) && !deadItemIds.contains(existing.getId())) {
-                    operations.add(reverse(request.companyStoreId(), existing.getProductVariantId(), existing.getId()));
-                }
-            }
-            for (var savedItem : savedItems) {
-                if (deadItemIds.contains(savedItem.getId())) {
-                    continue;
-                }
-                collectLineStockOperations(
-                        savedItem,
-                        oldQuantities.get(savedItem.getId()),
-                        itemIdToVariantId.get(savedItem.getId()),
-                        request.companyStoreId(),
-                        operations);
-            }
-            applyStockChanges(operations);
 
             // Recalculate order total after item mutations
             recomputeBreakdown(id);
@@ -464,6 +398,30 @@ public class SalesOrderService {
             throw new SalesOrderPaymentInsufficientException(so.getId(), paid, so.getTotalAmount());
         }
 
+        // ADR-0002 decision 7: the stock is booked HERE, by the charge, inside this transaction and under
+        // the order row lock (M10) taken above, as ONE batch. Until this line runs the document holds no
+        // stock, which is exactly why a cancellation or a deletion before the charge has nothing to give
+        // back. The batch's inner order is the engine's contract and not this caller's — it locks every
+        // distinct (store, variant) before it runs anything — so the lock order here is order row, then
+        // stock position, and two concurrent charges cannot invert it. A sale the store cannot cover throws
+        // from here, and the payment, the breakdown, the lines and the transitions roll back with it.
+        var items = itemRepository.findBySalesOrderId(id);
+        var stockOperations = new ArrayList<SaleChange>();
+        for (var item : items) {
+            if (!Boolean.TRUE.equals(item.getEnabled()) || item.getStatus() == SalesOrderItemState.CANCELLED) {
+                continue;
+            }
+            // The bump is taken before the movement it numbers (V73): the charge is the one write that books
+            // a line, so it is the one writer of that line's sequence.
+            stockOperations.add(deduct(
+                    so.getCompanyStoreId(),
+                    item.getProductVariantId(),
+                    item.getQuantity(),
+                    item.getId(),
+                    nextWriteSeq(item.getId())));
+        }
+        applyStockChanges(stockOperations);
+
         // Set payment method on the order. Kept for one more release: ADR-0002 migration step 6 drops this
         // column once every reader has moved to the payment rows, and that is T7's slice, not this one.
         so.setPaymentMethodId(request.paymentMethodId());
@@ -472,12 +430,10 @@ public class SalesOrderService {
         moveOrder(so, SalesOrderState.COMPLETED, "charge");
 
         // Transition the lines that are waiting for it to Added. A line's classification is its typed
-        // state and not a catalog lookup: CANCELLED is terminal (its reversal is booked, so there is no
+        // state and not a catalog lookup: CANCELLED is terminal (the batch above skipped it, so there is no
         // edge out of it) and ADDED is already charged, so only PENDING moves — the same rule that used
         // to be the `!"Cancelled".equals(statusName)` test, stated once, next to the enum (ADR-0004
         // decision 3).
-        var items = itemRepository.findBySalesOrderId(id);
-
         var itemsToUpdate = new ArrayList<SalesOrderItem>();
         for (var item : items) {
             if (!Boolean.TRUE.equals(item.getEnabled()) || item.getStatus() != SalesOrderItemState.PENDING) {
@@ -516,23 +472,27 @@ public class SalesOrderService {
     public SalesOrderResponse updateSalesOrderStatus(UUID id, UpdateSalesOrderStatusRequest request) {
         logger.info("Updating sales order status: id={}", id);
 
-        var so = salesOrderRepository.findById(id).orElseThrow(() -> new SalesOrderNotFoundException(id));
+        // The row is read WITH the lock, and that is the whole of the fix this method needs: a cancellation that
+        // read the row unlocked could reach a row a concurrent charge had already committed as COMPLETED. What it
+        // recorded is PENDING -> CANCELLED — the state it read — so `V67`'s deferred side-B check refuses the
+        // commit for a transition the document never made, and the request answers a 500: a legal cancellation
+        // failing with an internal error, with the reversal gate downstream of it never reachable. The data does
+        // survive, because the schema's deferred check is a real last line of defence; correctness resting on it
+        // rather than on the lock is the defect. Taking the lock first means the loser reads COMPLETED, the state
+        // machine refuses the move and the answer is the 409 it always should have been.
+        var so = salesOrderRepository.findByIdForUpdate(id).orElseThrow(() -> new SalesOrderNotFoundException(id));
 
         // The request names a catalog row; the machine only reads its code (ADR-0004 decision 7). This is
         // also where a status of another family, an uncoded row or a code the enum lacks is refused.
         var newState = statusCatalog.requireOrderState(request.statusId());
-        // The guard runs BEFORE the reversal below, and the order of the two is the invariant: a refused
-        // move is a 409 that leaves the row, the history and the stock exactly as they were, so a stock
-        // side effect that ran first would be a refusal that already changed something (ADR-0004 T2).
+        // The guard runs before the write below, and the order of the two is the invariant: a refused move is a
+        // 409 that leaves the row and the history exactly as they were, so a write that ran first would be a
+        // refusal that already changed something (ADR-0004 T2).
         DocumentStates.requireTransition(so.getStatus(), newState);
 
-        // Restore stock when transitioning to Cancelled. Only enabled items still hold stock:
-        // soft-deleted items were already reversed when deleted, and a line cancelled individually
-        // was already reversed then, so the ledger makes those reversals a no-op here (W3-D4).
-        if (newState == SalesOrderState.CANCELLED) {
-            restoreAllLines(so.getCompanyStoreId(), itemRepository.findBySalesOrderIdAndEnabledTrue(id));
-        }
-
+        // No reversal here: a cancellation only ever leaves Draft, Active or Pending, and none of those holds
+        // stock — the charge books it, and COMPLETED is terminal for this document (ADR-0004 decision 3). A
+        // reversal exists only for an order whose charge booked something, and that path is `deleteSalesOrder`.
         var updated = moveOrder(so, newState, "status update");
 
         return toResponse(updated);
@@ -542,13 +502,17 @@ public class SalesOrderService {
     public void deleteSalesOrder(UUID id) {
         logger.info("Soft-deleting sales order: id={}", id);
 
-        var so = salesOrderRepository.findById(id).orElseThrow(() -> new SalesOrderNotFoundException(id));
+        // The row lock comes FIRST, before the reversal below touches a stock position: the charge takes the
+        // order's lock and then the positions, so a path that reversed first and locked the order second would
+        // take the same two rows in the opposite order and deadlock with it (40P01, surfaced as a 500). This path
+        // reverses stock since T6b, which is what makes the order of the two locks its business.
+        var so = salesOrderRepository.findByIdForUpdate(id).orElseThrow(() -> new SalesOrderNotFoundException(id));
 
-        // Restore stock ONLY if the order was not already Cancelled: the cancel transition already
-        // restored it, and restoring again would duplicate stock. Only enabled items still hold
-        // stock (soft-deleted items were reversed on delete); a line already restored keeps a zero
-        // ledger remainder, so the engine's reversal no-ops it and cannot credit it twice.
-        if (so.getStatus() != SalesOrderState.CANCELLED) {
+        // A reversal exists only for an order whose charge booked something, and only a COMPLETED document
+        // ever got that far (ADR-0002 decision 7): everything before it holds no stock, and CANCELLED never
+        // charged. The engine credits only a line's uncovered remainder, so a line already given back stays a
+        // no-op and is never credited twice (W3-D6).
+        if (so.getStatus() == SalesOrderState.COMPLETED) {
             restoreAllLines(so.getCompanyStoreId(), itemRepository.findBySalesOrderIdAndEnabledTrue(id));
         }
 
@@ -616,14 +580,7 @@ public class SalesOrderService {
         recordItemCreated(so.getCompanyId(), saved);
         logger.info("Item added: id={}, soId={}", saved.getId(), salesOrderId);
 
-        // Deduct stock for the new item, referencing its id so a later reversal is exact (W3-D6), and taking the
-        // line's first write sequence so the movement can name the write and not only the line (V73).
-        applyStockChanges(List.of(deduct(
-                so.getCompanyStoreId(),
-                saved.getProductVariantId(),
-                saved.getQuantity(),
-                saved.getId(),
-                nextWriteSeq(saved.getId()))));
+        // No stock work: the line is a line, and the charge is what books it (ADR-0002 decision 7).
 
         // Recalculate order total
         recomputeBreakdown(salesOrderId);
@@ -655,11 +612,6 @@ public class SalesOrderService {
 
         validateProductVariantExists(request.productVariantId(), so.getCompanyStoreId());
 
-        var oldVariantId = item.getProductVariantId();
-        var oldQuantity = item.getQuantity();
-        var variantChanged = !oldVariantId.equals(request.productVariantId());
-        var quantityChanged = request.quantity().compareTo(oldQuantity) != 0;
-
         var discountApplied = request.discountApplied() != null ? request.discountApplied() : BigDecimal.ZERO;
         var finalPrice = request.listPrice().subtract(discountApplied);
 
@@ -669,16 +621,6 @@ public class SalesOrderService {
         item.setDiscountApplied(discountApplied);
         item.setFinalPrice(finalPrice);
         item.setPromotionId(request.promotionId());
-
-        // Reconcile stock through the engine, after the line carries its new values: a variant change
-        // gives back the old line in full and sells the new variant, an increase deducts the
-        // difference and a decrease gives the line back and re-sells the new quantity. Every
-        // movement keeps the line id as its reference, so the store can reverse it exactly (W3-D6).
-        if (variantChanged || quantityChanged) {
-            var operations = new ArrayList<SaleChange>();
-            collectLineStockOperations(item, oldQuantity, oldVariantId, so.getCompanyStoreId(), operations);
-            applyStockChanges(operations);
-        }
 
         var updated = itemRepository.save(item);
 
@@ -692,7 +634,7 @@ public class SalesOrderService {
     public void deleteSalesOrderItem(UUID salesOrderId, UUID itemId) {
         logger.info("Soft-deleting item: soId={}, itemId={}", salesOrderId, itemId);
 
-        var so = loadAndValidateModifiableSO(salesOrderId);
+        loadAndValidateModifiableSO(salesOrderId);
 
         var item = itemRepository.findById(itemId).orElseThrow(() -> new SalesOrderItemNotFoundException(itemId));
 
@@ -702,16 +644,8 @@ public class SalesOrderService {
 
         validateItemIsModifiable(item);
 
-        // Restore through the engine BEFORE soft-deleting the item, referencing the line id so the
-        // reversal credits exactly the locations the sale took from (W3-D6). With the line guard
-        // above (F-7), a line whose ledger reference is already fully reversed — individually
-        // cancelled or soft-deleted — is no longer reachable through this endpoint, so the engine's
-        // remainder arithmetic is defence in depth rather than the active rule: the supported route
-        // to remove a cancelled line is the order-level PUT (W3-D13), which deals in the whole line
-        // set and soft-deletes it without a second reversal.
-        // See odd/tasks/sales-location-aware-stock.md.
-        applyStockChanges(List.of(reverse(so.getCompanyStoreId(), item.getProductVariantId(), item.getId())));
-
+        // Nothing to restore: a line holds no stock until the charge books it (ADR-0002 decision 7), so a
+        // document that has not been charged gives nothing back. The charge books the lines that remain.
         item.setEnabled(false);
         itemRepository.save(item);
 
@@ -741,14 +675,8 @@ public class SalesOrderService {
         // reversal runs, so a refused move restores nothing.
         DocumentStates.requireTransition(item.getStatus(), newState);
 
-        // W3-D4: cancelling a line restores it exactly as deleting it does, writing the reversal
-        // that matches its SALE movement. A line cancelled and later deleted must not restore
-        // twice: the first reversal leaves a zero uncovered remainder for the line's reference, so
-        // the second reversal is a no-op by the engine's remainder arithmetic (W3-D6).
-        if (newState == SalesOrderItemState.CANCELLED) {
-            applyStockChanges(List.of(reverse(so.getCompanyStoreId(), item.getProductVariantId(), item.getId())));
-        }
-
+        // A cancelled line holds no stock and moves no ledger row: nothing is booked before the charge
+        // (ADR-0002 decision 7), and the charge skips a line in this state.
         var updated = moveItem(item, so.getCompanyId(), newState, "status update");
 
         return toItemResponse(updated);
@@ -784,12 +712,11 @@ public class SalesOrderService {
     /**
      * Rejects a write against an order that has reached a terminal status.
      *
-     * <p>A terminal status has no outgoing transition, so the order is closed: letting a write run
-     * would move stock that no automatic path can bring back. The concrete case is the order-level
-     * item diff on a {@code Cancelled} order: a new line was inserted and its full quantity deducted,
-     * while order cancel and order delete both skip a {@code Cancelled} order and charge refuses it,
-     * so the deduction was stranded. {@code Completed} is terminal for the same reason and is refused
-     * too.</p>
+     * <p>A terminal status has no outgoing transition, so the order is closed: a line written into it is a line
+     * the charge can never book, because the charge walks the enabled lines of a Pending or Active document only.
+     * The concrete case is the order-level item diff on a {@code Cancelled} order — the line would sit there with
+     * nothing booked and no path would ever sell it or give it back. {@code Completed} is terminal for the same
+     * reason and is refused too.</p>
      *
      * <p>It answers nothing because it is the whole rule: no write surface is stricter than this one
      * since F-3 closed the item-level endpoints on the same policy.</p>
@@ -806,11 +733,10 @@ public class SalesOrderService {
     }
 
     /**
-     * Rejects an item-level write against a line that no longer holds stock. A {@code Cancelled}
-     * line was reversed in full, so selling it again would leave a {@code SALE} row the rule says no
-     * line holds; a soft-deleted line is never re-enabled by the item-level endpoint, so a deduction
-     * on it would be stranded. The order-level PUT is the supported route to revive either one,
-     * because it re-enables the line before re-selling it (W3-D11).
+     * Rejects an item-level write against a line the charge will never book. A {@code Cancelled} line is terminal
+     * and outside the set the charge walks; a soft-deleted line is never re-enabled by the item-level endpoint, so
+     * editing it would change a line that no path sells and none gives back. The order-level PUT is the supported
+     * route to revive either one, because it re-enables the line before the charge can see it again (W3-D11).
      *
      * @throws SalesOrderItemNotModifiableException (409) when the line is cancelled or soft-deleted
      */
@@ -889,7 +815,7 @@ public class SalesOrderService {
      * whether <em>a row</em> exists: no product, no store, no tenant, and it accepts another company's
      * variant as readily as this one's — which is the weakest question this feature can ask of a
      * catalog that became per company. The company asked for is the one that owns the order's store,
-     * because the stock the line is about to deduct lives at that store.
+     * because the stock the charge will book for this line lives at that store.
      *
      * <p>The store row is read rather than the whole entity cached on the order: {@code SalesOrder}
      * carries only {@code company_store_id}. A missing store is a 404 of its own, since there is no
@@ -990,11 +916,11 @@ public class SalesOrderService {
 
     /**
      * Sends one batch of stock work to {@link StockLedgerEngine}, the only writer of the per-store
-     * aggregate, the per-location balances and the ledger. The batch's ordering is the engine's
-     * contract (F-1), not this caller's: it locks every distinct {@code (store, variant)} row in key
-     * order before it runs anything, and runs every reversal before every deduction. A reversal is
-     * reference-scoped, so a deduction of the same reference running first would put a
-     * {@code SALE} row in front of it and the reversal would credit the fresh sale back.
+     * aggregate, the per-location balances and the ledger. Its one caller is the charge, so the batch is
+     * the whole of a document's stock movement and it joins the charge's transaction and its order row
+     * lock. The batch's ordering is the engine's contract (F-1), not this caller's: it locks every distinct
+     * {@code (store, variant)} row in key order before it runs anything, and runs every reversal before every
+     * deduction.
      */
     private void applyStockChanges(List<SaleChange> changes) {
         if (changes.isEmpty()) {
@@ -1004,57 +930,10 @@ public class SalesOrderService {
     }
 
     /**
-     * Registers the engine work of one persisted line. A line with no old state deducts its full
-     * quantity; a line whose variant changed gives back its old reference and sells the new variant;
-     * a line that only grew deducts the difference; a line that shrank gives back the old reference
-     * and re-sells its new quantity. Every movement carries the line id as its reference, so a later
-     * reversal is exact (W3-D6).
-     *
-     * <p><b>Which sites bump the line's write sequence, and which do not</b> ({@code V73}, {@code
-     * odd/tasks/ledger-per-write-identity.md} S5). Exactly the four deduction sites here, plus the two outside
-     * this method — the creation of a line ({@code createSalesOrder}) and a line added to an existing order
-     * ({@code addSalesOrderItem}) — bump, because each of them books a movement and the ledger keys a movement by
-     * the write that produced it. The reversals this method registers do <b>not</b>: a reversal row carries
-     * {@code reverses_movement_id} and is outside {@code uq_movement_source}, its source is still the mirror, and
-     * a number nobody books under would only make the line's counter disagree with its movements. The branch a
-     * retry takes - no variant change and a zero delta - registers nothing at all, so the §5.4 rule survives: a
-     * path that books nothing must not bump, because a gap in the sequence is allowed and a movement with no
-     * number is not.</p>
-     */
-    private void collectLineStockOperations(
-            SalesOrderItem line,
-            BigDecimal oldQuantity,
-            UUID oldVariantId,
-            UUID companyStoreId,
-            List<SaleChange> operations) {
-
-        var newVariantId = line.getProductVariantId();
-        var newQuantity = line.getQuantity();
-        var itemId = line.getId();
-
-        if (oldVariantId == null || oldQuantity == null) {
-            operations.add(deduct(companyStoreId, newVariantId, newQuantity, itemId, nextWriteSeq(itemId)));
-            return;
-        }
-        if (!oldVariantId.equals(newVariantId)) {
-            operations.add(reverse(companyStoreId, oldVariantId, itemId));
-            operations.add(deduct(companyStoreId, newVariantId, newQuantity, itemId, nextWriteSeq(itemId)));
-            return;
-        }
-        var delta = newQuantity.subtract(oldQuantity);
-        if (delta.signum() > 0) {
-            operations.add(deduct(companyStoreId, newVariantId, delta, itemId, nextWriteSeq(itemId)));
-        } else if (delta.signum() < 0) {
-            operations.add(reverse(companyStoreId, oldVariantId, itemId));
-            operations.add(deduct(companyStoreId, newVariantId, newQuantity, itemId, nextWriteSeq(itemId)));
-        }
-    }
-
-    /**
-     * Reverses every line of the list through the engine. A line already reversed — soft-deleted
-     * earlier, cancelled individually, or restored by a previous order cancellation — keeps a zero
-     * uncovered ledger remainder, so its reversal is a no-op and the aggregate is never credited
-     * twice (W3-D6).
+     * Reverses every line of the list through the engine. It has one caller, {@code deleteSalesOrder}, and only
+     * for a document its charge booked: everything before {@code COMPLETED} holds no stock. A line already given
+     * back — soft-deleted earlier, or cancelled individually — keeps a zero uncovered ledger remainder, so its
+     * reversal is a no-op and the aggregate is never credited twice (W3-D6).
      */
     private void restoreAllLines(UUID companyStoreId, List<SalesOrderItem> items) {
         var operations = new ArrayList<SaleChange>();
@@ -1093,10 +972,11 @@ public class SalesOrderService {
      *
      * <p><b>One statement, taken before the movement it numbers</b> ({@code V73}). The bump has to happen here
      * rather than in the inventory engine because the counter is the document's: this service owns the
-     * transaction that writes the line and books the stock, so a rolled-back edit gives the number back and a
-     * committed one has exactly as many numbers as movements. It runs after the line is persisted (the create and
-     * add paths flush it before reaching here) and before the engine books anything, so a refused or replayed
-     * deduction never consumes a number it does not use — a gap is allowed, a movement with no number is not.</p>
+     * transaction that writes the line and books the stock, so a rolled-back charge gives the number back and a
+     * committed one has exactly as many numbers as movements. Since ADR-0002 decision 7 it has one consumer — the
+     * charge's batch, which runs after the lines are persisted and before the engine books anything — so a
+     * refused charge never consumes a number it does not use: a gap is allowed, a movement with no number is
+     * not.</p>
      *
      * <p><b>A missing row is a defect, not zero.</b> {@code UPDATE … RETURNING} answers nothing when the id names
      * no line, and the repository's primitive result turns that into its own empty-result failure rather than a

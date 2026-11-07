@@ -7,11 +7,12 @@ import java.util.UUID;
  * Raised when a request tries to move a sales order to another company store while the order still
  * holds active items.
  *
- * <p>It exists because stock lives on the {@code (variant, store)} row of the order's store, and
- * every restoration path credits {@code so.getCompanyStoreId()}. Re-attributing an order that
- * already deducted stock therefore left the original store permanently understated and credited a
- * store that never received the goods. A store change with no active items moves no stock and stays
- * allowed.</p>
+ * <p>It exists because the stock is booked at the store the order names when it is charged, and every reversal
+ * credits {@code so.getCompanyStoreId()}. Re-attributing an order between the two moments would leave the store
+ * that was charged understated and credit one that never sold the goods — and since ADR-0002 decision 7 nothing is
+ * booked before the charge, so the refusal is now stricter than that invariant strictly requires: the charge would
+ * simply book at the new store. Narrowing it is recorded as a follow-up in {@code odd/tasks/money-first-class.md}
+ * (T6b log).</p>
  */
 public class SalesOrderStoreReassignmentNotAllowedException extends ConflictException {
 
