@@ -46,6 +46,7 @@ import com.lifecontrol.api.store.exception.CompanyStoreNotFoundException;
 import com.lifecontrol.api.store.model.CompanyStore;
 import com.lifecontrol.api.store.repository.CompanyStoreRepository;
 import com.lifecontrol.api.store.service.CompanyStoreOwnerResolver;
+import jakarta.persistence.EntityManager;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
@@ -103,6 +104,13 @@ public class SalesOrderService {
     private final StatusTransitionRecorder statusTransitionRecorder;
     private final SalesOrderStatusCatalog statusCatalog;
 
+    /**
+     * The identity map the response mappers read through, and the only way to leave it: a line's derived money is
+     * written by the schema (V81, V85), so the instance a write left behind carries the value the insert sent —
+     * nothing — until it is refreshed. See {@link #refreshDerivedLineMoney(SalesOrderItem)}.
+     */
+    private final EntityManager entityManager;
+
     public SalesOrderService(
             SalesOrderRepository salesOrderRepository,
             SalesOrderItemRepository itemRepository,
@@ -118,7 +126,8 @@ public class SalesOrderService {
             CurrentUserContext currentUserContext,
             DocumentSequenceAllocator documentSequenceAllocator,
             StatusTransitionRecorder statusTransitionRecorder,
-            SalesOrderStatusCatalog statusCatalog) {
+            SalesOrderStatusCatalog statusCatalog,
+            EntityManager entityManager) {
         this.salesOrderRepository = salesOrderRepository;
         this.itemRepository = itemRepository;
         this.salePaymentRepository = salePaymentRepository;
@@ -134,6 +143,7 @@ public class SalesOrderService {
         this.documentSequenceAllocator = documentSequenceAllocator;
         this.statusTransitionRecorder = statusTransitionRecorder;
         this.statusCatalog = statusCatalog;
+        this.entityManager = entityManager;
     }
 
     // ─── Sales Order CRUD ────────────────────────────────────────────────
@@ -228,7 +238,6 @@ public class SalesOrderService {
                         .quantity(reqItem.quantity())
                         .listPrice(reqItem.listPrice())
                         .discountApplied(discount)
-                        .finalPrice(reqItem.listPrice().subtract(discount))
                         .promotionId(reqItem.promotionId())
                         .status(INITIAL_ITEM_STATE)
                         .enabled(true)
@@ -314,7 +323,6 @@ public class SalesOrderService {
                     item.setListPrice(reqItem.listPrice());
                     var discount = reqItem.discountApplied() != null ? reqItem.discountApplied() : BigDecimal.ZERO;
                     item.setDiscountApplied(discount);
-                    item.setFinalPrice(reqItem.listPrice().subtract(discount));
                     item.setPromotionId(reqItem.promotionId());
                     item.setEnabled(true);
                     itemRepository.save(item);
@@ -327,7 +335,6 @@ public class SalesOrderService {
                             .quantity(reqItem.quantity())
                             .listPrice(reqItem.listPrice())
                             .discountApplied(discount)
-                            .finalPrice(reqItem.listPrice().subtract(discount))
                             .promotionId(reqItem.promotionId())
                             .status(INITIAL_ITEM_STATE)
                             .enabled(true)
@@ -562,7 +569,6 @@ public class SalesOrderService {
         var isFirstItem = existingItems.isEmpty();
 
         var discountApplied = request.discountApplied() != null ? request.discountApplied() : BigDecimal.ZERO;
-        var finalPrice = request.listPrice().subtract(discountApplied);
 
         var item = SalesOrderItem.builder()
                 .salesOrderId(salesOrderId)
@@ -570,7 +576,6 @@ public class SalesOrderService {
                 .quantity(request.quantity())
                 .listPrice(request.listPrice())
                 .discountApplied(discountApplied)
-                .finalPrice(finalPrice)
                 .promotionId(request.promotionId())
                 .status(INITIAL_ITEM_STATE)
                 .enabled(true)
@@ -613,13 +618,11 @@ public class SalesOrderService {
         validateProductVariantExists(request.productVariantId(), so.getCompanyStoreId());
 
         var discountApplied = request.discountApplied() != null ? request.discountApplied() : BigDecimal.ZERO;
-        var finalPrice = request.listPrice().subtract(discountApplied);
 
         item.setProductVariantId(request.productVariantId());
         item.setQuantity(request.quantity());
         item.setListPrice(request.listPrice());
         item.setDiscountApplied(discountApplied);
-        item.setFinalPrice(finalPrice);
         item.setPromotionId(request.promotionId());
 
         var updated = itemRepository.save(item);
@@ -1132,7 +1135,32 @@ public class SalesOrderService {
                 items);
     }
 
+    /**
+     * The line's money the schema writes — {@code subtotal} and the tax triple (`V81`), {@code final_price}
+     * (`V85`) — and the reason a response cannot simply read the instance a write left behind.
+     *
+     * <p><b>What goes wrong without it.</b> Those four columns are {@code insertable = false, updatable =
+     * false}, so Hibernate omits them from the insert and never populates the field; the first-level cache then
+     * answers every query inside the transaction with that same instance. A response built from it would report
+     * {@code null} for every derived column, which is worse than a stale number: it is an absence a client
+     * cannot tell apart from a line that has no money.</p>
+     *
+     * <p><b>Why the check is the column and not a flag.</b> All four are {@code NOT NULL} in the schema, so a
+     * non-null {@code final_price} is proof the instance was read from a row, and a plain GET — the common
+     * path — needs no second statement. A null is proof it was built by this application, and that is the only
+     * case that pays for the round trip.</p>
+     */
+    private void refreshDerivedLineMoney(SalesOrderItem item) {
+        if (item == null || item.getFinalPrice() != null) {
+            return;
+        }
+        itemRepository.flush();
+        entityManager.refresh(item);
+    }
+
     private SalesOrderItemResponse toItemResponse(SalesOrderItem item) {
+        refreshDerivedLineMoney(item);
+
         // The line's pair, from the line's code and its own family: `PENDING` exists in three families.
         var status = catalogRowOf(StatusSubject.SALES_ORDER_ITEM, item.getStatus());
 

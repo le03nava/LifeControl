@@ -35,7 +35,18 @@ public class SalesOrderItem extends Auditable {
     @Column(name = "discount_applied", precision = 19, scale = 4, nullable = false)
     private BigDecimal discountApplied = BigDecimal.ZERO;
 
-    @Column(name = "final_price", precision = 19, scale = 4, nullable = false)
+    /**
+     * The line's total as `V85` derives it: `round(list_price * quantity, 4) - discount_applied + tax_amount`,
+     * by the trigger `trg_sales_order_items_final_price`, never by this mapping.
+     *
+     * <p><b>Why read-only.</b> The tree wrote the <b>unit</b> net price here until `V85` —
+     * `list_price - discount_applied` — which is a different number on every line whose quantity is not 1 (D-f).
+     * A mapped value would also be the value the row keeps on any statement the trigger's column list does not
+     * name, exactly the stale-mapping trap {@link #subtotal} records. Mapping it
+     * `insertable = false, updatable = false` says what is true: the schema is the writer, and the application
+     * is the reader — which is why the service refreshes the row before it reports the line.</p>
+     */
+    @Column(name = "final_price", precision = 19, scale = 4, nullable = false, insertable = false, updatable = false)
     private BigDecimal finalPrice;
 
     /**
@@ -169,10 +180,6 @@ public class SalesOrderItem extends Auditable {
         this.discountApplied = discountApplied;
     }
 
-    public void setFinalPrice(BigDecimal finalPrice) {
-        this.finalPrice = finalPrice;
-    }
-
     public void setPromotionId(UUID promotionId) {
         this.promotionId = promotionId;
     }
@@ -220,11 +227,6 @@ public class SalesOrderItem extends Auditable {
 
         public Builder discountApplied(BigDecimal discountApplied) {
             item.discountApplied = discountApplied;
-            return this;
-        }
-
-        public Builder finalPrice(BigDecimal finalPrice) {
-            item.finalPrice = finalPrice;
             return this;
         }
 

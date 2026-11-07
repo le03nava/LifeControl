@@ -4,24 +4,26 @@
 **Branch (planned)**: `feat/money-first-class`
 **Status**: implemented — T1 is the currency catalog and `companies.currency`, T2 the breakdown and the scale on
 both sales tables, T3 the runnable pre-flight of migration step 2, T4 the platform `tax_code` catalog with its
-tenant rate table and the resolver, and T5 the payment rows, their voids and the cash flag the guard reads. The
-record, the evidence under `## Problem`, the ADR acceptance that travels with it and the slice order are the
-rest. Nothing is dropped or deferred silently: T4 owes the copy of the rate onto the line until some unit states
-a line's `tax_code`, T5 owes the historical payment backfill of ADR-0002 step 4, and T6 is the charge in two
-slices, each named in its own `Tasks` row: T6a is its money half, and T6b moved the stock booking from the
-create/edit path into that same charge. One thing outside this record holds what is left: T7
-consume the document state guard and the ledger booking, which ADR-0004 and ADR-0001 own — and
-`sales_orders.company_id`, the column that used to be named here as another unit's to deliver, exists since
-`V64`. Four decisions are taken: D-c (`companies.currency`), which decision 2, the `## Schema` block and
+tenant rate table and the resolver, T5 the payment rows, their voids and the cash flag the guard reads, and T6 the
+charge in two slices, each named in its own `Tasks` row: T6a is its money half, and T6b moved the stock booking
+from the create/edit path into that same charge. T7 is the API surface, in three slices that follow — T7c the line
+total `V85` derives, T7a the read sheet, T7b the charge with many payments — and T8 edits the Angular POS while
+T10 is the suite that states the invariants. Nothing is dropped or deferred silently: T4 owes the copy of the
+rate onto the line until some unit states a line's `tax_code`, T5 owes the historical payment backfill of
+ADR-0002 step 4, and step 6's drop of `sales_orders.payment_method_id` waits on both that backfill and the POS
+reader T8 moves. `sales_orders.company_id`, the column that used to be named here as another unit's to deliver,
+exists since `V64`, and the document state guard and the stock ledger this record once waited on are T6's and
+landed. Six decisions are taken: D-c (`companies.currency`), which decision 2, the `## Schema` block and
 migration step 1 of the accepted ADR state; **D-e** (2026-11-01), which keeps the 0002 → 0004 edge and moves
 ADR-0004 ahead of T6 in `docs/adr/README.md`'s adoption order so the charge rewrite is written once, after the
-guard; and **D-d** and **D-b** (2026-11-05), which the tax and payment slices carry. T9 is closed (applied with
-the acceptance) and edits no decision.
+guard; **D-d** and **D-b** (2026-11-05), which the tax and payment slices carry; and **D-g** and **D-h**
+(2026-11-07), which say that the charge takes money in and never gives it back, and that `final_price` is the line
+total the ADR already defines. T9 is closed (applied with the acceptance) and edits no decision.
 **Created**: 2026-10-30
-**Risk**: items 1 and 3 — item 1 because the migration rewrites stored totals on financial rows and a
-mis-stated backfill is not detectable by any later test, and item 3 because `SalesOrderRequest`,
-`SalesOrderResponse`, `ChargeSalesOrderRequest` and `PATCH /api/sales-orders/{id}/charge` change shape
-under an Angular POS that already calls them.
+**Risk**: items 1 and 3 — item 1 because the migrations rewrite stored money on financial rows (`total_amount`
+and the four parts in `V80`/`V84`, `final_price` in `V85`) and a mis-stated backfill is not detectable by any
+later test, and item 3 because `SalesOrderRequest`, `SalesOrderResponse`, `ChargeSalesOrderRequest` and
+`PATCH /api/sales-orders/{id}/charge` change shape under an Angular POS that already calls them.
 
 ## Objective
 
@@ -96,9 +98,12 @@ every cash report by date wrong from that minute on».
 | T5 | S1, S4 | **(done, 2026-11-05)** `V83`: `sale_payment` and `sale_payment_void` with the three indexes, both append-only halves (the trigger **and** `REVOKE UPDATE, DELETE` + `GRANT SELECT, INSERT`, because `V52:187` and `V52:196-197` hand the pool all four privileges on every new table), `payment_methods.is_cash` with the backfill of **D-b** (decided 2026-11-05) and `isCash` through the ABM, `uq_sales_orders_company_id` — the target of `fk_payment_order_same_company`, which `V64` gave to `purchase_orders` and `goods_receipts` but never to `sales_orders` — and the two new tables armed by `apply_tenant_isolation` in the file that creates them. **`sales_orders` was already armed**: `V65` applies the policy to it, so "all three sales tables" was one table already done and two new. `V83` and not `V82`: that version belongs to the tax unit's own branch, and the gap is Flyway's to tolerate until it lands | ADR-0003 (**stale**, `sales_orders.company_id` exists since `V64`), D-b | inline |
 | T6a | S1, S5, S6 | **(done, 2026-11-06)** `chargeSalesOrder`, money half: `SELECT … FOR UPDATE` on the order row (M10), ADR-0004's guard extended with M3/M4/M8, one `CHARGE` payment row for the total from the existing single `paymentMethodId`, the breakdown written under the lock so M1 and M2 hold (exactly), the transition appended, and `SaleCharged` **not** published because no consumer is named (g) — one transaction. The many-payments surface stays in T7, per the 2026-11-06 log entry | T2, T4, T5, ADR-0004 | inline |
 | T6b | S1, S5, S6 | **(done, 2026-11-06)** The stock half of the same decision: the per-line deduction leaves `createSalesOrder`, the line add/edit/delete paths and their `V73` write sequence, and lands in the charge as one batch under the same order lock; a reversal then exists only for an order whose charge booked something. `sales-location-aware-stock` and `ledger-per-write-identity` are edited with it | T6a, ADR-0001 | inline |
-| T7 | S1, S3 | API surface: `SalesOrderRequest`, `SalesOrderItemRequest`, `SalesOrderResponse`, `SalesOrderItemResponse`, `ChargeSalesOrderRequest` (many payments, tender and change, direction) and the controller contract, with the breakdown read-only and computed by the server | T2, T5 | inline |
+| T7c | S1, S2, S3 | `V85`: `final_price` becomes the line total the ADR defines — `subtotal - discount_applied + tax_amount` — derived by a `BEFORE INSERT OR UPDATE OF list_price, quantity, discount_applied, tax_amount` trigger exactly as `V81` derives `subtotal`, with a backfill that restates the column from each row's own parts before `ck_item_total` judges it (**D-h**, decided 2026-11-07). It moves no `total_amount`: since T6a the document's total is Σ of the parts and never a sum of `final_price`. The entity field becomes read-only and the write sites stop stating a number the schema owns. Ships first, because T7a reports a column whose meaning this slice settles | T6a, T2 | inline; item 1, own commit |
+| T7a | S1, S2, S3 | Read surface: `SalesOrderResponse` gains `currency`, the four breakdown parts and `payments`; `SalesOrderItemResponse` gains `subtotal`, `tax_code`/`tax_rate`/`tax_amount` and the two catalog snapshots, and `finalPrice` keeps reporting the stored line total. The breakdown stays read-only in both directions: no request states a part, and no response omits one | T7c | inline |
+| T7b | S1, S3, S4, S6 | Write surface: `ChargeSalesOrderRequest` carries a payment list with tender and change, **D-g** (decided 2026-11-07) fixes it to `CHARGE` only — a `REFUND` is refused by name — M3 becomes exact equality against the breakdown, M4 refuses change on a method that is not cash, and `@Digits(fraction = 4)` plus `@Valid` on the items state the scale the columns carry on both requests | T7a, T5, D-g | inline |
 | T8 | S1, S2 | Angular POS: the document's currency instead of `DEFAULT_CURRENCY_CODE`, four-decimal amounts without losing the display rounding, mixed tender with change, the item table showing the server's line parts, and the discard notice when a breakdown part cannot be represented | T7 | inline; disjoint surface from T2–T7, so a second writer is admissible |
-| T9 | — | The four ADR corrections under `## Reconciliation`: `purchase_order_items` → `purchase_order_details`, the two drifted line citations, the `NOT NULL` method against a nullable column, and `is_cash` with no backfill | — | inline || T10 | S1–S7 | Tests: RED first per spec, M1 and M5 through the schema, M2 and M10 through the service under concurrency, M4 through the domain guard, and the scale/rounding boundary in place of the two-decimal assertions | T2–T8 | inline |
+| T9 | — | The four ADR corrections under `## Reconciliation`: `purchase_order_items` → `purchase_order_details`, the two drifted line citations, the `NOT NULL` method against a nullable column, and `is_cash` with no backfill | — | inline |
+| T10 | S1–S7 | Tests: RED first per spec, M1 and M5 through the schema, M2 and M10 through the service under concurrency, M4 through the domain guard, and the scale/rounding boundary in place of the two-decimal assertions | T2–T8 | inline |
 
 ## Reconciliation — four corrections and three decisions
 
@@ -336,6 +341,9 @@ edits this same table, and **D-a is the one still open** — it is a measurement
 | D-b | **Decided 2026-11-05, by the maintainer: backfill in the migration by the seed's exact name (`Efectivo`, `V3:385`), with a `RAISE NOTICE` when it affects zero rows, and give the ABM an `isCash`.** `PaymentMethodRequest` carries no such field today, so a method created after the deploy can never be cash and M4 refuses its change forever with no UI path | An operator step in a comment fails at the counter, not at the deploy: the cashier discovers it when the customer asks for change. The notice is what makes a renamed catalog say so instead of passing silently |
 | D-d | **Decided 2026-11-05, by the maintainer: a platform `tax_code` catalog**, the same shape as `currency` (no `company_id`, no policy): `tax_rate` gets the FK, the line keeps the text snapshot that decision 4 requires | Free text cannot carry what the tax actually needs: CFDI separates Tasa 0% from Exento, and both have `rate = 0` — a string plus a rate cannot tell them apart, and the first typo taxes a line at zero without an error. If T4 slips, T2's `'NA'` with `tax_total = 0` stays valid |
 | D-e | **Decided 2026-11-01, by the maintainer: add the 0002 → 0004 edge and move ADR-0004 ahead of T6. Do not split T6.** | M3, M4 and M10 *are* the safety properties of taking money (no Completed sale uncovered by payments, change only on cash, no double charge on a retry). Splitting T6 writes `chargeSalesOrder` twice, the second time under a different state mechanism, and leaves that window open precisely while the payment code is least proven. `docs/adr/README.md` justifies 0004 last as "benefits from a settled shape" — backwards: its shape is an **input** of money |
+
+| D-g | **Decided 2026-11-07, by the maintainer on the recommendation: the charge takes money in only.** `sale_payment.direction` stays in the schema and a `REFUND` row stays expressible, but `PATCH /api/sales-orders/{id}/charge` inserts `CHARGE` rows and refuses a refund **by name**, so the endpoint that records money coming in never becomes the endpoint money leaves by | Decision 5 gives refunds a direction and a row, and the ADR's `## Out of scope` says who authorizes one «is a workflow and not this schema». Accepting `REFUND` here would answer that question with "whoever can charge" — a money-out surface with no control of its own — and the void table T5 built would still have no endpoint either way. A refusal that names the direction costs one exception now and leaves the authorization unit free to choose its own shape |
+| D-h | **Decided 2026-11-07, by the maintainer: `final_price` is the line total the ADR defines, and `ck_item_total` lands with it.** `V85` derives the column (`subtotal - discount_applied + tax_amount`) and restates the historical rows from their own parts before the constraint judges them | The other two shapes each leave the tree stating one thing twice. Pinning the unit grain means the ADR's `ck_item_total` is never enforceable and `ck_item_tax` keeps computing a line's tax from a line subtotal minus one unit's discount. Leaving it out a third time keeps `final_price` as the only stored money column with no invariant, in the slice whose whole subject is the document's parts. The reading costs a restated derived column and no document total: `total_amount` is untouched, `final_price` has no money consumer inside the API since T6a, and after the backfill the column has one meaning rather than two |
 
 The order that follows: accept and implement ADR-0003, then T5 and ADR-0004 in parallel, then T6. Money's
 T1–T4 run alongside, because they read neither `sales_orders.company_id` nor the guard. Two items in this
@@ -859,3 +867,106 @@ same defect class as a test named after it.
 **Commits of the verification round.** `ed59f94c` (the cancel takes the row lock), `a65336dc` (the states and the two
 exceptions stop describing the old moment), `c5cf4081` (the three probes: the race and the two write-sequence identities) and
 `f0978e01` (this correction).
+
+**L2** — «puedes continuar con t7 del adr0002»
+
+**2026-11-07 — T7 is the API surface, split in three, and the two questions it could not answer from the tree were
+asked and answered.** The slice was read against the tree it inherits (`origin/main` `3ca54e90`, T6b merged): the five
+DTOs are records with no currency, no breakdown part and no payment list; `SalesOrderService#recomputeBreakdown` is
+already the only writer of the five order columns; `chargeSalesOrder` inserts exactly one `CHARGE` row for the whole
+total and the entity's only factory never sets a tender. Two facts the slice could not state for itself, and each one
+became a decision instead of an invention.
+
+**D-g — the charge takes money in and never gives it back.** `sale_payment.direction` admits `CHARGE` and `REFUND`, and
+the ADR deliberately leaves the refund's authorization out of scope («a refund is a row with `direction = 'REFUND'`; who
+authorizes it … is a workflow and not this schema»). A request that may declare `REFUND` would answer that question with
+"whoever can charge", which is a money-out surface with no control of its own. The maintainer took the recommendation:
+the request carries no `direction`, the server writes `CHARGE`, and a refund arrives with its own unit and its own
+authorization. Nothing in the schema changes and the void table T5 built keeps waiting for the same unit.
+
+**D-h — `final_price` is the line total the ADR already defines, and `ck_item_total` lands with it.** The measurement
+that forced the question: `final_price` is written as a **unit** net price (`SalesOrderService:231` and `:622`,
+`final_price = list_price - discount_applied`), while `ck_item_tax` (`V81:170-171`) and therefore
+`TaxRateService.lineTaxAmount` compute a line's tax from `subtotal - discount_applied`, and `recomputeBreakdown` sums the
+same triple — so since T6a the document's total is Σ(`subtotal − discount_applied + tax_amount`), which is exactly the
+ADR's `ck_item_total` read as a line total. The column is the only one of the two readings that disagreed with the
+document, and it is the one nothing consumes: after T6a no code sums `final_price`, and no report in the tree reads it.
+`V85` derives it in the schema the way `V81` derives `subtotal`, restates every row from its own parts before the
+constraint judges it, and moves no `total_amount`. The alternative the record had already rejected once — restating
+line money into historical totals — stays rejected: this restates a derived column, not a document's money.
+
+**The three slices, and why this order.** `T7c` first: it settles what `final_price` means, and `T7a` is the sheet that
+reports it. `T7a` second: the read surface, so the contract the POS will consume exists before the charge changes it.
+`T7b` last: the charge with many payments, the exact M3 and M4's cash guard, which is the only slice that touches what
+the POS sends.
+
+**What T7 deliberately does not do, named so it is not discovered in the diff.** It does not populate a line's
+`tax_code`, because nothing in the tree states one (T4's open question, still open). It does not run ADR step 4's
+historical payment backfill (T5's debt) nor step 6's drop of `sales_orders.payment_method_id`: that column keeps being
+written from the first `CHARGE` row, because step 6 waits on the backfill **and** on every reader — the Angular POS is
+T8's, and a listener that reads `paymentMethodId` still exists in the response. It does not build refunds or voids. And
+it does not touch the Angular POS, which T8 owns and which will receive a charge body it cannot send until then: that
+break is the price of writing the contract once, which is what T6a's boundary existed for.
+
+**2026-11-07 — `T7c` implemented: `final_price` is the line total, and the schema derives it.** `V85` does three
+things in one file and in this order. It restates **every** `sales_order_items.final_price` from the row's own
+parts (`subtotal - discount_applied + tax_amount`), so the column has one meaning after the deploy instead of two
+that a report has to filter by age. It creates `trg_sales_order_items_final_price`
+(`BEFORE INSERT OR UPDATE OF list_price, quantity, discount_applied, tax_amount`) which writes the same
+expression. And it lands `ck_item_total` last, over rows it has just stated. No `sales_orders` column moves:
+`total_amount` comes from the parts since T6a and never from this column, which is what keeps the restatement a
+schema statement instead of a financial rewrite (D-h).
+
+**The one measurement that shaped the trigger, and it is not cosmetic.** PostgreSQL fires same-event triggers in
+**name order**, and `trg_sales_order_items_subtotal` (`V81`) sorts *after* any trigger named
+`trg_sales_order_items_final_price`. A derivation that read `NEW.subtotal` would therefore read the OLD row's
+value on every insert and on every edit of `list_price`/`quantity` — silently, and only for the rows nobody would
+think to check. The trigger evaluates `round(NEW.list_price * NEW.quantity, 4) - NEW.discount_applied +
+NEW.tax_amount` itself, and `ck_item_subtotal` plus `ck_item_total` are what hold the two derivations equal.
+
+**The application side, and the trap `subtotal` had already left open.** `final_price` is
+`insertable = false, updatable = false` on `SalesOrderItem`, and the setter and builder method are gone: the six
+write sites that stated `listPrice - discountApplied` (`:231`, `:317`, `:330`, `:565`, `:616`) stop, because a
+value the schema owns and the application sends is the value the row keeps on any statement the trigger's column
+list does not name. That exposed the read side: a derived column is `null` in the persistence context after a
+write — the same reason `recomputeBreakdown` sums with a JPQL aggregate — so the response would have reported
+`null` for `final_price` on every create, update and add. `refreshDerivedLineMoney` flushes and refreshes the row
+before the mapper reads it, and it is conditional on the column being null, because the four derived columns are
+`NOT NULL` in the schema: a non-null value proves the instance came from a row, so a plain GET pays no second
+statement. `SalesOrderItemResponse.finalPrice` is the response that proves it.
+
+**One pre-existing defect of the test harness surfaced and was repaired with the slice.** `constraintOf` in
+`SalesMoneyBreakdownMigrationIntegrationTest` returned the constraint name through a chain of ternaries that named
+five constraints; the sixth one — `ck_item_total` — fell through to the whole PostgreSQL error text, and the case
+failed looking like a wrong constraint instead of a wrong helper. It now reads the name out of the sentence
+PostgreSQL always prints (`violates ... constraint "..."`), so the next constraint needs no edit. This is not the
+slice's subject; it is the reason the slice's first red run was red for the wrong reason, and leaving a
+hard-coded vocabulary inside an assertion about a new constraint would have hidden the next one.
+
+**RED, observed on the pre-slice tree** (`git archive HEAD` in a scratch directory with only the two suites'
+new bytes copied in — no migration, no entity, no service): `66 tests completed, 5 failed`, and the five are
+exactly the new or retargeted cases.
+`V85 restates a line's final_price from its own parts…` → `expected: "190.0000" but was: "90.0000"`.
+`a legacy document keeps its total cent by cent…` → the same assertion, the same 90. `V85 derives the line total
+on insert…` → `ERROR: null value in column "final_price" of relation "sales_order_items" violates not-null
+constraint`, which is the proof that the trigger is what fills it. `ck_item_total refuses a line whose total is
+not its parts` → `the statement was accepted and should have been refused`.
+`the created line reports the line total…` → `expected: 190.0000 but was: 90.00`.
+
+**GREEN, on this tree.** `SalesMoneyBreakdownMigrationIntegrationTest` 14 cases, 0 failures — the three new ones,
+the retargeted legacy one, and the ten that were already there. `SalesOrderIntegrationTest` (48 + 1),
+`SalesOrderServiceTest` (97) and `SalesOrderControllerTest` green in the same runs, and `spotlessApply` applied so
+the formatting barrier starts green.
+
+**What the mocked unit suite could and could not say.** Five cases asserted `result.finalPrice()` was `90.00` on a
+response built from a repository mock, and a mock runs no trigger. They were retargeted, not deleted: each now
+asserts that the mapper **asks the row** (`verify(entityManager).refresh(any(SalesOrderItem.class))`) and the
+number itself is pinned by the integration case — the same shape T6b's lock case records, where the stub would
+have passed quietly for the wrong reason.
+
+**What this slice deliberately does not do.** It does not carry the response surface (`currency`, the four
+document parts, `payments`, the line's tax triple and snapshots) — that is T7a, which now reports a column this
+slice settled. It does not touch `tax_amount` or `tax_rate`, which stay 0 until some unit states a line's
+`tax_code` (T4's open question). And it does not edit `V80`/`V81`'s headers, which say `ck_item_total` is absent
+and are frozen by their own checksum: a migration's narrative is a record of what it did, not a promise about what
+comes next.
