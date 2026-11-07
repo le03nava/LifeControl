@@ -182,7 +182,7 @@ public class SalesOrderController {
     @Operation(
             summary = "Add an item to a sales order",
             description =
-                    "Adds a line item. finalPrice = listPrice - discountApplied. Auto-transitions Draft → Active on the first item, and only from Draft. Allowed while the order has not reached a terminal status (Completed or Cancelled).")
+                    "Adds a line item. finalPrice is the line total the schema derives: round(listPrice * quantity, 4) - discountApplied + taxAmount (ADR-0002 decision 3, V85), reported from the stored row and never from the request. Auto-transitions Draft → Active on the first item, and only from Draft. Allowed while the order has not reached a terminal status (Completed or Cancelled).")
     @ApiResponses({
         @ApiResponse(responseCode = "201", description = "Item created"),
         @ApiResponse(responseCode = "400", description = "Validation error"),

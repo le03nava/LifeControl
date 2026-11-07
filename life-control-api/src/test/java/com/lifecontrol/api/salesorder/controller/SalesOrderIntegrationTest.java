@@ -857,6 +857,40 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
     class CreateOrderStockDeductionTests {
 
         @Test
+        @DisplayName("the created line reports the line total the schema derived, not the unit price it was built from")
+        void createOrder_LineReportsTheSchemaLineTotal() throws Exception {
+            var variant = createTestVariant(new BigDecimal("100.00"));
+
+            // 2 x 100 - 10 + 0. The request states a price and a discount; `finalPrice` is not a field it can
+            // state, because V85 made the column read-only. The response used to report the unit price, 90.
+            var itemRequest = new SalesOrderItemRequest(
+                    null,
+                    variant.getId(),
+                    new BigDecimal("2.00"),
+                    new BigDecimal("100.00"),
+                    new BigDecimal("10.00"),
+                    null);
+            var request = new SalesOrderRequest(customerId, companyStoreId, shiftId, "user123", List.of(itemRequest));
+
+            var result = mockMvc.perform(post("/api/sales-orders")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request))
+                            .with(scopedSalesJwt()))
+                    .andExpect(status().isCreated())
+                    .andReturn();
+
+            var root = objectMapper.readTree(result.getResponse().getContentAsString());
+            assertThat(root.get("totalAmount").decimalValue())
+                    .as("the document's total is Σ of the line's parts (M1, M2)")
+                    .isEqualByComparingTo(new BigDecimal("190.00"));
+            assertThat(root.get("items").get(0).get("finalPrice").decimalValue())
+                    .as("V85 (D-h): the response reports the row the trigger wrote — read back, not the number "
+                            + "the service built — which is the same fresh-context trap trg_sales_order_items_"
+                            + "subtotal already carried")
+                    .isEqualByComparingTo(new BigDecimal("190.0000"));
+        }
+
+        @Test
         @DisplayName("should create the order without booking stock and deduct it per variant when it is charged")
         void createOrderWithItems_StockDeducted() throws Exception {
             var variant = createTestVariant(new BigDecimal("100.00"));

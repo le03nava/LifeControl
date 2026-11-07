@@ -37,13 +37,17 @@ import org.junit.jupiter.api.Test;
  * the {@code NO FORCE} windows in {@code V80} and {@code V81} exist for, and the currency case below pins
  * the other half of it: the same owner, with the window closed again, reads no company at all.</p>
  *
- * <p><b>What the {@code D-f} cases are.</b> {@code final_price} is the <b>unit</b> net price today
- * ({@code SalesOrderService:555}: {@code finalPrice = listPrice - discountApplied}), not a line total, so
- * these files record a legacy document as «no breakdown, and this total» instead of re-deriving one from
- * the lines. The first case is the assertion of that decision: the total does not move, and the line's
- * {@code final_price} is not rewritten to the number {@code ck_item_total} would have demanded.</p>
+ * <p><b>What the {@code D-f} cases are, and what {@code V85} answered.</b> {@code final_price} was the
+ * <b>unit</b> net price when {@code V80}/{@code V81} ran — the writer stated
+ * {@code listPrice - discountApplied} — so those two files recorded a legacy document as «no breakdown, and
+ * this total» instead of re-deriving one from the lines. The first case is the assertion of that decision,
+ * and its document's total still does not move. {@code V85} (T7c, D-h) is the slice that answered the question
+ * {@code V81} deferred: it derives {@code final_price} as the line total
+ * ({@code subtotal - discount_applied + tax_amount}, which is exactly what the document's total is made of
+ * since T6a), restates every row from its own parts, and lands {@code ck_item_total}. The {@code V85} cases
+ * below are its proof, and the first case's line assertion was retargeted with it.</p>
  */
-@DisplayName("Sales money breakdown migration (V80, V81)")
+@DisplayName("Sales money breakdown migration (V80, V81, V85)")
 class SalesMoneyBreakdownMigrationIntegrationTest extends AbstractPostgresIntegrationTest {
 
     /** The head these two files start from. */
@@ -123,9 +127,11 @@ class SalesMoneyBreakdownMigrationIntegrationTest extends AbstractPostgresIntegr
                 .isEqualTo(SEEDED_CODE);
 
         assertThat(lineMoney(document.lineA(), "final_price"))
-                .as("the line's stored price is not rewritten: ck_item_total would have demanded 190.0000 "
-                        + "here, and this file does not add a constraint against history (D-f)")
-                .isEqualTo("90.0000");
+                .as("`V81` left this column alone and `V85` restates it: the line's total is 200 - 10 + 0, which "
+                        + "`ck_item_total` now holds every line to (D-h). The document's total asserted above "
+                        + "still does not move, and that is what keeps this a restatement of a derived column "
+                        + "instead of a rewrite of money")
+                .isEqualTo("190.0000");
         assertThat(lineMoney(document.lineA(), "subtotal"))
                 .as("the line's own subtotal is price times quantity, the one number this file can state "
                         + "about a legacy line without reading anything but the row")
@@ -349,6 +355,82 @@ class SalesMoneyBreakdownMigrationIntegrationTest extends AbstractPostgresIntegr
                 .as("price times quantity at four decimals, derived by the schema instead of trusted to the "
                         + "caller")
                 .isEqualTo("37.0368");
+    }
+
+    @Test
+    @DisplayName("V85 restates a line's final_price from its own parts and moves no document's total")
+    void theLineTotalIsRestatedFromItsOwnParts() throws Exception {
+        migrateTo("83");
+        var document = seedDocumentAfterThePartsExisted();
+        migrateTo("84");
+
+        assertThat(lineMoney(document.lineA(), "final_price"))
+                .as("the column as the tree wrote it until V85: the unit net price, 100 - 10")
+                .isEqualTo("90.0000");
+        var totalBefore = money(document.company(), document.orderId(), "total_amount");
+
+        migrateToHead();
+
+        assertThat(lineMoney(document.lineA(), "final_price"))
+                .as("the line's total the ADR's ck_item_total reads: subtotal - discount_applied + tax_amount = "
+                        + "200 - 10 + 0 (D-h)")
+                .isEqualTo("190.0000");
+        assertThat(lineMoney(document.lineB(), "final_price"))
+                .as("a line whose quantity is 1 does not move: its unit price and its total are the same number, "
+                        + "which is why the two readings were indistinguishable for most of this tree")
+                .isEqualTo("50.0000");
+        assertThat(money(document.company(), document.orderId(), "total_amount"))
+                .as("no document's total moves: since T6a the total is Σ of the parts and never a sum of "
+                        + "final_price, which is what makes this a schema statement")
+                .isEqualTo(totalBefore);
+    }
+
+    @Test
+    @DisplayName("V85 derives the line total on insert and on an edit of the numbers it is made of")
+    void theLineTotalIsDerivedOnInsertAndOnEdit() throws Exception {
+        migrateTo("83");
+        var document = seedDocumentAfterThePartsExisted();
+        migrateToHead();
+
+        var variant =
+                readUnscoped("SELECT product_variant_id FROM sales_order_items WHERE id = '" + document.lineA() + "'");
+        var order = UUID.randomUUID();
+        var line = UUID.randomUUID();
+        // The writer no longer sends `final_price` — the mapping is `insertable = false` since V85 — so this is
+        // the statement every line in the tree takes: the trigger states the total and ck_item_total agrees.
+        inOneTransaction(
+                document.company(),
+                insertOrderStatement(document, order, 4, "0"),
+                creationRow(document.company(), "SALES_ORDER", order, "DRAFT"),
+                "INSERT INTO sales_order_items (id, sales_order_id, product_variant_id, quantity, list_price,"
+                        + " discount_applied, status, created_at) VALUES ('" + line + "', '" + order + "', '"
+                        + variant + "', 2.0000, 100.0000, 10.0000, 'PENDING', '2026-11-07 10:00:00')",
+                creationRow(document.company(), "SALES_ORDER_ITEM", line, "PENDING"));
+
+        assertThat(lineMoney(line, "final_price"))
+                .as("2 x 100 - 10 + 0, derived for a writer that states nothing")
+                .isEqualTo("190.0000");
+
+        inOneTransaction(
+                document.company(), "UPDATE sales_order_items SET discount_applied = 20 WHERE id = '" + line + "'");
+
+        assertThat(lineMoney(line, "final_price"))
+                .as("the trigger names discount_applied too: an edit of a part re-derives the total it is made of")
+                .isEqualTo("180.0000");
+    }
+
+    @Test
+    @DisplayName("ck_item_total refuses a line whose total is not its parts")
+    void theLineTotalIsRefused() throws Exception {
+        migrateTo(PRE_UNIT_HEAD);
+        var document = seedLegacyDocument();
+        migrateToHead();
+
+        assertThat(constraintOf(
+                        null, "UPDATE sales_order_items SET final_price = 999 WHERE id = '" + document.lineA() + "'"))
+                .as("the derivation does not name final_price, so a statement that only states the total is the "
+                        + "one case the trigger cannot correct — and the constraint refuses it")
+                .isEqualTo("ck_item_total");
     }
 
     @Test
@@ -576,17 +658,14 @@ class SalesMoneyBreakdownMigrationIntegrationTest extends AbstractPostgresIntegr
                 try {
                     statement.execute(sql);
                 } catch (SQLException refused) {
+                    // The name is read out of the message instead of a fixed list of the constraints that existed
+                    // when this helper was written: PostgreSQL prints it in the same sentence for every kind
+                    // (`violates check constraint "..."`), and a list silently answered the whole error text for
+                    // the first constraint nobody added to it — which is how the V85 case first failed.
                     var message = String.valueOf(refused.getMessage());
-                    var named = message.contains("ck_order_total")
-                            ? "ck_order_total"
-                            : message.contains("ck_order_rounding_bounded")
-                                    ? "ck_order_rounding_bounded"
-                                    : message.contains("ck_order_parts_not_negative")
-                                            ? "ck_order_parts_not_negative"
-                                            : message.contains("ck_item_subtotal")
-                                                    ? "ck_item_subtotal"
-                                                    : message.contains("ck_item_tax") ? "ck_item_tax" : message;
-                    return named;
+                    var named = java.util.regex.Pattern.compile("violates [a-z ]+ constraint \"([^\"]+)\"")
+                            .matcher(message);
+                    return named.find() ? named.group(1) : message;
                 }
                 throw new AssertionError("the statement was accepted and should have been refused: " + sql);
             }

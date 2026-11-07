@@ -67,6 +67,7 @@ import com.lifecontrol.api.store.exception.CompanyStoreNotFoundException;
 import com.lifecontrol.api.store.model.CompanyStore;
 import com.lifecontrol.api.store.repository.CompanyStoreRepository;
 import com.lifecontrol.api.store.service.CompanyStoreOwnerResolver;
+import jakarta.persistence.EntityManager;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -149,6 +150,17 @@ class SalesOrderServiceTest {
     /** The catalog's code, which is the only way a request's {@code statusId} becomes a state. */
     @Mock
     private SalesOrderStatusCatalog statusCatalog;
+
+    /**
+     * The identity map the response mapper leaves to reach a line's derived money.
+     *
+     * <p><b>Why it must be here at all.</b> {@code subtotal}, the tax triple and {@code final_price} are written
+     * by the schema (V81, V85) and mapped read-only, so the instance a write leaves behind carries none of them
+     * and the mapper refreshes the row before it reports the line. A mock cannot run a trigger: the value is
+     * pinned by {@code SalesOrderIntegrationTest}, and this suite pins that the service <b>asks</b>.</p>
+     */
+    @Mock
+    private EntityManager entityManager;
 
     /**
      * The real derivation, not a mock: the store fixture carries the whole
@@ -390,7 +402,8 @@ class SalesOrderServiceTest {
                 currentUserContext,
                 documentSequenceAllocator,
                 statusTransitionRecorder,
-                statusCatalog);
+                statusCatalog,
+                entityManager);
 
         testItem = SalesOrderItem.builder()
                 .id(itemId)
@@ -399,7 +412,6 @@ class SalesOrderServiceTest {
                 .quantity(new BigDecimal("2.00"))
                 .listPrice(new BigDecimal("100.00"))
                 .discountApplied(new BigDecimal("10.00"))
-                .finalPrice(new BigDecimal("90.00"))
                 .status(SalesOrderItemState.PENDING)
                 .enabled(true)
                 .createdAt(now)
@@ -432,7 +444,6 @@ class SalesOrderServiceTest {
                 .quantity(new BigDecimal("2.00"))
                 .listPrice(new BigDecimal("100.00"))
                 .discountApplied(BigDecimal.ZERO)
-                .finalPrice(new BigDecimal("100.00"))
                 .status(SalesOrderItemState.PENDING)
                 .enabled(true)
                 .build();
@@ -884,7 +895,6 @@ class SalesOrderServiceTest {
                     .quantity(new BigDecimal("4.00"))
                     .listPrice(new BigDecimal("100.00"))
                     .discountApplied(BigDecimal.ZERO)
-                    .finalPrice(new BigDecimal("100.00"))
                     .status(SalesOrderItemState.CANCELLED)
                     .enabled(true)
                     .build();
@@ -930,7 +940,6 @@ class SalesOrderServiceTest {
                     .productVariantId(variantId2)
                     .quantity(new BigDecimal("3.00"))
                     .listPrice(new BigDecimal("50.00"))
-                    .finalPrice(new BigDecimal("50.00"))
                     .status(SalesOrderItemState.PENDING)
                     .enabled(true)
                     .build();
@@ -1235,7 +1244,6 @@ class SalesOrderServiceTest {
                     .quantity(new BigDecimal("3.00"))
                     .listPrice(new BigDecimal("50.00"))
                     .discountApplied(BigDecimal.ZERO)
-                    .finalPrice(new BigDecimal("50.00"))
                     .status(SalesOrderItemState.PENDING)
                     .enabled(false) // soft-deleted
                     .build();
@@ -1308,7 +1316,9 @@ class SalesOrderServiceTest {
             assertThat(result).hasSize(1);
             assertThat(result.get(0).id()).isEqualTo(itemId);
             assertThat(result.get(0).quantity()).isEqualByComparingTo(new BigDecimal("2.00"));
-            assertThat(result.get(0).finalPrice()).isEqualByComparingTo(new BigDecimal("90.00"));
+            // A mocked row runs no trigger, so the derived money is absent from it and the mapper asks the row.
+            // The number itself is pinned by SalesOrderIntegrationTest; this pins that it is not invented here.
+            verify(entityManager).refresh(any(SalesOrderItem.class));
             assertThat(result.get(0).statusName()).isEqualTo("Pending");
         }
 
@@ -1354,7 +1364,7 @@ class SalesOrderServiceTest {
         }
 
         @Test
-        @DisplayName("should add item with finalPrice = listPrice - discountApplied")
+        @DisplayName("should add an item and report the line's money from the row, never from the request")
         void addSalesOrderItem_Success() {
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
             when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
@@ -1367,7 +1377,9 @@ class SalesOrderServiceTest {
 
             assertThat(result).isNotNull();
             assertThat(result.id()).isEqualTo(itemId);
-            assertThat(result.finalPrice()).isEqualByComparingTo(new BigDecimal("90.00"));
+            // V85 (D-h): final_price is the schema's, so the mapper refreshes the row instead of stating a unit
+            // price; a mocked repository runs no trigger, so the value lives in the integration suite.
+            verify(entityManager).refresh(any(SalesOrderItem.class));
             assertThat(result.listPrice()).isEqualByComparingTo(new BigDecimal("100.00"));
             assertThat(result.discountApplied()).isEqualByComparingTo(new BigDecimal("10.00"));
             assertThat(result.statusName()).isEqualTo("Pending");
@@ -1485,7 +1497,7 @@ class SalesOrderServiceTest {
 
             assertThat(result).isNotNull();
             assertThat(result.id()).isEqualTo(itemId);
-            assertThat(result.finalPrice()).isEqualByComparingTo(new BigDecimal("90.00"));
+            verify(entityManager).refresh(any(SalesOrderItem.class));
             assertThat(result.statusName()).isEqualTo("Pending");
             verify(itemRepository).save(any(SalesOrderItem.class));
             verifyNoStockWork();
@@ -1570,7 +1582,6 @@ class SalesOrderServiceTest {
                     .quantity(new BigDecimal("2.00"))
                     .listPrice(new BigDecimal("100.00"))
                     .discountApplied(new BigDecimal("10.00"))
-                    .finalPrice(new BigDecimal("90.00"))
                     .status(SalesOrderItemState.PENDING)
                     .enabled(true)
                     .build();
@@ -1643,7 +1654,7 @@ class SalesOrderServiceTest {
 
             assertThat(result).isNotNull();
             assertThat(result.id()).isEqualTo(itemId);
-            assertThat(result.finalPrice()).isEqualByComparingTo(new BigDecimal("90.00"));
+            verify(entityManager).refresh(any(SalesOrderItem.class));
             verify(itemRepository).save(any(SalesOrderItem.class));
             // The total is stated on the document, not by a `save`: the parts are what the writer wrote.
             assertThat(testOrder.getSubtotal()).isEqualByComparingTo(new BigDecimal("200.0000"));
@@ -1862,7 +1873,7 @@ class SalesOrderServiceTest {
 
             assertThat(result).isNotNull();
             assertThat(result.id()).isEqualTo(itemId);
-            assertThat(result.finalPrice()).isEqualByComparingTo(new BigDecimal("90.00"));
+            verify(entityManager).refresh(any(SalesOrderItem.class));
             verify(itemRepository).save(any(SalesOrderItem.class));
             // Read on the Active order itself: the recalculation is not a status-dependent write.
             assertThat(activeOrder.getSubtotal()).isEqualByComparingTo(new BigDecimal("200.0000"));
@@ -1912,7 +1923,6 @@ class SalesOrderServiceTest {
                     .productVariantId(variantId)
                     .quantity(new BigDecimal("4.00"))
                     .listPrice(new BigDecimal("100.00"))
-                    .finalPrice(new BigDecimal("100.00"))
                     .status(SalesOrderItemState.CANCELLED)
                     .enabled(true)
                     .build();
@@ -1938,7 +1948,6 @@ class SalesOrderServiceTest {
                     .productVariantId(variantId)
                     .quantity(new BigDecimal("4.00"))
                     .listPrice(new BigDecimal("100.00"))
-                    .finalPrice(new BigDecimal("100.00"))
                     .status(SalesOrderItemState.PENDING)
                     .enabled(false)
                     .build();
@@ -2031,7 +2040,6 @@ class SalesOrderServiceTest {
                     .productVariantId(variantId)
                     .quantity(new BigDecimal("4.00"))
                     .listPrice(new BigDecimal("100.00"))
-                    .finalPrice(new BigDecimal("100.00"))
                     .status(SalesOrderItemState.CANCELLED)
                     .enabled(true)
                     .build();
@@ -2060,7 +2068,6 @@ class SalesOrderServiceTest {
                     .productVariantId(variantId)
                     .quantity(new BigDecimal("4.00"))
                     .listPrice(new BigDecimal("100.00"))
-                    .finalPrice(new BigDecimal("100.00"))
                     .status(SalesOrderItemState.PENDING)
                     .enabled(false)
                     .build();
@@ -2172,7 +2179,6 @@ class SalesOrderServiceTest {
                     .quantity(testItem.getQuantity())
                     .listPrice(testItem.getListPrice())
                     .discountApplied(testItem.getDiscountApplied())
-                    .finalPrice(testItem.getFinalPrice())
                     .status(SalesOrderItemState.ADDED)
                     .enabled(true)
                     .build();
@@ -2204,7 +2210,6 @@ class SalesOrderServiceTest {
                     .quantity(testItem.getQuantity())
                     .listPrice(testItem.getListPrice())
                     .discountApplied(testItem.getDiscountApplied())
-                    .finalPrice(testItem.getFinalPrice())
                     .status(SalesOrderItemState.CANCELLED)
                     .enabled(true)
                     .build();
@@ -2236,7 +2241,6 @@ class SalesOrderServiceTest {
                     .productVariantId(variantId)
                     .quantity(new BigDecimal("2.00"))
                     .listPrice(new BigDecimal("100.00"))
-                    .finalPrice(new BigDecimal("100.00"))
                     .status(SalesOrderItemState.ADDED)
                     .enabled(true)
                     .build();
@@ -2295,7 +2299,6 @@ class SalesOrderServiceTest {
                     .quantity(new BigDecimal("2.00"))
                     .listPrice(new BigDecimal("100.00"))
                     .discountApplied(BigDecimal.ZERO)
-                    .finalPrice(new BigDecimal("100.00"))
                     .status(SalesOrderItemState.PENDING)
                     .enabled(true)
                     .build();
@@ -2306,7 +2309,6 @@ class SalesOrderServiceTest {
                     .quantity(new BigDecimal("3.00"))
                     .listPrice(new BigDecimal("50.00"))
                     .discountApplied(BigDecimal.ZERO)
-                    .finalPrice(new BigDecimal("50.00"))
                     .status(SalesOrderItemState.PENDING)
                     .enabled(true)
                     .build();
@@ -2432,7 +2434,6 @@ class SalesOrderServiceTest {
                     .productVariantId(variantId)
                     .quantity(BigDecimal.ONE)
                     .listPrice(BigDecimal.TEN)
-                    .finalPrice(BigDecimal.TEN)
                     .status(SalesOrderItemState.PENDING)
                     .enabled(true)
                     .build();
@@ -2442,7 +2443,6 @@ class SalesOrderServiceTest {
                     .productVariantId(variantId)
                     .quantity(BigDecimal.ONE)
                     .listPrice(BigDecimal.TEN)
-                    .finalPrice(BigDecimal.TEN)
                     .status(SalesOrderItemState.PENDING)
                     .enabled(true)
                     .build();
@@ -2452,7 +2452,6 @@ class SalesOrderServiceTest {
                     .productVariantId(variantId)
                     .quantity(BigDecimal.ONE)
                     .listPrice(BigDecimal.TEN)
-                    .finalPrice(BigDecimal.TEN)
                     .status(SalesOrderItemState.CANCELLED)
                     .enabled(true)
                     .build();
@@ -2560,7 +2559,6 @@ class SalesOrderServiceTest {
                     .productVariantId(variantId)
                     .quantity(new BigDecimal("2.00"))
                     .listPrice(new BigDecimal("100.00"))
-                    .finalPrice(new BigDecimal("100.00"))
                     .status(SalesOrderItemState.PENDING)
                     .enabled(true)
                     .build();
@@ -2570,7 +2568,6 @@ class SalesOrderServiceTest {
                     .productVariantId(secondVariantId)
                     .quantity(new BigDecimal("3.00"))
                     .listPrice(new BigDecimal("50.00"))
-                    .finalPrice(new BigDecimal("50.00"))
                     .status(SalesOrderItemState.PENDING)
                     .enabled(true)
                     .build();
@@ -2665,7 +2662,6 @@ class SalesOrderServiceTest {
                     .productVariantId(variantId)
                     .quantity(BigDecimal.ONE)
                     .listPrice(BigDecimal.TEN)
-                    .finalPrice(BigDecimal.TEN)
                     .status(SalesOrderItemState.PENDING)
                     .enabled(true)
                     .build();
@@ -2675,7 +2671,6 @@ class SalesOrderServiceTest {
                     .productVariantId(variantId)
                     .quantity(new BigDecimal("4.00"))
                     .listPrice(BigDecimal.TEN)
-                    .finalPrice(BigDecimal.TEN)
                     .status(SalesOrderItemState.CANCELLED)
                     .enabled(true)
                     .build();
@@ -2685,7 +2680,6 @@ class SalesOrderServiceTest {
                     .productVariantId(variantId)
                     .quantity(new BigDecimal("7.00"))
                     .listPrice(BigDecimal.TEN)
-                    .finalPrice(BigDecimal.TEN)
                     .status(SalesOrderItemState.PENDING)
                     .enabled(false)
                     .build();
@@ -2769,7 +2763,6 @@ class SalesOrderServiceTest {
                     .productVariantId(variantId)
                     .quantity(new BigDecimal("4.00"))
                     .listPrice(BigDecimal.TEN)
-                    .finalPrice(BigDecimal.TEN)
                     .status(SalesOrderItemState.CANCELLED)
                     .enabled(true)
                     .build();
@@ -2835,7 +2828,6 @@ class SalesOrderServiceTest {
                     .quantity(new BigDecimal("2.00"))
                     .listPrice(new BigDecimal("100.00"))
                     .discountApplied(BigDecimal.ZERO)
-                    .finalPrice(new BigDecimal("100.00"))
                     .status(SalesOrderItemState.PENDING)
                     .enabled(true)
                     .build();
@@ -2846,7 +2838,6 @@ class SalesOrderServiceTest {
                     .quantity(new BigDecimal("3.00"))
                     .listPrice(new BigDecimal("50.00"))
                     .discountApplied(BigDecimal.ZERO)
-                    .finalPrice(new BigDecimal("50.00"))
                     .status(SalesOrderItemState.PENDING)
                     .enabled(true)
                     .build();
@@ -2929,7 +2920,6 @@ class SalesOrderServiceTest {
                     .quantity(new BigDecimal("2.00"))
                     .listPrice(new BigDecimal("100.00"))
                     .discountApplied(BigDecimal.ZERO)
-                    .finalPrice(new BigDecimal("100.00"))
                     .status(SalesOrderItemState.PENDING)
                     .enabled(true)
                     .build();
@@ -2940,7 +2930,6 @@ class SalesOrderServiceTest {
                     .quantity(new BigDecimal("3.00"))
                     .listPrice(new BigDecimal("50.00"))
                     .discountApplied(BigDecimal.ZERO)
-                    .finalPrice(new BigDecimal("50.00"))
                     .status(SalesOrderItemState.PENDING)
                     .enabled(true)
                     .build();
@@ -2979,7 +2968,6 @@ class SalesOrderServiceTest {
                     .quantity(item1.getQuantity())
                     .listPrice(item1.getListPrice())
                     .discountApplied(item1.getDiscountApplied())
-                    .finalPrice(item1.getFinalPrice())
                     .status(SalesOrderItemState.ADDED)
                     .enabled(true)
                     .build();
@@ -2990,7 +2978,6 @@ class SalesOrderServiceTest {
                     .quantity(item2.getQuantity())
                     .listPrice(item2.getListPrice())
                     .discountApplied(item2.getDiscountApplied())
-                    .finalPrice(item2.getFinalPrice())
                     .status(SalesOrderItemState.ADDED)
                     .enabled(true)
                     .build();
@@ -3044,7 +3031,6 @@ class SalesOrderServiceTest {
                     .productVariantId(variantId)
                     .quantity(BigDecimal.ONE)
                     .listPrice(BigDecimal.TEN)
-                    .finalPrice(BigDecimal.TEN)
                     .status(SalesOrderItemState.PENDING)
                     .enabled(true)
                     .build();
@@ -3054,7 +3040,6 @@ class SalesOrderServiceTest {
                     .productVariantId(vid2)
                     .quantity(BigDecimal.ONE)
                     .listPrice(BigDecimal.TEN)
-                    .finalPrice(BigDecimal.TEN)
                     .status(SalesOrderItemState.PENDING)
                     .enabled(true)
                     .build();
@@ -3064,7 +3049,6 @@ class SalesOrderServiceTest {
                     .productVariantId(vid3)
                     .quantity(new BigDecimal("5.00"))
                     .listPrice(BigDecimal.TEN)
-                    .finalPrice(BigDecimal.TEN)
                     .status(SalesOrderItemState.PENDING)
                     .enabled(true)
                     .build();
@@ -3310,7 +3294,6 @@ class SalesOrderServiceTest {
                     .productVariantId(vid2)
                     .quantity(new BigDecimal("5.00"))
                     .listPrice(BigDecimal.TEN)
-                    .finalPrice(BigDecimal.TEN)
                     .status(SalesOrderItemState.PENDING)
                     .enabled(true)
                     .build();
@@ -3321,7 +3304,6 @@ class SalesOrderServiceTest {
                     .productVariantId(variantId)
                     .quantity(new BigDecimal("2.00"))
                     .listPrice(BigDecimal.TEN)
-                    .finalPrice(BigDecimal.TEN)
                     .status(SalesOrderItemState.PENDING)
                     .enabled(true)
                     .build();
@@ -3433,7 +3415,6 @@ class SalesOrderServiceTest {
                     .productVariantId(vidOld)
                     .quantity(new BigDecimal("4.00"))
                     .listPrice(BigDecimal.TEN)
-                    .finalPrice(BigDecimal.TEN)
                     .status(SalesOrderItemState.PENDING)
                     .enabled(true)
                     .build();
@@ -3493,7 +3474,6 @@ class SalesOrderServiceTest {
                     .productVariantId(vidOld)
                     .quantity(new BigDecimal("4.00"))
                     .listPrice(BigDecimal.TEN)
-                    .finalPrice(BigDecimal.TEN)
                     .status(SalesOrderItemState.PENDING)
                     .enabled(true)
                     .build();
@@ -3818,7 +3798,6 @@ class SalesOrderServiceTest {
                     .productVariantId(variantId)
                     .quantity(BigDecimal.ONE)
                     .listPrice(new BigDecimal("10.00"))
-                    .finalPrice(new BigDecimal("10.00"))
                     .status(state)
                     .enabled(true)
                     .build();
