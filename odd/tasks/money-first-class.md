@@ -711,3 +711,12 @@ table is append-only by trigger **and** by grant, and it carries `fk_payment_ord
 the container's own login with `SET LOCAL session_replication_role = replica`, the mechanism `deleteStockLedger` already
 documents. Its natural home is `AbstractPostgresIntegrationTest`, because `T6b` will need it too; it stays in the class
 until then, named here rather than moved in a unit that is already about money.
+
+**The slice boundary of `T6a`, recorded because it is over the review budget on purpose.** Two commits, `88f2f757` (846 lines:
+`V84`, the mappings, the two repositories, the payment table's Java shape, the writer, the charge, the thirteen repaired unit
+cases and this record) and `a10d2cec` (374 lines: the four integration cases and the empty-charge refusal). The first is over
+because the constraint and its writer cannot be separated: `ck_order_total` refuses the writer the tree had, so a commit holding
+the migration and not the service is a commit whose own suite is red — the exact failure `V80`'s header documents at the schema
+level, and splitting it again would only move the red into a different commit. The second is the proof and is a clean slice.
+What the boundary deliberately does **not** do is carry `T6b`: moving the stock booking is a different behaviour, it rewrites
+four entry points and 83 test cases, and it needs the two ODD records that state the old arrangement edited with it.
