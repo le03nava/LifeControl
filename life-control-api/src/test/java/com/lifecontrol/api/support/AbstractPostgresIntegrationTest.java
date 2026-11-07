@@ -65,8 +65,9 @@ public abstract class AbstractPostgresIntegrationTest {
     }
 
     /**
-     * The pool {@link #deleteStockLedger} opens on the container's own login. One per JVM, like the
-     * container itself: a new {@code HikariDataSource} per call would leak a pool per test method.
+     * The pool {@link #deleteStockLedger} and {@link #deleteSalePayments} open on the container's own login.
+     * One per JVM, like the container itself: a new {@code HikariDataSource} per call would leak a pool per
+     * test method.
      */
     private static final DataSource STOCK_LEDGER_CLEANUP = containerSuperuserPool();
 
@@ -260,6 +261,60 @@ public abstract class AbstractPostgresIntegrationTest {
             jdbc.update("DELETE FROM stock_position WHERE company_id = ?", companyId);
             jdbc.update("DELETE FROM stock_valuation WHERE company_id = ?", companyId);
         });
+    }
+
+    /**
+     * Deletes every payment of one company, because a charged order cannot otherwise be cleaned up.
+     *
+     * <p><b>Why this is needed at all, and why it is not a convenience.</b> Since ADR-0002 T6a a charge appends
+     * a {@code sale_payment} row, and that table is append-only in both halves: {@code V83} revokes
+     * {@code UPDATE, DELETE} from the application role and a {@code BEFORE UPDATE OR DELETE} trigger refuses the
+     * statement even for the owner. The same file makes {@code (company_id, sales_order_id)} a foreign key to the
+     * order ({@code fk_payment_order_same_company}), so a suite's {@code salesOrderRepository.deleteAll()} fails
+     * on that key while a payment exists — and it fails for whichever case runs next, not the one that charged.
+     * The rows therefore go here, through the container's own login with the append-only trigger and the
+     * referential checks suppressed for one transaction ({@code SET LOCAL}, so the setting dies at
+     * {@code COMMIT} and no sibling suite can observe it): the same mechanism, and the same reason,
+     * {@link #deleteStockLedger} states in full.</p>
+     *
+     * <p><b>Why it lives on the base class.</b> The sales-order suites are not the only ones whose fixtures
+     * charge a document, and a helper copied into the second suite is a second place the order of the two
+     * deletes can be written wrong.</p>
+     *
+     * @param companyId the company whose payments go. Never {@code null}: a null would delete nothing and read
+     *     as a pass, which is the failure mode this helper exists to make impossible
+     * @throws IllegalStateException when a delete fails, so a teardown never reports a clean container it did
+     *     not produce
+     */
+    protected static void deleteSalePayments(UUID companyId) {
+        if (companyId == null) {
+            throw new IllegalArgumentException(
+                    "deleting a company's payments needs the company they belong to, and got null");
+        }
+        try (var connection = STOCK_LEDGER_CLEANUP.getConnection()) {
+            connection.setAutoCommit(false);
+            try {
+                try (var statement = connection.createStatement()) {
+                    statement.execute("SET LOCAL session_replication_role = replica");
+                }
+                for (var sql : List.of(
+                        "DELETE FROM sale_payment_void WHERE company_id = ?",
+                        "DELETE FROM sale_payment WHERE company_id = ?")) {
+                    try (var prepared = connection.prepareStatement(sql)) {
+                        prepared.setObject(1, companyId);
+                        prepared.executeUpdate();
+                    }
+                }
+                connection.commit();
+            } catch (SQLException failed) {
+                connection.rollback();
+                throw new IllegalStateException("could not delete the payments of company " + companyId, failed);
+            } finally {
+                connection.setAutoCommit(true);
+            }
+        } catch (SQLException failed) {
+            throw new IllegalStateException("could not reach the container to delete the sale payments", failed);
+        }
     }
 
     /**

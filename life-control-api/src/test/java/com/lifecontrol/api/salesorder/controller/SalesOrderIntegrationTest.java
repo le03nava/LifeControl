@@ -61,7 +61,6 @@ import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
 import com.lifecontrol.api.support.TenantFixtures;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
-import java.sql.SQLException;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
@@ -77,7 +76,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
-import javax.sql.DataSource;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -197,13 +195,6 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
     private static final SimpleGrantedAuthority ROLE_LC_SALES = new SimpleGrantedAuthority("ROLE_lc-sales");
 
     /**
-     * The pool {@link #deleteSalePayments} opens on the container's own login: one per JVM, like the base
-     * class's ledger-cleaning pool, because a new {@code HikariDataSource} per call would leak a pool per
-     * test method.
-     */
-    private static final DataSource SALE_PAYMENT_CLEANUP = containerSuperuserPool();
-
-    /**
      * The ledger source of the stock this fixture seeds.
      *
      * <p>A discriminator that can never be mistaken for a real one: a sale states its line and a receipt its
@@ -244,7 +235,8 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
     @AfterEach
     void tearDown() {
         // A charged order's payment rows go first: they are append-only and they reference the order, so
-        // leaving them behind fails the next case's cleanup on fk_payment_order_same_company.
+        // leaving them behind fails the next case's cleanup on fk_payment_order_same_company. The helper is
+        // the base class's, because this suite is no longer the only one whose fixture charges a document.
         if (companyId != null) {
             deleteSalePayments(companyId);
         }
@@ -270,53 +262,6 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
         // instead of silently matching none, and leaving it on the thread would leak into whatever suite
         // runs next on this one.
         TenantScope.clear();
-    }
-
-    /**
-     * Deletes every payment of one company, because a charged order cannot otherwise be cleaned up.
-     *
-     * <p><b>Why this is needed at all, and why it is not a convenience.</b> Since ADR-0002 T6a a charge
-     * appends a {@code sale_payment} row, and that table is append-only in both halves: {@code V83} revokes
-     * {@code UPDATE, DELETE} from the application role and a {@code BEFORE UPDATE OR DELETE} trigger refuses
-     * the statement even for the owner. The same file makes {@code (company_id, sales_order_id)} a foreign
-     * key to the order ({@code fk_payment_order_same_company}), so the {@code deleteAll()} in
-     * {@link #setUp()} fails on that key while a payment exists — which would break whichever case runs next,
-     * not the one that charged. The rows therefore go here, through the container's own login with the
-     * append-only trigger and the referential checks suppressed for one transaction
-     * ({@code SET LOCAL}, so the setting dies at {@code COMMIT} and no sibling suite can observe it): the
-     * same mechanism, and the same reason, that {@code deleteStockLedger} states in full in the base class.
-     *
-     * @param companyId the company whose payments go. Never {@code null}: a null would delete nothing and
-     *     read as a pass, which is the failure mode this helper exists to make impossible
-     */
-    private void deleteSalePayments(UUID companyId) {
-        if (companyId == null) {
-            throw new IllegalArgumentException("deleting a company's payments needs the company they belong to");
-        }
-        try (var connection = SALE_PAYMENT_CLEANUP.getConnection()) {
-            connection.setAutoCommit(false);
-            try {
-                try (var statement = connection.createStatement()) {
-                    statement.execute("SET LOCAL session_replication_role = replica");
-                }
-                for (var sql : List.of(
-                        "DELETE FROM sale_payment_void WHERE company_id = ?",
-                        "DELETE FROM sale_payment WHERE company_id = ?")) {
-                    try (var prepared = connection.prepareStatement(sql)) {
-                        prepared.setObject(1, companyId);
-                        prepared.executeUpdate();
-                    }
-                }
-                connection.commit();
-            } catch (SQLException failed) {
-                connection.rollback();
-                throw new IllegalStateException("could not delete the payments of company " + companyId, failed);
-            } finally {
-                connection.setAutoCommit(true);
-            }
-        } catch (SQLException failed) {
-            throw new IllegalStateException("could not reach the container to delete the sale payments", failed);
-        }
     }
 
     /**
@@ -905,14 +850,14 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
         }
     }
 
-    // ─── 5.1 Create order with items → stock deducted ─────────────
+    // ─── 5.1 Create order with items → the charge books the stock ─
 
     @Nested
-    @DisplayName("5.1 Create order with items — stock deducted")
+    @DisplayName("5.1 Create order with items — the charge books the stock")
     class CreateOrderStockDeductionTests {
 
         @Test
-        @DisplayName("should create order and deduct stock per variant")
+        @DisplayName("should create the order without booking stock and deduct it per variant when it is charged")
         void createOrderWithItems_StockDeducted() throws Exception {
             var variant = createTestVariant(new BigDecimal("100.00"));
 
@@ -932,12 +877,15 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                     .andExpect(jsonPath("$.items.length()").value(1))
                     .andReturn();
 
-            var itemId = UUID.fromString(objectMapper
-                    .readTree(result.getResponse().getContentAsString())
-                    .get("items")
-                    .get(0)
-                    .get("id")
-                    .asText());
+            var root = objectMapper.readTree(result.getResponse().getContentAsString());
+            var orderId = UUID.fromString(root.get("id").asText());
+            var itemId = UUID.fromString(root.get("items").get(0).get("id").asText());
+
+            // ADR-0002 decision 7: creating the document moves nothing. The position the fixture seeded is the
+            // position the charge will find, and the ledger holds no row of this document's yet.
+            assertNothingBooked(variant.getId(), "100.00");
+
+            chargeFromItsCurrentState(orderId);
 
             // Verify the deduction reached both sides: aggregate and location 100 - 5 = 95
             assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("95.00"));
@@ -955,15 +903,25 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
         }
     }
 
-    // ─── 5.2 Create order with insufficient stock → 409 ──────────
+    // ─── 5.2 The charge of a document the store cannot cover → 409 ─
 
     @Nested
-    @DisplayName("5.2 Create order with insufficient stock — 409")
+    @DisplayName("5.2 Charge with insufficient stock — 409 and nothing written")
     class CreateOrderInsufficientStockTests {
 
+        /**
+         * The refusal moved from the create to the charge, and it is stronger for it: the create succeeds, and
+         * the charge that cannot cover its stock rolls back the payment, the transition, the line states and the
+         * movement of the variant that could have covered it.
+         *
+         * <p><b>Why the create half is an assertion and not scaffolding.</b> A document may state more than the
+         * store holds — that is a document, and its money is the customer's to agree — so the 201 here is the
+         * other side of decision 7 and not an incidental step. The engine is the refusal, and it runs once, under
+         * the order's lock.</p>
+         */
         @Test
-        @DisplayName("should return 409 Conflict when stock insufficient, no order created")
-        void createOrder_InsufficientStock_Returns409() throws Exception {
+        @DisplayName("should create the document holding more than the store has, and refuse its charge with 409")
+        void createOrder_InsufficientStock_Charge_Returns409() throws Exception {
             var variant = createTestVariant(new BigDecimal("5.00"));
 
             var itemRequest = new SalesOrderItemRequest(
@@ -971,27 +929,45 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
 
             var request = new SalesOrderRequest(customerId, companyStoreId, shiftId, "user123", List.of(itemRequest));
 
-            mockMvc.perform(post("/api/sales-orders")
+            var created = mockMvc.perform(post("/api/sales-orders")
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(request))
+                            .with(scopedSalesJwt()))
+                    .andExpect(status().isCreated())
+                    .andReturn();
+            var orderId = UUID.fromString(objectMapper
+                    .readTree(created.getResponse().getContentAsString())
+                    .get("id")
+                    .asText());
+            assertNothingBooked(variant.getId(), "5.00");
+
+            transitionOrder(orderId, activeStatusId);
+
+            mockMvc.perform(patch("/api/sales-orders/{id}/charge", orderId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(
+                                    new ChargeSalesOrderRequest(savedPaymentMethodId())))
                             .with(scopedSalesJwt()))
                     .andExpect(status().isConflict())
                     .andExpect(jsonPath("$.status").value(409))
                     // The documented sale contract, with its own numbers: the position is the authority and its
-                    // refusal is the documented 409, not the projection trigger's database error. These are the
-                    // numbers the retired divergence case used to pin, pinned here because the position is now the
-                    // only balance a sale can be refused by.
+                    // refusal is the documented 409, not the projection trigger's database error.
                     .andExpect(jsonPath("$.message")
                             .value(org.hamcrest.Matchers.containsString(
                                     "Insufficient stock for variant " + variant.getId())))
                     .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("requested 10")))
                     .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("available 5")));
 
-            // Verify no order was created (our cleanup already deleted all; verify no new ones)
-            assertThat(salesOrderRepository.findAll()).isEmpty();
-
-            // Verify the projection is unchanged and the ledger holds nothing but the fixture's own opening: a
-            // failed deduction must leave no SALE row behind.
+            // The refusal is the whole transaction's: no payment row (the table is append-only, so a row that
+            // landed could not be taken back), no transition out of Active, the line still waiting, and the
+            // position and the ledger exactly as the charge found them.
+            assertThat(paymentsOf(orderId)).isEmpty();
+            assertThat(inTransaction(() ->
+                            salesOrderRepository.findById(orderId).orElseThrow().getStatus()))
+                    .isEqualTo(SalesOrderState.ACTIVE);
+            assertThat(inTransaction(() -> itemRepository.findBySalesOrderId(orderId)))
+                    .singleElement()
+                    .satisfies(item -> assertThat(item.getStatus()).isEqualTo(SalesOrderItemState.PENDING));
             assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("5.00"));
             assertThat(locationStockOf(variant.getId(), salesLocationId)).isEqualByComparingTo(new BigDecimal("5.00"));
             assertThat(movementsOf(variant.getId())).isEmpty();
@@ -1004,26 +980,41 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
         // same refusal with the numbers the position states.
 
         @Test
-        @DisplayName("should return 409, not 400, when the variant is not stocked in the order's store")
-        void createOrder_VariantNotStockedInStore_Returns409() throws Exception {
+        @DisplayName("should answer the engine's refusal, not a 400, when the variant is not stocked in the store")
+        void createOrder_VariantNotStockedInStore_Charge() throws Exception {
             var variant = createVariantWithoutStoreStock();
 
             var itemRequest = new SalesOrderItemRequest(
                     null, variant.getId(), new BigDecimal("1.00"), new BigDecimal("100.00"), BigDecimal.ZERO, null);
-            var request = new SalesOrderRequest(customerId, companyStoreId, shiftId, "user123", List.of(itemRequest));
-
-            // The variant exists and is enabled but has no product_variant_store_stock row in this
-            // store: that is zero sellable stock (409), not a bad request (400) or a server error.
-            mockMvc.perform(post("/api/sales-orders")
+            var created = mockMvc.perform(post("/api/sales-orders")
                             .contentType(MediaType.APPLICATION_JSON)
-                            .content(objectMapper.writeValueAsString(request))
+                            .content(objectMapper.writeValueAsString(new SalesOrderRequest(
+                                    customerId, companyStoreId, shiftId, "user123", List.of(itemRequest))))
+                            .with(scopedSalesJwt()))
+                    .andExpect(status().isCreated())
+                    .andReturn();
+            var orderId = UUID.fromString(objectMapper
+                    .readTree(created.getResponse().getContentAsString())
+                    .get("id")
+                    .asText());
+            transitionOrder(orderId, activeStatusId);
+
+            // The variant exists and is enabled but has no position in this store: that is zero sellable stock,
+            // and the engine answers it as the stock refusal (409) and not as a malformed request (400) — the
+            // position gate runs before any store row is read. Stated here because this is the boundary where
+            // it could quietly become the 400 `IllegalArgumentException` the engine also carries.
+            mockMvc.perform(patch("/api/sales-orders/{id}/charge", orderId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(
+                                    new ChargeSalesOrderRequest(savedPaymentMethodId())))
                             .with(scopedSalesJwt()))
                     .andExpect(status().isConflict())
                     .andExpect(jsonPath("$.status").value(409))
                     .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("Insufficient stock")));
 
-            // Nothing was written for the unstocked variant: no store row, no legacy balance row and no movement.
-            assertThat(salesOrderRepository.findAll()).isEmpty();
+            // Nothing was written for the unstocked variant: no store row, no balance row and no movement — and
+            // no payment, which is the half the charge adds to this case.
+            assertThat(paymentsOf(orderId)).isEmpty();
             assertThat(productVariantStoreStockRepository.findByProductVariantIdAndCompanyStoreId(
                             variant.getId(), companyStoreId))
                     .isEmpty();
@@ -1035,14 +1026,14 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
         }
     }
 
-    // ─── 5.3 Add item to order → stock deducted ──────────────────
+    // ─── 5.3 Add item to order → the charge books it ──────────────
 
     @Nested
-    @DisplayName("5.3 Add item to order — stock deducted")
+    @DisplayName("5.3 Add item to order — the charge books the stock")
     class AddItemStockDeductionTests {
 
         @Test
-        @DisplayName("should deduct stock when item added to existing order")
+        @DisplayName("should add the line without booking stock, and deduct it when the order is charged")
         void addItem_StockDeducted() throws Exception {
             // Create an order without items
             var request = new SalesOrderRequest(customerId, companyStoreId, shiftId, "user123", null);
@@ -1080,6 +1071,11 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                     .get("id")
                     .asText());
 
+            // The add is a line write: the store still has all 50, and the document holds none of them.
+            assertNothingBooked(variant.getId(), "50.00");
+
+            chargeFromItsCurrentState(UUID.fromString(orderId));
+
             // Verify aggregate and location stock: 50 - 3 = 47
             assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("47.00"));
             assertThat(locationStockOf(variant.getId(), salesLocationId)).isEqualByComparingTo(new BigDecimal("47.00"));
@@ -1091,97 +1087,65 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
         }
     }
 
-    // ─── 5.4 Update item quantity → correct delta ────────────────
+    // ─── 5.4 Update item quantity → the charge books the stated quantity ─
 
     @Nested
-    @DisplayName("5.4 Update item quantity — correct delta adjustment")
+    @DisplayName("5.4 Update item quantity — the document edits nothing, the charge books what it states")
     class UpdateItemQuantityDeltaTests {
 
         @Test
-        @DisplayName("should deduct more on increase, restore on decrease")
-        void updateItem_QuantityChange_CorrectDelta() throws Exception {
+        @DisplayName("should book the quantity the line states at the charge, whatever the edits before it")
+        void updateItem_QuantityChange_BooksTheStatedQuantity() throws Exception {
             var variant = createTestVariant(new BigDecimal("100.00"));
 
-            // Create order with item (qty 5 → stock becomes 95)
-            var createItem = new SalesOrderItemRequest(
-                    null, variant.getId(), new BigDecimal("5.00"), new BigDecimal("100.00"), BigDecimal.ZERO, null);
+            var placed = createOrder(line(null, variant.getId(), "5.00"));
+            var itemId = placed.itemId(variant.getId());
 
-            var createRequest =
-                    new SalesOrderRequest(customerId, companyStoreId, shiftId, "user123", List.of(createItem));
+            // The two edits of the same line, in the order a cashier would make them: 5 → 8 → 2.
+            for (var quantity : List.of("8.00", "2.00")) {
+                mockMvc.perform(put("/api/sales-orders/{id}/items/{itemId}", placed.orderId(), itemId)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsString(line(itemId, variant.getId(), quantity)))
+                                .with(scopedSalesJwt()))
+                        .andExpect(status().isOk())
+                        .andExpect(jsonPath("$.quantity").value(Double.parseDouble(quantity)));
+                assertNothingBooked(variant.getId(), "100.00");
+            }
 
-            var createResult = mockMvc.perform(post("/api/sales-orders")
-                            .contentType(MediaType.APPLICATION_JSON)
-                            .content(objectMapper.writeValueAsString(createRequest))
-                            .with(scopedSalesJwt()))
-                    .andExpect(status().isCreated())
-                    .andReturn();
+            chargeFromItsCurrentState(placed.orderId());
 
-            var root = objectMapper.readTree(createResult.getResponse().getContentAsString());
-            var orderId = root.get("id").asText();
-            var itemId = root.get("items").get(0).get("id").asText();
-
-            // Verify initial stock: 100 - 5 = 95
-            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("95.00"));
-
-            // Update quantity to 8 (increase by 3 → stock becomes 92)
-            var increaseRequest = new SalesOrderItemRequest(
-                    UUID.fromString(itemId),
-                    variant.getId(),
-                    new BigDecimal("8.00"),
-                    new BigDecimal("100.00"),
-                    BigDecimal.ZERO,
-                    null);
-
-            mockMvc.perform(put("/api/sales-orders/{id}/items/{itemId}", orderId, itemId)
-                            .contentType(MediaType.APPLICATION_JSON)
-                            .content(objectMapper.writeValueAsString(increaseRequest))
-                            .with(scopedSalesJwt()))
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.quantity").value(8.00));
-
-            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("92.00"));
-            assertThat(locationStockOf(variant.getId(), salesLocationId)).isEqualByComparingTo(new BigDecimal("92.00"));
-
-            // Update quantity to 2 (decrease by 6 → stock becomes 98)
-            var decreaseRequest = new SalesOrderItemRequest(
-                    UUID.fromString(itemId),
-                    variant.getId(),
-                    new BigDecimal("2.00"),
-                    new BigDecimal("100.00"),
-                    BigDecimal.ZERO,
-                    null);
-
-            mockMvc.perform(put("/api/sales-orders/{id}/items/{itemId}", orderId, itemId)
-                            .contentType(MediaType.APPLICATION_JSON)
-                            .content(objectMapper.writeValueAsString(decreaseRequest))
-                            .with(scopedSalesJwt()))
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.quantity").value(2.00));
-
+            // The charge books what the line says at that moment: one SALE of 2.00 — not the 5 it was born with,
+            // not the 3 the growth was worth, and no compensating pair. The delta rule and the SALE_REVERSAL that
+            // implemented it left with the per-line path (ADR-0002 decision 7): there is one booking to make and
+            // one moment to make it.
             assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("98.00"));
             assertThat(locationStockOf(variant.getId(), salesLocationId)).isEqualByComparingTo(new BigDecimal("98.00"));
-
-            // The decrease reversed the line in full and re-sold the new quantity, so the ledger
-            // carries a compensating SALE_REVERSAL next to the SALE rows, all positive (W3-D7).
-            var movements = movementsOf(variant.getId());
-            assertThat(movements)
-                    .extracting(LedgerMovement::movementType)
-                    .contains(StockLedgerWriter.SALE, StockLedgerWriter.SALE_REVERSAL);
-            assertThat(movements).allSatisfy(m -> assertThat(m.quantity()).isGreaterThan(BigDecimal.ZERO));
+            assertThat(movementsOf(variant.getId()))
+                    .extracting(LedgerMovement::movementType, LedgerMovement::sourceId, LedgerMovement::quantity)
+                    .containsExactly(tuple(StockLedgerWriter.SALE, itemId, new BigDecimal("2.00")));
+            assertThat(movementsOfType(variant.getId(), StockLedgerWriter.SALE_REVERSAL))
+                    .as("nothing was given back, because nothing had been taken")
+                    .isEmpty();
         }
 
         /**
-         * The measurement shape (a) of the ledger's per-write identity rests on: a repeated request books
-         * nothing, and what makes it a no-op is the delta rule — document state — and not the movement's
-         * source key. Keying the movement on the document therefore does not move invariant I5 out of the
-         * ledger, which is the only reason the ledger-generated key was refused.
+         * A repeated edit books nothing, and since ADR-0002 decision 7 it books nothing for a stronger reason than
+         * the delta rule: the path has no booking to repeat.
+         *
+         * <p><b>What the retry half still proves.</b> Invariant I5 of
+         * {@code odd/tasks/ledger-per-write-identity.md} is that a repeated request must not add a movement, and
+         * the answer must not be the movement's source key — a key refuses a duplicate by failing, and a retry is
+         * legal. The per-line path answered it with document state (a zero delta registers nothing). The charge
+         * answers it structurally: a Completed document is refused before any payment or movement exists, and the
+         * edits this case repeats never book in the first place.</p>
          *
          * <p><b>Three sends, not two.</b> A retry has no bound, and a single no-op is indistinguishable from a
          * write that collided with {@code uq_movement_source} and was swallowed — so the row count is what is
-         * asserted, not the aggregate alone.</p>
+         * asserted, not the aggregate alone. The charge at the end is what shows the counter is still the
+         * authority: it is the line's first write, so the movement is booked under 1.</p>
          */
         @Test
-        @DisplayName("a retried quantity update books no movement: the delta rule is what makes a retry a no-op")
+        @DisplayName("a retried quantity update books nothing, and the charge books the line once")
         void aRetriedQuantityUpdateBooksNoMovement() throws Exception {
             var variant = createTestVariant(new BigDecimal("100.00"));
 
@@ -1200,8 +1164,11 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             var itemId = UUID.fromString(root.get("items").get(0).get("id").asText());
 
             assertThat(ledgerSaleRowsOf(variant.getId()))
-                    .as("the creation is one SALE row, which is the count the retries must not raise")
-                    .isEqualTo(1);
+                    .as("the creation books nothing: a document holds no stock until its charge")
+                    .isZero();
+            assertThat(writeSeqOf(itemId))
+                    .as("and it numbers nothing, because it books nothing")
+                    .isZero();
 
             var retry = line(itemId, variant.getId(), "5.00");
             for (int attempt = 0; attempt < 3; attempt++) {
@@ -1214,14 +1181,25 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             }
 
             assertThat(ledgerSaleRowsOf(variant.getId()))
-                    .as("SalesOrderService:974-981 books nothing when the delta is zero, so a repeated request "
-                            + "reads the document and stops: I5's retry half is carried by document state, not by "
-                            + "the source key")
+                    .as("SalesOrderService.updateSalesOrderItem books nothing on any delta, so a repeated request "
+                            + "reads the document and stops: I5's retry half is carried by the path having no "
+                            + "booking, not by the source key")
+                    .isZero();
+            assertThat(writeSeqOf(itemId))
+                    .as("the retry books nothing, so it bumps nothing: a bump with no movement under it would pass "
+                            + "the row count above while quietly disagreeing with the ledger")
+                    .isZero();
+            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("100.00"));
+            assertThat(locationStockOf(variant.getId(), salesLocationId))
+                    .isEqualByComparingTo(new BigDecimal("100.00"));
+
+            chargeFromItsCurrentState(orderId);
+
+            assertThat(ledgerSaleRowsOf(variant.getId()))
+                    .as("the charge is the document's one booking, and it repeats nothing either")
                     .isEqualTo(1);
             assertThat(writeSeqOf(itemId))
-                    .as("the retry books nothing, so it bumps nothing: a gap in the sequence is allowed, a "
-                            + "busted counter is not, and a bump on the zero-delta branch would pass every "
-                            + "assertion above while quietly disagreeing with the movements")
+                    .as("the charge takes the line's first write sequence, which is the number the movement copies")
                     .isEqualTo(1L);
             assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("95.00"));
             assertThat(locationStockOf(variant.getId(), salesLocationId)).isEqualByComparingTo(new BigDecimal("95.00"));
@@ -1271,37 +1249,27 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
         private record LedgerSaleIdentity(String sourceType, UUID sourceId, long writeSeq) {}
 
         /**
-         * Two edits of one line, through the endpoint that makes them, book two writes — and the ledger can name
-         * both.
+         * Two edits of one line book nothing, and the charge that follows is that line's one write.
          *
-         * <p><b>What this case is the witness of.</b> {@code sales_order_items.write_seq} ({@code V73}) is bumped by
-         * the service on every deduction and copied onto the movement, so the ledger's vocabulary — {@code
-         * source_type} = the line's discriminator, {@code source_id} = the line id — gains a third dimension: the
-         * write. Before it, the second {@code SALE} row of one line at one location was refused by {@code
-         * uq_movement_source}, which is why a sale had to book the legacy row it mirrored instead of the document
-         * line it belongs to.</p>
+         * <p><b>What this case was, and why it is retargeted rather than deleted.</b> It pinned the ledger's
+         * per-write identity from the edit path: two edits of one line booked two {@code SALE} rows, and nothing
+         * but {@code sales_order_items.write_seq} ({@code V73}) could tell them apart. Under ADR-0002 decision 7 an
+         * edit books nothing, so the second {@code SALE} row the fifth column existed for no longer comes from
+         * here — the subject belongs to the charge, which books one movement per line and numbers it from the same
+         * counter. The identity the ledger states is still the triple; what changed is how many writes one line
+         * has.
          *
          * <p><b>Why it goes through the controller and not through a fixture with hand-written numbers.</b> The
          * numbers are the service's to produce: a case that states them itself would prove the key is wide enough
          * and nothing about the bump, and the bump is the half that can silently repeat a value.</p>
          */
         @Test
-        @DisplayName("two edits of one line book two distinct write_seq values under SALES_ORDER_ITEM")
-        void twoEditsOfOneLineBookTwoDistinctWriteSequences() throws Exception {
+        @DisplayName("two edits of one line book nothing, and the charge books it once under write_seq 1")
+        void twoEditsOfOneLineBookNothingAndTheChargeBooksItOnce() throws Exception {
             var variant = createTestVariant(new BigDecimal("100.00"));
-            var createRequest = new SalesOrderRequest(
-                    customerId, companyStoreId, shiftId, "user123", List.of(line(null, variant.getId(), "5.00")));
-
-            var created = mockMvc.perform(post("/api/sales-orders")
-                            .contentType(MediaType.APPLICATION_JSON)
-                            .content(objectMapper.writeValueAsString(createRequest))
-                            .with(scopedSalesJwt()))
-                    .andExpect(status().isCreated())
-                    .andReturn();
-
-            var root = objectMapper.readTree(created.getResponse().getContentAsString());
-            var orderId = UUID.fromString(root.get("id").asText());
-            var itemId = UUID.fromString(root.get("items").get(0).get("id").asText());
+            var placed = createOrder(line(null, variant.getId(), "5.00"));
+            var orderId = placed.orderId();
+            var itemId = placed.itemId(variant.getId());
 
             for (var quantity : List.of("8.00", "10.00")) {
                 mockMvc.perform(put("/api/sales-orders/{id}/items/{itemId}", orderId, itemId)
@@ -1312,27 +1280,30 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                         .andExpect(jsonPath("$.quantity").value(Double.parseDouble(quantity)));
             }
 
+            assertThat(ledgerSaleIdentitiesOf(variant.getId()))
+                    .as("neither edit booked anything, so the ledger holds no row of this line at all")
+                    .isEmpty();
+            assertThat(writeSeqOf(itemId)).as("and neither edit numbered one").isZero();
+
+            chargeFromItsCurrentState(orderId);
+
             var identities = ledgerSaleIdentitiesOf(variant.getId());
             assertThat(identities)
-                    .as("creation and the two increases are three writes, so the ledger holds three SALE rows")
-                    .hasSize(3);
+                    .as("the charge books the line once: there is one sale and it is of the quantity the line states")
+                    .hasSize(1);
             assertThat(identities)
                     .extracting(LedgerSaleIdentity::sourceType)
-                    .as("every row names the document line, not the legacy row it used to mirror")
+                    .as("the row names the document line, not the legacy row it used to mirror")
                     .containsOnly("SALES_ORDER_ITEM");
-            assertThat(identities)
-                    .extracting(LedgerSaleIdentity::sourceId)
-                    .as("and the same line, which is what makes the fifth column the only thing that can tell the "
-                            + "three apart")
-                    .containsOnly(itemId);
+            assertThat(identities).extracting(LedgerSaleIdentity::sourceId).containsOnly(itemId);
             assertThat(identities)
                     .extracting(LedgerSaleIdentity::writeSeq)
-                    .as("the bump hands out 1, 2, 3 in the order the writes happen, and the movement copies the "
-                            + "number it was booked under")
-                    .containsExactlyInAnyOrder(1L, 2L, 3L);
+                    .as("the charge takes the line's first sequence, and the movement copies the number it was "
+                            + "booked under")
+                    .containsExactly(1L);
             assertThat(writeSeqOf(itemId))
-                    .as("the line's own counter is the authority the copies came from")
-                    .isEqualTo(3L);
+                    .as("the line's own counter is the authority the copy came from")
+                    .isEqualTo(1L);
             assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("90.00"));
         }
 
@@ -1340,19 +1311,25 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
          * The locked bump, measured <b>inside</b> the bump: the first transaction bumps and holds the line's row
          * while the second one bumps, so the second must observe the value the first produced.
          *
+         * <p><b>Why the charge is the caller this measures.</b> Since ADR-0002 decision 7 the charge is the one
+         * writer of a line's counter, and the scenario the lock exists for is the one this case builds: two
+         * transactions bumping the same line at the same time. The counter starts at 0 because creating the
+         * document books nothing, so the answers are 1 and 2 rather than 2 and 3 — the invariant is the same and
+         * the starting point is the one the schema now states.</p>
+         *
          * <p><b>Why two threads released together are not enough, stated because the first version of this case did
          * exactly that.</b> Two threads that start at the same instant prove nothing about the statement: a
-         * read-modify-write reads, writes, and — when the two windows happen not to overlap — answers 2 and 3 as
+         * read-modify-write reads, writes, and — when the two windows happen not to overlap — answers 1 and 2 as
          * happily as {@code UPDATE … RETURNING} does. This case therefore holds the first bump's transaction open
          * until the second bump is <b>observed waiting on the row</b>, which is a fact the database reports rather
          * than a sleep that hopes for it:</p>
          * <ul>
          *   <li>{@code UPDATE … write_seq = write_seq + 1 … RETURNING} takes the row lock with the statement, so the
-         *       second bump blocks on it, is seen waiting, and re-reads the committed 2 under {@code READ COMMITTED}
-         *       after the first commits: the answers are 2 and 3.</li>
+         *       second bump blocks on it, is seen waiting, and re-reads the committed 1 under {@code READ COMMITTED}
+         *       after the first commits: the answers are 1 and 2.</li>
          *   <li>A {@code SELECT} followed by an {@code UPDATE} takes no lock on the read, so the second bump reads
-         *       the stale 1 and both write 2 back: the answers are 2 and 2 — the duplicate the fifth key column would
-         *       then have to refuse, i.e. a legal concurrent edit turned into a 500.</li>
+         *       the stale 0 and both write 1 back: the answers are 1 and 1 — the duplicate the fifth key column would
+         *       then have to refuse, i.e. a legal charge turned into a 500.</li>
          *   <li>An implementation that takes no lock at all never makes the second bump wait, and the barrier times
          *       out naming the other sessions instead of passing on a lucky interleaving.</li>
          * </ul>
@@ -1360,8 +1337,8 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
          * its own bump — the database says it is waiting on the row — before the first one commits.</p>
          */
         @Test
-        @DisplayName("the locked bump hands two concurrent edits distinct sequences")
-        void theLockedBumpHandsTwoConcurrentEditsDistinctSequences() throws Exception {
+        @DisplayName("the locked bump hands two concurrent writers distinct sequences")
+        void theLockedBumpHandsTwoConcurrentWritersDistinctSequences() throws Exception {
             var variant = createTestVariant(new BigDecimal("100.00"));
             var createRequest = new SalesOrderRequest(
                     customerId, companyStoreId, shiftId, "user123", List.of(line(null, variant.getId(), "5.00")));
@@ -1380,8 +1357,9 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                     .get("id")
                     .asText());
             assertThat(writeSeqOf(itemId))
-                    .as("the creation is this line's first write, so the counter starts at 1")
-                    .isEqualTo(1L);
+                    .as("the creation books nothing, so the counter still stands at 0: the charge is the writer "
+                            + "this case measures")
+                    .isZero();
 
             var theFirstBumpIsDone = new CountDownLatch(1);
             ExecutorService pool = Executors.newFixedThreadPool(2);
@@ -1405,14 +1383,14 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
 
                 assertThat(List.of(first.get(60, TimeUnit.SECONDS), second.get(60, TimeUnit.SECONDS)))
                         .as("the second bump was waiting on the row while the first held it, so it cannot have read "
-                                + "the value the first read: the answers are 2 and 3, and a read-modify-write answers "
-                                + "2 twice")
-                        .containsExactlyInAnyOrder(2L, 3L);
+                                + "the value the first read: the answers are 1 and 2, and a read-modify-write answers "
+                                + "1 twice")
+                        .containsExactlyInAnyOrder(1L, 2L);
             } finally {
                 pool.shutdownNow();
             }
 
-            assertThat(writeSeqOf(itemId)).as("and both bumps are on the line").isEqualTo(3L);
+            assertThat(writeSeqOf(itemId)).as("and both bumps are on the line").isEqualTo(2L);
         }
 
         /**
@@ -1469,63 +1447,73 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
         }
     }
 
-    // ─── 5.5 Delete item → stock restored ────────────────────────
+    // ─── 5.5 Delete item before the charge → nothing is booked ───
 
     @Nested
-    @DisplayName("5.5 Delete item — stock restored")
+    @DisplayName("5.5 Deleting a line before the charge — nothing is booked")
     class DeleteItemStockRestoredTests {
 
+        /**
+         * A line deleted from an uncharged document gives nothing back, because nothing was taken.
+         *
+         * <p><b>What moved.</b> This case used to assert the item delete's reconciliation: 7 units sold on create,
+         * given back on delete. Under ADR-0002 decision 7 nothing is sold on create, so the delete has nothing to
+         * give back — and the document that loses its only line has nothing left to charge. The reversal assertion
+         * is not dropped: it moves to {@link DeleteOrderStockRestoreTests}, the one path where a reversal exists.
+         * </p>
+         */
         @Test
-        @DisplayName("should restore stock when item is soft-deleted")
-        void deleteItem_StockRestored() throws Exception {
+        @DisplayName("should book nothing when the line is soft-deleted, and leave the document nothing to charge")
+        void deleteItemBeforeTheCharge_BooksNothing() throws Exception {
             var variant = createTestVariant(new BigDecimal("100.00"));
+            var placed = createOrder(line(null, variant.getId(), "7.00"));
+            var itemId = placed.itemId(variant.getId());
+            assertNothingBooked(variant.getId(), "100.00");
 
-            // Create order with item (qty 7 → stock becomes 93)
-            var createItem = new SalesOrderItemRequest(
-                    null, variant.getId(), new BigDecimal("7.00"), new BigDecimal("100.00"), BigDecimal.ZERO, null);
-
-            var createRequest =
-                    new SalesOrderRequest(customerId, companyStoreId, shiftId, "user123", List.of(createItem));
-
-            var createResult = mockMvc.perform(post("/api/sales-orders")
-                            .contentType(MediaType.APPLICATION_JSON)
-                            .content(objectMapper.writeValueAsString(createRequest))
-                            .with(scopedSalesJwt()))
-                    .andExpect(status().isCreated())
-                    .andReturn();
-
-            var root = objectMapper.readTree(createResult.getResponse().getContentAsString());
-            var orderId = root.get("id").asText();
-            var itemId = root.get("items").get(0).get("id").asText();
-
-            // Verify aggregate and location stock after create: 93
-            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("93.00"));
-            assertThat(locationStockOf(variant.getId(), salesLocationId)).isEqualByComparingTo(new BigDecimal("93.00"));
-
-            // Delete the item
-            mockMvc.perform(delete("/api/sales-orders/{id}/items/{itemId}", orderId, itemId)
+            mockMvc.perform(delete("/api/sales-orders/{id}/items/{itemId}", placed.orderId(), itemId)
                             .with(scopedSalesJwt()))
                     .andExpect(status().isNoContent());
 
-            // Verify both sides restored to 100, and the reversal is on the ledger for this line.
+            // The store never lost a unit, the line is gone, and the reversal the delete used to write does not
+            // exist because no deduction did.
+            assertThat(itemEnabled(itemId)).isFalse();
             assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("100.00"));
             assertThat(locationStockOf(variant.getId(), salesLocationId))
                     .isEqualByComparingTo(new BigDecimal("100.00"));
+            assertThat(movementsOfType(variant.getId(), StockLedgerWriter.SALE_REVERSAL))
+                    .isEmpty();
 
-            var reversals = movementsOf(variant.getId()).stream()
-                    .filter(m -> StockLedgerWriter.SALE_REVERSAL.equals(m.movementType()))
-                    .toList();
-            assertThat(reversals).hasSize(1);
-            assertThat(reversals.get(0).sourceId()).isEqualTo(UUID.fromString(itemId));
+            // The other half of the same fact: the document left with no line has nothing to charge, so the line
+            // contributes neither stock nor money.
+            transitionOrder(placed.orderId(), activeStatusId);
+            mockMvc.perform(patch("/api/sales-orders/{id}/charge", placed.orderId())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(
+                                    new ChargeSalesOrderRequest(savedPaymentMethodId())))
+                            .with(scopedSalesJwt()))
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.message")
+                            .value(org.hamcrest.Matchers.containsString("there is nothing to pay")));
+            assertThat(paymentsOf(placed.orderId())).isEmpty();
+            assertThat(movementsOf(variant.getId())).isEmpty();
         }
 
+        /**
+         * Deleting a line and re-enabling it books nothing either way, and the charge that follows books it
+         * <b>once</b>.
+         *
+         * <p><b>What the case was.</b> W3-D11: a soft-deleted line was given back, so re-enabling it had to be a
+         * fresh hold — and this pinned the re-deduction (SALE, SALE_REVERSAL, SALE again). Nothing is booked before
+         * the charge now, so the interesting statement is the one that replaced it: the document ends up with one
+         * movement for that line and never two, whatever it went through.</p>
+         */
         @Test
-        @DisplayName("should re-deduct a re-enabled deleted line exactly as on first creation (W3-D11)")
-        void deleteItemThenReEnableSameQuantity_DeductsAgain() throws Exception {
+        @DisplayName("should book nothing when a deleted line is re-enabled, and book it once at the charge")
+        void deleteItemThenReEnable_BooksOnceAtTheCharge() throws Exception {
             var variant = createTestVariant(new BigDecimal("100.00"));
             var placed = createOrder(line(null, variant.getId(), "4.00"));
             var itemId = placed.itemId(variant.getId());
-            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("96.00"));
+            assertNothingBooked(variant.getId(), "100.00");
 
             mockMvc.perform(delete("/api/sales-orders/{id}/items/{itemId}", placed.orderId(), itemId)
                             .with(scopedSalesJwt()))
@@ -1533,330 +1521,339 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("100.00"));
             assertThat(itemEnabled(itemId)).isFalse();
 
-            // The PUT carries the deleted line's id back: a soft-deleted line was already given its
-            // stock back, so it holds nothing and re-enabling it is a fresh hold, deducted in full.
+            // The PUT carries the deleted line's id back: the line is re-enabled and still holds nothing, because
+            // it never held anything.
             updateOrderItems(placed.orderId(), line(itemId, variant.getId(), "4.00"));
 
             assertThat(itemEnabled(itemId)).isTrue();
+            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("100.00"));
+            assertNothingBooked(variant.getId(), "100.00");
+
+            chargeFromItsCurrentState(placed.orderId());
+
+            // One sale of four, and no compensating row: the line holds what the charge booked and nothing else.
             assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("96.00"));
             assertThat(locationStockOf(variant.getId(), salesLocationId)).isEqualByComparingTo(new BigDecimal("96.00"));
-            // SALE(4), SALE_REVERSAL(4) from the delete, SALE(4) from the re-enable.
-            assertThat(movementsOfType(variant.getId(), StockLedgerWriter.SALE)).hasSize(2);
+            assertThat(movementsOfType(variant.getId(), StockLedgerWriter.SALE)).hasSize(1);
             assertThat(movementsOfType(variant.getId(), StockLedgerWriter.SALE_REVERSAL))
-                    .hasSize(1);
-        }
-    }
-
-    // ─── 5.6 Cancel order → stock restored (enabled items only) ───
-
-    @Nested
-    @DisplayName("5.6 Cancel order — stock restored once, soft-deleted items excluded")
-    class CancelOrderStockRestoreTests {
-
-        @Test
-        @DisplayName(
-                "should restore stock only for enabled items on cancel, without double-restoring soft-deleted ones")
-        void cancelOrder_RestoresEnabledItemsOnly_NoDoubleRestore() throws Exception {
-            var variant = createTestVariant(new BigDecimal("100.00"));
-
-            // Create order with 2 items: qty 3 and qty 5 → stock becomes 92
-            var item1 = new SalesOrderItemRequest(
-                    null, variant.getId(), new BigDecimal("3.00"), new BigDecimal("100.00"), BigDecimal.ZERO, null);
-            var item2 = new SalesOrderItemRequest(
-                    null, variant.getId(), new BigDecimal("5.00"), new BigDecimal("100.00"), BigDecimal.ZERO, null);
-
-            var createRequest =
-                    new SalesOrderRequest(customerId, companyStoreId, shiftId, "user123", List.of(item1, item2));
-
-            var createResult = mockMvc.perform(post("/api/sales-orders")
-                            .contentType(MediaType.APPLICATION_JSON)
-                            .content(objectMapper.writeValueAsString(createRequest))
-                            .with(scopedSalesJwt()))
-                    .andExpect(status().isCreated())
-                    .andReturn();
-
-            var root = objectMapper.readTree(createResult.getResponse().getContentAsString());
-            var orderId = root.get("id").asText();
-            var item1Id = root.get("items").get(0).get("id").asText();
-            var item2Id = root.get("items").get(1).get("id").asText();
-
-            // Stock after create: 100 - 3 - 5 = 92
-            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("92.00"));
-            assertThat(locationStockOf(variant.getId(), salesLocationId)).isEqualByComparingTo(new BigDecimal("92.00"));
-
-            // Soft-delete item1
-            mockMvc.perform(delete("/api/sales-orders/{id}/items/{itemId}", orderId, item1Id)
-                            .with(scopedSalesJwt()))
-                    .andExpect(status().isNoContent());
-
-            // Stock after delete item1: 92 + 3 = 95 (item1 already restored its stock)
-            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("95.00"));
-            assertThat(locationStockOf(variant.getId(), salesLocationId)).isEqualByComparingTo(new BigDecimal("95.00"));
-
-            // Cancel order: restores ONLY the enabled item2(qty 5). The soft-deleted
-            // item1 was already restored when deleted, so it must NOT be restored again.
-            var cancelRequest = new UpdateSalesOrderStatusRequest(cancelledStatusId);
-
-            mockMvc.perform(patch("/api/sales-orders/{id}/status", orderId)
-                            .contentType(MediaType.APPLICATION_JSON)
-                            .content(objectMapper.writeValueAsString(cancelRequest))
-                            .with(scopedSalesJwt()))
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.statusName").value("Cancelled"));
-
-            // Stock should be: 95 + 5 (item2) = 100 — no double-restore of item1, on both sides.
-            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("100.00"));
-            assertThat(locationStockOf(variant.getId(), salesLocationId))
-                    .isEqualByComparingTo(new BigDecimal("100.00"));
-
-            // Each line has exactly one reversal: item1's from its deletion, item2's from the
-            // cancellation. A second reversal of either would have credited stock twice (W3-D6).
-            assertThat(movementsOf(variant.getId()).stream()
-                            .filter(m -> StockLedgerWriter.SALE_REVERSAL.equals(m.movementType()))
-                            .map(LedgerMovement::sourceId)
-                            .toList())
-                    .containsExactlyInAnyOrder(UUID.fromString(item1Id), UUID.fromString(item2Id));
-        }
-    }
-
-    // ─── 5.7 Delete order (soft) → stock restored ────────────────
-
-    @Nested
-    @DisplayName("5.7 Delete order (soft) — stock restored")
-    class DeleteOrderStockRestoreTests {
-
-        @Test
-        @DisplayName("should restore stock when entire order is soft-deleted")
-        void deleteOrder_StockRestored() throws Exception {
-            var variant = createTestVariant(new BigDecimal("100.00"));
-
-            // Create order with item (qty 4 → stock becomes 96)
-            var createItem = new SalesOrderItemRequest(
-                    null, variant.getId(), new BigDecimal("4.00"), new BigDecimal("100.00"), BigDecimal.ZERO, null);
-
-            var createRequest =
-                    new SalesOrderRequest(customerId, companyStoreId, shiftId, "user123", List.of(createItem));
-
-            var createResult = mockMvc.perform(post("/api/sales-orders")
-                            .contentType(MediaType.APPLICATION_JSON)
-                            .content(objectMapper.writeValueAsString(createRequest))
-                            .with(scopedSalesJwt()))
-                    .andExpect(status().isCreated())
-                    .andReturn();
-
-            var orderId = objectMapper
-                    .readTree(createResult.getResponse().getContentAsString())
-                    .get("id")
-                    .asText();
-
-            // Verify aggregate and location stock after create: 96
-            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("96.00"));
-            assertThat(locationStockOf(variant.getId(), salesLocationId)).isEqualByComparingTo(new BigDecimal("96.00"));
-
-            // Soft-delete the entire order
-            mockMvc.perform(delete("/api/sales-orders/{id}", orderId).with(scopedSalesJwt()))
-                    .andExpect(status().isNoContent());
-
-            // Verify both sides restored to 100
-            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("100.00"));
-            assertThat(locationStockOf(variant.getId(), salesLocationId))
-                    .isEqualByComparingTo(new BigDecimal("100.00"));
-        }
-    }
-
-    // ─── 5.8 Complete order → stock unchanged ────────────────────
-
-    @Nested
-    @DisplayName("5.8 Complete order — stock unchanged")
-    class CompleteOrderStockUnchangedTests {
-
-        @Test
-        @DisplayName("should NOT restore stock when order completes")
-        void completeOrder_StockUnchanged() throws Exception {
-            var variant = createTestVariant(new BigDecimal("100.00"));
-
-            // Create order with item (qty 6 → stock becomes 94)
-            var createItem = new SalesOrderItemRequest(
-                    null, variant.getId(), new BigDecimal("6.00"), new BigDecimal("100.00"), BigDecimal.ZERO, null);
-
-            var createRequest =
-                    new SalesOrderRequest(customerId, companyStoreId, shiftId, "user123", List.of(createItem));
-
-            var createResult = mockMvc.perform(post("/api/sales-orders")
-                            .contentType(MediaType.APPLICATION_JSON)
-                            .content(objectMapper.writeValueAsString(createRequest))
-                            .with(scopedSalesJwt()))
-                    .andExpect(status().isCreated())
-                    .andReturn();
-
-            var orderId = objectMapper
-                    .readTree(createResult.getResponse().getContentAsString())
-                    .get("id")
-                    .asText();
-
-            // Verify stock: 94
-            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("94.00"));
-            assertThat(locationStockOf(variant.getId(), salesLocationId)).isEqualByComparingTo(new BigDecimal("94.00"));
-
-            // Transition Draft → Active
-            var activeReq = new UpdateSalesOrderStatusRequest(activeStatusId);
-            mockMvc.perform(patch("/api/sales-orders/{id}/status", orderId)
-                            .contentType(MediaType.APPLICATION_JSON)
-                            .content(objectMapper.writeValueAsString(activeReq))
-                            .with(scopedSalesJwt()))
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.statusName").value("Active"));
-
-            // Transition Active → Pending
-            var pendingReq = new UpdateSalesOrderStatusRequest(pendingStatusId);
-            mockMvc.perform(patch("/api/sales-orders/{id}/status", orderId)
-                            .contentType(MediaType.APPLICATION_JSON)
-                            .content(objectMapper.writeValueAsString(pendingReq))
-                            .with(scopedSalesJwt()))
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.statusName").value("Pending"));
-
-            // Transition Pending → Completed
-            var completeReq = new UpdateSalesOrderStatusRequest(completedStatusId);
-            mockMvc.perform(patch("/api/sales-orders/{id}/status", orderId)
-                            .contentType(MediaType.APPLICATION_JSON)
-                            .content(objectMapper.writeValueAsString(completeReq))
-                            .with(scopedSalesJwt()))
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.statusName").value("Completed"));
-
-            // Stock should remain 94 (no restoration on Complete), on both sides
-            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("94.00"));
-            assertThat(locationStockOf(variant.getId(), salesLocationId)).isEqualByComparingTo(new BigDecimal("94.00"));
-            assertThat(movementsOf(variant.getId()).stream()
-                            .filter(m -> StockLedgerWriter.SALE_REVERSAL.equals(m.movementType())))
                     .isEmpty();
         }
     }
 
-    // ─── 5.9 Concurrent orders same variant → serialized ─────────
+    // ─── 5.6 Cancel order → nothing to restore ───────────────────
 
     @Nested
-    @DisplayName("5.9 Concurrent orders same variant — serialized, no lost updates")
+    @DisplayName("5.6 Cancelling an uncharged order — no reversal for any line")
+    class CancelOrderStockRestoreTests {
+
+        /**
+         * A cancel restores nothing, because the document it cancels booked nothing.
+         *
+         * <p><b>What the case was, and the scenario it keeps.</b> It pinned the order-cancel reversal: the enabled
+         * lines given back, the soft-deleted one excluded, no line credited twice. Under ADR-0002 decision 7 a
+         * cancellation can only leave Draft, Active or Pending — none of which holds stock — so the scenario is
+         * kept with its two lines (one deleted first, one live) and the invariant it now states is that neither
+         * produces a reversal. {@code COMPLETED} is terminal, so there is no "cancel a charged order" case to move
+         * it to; the reversal a charged document has is its deletion, in
+         * {@link DeleteOrderStockRestoreTests}.</p>
+         */
+        @Test
+        @DisplayName("should restore nothing on cancel, whatever state its lines are in")
+        void cancelOrder_BooksNoReversalForEitherLine() throws Exception {
+            // Two variants, because the case has to name each line: `PlacedOrder` keys the ids by variant, and two
+            // lines of one variant would leave only one of them addressable.
+            var variant = createTestVariant(new BigDecimal("100.00"));
+            var variantB = createTestVariantB(new BigDecimal("100.00"));
+            var placed = createOrder(line(null, variant.getId(), "3.00"), line(null, variantB.getId(), "5.00"));
+            var deletedItemId = placed.itemId(variant.getId());
+            var liveItemId = placed.itemId(variantB.getId());
+            assertNothingBooked(variant.getId(), "100.00");
+            assertNothingBooked(variantB.getId(), "100.00");
+
+            // One line is soft-deleted, which used to be the case the cancel had to exclude from its reversal.
+            mockMvc.perform(delete("/api/sales-orders/{id}/items/{itemId}", placed.orderId(), deletedItemId)
+                            .with(scopedSalesJwt()))
+                    .andExpect(status().isNoContent());
+            assertNothingBooked(variant.getId(), "100.00");
+            assertNothingBooked(variantB.getId(), "100.00");
+
+            cancelOrder(placed.orderId());
+
+            // Neither line is credited: the deleted one has nothing to give back and the live one was never
+            // booked. The ledger holds no row of either, which is what "no double restore" became.
+            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("100.00"));
+            assertThat(locationStockOf(variant.getId(), salesLocationId))
+                    .isEqualByComparingTo(new BigDecimal("100.00"));
+            assertThat(stockPositionOf(variantB.getId())).isEqualByComparingTo(new BigDecimal("100.00"));
+            assertThat(locationStockOf(variantB.getId(), salesLocationId))
+                    .isEqualByComparingTo(new BigDecimal("100.00"));
+            assertThat(movementsOf(variant.getId())).isEmpty();
+            assertThat(movementsOf(variantB.getId())).isEmpty();
+            assertThat(inTransaction(() -> salesOrderRepository
+                            .findById(placed.orderId())
+                            .orElseThrow()
+                            .getStatus()))
+                    .isEqualTo(SalesOrderState.CANCELLED);
+            assertThat(itemEnabled(liveItemId)).isTrue();
+        }
+    }
+
+    // ─── 5.7 Delete a charged order → its charge is reversed ─────
+
+    @Nested
+    @DisplayName("5.7 Delete a charged order (soft) — the charge's booking is reversed")
+    class DeleteOrderStockRestoreTests {
+
+        /**
+         * The one path a reversal exists on: a document whose charge booked its stock, deleted afterwards.
+         *
+         * <p><b>Why the create no longer moves the stock and the delete still does.</b> ADR-0002 decision 7 makes the
+         * charge the booking, and a reversal is meaningful only against a booking. So the case charges first —
+         * which is what books the four units — and then deletes, which credits them back exactly once.
+         * {@code COMPLETED} is terminal for transitions but not for deletion, which is why this is the shape.</p>
+         */
+        @Test
+        @DisplayName("should restore the stock its charge booked when the order is soft-deleted, and only once")
+        void deleteOrder_StockRestored() throws Exception {
+            var variant = createTestVariant(new BigDecimal("100.00"));
+            var placed = createOrder(line(null, variant.getId(), "4.00"));
+            var itemId = placed.itemId(variant.getId());
+            assertNothingBooked(variant.getId(), "100.00");
+
+            chargeFromItsCurrentState(placed.orderId());
+            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("96.00"));
+            assertThat(locationStockOf(variant.getId(), salesLocationId)).isEqualByComparingTo(new BigDecimal("96.00"));
+
+            // Soft-delete the entire order
+            mockMvc.perform(delete("/api/sales-orders/{id}", placed.orderId()).with(scopedSalesJwt()))
+                    .andExpect(status().isNoContent());
+
+            // Verify both sides restored to 100, and the reversal is on the ledger for this line.
+            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("100.00"));
+            assertThat(locationStockOf(variant.getId(), salesLocationId))
+                    .isEqualByComparingTo(new BigDecimal("100.00"));
+            var reversals = movementsOfType(variant.getId(), StockLedgerWriter.SALE_REVERSAL);
+            assertThat(reversals).hasSize(1);
+            assertThat(reversals.get(0).sourceId()).isEqualTo(itemId);
+
+            // Deleting it again credits nothing: the engine restores a line's uncovered remainder, and after the
+            // first reversal there is none. This is where the "reversed twice" guard is now observable, because a
+            // second reversal is the only way to credit a charged document twice.
+            mockMvc.perform(delete("/api/sales-orders/{id}", placed.orderId()).with(scopedSalesJwt()))
+                    .andExpect(status().isNoContent());
+            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("100.00"));
+            assertThat(locationStockOf(variant.getId(), salesLocationId))
+                    .isEqualByComparingTo(new BigDecimal("100.00"));
+            assertThat(movementsOfType(variant.getId(), StockLedgerWriter.SALE_REVERSAL))
+                    .as("a second delete of the same document is a second reversal of the same reference, and the "
+                            + "engine credits only what the line still holds")
+                    .hasSize(1);
+        }
+    }
+
+    // ─── 5.8 The charge books the stock, once ─────────────────────
+
+    @Nested
+    @DisplayName("5.8 Charging a document books its stock, once")
+    class ChargeBooksTheStockTests {
+
+        /**
+         * The inversion of {@code completeOrder_StockUnchanged}, which T6b contradicts on purpose.
+         *
+         * <p><b>What the old case asserted and why it is now the opposite.</b> It created a document that deducted
+         * its six units, walked it Draft → Active → Pending → Completed and asserted the stock did not move — true,
+         * because the movement had already happened at create. Under ADR-0002 decision 7 creating books nothing and
+         * the charge books everything, so the same walk with a charge at the end is what has to move the stock; and
+         * the second charge is the other half, because a document that could be charged twice would book its stock
+         * twice and pay its total twice.</p>
+         */
+        @Test
+        @DisplayName("should move the stock on the charge, and a second charge neither moves it nor pays it again")
+        void charge_MovesStockAndASecondChargeRepeatsNothing() throws Exception {
+            var variant = createTestVariant(new BigDecimal("100.00"));
+            var placed = createOrder(line(null, variant.getId(), "6.00"));
+            var itemId = placed.itemId(variant.getId());
+            assertNothingBooked(variant.getId(), "100.00");
+
+            chargeFromItsCurrentState(placed.orderId());
+
+            // The charge is the moment the stock moves: 100 - 6 = 94, on both sides.
+            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("94.00"));
+            assertThat(locationStockOf(variant.getId(), salesLocationId)).isEqualByComparingTo(new BigDecimal("94.00"));
+            assertThat(movementsOfType(variant.getId(), StockLedgerWriter.SALE)).hasSize(1);
+            assertThat(movementsOfType(variant.getId(), StockLedgerWriter.SALE_REVERSAL))
+                    .isEmpty();
+            assertThat(paymentsOf(placed.orderId())).hasSize(1);
+
+            // The same request a second time, which is what a retried charge looks like.
+            var second = mockMvc.perform(patch("/api/sales-orders/{id}/charge", placed.orderId())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(
+                                    new ChargeSalesOrderRequest(savedPaymentMethodId())))
+                            .with(scopedSalesJwt()))
+                    .andReturn();
+
+            // A Completed document is not a chargable one: the refusal is the state guard's 400, taken under the
+            // lock that makes the retry see the first charge's commit (ADR-0002 M10).
+            assertThat(second.getResponse().getStatus()).isEqualTo(400);
+            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("94.00"));
+            assertThat(locationStockOf(variant.getId(), salesLocationId)).isEqualByComparingTo(new BigDecimal("94.00"));
+            assertThat(movementsOf(variant.getId()))
+                    .as("one movement of this line, not two: the retry never reached the engine")
+                    .hasSize(1);
+            assertThat(paymentsOf(placed.orderId()))
+                    .as("and one payment: `sale_payment` is append-only, so a second row could not be taken back")
+                    .hasSize(1);
+            assertThat(itemRepository.findById(itemId).orElseThrow().getStatus())
+                    .isEqualTo(SalesOrderItemState.ADDED);
+        }
+    }
+
+    // ─── 5.9 Concurrent charges same variant → serialized ────────
+
+    @Nested
+    @DisplayName("5.9 Concurrent charges of one variant — serialized, no lost updates")
     class ConcurrentOrdersSerializedTests {
 
+        /**
+         * Two charges of one variant, released together: one books, the other is refused, and the position is the
+         * winner's.
+         *
+         * <p><b>Why the concurrency moved from the create to the charge.</b> This case used to run two concurrent
+         * creates and assert that the engine serialized them — one 201, one 409. Creates book nothing now, so both
+         * would answer 201 and the case would pass while measuring nothing. The lock it is about is taken by the
+         * charge ({@code stock_position} in {@code applySaleDeduction}, under the order's own row lock), so that is
+         * where the two threads go: two documents, 8 and 5 units against a position of 10.</p>
+         *
+         * <p><b>What a lost update would look like.</b> Both charges reading 10 and both believing they fit would
+         * leave the position at 2 while two payments claim 13 units were sold, or at -3 if the projection allowed
+         * it. The assertions are therefore the pair: exactly one charge succeeds, and the movement the ledger holds
+         * states the quantity the position lost.</p>
+         */
         @Test
-        @DisplayName("should serialize concurrent mutations on same variant with no lost updates")
-        void concurrentOrders_Serialized_NoLostUpdates() throws Exception {
+        @DisplayName("should serialize concurrent charges of one variant with no lost updates")
+        void concurrentCharges_Serialized_NoLostUpdates() throws Exception {
             var variant = createTestVariant(new BigDecimal("10.00"));
+            var eight = createOrder(line(null, variant.getId(), "8.00"));
+            var five = createOrder(line(null, variant.getId(), "5.00"));
+            // Both documents are Active — the state a charge is taken from — so the race is the stock, not the
+            // document's own transition.
+            transitionOrder(eight.orderId(), activeStatusId);
+            transitionOrder(five.orderId(), activeStatusId);
+            assertNothingBooked(variant.getId(), "10.00");
 
+            var paymentMethodId = savedPaymentMethodId();
             var latch = new CountDownLatch(2);
             var startSignal = new CountDownLatch(1);
-
-            var itemRequest1 = new SalesOrderItemRequest(
-                    null, variant.getId(), new BigDecimal("8.00"), new BigDecimal("100.00"), BigDecimal.ZERO, null);
-            var request1 = new SalesOrderRequest(customerId, companyStoreId, shiftId, "user123", List.of(itemRequest1));
-
-            var itemRequest2 = new SalesOrderItemRequest(
-                    null, variant.getId(), new BigDecimal("5.00"), new BigDecimal("100.00"), BigDecimal.ZERO, null);
-            var request2 = new SalesOrderRequest(customerId, companyStoreId, shiftId, "user123", List.of(itemRequest2));
-
             var results = new int[2];
 
-            // Thread 1: create order with qty 8
-            var future1 = CompletableFuture.runAsync(() -> {
-                try {
-                    latch.countDown();
-                    startSignal.await(5, TimeUnit.SECONDS);
-                    var result = mockMvc.perform(post("/api/sales-orders")
-                            .contentType(MediaType.APPLICATION_JSON)
-                            .content(objectMapper.writeValueAsString(request1))
-                            .with(scopedSalesJwt()));
-                    results[0] = result.andReturn().getResponse().getStatus();
-                } catch (Exception e) {
-                    results[0] = 500;
-                }
+            var chargeOne = CompletableFuture.runAsync(() -> {
+                results[0] = chargeStatus(latch, startSignal, eight.orderId(), paymentMethodId);
+            });
+            var chargeTwo = CompletableFuture.runAsync(() -> {
+                results[1] = chargeStatus(latch, startSignal, five.orderId(), paymentMethodId);
             });
 
-            // Thread 2: create order with qty 5
-            var future2 = CompletableFuture.runAsync(() -> {
-                try {
-                    latch.countDown();
-                    startSignal.await(5, TimeUnit.SECONDS);
-                    var result = mockMvc.perform(post("/api/sales-orders")
-                            .contentType(MediaType.APPLICATION_JSON)
-                            .content(objectMapper.writeValueAsString(request2))
-                            .with(scopedSalesJwt()));
-                    results[1] = result.andReturn().getResponse().getStatus();
-                } catch (Exception e) {
-                    results[1] = 500;
-                }
-            });
-
-            // Wait for both threads to be ready, then release
             latch.await(5, TimeUnit.SECONDS);
             startSignal.countDown();
+            CompletableFuture.allOf(chargeOne, chargeTwo).get(30, TimeUnit.SECONDS);
 
-            CompletableFuture.allOf(future1, future2).get(30, TimeUnit.SECONDS);
+            // Exactly one charge took the stock. A second success would mean the position was read twice, and a
+            // pair of refusals would mean the lock refused more than the stock did.
+            assertThat(results)
+                    .as("one charge wins the position and the other is refused it")
+                    .contains(200, 409);
 
-            // Verify final state is consistent
             var stock = stockPositionOf(variant.getId());
-
-            // Stock should be consistent: either 2 (thread-1 took 8, thread-2 got 409),
-            // or 5 (thread-2 took 5, thread-1 got 409) — never negative or a lost-update
+            assertThat(stock)
+                    .as("the winner's deduction, and only that one")
+                    .isIn(new BigDecimal("2.00"), new BigDecimal("5.00"));
             assertThat(stock.compareTo(BigDecimal.ZERO)).isGreaterThanOrEqualTo(0);
-            assertThat(stock.compareTo(new BigDecimal("10.00"))).isLessThanOrEqualTo(0);
+            assertThat(locationStockOf(variant.getId(), salesLocationId)).isEqualByComparingTo(stock);
 
-            // At least one request succeeded
-            boolean hasSuccess = (results[0] == 201 || results[1] == 201);
-            assertThat(hasSuccess)
-                    .as("At least one concurrent order should succeed")
-                    .isTrue();
+            var sales = movementsOfType(variant.getId(), StockLedgerWriter.SALE);
+            assertThat(sales).hasSize(1);
+            assertThat(sales.get(0).quantity())
+                    .as("the movement states the quantity the position lost")
+                    .isEqualByComparingTo(new BigDecimal("10.00").subtract(stock));
+            // And one payment between the two documents: the refused charge wrote none.
+            assertThat(paymentsOf(eight.orderId()).size()
+                            + paymentsOf(five.orderId()).size())
+                    .isEqualTo(1);
+        }
 
-            // Stock must reflect one successful deduction — either 2 or 5 depending on race winner
-            if (hasSuccess) {
-                assertThat(stock).isIn(new BigDecimal("2.00"), new BigDecimal("5.00"));
-                // And the location balance must agree with the aggregate, never drift from it.
-                assertThat(locationStockOf(variant.getId(), salesLocationId)).isEqualByComparingTo(stock);
+        /** Charges one order from one of the case's threads and answers the status the API stated. */
+        private int chargeStatus(CountDownLatch ready, CountDownLatch start, UUID orderId, UUID paymentMethodId) {
+            try {
+                ready.countDown();
+                start.await(5, TimeUnit.SECONDS);
+                return mockMvc.perform(patch("/api/sales-orders/{id}/charge", orderId)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsString(new ChargeSalesOrderRequest(paymentMethodId)))
+                                .with(scopedSalesJwt()))
+                        .andReturn()
+                        .getResponse()
+                        .getStatus();
+            } catch (Exception failed) {
+                return 500;
             }
         }
     }
 
-    // ─── 5.10 Multi-item create, one insufficient → full rollback
+    // ─── 5.10 A charge that cannot cover its stock → full rollback
 
     @Nested
-    @DisplayName("5.10 Multi-item create with insufficient — full rollback")
+    @DisplayName("5.10 A charge whose stock cannot be covered — full rollback")
     class MultiItemCreateRollbackTests {
 
+        /**
+         * The strongest rollback this document can state: the payment, the transition, the line states and the
+         * movement of the line that <b>could</b> have been covered all go back together.
+         *
+         * <p><b>Why it is stronger than the create-side case it replaces.</b> That case only had the inserted lines
+         * to roll back. A charge writes four things in one transaction — a {@code sale_payment} row that is
+         * append-only, the breakdown, the order's state and every line's state — and the stock batch itself runs
+         * two deductions, the first of which succeeds. Each of those is asserted here, because each of them is a
+         * write that would survive on its own if the transaction boundary were in the wrong place.</p>
+         */
         @Test
-        @DisplayName("should rollback entire order when any item has insufficient stock")
-        void multiItemCreate_OneInsufficient_FullRollback() throws Exception {
+        @DisplayName("should roll back the payment, the transitions, the lines and the covered line's deduction")
+        void charge_OneLineInsufficient_RollsBackEverything() throws Exception {
             var variantA = createTestVariant(new BigDecimal("100.00"));
             var variantB = createTestVariantB(new BigDecimal("2.00"));
 
             // Order: A qty 5 (sufficient), B qty 10 (insufficient — only 2 available)
-            var itemA = new SalesOrderItemRequest(
-                    null, variantA.getId(), new BigDecimal("5.00"), new BigDecimal("100.00"), BigDecimal.ZERO, null);
-            var itemB = new SalesOrderItemRequest(
-                    null, variantB.getId(), new BigDecimal("10.00"), new BigDecimal("50.00"), BigDecimal.ZERO, null);
+            var placed = createOrder(line(null, variantA.getId(), "5.00"), line(null, variantB.getId(), "10.00"));
+            transitionOrder(placed.orderId(), activeStatusId);
+            assertNothingBooked(variantA.getId(), "100.00");
+            assertNothingBooked(variantB.getId(), "2.00");
 
-            var request = new SalesOrderRequest(customerId, companyStoreId, shiftId, "user123", List.of(itemA, itemB));
-
-            mockMvc.perform(post("/api/sales-orders")
+            mockMvc.perform(patch("/api/sales-orders/{id}/charge", placed.orderId())
                             .contentType(MediaType.APPLICATION_JSON)
-                            .content(objectMapper.writeValueAsString(request))
+                            .content(objectMapper.writeValueAsString(
+                                    new ChargeSalesOrderRequest(savedPaymentMethodId())))
                             .with(scopedSalesJwt()))
                     .andExpect(status().isConflict())
                     .andExpect(jsonPath("$.status").value(409));
 
-            // Verify no order was created
-            assertThat(salesOrderRepository.findAll()).isEmpty();
-
-            // Verify variant A stock UNCHANGED (rollback), on both sides, and no ledger row
-            var va = stockPositionOf(variantA.getId());
-            assertThat(va).isEqualByComparingTo(new BigDecimal("100.00"));
+            // No payment row: the table is append-only, so a row that landed could not be undone.
+            assertThat(paymentsOf(placed.orderId())).isEmpty();
+            // No transition: the document is where the case left it, and neither line moved to Added.
+            assertThat(inTransaction(() -> salesOrderRepository
+                            .findById(placed.orderId())
+                            .orElseThrow()
+                            .getStatus()))
+                    .isEqualTo(SalesOrderState.ACTIVE);
+            assertThat(inTransaction(() -> itemRepository.findBySalesOrderId(placed.orderId())))
+                    .hasSize(2)
+                    .allSatisfy(item -> assertThat(item.getStatus()).isEqualTo(SalesOrderItemState.PENDING));
+            // A's deduction was in the same batch and rolled back with it: both positions are the fixture's and
+            // neither variant carries a movement.
+            assertThat(stockPositionOf(variantA.getId())).isEqualByComparingTo(new BigDecimal("100.00"));
             assertThat(locationStockOf(variantA.getId(), salesLocationId))
                     .isEqualByComparingTo(new BigDecimal("100.00"));
             assertThat(movementsOf(variantA.getId())).isEmpty();
-
-            // Verify variant B stock UNCHANGED
-            var vb = stockPositionOf(variantB.getId());
-            assertThat(vb).isEqualByComparingTo(new BigDecimal("2.00"));
+            assertThat(stockPositionOf(variantB.getId())).isEqualByComparingTo(new BigDecimal("2.00"));
             assertThat(locationStockOf(variantB.getId(), salesLocationId)).isEqualByComparingTo(new BigDecimal("2.00"));
             assertThat(movementsOf(variantB.getId())).isEmpty();
         }
@@ -1918,9 +1915,8 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                     .orElseThrow());
             assertThat(statusAfterFirstItem.getStatusName()).isEqualTo("Active");
 
-            // Verify stock deducted: 100 - 3 = 97
-            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("97.00"));
-            assertThat(locationStockOf(variant.getId(), salesLocationId)).isEqualByComparingTo(new BigDecimal("97.00"));
+            // The add is a line and nothing else: the store still holds its 100 (ADR-0002 decision 7).
+            assertNothingBooked(variant.getId(), "100.00");
 
             // Step 3: Add second item → stays Active
             var secondItem = new SalesOrderItemRequest(
@@ -1944,9 +1940,8 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                     .orElseThrow());
             assertThat(statusAfterSecondItem.getStatusName()).isEqualTo("Active");
 
-            // Verify stock deducted: 97 - 2 = 95
-            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("95.00"));
-            assertThat(locationStockOf(variant.getId(), salesLocationId)).isEqualByComparingTo(new BigDecimal("95.00"));
+            // Still nothing booked: the second add is a second line, not a second deduction.
+            assertNothingBooked(variant.getId(), "100.00");
 
             // Step 4: Charge → auto-promotes Active → Pending → Completed
             var paymentMethod = PaymentMethod.builder()
@@ -1976,9 +1971,22 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             assertThat(finalStatus.getStatusName()).isEqualTo("Completed");
             assertThat(finalOrder.getPaymentMethodId()).isEqualTo(paymentMethodId);
 
-            // Verify stock unchanged after charge (no restoration on Complete)
+            // The charge is what books the document: 100 - 3 - 2 = 95, one SALE row per line, each naming its
+            // own line. Before T6b this assertion said "stock unchanged after charging" — the movement had already
+            // happened at create.
             assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("95.00"));
             assertThat(locationStockOf(variant.getId(), salesLocationId)).isEqualByComparingTo(new BigDecimal("95.00"));
+            var bookedLines = movementsOfType(variant.getId(), StockLedgerWriter.SALE);
+            assertThat(bookedLines).hasSize(2);
+            assertThat(bookedLines).extracting(LedgerMovement::sourceType).containsOnly("SALES_ORDER_ITEM");
+            assertThat(bookedLines.stream()
+                            .map(LedgerMovement::sourceId)
+                            .distinct()
+                            .count())
+                    .as("one movement per line, each referencing its own line and not the other's")
+                    .isEqualTo(2L);
+            assertThat(movementsOfType(variant.getId(), StockLedgerWriter.SALE_REVERSAL))
+                    .isEmpty();
 
             // Verify items transitioned to Added
             var items = itemRepository.findBySalesOrderId(UUID.fromString(orderId));
@@ -2096,6 +2104,42 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                 .andExpect(jsonPath("$.statusName").value("Completed"));
     }
 
+    /**
+     * Charges the document from whatever state the case left it in, which is the whole of what a case needs to
+     * say about it.
+     *
+     * <p><b>Why it reads the state instead of always transitioning.</b> A Draft has no charge transition
+     * (ADR-0004 decision 3), so a document still in Draft has to be moved to Active first — while the item
+     * endpoint auto-activates, and a case that transitions the order itself leaves it Active or Pending. A
+     * helper that always transitioned would invent a second move on those, and one that never did would fail on
+     * every document created with its lines in the same request.</p>
+     */
+    private void chargeFromItsCurrentState(UUID orderId) throws Exception {
+        var state = inTransaction(
+                () -> salesOrderRepository.findById(orderId).orElseThrow().getStatus());
+        if (state == SalesOrderState.DRAFT) {
+            transitionOrder(orderId, activeStatusId);
+        }
+        charge(orderId, savedPaymentMethodId());
+    }
+
+    /**
+     * Asserts that a document has booked nothing: the position the fixture seeded is exactly as it was, and the
+     * ledger holds no movement of this fixture's.
+     *
+     * <p>Since ADR-0002 decision 7 that is the state of a document before its charge, whatever create, add,
+     * edit, delete, cancel or re-enable it went through. Stated once here so a case says which moment it is
+     * looking at instead of repeating two assertions that must agree.</p>
+     */
+    private void assertNothingBooked(UUID variantId, String seededPosition) {
+        assertThat(stockPositionOf(variantId))
+                .as("a document holds no stock until its charge books it (ADR-0002 decision 7)")
+                .isEqualByComparingTo(new BigDecimal(seededPosition));
+        assertThat(movementsOf(variantId))
+                .as("and the ledger holds no movement of this document's")
+                .isEmpty();
+    }
+
     @Nested
     @DisplayName("T6a The document's money is its parts — ADR-0002 M1, M2 and M10")
     class OrderMoneyBreakdownTests {
@@ -2211,6 +2255,8 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             // first, which is the state the charge then auto-promotes to Pending.
             transitionOrder(placed.orderId(), activeStatusId);
             var paymentMethodId = savedPaymentMethodId();
+            // Nothing has moved yet: the document holds its two units and the store all ten.
+            assertNothingBooked(variant.getId(), "10.00");
 
             charge(placed.orderId(), paymentMethodId);
 
@@ -2233,6 +2279,15 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                     .as("a tender nobody counted is not invented by the server: cash and change are T7's")
                     .isNull();
             assertThat(payment.changeAmount()).isNull();
+
+            // The same transaction is the one that books the stock (ADR-0002 decision 7): the two units leave the
+            // position, and the row names the line the document holds.
+            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("8.00"));
+            assertThat(locationStockOf(variant.getId(), salesLocationId)).isEqualByComparingTo(new BigDecimal("8.00"));
+            var sales = movementsOfType(variant.getId(), StockLedgerWriter.SALE);
+            assertThat(sales).hasSize(1);
+            assertThat(sales.get(0).sourceId()).isEqualTo(placed.itemId(variant.getId()));
+            assertThat(sales.get(0).quantity()).isEqualByComparingTo(new BigDecimal("2.00"));
         }
 
         @Test
@@ -2262,6 +2317,10 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             // append-only — a row that landed could not be taken back by anything this suite could do.
             assertThat(paymentsOf(placed.orderId())).hasSize(1);
             assertThat(orderMoneyOf(placed.orderId()).totalAmount()).isEqualByComparingTo(new BigDecimal("200.0000"));
+            // And the stock moved once, not twice: the refusal happened before the second batch could book
+            // anything, which is what the row count states and the aggregate alone cannot.
+            assertThat(movementsOfType(variant.getId(), StockLedgerWriter.SALE)).hasSize(1);
+            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("8.00"));
         }
 
         @Test
@@ -2303,6 +2362,10 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             // appended its payment and only then met the guard would answer the same status, and `sale_payment`
             // is append-only — a row that landed could not be taken back by anything this suite could do.
             assertThat(paymentsOf(placed.orderId())).isEmpty();
+            // The deleted line carries no stock either: the document's only line is gone, so the batch the charge
+            // would send is empty and nothing reached the engine at all.
+            assertThat(movementsOf(variant.getId())).isEmpty();
+            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("10.00"));
         }
     }
 
@@ -2334,9 +2397,9 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                     .get("id")
                     .asText());
 
-            // The order deducted its 2 units from its own store: 10 - 2 = 8, on both sides
-            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("8.00"));
-            assertThat(locationStockOf(variant.getId(), salesLocationId)).isEqualByComparingTo(new BigDecimal("8.00"));
+            // The order was never charged, so no store holds anything for it: the fixture's 10 is intact and the
+            // document's two units are still on the shelf.
+            assertNothingBooked(variant.getId(), "10.00");
 
             var zone = TenantFixtures.inTenant(
                             companyId,
@@ -2366,11 +2429,11 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
 
             assertThat(refused.getResponse().getContentAsString()).contains("cannot be reassigned from company store");
 
-            // The original store keeps its deduction and the other store gains nothing, on either
-            // the aggregate or a location balance. Every reversal later depends on this rule: an
-            // order's store never changes while it holds stock.
-            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("8.00"));
-            assertThat(locationStockOf(variant.getId(), salesLocationId)).isEqualByComparingTo(new BigDecimal("8.00"));
+            // Nothing moved in either store: the document holds no stock yet, so what this case pins is the
+            // document's rule — a reassignment with active lines stays refused — and not the store's. Narrowing it
+            // is a decision of its own (recorded in odd/tasks/money-first-class.md, T6b log), because the charge
+            // would now simply book at whichever store the document names.
+            assertNothingBooked(variant.getId(), "10.00");
             assertThat(productVariantStoreStockRepository.findByProductVariantIdAndCompanyStoreId(
                             variant.getId(), otherStore.getId()))
                     .isEmpty();
@@ -2412,48 +2475,45 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
 
             // @BeforeEach deletes all orders, so an empty table proves nothing was persisted.
             assertThat(salesOrderRepository.findAll()).isEmpty();
-            // The denied request must not have deducted stock, on either side.
-            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("100.00"));
-            assertThat(locationStockOf(variant.getId(), salesLocationId))
-                    .isEqualByComparingTo(new BigDecimal("100.00"));
-            assertThat(movementsOf(variant.getId())).isEmpty();
+            // The denied request must not have booked stock either, on either side.
+            assertNothingBooked(variant.getId(), "100.00");
         }
     }
 
     // ─── 5.13 Deduction across two locations — exact reversal ───
 
     @Nested
-    @DisplayName("5.13 Deduction spills across locations — reversal restores each exactly")
+    @DisplayName("5.13 The charge spills across locations — the reversal restores each exactly")
     class SpilloverReversalTests {
 
+        /**
+         * The spill happens at the charge, and the reversal happens when the charged document is deleted.
+         *
+         * <p><b>Why the delete is the order's and not the line's.</b> The scenario the case is about — a sale that
+         * drains the priority shelf and spills onto the second one, then gives each shelf back exactly what it took
+         * — is unchanged. What changed is which call reverses: the line is {@code ADDED} after the charge and the
+         * item endpoint refuses a line of a charged document, while the order delete is the path that reverses a
+         * document whose charge booked something ({@code SalesOrderService#deleteSalesOrder}). Using it keeps the
+         * whole scenario and tests the reversal where a reversal exists.</p>
+         */
         @Test
-        @DisplayName("should spill the sale past the priority location and reverse each location exactly")
+        @DisplayName(
+                "should spill past the priority location at the charge and reverse each location exactly on delete")
         void deductSpillsAndDeleteRestoresExactLocations() throws Exception {
             var variant = createTestVariant(new BigDecimal("13.00"));
             // Priority sales location holds 3, the second location holds 10, the aggregate holds 13.
             seedSplitBalances(variant.getId(), new BigDecimal("3.00"), new BigDecimal("10.00"));
 
-            var itemRequest = new SalesOrderItemRequest(
-                    null, variant.getId(), new BigDecimal("5.00"), new BigDecimal("100.00"), BigDecimal.ZERO, null);
-            var request = new SalesOrderRequest(customerId, companyStoreId, shiftId, "user123", List.of(itemRequest));
+            var placed = createOrder(line(null, variant.getId(), "5.00"));
+            var itemId = placed.itemId(variant.getId());
 
-            var createResult = mockMvc.perform(post("/api/sales-orders")
-                            .contentType(MediaType.APPLICATION_JSON)
-                            .content(objectMapper.writeValueAsString(request))
-                            .with(scopedSalesJwt()))
-                    .andExpect(status().isCreated())
-                    .andReturn();
+            // The split is exactly as the fixture left it: the create books nothing.
+            assertNothingBooked(variant.getId(), "13.00");
+            assertThat(locationStockOf(variant.getId(), salesLocationId)).isEqualByComparingTo(new BigDecimal("3.00"));
+            assertThat(locationStockOf(variant.getId(), secondaryLocationId))
+                    .isEqualByComparingTo(new BigDecimal("10.00"));
 
-            var orderId = objectMapper
-                    .readTree(createResult.getResponse().getContentAsString())
-                    .get("id")
-                    .asText();
-            var itemId = objectMapper
-                    .readTree(createResult.getResponse().getContentAsString())
-                    .get("items")
-                    .get(0)
-                    .get("id")
-                    .asText();
+            chargeFromItsCurrentState(placed.orderId());
 
             // The priority location drains to zero and the remainder comes from the second one.
             assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("8.00"));
@@ -2461,21 +2521,18 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             assertThat(locationStockOf(variant.getId(), secondaryLocationId))
                     .isEqualByComparingTo(new BigDecimal("8.00"));
 
-            var sales = movementsOf(variant.getId()).stream()
-                    .filter(m -> StockLedgerWriter.SALE.equals(m.movementType()))
-                    .toList();
+            var sales = movementsOfType(variant.getId(), StockLedgerWriter.SALE);
             assertThat(sales).hasSize(2);
             assertThat(sales)
                     .extracting(LedgerMovement::storeLocationId, LedgerMovement::quantity)
                     .containsExactlyInAnyOrder(
                             tuple(salesLocationId, new BigDecimal("3.00")),
                             tuple(secondaryLocationId, new BigDecimal("2.00")));
-            assertThat(sales).allSatisfy(m -> assertThat(m.sourceId()).isEqualTo(UUID.fromString(itemId)));
+            assertThat(sales).allSatisfy(m -> assertThat(m.sourceId()).isEqualTo(itemId));
 
-            // Deleting the line reverses the ledger, so each location gets back exactly what it gave
+            // Deleting the charged document reverses the ledger, so each location gets back exactly what it gave
             // — never a re-run of the priority allocation, which would credit all 5 to the first one.
-            mockMvc.perform(delete("/api/sales-orders/{id}/items/{itemId}", orderId, itemId)
-                            .with(scopedSalesJwt()))
+            mockMvc.perform(delete("/api/sales-orders/{id}", placed.orderId()).with(scopedSalesJwt()))
                     .andExpect(status().isNoContent());
 
             assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("13.00"));
@@ -2483,9 +2540,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             assertThat(locationStockOf(variant.getId(), secondaryLocationId))
                     .isEqualByComparingTo(new BigDecimal("10.00"));
 
-            var reversals = movementsOf(variant.getId()).stream()
-                    .filter(m -> StockLedgerWriter.SALE_REVERSAL.equals(m.movementType()))
-                    .toList();
+            var reversals = movementsOfType(variant.getId(), StockLedgerWriter.SALE_REVERSAL);
             assertThat(reversals).hasSize(2);
             assertThat(reversals)
                     .extracting(LedgerMovement::storeLocationId, LedgerMovement::quantity)
@@ -2495,101 +2550,113 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
         }
     }
 
-    // ─── 5.14 Cancelled line restores, and never twice ───────────
+    // ─── 5.14 Cancelling a line books nothing, and the charge skips it ───
 
     @Nested
-    @DisplayName("5.14 Cancelling a line restores it — and a later delete does not restore twice")
+    @DisplayName("5.14 Cancelling a line — nothing is restored, and the charge skips it")
     class CancelledItemRestoreTests {
 
+        /**
+         * A cancelled line gives nothing back, and the document it belongs to books nothing for it.
+         *
+         * <p><b>What the case was.</b> W3-D4: cancelling a line restored it exactly as deleting it did, so the case
+         * asserted the reversal and the balances coming back to 100. Under ADR-0002 decision 7 nothing is deducted
+         * before the charge, so the cancellation has nothing to restore — and the charge excludes a cancelled line
+         * from its batch. The scenario is kept with its one line, and the assertion moves to the moment the stock
+         * would have moved: the charge books no unit at all.</p>
+         */
         @Test
-        @DisplayName("should restore the cancelled line exactly like a deletion (W3-D4)")
-        void cancelItem_RestoresTheLineAndWritesTheReversal() throws Exception {
+        @DisplayName("should book nothing when the line is cancelled, and book nothing for it at the charge")
+        void cancelItem_BooksNothingAndTheChargeSkipsIt() throws Exception {
             var variant = createTestVariant(new BigDecimal("100.00"));
+            var placed = createOrder(line(null, variant.getId(), "4.00"));
+            var itemId = placed.itemId(variant.getId());
+            assertNothingBooked(variant.getId(), "100.00");
 
-            var itemRequest = new SalesOrderItemRequest(
-                    null, variant.getId(), new BigDecimal("4.00"), new BigDecimal("100.00"), BigDecimal.ZERO, null);
-            var request = new SalesOrderRequest(customerId, companyStoreId, shiftId, "user123", List.of(itemRequest));
+            cancelItem(placed.orderId(), itemId);
 
-            var createResult = mockMvc.perform(post("/api/sales-orders")
-                            .contentType(MediaType.APPLICATION_JSON)
-                            .content(objectMapper.writeValueAsString(request))
-                            .with(scopedSalesJwt()))
-                    .andExpect(status().isCreated())
-                    .andReturn();
-
-            var orderId = objectMapper
-                    .readTree(createResult.getResponse().getContentAsString())
-                    .get("id")
-                    .asText();
-            var itemId = objectMapper
-                    .readTree(createResult.getResponse().getContentAsString())
-                    .get("items")
-                    .get(0)
-                    .get("id")
-                    .asText();
-
-            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("96.00"));
-            assertThat(locationStockOf(variant.getId(), salesLocationId)).isEqualByComparingTo(new BigDecimal("96.00"));
-
-            var cancelItem = new UpdateSalesOrderStatusRequest(cancelledItemStatusId);
-            mockMvc.perform(patch("/api/sales-orders/{id}/items/{itemId}/status", orderId, itemId)
-                            .contentType(MediaType.APPLICATION_JSON)
-                            .content(objectMapper.writeValueAsString(cancelItem))
-                            .with(scopedSalesJwt()))
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.statusName").value("Cancelled"));
-
-            // The cancellation now restores the line, where before W3-D4 it restored nothing.
+            // No reversal, because there was no movement to reverse.
             assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("100.00"));
             assertThat(locationStockOf(variant.getId(), salesLocationId))
                     .isEqualByComparingTo(new BigDecimal("100.00"));
-            assertThat(movementsOf(variant.getId()).stream()
-                            .filter(m -> StockLedgerWriter.SALE_REVERSAL.equals(m.movementType()))
-                            .count())
-                    .isEqualTo(1L);
+            assertThat(movementsOfType(variant.getId(), StockLedgerWriter.SALE_REVERSAL))
+                    .isEmpty();
+
+            // The document is still chargeable — a cancelled line keeps its money, which is the accounting
+            // question T4 owes and not this unit's — and the charge books nothing for it: the line is not live, so
+            // the batch it builds is empty and the engine is never asked.
+            chargeFromItsCurrentState(placed.orderId());
+            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("100.00"));
+            assertThat(locationStockOf(variant.getId(), salesLocationId))
+                    .isEqualByComparingTo(new BigDecimal("100.00"));
+            assertThat(movementsOf(variant.getId())).isEmpty();
+            assertThat(paymentsOf(placed.orderId())).hasSize(1);
         }
 
+        /**
+         * A cancelled line later removed through the order PUT is not booked twice — it is not booked at all, and
+         * only the retained line is.
+         *
+         * <p><b>What the case was.</b> It guarded the double reversal: the cancel reversed the line, and the PUT that
+         * soft-deleted it afterwards had to not reverse it a second time. There is no first reversal now, so the
+         * guard's subject becomes the charge: a line cancelled and then soft-deleted holds nothing, so the document
+         * books only the line that survived both edits.</p>
+         */
         @Test
-        @DisplayName("should not restore twice when a cancelled line is later removed through the order PUT")
-        void cancelItemThenDelete_DoesNotRestoreTwice() throws Exception {
+        @DisplayName("should book nothing for a cancelled line later soft-deleted, and charge only the retained line")
+        void cancelItemThenDelete_BooksNothingForTheCancelledLine() throws Exception {
             var variant = createTestVariant(new BigDecimal("100.00"));
             var variantB = createTestVariantB(new BigDecimal("50.00"));
             // Two lines: the cancelled one is the subject, the retained one keeps the order-level
             // PUT's items non-empty so its diff actually runs.
             var placed = createOrder(line(null, variant.getId(), "4.00"), line(null, variantB.getId(), "3.00"));
             var itemId = placed.itemId(variant.getId());
+            var retainedItemId = placed.itemId(variantB.getId());
 
             cancelItem(placed.orderId(), itemId);
-            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("100.00"));
-            assertThat(movementsOfType(variant.getId(), StockLedgerWriter.SALE_REVERSAL))
-                    .hasSize(1);
+            assertNothingBooked(variant.getId(), "100.00");
+            assertNothingBooked(variantB.getId(), "50.00");
 
-            // The item-level DELETE is refused now (F-7): the line already gave its stock back, so
-            // the old 204 invited a write the line rule refuses everywhere else.
+            // The item-level DELETE is refused (F-7): the line rule does not depend on stock, and a cancelled line
+            // has no edge back into the document's live set.
             mockMvc.perform(delete("/api/sales-orders/{id}/items/{itemId}", placed.orderId(), itemId)
                             .with(scopedSalesJwt()))
                     .andExpect(status().isConflict());
-
             assertThat(itemEnabled(itemId)).isTrue();
-            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("100.00"));
-            assertThat(movementsOfType(variant.getId(), StockLedgerWriter.SALE_REVERSAL))
-                    .hasSize(1);
+            assertNothingBooked(variant.getId(), "100.00");
 
-            // The supported route is the order-level PUT (W3-D13): it soft-deletes the cancelled
-            // line without a second reversal, because a Cancelled line contributes no stock work.
-            updateOrderItems(placed.orderId(), line(placed.itemId(variantB.getId()), variantB.getId(), "3.00"));
+            // The supported route is the order-level PUT (W3-D13): it soft-deletes the cancelled line, and books
+            // nothing, because a cancelled line contributes no stock work.
+            updateOrderItems(placed.orderId(), line(retainedItemId, variantB.getId(), "3.00"));
 
             assertThat(itemEnabled(itemId)).isFalse();
+            assertNothingBooked(variant.getId(), "100.00");
+            assertNothingBooked(variantB.getId(), "50.00");
+
+            chargeFromItsCurrentState(placed.orderId());
+
+            // The cancelled and deleted line is not booked at all, and the retained one is booked once.
             assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("100.00"));
             assertThat(locationStockOf(variant.getId(), salesLocationId))
                     .isEqualByComparingTo(new BigDecimal("100.00"));
-            assertThat(movementsOfType(variant.getId(), StockLedgerWriter.SALE_REVERSAL))
+            assertThat(movementsOf(variant.getId())).isEmpty();
+            assertThat(stockPositionOf(variantB.getId())).isEqualByComparingTo(new BigDecimal("47.00"));
+            assertThat(movementsOfType(variantB.getId(), StockLedgerWriter.SALE))
                     .hasSize(1);
         }
 
+        /**
+         * A second delete of a soft-deleted line is refused, and neither delete books anything.
+         *
+         * <p><b>What the case was.</b> "Second delete refused and no second reversal": the first delete reversed the
+         * line and the second had to be refused rather than reversing it again. The refusal is unchanged and is
+         * still the line rule's; what moved is the reversal count, which is now zero because there is no booking to
+         * reverse. The "exactly once" half lives in {@link DeleteOrderStockRestoreTests}, where the one reversal
+         * there is can actually be observed.</p>
+         */
         @Test
-        @DisplayName("should refuse a second delete of a soft-deleted line and restore only once")
-        void deleteItemTwice_SecondIsRefusedAndNoSecondReversal() throws Exception {
+        @DisplayName("should refuse a second delete of a soft-deleted line, and book nothing for either")
+        void deleteItemTwice_SecondIsRefusedAndNothingIsBooked() throws Exception {
             var variant = createTestVariant(new BigDecimal("100.00"));
             var placed = createOrder(line(null, variant.getId(), "4.00"));
             var itemId = placed.itemId(variant.getId());
@@ -2599,11 +2666,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                     .andExpect(status().isNoContent());
 
             assertThat(itemEnabled(itemId)).isFalse();
-            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("100.00"));
-            assertThat(locationStockOf(variant.getId(), salesLocationId))
-                    .isEqualByComparingTo(new BigDecimal("100.00"));
-            assertThat(movementsOfType(variant.getId(), StockLedgerWriter.SALE_REVERSAL))
-                    .hasSize(1);
+            assertNothingBooked(variant.getId(), "100.00");
 
             // The line is already soft-deleted, so the second delete is refused instead of answering
             // 204 for a write the line rule refuses everywhere else (F-7).
@@ -2612,29 +2675,46 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                     .andExpect(status().isConflict());
 
             assertThat(itemEnabled(itemId)).isFalse();
-            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("100.00"));
-            assertThat(locationStockOf(variant.getId(), salesLocationId))
-                    .isEqualByComparingTo(new BigDecimal("100.00"));
-            assertThat(movementsOfType(variant.getId(), StockLedgerWriter.SALE_REVERSAL))
-                    .hasSize(1);
+            assertNothingBooked(variant.getId(), "100.00");
+
+            // And the document left with no line has nothing to charge, so the deleted lines keep contributing
+            // neither stock nor money.
+            transitionOrder(placed.orderId(), activeStatusId);
+            mockMvc.perform(patch("/api/sales-orders/{id}/charge", placed.orderId())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(
+                                    new ChargeSalesOrderRequest(savedPaymentMethodId())))
+                            .with(scopedSalesJwt()))
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.message")
+                            .value(org.hamcrest.Matchers.containsString("there is nothing to pay")));
+            assertThat(paymentsOf(placed.orderId())).isEmpty();
+            assertThat(movementsOf(variant.getId())).isEmpty();
         }
 
+        /**
+         * Re-enabling a cancelled line books nothing, and the charge skips it whatever quantity it names.
+         *
+         * <p><b>What the case was.</b> W3-D11: re-enabling a cancelled line with a changed quantity must not
+         * re-deduct it, and the case was built so that a wrongly-treated cancelled line would be caught by the
+         * delta. Under ADR-0002 decision 7 the sequencing is different and the claim is easier to state and harder
+         * to fake: the charge skips a line in {@code CANCELLED}, so the quantity it names never reaches the engine.
+         * </p>
+         */
         @Test
-        @DisplayName("should not move stock when a cancelled line is re-enabled with a changed quantity (W3-D11)")
+        @DisplayName("should not book a cancelled line re-enabled with a changed quantity, at the charge either")
         void cancelItemThenReEnable_DoesNotHoldStock() throws Exception {
             var variant = createTestVariant(new BigDecimal("100.00"));
             var placed = createOrder(line(null, variant.getId(), "4.00"));
             var itemId = placed.itemId(variant.getId());
 
             cancelItem(placed.orderId(), itemId);
-            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("100.00"));
+            assertNothingBooked(variant.getId(), "100.00");
 
-            // Cancelled is terminal in the item status machine, so re-enabling the flag revives no
-            // hold: the line already gave its stock back and must not be deducted a second time.
-            // The quantity is deliberately different from the original 4.00: with the same quantity
-            // the delta was zero whether or not the cancelled-line guard existed, so deleting the
-            // guard left the test green. A changed quantity only moves stock when the cancelled line
-            // is wrongly treated as still holding its deduction.
+            // Cancelled is terminal in the item status machine, so re-enabling the flag revives no hold. The
+            // quantity is deliberately different from the original 4.00: the claim is that a cancelled line is
+            // skipped by the charge, and a line that never reaches the engine can neither be deducted nor
+            // restored.
             updateOrderItems(placed.orderId(), line(itemId, variant.getId(), "5.00"));
 
             // The claim was "the row's status_id is Cancelled"; the column is gone, so it is asked twice: the
@@ -2646,25 +2726,38 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                             .orElseThrow()
                             .getId()))
                     .isEqualTo(cancelledItemStatusId);
+            assertNothingBooked(variant.getId(), "100.00");
+
+            chargeFromItsCurrentState(placed.orderId());
+
+            // The charge is where the cancelled line would finally be sold, and it is skipped: no movement, and the
+            // shelf never moved.
             assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("100.00"));
             assertThat(locationStockOf(variant.getId(), salesLocationId))
                     .isEqualByComparingTo(new BigDecimal("100.00"));
-            // The ledger stays SALE(4) + SALE_REVERSAL(4): no third row for the cancelled line.
-            assertThat(movementsOfType(variant.getId(), StockLedgerWriter.SALE)).hasSize(1);
-            assertThat(movementsOfType(variant.getId(), StockLedgerWriter.SALE_REVERSAL))
-                    .hasSize(1);
-            assertThat(movementsOf(variant.getId())).hasSize(2);
+            assertThat(movementsOf(variant.getId())).isEmpty();
         }
     }
 
-    // ─── 5.15 PUT /{id} item diff — post-state on both sides ─────
+    // ─── 5.15 PUT /{id} item diff — the diff is a document edit ──
 
+    /**
+     * The order-level line diff, asked about the stock at the moment the stock moves.
+     *
+     * <p><b>What the six cases were.</b> They were the ledger's proof of the delta arithmetic: a line added sold in
+     * full, a grown line sold by its difference, a shrunk one reversed and re-sold, a dropped one reversed, a
+     * variant change reversed-then-sold, and several changes in one batch. Under ADR-0002 decision 7 the diff books
+     * nothing and the charge books the document's final state, so each case keeps its own diff — the edits are the
+     * scenario and the assertions on the resulting line set are unchanged — and moves its ledger expectations to
+     * the charge. The reversal half of the shrunk and dropped cases is now observable only on a deleted charged
+     * document ({@code DeleteOrderStockRestoreTests}), which is stated where it applies.</p>
+     */
     @Nested
-    @DisplayName("5.15 Updating an order's line set — aggregate, location and ledger")
+    @DisplayName("5.15 Updating an order's line set — the diff edits, the charge books")
     class UpdateOrderItemDiffTests {
 
         @Test
-        @DisplayName("should sell a newly added line and reference its generated id")
+        @DisplayName("should sell a newly added line, referencing its generated id, when the document is charged")
         void updateOrder_LineAdded_SellsTheNewLine() throws Exception {
             var variantA = createTestVariant(new BigDecimal("100.00"));
             var variantB = createTestVariantB(new BigDecimal("50.00"));
@@ -2674,7 +2767,14 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
 
             var after = updateOrderItems(placed.orderId(), retained, line(null, variantB.getId(), "3.00"));
 
-            // The kept line owes nothing; the added line is sold in full from its priority location.
+            // The diff added a line and moved nothing: both shelves still hold their full stock.
+            assertNothingBooked(variantA.getId(), "100.00");
+            assertNothingBooked(variantB.getId(), "50.00");
+
+            chargeFromItsCurrentState(placed.orderId());
+
+            // Both lines are sold once each: the kept one owes nothing extra and the added one is sold in full
+            // from its priority location — in the one batch the charge sends.
             assertThat(stockPositionOf(variantA.getId())).isEqualByComparingTo(new BigDecimal("98.00"));
             assertThat(locationStockOf(variantA.getId(), salesLocationId))
                     .isEqualByComparingTo(new BigDecimal("98.00"));
@@ -2692,64 +2792,59 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
         }
 
         @Test
-        @DisplayName("should deduct only the difference when a line grows")
-        void updateOrder_QuantityGrown_DeductsTheDifference() throws Exception {
+        @DisplayName("should book the grown line's stated quantity, not its difference")
+        void updateOrder_QuantityGrown_BooksTheStatedQuantity() throws Exception {
             var variant = createTestVariant(new BigDecimal("100.00"));
             var placed = createOrder(line(null, variant.getId(), "2.00"));
             var itemId = placed.itemId(variant.getId());
+            assertNothingBooked(variant.getId(), "100.00");
 
             updateOrderItems(placed.orderId(), line(itemId, variant.getId(), "5.00"));
+            assertNothingBooked(variant.getId(), "100.00");
 
+            chargeFromItsCurrentState(placed.orderId());
+
+            // One sale of five: there is no earlier booking for a difference to be taken from, and no reversal
+            // to write for a line that never held anything.
             assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("95.00"));
             assertThat(locationStockOf(variant.getId(), salesLocationId)).isEqualByComparingTo(new BigDecimal("95.00"));
-
-            // A pure growth deducts the delta only: no reversal is written for the line.
             assertThat(movementsOf(variant.getId()))
                     .extracting(LedgerMovement::movementType, LedgerMovement::sourceId, LedgerMovement::quantity)
-                    .containsExactlyInAnyOrder(
-                            tuple(StockLedgerWriter.SALE, itemId, new BigDecimal("2.00")),
-                            tuple(StockLedgerWriter.SALE, itemId, new BigDecimal("3.00")));
+                    .containsExactly(tuple(StockLedgerWriter.SALE, itemId, new BigDecimal("5.00")));
             assertThat(movementsOfType(variant.getId(), StockLedgerWriter.SALE_REVERSAL))
                     .isEmpty();
         }
 
         @Test
-        @DisplayName("should reverse the whole line exactly and resell the smaller quantity")
-        void updateOrder_QuantityShrunk_ReversesExactlyThenResells() throws Exception {
+        @DisplayName("should book the shrunk line's smaller quantity, and give nothing back")
+        void updateOrder_QuantityShrunk_BooksTheSmallerQuantity() throws Exception {
             var variant = createTestVariant(new BigDecimal("13.00"));
             seedSplitBalances(variant.getId(), new BigDecimal("3.00"), new BigDecimal("10.00"));
 
             var placed = createOrder(line(null, variant.getId(), "5.00"));
             var itemId = placed.itemId(variant.getId());
-            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("8.00"));
-            assertThat(locationStockOf(variant.getId(), salesLocationId)).isEqualByComparingTo(BigDecimal.ZERO);
-            assertThat(locationStockOf(variant.getId(), secondaryLocationId))
-                    .isEqualByComparingTo(new BigDecimal("8.00"));
+            assertNothingBooked(variant.getId(), "13.00");
 
             updateOrderItems(placed.orderId(), line(itemId, variant.getId(), "2.00"));
+            assertNothingBooked(variant.getId(), "13.00");
 
-            // The line was given back to the exact locations that gave it (3 + 2), then 2 were sold
-            // again from the priority location: 0 + 3 - 2 and 8 + 2.
+            chargeFromItsCurrentState(placed.orderId());
+
+            // The charge sells the two units the line states, from the priority shelf: 3 - 2 and 10 untouched. The
+            // reversal that the old delta pair (reverse 5, re-sell 2) used to write does not exist, because the
+            // five were never taken.
             assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("11.00"));
             assertThat(locationStockOf(variant.getId(), salesLocationId)).isEqualByComparingTo(new BigDecimal("1.00"));
             assertThat(locationStockOf(variant.getId(), secondaryLocationId))
                     .isEqualByComparingTo(new BigDecimal("10.00"));
-
-            assertThat(movementsOf(variant.getId()))
-                    .allSatisfy(m -> assertThat(m.sourceId()).isEqualTo(itemId));
             assertThat(movementsOf(variant.getId()))
                     .extracting(LedgerMovement::movementType, LedgerMovement::storeLocationId, LedgerMovement::quantity)
-                    .containsExactlyInAnyOrder(
-                            tuple(StockLedgerWriter.SALE, salesLocationId, new BigDecimal("3.00")),
-                            tuple(StockLedgerWriter.SALE, secondaryLocationId, new BigDecimal("2.00")),
-                            tuple(StockLedgerWriter.SALE_REVERSAL, salesLocationId, new BigDecimal("3.00")),
-                            tuple(StockLedgerWriter.SALE_REVERSAL, secondaryLocationId, new BigDecimal("2.00")),
-                            tuple(StockLedgerWriter.SALE, salesLocationId, new BigDecimal("2.00")));
+                    .containsExactly(tuple(StockLedgerWriter.SALE, salesLocationId, new BigDecimal("2.00")));
         }
 
         @Test
-        @DisplayName("should reverse a deleted line exactly and soft-delete it")
-        void updateOrder_LineDeleted_ReversesExactly() throws Exception {
+        @DisplayName("should book nothing for a deleted line and sell only the retained one")
+        void updateOrder_LineDeleted_BooksNothingForTheDeletedLine() throws Exception {
             var variantA = createTestVariant(new BigDecimal("13.00"));
             seedSplitBalances(variantA.getId(), new BigDecimal("3.00"), new BigDecimal("10.00"));
             var variantB = createTestVariantB(new BigDecimal("10.00"));
@@ -2757,30 +2852,33 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             var placed = createOrder(line(null, variantA.getId(), "5.00"), line(null, variantB.getId(), "1.00"));
             var itemAId = placed.itemId(variantA.getId());
             var itemBId = placed.itemId(variantB.getId());
-            assertThat(stockPositionOf(variantA.getId())).isEqualByComparingTo(new BigDecimal("8.00"));
-            assertThat(stockPositionOf(variantB.getId())).isEqualByComparingTo(new BigDecimal("9.00"));
+            assertNothingBooked(variantA.getId(), "13.00");
+            assertNothingBooked(variantB.getId(), "10.00");
 
             // Omitting A from the request deletes it; B keeps its quantity.
             updateOrderItems(placed.orderId(), line(itemBId, variantB.getId(), "1.00"));
 
+            assertThat(itemEnabled(itemAId)).isFalse();
+            assertNothingBooked(variantA.getId(), "13.00");
+            assertNothingBooked(variantB.getId(), "10.00");
+
+            chargeFromItsCurrentState(placed.orderId());
+
+            // The document's surviving line is the only thing sold: the deleted line's variant has no movement at
+            // all — not a SALE and not a reversal of one — and its two shelves are exactly as they were.
             assertThat(stockPositionOf(variantA.getId())).isEqualByComparingTo(new BigDecimal("13.00"));
             assertThat(locationStockOf(variantA.getId(), salesLocationId)).isEqualByComparingTo(new BigDecimal("3.00"));
             assertThat(locationStockOf(variantA.getId(), secondaryLocationId))
                     .isEqualByComparingTo(new BigDecimal("10.00"));
-            assertThat(itemEnabled(itemAId)).isFalse();
-
-            assertThat(movementsOfType(variantA.getId(), StockLedgerWriter.SALE_REVERSAL))
-                    .extracting(LedgerMovement::sourceId, LedgerMovement::storeLocationId, LedgerMovement::quantity)
-                    .containsExactlyInAnyOrder(
-                            tuple(itemAId, salesLocationId, new BigDecimal("3.00")),
-                            tuple(itemAId, secondaryLocationId, new BigDecimal("2.00")));
+            assertThat(movementsOf(variantA.getId())).isEmpty();
             assertThat(stockPositionOf(variantB.getId())).isEqualByComparingTo(new BigDecimal("9.00"));
-            assertThat(movementsOf(variantB.getId())).hasSize(1);
+            assertThat(movementsOfType(variantB.getId(), StockLedgerWriter.SALE))
+                    .hasSize(1);
         }
 
         @Test
-        @DisplayName("should reverse the old variant exactly and sell the new one in one update")
-        void updateOrder_VariantChanged_ReversesOldExactlyAndSellsNew() throws Exception {
+        @DisplayName("should sell only the variant the line states, and take nothing from the old one")
+        void updateOrder_VariantChanged_SellsOnlyTheVariantTheLineStates() throws Exception {
             var first = createTestVariant(new BigDecimal("13.00"));
             var second = createTestVariant(new BigDecimal("13.00"));
             // Keep the sold variant first in the engine's (store, variant) ordering so the composite
@@ -2791,23 +2889,26 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
 
             var placed = createOrder(line(null, oldVariant.getId(), "5.00"));
             var itemId = placed.itemId(oldVariant.getId());
+            assertNothingBooked(oldVariant.getId(), "13.00");
 
             updateOrderItems(placed.orderId(), line(itemId, newVariant.getId(), "2.00"));
 
+            assertNothingBooked(oldVariant.getId(), "13.00");
+            assertNothingBooked(newVariant.getId(), "13.00");
+
+            chargeFromItsCurrentState(placed.orderId());
+
+            // The old variant keeps its split, because nothing was ever taken from it: the reversal the old
+            // arrangement wrote first is gone, and the charge sells the variant the line names.
             assertThat(stockPositionOf(oldVariant.getId())).isEqualByComparingTo(new BigDecimal("13.00"));
             assertThat(locationStockOf(oldVariant.getId(), salesLocationId))
                     .isEqualByComparingTo(new BigDecimal("3.00"));
             assertThat(locationStockOf(oldVariant.getId(), secondaryLocationId))
                     .isEqualByComparingTo(new BigDecimal("10.00"));
+            assertThat(movementsOf(oldVariant.getId())).isEmpty();
             assertThat(stockPositionOf(newVariant.getId())).isEqualByComparingTo(new BigDecimal("11.00"));
             assertThat(locationStockOf(newVariant.getId(), salesLocationId))
                     .isEqualByComparingTo(new BigDecimal("11.00"));
-
-            assertThat(movementsOfType(oldVariant.getId(), StockLedgerWriter.SALE_REVERSAL))
-                    .extracting(LedgerMovement::sourceId, LedgerMovement::storeLocationId, LedgerMovement::quantity)
-                    .containsExactlyInAnyOrder(
-                            tuple(itemId, salesLocationId, new BigDecimal("3.00")),
-                            tuple(itemId, secondaryLocationId, new BigDecimal("2.00")));
             assertThat(movementsOfType(newVariant.getId(), StockLedgerWriter.SALE))
                     .extracting(LedgerMovement::sourceId, LedgerMovement::quantity)
                     .containsExactly(tuple(itemId, new BigDecimal("2.00")));
@@ -2816,7 +2917,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
         }
 
         @Test
-        @DisplayName("should reverse before deducting across several changed lines in one batch")
+        @DisplayName("should sell every new variant in one batch, whatever order the lines name them in")
         void updateOrder_MultipleVariantChanges_AllSellTheNewVariant() throws Exception {
             var variants = List.of(
                     createTestVariant(new BigDecimal("100.00")),
@@ -2826,8 +2927,9 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             var byId = variants.stream()
                     .sorted(Comparator.comparing(ProductVariant::getId))
                     .toList();
-            // Two new variants that sort before both old ones, so an unordered batch would run each
-            // line's deduction before its reversal.
+            // Two new variants that sort before both old ones. The engine sorts a batch by (store, variant), which
+            // used to matter because a reversal and a deduction of the same line shared one reference; the charge
+            // sends only deductions, so what the case keeps is the outcome: four positions, two of them sold.
             var newOne = byId.get(0);
             var newTwo = byId.get(1);
             var oldOne = byId.get(2);
@@ -2842,8 +2944,17 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                     line(firstItem, newOne.getId(), "2.00"),
                     line(secondItem, newTwo.getId(), "2.00"));
 
+            assertNothingBooked(oldOne.getId(), "100.00");
+            assertNothingBooked(oldTwo.getId(), "100.00");
+            assertNothingBooked(newOne.getId(), "100.00");
+            assertNothingBooked(newTwo.getId(), "100.00");
+
+            chargeFromItsCurrentState(placed.orderId());
+
             assertThat(stockPositionOf(oldOne.getId())).isEqualByComparingTo(new BigDecimal("100.00"));
             assertThat(stockPositionOf(oldTwo.getId())).isEqualByComparingTo(new BigDecimal("100.00"));
+            assertThat(movementsOf(oldOne.getId())).isEmpty();
+            assertThat(movementsOf(oldTwo.getId())).isEmpty();
             assertThat(stockPositionOf(newOne.getId())).isEqualByComparingTo(new BigDecimal("98.00"));
             assertThat(stockPositionOf(newTwo.getId())).isEqualByComparingTo(new BigDecimal("98.00"));
             assertThat(movementsOfType(newOne.getId(), StockLedgerWriter.SALE)).hasSize(1);
@@ -2855,15 +2966,25 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
         }
     }
 
-    // ─── 5.16 /{id}/items/{itemId} variant change ────────────────
+    // ─── 5.16 /{id}/items/{itemId} variant change — the charge sells the current variant
 
+    /**
+     * Changing one line's variant, asked about the stock.
+     *
+     * <p><b>What the three cases were.</b> They proved that a variant change reversed the old variant exactly and
+     * sold the new one, including when the new variant's id sorted first (so a wrongly ordered batch would run the
+     * deduction before the reversal) and across successive changes. Under ADR-0002 decision 7 nothing is reversed,
+     * because nothing was taken: the charge sells the variant the line names when it runs, which is one deduction in
+     * a batch that carries no reversal at all. The scenarios are kept — the adversarial ordering included — and
+     * each states the same outcome on the charge.</p>
+     */
     @Nested
-    @DisplayName("5.16 Changing one line's variant — old restored exactly, new sold")
+    @DisplayName("5.16 Changing one line's variant — the charge sells the one it names")
     class UpdateItemVariantChangeTests {
 
         @Test
-        @DisplayName("should restore the old variant exactly and sell the new one")
-        void updateItem_VariantChange_RestoresOldExactlyAndSellsNew() throws Exception {
+        @DisplayName("should book nothing when the line's variant changes, and sell the new one at the charge")
+        void updateItem_VariantChange_BooksNothingAndTheChargeSellsTheNewVariant() throws Exception {
             var first = createTestVariant(new BigDecimal("10.00"));
             var second = createTestVariant(new BigDecimal("10.00"));
             var oldVariant = first.getId().compareTo(second.getId()) < 0 ? first : second;
@@ -2872,10 +2993,12 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
 
             var placed = createOrder(line(null, oldVariant.getId(), "4.00"));
             var itemId = placed.itemId(oldVariant.getId());
-            // The sale spilled: 1 from the priority location and 3 from the second one.
-            assertThat(locationStockOf(oldVariant.getId(), salesLocationId)).isEqualByComparingTo(BigDecimal.ZERO);
+            // The split is intact: no sale spilled from it, because none happened.
+            assertThat(locationStockOf(oldVariant.getId(), salesLocationId))
+                    .isEqualByComparingTo(new BigDecimal("1.00"));
             assertThat(locationStockOf(oldVariant.getId(), secondaryLocationId))
-                    .isEqualByComparingTo(new BigDecimal("6.00"));
+                    .isEqualByComparingTo(new BigDecimal("9.00"));
+            assertNothingBooked(oldVariant.getId(), "10.00");
 
             mockMvc.perform(put("/api/sales-orders/{id}/items/{itemId}", placed.orderId(), itemId)
                             .contentType(MediaType.APPLICATION_JSON)
@@ -2884,20 +3007,22 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.quantity").value(3.00));
 
+            assertNothingBooked(oldVariant.getId(), "10.00");
+            assertNothingBooked(newVariant.getId(), "10.00");
+
+            chargeFromItsCurrentState(placed.orderId());
+
+            // The old variant is untouched — there was no hold to give back and no reversal to write — and the
+            // charge sells the variant the line names.
             assertThat(stockPositionOf(oldVariant.getId())).isEqualByComparingTo(new BigDecimal("10.00"));
             assertThat(locationStockOf(oldVariant.getId(), salesLocationId))
                     .isEqualByComparingTo(new BigDecimal("1.00"));
             assertThat(locationStockOf(oldVariant.getId(), secondaryLocationId))
                     .isEqualByComparingTo(new BigDecimal("9.00"));
+            assertThat(movementsOf(oldVariant.getId())).isEmpty();
             assertThat(stockPositionOf(newVariant.getId())).isEqualByComparingTo(new BigDecimal("7.00"));
             assertThat(locationStockOf(newVariant.getId(), salesLocationId))
                     .isEqualByComparingTo(new BigDecimal("7.00"));
-
-            assertThat(movementsOfType(oldVariant.getId(), StockLedgerWriter.SALE_REVERSAL))
-                    .extracting(LedgerMovement::sourceId, LedgerMovement::storeLocationId, LedgerMovement::quantity)
-                    .containsExactlyInAnyOrder(
-                            tuple(itemId, salesLocationId, new BigDecimal("1.00")),
-                            tuple(itemId, secondaryLocationId, new BigDecimal("3.00")));
             assertThat(movementsOfType(newVariant.getId(), StockLedgerWriter.SALE))
                     .extracting(LedgerMovement::sourceId, LedgerMovement::quantity)
                     .containsExactly(tuple(itemId, new BigDecimal("3.00")));
@@ -2910,14 +3035,17 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
         void updateItem_VariantChange_NewVariantSortsFirst_StillSellsNew() throws Exception {
             var first = createTestVariant(new BigDecimal("10.00"));
             var second = createTestVariant(new BigDecimal("10.00"));
-            // Force the adversarial but reachable ordering: the service sorts the batch by
-            // (store, variant), so the new variant's deduction runs before the old one's reversal.
+            // The adversarial but reachable ordering the case was built on: the new variant sorts before the old
+            // one, so a batch that paired a reversal with a deduction of one line would run them in an order that
+            // decides the outcome. The charge sends one deduction per line and no reversal, so the ordering cannot
+            // decide anything — and the case still pins the outcome instead of assuming it.
             var oldVariant = first.getId().compareTo(second.getId()) > 0 ? first : second;
             var newVariant = oldVariant == first ? second : first;
             seedSplitBalances(oldVariant.getId(), new BigDecimal("1.00"), new BigDecimal("9.00"));
 
             var placed = createOrder(line(null, oldVariant.getId(), "4.00"));
             var itemId = placed.itemId(oldVariant.getId());
+            assertNothingBooked(oldVariant.getId(), "10.00");
 
             mockMvc.perform(put("/api/sales-orders/{id}/items/{itemId}", placed.orderId(), itemId)
                             .contentType(MediaType.APPLICATION_JSON)
@@ -2925,7 +3053,8 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                             .with(scopedSalesJwt()))
                     .andExpect(status().isOk());
 
-            // The outcome must not depend on the internal ordering: old restored exactly, new sold.
+            chargeFromItsCurrentState(placed.orderId());
+
             assertThat(stockPositionOf(oldVariant.getId())).isEqualByComparingTo(new BigDecimal("10.00"));
             assertThat(locationStockOf(oldVariant.getId(), salesLocationId))
                     .isEqualByComparingTo(new BigDecimal("1.00"));
@@ -2960,39 +3089,50 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             var itemId = placed.itemId(high.getId());
 
             updateOrderItems(placed.orderId(), line(itemId, mid.getId(), "4.00"));
-            assertThat(stockPositionOf(high.getId())).isEqualByComparingTo(new BigDecimal("100.00"));
-            assertThat(stockPositionOf(mid.getId())).isEqualByComparingTo(new BigDecimal("96.00"));
-
             updateOrderItems(placed.orderId(), line(itemId, low.getId(), "4.00"));
-            assertThat(stockPositionOf(mid.getId())).isEqualByComparingTo(new BigDecimal("100.00"));
-            assertThat(stockPositionOf(low.getId())).isEqualByComparingTo(new BigDecimal("96.00"));
-
             updateOrderItems(placed.orderId(), line(itemId, high.getId(), "4.00"));
-            assertThat(stockPositionOf(low.getId())).isEqualByComparingTo(new BigDecimal("100.00"));
-            assertThat(stockPositionOf(high.getId())).isEqualByComparingTo(new BigDecimal("96.00"));
 
-            // Every batch reversed the variant it held and then sold the new one: no variant keeps
-            // an unsold fresh SALE, so every variant it left is back at its full balance.
-            assertThat(movementsOf(mid.getId()))
-                    .allSatisfy(m -> assertThat(m.sourceId()).isEqualTo(itemId));
-            assertThat(movementsOfType(high.getId(), StockLedgerWriter.SALE)).hasSize(2);
+            // Three changes, three line writes, no movement: every variant still holds its hundred.
+            assertNothingBooked(high.getId(), "100.00");
+            assertNothingBooked(mid.getId(), "100.00");
+            assertNothingBooked(low.getId(), "100.00");
+
+            chargeFromItsCurrentState(placed.orderId());
+
+            // The document ends on the variant it started on, and that is the one and only one sold.
+            assertThat(stockPositionOf(high.getId())).isEqualByComparingTo(new BigDecimal("96.00"));
+            assertThat(stockPositionOf(mid.getId())).isEqualByComparingTo(new BigDecimal("100.00"));
+            assertThat(stockPositionOf(low.getId())).isEqualByComparingTo(new BigDecimal("100.00"));
+            assertThat(movementsOf(mid.getId())).isEmpty();
+            assertThat(movementsOf(low.getId())).isEmpty();
+            assertThat(movementsOfType(high.getId(), StockLedgerWriter.SALE)).hasSize(1);
             assertThat(movementsOfType(high.getId(), StockLedgerWriter.SALE_REVERSAL))
-                    .hasSize(1);
+                    .isEmpty();
         }
     }
 
-    // ─── 5.17 Update-path insufficient stock — nothing written ───
+    // ─── 5.17 Update beyond stock — accepted, refused at the charge ─
 
+    /**
+     * A quantity the store cannot cover, asked of the two moments it can be asked at.
+     *
+     * <p><b>What the two cases were.</b> They asserted the 409 <b>and</b> that the failed deduction rolled the
+     * update back — the line kept its old quantity, the old variant's reversal rolled back with the new variant's
+     * refusal. Under ADR-0002 decision 7 an edit checks no stock, so the update succeeds and persists what the
+     * request states; the refusal is the charge's, and it rolls back the charge instead of the edit. Both halves are
+     * asserted, in the order they now happen.</p>
+     */
     @Nested
-    @DisplayName("5.17 Updating with insufficient stock — 409 and no writes")
+    @DisplayName("5.17 Updating beyond stock — the edit is accepted, the charge refuses it")
     class UpdateInsufficientStockTests {
 
         @Test
-        @DisplayName("should write nothing when a grown line cannot be covered")
-        void updateOrder_QuantityGrow_InsufficientStock_WritesNothing() throws Exception {
+        @DisplayName("should accept a grown line beyond the position and refuse its charge with 409")
+        void updateOrder_QuantityGrow_BeyondStock_IsAcceptedAndTheChargeRefuses() throws Exception {
             var variant = createTestVariant(new BigDecimal("10.00"));
             var placed = createOrder(line(null, variant.getId(), "2.00"));
             var itemId = placed.itemId(variant.getId());
+            assertNothingBooked(variant.getId(), "10.00");
 
             var request = new SalesOrderRequest(
                     customerId, companyStoreId, shiftId, "user123", List.of(line(itemId, variant.getId(), "50.00")));
@@ -3000,28 +3140,44 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(request))
                             .with(scopedSalesJwt()))
-                    .andExpect(status().isConflict())
-                    .andExpect(jsonPath("$.status").value(409));
+                    .andExpect(status().isOk());
 
-            // The failed deduction rolled the update back: the line still holds 2 and its sale is
-            // still the only row of the ledger.
-            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("8.00"));
-            assertThat(locationStockOf(variant.getId(), salesLocationId)).isEqualByComparingTo(new BigDecimal("8.00"));
+            // The edit is a document state, and it really is stored: fifty units are what the document now says.
             assertThat(itemRepository.findById(itemId).orElseThrow().getQuantity())
-                    .isEqualByComparingTo(new BigDecimal("2.00"));
-            assertThat(movementsOf(variant.getId()))
-                    .extracting(LedgerMovement::movementType, LedgerMovement::quantity)
-                    .containsExactly(tuple(StockLedgerWriter.SALE, new BigDecimal("2.00")));
+                    .isEqualByComparingTo(new BigDecimal("50.00"));
+            assertNothingBooked(variant.getId(), "10.00");
+
+            transitionOrder(placed.orderId(), activeStatusId);
+            mockMvc.perform(patch("/api/sales-orders/{id}/charge", placed.orderId())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(
+                                    new ChargeSalesOrderRequest(savedPaymentMethodId())))
+                            .with(scopedSalesJwt()))
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.status").value(409))
+                    .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("requested 50")))
+                    .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("available 10")));
+
+            // The refused charge wrote nothing: no payment, the position is the fixture's, the ledger is empty and
+            // the line still states the quantity the edit accepted.
+            assertThat(paymentsOf(placed.orderId())).isEmpty();
+            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("10.00"));
+            assertThat(locationStockOf(variant.getId(), salesLocationId)).isEqualByComparingTo(new BigDecimal("10.00"));
+            assertThat(movementsOf(variant.getId())).isEmpty();
+            assertThat(itemRepository.findById(itemId).orElseThrow().getQuantity())
+                    .isEqualByComparingTo(new BigDecimal("50.00"));
         }
 
         @Test
-        @DisplayName("should roll back the old variant's reversal when the new one cannot be covered")
-        void updateOrder_VariantChange_InsufficientNewVariant_WritesNothing() throws Exception {
+        @DisplayName("should accept a change to a scarce variant and refuse its charge with 409")
+        void updateOrder_VariantChange_BeyondStockOfTheNewVariant_IsAcceptedAndTheChargeRefuses() throws Exception {
             var oldVariant = createTestVariant(new BigDecimal("100.00"));
             var scarceVariant = createTestVariantB(new BigDecimal("1.00"));
 
             var placed = createOrder(line(null, oldVariant.getId(), "5.00"));
             var itemId = placed.itemId(oldVariant.getId());
+            assertNothingBooked(oldVariant.getId(), "100.00");
+            assertNothingBooked(scarceVariant.getId(), "1.00");
 
             var request = new SalesOrderRequest(
                     customerId,
@@ -3033,34 +3189,57 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(request))
                             .with(scopedSalesJwt()))
+                    .andExpect(status().isOk());
+
+            assertThat(itemRepository.findById(itemId).orElseThrow().getProductVariantId())
+                    .isEqualTo(scarceVariant.getId());
+            assertNothingBooked(oldVariant.getId(), "100.00");
+            assertNothingBooked(scarceVariant.getId(), "1.00");
+
+            transitionOrder(placed.orderId(), activeStatusId);
+            mockMvc.perform(patch("/api/sales-orders/{id}/charge", placed.orderId())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(
+                                    new ChargeSalesOrderRequest(savedPaymentMethodId())))
+                            .with(scopedSalesJwt()))
                     .andExpect(status().isConflict());
 
-            // The old variant's reversal is registered in the same batch, but the failed deduction of
-            // the new variant rolls every write of the transaction back.
-            assertThat(stockPositionOf(oldVariant.getId())).isEqualByComparingTo(new BigDecimal("95.00"));
+            // Neither variant moved: the refusal rolled the whole batch back, which is what the old case asserted
+            // for the reversal this one no longer has to roll back.
+            assertThat(paymentsOf(placed.orderId())).isEmpty();
+            assertThat(stockPositionOf(oldVariant.getId())).isEqualByComparingTo(new BigDecimal("100.00"));
             assertThat(locationStockOf(oldVariant.getId(), salesLocationId))
-                    .isEqualByComparingTo(new BigDecimal("95.00"));
+                    .isEqualByComparingTo(new BigDecimal("100.00"));
+            assertThat(movementsOf(oldVariant.getId())).isEmpty();
             assertThat(stockPositionOf(scarceVariant.getId())).isEqualByComparingTo(new BigDecimal("1.00"));
             assertThat(locationStockOf(scarceVariant.getId(), salesLocationId))
                     .isEqualByComparingTo(new BigDecimal("1.00"));
-            assertThat(movementsOf(oldVariant.getId()))
-                    .extracting(LedgerMovement::movementType, LedgerMovement::quantity)
-                    .containsExactly(tuple(StockLedgerWriter.SALE, new BigDecimal("5.00")));
             assertThat(movementsOf(scarceVariant.getId())).isEmpty();
             assertThat(itemRepository.findById(itemId).orElseThrow().getProductVariantId())
-                    .isEqualTo(oldVariant.getId());
+                    .isEqualTo(scarceVariant.getId());
         }
     }
 
-    // ─── 5.18 Second reversal is a no-op across orderings ────────
+    // ─── 5.18 An uncharged document — nothing is booked, in any order ───
 
+    /**
+     * The four orderings of "a line or an order is cancelled, then something else happens", asked what they book.
+     *
+     * <p><b>What the class was.</b> It guarded the second reversal: whichever order the two cancellations and the
+     * delete happened in, the engine's uncovered-remainder arithmetic made the second reversal a no-op, so no line
+     * was ever credited twice. Under ADR-0002 decision 7 an uncharged document holds nothing, so every one of these
+     * orderings books nothing at all — and the guard's subject, a reversal that must not run twice, lives where a
+     * reversal exists: on a deleted charged document, where
+     * {@code DeleteOrderStockRestoreTests.deleteOrder_StockRestored} deletes it twice and credits once. Each
+     * scenario is kept, with the invariant it now states.</p>
+     */
     @Nested
-    @DisplayName("5.18 Reversing twice — the second reversal writes nothing")
+    @DisplayName("5.18 An uncharged document — nothing is booked, in any order of cancels and deletes")
     class SecondReversalGuardTests {
 
         @Test
-        @DisplayName("should not restore again when a deleted line's order is later cancelled")
-        void deleteItemThenCancelOrder_NoSecondReversal() throws Exception {
+        @DisplayName("should book nothing when a deleted line's order is later cancelled")
+        void deleteItemThenCancelOrder_BooksNothing() throws Exception {
             var variant = createTestVariant(new BigDecimal("100.00"));
             var placed = createOrder(line(null, variant.getId(), "4.00"));
             var itemId = placed.itemId(variant.getId());
@@ -3068,72 +3247,64 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             mockMvc.perform(delete("/api/sales-orders/{id}/items/{itemId}", placed.orderId(), itemId)
                             .with(scopedSalesJwt()))
                     .andExpect(status().isNoContent());
-            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("100.00"));
+            assertNothingBooked(variant.getId(), "100.00");
 
             cancelOrder(placed.orderId());
 
-            // The soft-deleted line is excluded from the cancel, so the second reversal never runs.
+            // Neither step books a movement, and there is no reversal to be a second one of.
             assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("100.00"));
             assertThat(locationStockOf(variant.getId(), salesLocationId))
                     .isEqualByComparingTo(new BigDecimal("100.00"));
             assertThat(itemEnabled(itemId)).isFalse();
-            assertThat(movementsOf(variant.getId())).hasSize(2);
-            assertThat(movementsOfType(variant.getId(), StockLedgerWriter.SALE_REVERSAL))
-                    .hasSize(1);
+            assertThat(movementsOf(variant.getId())).isEmpty();
         }
 
         @Test
-        @DisplayName("should not restore again when an order is cancelled after one of its lines was")
-        void cancelLineThenCancelOrder_NoSecondReversal() throws Exception {
+        @DisplayName("should book nothing when an order is cancelled after one of its lines was")
+        void cancelLineThenCancelOrder_BooksNothing() throws Exception {
             var variant = createTestVariant(new BigDecimal("100.00"));
             var placed = createOrder(line(null, variant.getId(), "4.00"));
             var itemId = placed.itemId(variant.getId());
 
             cancelItem(placed.orderId(), itemId);
-            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("100.00"));
+            assertNothingBooked(variant.getId(), "100.00");
 
-            // The individually cancelled line is still enabled, so the cancel DOES hand it to the
-            // engine again; the zero ledger remainder makes that second reversal a no-op.
+            // The cancelled line is still enabled, so it is part of what the cancel sees — and neither the line's
+            // cancel nor the order's books anything.
             cancelOrder(placed.orderId());
 
             assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("100.00"));
             assertThat(locationStockOf(variant.getId(), salesLocationId))
                     .isEqualByComparingTo(new BigDecimal("100.00"));
-            assertThat(movementsOf(variant.getId())).hasSize(2);
-            assertThat(movementsOfType(variant.getId(), StockLedgerWriter.SALE_REVERSAL))
-                    .hasSize(1);
+            assertThat(movementsOf(variant.getId())).isEmpty();
         }
 
         @Test
-        @DisplayName("should not restore again when a line of a cancelled order is then cancelled")
-        void cancelOrderThenCancelLine_NoSecondReversal() throws Exception {
+        @DisplayName("should book nothing when a line of a cancelled order is then cancelled")
+        void cancelOrderThenCancelLine_BooksNothing() throws Exception {
             var variant = createTestVariant(new BigDecimal("100.00"));
             var placed = createOrder(line(null, variant.getId(), "4.00"));
             var itemId = placed.itemId(variant.getId());
 
             cancelOrder(placed.orderId());
-            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("100.00"));
+            assertNothingBooked(variant.getId(), "100.00");
 
-            // The cancel already restored the line; cancelling the line itself asks again and the
-            // zero remainder keeps the balances still.
             cancelItem(placed.orderId(), itemId);
 
             assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("100.00"));
             assertThat(locationStockOf(variant.getId(), salesLocationId))
                     .isEqualByComparingTo(new BigDecimal("100.00"));
-            assertThat(movementsOf(variant.getId())).hasSize(2);
-            assertThat(movementsOfType(variant.getId(), StockLedgerWriter.SALE_REVERSAL))
-                    .hasSize(1);
+            assertThat(movementsOf(variant.getId())).isEmpty();
         }
 
         @Test
-        @DisplayName("should not move stock again when a cancelled and deleted order is re-enabled")
+        @DisplayName("should not move stock when a cancelled and deleted order is re-enabled")
         void cancelOrderThenDeleteThenReEnable_NoStockMovement() throws Exception {
             var variant = createTestVariant(new BigDecimal("100.00"));
             var placed = createOrder(line(null, variant.getId(), "4.00"));
 
             cancelOrder(placed.orderId());
-            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("100.00"));
+            assertNothingBooked(variant.getId(), "100.00");
 
             mockMvc.perform(delete("/api/sales-orders/{id}", placed.orderId()).with(scopedSalesJwt()))
                     .andExpect(status().isNoContent());
@@ -3142,20 +3313,19 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                             .orElseThrow()
                             .getEnabled()))
                     .isFalse();
-            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("100.00"));
+            // The delete reverses only a document whose charge booked something; a cancelled one never charged.
+            assertNothingBooked(variant.getId(), "100.00");
 
             mockMvc.perform(patch("/api/sales-orders/{id}/enable", placed.orderId())
                             .with(scopedSalesJwt()))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.enabled").value(true));
 
-            // Re-enabling restores the flag, never the stock: no third movement and no balance move.
+            // Re-enabling restores the flag, never the stock: the ledger stays empty and no balance moves.
             assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("100.00"));
             assertThat(locationStockOf(variant.getId(), salesLocationId))
                     .isEqualByComparingTo(new BigDecimal("100.00"));
-            assertThat(movementsOf(variant.getId())).hasSize(2);
-            assertThat(movementsOfType(variant.getId(), StockLedgerWriter.SALE_REVERSAL))
-                    .hasSize(1);
+            assertThat(movementsOf(variant.getId())).isEmpty();
         }
     }
 
@@ -3171,7 +3341,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             var variant = createTestVariant(new BigDecimal("100.00"));
             var placed = createOrder(line(null, variant.getId(), "4.00"));
             cancelOrder(placed.orderId());
-            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("100.00"));
+            assertNothingBooked(variant.getId(), "100.00");
 
             var body = new SalesOrderRequest(
                     customerId, companyStoreId, shiftId, "user123", List.of(line(null, variant.getId(), "2.00")));
@@ -3181,13 +3351,13 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                             .with(scopedSalesJwt()))
                     .andReturn();
 
-            // Cancelled is terminal: order-cancel and order-delete both skip it, so a line added to
-            // this order would deduct and never be reversed. The balance must not move on either
-            // side. It cannot be charged either — charge refuses a non-Pending order.
+            // Cancelled is terminal and a cancelled document can never be charged, so a line added to it would be
+            // a line no charge ever books — which is the invariant the refusal protects, and the balance must not
+            // move on either side.
             assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("100.00"));
             assertThat(locationStockOf(variant.getId(), salesLocationId))
                     .isEqualByComparingTo(new BigDecimal("100.00"));
-            assertThat(movementsOf(variant.getId())).hasSize(2);
+            assertThat(movementsOf(variant.getId())).isEmpty();
             assertThat(response.getResponse().getStatus()).isEqualTo(409);
         }
 
@@ -3197,8 +3367,10 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             var variant = createTestVariant(new BigDecimal("100.00"));
             var placed = createOrder(line(null, variant.getId(), "4.00"));
             var itemId = placed.itemId(variant.getId());
+            // The status chain walks the document to Completed without a charge, which books nothing: the document
+            // holds no stock to be edited around, and the refusal is about the state, not the stock.
             completeOrder(placed.orderId());
-            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("96.00"));
+            assertNothingBooked(variant.getId(), "100.00");
 
             var body = new SalesOrderRequest(
                     customerId, companyStoreId, shiftId, "user123", List.of(line(itemId, variant.getId(), "6.00")));
@@ -3208,8 +3380,9 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                             .with(scopedSalesJwt()))
                     .andReturn();
 
-            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("96.00"));
-            assertThat(locationStockOf(variant.getId(), salesLocationId)).isEqualByComparingTo(new BigDecimal("96.00"));
+            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("100.00"));
+            assertThat(locationStockOf(variant.getId(), salesLocationId))
+                    .isEqualByComparingTo(new BigDecimal("100.00"));
             assertThat(response.getResponse().getStatus()).isEqualTo(409);
         }
 
@@ -3220,7 +3393,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             var placed = createOrder(line(null, variant.getId(), "4.00"));
             var itemId = placed.itemId(variant.getId());
             cancelItem(placed.orderId(), itemId);
-            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("100.00"));
+            assertNothingBooked(variant.getId(), "100.00");
 
             var body = line(itemId, variant.getId(), "5.00");
             var response = mockMvc.perform(put("/api/sales-orders/{id}/items/{itemId}", placed.orderId(), itemId)
@@ -3229,12 +3402,12 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                             .with(scopedSalesJwt()))
                     .andReturn();
 
-            // A cancelled line holds nothing: the item endpoint must not sell it again, which would
-            // leave a SALE row no line accounts for (the reversal of its reference is a no-op).
+            // A cancelled line is outside the live set the charge reads: editing it cannot make it sellable, so the
+            // refusal keeps the document and the store exactly where they were.
             assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("100.00"));
             assertThat(locationStockOf(variant.getId(), salesLocationId))
                     .isEqualByComparingTo(new BigDecimal("100.00"));
-            assertThat(movementsOf(variant.getId())).hasSize(2);
+            assertThat(movementsOf(variant.getId())).isEmpty();
             assertThat(response.getResponse().getStatus()).isEqualTo(409);
         }
 
@@ -3247,7 +3420,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             mockMvc.perform(delete("/api/sales-orders/{id}/items/{itemId}", placed.orderId(), itemId)
                             .with(scopedSalesJwt()))
                     .andExpect(status().isNoContent());
-            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("100.00"));
+            assertNothingBooked(variant.getId(), "100.00");
 
             var body = line(itemId, variant.getId(), "5.00");
             var response = mockMvc.perform(put("/api/sales-orders/{id}/items/{itemId}", placed.orderId(), itemId)
@@ -3256,13 +3429,13 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                             .with(scopedSalesJwt()))
                     .andReturn();
 
-            // A soft-deleted line was given back and the item endpoint never re-enables it, so a
-            // deduction here is stranded until someone re-cancels the line by hand. The supported
-            // route is the order-level PUT, which re-enables and re-sells the line (W3-D11).
+            // A soft-deleted line is outside the live set too, and the item endpoint never re-enables it: the
+            // supported route is the order-level PUT, which re-enables it and lets the charge book it (W3-D11).
             assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("100.00"));
             assertThat(locationStockOf(variant.getId(), salesLocationId))
                     .isEqualByComparingTo(new BigDecimal("100.00"));
             assertThat(itemEnabled(itemId)).isFalse();
+            assertThat(movementsOf(variant.getId())).isEmpty();
             assertThat(response.getResponse().getStatus()).isEqualTo(409);
         }
     }
@@ -3280,7 +3453,8 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             var owner = createOrder(line(null, variant.getId(), "4.00"));
             var holder = createOrder(line(null, variant.getId(), "1.00"));
             var foreignItemId = owner.itemId(variant.getId());
-            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("95.00"));
+            // Two documents, and neither of them has booked a unit: both are still documents.
+            assertNothingBooked(variant.getId(), "100.00");
 
             // The targeted line is live — enabled and Pending — so the ownership check is the only
             // one that can refuse these two writes; the same request against its own order succeeds.
@@ -3294,13 +3468,8 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                     .andExpect(status().isNotFound());
 
             assertThat(itemEnabled(foreignItemId)).isTrue();
-            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("95.00"));
-            assertThat(locationStockOf(variant.getId(), salesLocationId)).isEqualByComparingTo(new BigDecimal("95.00"));
-            // The two refusals wrote nothing: one SALE row per order, no reversal, nothing else.
-            assertThat(movementsOf(variant.getId())).hasSize(2);
-            assertThat(movementsOfType(variant.getId(), StockLedgerWriter.SALE)).hasSize(2);
-            assertThat(movementsOfType(variant.getId(), StockLedgerWriter.SALE_REVERSAL))
-                    .isEmpty();
+            // The two refusals wrote nothing: the position is the fixture's and the ledger holds no row.
+            assertNothingBooked(variant.getId(), "100.00");
         }
     }
 
