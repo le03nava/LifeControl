@@ -1275,9 +1275,9 @@ class SalesOrderServiceTest {
             // The two reads answer the same row in the database, so the fixture's lenient delegate makes them
             // indistinguishable by state — which is exactly why the pin is the statement, not the answer: a
             // regression to the unlocked read leaves the locking one uninvoked, and this case is what says so.
-            // Without the lock, a cancellation that read PENDING can overwrite the COMPLETED a concurrent charge
-            // committed while it waited for the row, and the reversal gate (status == COMPLETED) then finds
-            // nothing to give back.
+            // Without the lock, a cancellation that read PENDING can reach a row a concurrent charge already
+            // committed as COMPLETED; the transition it recorded is PENDING -> CANCELLED, so the schema's deferred
+            // history check refuses the commit and a legal cancellation answers 500 instead of 409.
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
             when(statusCatalog.requireOrderState(canceladaStatus.getId())).thenReturn(SalesOrderState.CANCELLED);
             when(salesOrderRepository.save(any(SalesOrder.class))).thenReturn(testOrder);

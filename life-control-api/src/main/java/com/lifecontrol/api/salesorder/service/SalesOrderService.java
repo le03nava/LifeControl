@@ -473,10 +473,13 @@ public class SalesOrderService {
         logger.info("Updating sales order status: id={}", id);
 
         // The row is read WITH the lock, and that is the whole of the fix this method needs: a cancellation that
-        // read the row unlocked and then wrote its state could overwrite a charge that committed while it waited
-        // for the row at flush. The history table compares a document only with its latest transition, so the
-        // overwrite would commit — leaving a CANCELLED document with a payment row and a booked deduction, and
-        // `deleteSalesOrder` reverses only a COMPLETED one, so the stock would be stranded and paid for.
+        // read the row unlocked could reach a row a concurrent charge had already committed as COMPLETED. What it
+        // recorded is PENDING -> CANCELLED — the state it read — so `V67`'s deferred side-B check refuses the
+        // commit for a transition the document never made, and the request answers a 500: a legal cancellation
+        // failing with an internal error, with the reversal gate downstream of it never reachable. The data does
+        // survive, because the schema's deferred check is a real last line of defence; correctness resting on it
+        // rather than on the lock is the defect. Taking the lock first means the loser reads COMPLETED, the state
+        // machine refuses the move and the answer is the 409 it always should have been.
         var so = salesOrderRepository.findByIdForUpdate(id).orElseThrow(() -> new SalesOrderNotFoundException(id));
 
         // The request names a catalog row; the machine only reads its code (ADR-0004 decision 7). This is

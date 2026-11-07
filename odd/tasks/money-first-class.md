@@ -793,8 +793,9 @@ would be a second, unstated rule change.
 
 **Evidence.** Unit suite 97 tests / 0 failures (94 before, +3 charge-batch cases); `SalesOrderIntegrationTest` 48 / 0;
 `com.lifecontrol.api.inventory.*` 151 / 0, untouched. Full module gate `spotlessCheck test spotbugsMain` on the final bytes:
-**1,080 suites / 4,574 tests / 0 skipped / 0 failures**, `spotbugsMain` **0** `BugInstance`, `spotlessCheck` green in the same
-run. Every assertion that moved kept its observable — one batch per document, one deduction per live line, that line's own
+**1,081 suites / 4,578 tests / 0 skipped / 0 failures**, `spotbugsMain` **0** `BugInstance`, `spotlessCheck` green in the same
+run. The delta against this slice's first gate (1,080 / 4,574) is exactly the four pins the verification asked for: the unit case
+for the locking read and the three integration probes. Every assertion that moved kept its observable — one batch per document, one deduction per live line, that line's own
 sequence — and no case was deleted; the inline-diff family was retargeted from deltas to «the diff books no stock» because its subject
 was the delta the charge no longer has.
 
@@ -807,3 +808,54 @@ green — 4,574 tests, `spotlessCheck` and `spotbugsMain` — before the records
 
 **Commits.** `a82e2e8c` (the charge books the stock, the six paths stop, the lock order, the OpenAPI pin), `f7774412` (the unit
 suite moves its assertions to the charge), `4e6ac660` (the integration suite charges before it asserts stock).
+
+**2026-11-06 — the independent verification found one defect, one deploy risk and seven stale comments.** The slice was escalated
+to `gentle-ai-verify`, which passed items 1, 3, 4 and 7 of its brief (transaction and atomicity, the write-sequence identity,
+idempotency, and S5 verbatim) and came back with the rest.
+
+**The defect, and the trace that was wrong about what it costs.** `updateSalesOrderStatus` read the order row **unlocked** and
+then wrote its state. The verification traced that statically to «`CANCELLED` committed over `COMPLETED`, payment and deduction
+kept, stock stranded», and the RED run of the new integration probe falsified exactly that part: `V67`'s side-B check is
+`DEFERRABLE INITIALLY DEFERRED` and requires a `status_transition` row for the **real** `OLD → NEW`, while the cancel recorded
+`PENDING → CANCELLED` — the state it had read. So the commit is refused, the request answers **500**, the cancellation rolls back
+and the document is correctly `COMPLETED`. No stock is stranded; the schema's deferred check is a real last line of defence.
+What is actually wrong is that a legal cancellation depends on a trigger to avoid an internal error, and answers `500` where the
+state machine already knows how to say `409`. Fix (`ed59f94c`): the same one-line lock the slice gave `deleteSalesOrder`; the
+loser now reads `COMPLETED`, `DocumentStates` refuses the move, and the answer is 409.
+
+**Recorded because a static trace is not a measurement.** The first version of this entry, of the method's comment and of the
+unit case stated the stranded-stock mechanism as fact. The probe's RED run is what corrected them, on the pre-fix tree, from a
+copy (`git archive 0cc4be3c` in a scratch directory): 51 tests, **the only failure the new race case**, ``the loser is a refusal
+that names the reason, not a 500 — Expecting actual: 500``. A claim that a green suite cannot falsify was falsified by the
+assertion that expected the refusal; that is the shape a durable probe is for.
+
+**The pins left behind, three of them.** The unit case (`updateStatus_TakesTheRowLock`) asserts the locking *statement*, because
+the fixture's delegate makes both reads answer the same row. `cancelRacingCharge_neverStrandsABookedDeduction` runs the race for
+three rounds on two threads, released together, and reads the outcome from the database instead of the responses — `COMPLETED`
+iff exactly one `sale_payment` row and one `SALE` movement, `CANCELLED` implies neither and an untouched position. And two
+characterization probes state the identity `V73` exists for: a live line's `write_seq` is 1 and its `SALE` rows for that line
+number exactly `1`, a cancelled line's is 0 with no movement, and a charge refused for an uncovered line leaves both lines at 0 —
+the rollback gives the numbers back (`writeSeq_namesTheMovementAndNothingElse`, `refusedChargeConsumesNoSequence`).
+
+**What the verifier named and this record keeps as a reviewer's risk.** The reversal gate is a *status predicate*, not a *ledger
+predicate*: it is immune to this race now, but a future path that lets `status` drift could strand stock again, while «reverse when
+the reference holds open `SALE` rows» would not — and the engine already answers that question (`openLedgerSales`). That is a
+change of the gate's kind, not of this slice, and it is recorded rather than smuggled in.
+
+**The deploy window, declared and then measured — not silently accepted.** An order created by the pre-T6b code already booked its
+deduction at `create` (`write_seq` 1, one open `SALE` row per line). Charged under T6b, the charge bumps to 2 and books a **second**
+full deduction under the same reference, which `uq_movement_source` accepts because the write sequence differs: the position drops by
+twice the quantity. The maintainer measured the dataset at the cut-over and it holds **no in-flight orders**, so the window is empty
+for this deployment. What would have to exist if this is ever replayed against a dataset that has them is named here instead of
+left implicit: a read-only report of the Draft/Active/Pending orders whose lines hold an open `SALE` row, plus the operating rule
+that they are charged or cancelled **before** the switch — ADR-0002 migration step 2's shape, and the precedent
+`docker/scripts/preflight-money-parts.sh` already sets. Not building it now is a statement about this dataset, not about the risk.
+
+**Seven rationale blocks reworded** (`a65336dc` and the same file in `ed59f94c`): `CANCELLED` as «the line whose reversal is
+booked», a cancellation as «the reversal that already happened», a cancelled line as «given back in full», and the store refusal as
+protecting already-deducted stock. None of that is true after T6b, and a comment that describes the behaviour that just left is the
+same defect class as a test named after it.
+
+**Commits of the verification round.** `ed59f94c` (the cancel takes the row lock), `a65336dc` (the states and the two
+exceptions stop describing the old moment), `c5cf4081` (the three probes: the race and the two write-sequence identities) and
+`f0978e01` (this correction).
