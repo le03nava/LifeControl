@@ -747,3 +747,7 @@ soft-deletes lines without that lock and is named as the remaining window rather
 exact total rounds to zero minor units is now refused as "nothing to pay" and is unchargeable (a one-line sale at `0.0040 MXN`),
 and a cancelled line keeps `enabled = true`, so the document still charges it — pre-existing, and the same accounting question as
 the rate copied onto the line that `T4` already owes.
+
+**Delivery of `T6a` (2026-11-06).** Issue #797, pull request #798, commits `88f2f757` (the constraint, the writer and the charge),
+`0c45fd04` (the API proof) and `893cd1f5` (the two verification findings). Full module suite green at 4,568 tests and
+`spotlessCheck` clean before the PR was opened; the merge that lands it is #798's.
