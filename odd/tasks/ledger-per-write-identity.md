@@ -209,6 +209,17 @@ concurrency case against a naive read-modify-write, which answered `[2, 2]` wher
   branch's own `./gradlew cleanTest test` (1065 result files, 4502 tests, 0 failures), which is the run this
   record already cites as its evidence.
 
+**2026-11-06 — S5's call sites are now one, and T4's six become one; the rule itself is unchanged.** ADR-0002
+decision 7 (record `odd/tasks/money-first-class.md`, task **T6b**) moved the sales deduction from the line
+writes to the charge. The five sites S5 enumerates — `createSalesOrder`, `addSalesOrderItem` and the four in
+`collectLineStockOperations` — no longer exist: `collectLineStockOperations` is deleted, and
+`chargeSalesOrder` is the single path that bumps a line's sequence, once per booked line, before the engine
+books anything. The rule S5 states is what makes that safe rather than what it breaks: «a path that books
+nothing must not bump», and the create/edit/delete/status paths now book nothing, so they no longer bump.
+The item diff has no delta left to book either: one line is one full-quantity deduction, taken at the charge.
+`updateSalesOrderStatus` books no reversal any more, and `deleteSalesOrder` reverses only a `COMPLETED`
+document. T4's six sites are therefore one, and S5's enumeration is historical.
+
 The verifier's other durable probe — a catalog assertion on the key's five columns — also landed in
 `f5bb549b`, in the schema suite rather than in the migration, because a file that checks itself proves the
 check ran and not that an independent reader agrees with it.
