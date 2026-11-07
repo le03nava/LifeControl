@@ -265,7 +265,7 @@ public class SalesOrderService {
     public SalesOrderResponse updateSalesOrder(UUID id, SalesOrderRequest request) {
         logger.info("Updating sales order: id={}", id);
 
-        var so = salesOrderRepository.findById(id).orElseThrow(() -> new SalesOrderNotFoundException(id));
+        var so = salesOrderRepository.findByIdForUpdate(id).orElseThrow(() -> new SalesOrderNotFoundException(id));
 
         validateCustomerExists(request.customerId());
         validateCompanyStoreExists(request.companyStoreId());
@@ -727,7 +727,7 @@ public class SalesOrderService {
         logger.info("Updating item status: soId={}, itemId={}", salesOrderId, itemId);
 
         var so = salesOrderRepository
-                .findById(salesOrderId)
+                .findByIdForUpdate(salesOrderId)
                 .orElseThrow(() -> new SalesOrderNotFoundException(salesOrderId));
 
         var item = itemRepository.findById(itemId).orElseThrow(() -> new SalesOrderItemNotFoundException(itemId));
@@ -765,9 +765,17 @@ public class SalesOrderService {
      * in after the first scanned line, while the same order still accepted a full item diff through
      * the {@code PUT}. The stricter rule had no mechanical reason behind it: both surfaces write
      * their stock through the same engine call, and charge re-reads the order.</p>
+     *
+     * <p><b>Why the load takes the row lock.</b> Every path that writes a line and then recomputes the
+     * breakdown needs the order's lock, and {@link #recomputeBreakdown(UUID)} takes it <em>after</em> the line
+     * write. {@code chargeSalesOrder} takes the same lock and then reads the lines, so a path that wrote the
+     * line first and locked the order second would take the two rows in the opposite order and deadlock with
+     * it (40P01, surfaced as a 500). Taking the order's lock before this method's caller reads or writes its
+     * first line makes both orders identical — order, then line — and costs no extra statement: it is the
+     * load this method already performed, with the lock the write was always going to take.</p>
      */
     private SalesOrder loadAndValidateModifiableSO(UUID id) {
-        var so = salesOrderRepository.findById(id).orElseThrow(() -> new SalesOrderNotFoundException(id));
+        var so = salesOrderRepository.findByIdForUpdate(id).orElseThrow(() -> new SalesOrderNotFoundException(id));
 
         requireOrderNotTerminal(so);
         return so;

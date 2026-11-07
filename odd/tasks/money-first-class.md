@@ -720,3 +720,30 @@ the migration and not the service is a commit whose own suite is red — the exa
 level, and splitting it again would only move the red into a different commit. The second is the proof and is a clean slice.
 What the boundary deliberately does **not** do is carry `T6b`: moving the stock booking is a different behaviour, it rewrites
 four entry points and 83 test cases, and it needs the two ODD records that state the old arrangement edited with it.
+
+**The independent verification found the deploy-abort this record had argued away, and it was right.** `T6a` was escalated to a
+verifier on item 1 — the migration judges financial rows — and the report was `findings`, twice over. **First**: `V84` validated
+`ck_order_total` over the whole table while its header claimed the pre-flight was unnecessary because `V80` had run it. `V80`
+reconciled the rows that existed **when `V80` ran**, and the writer in production ever since has been `origin/main`'s
+`recalculateTotalAmount`, which states `total_amount` and leaves the four parts at their default zero. Every order created between
+the two releases would have aborted the deploy — the failure migration step 2 forbids, and the one `preflight-money-parts.sh`
+cannot see because it compares the total with the **lines**, not with the parts. `V84` now restates those rows exactly as `V80`
+restated the legacy ones (`subtotal = total_amount`, the other three at zero) before the constraint, narrowed to
+`subtotal = 0 AND discount_total = 0 AND tax_total = 0 AND rounding_adjustment = 0 AND total_amount <> 0`, and the new case
+`restatesTheDocumentsWrittenAfterThePartsExisted` seeds at `83` and migrates to head, so the abort is reproduced by a test instead
+of by a deploy. Two traps were measured on the way and are in the file: `sales_orders` is `FORCE ROW LEVEL SECURITY`, so the
+backfill runs inside a `NO FORCE` window — an unscoped `UPDATE` would match no row and report success, the mode `V54` and `V64`
+already record — and `V68`'s deferred constraint trigger makes the `FORCE` alter fail with `55006` until
+`SET CONSTRAINTS ALL IMMEDIATE` runs.
+
+**Second**: the row lock the unit introduced was taken in opposite orders. `chargeSalesOrder` locks the order and then writes
+lines; the line paths locked a line and only then reached `recomputeBreakdown`, which locks the order — order→line against
+line→order is a deadlock that the baseline could not have, because it took no order lock here at all. Every path that writes a line
+now takes the order's row lock before its first line read or write (`updateSalesOrder`, `updateSalesOrderItemStatus`, and the
+shared `loadAndValidateModifiableSO` behind add, update and delete), so one order is the only order. `deleteSalesOrder` still
+soft-deletes lines without that lock and is named as the remaining window rather than silently widened into this unit.
+
+**Two advisories are named and not taken**, because each is a product question and not a defect of this slice: a document whose
+exact total rounds to zero minor units is now refused as "nothing to pay" and is unchargeable (a one-line sale at `0.0040 MXN`),
+and a cancelled line keeps `enabled = true`, so the document still charges it — pre-existing, and the same accounting question as
+the rate copied onto the line that `T4` already owes.
