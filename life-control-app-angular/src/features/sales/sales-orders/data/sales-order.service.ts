@@ -9,6 +9,7 @@ import type {
   SalesOrderItemRequest,
   UpdateSalesOrderStatusRequest,
   ChargeSalesOrderRequest,
+  SalePaymentRequest,
   Page,
 } from '../models/sales-order.models';
 
@@ -63,10 +64,15 @@ export class SalesOrderService {
     return this.http.patch<SalesOrder>(`${this.baseUrl}/${id}/enable`, null);
   }
 
-  /** Charge a sales order (Pending → Completed + items → Added, with payment method). */
-  chargeSalesOrder(id: string, paymentMethodId: string): Observable<SalesOrder> {
+  /**
+   * Charge a sales order: Pending → Completed, the payment rows appended, the stock booked.
+   *
+   * The body states a list of payments (ADR-0002 decision 5, `T7b`): between them they add up to the document's
+   * total exactly (M3), and only a cash payment may state a tender and its change (M4).
+   */
+  chargeSalesOrder(id: string, payments: SalePaymentRequest[]): Observable<SalesOrder> {
     return this.http.patch<SalesOrder>(`${this.baseUrl}/${id}/charge`, {
-      paymentMethodId,
+      payments,
     } satisfies ChargeSalesOrderRequest);
   }
 

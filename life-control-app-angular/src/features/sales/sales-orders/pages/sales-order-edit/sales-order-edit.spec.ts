@@ -50,6 +50,7 @@ const mockOrder: SalesOrder = {
   orderDate: '2026-06-01T10:00:00Z',
   statusId: 'st-draft',
   statusName: 'Draft',
+  currency: 'MXN',
   totalAmount: 500,
   enabled: true,
   createdAt: '2026-06-01T10:00:00Z',
@@ -1211,7 +1212,7 @@ describe('SalesOrderEdit', () => {
         // stayed live, editing it would read the pre-edit quantity and send it
         // back, silently undoing the quantity that was already accepted.
         const inputs = Array.from<HTMLInputElement>(
-          fixture.nativeElement.querySelectorAll('input[type="number"]'),
+          fixture.nativeElement.querySelectorAll('app-sales-order-item-table input[type="number"]'),
         );
         expect(inputs).toHaveLength(3);
         expect(inputs.every((input) => input.disabled)).toBe(true);
@@ -1592,16 +1593,18 @@ describe('SalesOrderEdit', () => {
       expect(component.isPending()).toBe(true);
     });
 
-    it('should call chargeSalesOrder with correct id and paymentMethodId on onCharge', () => {
+    it('should call chargeSalesOrder with the id and the payments the panel stated', () => {
       // Set up as Pending order
       component.loadedOrder.set({ ...mockOrder, statusName: 'Pending' });
       salesOrderService.chargeSalesOrder = vi
         .fn()
         .mockReturnValue(of({ ...mockOrder, statusName: 'Completed' }));
 
-      component.onCharge('pm-1');
+      component.onCharge([{ paymentMethodId: 'pm-1', amount: 500 }]);
 
-      expect(salesOrderService.chargeSalesOrder).toHaveBeenCalledWith('so-1', 'pm-1');
+      expect(salesOrderService.chargeSalesOrder).toHaveBeenCalledWith('so-1', [
+        { paymentMethodId: 'pm-1', amount: 500 },
+      ]);
     });
 
     it('should set charging signal during charge and clear on success', () => {
@@ -1611,7 +1614,7 @@ describe('SalesOrderEdit', () => {
 
       expect(component.charging()).toBe(false);
 
-      component.onCharge('pm-1');
+      component.onCharge([{ paymentMethodId: 'pm-1', amount: 500 }]);
 
       expect(component.charging()).toBe(true);
 
@@ -1631,7 +1634,7 @@ describe('SalesOrderEdit', () => {
         .fn()
         .mockReturnValue(of({ ...mockOrder, statusName: 'Completed' }));
 
-      component.onCharge('pm-1');
+      component.onCharge([{ paymentMethodId: 'pm-1', amount: 500 }]);
 
       expect(salesOrderService.getSalesOrder).toHaveBeenCalledWith('so-1');
     });
@@ -1650,20 +1653,22 @@ describe('SalesOrderEdit', () => {
         ),
       );
 
-      component.onCharge('pm-1');
+      component.onCharge([{ paymentMethodId: 'pm-1', amount: 500 }]);
 
       expect(notificationService.showError).toHaveBeenCalled();
     });
 
-    it('should pass paymentMethodId to chargeSalesOrder', () => {
+    it('should pass the payments the operator stated to chargeSalesOrder', () => {
       component.loadedOrder.set({ ...mockOrder, statusName: 'Pending' });
       salesOrderService.chargeSalesOrder = vi
         .fn()
         .mockReturnValue(of({ ...mockOrder, statusName: 'Completed' }));
 
-      component.onCharge('pm-2');
+      component.onCharge([{ paymentMethodId: 'pm-2', amount: 500 }]);
 
-      expect(salesOrderService.chargeSalesOrder).toHaveBeenCalledWith('so-1', 'pm-2');
+      expect(salesOrderService.chargeSalesOrder).toHaveBeenCalledWith('so-1', [
+        { paymentMethodId: 'pm-2', amount: 500 },
+      ]);
     });
   });
 });

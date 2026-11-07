@@ -27,6 +27,7 @@ const mockOrder: SalesOrder = {
   orderDate: '2026-01-01T00:00:00Z',
   statusId: 'st-draft',
   statusName: 'Draft',
+  currency: 'MXN',
   totalAmount: 1500,
   enabled: true,
   createdAt: '2026-01-01T00:00:00Z',
@@ -392,7 +393,7 @@ describe('SalesOrderService', () => {
   });
 
   describe('chargeSalesOrder', () => {
-    it('should PATCH to charge endpoint with paymentMethodId', async () => {
+    it('should PATCH to charge endpoint with the payment list', async () => {
       const charged: SalesOrder = {
         ...mockOrder,
         statusId: 'st-completed',
@@ -400,11 +401,12 @@ describe('SalesOrderService', () => {
         paymentMethodId: 'pm-1',
       };
 
-      const promise = firstValueFrom(service.chargeSalesOrder('so-1', 'pm-1'));
+      const payments = [{ paymentMethodId: 'pm-1', amount: 1500 }];
+      const promise = firstValueFrom(service.chargeSalesOrder('so-1', payments));
 
       const req = httpMock.expectOne(`${TEST_API}/sales-orders/so-1/charge`);
       expect(req.request.method).toBe('PATCH');
-      expect(req.request.body).toEqual({ paymentMethodId: 'pm-1' });
+      expect(req.request.body).toEqual({ payments });
       req.flush(charged);
 
       const result = await promise;
@@ -413,7 +415,9 @@ describe('SalesOrderService', () => {
     });
 
     it('should propagate 400 error when order is not Pending', async () => {
-      const promise = firstValueFrom(service.chargeSalesOrder('so-1', 'pm-1'));
+      const promise = firstValueFrom(
+        service.chargeSalesOrder('so-1', [{ paymentMethodId: 'pm-1', amount: 1500 }]),
+      );
 
       const req = httpMock.expectOne(`${TEST_API}/sales-orders/so-1/charge`);
       req.flush(

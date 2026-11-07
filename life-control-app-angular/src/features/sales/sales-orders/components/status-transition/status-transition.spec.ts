@@ -24,6 +24,7 @@ function createOrder(overrides: Partial<SalesOrder> = {}): SalesOrder {
     orderDate: '2026-01-01T00:00:00Z',
     statusId: 'st-draft',
     statusName: 'Draft',
+    currency: 'MXN',
     totalAmount: 1200.0,
     enabled: true,
     createdAt: '2026-01-01T00:00:00Z',

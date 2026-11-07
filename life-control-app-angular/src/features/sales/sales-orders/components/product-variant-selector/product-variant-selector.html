@@ -25,7 +25,7 @@
       <mat-option [value]="v">
         <span class="variant-display-name">{{ v.variantName }}</span>
         <span class="variant-display-product">({{ v.productName }})</span>
-        <span class="variant-display-price"> — {{ v.listPrice | currency }}</span>
+        <span class="variant-display-price"> — {{ v.listPrice | money: currency() }}</span>
         <span class="variant-display-stock">(Stock: {{ v.stock }})</span>
       </mat-option>
     }

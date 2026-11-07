@@ -25,6 +25,8 @@ describe('SalesOrderItemTable', () => {
     items?: ItemTableRow[];
     isModifiable?: boolean;
     savingRowIds?: ReadonlySet<string>;
+    currency?: string;
+    documentTotal?: number | null;
   }): { fixture: ComponentFixture<SalesOrderItemTable>; comp: SalesOrderItemTable } {
     const fixture = TestBed.createComponent(SalesOrderItemTable);
     const comp = fixture.componentInstance;
@@ -32,9 +34,33 @@ describe('SalesOrderItemTable', () => {
     fixture.componentRef.setInput('items', overrides?.items ?? []);
     fixture.componentRef.setInput('isModifiable', overrides?.isModifiable ?? true);
     fixture.componentRef.setInput('savingRowIds', overrides?.savingRowIds ?? new Set<string>());
+    fixture.componentRef.setInput('currency', overrides?.currency ?? 'USD');
+    fixture.componentRef.setInput('documentTotal', overrides?.documentTotal ?? null);
     fixture.detectChanges();
 
     return { fixture, comp };
+  }
+
+  /** A row the server answered for: it carries its own parts. */
+  function createServerItem(overrides: Partial<ItemTableRow> = {}): ItemTableRow {
+    return createItem({
+      id: 'item-1',
+      subtotal: 300,
+      taxAmount: 48,
+      finalPrice: 348,
+      ...overrides,
+    });
+  }
+
+  /** Text of the cell in `column` of the first data row. */
+  function cellText(fixture: ComponentFixture<SalesOrderItemTable>, column: string): string {
+    const headers = Array.from<HTMLElement>(fixture.nativeElement.querySelectorAll('th')).map(
+      (th) => th.textContent?.trim(),
+    );
+    const index = headers.indexOf(column);
+    expect(index, `column ${column} not rendered`).toBeGreaterThanOrEqual(0);
+    const cells = fixture.nativeElement.querySelectorAll('tbody tr:first-of-type td');
+    return cells[index]?.textContent?.trim() ?? '';
   }
 
   describe('initial state', () => {
@@ -376,6 +402,144 @@ describe('SalesOrderItemTable', () => {
       for (const row of before) {
         expect(after).toContain(row);
       }
+    });
+  });
+
+  // ─── T8: the server's line parts, the document's currency, four decimals ───
+
+  describe('the line parts the server states', () => {
+    it('should render the subtotal, tax and line total the server answered with', () => {
+      const { fixture } = createFixture({ items: [createServerItem()] });
+
+      // quantity 2 × list price 1200 − 0 = 2400 would be the local computation. The server said 300, 48 and 348,
+      // and those are the numbers the operator has to be able to reconcile against the document.
+      expect(cellText(fixture, 'Subtotal')).toContain('300.0000');
+      expect(cellText(fixture, 'Tax')).toContain('48.0000');
+      expect(cellText(fixture, 'Total')).toContain('348.0000');
+    });
+
+    it('should not substitute its own arithmetic for a part the server stated', () => {
+      const { fixture } = createFixture({
+        items: [
+          createServerItem({ quantity: 3, listPrice: 100, discountApplied: 10, subtotal: 290.5 }),
+        ],
+      });
+
+      expect(cellText(fixture, 'Subtotal')).toContain('290.5000');
+      expect(cellText(fixture, 'Subtotal')).not.toContain('290.0000');
+    });
+
+    it('should keep a part that a two-decimal display would erase', () => {
+      const { fixture } = createFixture({
+        items: [createServerItem({ taxAmount: 0.004 })],
+      });
+
+      // S2: the rounding to minor units happens once, at the document boundary. A part shown as 0.00 would stop
+      // the displayed parts from adding up to the displayed total.
+      expect(cellText(fixture, 'Tax')).toContain('0.0040');
+    });
+
+    it('should show the line parts of a row that is not editable', () => {
+      const { fixture } = createFixture({ items: [createServerItem()], isModifiable: false });
+
+      expect(cellText(fixture, 'Subtotal')).toContain('300.0000');
+      expect(cellText(fixture, 'Total')).toContain('348.0000');
+    });
+  });
+
+  describe('the document currency', () => {
+    it('should format every amount with the currency it is given', () => {
+      const { fixture } = createFixture({ items: [createServerItem()], currency: 'MXN' });
+
+      // The cell names the currency it was given: a global default cannot produce this.
+      expect(cellText(fixture, 'Subtotal')).toContain('MXN');
+      expect(cellText(fixture, 'Subtotal')).not.toContain('USD');
+    });
+
+    it('should format money differently when the given currency changes', () => {
+      const { fixture } = createFixture({ items: [createServerItem()], currency: 'USD' });
+      expect(cellText(fixture, 'Subtotal')).toContain('USD');
+      expect(cellText(fixture, 'Subtotal')).not.toContain('MXN');
+
+      fixture.componentRef.setInput('currency', 'MXN');
+      fixture.detectChanges();
+      expect(cellText(fixture, 'Subtotal')).toContain('MXN');
+      expect(cellText(fixture, 'Subtotal')).not.toContain('USD');
+    });
+  });
+
+  describe('the discard notice', () => {
+    it('should say a row without server parts is a local estimate', () => {
+      const { fixture } = createFixture({
+        items: [createItem({ quantity: 3, listPrice: 100, discountApplied: 0 })],
+      });
+
+      const notice: HTMLElement | null = fixture.nativeElement.querySelector(
+        '[data-testid="local-parts-notice"]',
+      );
+      expect(notice).toBeTruthy();
+      expect(notice!.textContent).toContain('local estimate');
+      // The number is still useful, but it is not presented as the server's.
+      expect(cellText(fixture, 'Subtotal')).toContain('300.0000');
+    });
+
+    it('should name how many rows it cannot represent', () => {
+      const { fixture } = createFixture({
+        items: [createServerItem(), createItem({ productVariantId: 'v2' })],
+      });
+
+      const notice: HTMLElement = fixture.nativeElement.querySelector(
+        '[data-testid="local-parts-notice"]',
+      );
+      expect(notice).toBeTruthy();
+      expect(notice.textContent).toContain('1');
+    });
+
+    it('should stay silent when every row carries the server\u2019s parts', () => {
+      const { fixture } = createFixture({
+        items: [createServerItem(), createServerItem({ id: 'item-2', productVariantId: 'v2' })],
+      });
+
+      expect(fixture.nativeElement.querySelector('[data-testid="local-parts-notice"]')).toBeNull();
+    });
+  });
+
+  describe('the document total in the summary', () => {
+    it('should show the total the server stated', () => {
+      const { fixture } = createFixture({
+        items: [createServerItem()],
+        documentTotal: 1234.5678,
+      });
+
+      const summary: HTMLElement = fixture.nativeElement.querySelector('.summary-row--total')!;
+      expect(summary.textContent).toContain('1,234.5678');
+    });
+
+    it('should label a local total when the document has none yet', () => {
+      const { fixture } = createFixture({
+        items: [createItem({ quantity: 2, listPrice: 100, discountApplied: 0 })],
+        documentTotal: null,
+      });
+
+      const summary: HTMLElement = fixture.nativeElement.querySelector('.summary-row--total')!;
+      expect(summary.textContent).toContain('200.0000');
+      expect(summary.textContent).toContain('local');
+    });
+  });
+
+  describe('the money inputs', () => {
+    it('should accept four decimals on price and discount', () => {
+      const { fixture } = createFixture({ items: [createItem()], isModifiable: true });
+
+      const steps = Array.from<HTMLInputElement>(
+        fixture.nativeElement.querySelectorAll('input[type="number"]'),
+      )
+        .map((input) => input.getAttribute('step'))
+        .filter((step) => step !== null);
+
+      // The columns are NUMERIC(19,4); a step of 0.01 makes the browser refuse a legitimate fourth decimal.
+      expect(steps).toContain('0.0001');
+      expect(steps).not.toContain('0.01');
     });
   });
 });
