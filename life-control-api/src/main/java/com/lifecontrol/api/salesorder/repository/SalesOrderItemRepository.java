@@ -19,6 +19,33 @@ public interface SalesOrderItemRepository extends JpaRepository<SalesOrderItem, 
     List<SalesOrderItem> findByProductVariantId(UUID productVariantId);
 
     /**
+     * The three parts of a document's money, summed over the lines it still holds: ADR-0002 invariant M2 read
+     * from the rows instead of from memory.
+     *
+     * <p><b>Why the database answers and the service does not add up its own list.</b> The line's
+     * {@code subtotal} is derived by {@code trg_sales_order_items_subtotal} on the way in, so a line saved a
+     * statement ago already carries a value the persistence context never saw — summing the entities would add
+     * the {@code null} the trigger is about to replace with a real number, and the total would be wrong in the
+     * one transaction that matters. A query is executed inside the same transaction, so it reads exactly the
+     * rows the writer just produced, and the line's money keeps one definition: the schema's.</p>
+     *
+     * <p>It returns one row of three nullable columns: {@code null} when the document holds no enabled line,
+     * which the caller reads as zero. Hibernate flushes the pending line writes before the query runs, which is
+     * what makes the sum include the write that triggered it (M2: "recomputed in the same transaction as the
+     * line write").</p>
+     *
+     * @param salesOrderId the document whose enabled lines are summed
+     * @return a single row of {@code [subtotal, discount_total, tax_total]}
+     */
+    @Query("""
+        SELECT SUM(i.subtotal), SUM(i.discountApplied), SUM(i.taxAmount)
+        FROM SalesOrderItem i
+        WHERE i.salesOrderId = :salesOrderId
+          AND i.enabled = true
+        """)
+    List<Object[]> sumMoneyParts(@Param("salesOrderId") UUID salesOrderId);
+
+    /**
      * Takes the line's next write sequence: one statement, the row lock, and the new value back.
      *
      * <p><b>Why this is SQL and not a read-modify-write on the entity</b> ({@code V73}, and {@code

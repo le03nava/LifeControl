@@ -23,14 +23,18 @@ import com.lifecontrol.api.salesorder.dto.SalesOrderResponse;
 import com.lifecontrol.api.salesorder.dto.UpdateSalesOrderStatusRequest;
 import com.lifecontrol.api.salesorder.exception.InvalidSalesOrderChargeException;
 import com.lifecontrol.api.salesorder.exception.SalesOrderAlreadyFinalizedException;
+import com.lifecontrol.api.salesorder.exception.SalesOrderEmptyChargeException;
 import com.lifecontrol.api.salesorder.exception.SalesOrderItemNotFoundException;
 import com.lifecontrol.api.salesorder.exception.SalesOrderItemNotModifiableException;
 import com.lifecontrol.api.salesorder.exception.SalesOrderNotFoundException;
+import com.lifecontrol.api.salesorder.exception.SalesOrderPaymentInsufficientException;
 import com.lifecontrol.api.salesorder.exception.SalesOrderStoreReassignmentNotAllowedException;
+import com.lifecontrol.api.salesorder.model.SalePayment;
 import com.lifecontrol.api.salesorder.model.SalesOrder;
 import com.lifecontrol.api.salesorder.model.SalesOrderItem;
 import com.lifecontrol.api.salesorder.model.SalesOrderItemState;
 import com.lifecontrol.api.salesorder.model.SalesOrderState;
+import com.lifecontrol.api.salesorder.repository.SalePaymentRepository;
 import com.lifecontrol.api.salesorder.repository.SalesOrderItemRepository;
 import com.lifecontrol.api.salesorder.repository.SalesOrderRepository;
 import com.lifecontrol.api.shift.exception.ShiftNotFoundException;
@@ -43,6 +47,7 @@ import com.lifecontrol.api.store.model.CompanyStore;
 import com.lifecontrol.api.store.repository.CompanyStoreRepository;
 import com.lifecontrol.api.store.service.CompanyStoreOwnerResolver;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -86,6 +91,7 @@ public class SalesOrderService {
 
     private final SalesOrderRepository salesOrderRepository;
     private final SalesOrderItemRepository itemRepository;
+    private final SalePaymentRepository salePaymentRepository;
     private final CustomerRepository customerRepository;
     private final CompanyStoreRepository companyStoreRepository;
     private final CompanyStoreOwnerResolver companyStoreOwnerResolver;
@@ -102,6 +108,7 @@ public class SalesOrderService {
     public SalesOrderService(
             SalesOrderRepository salesOrderRepository,
             SalesOrderItemRepository itemRepository,
+            SalePaymentRepository salePaymentRepository,
             CustomerRepository customerRepository,
             CompanyStoreRepository companyStoreRepository,
             CompanyStoreOwnerResolver companyStoreOwnerResolver,
@@ -116,6 +123,7 @@ public class SalesOrderService {
             SalesOrderStatusCatalog statusCatalog) {
         this.salesOrderRepository = salesOrderRepository;
         this.itemRepository = itemRepository;
+        this.salePaymentRepository = salePaymentRepository;
         this.customerRepository = customerRepository;
         this.companyStoreRepository = companyStoreRepository;
         this.companyStoreOwnerResolver = companyStoreOwnerResolver;
@@ -243,7 +251,7 @@ public class SalesOrderService {
             }
             applyStockChanges(operations);
 
-            recalculateTotalAmount(saved.getId());
+            recomputeBreakdown(saved.getId());
             var orderIdForReload = saved.getId();
             saved = salesOrderRepository
                     .findById(orderIdForReload)
@@ -396,7 +404,7 @@ public class SalesOrderService {
             applyStockChanges(operations);
 
             // Recalculate order total after item mutations
-            recalculateTotalAmount(id);
+            recomputeBreakdown(id);
 
             // Reload to include updated items in response
             updated = salesOrderRepository.findById(id).orElseThrow(() -> new SalesOrderNotFoundException(id));
@@ -409,7 +417,12 @@ public class SalesOrderService {
     public SalesOrderResponse chargeSalesOrder(UUID id, ChargeSalesOrderRequest request) {
         logger.info("Charging sales order: id={}", id);
 
-        var so = salesOrderRepository.findById(id).orElseThrow(() -> new SalesOrderNotFoundException(id));
+        // ADR-0002 M10: the lock is taken by the statement that reads, and everything below runs on it. It is
+        // what makes a retried request a no-op instead of a second payment: the retry serializes behind the
+        // first commit, loads the row again and finds it Completed, so the ADR-0004 guard refuses the move
+        // before a payment row exists. Loading without the lock and locking later would leave the read that
+        // decides stale, which is exactly the state the second charge needs in order to slip through.
+        var so = salesOrderRepository.findByIdForUpdate(id).orElseThrow(() -> new SalesOrderNotFoundException(id));
 
         // Ensure order is Pending (auto-promotes Active → Pending)
         ensureOrderIsPending(so);
@@ -419,7 +432,40 @@ public class SalesOrderService {
             throw new PaymentMethodNotFoundException(request.paymentMethodId());
         }
 
-        // Set payment method on the order
+        // The parts first, and the payment second: the payment states the document's total as its amount, so a
+        // payment written before the breakdown would state the previous order of magnitude — or the zero a
+        // brand-new document carries. This is the half of decision 7 that makes M1 true at the only moment a
+        // document becomes money that has moved.
+        recomputeBreakdown(so);
+
+        // Nothing to pay is a refusal, not a zero payment. `V83` holds `CHECK (amount > 0)`, so the insert below
+        // would be refused at flush as a `DataIntegrityViolationException` — a 409 the handler states as a data
+        // constraint and that names neither the order nor the reason. The guard runs here, before the write, so
+        // the business rule explains itself and no payment row is ever attempted.
+        if (so.getTotalAmount().signum() <= 0) {
+            throw new SalesOrderEmptyChargeException(so.getId(), so.getTotalAmount());
+        }
+
+        // One row, the whole total, no tender stated: the many-payments surface, the tender and the change are
+        // T7's, and stating a tender here would be the server inventing a number nobody counted (decision 5).
+        salePaymentRepository.save(SalePayment.charge(
+                so.getCompanyId(),
+                so.getId(),
+                request.paymentMethodId(),
+                so.getTotalAmount(),
+                currentUserContext.getUsername()));
+
+        // ADR-0002 M3: the document transitions to Completed only when its non-voided payments cover its total.
+        // The sum is the schema's — a refund subtracts and a void row excludes — so this guard and any report
+        // that reads the same rows cannot disagree about what the customer paid.
+        var netPaid = salePaymentRepository.netPaid(so.getCompanyId(), so.getId());
+        var paid = netPaid == null ? BigDecimal.ZERO : netPaid;
+        if (paid.compareTo(so.getTotalAmount()) < 0) {
+            throw new SalesOrderPaymentInsufficientException(so.getId(), paid, so.getTotalAmount());
+        }
+
+        // Set payment method on the order. Kept for one more release: ADR-0002 migration step 6 drops this
+        // column once every reader has moved to the payment rows, and that is T7's slice, not this one.
         so.setPaymentMethodId(request.paymentMethodId());
 
         // Transition header to Completed
@@ -580,7 +626,7 @@ public class SalesOrderService {
                 nextWriteSeq(saved.getId()))));
 
         // Recalculate order total
-        recalculateTotalAmount(salesOrderId);
+        recomputeBreakdown(salesOrderId);
 
         // Auto-transition from Draft → Active when the first item is added. Only a draft activates:
         // a Pending order whose lines were all soft-deleted has no transition back to Active, so
@@ -637,7 +683,7 @@ public class SalesOrderService {
         var updated = itemRepository.save(item);
 
         // Recalculate order total
-        recalculateTotalAmount(salesOrderId);
+        recomputeBreakdown(salesOrderId);
 
         return toItemResponse(updated);
     }
@@ -670,7 +716,7 @@ public class SalesOrderService {
         itemRepository.save(item);
 
         // Recalculate order total
-        recalculateTotalAmount(salesOrderId);
+        recomputeBreakdown(salesOrderId);
 
         logger.info("Item soft-deleted: id={}", itemId);
     }
@@ -1053,17 +1099,84 @@ public class SalesOrderService {
         return itemRepository.bumpWriteSeq(itemId);
     }
 
-    // ─── Total Amount Recalculation ────────────────────────────────────
+    // ─── The Breakdown (ADR-0002 M1, M2 and M8) ───────────────────────
 
-    private void recalculateTotalAmount(UUID salesOrderId) {
-        var items = itemRepository.findBySalesOrderIdAndEnabledTrue(salesOrderId);
-        var total = items.stream().map(SalesOrderItem::getFinalPrice).reduce(BigDecimal.ZERO, BigDecimal::add);
+    /** The scale every money column of this schema states, and the scale the parts are summed at. */
+    private static final int MONEY_SCALE = 4;
 
+    /**
+     * Writes the document's four parts and its total from the lines it holds, under the order's row lock.
+     *
+     * <p><b>Why this is one method and the only writer of those five columns.</b> ADR-0002 invariant M2 states
+     * that the parts are the sum of the lines and that the sum is recomputed in the same transaction as the
+     * line write, under the order's row lock. Every path that creates, edits or removes a line calls this, and
+     * the charge calls it again before it states an amount — so a document's money has one definition and one
+     * moment, and `ck_order_total` (M1) judges a state this method just produced instead of a state it hopes
+     * for.</p>
+     *
+     * <p><b>Why the lines come from a query and not from the list the caller already holds.</b> The line's
+     * {@code subtotal} is derived by a trigger on the way in, so a line saved a statement ago carries a value
+     * the persistence context never saw; summing the entities would add the {@code null} the trigger replaces
+     * with a number. {@code sumMoneyParts} reads the rows the writer just produced, inside the same
+     * transaction.</p>
+     *
+     * <p><b>Why the rounding is here and what it is bounded by.</b> Decision 1 rounds to the currency's
+     * {@code minor_units} once, at the document boundary, which is this total and nothing below it: rounding a
+     * line is how a total stops matching the paper. The adjustment is therefore always smaller than one minor
+     * unit by construction, and `ck_order_rounding_bounded` (V80) still holds the line at {@code abs(...) <= 1}
+     * for the case where some future writer states one by hand.</p>
+     */
+    private void recomputeBreakdown(UUID salesOrderId) {
         var so = salesOrderRepository
-                .findById(salesOrderId)
+                .findByIdForUpdate(salesOrderId)
                 .orElseThrow(() -> new SalesOrderNotFoundException(salesOrderId));
+        recomputeBreakdown(so);
+    }
+
+    /**
+     * The same recomputation on a row the caller has already locked, which is the charge's path: it takes the
+     * lock once, at the top, and re-reading the row here would only be a second statement for a lock it holds.
+     */
+    private void recomputeBreakdown(SalesOrder so) {
+        var row = itemRepository.sumMoneyParts(so.getId()).stream().findFirst().orElse(null);
+        var subtotal = moneyPart(row, 0);
+        var discountTotal = moneyPart(row, 1);
+        var taxTotal = moneyPart(row, 2);
+
+        var exactTotal = subtotal.subtract(discountTotal).add(taxTotal);
+        var total = exactTotal.setScale(minorUnitsOf(so.getId()), RoundingMode.HALF_UP);
+
+        so.setSubtotal(subtotal);
+        so.setDiscountTotal(discountTotal);
+        so.setTaxTotal(taxTotal);
+        so.setRoundingAdjustment(total.subtract(exactTotal));
         so.setTotalAmount(total);
-        salesOrderRepository.save(so);
+        // No `save`: the row is loaded managed by the statement that took the lock, so the five setters above are
+        // the write and Hibernate flushes it with the rest of the transaction — which is also what makes
+        // `ck_order_total` judge the parts and the total in the same statement that writes them.
+    }
+
+    /**
+     * One column of the aggregate row, as a number: the sum is {@code NULL} when the document holds no enabled
+     * line, and an absent sum is zero money and not a missing value.
+     */
+    private BigDecimal moneyPart(Object[] row, int index) {
+        if (row == null || row[index] == null) {
+            return BigDecimal.ZERO.setScale(MONEY_SCALE);
+        }
+        return ((BigDecimal) row[index]).setScale(MONEY_SCALE, RoundingMode.HALF_UP);
+    }
+
+    /**
+     * How many decimals the document's currency is rounded to, or a refusal: a document whose currency the
+     * catalog does not hold has no scale, and picking one would be the platform choosing a tenant's money
+     * (ADR-0002 decision 2).
+     */
+    private int minorUnitsOf(UUID salesOrderId) {
+        return salesOrderRepository
+                .findCurrencyMinorUnits(salesOrderId)
+                .orElseThrow(() -> new IllegalStateException("Sales order " + salesOrderId
+                        + " states a currency the catalog does not hold, so its total cannot be rounded"));
     }
 
     // ─── Response Mappers ───────────────────────────────────────────────

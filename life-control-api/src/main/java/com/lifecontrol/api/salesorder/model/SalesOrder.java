@@ -82,6 +82,21 @@ public class SalesOrder extends Auditable {
     @Column(name = "total_amount", precision = 19, scale = 4, nullable = false)
     private BigDecimal totalAmount;
 
+    // ADR-0002 decision 3: the document states its parts, and `V84` makes the four of them add up to
+    // `totalAmount` exactly (`ck_order_total`). They are written by `SalesOrderService#recomputeBreakdown`
+    // and by nothing else: a second writer is how the parts and the total stop agreeing without an error.
+    @Column(name = "subtotal", precision = 19, scale = 4, nullable = false)
+    private BigDecimal subtotal = BigDecimal.ZERO;
+
+    @Column(name = "discount_total", precision = 19, scale = 4, nullable = false)
+    private BigDecimal discountTotal = BigDecimal.ZERO;
+
+    @Column(name = "tax_total", precision = 19, scale = 4, nullable = false)
+    private BigDecimal taxTotal = BigDecimal.ZERO;
+
+    @Column(name = "rounding_adjustment", precision = 19, scale = 4, nullable = false)
+    private BigDecimal roundingAdjustment = BigDecimal.ZERO;
+
     @Column(name = "payment_method_id")
     private UUID paymentMethodId;
 
@@ -148,6 +163,22 @@ public class SalesOrder extends Auditable {
         return totalAmount;
     }
 
+    public BigDecimal getSubtotal() {
+        return subtotal;
+    }
+
+    public BigDecimal getDiscountTotal() {
+        return discountTotal;
+    }
+
+    public BigDecimal getTaxTotal() {
+        return taxTotal;
+    }
+
+    public BigDecimal getRoundingAdjustment() {
+        return roundingAdjustment;
+    }
+
     public UUID getPaymentMethodId() {
         return paymentMethodId;
     }
@@ -211,6 +242,22 @@ public class SalesOrder extends Auditable {
 
     public void setTotalAmount(BigDecimal totalAmount) {
         this.totalAmount = totalAmount;
+    }
+
+    public void setSubtotal(BigDecimal subtotal) {
+        this.subtotal = subtotal;
+    }
+
+    public void setDiscountTotal(BigDecimal discountTotal) {
+        this.discountTotal = discountTotal;
+    }
+
+    public void setTaxTotal(BigDecimal taxTotal) {
+        this.taxTotal = taxTotal;
+    }
+
+    public void setRoundingAdjustment(BigDecimal roundingAdjustment) {
+        this.roundingAdjustment = roundingAdjustment;
     }
 
     public void setPaymentMethodId(UUID paymentMethodId) {

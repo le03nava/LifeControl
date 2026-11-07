@@ -231,24 +231,36 @@ class SalesMoneyBreakdownMigrationIntegrationTest extends AbstractPostgresIntegr
     }
 
     @Test
-    @DisplayName("the breakdown's arithmetic is not constrained yet, and that is the recorded debt")
-    void theBreakdownArithmeticWaitsForTheWriter() throws Exception {
+    @DisplayName("the breakdown's arithmetic is constrained: a part that stops adding up to the total is refused")
+    void theBreakdownArithmeticIsConstrained() throws Exception {
         migrateTo(PRE_UNIT_HEAD);
         var document = seedLegacyDocument();
         migrateToHead();
 
-        // `ck_order_total` (M1) is deliberately absent from V80: `recalculateTotalAmount:1058` writes
-        // `total_amount` from the lines' unit prices and leaves the parts at 0, so the constraint would
-        // refuse the tree's own service. This case states the debt instead of leaving a reader to believe
-        // M1 is enforced: the write is accepted, and T6 adds the constraint in the slice that computes the
-        // parts. The overnight failure mode this guards is a suite that goes green over a schema nobody
-        // bounded.
+        // `V84` adds `ck_order_total` (M1) in the slice that gives it a writer, `recomputeBreakdown`. Until that
+        // slice this case stated the debt instead — the write was accepted and the case said so, because
+        // `V80`'s own service summed the lines' unit prices into `total_amount` and left the parts at zero, so
+        // the constraint would have refused the tree's own writer. What used to be accepted is now refused by
+        // name: the difference between a schema nobody bounded and one that cannot hold a document whose parts
+        // disagree with its total.
+        // The tenant is stated: `sales_orders` is `FORCE ROW LEVEL SECURITY`, so an update that names no company is
+        // filtered to zero rows and "accepted" — the statement has to reach the row for the constraint to judge it.
+        assertThat(constraintOf(
+                        document.company(),
+                        "UPDATE sales_orders SET subtotal = subtotal + 1 WHERE id = '" + document.orderId() + "'"))
+                .as("M1: total_amount = subtotal - discount_total + tax_total + rounding_adjustment, exact — "
+                        + "a ten-thousandth is a bug and not a rounding artifact (decision 3)")
+                .isEqualTo("ck_order_total");
+
+        // And the statement that states a part states the total with it, which is how the writer moves the two
+        // together.
         inOneTransaction(
-                document.company(), "UPDATE sales_orders SET subtotal = 141 WHERE id = '" + document.orderId() + "'");
+                document.company(),
+                "UPDATE sales_orders SET subtotal = 100, total_amount = 100 WHERE id = '" + document.orderId() + "'");
 
         assertThat(money(document.company(), document.orderId(), "subtotal"))
-                .as("accepted on purpose — the parts are enforced by T6, not by this file")
-                .isEqualTo("141.0000");
+                .as("a document whose parts add up to its total is accepted")
+                .isEqualTo("100.0000");
     }
 
     @Test

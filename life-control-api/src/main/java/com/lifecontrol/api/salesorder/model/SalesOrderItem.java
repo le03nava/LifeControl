@@ -38,6 +38,31 @@ public class SalesOrderItem extends Auditable {
     @Column(name = "final_price", precision = 19, scale = 4, nullable = false)
     private BigDecimal finalPrice;
 
+    /**
+     * The line's money as `V81` derives it: `round(list_price * quantity, 4)`, by the trigger
+     * `trg_sales_order_items_subtotal`, never by this mapping.
+     *
+     * <p><b>Why read-only.</b> Hibernate would insert the field's default and, worse, write it back on any
+     * update that does not name `list_price` or `quantity` — and the trigger only fires "OF list_price,
+     * quantity", so a stale mapped value would be the value that lands, disagreeing with the two numbers it
+     * is made of and refused by `ck_item_subtotal`. Mapping it `insertable = false, updatable = false` says
+     * what is true: the schema is the writer, and the application is the reader.</p>
+     */
+    @Column(name = "subtotal", precision = 19, scale = 4, insertable = false, updatable = false)
+    private BigDecimal subtotal;
+
+    /** The catalog code the rate was resolved from (ADR-0002 decision 6); `NA` until a rate exists. */
+    @Column(name = "tax_code", length = 20, insertable = false, updatable = false)
+    private String taxCode;
+
+    /** The rate as it stood at write time: a snapshot, so a later `tax_rate` row never restates history. */
+    @Column(name = "tax_rate", precision = 9, scale = 6, insertable = false, updatable = false)
+    private BigDecimal taxRate;
+
+    /** `round((subtotal - discount_applied) * tax_rate, 4)`, held by `ck_item_tax`. */
+    @Column(name = "tax_amount", precision = 19, scale = 4, insertable = false, updatable = false)
+    private BigDecimal taxAmount;
+
     @Column(name = "promotion_id")
     private UUID promotionId;
 
@@ -89,6 +114,22 @@ public class SalesOrderItem extends Auditable {
 
     public BigDecimal getFinalPrice() {
         return finalPrice;
+    }
+
+    public BigDecimal getSubtotal() {
+        return subtotal;
+    }
+
+    public String getTaxCode() {
+        return taxCode;
+    }
+
+    public BigDecimal getTaxRate() {
+        return taxRate;
+    }
+
+    public BigDecimal getTaxAmount() {
+        return taxAmount;
     }
 
     public UUID getPromotionId() {
