@@ -77,8 +77,7 @@ public class SalesOrderController {
     @ApiResponses({
         @ApiResponse(responseCode = "201", description = "Sales order created"),
         @ApiResponse(responseCode = "400", description = "Validation error"),
-        @ApiResponse(responseCode = "404", description = "Referenced entity not found"),
-        @ApiResponse(responseCode = "409", description = "Insufficient stock for one of the order's items")
+        @ApiResponse(responseCode = "404", description = "Referenced entity not found")
     })
     public ResponseEntity<SalesOrderResponse> createSalesOrder(@Valid @RequestBody SalesOrderRequest request) {
         var response = salesOrderService.createSalesOrder(request);
@@ -98,7 +97,7 @@ public class SalesOrderController {
         @ApiResponse(
                 responseCode = "409",
                 description =
-                        "Sales order has reached a terminal status (Completed or Cancelled), the store cannot be reassigned while the order still holds items, or an item does not have enough stock")
+                        "Sales order has reached a terminal status (Completed or Cancelled), or the store cannot be reassigned while the order still holds items")
     })
     public ResponseEntity<SalesOrderResponse> updateSalesOrder(
             @PathVariable UUID id, @Valid @RequestBody SalesOrderRequest request) {
@@ -138,11 +137,15 @@ public class SalesOrderController {
     @Operation(
             summary = "Charge a sales order",
             description =
-                    "Transitions an Active or Pending order to Completed, all non-Cancelled items to Added, and records the payment method. Active orders auto-promote to Pending first.")
+                    "Transitions an Active or Pending order to Completed, books its stock through the inventory ledger, moves all non-Cancelled items to Added, and records the payment. Active orders auto-promote to Pending first. This is the moment the stock moves: a document created or edited before it holds none.")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Sales order charged successfully"),
         @ApiResponse(responseCode = "400", description = "Order is not in Pending or Active status"),
-        @ApiResponse(responseCode = "404", description = "Sales order or payment method not found")
+        @ApiResponse(responseCode = "404", description = "Sales order or payment method not found"),
+        @ApiResponse(
+                responseCode = "409",
+                description =
+                        "Insufficient stock for one of the order's items, including a variant the order's store does not stock")
     })
     public ResponseEntity<SalesOrderResponse> chargeSalesOrder(
             @PathVariable UUID id, @Valid @RequestBody ChargeSalesOrderRequest request) {
@@ -186,8 +189,7 @@ public class SalesOrderController {
         @ApiResponse(responseCode = "404", description = "Sales order or product variant not found"),
         @ApiResponse(
                 responseCode = "409",
-                description =
-                        "Sales order has reached a terminal status (Completed or Cancelled), or the line's variant does not have enough stock")
+                description = "Sales order has reached a terminal status (Completed or Cancelled)")
     })
     public ResponseEntity<SalesOrderItemResponse> addItem(
             @PathVariable UUID id, @Valid @RequestBody SalesOrderItemRequest request) {
@@ -200,7 +202,7 @@ public class SalesOrderController {
     @Operation(
             summary = "Update an item",
             description =
-                    "Updates a sales order item. Allowed while the order has not reached a terminal status (Completed or Cancelled), and only for a line that still holds stock (not Cancelled and not already soft-deleted).")
+                    "Updates a sales order item. Allowed while the order has not reached a terminal status (Completed or Cancelled), and only for a live line (not Cancelled and not already soft-deleted). Books no stock: the charge does.")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Item updated"),
         @ApiResponse(responseCode = "400", description = "Validation error"),
@@ -208,7 +210,7 @@ public class SalesOrderController {
         @ApiResponse(
                 responseCode = "409",
                 description =
-                        "Sales order has reached a terminal status (Completed or Cancelled), the line is Cancelled or already soft-deleted, or the change does not have enough stock")
+                        "Sales order has reached a terminal status (Completed or Cancelled), or the line is Cancelled or already soft-deleted")
     })
     public ResponseEntity<SalesOrderItemResponse> updateItem(
             @PathVariable UUID id, @PathVariable UUID itemId, @Valid @RequestBody SalesOrderItemRequest request) {
@@ -220,7 +222,7 @@ public class SalesOrderController {
     @Operation(
             summary = "Delete an item",
             description =
-                    "Soft-deletes a sales order item. Allowed while the order has not reached a terminal status (Completed or Cancelled), and only for a line that still holds stock (not Cancelled and not already soft-deleted); a settled line is removed through the order's PUT.")
+                    "Soft-deletes a sales order item. Allowed while the order has not reached a terminal status (Completed or Cancelled), and only for a live line (not Cancelled and not already soft-deleted); a settled line is removed through the order's PUT.")
     @ApiResponses({
         @ApiResponse(responseCode = "204", description = "Item deleted"),
         @ApiResponse(responseCode = "404", description = "Sales order or item not found"),

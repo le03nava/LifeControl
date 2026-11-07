@@ -43,30 +43,41 @@ class SalesOrderOpenApiContractTest {
     private ObjectMapper objectMapper;
 
     @Test
-    @DisplayName("should declare insufficient stock on create")
-    void createSalesOrder_DeclaresInsufficientStock() throws Exception {
-        assertConflictNames("post", "/api/sales-orders", "stock");
+    @DisplayName("should declare no stock conflict on create")
+    void createSalesOrder_DeclaresNoStockConflict() throws Exception {
+        // ADR-0002 decision 7: the charge books the stock, so the create can no longer refuse a document the
+        // store cannot cover. A 409 that still named stock would promise a refusal this endpoint never produces.
+        assertConflictDoesNotName("post", "/api/sales-orders", "stock");
     }
 
     @Test
-    @DisplayName("should declare the terminal order, the store reassignment and insufficient stock on update")
-    void updateSalesOrder_DeclaresTerminalReassignmentAndStock() throws Exception {
-        assertConflictNames("put", "/api/sales-orders/{id}", "terminal", "reassign", "stock");
+    @DisplayName("should declare the terminal order and the store reassignment on update")
+    void updateSalesOrder_DeclaresTerminalAndReassignment() throws Exception {
+        assertConflictNames("put", "/api/sales-orders/{id}", "terminal", "reassign");
+        assertConflictDoesNotName("put", "/api/sales-orders/{id}", "stock");
     }
 
     @Test
-    @DisplayName("should declare the terminal order and insufficient stock on add item")
-    void addItem_DeclaresTerminalAndStock() throws Exception {
-        assertConflictNames("post", "/api/sales-orders/{id}/items", "terminal", "stock");
+    @DisplayName("should declare the terminal order on add item")
+    void addItem_DeclaresTerminal() throws Exception {
+        assertConflictNames("post", "/api/sales-orders/{id}/items", "terminal");
+        assertConflictDoesNotName("post", "/api/sales-orders/{id}/items", "stock");
     }
 
     @Test
-    @DisplayName("should declare the terminal order, the line rule and insufficient stock on update item")
-    void updateItem_DeclaresTerminalLineAndStock() throws Exception {
+    @DisplayName("should declare the terminal order and the line rule on update item")
+    void updateItem_DeclaresTerminalAndLine() throws Exception {
         // "soft-deleted" and not "Cancelled": the terminal phrase already carries "Completed or
         // Cancelled", so a fragment on that word would pass on a description that never names the
         // line rule at all — a green proving less than it claims (F19 of the record).
-        assertConflictNames("put", "/api/sales-orders/{id}/items/{itemId}", "terminal", "soft-deleted", "stock");
+        assertConflictNames("put", "/api/sales-orders/{id}/items/{itemId}", "terminal", "soft-deleted");
+        assertConflictDoesNotName("put", "/api/sales-orders/{id}/items/{itemId}", "stock");
+    }
+
+    @Test
+    @DisplayName("should declare insufficient stock on the charge, which is what books it")
+    void charge_DeclaresInsufficientStock() throws Exception {
+        assertConflictNames("patch", "/api/sales-orders/{id}/charge", "stock");
     }
 
     @Test
@@ -85,6 +96,23 @@ class SalesOrderOpenApiContractTest {
     @DisplayName("should declare the invalid item transition on update item status")
     void updateItemStatus_DeclaresInvalidTransition() throws Exception {
         assertConflictNames("patch", "/api/sales-orders/{id}/items/{itemId}/status", "transition");
+    }
+
+    /**
+     * The mirror image of {@link #assertConflictNames}: an endpoint that cannot answer a cause must not publish
+     * it either. Since ADR-0002 decision 7 the charge is what books the stock, so a create or an edit that still
+     * declared "insufficient stock" would be promising a refusal it never produces — the same defect F-8 fixed
+     * in the other direction.
+     */
+    private void assertConflictDoesNotName(String method, String path, String cause) throws Exception {
+        var conflict =
+                readOpenApiDocument().path(path).path(method).path("responses").path("409");
+        if (conflict.isMissingNode()) {
+            return;
+        }
+        assertThat(conflict.path("description").asText())
+                .as("%s %s: the declared 409 must not name %s", method.toUpperCase(), path, cause)
+                .doesNotContain(cause);
     }
 
     private void assertConflictNames(String method, String path, String... causes) throws Exception {
