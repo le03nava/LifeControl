@@ -93,7 +93,8 @@ every cash report by date wrong from that minute on».
 | T3 | S1, S7 | **(done, 2026-11-05)** The pre-flight report of migration step 2 as a runnable script: `docker/scripts/preflight-money-parts.sh`, its offline suite (43 assertions) and the `AGENTS.md` entry. It emits the drift per order and names the two verdicts —≤ one minor unit of the order's own `currency.minor_units` → `rounding_adjustment`; larger → a manual decision, not the migration's— in ten-thousandths, as integers. It reads as a **superuser** (`sales_orders` is `FORCE ROW LEVEL SECURITY` since `V65`, so the owner reads zero rows and prints a clean dataset) and takes the line sum from `sales_order_items.subtotal`, which `V81` derives under `ck_item_subtotal`, instead of re-deriving the ADR's inline candidate. Nothing calls it yet | — | inline |
 | T4 | S1 | **(done, 2026-11-05)** The platform `tax_code` catalog (**D-d**, decided 2026-11-05) with four codes (`NA`, `IVA`, `TASA_0`, `EXENTO`) and no policy, plus `tax_rate` (`company_id`, `tax_code` FK, `rate`, `effective_from`, `enabled`, the unique key) armed by `apply_tenant_isolation` in its own migration. `V82`. The server-side resolution is `TaxRateService.resolve(companyId, taxCode, documentDate)`: the latest `effective_from ≤` the document's date among the enabled rows, mapped to a `TaxRateResolution`, with `lineTaxAmount` providing `ck_item_tax`'s own arithmetic (`subtotal - discount_applied`, scale 4, half away from zero) so Java cannot disagree with the check. **The copy onto the line is not in this slice**: nothing in the tree states a line's `tax_code` — not `products`, not the category, not the company — and the ADR's named consumer is `chargeSalesOrder`, which is T6. See `## Log` | T1, D-d | inline |
 | T5 | S1, S4 | **(done, 2026-11-05)** `V83`: `sale_payment` and `sale_payment_void` with the three indexes, both append-only halves (the trigger **and** `REVOKE UPDATE, DELETE` + `GRANT SELECT, INSERT`, because `V52:187` and `V52:196-197` hand the pool all four privileges on every new table), `payment_methods.is_cash` with the backfill of **D-b** (decided 2026-11-05) and `isCash` through the ABM, `uq_sales_orders_company_id` — the target of `fk_payment_order_same_company`, which `V64` gave to `purchase_orders` and `goods_receipts` but never to `sales_orders` — and the two new tables armed by `apply_tenant_isolation` in the file that creates them. **`sales_orders` was already armed**: `V65` applies the policy to it, so "all three sales tables" was one table already done and two new. `V83` and not `V82`: that version belongs to the tax unit's own branch, and the gap is Flyway's to tolerate until it lands | ADR-0003 (**stale**, `sales_orders.company_id` exists since `V64`), D-b | inline |
-| T6 | S1, S5, S6 | `chargeSalesOrder` rewritten: lock the order, validate ADR-0004's guard, insert the payments, compute the breakdown, book the stock through ADR-0001's API, append the transition and publish `SaleCharged` **only with a named consumer** (g) — one transaction | T2, T4, T5, ADR-0001, ADR-0004, **D-e** | inline |
+| T6a | S1, S5, S6 | **(in progress, 2026-11-06)** `chargeSalesOrder`, money half: `SELECT … FOR UPDATE` on the order row (M10), ADR-0004's guard extended with M3/M4/M8, one `CHARGE` payment row for the total from the existing single `paymentMethodId`, the breakdown written under the lock so M1 and M2 hold (exactly), the transition appended, and `SaleCharged` **not** published because no consumer is named (g) — one transaction. The many-payments surface stays in T7, per the 2026-11-06 log entry | T2, T4, T5, ADR-0004 | inline |
+| T6b | S1, S5, S6 | **(pending, 2026-11-06)** The stock half of the same decision: the per-line deduction leaves `createSalesOrder`, the line add/edit/delete paths and their `V73` write sequence, and lands in the charge as one batch under the same order lock; a reversal then exists only for an order whose charge booked something. `sales-location-aware-stock` and `ledger-per-write-identity` are edited with it | T6a, ADR-0001 | inline |
 | T7 | S1, S3 | API surface: `SalesOrderRequest`, `SalesOrderItemRequest`, `SalesOrderResponse`, `SalesOrderItemResponse`, `ChargeSalesOrderRequest` (many payments, tender and change, direction) and the controller contract, with the breakdown read-only and computed by the server | T2, T5 | inline |
 | T8 | S1, S2 | Angular POS: the document's currency instead of `DEFAULT_CURRENCY_CODE`, four-decimal amounts without losing the display rounding, mixed tender with change, the item table showing the server's line parts, and the discard notice when a breakdown part cannot be represented | T7 | inline; disjoint surface from T2–T7, so a second writer is admissible |
 | T9 | — | The four ADR corrections under `## Reconciliation`: `purchase_order_items` → `purchase_order_details`, the two drifted line citations, the `NOT NULL` method against a nullable column, and `is_cash` with no backfill | — | inline || T10 | S1–S7 | Tests: RED first per spec, M1 and M5 through the schema, M2 and M10 through the service under concurrency, M4 through the domain guard, and the scale/rounding boundary in place of the two-decimal assertions | T2–T8 | inline |
@@ -648,3 +649,105 @@ conflating a repair with a unit that adds tables would hide which of the two hun
 `isCash` slice is the four `paymentmethod` files (the flag cannot land in three of them and not the fourth) plus its own suite and the
 fifteen call sites the record arity changed. Splitting the suite from the migration would leave an append-only claim with no exercised
 `REVOKE`, which is the one thing this unit must not ship — so the boundary is written here instead of being hidden.
+
+**2026-11-06 — T6 taken, and the one question it could not answer from the tree was asked and answered: the stock moves to the charge.**
+The maintainer's decision, verbatim: *«Mover el descuento de stock al cobro»*. It is ADR-0002 decision 7 read literally, and it was not free:
+`createSalesOrder` deducts today through `StockLedgerEngine.applySaleBatch` (`SalesOrderService:244`, `:949`), and every line add, edit and
+delete adjusts that same deduction with `V73`'s per-write identity, so booking again at the charge would deduct twice. What changes: an
+order that is not charged holds no stock; the charge deducts the whole line set under the order's row lock; and a reversal exists only for
+an order whose charge booked something. The two ODD records that state the old arrangement, `sales-location-aware-stock` and
+`ledger-per-write-identity`, are edited with it, not left contradicting it.
+
+**T6 is therefore two slices, one commit each, and the record says so instead of discovering it in the diff.** `T6a` is the money:
+the `SELECT … FOR UPDATE` on the order row, ADR-0004's guard extended with M3/M4/M8, the `sale_payment` insert, the breakdown that
+satisfies M1 and M2, and the transition. `T6b` is the stock: the deduction leaves the create/edit path and lands in the charge, with its
+reversals and its write sequence, and the suites that assert the old moment move with it. `T6a` ships first because it is the smaller half
+and the `M10` lock is what `T6b`'s single booking depends on.
+
+**One boundary kept on purpose.** `ChargeSalesOrderRequest` still carries the single `paymentMethodId` in `T6a`, and the charge inserts
+exactly one `CHARGE` payment for the order's total — the same row migration step 4 would backfill for a historical order. The many-payments
+surface, the tender and the change stay in **T7**, which is the row that already owns `ChargeSalesOrderRequest`. Inventing the list here
+would write that contract twice, and the ADR's own rejected alternatives say why that is the expensive direction.
+
+**2026-11-06 — `T6a` implemented: one writer for the document's money, and a charge serialized on the order.** `V84` adds
+`ck_order_total`, the exact equality of M1, and it needs no pre-flight because `V80` already left every legacy row with
+`subtotal = total_amount` and the other three parts at zero — the statement `V84`'s header makes and that `V80`'s report is the
+evidence for. `SalesOrderService#recomputeBreakdown` is now the only writer of the five money columns: it takes
+`SELECT … FOR UPDATE` on the order (`findByIdForUpdate`, M10), sums the parts with a JPQL aggregate
+(`SalesOrderItemRepository#sumMoneyParts`) instead of adding up the entities — the line's `subtotal` is derived by
+`trg_sales_order_items_subtotal` and is therefore `null` in the persistence context right after the write — rounds **once** to
+the document's currency (`SalesOrderRepository#findCurrencyMinorUnits`, a native join because the entity does not map
+`currency`: a trigger derives it from the owning company), and writes the five fields on the managed row with no `save`, so
+the parts and the total land in the same statement that `ck_order_total` judges. `chargeSalesOrder` locks first, promotes
+`Active`, recomputes, appends **one** `sale_payment` (no tender, because `ck_payment_tender` allows the absent pair and T7 owns
+the mixed-tender surface), guards M3 through `SalePaymentRepository#netPaid` — `Σ CHARGE − Σ REFUND` over the rows no
+`sale_payment_void` names — and only then moves to `Completed`. `SaleCharged` is not published: (g) requires a named consumer
+and there is none.
+
+**One refusal was added because the tree answered a question the unit had not asked.** A document whose enabled lines add up
+to zero — no lines at all, or a line soft-deleted away — reached the insert with `amount = 0` and `V83`'s
+`CHECK (amount > 0)` fired at flush, so the client saw `409` and the generic sentence the handler emits for every
+`DataIntegrityViolationException`. `SalesOrderEmptyChargeException` (409) now refuses it before the insert and says why. That
+is the second finding of this unit, and it belongs to whoever owns the handler: **the generic mapping makes a constraint
+refusal indistinguishable from a business refusal**, which is why the guard lives in the service and not in the schema.
+
+**A third finding, named and not taken.** A cancelled line keeps `enabled = true`, so `sumMoneyParts` still sums it, and
+`updateSalesOrderItemStatus` never recomputes: a document whose lines are all cancelled charges its full total, and a
+document that cancels one line keeps a stored total that no longer matches its parts until some other write recomputes.
+Neither is introduced here — the pre-T6a writer summed `final_price` over the same `enabled` filter — and both are
+accounting questions of the line's own money, which is the slice `T4` already owes (the rate copied onto the line). Named
+here so it is not discovered twice.
+
+**Observed**: `SalesOrderServiceTest` 93 tests and `SalesOrderIntegrationTest` 48, green in one run, with four new integration
+cases proving M1 and M2 from the stored document and M10 from the row count (`chargeTwice_isRefusedAndAppendsNoSecondPayment`
+asserts one `sale_payment` row, because the refusal alone would pass even if a second payment had been written first), plus
+the empty-charge refusal; `spotlessCheck` clean. Thirteen unit cases were repaired rather than deleted — six lost a fixture
+stubbing that the removed `findBySalesOrderIdAndEnabledTrue` call made dead, and seven proved "the total was recalculated"
+through a `save` that no longer happens, so they now stub the aggregate row and assert the document's own five columns.
+
+**The integration fixture had to learn something the schema already said.** A charge now leaves a `sale_payment` row, the
+table is append-only by trigger **and** by grant, and it carries `fk_payment_order_same_company`, so the class's
+`salesOrderRepository.deleteAll()` can no longer delete a charged order. `deleteSalePayments` runs in `@AfterEach` through
+the container's own login with `SET LOCAL session_replication_role = replica`, the mechanism `deleteStockLedger` already
+documents. Its natural home is `AbstractPostgresIntegrationTest`, because `T6b` will need it too; it stays in the class
+until then, named here rather than moved in a unit that is already about money.
+
+**The slice boundary of `T6a`, recorded because it is over the review budget on purpose.** Two commits, `88f2f757` (846 lines:
+`V84`, the mappings, the two repositories, the payment table's Java shape, the writer, the charge, the thirteen repaired unit
+cases and this record) and `a10d2cec` (374 lines: the four integration cases and the empty-charge refusal). The first is over
+because the constraint and its writer cannot be separated: `ck_order_total` refuses the writer the tree had, so a commit holding
+the migration and not the service is a commit whose own suite is red — the exact failure `V80`'s header documents at the schema
+level, and splitting it again would only move the red into a different commit. The second is the proof and is a clean slice.
+What the boundary deliberately does **not** do is carry `T6b`: moving the stock booking is a different behaviour, it rewrites
+four entry points and 83 test cases, and it needs the two ODD records that state the old arrangement edited with it.
+
+**The independent verification found the deploy-abort this record had argued away, and it was right.** `T6a` was escalated to a
+verifier on item 1 — the migration judges financial rows — and the report was `findings`, twice over. **First**: `V84` validated
+`ck_order_total` over the whole table while its header claimed the pre-flight was unnecessary because `V80` had run it. `V80`
+reconciled the rows that existed **when `V80` ran**, and the writer in production ever since has been `origin/main`'s
+`recalculateTotalAmount`, which states `total_amount` and leaves the four parts at their default zero. Every order created between
+the two releases would have aborted the deploy — the failure migration step 2 forbids, and the one `preflight-money-parts.sh`
+cannot see because it compares the total with the **lines**, not with the parts. `V84` now restates those rows exactly as `V80`
+restated the legacy ones (`subtotal = total_amount`, the other three at zero) before the constraint, narrowed to
+`subtotal = 0 AND discount_total = 0 AND tax_total = 0 AND rounding_adjustment = 0 AND total_amount <> 0`, and the new case
+`restatesTheDocumentsWrittenAfterThePartsExisted` seeds at `83` and migrates to head, so the abort is reproduced by a test instead
+of by a deploy. Two traps were measured on the way and are in the file: `sales_orders` is `FORCE ROW LEVEL SECURITY`, so the
+backfill runs inside a `NO FORCE` window — an unscoped `UPDATE` would match no row and report success, the mode `V54` and `V64`
+already record — and `V68`'s deferred constraint trigger makes the `FORCE` alter fail with `55006` until
+`SET CONSTRAINTS ALL IMMEDIATE` runs.
+
+**Second**: the row lock the unit introduced was taken in opposite orders. `chargeSalesOrder` locks the order and then writes
+lines; the line paths locked a line and only then reached `recomputeBreakdown`, which locks the order — order→line against
+line→order is a deadlock that the baseline could not have, because it took no order lock here at all. Every path that writes a line
+now takes the order's row lock before its first line read or write (`updateSalesOrder`, `updateSalesOrderItemStatus`, and the
+shared `loadAndValidateModifiableSO` behind add, update and delete), so one order is the only order. `deleteSalesOrder` still
+soft-deletes lines without that lock and is named as the remaining window rather than silently widened into this unit.
+
+**Two advisories are named and not taken**, because each is a product question and not a defect of this slice: a document whose
+exact total rounds to zero minor units is now refused as "nothing to pay" and is unchargeable (a one-line sale at `0.0040 MXN`),
+and a cancelled line keeps `enabled = true`, so the document still charges it — pre-existing, and the same accounting question as
+the rate copied onto the line that `T4` already owes.
+
+**Delivery of `T6a` (2026-11-06).** Issue #797, pull request #798, commits `88f2f757` (the constraint, the writer and the charge),
+`0c45fd04` (the API proof) and `893cd1f5` (the two verification findings). Full module suite green at 4,568 tests and
+`spotlessCheck` clean before the PR was opened; the merge that lands it is #798's.

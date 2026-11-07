@@ -61,7 +61,9 @@ import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
 import com.lifecontrol.api.support.TenantFixtures;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.sql.SQLException;
 import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -75,6 +77,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
+import javax.sql.DataSource;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -194,6 +197,13 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
     private static final SimpleGrantedAuthority ROLE_LC_SALES = new SimpleGrantedAuthority("ROLE_lc-sales");
 
     /**
+     * The pool {@link #deleteSalePayments} opens on the container's own login: one per JVM, like the base
+     * class's ledger-cleaning pool, because a new {@code HikariDataSource} per call would leak a pool per
+     * test method.
+     */
+    private static final DataSource SALE_PAYMENT_CLEANUP = containerSuperuserPool();
+
+    /**
      * The ledger source of the stock this fixture seeds.
      *
      * <p>A discriminator that can never be mistaken for a real one: a sale states its line and a receipt its
@@ -233,6 +243,12 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
 
     @AfterEach
     void tearDown() {
+        // A charged order's payment rows go first: they are append-only and they reference the order, so
+        // leaving them behind fails the next case's cleanup on fk_payment_order_same_company.
+        if (companyId != null) {
+            deleteSalePayments(companyId);
+        }
+
         // The orders this suite places also book the stock ledger (T5a of odd/tasks/inventory-ledger.md),
         // and those rows reference product_variants and store_locations with no cascade while the ledger is
         // append-only: the deletes below would fail on fk_movement_variant, and the rows would keep blocking
@@ -254,6 +270,53 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
         // instead of silently matching none, and leaving it on the thread would leak into whatever suite
         // runs next on this one.
         TenantScope.clear();
+    }
+
+    /**
+     * Deletes every payment of one company, because a charged order cannot otherwise be cleaned up.
+     *
+     * <p><b>Why this is needed at all, and why it is not a convenience.</b> Since ADR-0002 T6a a charge
+     * appends a {@code sale_payment} row, and that table is append-only in both halves: {@code V83} revokes
+     * {@code UPDATE, DELETE} from the application role and a {@code BEFORE UPDATE OR DELETE} trigger refuses
+     * the statement even for the owner. The same file makes {@code (company_id, sales_order_id)} a foreign
+     * key to the order ({@code fk_payment_order_same_company}), so the {@code deleteAll()} in
+     * {@link #setUp()} fails on that key while a payment exists — which would break whichever case runs next,
+     * not the one that charged. The rows therefore go here, through the container's own login with the
+     * append-only trigger and the referential checks suppressed for one transaction
+     * ({@code SET LOCAL}, so the setting dies at {@code COMMIT} and no sibling suite can observe it): the
+     * same mechanism, and the same reason, that {@code deleteStockLedger} states in full in the base class.
+     *
+     * @param companyId the company whose payments go. Never {@code null}: a null would delete nothing and
+     *     read as a pass, which is the failure mode this helper exists to make impossible
+     */
+    private void deleteSalePayments(UUID companyId) {
+        if (companyId == null) {
+            throw new IllegalArgumentException("deleting a company's payments needs the company they belong to");
+        }
+        try (var connection = SALE_PAYMENT_CLEANUP.getConnection()) {
+            connection.setAutoCommit(false);
+            try {
+                try (var statement = connection.createStatement()) {
+                    statement.execute("SET LOCAL session_replication_role = replica");
+                }
+                for (var sql : List.of(
+                        "DELETE FROM sale_payment_void WHERE company_id = ?",
+                        "DELETE FROM sale_payment WHERE company_id = ?")) {
+                    try (var prepared = connection.prepareStatement(sql)) {
+                        prepared.setObject(1, companyId);
+                        prepared.executeUpdate();
+                    }
+                }
+                connection.commit();
+            } catch (SQLException failed) {
+                connection.rollback();
+                throw new IllegalStateException("could not delete the payments of company " + companyId, failed);
+            } finally {
+                connection.setAutoCommit(true);
+            }
+        } catch (SQLException failed) {
+            throw new IllegalStateException("could not reach the container to delete the sale payments", failed);
+        }
     }
 
     /**
@@ -1929,6 +1992,317 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                     assertThat(itemStatus.getStatusName()).isEqualTo("Added");
                 }
             }
+        }
+    }
+
+    // ─── T6a — the document's money is its parts ─────────────────
+
+    /**
+     * The five money columns of one document, as the row states them: what a till report prints, and the
+     * four parts {@code ck_order_total} makes add up to the total exactly (ADR-0002 M1).
+     */
+    private record OrderMoney(
+            BigDecimal subtotal,
+            BigDecimal discountTotal,
+            BigDecimal taxTotal,
+            BigDecimal roundingAdjustment,
+            BigDecimal totalAmount) {}
+
+    /**
+     * One {@code sale_payment} row. The table is append-only, so every field here is what the charge stated
+     * once and nothing in the tree edits afterwards (ADR-0002 decision 5).
+     */
+    private record PaymentRow(
+            UUID methodId,
+            String direction,
+            BigDecimal amount,
+            BigDecimal tenderedAmount,
+            BigDecimal changeAmount,
+            String reference,
+            String actor,
+            OffsetDateTime paidAt) {}
+
+    /**
+     * The document's money, read from the row inside this class's tenant.
+     *
+     * <p>{@code sales_orders} has been armed <b>and forced</b> since {@code V65}, so an unscoped read answers
+     * no row instead of the row that is there — which is why this goes through {@link #inTransaction}.</p>
+     */
+    private OrderMoney orderMoneyOf(UUID orderId) {
+        return inTransaction(() -> jdbcTemplate.queryForObject(
+                """
+                SELECT subtotal, discount_total, tax_total, rounding_adjustment, total_amount
+                  FROM sales_orders
+                 WHERE id = ?
+                """,
+                (rs, rowNum) -> new OrderMoney(
+                        rs.getBigDecimal("subtotal"),
+                        rs.getBigDecimal("discount_total"),
+                        rs.getBigDecimal("tax_total"),
+                        rs.getBigDecimal("rounding_adjustment"),
+                        rs.getBigDecimal("total_amount")),
+                orderId));
+    }
+
+    /**
+     * Every payment one document carries, oldest first.
+     *
+     * <p>{@code V83} armed {@code sale_payment} on {@code company_id} and forced the policy, so this reads
+     * under the tenant like every other armed table in this suite.</p>
+     */
+    private List<PaymentRow> paymentsOf(UUID orderId) {
+        return inTransaction(() -> jdbcTemplate.query(
+                """
+                SELECT method_id, direction, amount, tendered_amount, change_amount, reference, actor, paid_at
+                  FROM sale_payment
+                 WHERE company_id = ? AND sales_order_id = ?
+                 ORDER BY paid_at, id
+                """,
+                (rs, rowNum) -> new PaymentRow(
+                        rs.getObject("method_id", UUID.class),
+                        rs.getString("direction"),
+                        rs.getBigDecimal("amount"),
+                        rs.getBigDecimal("tendered_amount"),
+                        rs.getBigDecimal("change_amount"),
+                        rs.getString("reference"),
+                        rs.getString("actor"),
+                        rs.getObject("paid_at", OffsetDateTime.class)),
+                companyId,
+                orderId));
+    }
+
+    /**
+     * An enabled payment method: the fixture the charge step of {@code fullFlow_DraftToActiveToCharge}
+     * builds. A fresh row per case, because the catalog is global and a case must not depend on what another
+     * one wrote.
+     */
+    private UUID savedPaymentMethodId() {
+        return paymentMethodRepository
+                .save(PaymentMethod.builder()
+                        .paymentMethodName("Efectivo-" + UUID.randomUUID())
+                        .paymentMethodShortName("EFECTIVO")
+                        .enabled(true)
+                        .build())
+                .getId();
+    }
+
+    /** Charges the order through the API and states the one outcome every charge case shares. */
+    private void charge(UUID orderId, UUID paymentMethodId) throws Exception {
+        mockMvc.perform(patch("/api/sales-orders/{id}/charge", orderId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new ChargeSalesOrderRequest(paymentMethodId)))
+                        .with(scopedSalesJwt()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.statusName").value("Completed"));
+    }
+
+    @Nested
+    @DisplayName("T6a The document's money is its parts — ADR-0002 M1, M2 and M10")
+    class OrderMoneyBreakdownTests {
+
+        @Test
+        @DisplayName("should state the breakdown of its lines when the order is created")
+        void createOrder_statesTheBreakdownOfItsLines() throws Exception {
+            var variant = createTestVariant(new BigDecimal("10.00"));
+
+            // The two lines of the case: 2 × 100.00 with a 10.00 discount and 3 × 50.00 with none. The
+            // discount is what makes the document's three parts three different numbers instead of two.
+            var discounted = new SalesOrderItemRequest(
+                    null,
+                    variant.getId(),
+                    new BigDecimal("2.00"),
+                    new BigDecimal("100.00"),
+                    new BigDecimal("10.00"),
+                    null);
+            var plain = new SalesOrderItemRequest(
+                    null, variant.getId(), new BigDecimal("3.00"), new BigDecimal("50.00"), BigDecimal.ZERO, null);
+            var request =
+                    new SalesOrderRequest(customerId, companyStoreId, shiftId, "user123", List.of(discounted, plain));
+
+            var created = mockMvc.perform(post("/api/sales-orders")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request))
+                            .with(scopedSalesJwt()))
+                    .andExpect(status().isCreated())
+                    .andReturn();
+
+            var orderId = UUID.fromString(objectMapper
+                    .readTree(created.getResponse().getContentAsString())
+                    .get("id")
+                    .asText());
+
+            // The parts are the lines': subtotal is Σ round(list_price × quantity, 4) = 200 + 150, the
+            // discount is Σ discount_applied = 10, and nothing in this tree states a tax yet.
+            var money = orderMoneyOf(orderId);
+            assertThat(money.subtotal()).isEqualByComparingTo(new BigDecimal("350.0000"));
+            assertThat(money.discountTotal()).isEqualByComparingTo(new BigDecimal("10.0000"));
+            assertThat(money.taxTotal()).isEqualByComparingTo(new BigDecimal("0.0000"));
+            assertThat(money.roundingAdjustment()).isEqualByComparingTo(new BigDecimal("0.0000"));
+            assertThat(money.totalAmount()).isEqualByComparingTo(new BigDecimal("340.0000"));
+
+            // And the response states the same number the row does: 340.00 is exactly representable in MXN,
+            // so the single rounding at the document boundary moves nothing.
+            assertThat(new BigDecimal(objectMapper
+                            .readTree(created.getResponse().getContentAsString())
+                            .get("totalAmount")
+                            .asText()))
+                    .isEqualByComparingTo(new BigDecimal("340.0000"));
+        }
+
+        @Test
+        @DisplayName("should recompute the document's parts when a line's quantity changes")
+        void updateOrderItems_recomputesTheBreakdownUnderTheOrderLock() throws Exception {
+            var variant = createTestVariant(new BigDecimal("10.00"));
+            var variantB = createTestVariantB(new BigDecimal("10.00"));
+
+            // Two variants, because the case needs each line's id: `PlacedOrder` keys the ids by variant, and
+            // two lines of one variant would leave only one of them addressable.
+            var placed = createOrder(
+                    new SalesOrderItemRequest(
+                            null,
+                            variant.getId(),
+                            new BigDecimal("2.00"),
+                            new BigDecimal("100.00"),
+                            new BigDecimal("10.00"),
+                            null),
+                    new SalesOrderItemRequest(
+                            null,
+                            variantB.getId(),
+                            new BigDecimal("3.00"),
+                            new BigDecimal("50.00"),
+                            BigDecimal.ZERO,
+                            null));
+            assertThat(orderMoneyOf(placed.orderId()).totalAmount()).isEqualByComparingTo(new BigDecimal("340.0000"));
+
+            // Only the first line's quantity moves: 2 → 4, so the document's subtotal grows by 200 and its
+            // total has to grow with it. A document that kept 340.0000 here would be a stale total, which is
+            // the state ADR-0002 M2 (recompute in the same transaction as the line write, under the order's
+            // row lock) exists to make impossible.
+            updateOrderItems(
+                    placed.orderId(),
+                    new SalesOrderItemRequest(
+                            placed.itemId(variant.getId()),
+                            variant.getId(),
+                            new BigDecimal("4.00"),
+                            new BigDecimal("100.00"),
+                            new BigDecimal("10.00"),
+                            null),
+                    new SalesOrderItemRequest(
+                            placed.itemId(variantB.getId()),
+                            variantB.getId(),
+                            new BigDecimal("3.00"),
+                            new BigDecimal("50.00"),
+                            BigDecimal.ZERO,
+                            null));
+
+            var money = orderMoneyOf(placed.orderId());
+            assertThat(money.subtotal()).isEqualByComparingTo(new BigDecimal("550.0000"));
+            assertThat(money.discountTotal()).isEqualByComparingTo(new BigDecimal("10.0000"));
+            assertThat(money.totalAmount()).isEqualByComparingTo(new BigDecimal("540.0000"));
+        }
+
+        @Test
+        @DisplayName("should append exactly one CHARGE payment for the document's total")
+        void chargeAppendsOnePaymentForTheTotal() throws Exception {
+            var variant = createTestVariant(new BigDecimal("10.00"));
+            var placed = createOrder(line(null, variant.getId(), "2.00"));
+            // A document born with its lines in the same request stays Draft (only the item endpoint
+            // auto-activates), and a Draft has no transition into a charge: the order is moved to Active
+            // first, which is the state the charge then auto-promotes to Pending.
+            transitionOrder(placed.orderId(), activeStatusId);
+            var paymentMethodId = savedPaymentMethodId();
+
+            charge(placed.orderId(), paymentMethodId);
+
+            var money = orderMoneyOf(placed.orderId());
+            var payments = paymentsOf(placed.orderId());
+            assertThat(payments).hasSize(1);
+
+            var payment = payments.get(0);
+            assertThat(payment.direction()).isEqualTo("CHARGE");
+            assertThat(payment.amount())
+                    .as("the payment states the document's total, under the lock that produced it")
+                    .isEqualByComparingTo(money.totalAmount());
+            assertThat(payment.amount()).isEqualByComparingTo(new BigDecimal("200.0000"));
+            assertThat(payment.methodId()).isEqualTo(paymentMethodId);
+            assertThat(payment.actor())
+                    .as("the actor is the token's preferred_username, not the order's user_id")
+                    .isEqualTo("seller");
+            assertThat(payment.paidAt()).isNotNull();
+            assertThat(payment.tenderedAmount())
+                    .as("a tender nobody counted is not invented by the server: cash and change are T7's")
+                    .isNull();
+            assertThat(payment.changeAmount()).isNull();
+        }
+
+        @Test
+        @DisplayName("should refuse a second charge and append no second payment")
+        void chargeTwice_isRefusedAndAppendsNoSecondPayment() throws Exception {
+            var variant = createTestVariant(new BigDecimal("10.00"));
+            var placed = createOrder(line(null, variant.getId(), "2.00"));
+            // Draft is not chargable, so the first charge starts from Active — the state the retry then finds
+            // behind itself as Completed.
+            transitionOrder(placed.orderId(), activeStatusId);
+            var paymentMethodId = savedPaymentMethodId();
+            charge(placed.orderId(), paymentMethodId);
+
+            // The same request a second time, which is what a retried charge looks like.
+            var second = mockMvc.perform(patch("/api/sales-orders/{id}/charge", placed.orderId())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(new ChargeSalesOrderRequest(paymentMethodId)))
+                            .with(scopedSalesJwt()))
+                    .andReturn();
+
+            // A Completed order is not a chargable one: the refusal is the state guard's 400, taken under the
+            // lock that makes the retry see the first charge's commit (ADR-0002 M10).
+            assertThat(second.getResponse().getStatus()).isEqualTo(400);
+
+            // The row count is the observable that matters, and the refusal alone is not enough: a charge that
+            // appended its payment and only then met the guard would answer 400 as well, and `sale_payment` is
+            // append-only — a row that landed could not be taken back by anything this suite could do.
+            assertThat(paymentsOf(placed.orderId())).hasSize(1);
+            assertThat(orderMoneyOf(placed.orderId()).totalAmount()).isEqualByComparingTo(new BigDecimal("200.0000"));
+        }
+
+        @Test
+        @DisplayName("should refuse to charge a document whose enabled lines add up to zero, and append no payment")
+        void chargeWithNothingToPay_isRefusedAndAppendsNoPayment() throws Exception {
+            var variant = createTestVariant(new BigDecimal("10.00"));
+            var placed = createOrder(line(null, variant.getId(), "2.00"));
+            transitionOrder(placed.orderId(), activeStatusId);
+            var paymentMethodId = savedPaymentMethodId();
+
+            // The document's only line is removed, so what the charge is about to see holds nothing left to pay
+            // for and the breakdown states a total of 0.0000. It is removed rather than cancelled because a
+            // cancelled line keeps `enabled = true` and `sumMoneyParts` still sums it — a separate accounting
+            // question this case does not cover.
+            mockMvc.perform(delete(
+                                    "/api/sales-orders/{id}/items/{itemId}",
+                                    placed.orderId(),
+                                    placed.itemId(variant.getId()))
+                            .with(scopedSalesJwt()))
+                    .andExpect(status().isNoContent());
+            assertThat(orderMoneyOf(placed.orderId()).totalAmount()).isEqualByComparingTo(new BigDecimal("0.0000"));
+
+            var refused = mockMvc.perform(patch("/api/sales-orders/{id}/charge", placed.orderId())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(new ChargeSalesOrderRequest(paymentMethodId)))
+                            .with(scopedSalesJwt()))
+                    .andReturn();
+
+            // A document with nothing to pay is a business refusal (409) that explains itself, never the
+            // schema's refusal read back: `V83` states `CHECK (amount > 0)`, so a zero payment is caught at flush
+            // as a `DataIntegrityViolationException`, which the handler answers with a generic 409 that names
+            // neither the order nor the reason. The status alone therefore proves nothing — the message does.
+            assertThat(refused.getResponse().getStatus()).isEqualTo(409);
+            assertThat(refused.getResponse().getContentAsString())
+                    .contains("Cannot charge sales order " + placed.orderId())
+                    .contains("there is nothing to pay");
+
+            // The row count is the observable that matters, and the refusal alone is not enough: a charge that
+            // appended its payment and only then met the guard would answer the same status, and `sale_payment`
+            // is append-only — a row that landed could not be taken back by anything this suite could do.
+            assertThat(paymentsOf(placed.orderId())).isEmpty();
         }
     }
 

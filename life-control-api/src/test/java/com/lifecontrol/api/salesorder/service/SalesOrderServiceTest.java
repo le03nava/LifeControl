@@ -47,10 +47,12 @@ import com.lifecontrol.api.salesorder.exception.SalesOrderItemNotFoundException;
 import com.lifecontrol.api.salesorder.exception.SalesOrderItemNotModifiableException;
 import com.lifecontrol.api.salesorder.exception.SalesOrderNotFoundException;
 import com.lifecontrol.api.salesorder.exception.SalesOrderStoreReassignmentNotAllowedException;
+import com.lifecontrol.api.salesorder.model.SalePayment;
 import com.lifecontrol.api.salesorder.model.SalesOrder;
 import com.lifecontrol.api.salesorder.model.SalesOrderItem;
 import com.lifecontrol.api.salesorder.model.SalesOrderItemState;
 import com.lifecontrol.api.salesorder.model.SalesOrderState;
+import com.lifecontrol.api.salesorder.repository.SalePaymentRepository;
 import com.lifecontrol.api.salesorder.repository.SalesOrderItemRepository;
 import com.lifecontrol.api.salesorder.repository.SalesOrderRepository;
 import com.lifecontrol.api.shift.exception.ShiftNotFoundException;
@@ -67,6 +69,7 @@ import com.lifecontrol.api.store.service.CompanyStoreOwnerResolver;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -113,6 +116,24 @@ class SalesOrderServiceTest {
 
     @Mock
     private PaymentMethodRepository paymentMethodRepository;
+
+    /**
+     * The payments of a document. This unit's charge writes exactly one and asks the table what the document has
+     * paid (ADR-0002 M3), so the mock is the sum's oracle here and the real {@code NOT EXISTS} over
+     * {@code sale_payment_void} is proved against a database by the integration suite.
+     */
+    @Mock
+    private SalePaymentRepository salePaymentRepository;
+
+    /**
+     * The payments the transaction under test appended.
+     *
+     * <p><b>Why a list and not a fixed stub.</b> The charge writes a row and then asks the same table what the
+     * document has paid, which is what a database does inside one transaction: the sum includes the insert that
+     * just happened. A stubbed constant would answer a different question — it would let a case prove the
+     * transition while proving nothing about the amount that made it legal (ADR-0002 M3).</p>
+     */
+    private final List<SalePayment> appendedPayments = new ArrayList<>();
 
     @Mock
     private CurrentUserContext currentUserContext;
@@ -169,6 +190,34 @@ class SalesOrderServiceTest {
     @BeforeEach
     void setUp() {
         orderId = UUID.randomUUID();
+        appendedPayments.clear();
+
+        // ADR-0002 decision 1: the total is rounded to the document's currency, so every case that writes a
+        // breakdown asks the catalog. MXN's minor unit is 2, which is the fixture's currency (TenantFixtures).
+        lenient().when(salesOrderRepository.findCurrencyMinorUnits(any())).thenReturn(Optional.of(2));
+
+        // M10's lock reads the same row the unlocked read does — in the database it is one row, so a fixture
+        // that answered two different objects would be describing a state the schema cannot hold. A case that
+        // wants to say something about the locked read states its own answer and wins over this one.
+        lenient()
+                .when(salesOrderRepository.findByIdForUpdate(any()))
+                .thenAnswer(invocation -> salesOrderRepository.findById(invocation.getArgument(0)));
+
+        // M2: the parts are summed from the schema, not from the list the caller holds, so a document with no
+        // line answers an empty sum — the state every fixture starts from.
+        lenient().when(itemRepository.sumMoneyParts(any())).thenReturn(List.of());
+
+        // The charge appends one row and then asks the table what the document has paid. These two stubs are
+        // that pair: `save` keeps the row, `netPaid` adds what was kept.
+        lenient().when(salePaymentRepository.save(any(SalePayment.class))).thenAnswer(invocation -> {
+            var payment = invocation.getArgument(0, SalePayment.class);
+            appendedPayments.add(payment);
+            return payment;
+        });
+        lenient()
+                .when(salePaymentRepository.netPaid(any(), any()))
+                .thenAnswer(invocation ->
+                        appendedPayments.stream().map(SalePayment::getAmount).reduce(BigDecimal.ZERO, BigDecimal::add));
         customerId = UUID.randomUUID();
         companyStoreId = UUID.randomUUID();
         shiftId = UUID.randomUUID();
@@ -328,6 +377,7 @@ class SalesOrderServiceTest {
         salesOrderService = new SalesOrderService(
                 salesOrderRepository,
                 itemRepository,
+                salePaymentRepository,
                 customerRepository,
                 companyStoreRepository,
                 companyStoreOwnerResolver,
@@ -424,6 +474,35 @@ class SalesOrderServiceTest {
                         any(),
                         any(),
                         argThat((List<SaleChange> changes) -> changes.stream().anyMatch(change -> !change.reversal())));
+    }
+
+    /**
+     * The one aggregate row {@code sumMoneyParts} answers with for a document holding lines: their summed
+     * subtotal, their summed discount and their summed tax. ADR-0002 M2 reads the parts from the schema and
+     * not from the list the caller holds, so a case that states the document's money stubs the row the schema
+     * would return instead of the line list. A {@code null} column is the aggregate's answer when no enabled
+     * line remains, which the writer reads as zero money.
+     */
+    private static List<Object[]> moneyPartsRow(BigDecimal subtotal, BigDecimal discountTotal, BigDecimal taxTotal) {
+        return Collections.singletonList(new Object[] {subtotal, discountTotal, taxTotal});
+    }
+
+    /**
+     * States the document's money as a previous recomputation left it, so that the recalculation a write runs
+     * is observable: a test that started from the zero fixture would prove nothing by reading zero back.
+     */
+    private static void givenBreakdown(
+            SalesOrder order,
+            String subtotal,
+            String discountTotal,
+            String taxTotal,
+            String roundingAdjustment,
+            String totalAmount) {
+        order.setSubtotal(new BigDecimal(subtotal));
+        order.setDiscountTotal(new BigDecimal(discountTotal));
+        order.setTaxTotal(new BigDecimal(taxTotal));
+        order.setRoundingAdjustment(new BigDecimal(roundingAdjustment));
+        order.setTotalAmount(new BigDecimal(totalAmount));
     }
 
     // ─────────────────────────────────────────────
@@ -1291,11 +1370,21 @@ class SalesOrderServiceTest {
                     .thenReturn(true);
             when(itemRepository.save(any(SalesOrderItem.class))).thenReturn(testItem);
             when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId)).thenReturn(List.of(testItem));
+            // The row the writer reads back states the line the add just wrote: 2 x 100.00 less 10.00 discount.
+            when(itemRepository.sumMoneyParts(orderId))
+                    .thenReturn(moneyPartsRow(
+                            new BigDecimal("200.0000"), new BigDecimal("10.0000"), new BigDecimal("0.0000")));
 
             salesOrderService.addSalesOrderItem(orderId, testItemRequest);
 
-            // Verify the order was saved with updated total (90.00 = finalPrice of only item)
-            verify(salesOrderRepository).save(any(SalesOrder.class));
+            // The recalculation is proved on the document's own money. The five setters are the write now
+            // (the row is managed), so a `save` would say the row was handed to the repository and nothing
+            // about the number it left on it: subtotal - discount + tax, rounded once to the currency.
+            assertThat(testOrder.getSubtotal()).isEqualByComparingTo(new BigDecimal("200.0000"));
+            assertThat(testOrder.getDiscountTotal()).isEqualByComparingTo(new BigDecimal("10.0000"));
+            assertThat(testOrder.getTaxTotal()).isEqualByComparingTo(new BigDecimal("0.0000"));
+            assertThat(testOrder.getRoundingAdjustment()).isEqualByComparingTo(new BigDecimal("0.0000"));
+            assertThat(testOrder.getTotalAmount()).isEqualByComparingTo(new BigDecimal("190.00"));
         }
 
         @Test
@@ -1527,7 +1616,10 @@ class SalesOrderServiceTest {
             when(productVariantRepository.existsByIdAndCompanyIdAndEnabledTrue(variantId, companyId))
                     .thenReturn(true);
             when(itemRepository.save(any(SalesOrderItem.class))).thenReturn(testItem);
-            when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId)).thenReturn(List.of(testItem));
+            // The line after the update: 2 x 100.00 less 10.00 of discount, as the schema sums it.
+            when(itemRepository.sumMoneyParts(orderId))
+                    .thenReturn(moneyPartsRow(
+                            new BigDecimal("200.0000"), new BigDecimal("10.0000"), new BigDecimal("0.0000")));
 
             SalesOrderItemResponse result = salesOrderService.updateSalesOrderItem(orderId, itemId, testItemRequest);
 
@@ -1535,7 +1627,12 @@ class SalesOrderServiceTest {
             assertThat(result.id()).isEqualTo(itemId);
             assertThat(result.finalPrice()).isEqualByComparingTo(new BigDecimal("90.00"));
             verify(itemRepository).save(any(SalesOrderItem.class));
-            verify(salesOrderRepository).save(any(SalesOrder.class));
+            // The total is stated on the document, not by a `save`: the parts are what the writer wrote.
+            assertThat(testOrder.getSubtotal()).isEqualByComparingTo(new BigDecimal("200.0000"));
+            assertThat(testOrder.getDiscountTotal()).isEqualByComparingTo(new BigDecimal("10.0000"));
+            assertThat(testOrder.getTaxTotal()).isEqualByComparingTo(new BigDecimal("0.0000"));
+            assertThat(testOrder.getRoundingAdjustment()).isEqualByComparingTo(new BigDecimal("0.0000"));
+            assertThat(testOrder.getTotalAmount()).isEqualByComparingTo(new BigDecimal("190.00"));
         }
 
         @Test
@@ -1550,7 +1647,6 @@ class SalesOrderServiceTest {
             when(productVariantRepository.existsByIdAndCompanyIdAndEnabledTrue(variantId, companyId))
                     .thenReturn(true);
             when(itemRepository.save(any(SalesOrderItem.class))).thenReturn(testItem);
-            when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId)).thenReturn(List.of(testItem));
 
             salesOrderService.updateSalesOrderItem(orderId, itemId, request);
 
@@ -1570,7 +1666,6 @@ class SalesOrderServiceTest {
             when(productVariantRepository.existsByIdAndCompanyIdAndEnabledTrue(variantId, companyId))
                     .thenReturn(true);
             when(itemRepository.save(any(SalesOrderItem.class))).thenReturn(testItem);
-            when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId)).thenReturn(List.of(testItem));
 
             salesOrderService.updateSalesOrderItem(orderId, itemId, request);
 
@@ -1589,7 +1684,6 @@ class SalesOrderServiceTest {
             when(productVariantRepository.existsByIdAndCompanyIdAndEnabledTrue(variantId, companyId))
                     .thenReturn(true);
             when(itemRepository.save(any(SalesOrderItem.class))).thenReturn(testItem);
-            when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId)).thenReturn(List.of(testItem));
 
             salesOrderService.updateSalesOrderItem(orderId, itemId, testItemRequest);
 
@@ -1611,7 +1705,6 @@ class SalesOrderServiceTest {
             when(productVariantRepository.existsByIdAndCompanyIdAndEnabledTrue(newVariantId, companyId))
                     .thenReturn(true);
             when(itemRepository.save(any(SalesOrderItem.class))).thenReturn(testItem);
-            when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId)).thenReturn(List.of(testItem));
 
             salesOrderService.updateSalesOrderItem(orderId, itemId, request);
 
@@ -1621,8 +1714,8 @@ class SalesOrderServiceTest {
         }
 
         @Test
-        @DisplayName(
-                "should restore old variant full quantity and deduct new quantity when both variant and quantity change")
+        @DisplayName("should restore old variant full quantity and deduct new quantity when both variant and quantity"
+                + " change")
         void updateSalesOrderItem_VariantChange_WithQuantityChange() {
             var newVariantId = UUID.randomUUID();
 
@@ -1635,7 +1728,6 @@ class SalesOrderServiceTest {
             when(productVariantRepository.existsByIdAndCompanyIdAndEnabledTrue(newVariantId, companyId))
                     .thenReturn(true);
             when(itemRepository.save(any(SalesOrderItem.class))).thenReturn(testItem);
-            when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId)).thenReturn(List.of(testItem));
 
             salesOrderService.updateSalesOrderItem(orderId, itemId, request);
 
@@ -1745,7 +1837,10 @@ class SalesOrderServiceTest {
             when(productVariantRepository.existsByIdAndCompanyIdAndEnabledTrue(variantId, companyId))
                     .thenReturn(true);
             when(itemRepository.save(any(SalesOrderItem.class))).thenReturn(testItem);
-            when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId)).thenReturn(List.of(testItem));
+            // The line after the update: 2 x 100.00 less 10.00 of discount, as the schema sums it.
+            when(itemRepository.sumMoneyParts(orderId))
+                    .thenReturn(moneyPartsRow(
+                            new BigDecimal("200.0000"), new BigDecimal("10.0000"), new BigDecimal("0.0000")));
 
             SalesOrderItemResponse result = salesOrderService.updateSalesOrderItem(orderId, itemId, testItemRequest);
 
@@ -1753,7 +1848,12 @@ class SalesOrderServiceTest {
             assertThat(result.id()).isEqualTo(itemId);
             assertThat(result.finalPrice()).isEqualByComparingTo(new BigDecimal("90.00"));
             verify(itemRepository).save(any(SalesOrderItem.class));
-            verify(salesOrderRepository).save(any(SalesOrder.class));
+            // Read on the Active order itself: the recalculation is not a status-dependent write.
+            assertThat(activeOrder.getSubtotal()).isEqualByComparingTo(new BigDecimal("200.0000"));
+            assertThat(activeOrder.getDiscountTotal()).isEqualByComparingTo(new BigDecimal("10.0000"));
+            assertThat(activeOrder.getTaxTotal()).isEqualByComparingTo(new BigDecimal("0.0000"));
+            assertThat(activeOrder.getRoundingAdjustment()).isEqualByComparingTo(new BigDecimal("0.0000"));
+            assertThat(activeOrder.getTotalAmount()).isEqualByComparingTo(new BigDecimal("190.00"));
         }
 
         @Test
@@ -1779,7 +1879,6 @@ class SalesOrderServiceTest {
             when(productVariantRepository.existsByIdAndCompanyIdAndEnabledTrue(variantId, companyId))
                     .thenReturn(true);
             when(itemRepository.save(any(SalesOrderItem.class))).thenReturn(testItem);
-            when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId)).thenReturn(List.of(testItem));
 
             SalesOrderItemResponse result = salesOrderService.updateSalesOrderItem(orderId, itemId, testItemRequest);
 
@@ -1851,15 +1950,24 @@ class SalesOrderServiceTest {
         @Test
         @DisplayName("should soft-delete item with stock restoration and recalculate total")
         void deleteSalesOrderItem_Success() {
+            // The document's money before the delete: the fixture's line was its only one, so these are the
+            // parts the previous recomputation left on the row.
+            givenBreakdown(testOrder, "200.0000", "10.0000", "0.0000", "0.0000", "190.00");
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
             when(itemRepository.findById(itemId)).thenReturn(Optional.of(testItem));
-            when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId)).thenReturn(List.of());
-            when(salesOrderRepository.save(any(SalesOrder.class))).thenAnswer(inv -> inv.getArgument(0));
+            // The deleted line was the only enabled one, so the schema's sum answers three NULLs.
+            when(itemRepository.sumMoneyParts(orderId)).thenReturn(moneyPartsRow(null, null, null));
 
             salesOrderService.deleteSalesOrderItem(orderId, itemId);
 
             verify(itemRepository).save(any(SalesOrderItem.class));
-            verify(salesOrderRepository).save(any(SalesOrder.class));
+            // The recalculation read back from the document: with no line left, every part is zero and the
+            // total is the currency's zero. A `save` would only say the row was handed to the repository.
+            assertThat(testOrder.getSubtotal()).isEqualByComparingTo(new BigDecimal("0.0000"));
+            assertThat(testOrder.getDiscountTotal()).isEqualByComparingTo(new BigDecimal("0.0000"));
+            assertThat(testOrder.getTaxTotal()).isEqualByComparingTo(new BigDecimal("0.0000"));
+            assertThat(testOrder.getRoundingAdjustment()).isEqualByComparingTo(new BigDecimal("0.0000"));
+            assertThat(testOrder.getTotalAmount()).isEqualByComparingTo(new BigDecimal("0.00"));
             // The line is restored through the engine under its own ledger reference.
             verifyReversed(itemId);
         }
@@ -1970,13 +2078,18 @@ class SalesOrderServiceTest {
 
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(activeOrder));
             when(itemRepository.findById(itemId)).thenReturn(Optional.of(testItem));
-            when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId)).thenReturn(List.of());
-            when(salesOrderRepository.save(any(SalesOrder.class))).thenAnswer(inv -> inv.getArgument(0));
+            // The document stood on the fixture's line before the delete.
+            givenBreakdown(activeOrder, "200.0000", "10.0000", "0.0000", "0.0000", "190.00");
+            when(itemRepository.sumMoneyParts(orderId)).thenReturn(moneyPartsRow(null, null, null));
 
             salesOrderService.deleteSalesOrderItem(orderId, itemId);
 
             verify(itemRepository).save(any(SalesOrderItem.class));
-            verify(salesOrderRepository).save(any(SalesOrder.class));
+            assertThat(activeOrder.getSubtotal()).isEqualByComparingTo(new BigDecimal("0.0000"));
+            assertThat(activeOrder.getDiscountTotal()).isEqualByComparingTo(new BigDecimal("0.0000"));
+            assertThat(activeOrder.getTaxTotal()).isEqualByComparingTo(new BigDecimal("0.0000"));
+            assertThat(activeOrder.getRoundingAdjustment()).isEqualByComparingTo(new BigDecimal("0.0000"));
+            assertThat(activeOrder.getTotalAmount()).isEqualByComparingTo(new BigDecimal("0.00"));
             verifyReversed(itemId);
         }
 
@@ -1999,13 +2112,18 @@ class SalesOrderServiceTest {
 
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(pendingOrder));
             when(itemRepository.findById(itemId)).thenReturn(Optional.of(testItem));
-            when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId)).thenReturn(List.of());
-            when(salesOrderRepository.save(any(SalesOrder.class))).thenAnswer(inv -> inv.getArgument(0));
+            // The document stood on the fixture's line before the delete.
+            givenBreakdown(pendingOrder, "200.0000", "10.0000", "0.0000", "0.0000", "190.00");
+            when(itemRepository.sumMoneyParts(orderId)).thenReturn(moneyPartsRow(null, null, null));
 
             salesOrderService.deleteSalesOrderItem(orderId, itemId);
 
             verify(itemRepository).save(any(SalesOrderItem.class));
-            verify(salesOrderRepository).save(any(SalesOrder.class));
+            assertThat(pendingOrder.getSubtotal()).isEqualByComparingTo(new BigDecimal("0.0000"));
+            assertThat(pendingOrder.getDiscountTotal()).isEqualByComparingTo(new BigDecimal("0.0000"));
+            assertThat(pendingOrder.getTaxTotal()).isEqualByComparingTo(new BigDecimal("0.0000"));
+            assertThat(pendingOrder.getRoundingAdjustment()).isEqualByComparingTo(new BigDecimal("0.0000"));
+            assertThat(pendingOrder.getTotalAmount()).isEqualByComparingTo(new BigDecimal("0.00"));
             verifyReversed(itemId);
         }
     }
@@ -2197,6 +2315,11 @@ class SalesOrderServiceTest {
             // Item status lookup: bulk fetch by the set of item statusIds
             // toResponse mocks
             when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId)).thenReturn(List.of());
+            // The document's own money, read from the schema: the two lines are 2 x 100.00 and 3 x 50.00, with
+            // no discount and no tax, so the sum is 350.0000 and the charge states 350.00.
+            when(itemRepository.sumMoneyParts(orderId))
+                    .thenReturn(moneyPartsRow(
+                            new BigDecimal("350.0000"), new BigDecimal("0.0000"), new BigDecimal("0.0000")));
 
             SalesOrderResponse result = salesOrderService.chargeSalesOrder(orderId, request);
 
@@ -2338,6 +2461,11 @@ class SalesOrderServiceTest {
             // Item status lookup: bulk fetch by the set of item statusIds
             // toResponse mocks
             when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId)).thenReturn(List.of());
+            // The document's own money, read from the schema: three lines of 1 x 10.00 — the cancelled one is
+            // still enabled, so it is still summed — no discount and no tax, so the total is 30.00.
+            when(itemRepository.sumMoneyParts(orderId))
+                    .thenReturn(moneyPartsRow(
+                            new BigDecimal("30.0000"), new BigDecimal("0.0000"), new BigDecimal("0.0000")));
 
             SalesOrderResponse result = salesOrderService.chargeSalesOrder(orderId, request);
 
@@ -2428,6 +2556,11 @@ class SalesOrderServiceTest {
             // Item status lookup: bulk fetch by the set of item statusIds
             // toResponse mocks — items have been transitioned to Added
             when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId)).thenReturn(List.of());
+            // The document's own money, read from the schema: 2 x 100.00 and 3 x 50.00, no discount and no tax,
+            // so the sum is 350.0000 and the charge states 350.00.
+            when(itemRepository.sumMoneyParts(orderId))
+                    .thenReturn(moneyPartsRow(
+                            new BigDecimal("350.0000"), new BigDecimal("0.0000"), new BigDecimal("0.0000")));
 
             SalesOrderResponse result = salesOrderService.chargeSalesOrder(orderId, request);
 
@@ -2542,6 +2675,12 @@ class SalesOrderServiceTest {
 
             when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId))
                     .thenReturn(List.of(item1AfterCharge, item2AfterCharge));
+            // The document's own money, read from the schema: 2 x 100.00 and 3 x 50.00, no discount and no tax,
+            // so the sum is 350.0000 and the charge states 350.00. The reloaded order this case asserts on is the
+            // fixture's next answer and keeps the 250.00 it was built with.
+            when(itemRepository.sumMoneyParts(orderId))
+                    .thenReturn(moneyPartsRow(
+                            new BigDecimal("350.0000"), new BigDecimal("0.0000"), new BigDecimal("0.0000")));
 
             SalesOrderResponse result = salesOrderService.chargeSalesOrder(orderId, request);
 
@@ -2755,10 +2894,20 @@ class SalesOrderServiceTest {
                 return item;
             });
             when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId)).thenReturn(List.of());
+            // The document's lines after the diff: the request's new line, 1 x 100.00, no discount, no tax.
+            when(itemRepository.sumMoneyParts(orderId))
+                    .thenReturn(moneyPartsRow(
+                            new BigDecimal("100.0000"), new BigDecimal("0.0000"), new BigDecimal("0.0000")));
 
             salesOrderService.updateSalesOrder(orderId, request);
 
-            verify(salesOrderRepository, atLeast(2)).save(any(SalesOrder.class));
+            // The recalculation after the item diff is read on the document's own money: the parts and the
+            // total are what the writer left, and a `save` alone would not have stated either.
+            assertThat(testOrder.getSubtotal()).isEqualByComparingTo(new BigDecimal("100.0000"));
+            assertThat(testOrder.getDiscountTotal()).isEqualByComparingTo(new BigDecimal("0.0000"));
+            assertThat(testOrder.getTaxTotal()).isEqualByComparingTo(new BigDecimal("0.0000"));
+            assertThat(testOrder.getRoundingAdjustment()).isEqualByComparingTo(new BigDecimal("0.0000"));
+            assertThat(testOrder.getTotalAmount()).isEqualByComparingTo(new BigDecimal("100.00"));
             verifyDeducted(variantId, "1.00", savedItemId);
         }
     }
@@ -3247,6 +3396,11 @@ class SalesOrderServiceTest {
             when(itemRepository.findBySalesOrderId(orderId))
                     .thenReturn(List.of(waitingLine, chargedLine, cancelledLine));
             when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId)).thenReturn(List.of());
+            // The document's own money, read from the schema: three lines of 1 x 10.00 — waiting, already
+            // charged and cancelled, all still enabled — so the sum is 30.0000 and the total is 30.00.
+            when(itemRepository.sumMoneyParts(orderId))
+                    .thenReturn(moneyPartsRow(
+                            new BigDecimal("30.0000"), new BigDecimal("0.0000"), new BigDecimal("0.0000")));
 
             salesOrderService.chargeSalesOrder(orderId, new ChargeSalesOrderRequest(paymentMethodId));
 

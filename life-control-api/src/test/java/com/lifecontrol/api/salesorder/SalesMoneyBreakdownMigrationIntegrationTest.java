@@ -231,24 +231,75 @@ class SalesMoneyBreakdownMigrationIntegrationTest extends AbstractPostgresIntegr
     }
 
     @Test
-    @DisplayName("the breakdown's arithmetic is not constrained yet, and that is the recorded debt")
-    void theBreakdownArithmeticWaitsForTheWriter() throws Exception {
+    @DisplayName("the breakdown's arithmetic is constrained: a part that stops adding up to the total is refused")
+    void theBreakdownArithmeticIsConstrained() throws Exception {
         migrateTo(PRE_UNIT_HEAD);
         var document = seedLegacyDocument();
         migrateToHead();
 
-        // `ck_order_total` (M1) is deliberately absent from V80: `recalculateTotalAmount:1058` writes
-        // `total_amount` from the lines' unit prices and leaves the parts at 0, so the constraint would
-        // refuse the tree's own service. This case states the debt instead of leaving a reader to believe
-        // M1 is enforced: the write is accepted, and T6 adds the constraint in the slice that computes the
-        // parts. The overnight failure mode this guards is a suite that goes green over a schema nobody
-        // bounded.
+        // `V84` adds `ck_order_total` (M1) in the slice that gives it a writer, `recomputeBreakdown`. Until that
+        // slice this case stated the debt instead — the write was accepted and the case said so, because
+        // `V80`'s own service summed the lines' unit prices into `total_amount` and left the parts at zero, so
+        // the constraint would have refused the tree's own writer. What used to be accepted is now refused by
+        // name: the difference between a schema nobody bounded and one that cannot hold a document whose parts
+        // disagree with its total.
+        // The tenant is stated: `sales_orders` is `FORCE ROW LEVEL SECURITY`, so an update that names no company is
+        // filtered to zero rows and "accepted" — the statement has to reach the row for the constraint to judge it.
+        assertThat(constraintOf(
+                        document.company(),
+                        "UPDATE sales_orders SET subtotal = subtotal + 1 WHERE id = '" + document.orderId() + "'"))
+                .as("M1: total_amount = subtotal - discount_total + tax_total + rounding_adjustment, exact — "
+                        + "a ten-thousandth is a bug and not a rounding artifact (decision 3)")
+                .isEqualTo("ck_order_total");
+
+        // And the statement that states a part states the total with it, which is how the writer moves the two
+        // together.
         inOneTransaction(
-                document.company(), "UPDATE sales_orders SET subtotal = 141 WHERE id = '" + document.orderId() + "'");
+                document.company(),
+                "UPDATE sales_orders SET subtotal = 100, total_amount = 100 WHERE id = '" + document.orderId() + "'");
 
         assertThat(money(document.company(), document.orderId(), "subtotal"))
-                .as("accepted on purpose — the parts are enforced by T6, not by this file")
-                .isEqualTo("141.0000");
+                .as("a document whose parts add up to its total is accepted")
+                .isEqualTo("100.0000");
+    }
+
+    @Test
+    @DisplayName("a document written after the parts existed is restated instead of aborting the deploy")
+    void restatesTheDocumentsWrittenAfterThePartsExisted() throws Exception {
+        // The head `V80` and `V81` leave: the four parts exist, `ck_order_total` does not, and the writer
+        // that has been in production ever since (`origin/main`'s `recalculateTotalAmount`) creates
+        // documents in exactly this shape — `total_amount` from the lines' unit prices, the four parts at
+        // their `DEFAULT 0`, because it never touches one. `V80:193` restated the rows the table held when
+        // `V80` ran, and these are the rows it could not have seen.
+        migrateTo("83");
+        var document = seedDocumentAfterThePartsExisted();
+        assertThat(money(document.company(), document.orderId(), "total_amount"))
+                .as("the shape the post-V80 writer produces: a stated total")
+                .isEqualTo("140.0000");
+        assertThat(money(document.company(), document.orderId(), "subtotal"))
+                .as("and no part stated at all, which is the row `ck_order_total` refuses")
+                .isEqualTo("0.0000");
+
+        // `V84` adds `ck_order_total`. Without the backfill this call throws, and the exception names the
+        // constraint instead of the row — the deploy aborting on production data that ADR-0002 step 2
+        // forbids. The pre-flight report does not cover it: `preflight-money-parts.sh` compares the total
+        // with the lines, and these rows' parts agree with nothing at all.
+        migrateToHead();
+
+        assertThat(money(document.company(), document.orderId(), "subtotal"))
+                .as("the row is stated the way V80 stated the legacy ones: its total is its subtotal")
+                .isEqualTo("140.0000");
+        assertThat(money(document.company(), document.orderId(), "total_amount"))
+                .as("and the total it already carried does not move — a financial migration may not "
+                        + "restate a stored amount")
+                .isEqualTo("140.0000");
+        assertThat(money(document.company(), document.orderId(), "discount_total"))
+                .as("no part is invented to make the sum work")
+                .isEqualTo("0.0000");
+        assertThat(money(document.company(), document.orderId(), "tax_total")).isEqualTo("0.0000");
+        assertThat(money(document.company(), document.orderId(), "rounding_adjustment"))
+                .as("the rounding stays 0: it is not inflated to hide a difference nothing computed")
+                .isEqualTo("0.0000");
     }
 
     @Test
@@ -398,6 +449,22 @@ class SalesMoneyBreakdownMigrationIntegrationTest extends AbstractPostgresIntegr
      * commit: a document born without its creation row cannot commit, and neither can a line.</p>
      */
     private LegacyDocument seedLegacyDocument() throws SQLException {
+        return seedDocument(false);
+    }
+
+    /**
+     * The same document written at the head {@code V80} and {@code V81} leave behind, which is the shape
+     * every order created after that release carries: {@code total_amount} stated and the four parts at
+     * their {@code DEFAULT 0}, because the writer that has run since then never states one. The only
+     * difference from {@link #seedLegacyDocument()} is the second line's discount: {@code V81} makes
+     * {@code discount_applied} {@code NOT NULL}, so the {@code NULL} this fixture writes at the pre-unit
+     * head is written as {@code 0} here.
+     */
+    private LegacyDocument seedDocumentAfterThePartsExisted() throws SQLException {
+        return seedDocument(true);
+    }
+
+    private LegacyDocument seedDocument(boolean afterTheParts) throws SQLException {
         var company = UUID.randomUUID();
         var store = UUID.randomUUID();
         var customer = UUID.randomUUID();
@@ -433,8 +500,8 @@ class SalesMoneyBreakdownMigrationIntegrationTest extends AbstractPostgresIntegr
         statements.add(creationRow(company, "SALES_ORDER_ITEM", lineA, "PENDING"));
         statements.add("INSERT INTO sales_order_items (id, sales_order_id, product_variant_id, quantity,"
                 + " list_price, discount_applied, final_price, status, created_at) VALUES ('" + lineB + "', '"
-                + order + "', '" + variant + "', 1.00, 50.00, NULL, 50.00, 'PENDING',"
-                + " '2026-11-01 10:00:00')");
+                + order + "', '" + variant + "', 1.00, 50.00, " + (afterTheParts ? "0.00" : "NULL")
+                + ", 50.00, 'PENDING', '2026-11-01 10:00:00')");
         statements.add(creationRow(company, "SALES_ORDER_ITEM", lineB, "PENDING"));
         inOneTransaction(company, statements.toArray(String[]::new));
         return document;
