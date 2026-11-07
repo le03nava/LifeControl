@@ -4,6 +4,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
@@ -19,6 +20,7 @@ import com.lifecontrol.api.exception.GlobalExceptionHandler;
 import com.lifecontrol.api.inventory.exception.InsufficientStockException;
 import com.lifecontrol.api.paymentmethod.exception.PaymentMethodNotFoundException;
 import com.lifecontrol.api.salesorder.dto.ChargeSalesOrderRequest;
+import com.lifecontrol.api.salesorder.dto.SalePaymentRequest;
 import com.lifecontrol.api.salesorder.dto.SalePaymentResponse;
 import com.lifecontrol.api.salesorder.dto.SalesOrderItemRequest;
 import com.lifecontrol.api.salesorder.dto.SalesOrderItemResponse;
@@ -479,7 +481,11 @@ class SalesOrderControllerTest {
         @BeforeEach
         void setUpCharge() {
             paymentMethodId = UUID.randomUUID();
-            chargeRequest = new ChargeSalesOrderRequest(paymentMethodId);
+            // The body a till sends: one payment for the document's total, on one method. The service is mocked
+            // here, so what this suite proves is the envelope — the request's shape and the status the service's
+            // own refusals answer with.
+            chargeRequest = new ChargeSalesOrderRequest(
+                    List.of(new SalePaymentRequest(paymentMethodId, new BigDecimal("180.00"), null, null)));
         }
 
         @Test
@@ -608,6 +614,50 @@ class SalesOrderControllerTest {
                     .andExpect(jsonPath("$.status").value(404))
                     .andExpect(jsonPath("$.message").value("Payment method not found with id: " + paymentMethodId))
                     .andExpect(jsonPath("$.timestamp").exists());
+        }
+
+        /**
+         * The shape the columns carry, refused before the service sees it (ADR-0002 S6, T7b).
+         *
+         * <p><b>Why a charge with no payment at all is a 400.</b> {@code sale_payment} states one row per payment
+         * and {@code amount > 0}, so an empty list is not a charge of zero — it is a request that says nothing, and
+         * the service has no total to compare against. The refusal names the field, and the service is never called:
+         * a validation that ran after the write would be a promise about a row that had already landed.</p>
+         */
+        @Test
+        @DisplayName("should return 400 and name the field when the charge states no payment")
+        void chargeSalesOrder_NoPayments_Returns400() throws Exception {
+            mockMvc.perform(patch("/api/sales-orders/{id}/charge", testOrderId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(new ChargeSalesOrderRequest(List.of()))))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.message").value("Validation failed"))
+                    .andExpect(jsonPath("$.errors.payments").exists());
+
+            verify(salesOrderService, never()).chargeSalesOrder(any(), any());
+        }
+
+        /**
+         * The scale is the column's: {@code NUMERIC(19,4)} refuses a fifth decimal, so the request does too.
+         *
+         * <p><b>Why this is not pedantry about formatting.</b> A payment of {@code 180.00001} reaches PostgreSQL as a
+         * rounded 180.0000 and stops matching the total the document states — a charge refused by M3 for a number
+         * the client never sent. {@code @Digits(integer = 15, fraction = 4)} makes the refusal name the field
+         * instead, and the nested path is what tells a form which payment it is.</p>
+         */
+        @Test
+        @DisplayName("should return 400 when a payment carries more decimals than the column holds")
+        void chargeSalesOrder_PaymentBeyondFourDecimals_Returns400() throws Exception {
+            var tooPrecise = new ChargeSalesOrderRequest(
+                    List.of(new SalePaymentRequest(paymentMethodId, new BigDecimal("180.00001"), null, null)));
+
+            mockMvc.perform(patch("/api/sales-orders/{id}/charge", testOrderId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(tooPrecise)))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.errors['payments[0].amount']").exists());
+
+            verify(salesOrderService, never()).chargeSalesOrder(any(), any());
         }
     }
 

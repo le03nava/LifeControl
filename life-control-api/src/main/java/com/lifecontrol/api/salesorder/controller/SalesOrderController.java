@@ -137,15 +137,18 @@ public class SalesOrderController {
     @Operation(
             summary = "Charge a sales order",
             description =
-                    "Transitions an Active or Pending order to Completed, books its stock through the inventory ledger, moves all non-Cancelled items to Added, and records the payment. Active orders auto-promote to Pending first. This is the moment the stock moves: a document created or edited before it holds none.")
+                    "Transitions an Active or Pending order to Completed, books its stock through the inventory ledger, moves all non-Cancelled items to Added, and appends one CHARGE payment per payment the body states. Active orders auto-promote to Pending first. This is the moment the stock moves: a document created or edited before it holds none. The payments add up to the document's total exactly, and a tender is stated only for a cash method.")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Sales order charged successfully"),
-        @ApiResponse(responseCode = "400", description = "Order is not in Pending or Active status"),
+        @ApiResponse(
+                responseCode = "400",
+                description =
+                        "Order is not in Pending or Active status, or a payment's tender does not hold tendered >= amount and change = tendered - amount, or a tender is stated with only one of its two sides"),
         @ApiResponse(responseCode = "404", description = "Sales order or payment method not found"),
         @ApiResponse(
                 responseCode = "409",
                 description =
-                        "Insufficient stock for one of the order's items, including a variant the order's store does not stock")
+                        "Insufficient stock for one of the order's items, including a variant the order's store does not stock; or the payments do not add up to the document's total; or a payment states a tender on a method that is not cash")
     })
     public ResponseEntity<SalesOrderResponse> chargeSalesOrder(
             @PathVariable UUID id, @Valid @RequestBody ChargeSalesOrderRequest request) {

@@ -74,21 +74,34 @@ public class SalePayment {
     protected SalePayment() {}
 
     /**
-     * A charge of {@code amount} through {@code methodId}, with no tender stated.
+     * A charge of {@code amount} through {@code methodId}, with the tender the operator counted or none at all.
      *
-     * <p>The charge of this unit states the whole total and nothing else: {@code tendered_amount} and
-     * {@code change_amount} stay {@code null} because {@code ck_payment_tender} allows the pair to be absent
-     * and this reader has no cash in hand to describe. The mixed-tender surface that fills them is T7's, and
-     * inventing a tender here would be the server making up a number the operator never counted.</p>
+     * <p><b>Why the direction is not a parameter.</b> D-g: this factory writes {@code CHARGE} and nothing else,
+     * because the endpoint that records money coming in is not the endpoint money leaves by. A {@code REFUND} row
+     * stays expressible in the schema and waits for the unit that authorizes one.</p>
+     *
+     * <p><b>Why the tender pair is one pair and not two optional arguments with defaults.</b>
+     * {@code ck_payment_tender} admits both or neither, so a call that passed one would be a row the schema refuses
+     * at flush. {@code null} means no cash was counted — never zero, which would report a customer who handed over
+     * nothing. The arithmetic ({@code tendered >= amount}, {@code change = tendered - amount}) is the caller's to
+     * satisfy; the constraint is what makes it true.</p>
      */
     public static SalePayment charge(
-            UUID companyId, UUID salesOrderId, UUID methodId, BigDecimal amount, String actor) {
+            UUID companyId,
+            UUID salesOrderId,
+            UUID methodId,
+            BigDecimal amount,
+            BigDecimal tenderedAmount,
+            BigDecimal changeAmount,
+            String actor) {
         var payment = new SalePayment();
         payment.companyId = companyId;
         payment.salesOrderId = salesOrderId;
         payment.methodId = methodId;
         payment.direction = SalePaymentDirection.CHARGE;
         payment.amount = amount;
+        payment.tenderedAmount = tenderedAmount;
+        payment.changeAmount = changeAmount;
         payment.paidAt = OffsetDateTime.now();
         payment.actor = actor;
         return payment;

@@ -37,6 +37,7 @@ import com.lifecontrol.api.product.repository.ProductRepository;
 import com.lifecontrol.api.product.repository.ProductVariantRepository;
 import com.lifecontrol.api.product.repository.ProductVariantStoreStockRepository;
 import com.lifecontrol.api.salesorder.dto.ChargeSalesOrderRequest;
+import com.lifecontrol.api.salesorder.dto.SalePaymentRequest;
 import com.lifecontrol.api.salesorder.dto.SalesOrderItemRequest;
 import com.lifecontrol.api.salesorder.dto.SalesOrderRequest;
 import com.lifecontrol.api.salesorder.dto.UpdateSalesOrderStatusRequest;
@@ -981,8 +982,8 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
 
             mockMvc.perform(patch("/api/sales-orders/{id}/charge", orderId)
                             .contentType(MediaType.APPLICATION_JSON)
-                            .content(objectMapper.writeValueAsString(
-                                    new ChargeSalesOrderRequest(savedPaymentMethodId())))
+                            .content(
+                                    objectMapper.writeValueAsString(chargeForItsTotal(orderId, savedPaymentMethodId())))
                             .with(scopedSalesJwt()))
                     .andExpect(status().isConflict())
                     .andExpect(jsonPath("$.status").value(409))
@@ -1041,8 +1042,8 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             // it could quietly become the 400 `IllegalArgumentException` the engine also carries.
             mockMvc.perform(patch("/api/sales-orders/{id}/charge", orderId)
                             .contentType(MediaType.APPLICATION_JSON)
-                            .content(objectMapper.writeValueAsString(
-                                    new ChargeSalesOrderRequest(savedPaymentMethodId())))
+                            .content(
+                                    objectMapper.writeValueAsString(chargeForItsTotal(orderId, savedPaymentMethodId())))
                             .with(scopedSalesJwt()))
                     .andExpect(status().isConflict())
                     .andExpect(jsonPath("$.status").value(409))
@@ -1524,8 +1525,10 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             transitionOrder(placed.orderId(), activeStatusId);
             mockMvc.perform(patch("/api/sales-orders/{id}/charge", placed.orderId())
                             .contentType(MediaType.APPLICATION_JSON)
+                            // The body is what a till sends for the line it believes is still there, and the
+                            // refusal below is the document's — nothing to pay — and not the amount's.
                             .content(objectMapper.writeValueAsString(
-                                    new ChargeSalesOrderRequest(savedPaymentMethodId())))
+                                    onePayment(savedPaymentMethodId(), new BigDecimal("700.0000"))))
                             .with(scopedSalesJwt()))
                     .andExpect(status().isConflict())
                     .andExpect(jsonPath("$.message")
@@ -1725,7 +1728,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             var second = mockMvc.perform(patch("/api/sales-orders/{id}/charge", placed.orderId())
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(
-                                    new ChargeSalesOrderRequest(savedPaymentMethodId())))
+                                    chargeForItsTotal(placed.orderId(), savedPaymentMethodId())))
                             .with(scopedSalesJwt()))
                     .andReturn();
 
@@ -1779,15 +1782,17 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             assertNothingBooked(variant.getId(), "10.00");
 
             var paymentMethodId = savedPaymentMethodId();
+            var eightAmount = orderMoneyOf(eight.orderId()).totalAmount();
+            var fiveAmount = orderMoneyOf(five.orderId()).totalAmount();
             var latch = new CountDownLatch(2);
             var startSignal = new CountDownLatch(1);
             var results = new int[2];
 
             var chargeOne = CompletableFuture.runAsync(() -> {
-                results[0] = chargeStatus(latch, startSignal, eight.orderId(), paymentMethodId);
+                results[0] = chargeStatus(latch, startSignal, eight.orderId(), paymentMethodId, eightAmount);
             });
             var chargeTwo = CompletableFuture.runAsync(() -> {
-                results[1] = chargeStatus(latch, startSignal, five.orderId(), paymentMethodId);
+                results[1] = chargeStatus(latch, startSignal, five.orderId(), paymentMethodId, fiveAmount);
             });
 
             latch.await(5, TimeUnit.SECONDS);
@@ -1868,12 +1873,13 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                 assertNothingBooked(variant.getId(), "100.00");
 
                 var paymentMethodId = savedPaymentMethodId();
+                var amount = orderMoneyOf(orderId).totalAmount();
                 var latch = new CountDownLatch(2);
                 var startSignal = new CountDownLatch(1);
                 var results = new int[2];
 
                 var charge = CompletableFuture.runAsync(
-                        () -> results[0] = chargeStatus(latch, startSignal, orderId, paymentMethodId));
+                        () -> results[0] = chargeStatus(latch, startSignal, orderId, paymentMethodId, amount));
                 var cancel = CompletableFuture.runAsync(() -> results[1] = cancelStatus(latch, startSignal, orderId));
 
                 latch.await(5, TimeUnit.SECONDS);
@@ -1968,14 +1974,21 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             }
         }
 
-        /** Charges one order from one of the case's threads and answers the status the API stated. */
-        private int chargeStatus(CountDownLatch ready, CountDownLatch start, UUID orderId, UUID paymentMethodId) {
+        /**
+         * Charges one order from one of the case's threads and answers the status the API stated.
+         *
+         * <p>The amount is the case's, read from the document's row <b>before</b> the two threads are released:
+         * the charge's payments add up to the total exactly (T7b), so a body read inside the race would add a
+         * statement to the window the case exists to measure.</p>
+         */
+        private int chargeStatus(
+                CountDownLatch ready, CountDownLatch start, UUID orderId, UUID paymentMethodId, BigDecimal amount) {
             try {
                 ready.countDown();
                 start.await(5, TimeUnit.SECONDS);
                 return mockMvc.perform(patch("/api/sales-orders/{id}/charge", orderId)
                                 .contentType(MediaType.APPLICATION_JSON)
-                                .content(objectMapper.writeValueAsString(new ChargeSalesOrderRequest(paymentMethodId)))
+                                .content(objectMapper.writeValueAsString(onePayment(paymentMethodId, amount)))
                                 .with(scopedSalesJwt()))
                         .andReturn()
                         .getResponse()
@@ -2017,7 +2030,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             mockMvc.perform(patch("/api/sales-orders/{id}/charge", placed.orderId())
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(
-                                    new ChargeSalesOrderRequest(savedPaymentMethodId())))
+                                    chargeForItsTotal(placed.orderId(), savedPaymentMethodId())))
                             .with(scopedSalesJwt()))
                     .andExpect(status().isConflict())
                     .andExpect(jsonPath("$.status").value(409));
@@ -2137,7 +2150,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                     .build();
             paymentMethod = paymentMethodRepository.save(paymentMethod);
             var paymentMethodId = paymentMethod.getId();
-            var chargeRequest = new ChargeSalesOrderRequest(paymentMethodId);
+            var chargeRequest = chargeForItsTotal(UUID.fromString(orderId), paymentMethodId);
 
             mockMvc.perform(patch("/api/sales-orders/{id}/charge", orderId)
                             .contentType(MediaType.APPLICATION_JSON)
@@ -2321,28 +2334,68 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
     }
 
     /**
-     * An enabled payment method: the fixture the charge step of {@code fullFlow_DraftToActiveToCharge}
-     * builds. A fresh row per case, because the catalog is global and a case must not depend on what another
-     * one wrote.
+     * An enabled payment method with the cash flag the case states: a fresh row per case, because the catalog is
+     * global and a case must not depend on what another one wrote.
+     *
+     * <p>{@code is_cash} is the column ADR-0002 M4 reads, and it is stated here rather than inherited from the
+     * seeded {@code Efectivo} row: {@code V83} backfills that row by its exact name, so a fixture that reused the
+     * name would be relying on a migration's data instead of on the flag the request is judged against.</p>
+     */
+    private PaymentMethod savedPaymentMethod(String name, boolean cash) {
+        return paymentMethodRepository.save(PaymentMethod.builder()
+                .paymentMethodName(name + "-" + UUID.randomUUID())
+                .paymentMethodShortName(cash ? "EFECTIVO" : "TARJETA")
+                .enabled(true)
+                .isCash(cash)
+                .build());
+    }
+
+    /**
+     * The method every charge case that states no tender charges through, and a card on purpose: a cash method
+     * named by a case that never counts cash would be a fixture the M4 guard is supposed to look past.
      */
     private UUID savedPaymentMethodId() {
-        return paymentMethodRepository
-                .save(PaymentMethod.builder()
-                        .paymentMethodName("Efectivo-" + UUID.randomUUID())
-                        .paymentMethodShortName("EFECTIVO")
-                        .enabled(true)
-                        .build())
-                .getId();
+        return savedPaymentMethod("Tarjeta", false).getId();
+    }
+
+    /** A cash method: the one a payment that states a tender is allowed to name (ADR-0002 M4). */
+    private PaymentMethod savedCashPaymentMethod() {
+        return savedPaymentMethod("Efectivo", true);
+    }
+
+    /** A method that is not cash, carrying the name the M4 refusal has to cite. */
+    private PaymentMethod savedCardPaymentMethod() {
+        return savedPaymentMethod("Tarjeta Crédito", false);
     }
 
     /** Charges the order through the API and states the one outcome every charge case shares. */
     private void charge(UUID orderId, UUID paymentMethodId) throws Exception {
         mockMvc.perform(patch("/api/sales-orders/{id}/charge", orderId)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(new ChargeSalesOrderRequest(paymentMethodId)))
+                        .content(objectMapper.writeValueAsString(chargeForItsTotal(orderId, paymentMethodId)))
                         .with(scopedSalesJwt()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.statusName").value("Completed"));
+    }
+
+    /**
+     * The charge body a client sends: one payment, for the document's own total.
+     *
+     * <p><b>Why the total is read and not a constant.</b> Since T7b a charge's payments add up to the document's
+     * total <b>exactly</b> (ADR-0002 M3, and D-g's exact reading of it), so a fixture that stated an amount of its
+     * own would be sending a different request from the one a till sends — and the total is a row, not a number:
+     * every create, edit, add and delete recomputes it from the lines.</p>
+     */
+    private ChargeSalesOrderRequest chargeForItsTotal(UUID orderId, UUID paymentMethodId) throws Exception {
+        return onePayment(paymentMethodId, orderMoneyOf(orderId).totalAmount());
+    }
+
+    /**
+     * The charge body with the amount the case itself states — for a case whose point is that the request and the
+     * document disagree, or whose document has a total no payment can state.
+     */
+    private ChargeSalesOrderRequest onePayment(UUID paymentMethodId, BigDecimal amount) {
+        return new ChargeSalesOrderRequest(List.of(new SalePaymentRequest(paymentMethodId, amount, null, null)));
     }
 
     /**
@@ -2517,7 +2570,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                     .isEqualTo("seller");
             assertThat(payment.paidAt()).isNotNull();
             assertThat(payment.tenderedAmount())
-                    .as("a tender nobody counted is not invented by the server: cash and change are T7's")
+                    .as("a tender nobody counted is not invented by the server: this body stated none")
                     .isNull();
             assertThat(payment.changeAmount()).isNull();
 
@@ -2545,7 +2598,8 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             // The same request a second time, which is what a retried charge looks like.
             var second = mockMvc.perform(patch("/api/sales-orders/{id}/charge", placed.orderId())
                             .contentType(MediaType.APPLICATION_JSON)
-                            .content(objectMapper.writeValueAsString(new ChargeSalesOrderRequest(paymentMethodId)))
+                            .content(objectMapper.writeValueAsString(
+                                    chargeForItsTotal(placed.orderId(), paymentMethodId)))
                             .with(scopedSalesJwt()))
                     .andReturn();
 
@@ -2586,7 +2640,10 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
 
             var refused = mockMvc.perform(patch("/api/sales-orders/{id}/charge", placed.orderId())
                             .contentType(MediaType.APPLICATION_JSON)
-                            .content(objectMapper.writeValueAsString(new ChargeSalesOrderRequest(paymentMethodId)))
+                            // The body is what a till sends for the line it believes is still there; the refusal
+                            // below is the document's — nothing to pay — and not the amount's.
+                            .content(objectMapper.writeValueAsString(
+                                    onePayment(paymentMethodId, new BigDecimal("200.0000"))))
                             .with(scopedSalesJwt()))
                     .andReturn();
 
@@ -2607,6 +2664,273 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             // would send is empty and nothing reached the engine at all.
             assertThat(movementsOf(variant.getId())).isEmpty();
             assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("10.00"));
+        }
+    }
+
+    // ─── T7b — the charge with many payments ────────────────────
+
+    /**
+     * The write side of ADR-0002 decision 5 (S4), and the three obligations no column can state (S6).
+     *
+     * <p><b>Why these are integration cases and not unit ones.</b> Every one of them asserts a row count and the
+     * columns of the rows that landed — {@code sale_payment} is append-only, so a row that arrived could not be
+     * taken back by anything this suite could do — and the arithmetic the request is judged by is the same
+     * {@code ck_payment_tender} that {@code V83} puts behind it. A mock has neither rows nor constraints, so it
+     * would let the class pass while proving only that the service threw something.</p>
+     *
+     * <p><b>What D-g fixes here.</b> The charge takes money in and never gives it back: the request carries no
+     * direction, the server writes {@code CHARGE}, and the {@code REFUND} the schema admits waits for the unit
+     * that authorizes one. That is why no case in this class names a direction.</p>
+     */
+    @Nested
+    @DisplayName("T7b The charge with many payments — M3 exact, M4 cash-only and the tender")
+    class ChargeWithManyPaymentsTests {
+
+        /**
+         * Cash and card in one sale are two rows, and the document keeps reporting a method.
+         *
+         * <p><b>What M3 means as exact equality, and why the tender is not the amount.</b> Each row's
+         * {@code amount} is what that payment applies to the sale, so the rows add up to the total — 50 of cash and
+         * 150 of card for a sale of 200 — while {@code tendered_amount} is what the customer handed over for that
+         * half (a 100 note) and {@code change_amount} is what went back (50). A sum above the total would be a row
+         * stating money the document does not cost.</p>
+         *
+         * <p><b>Why the order still carries a method.</b> {@code sales_orders.payment_method_id} is written from the
+         * first {@code CHARGE} row and still reported, because ADR-0002 migration step 6 drops the column only once
+         * the payment rows are populated and every reader has moved — the POS is T8's. The assertion is that the
+         * column and the row agree, which is what makes the drop mechanical when it comes.</p>
+         */
+        @Test
+        @DisplayName("appends one CHARGE row per payment when cash and card cover the total between them")
+        void charge_TwoTenders_AppendsOneRowPerPayment() throws Exception {
+            var variant = createTestVariant(new BigDecimal("10.00"));
+            var placed = createOrder(line(null, variant.getId(), "2.00"));
+            transitionOrder(placed.orderId(), activeStatusId);
+            var cash = savedCashPaymentMethod();
+            var card = savedCardPaymentMethod();
+            assertThat(orderMoneyOf(placed.orderId()).totalAmount()).isEqualByComparingTo(new BigDecimal("200.0000"));
+
+            var charge = new ChargeSalesOrderRequest(List.of(
+                    new SalePaymentRequest(
+                            cash.getId(),
+                            new BigDecimal("50.0000"),
+                            new BigDecimal("100.0000"),
+                            new BigDecimal("50.0000")),
+                    new SalePaymentRequest(card.getId(), new BigDecimal("150.0000"), null, null)));
+
+            var charged = mockMvc.perform(patch("/api/sales-orders/{id}/charge", placed.orderId())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(charge))
+                            .with(scopedSalesJwt()))
+                    .andExpect(status().isOk())
+                    .andReturn();
+
+            var payments = paymentsOf(placed.orderId());
+            assertThat(payments).hasSize(2);
+            assertThat(payments)
+                    .as("one row per payment, and every one of them money that came in (D-g: no direction is asked "
+                            + "for and none is refused by this endpoint either)")
+                    .extracting(PaymentRow::direction)
+                    .containsOnly("CHARGE");
+            assertThat(payments)
+                    .extracting(PaymentRow::methodId, PaymentRow::amount)
+                    .containsExactlyInAnyOrder(
+                            tuple(cash.getId(), new BigDecimal("50.0000")),
+                            tuple(card.getId(), new BigDecimal("150.0000")));
+            assertThat(payments.stream().map(PaymentRow::amount).reduce(BigDecimal.ZERO, BigDecimal::add))
+                    .as("ADR-0002 M3: the payments apply to the sale, so they add up to its total exactly")
+                    .isEqualByComparingTo(orderMoneyOf(placed.orderId()).totalAmount());
+
+            var cashRow = payments.stream()
+                    .filter(row -> row.methodId().equals(cash.getId()))
+                    .findFirst()
+                    .orElseThrow();
+            assertThat(cashRow.tenderedAmount()).isEqualByComparingTo(new BigDecimal("100.0000"));
+            assertThat(cashRow.changeAmount()).isEqualByComparingTo(new BigDecimal("50.0000"));
+            var cardRow = payments.stream()
+                    .filter(row -> row.methodId().equals(card.getId()))
+                    .findFirst()
+                    .orElseThrow();
+            assertThat(cardRow.tenderedAmount())
+                    .as("a card counts no cash, so its tender pair is absent rather than zero")
+                    .isNull();
+            assertThat(cardRow.changeAmount()).isNull();
+
+            // The document, as the charge's own response states it: Completed, one method — the first CHARGE
+            // row's — and both payments on the sheet.
+            var root = objectMapper.readTree(charged.getResponse().getContentAsString());
+            assertThat(root.get("statusName").asText()).isEqualTo("Completed");
+            assertThat(root.get("paymentMethodId").asText())
+                    .as("ADR-0002 step 6 has not run: the column states the first payment's method, and the "
+                            + "response still reports it")
+                    .isEqualTo(cash.getId().toString());
+            assertThat(root.get("payments").size()).isEqualTo(2);
+
+            // And the charge is still the moment the stock moves, once, whatever the tender (decision 7).
+            assertThat(movementsOfType(variant.getId(), StockLedgerWriter.SALE)).hasSize(1);
+            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("8.00"));
+        }
+
+        /**
+         * M3 as the brief reads it: covered <b>exactly</b>, and not "at least".
+         *
+         * <p><b>Why the excess is asserted beside the shortfall.</b> "At least the total" would pass both of the
+         * refusals this case wants, but it would also accept 250 of payments for a sale of 200 — a row stating money
+         * the document does not cost, which is the row M3 exists to make unwritable. The two directions are one
+         * assertion block because one rule refuses both.</p>
+         */
+        @Test
+        @DisplayName("refuses payments that do not add up to the total, and appends no row")
+        void charge_PaymentsNotEqualToTheTotal_isRefusedAndAppendsNothing() throws Exception {
+            var variant = createTestVariant(new BigDecimal("10.00"));
+            var placed = createOrder(line(null, variant.getId(), "2.00"));
+            transitionOrder(placed.orderId(), activeStatusId);
+            var card = savedCardPaymentMethod();
+
+            var shortfall = mockMvc.perform(patch("/api/sales-orders/{id}/charge", placed.orderId())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(
+                                    onePayment(card.getId(), new BigDecimal("150.0000"))))
+                            .with(scopedSalesJwt()))
+                    .andReturn();
+            assertThat(shortfall.getResponse().getStatus()).isEqualTo(409);
+            assertThat(shortfall.getResponse().getContentAsString())
+                    .as("the refusal states both numbers: the payments' sum and the document's total")
+                    .contains("its payments add up to 150.0000")
+                    .contains("the document's total is 200.00")
+                    .contains("add up to the document's total exactly");
+
+            var excess = mockMvc.perform(patch("/api/sales-orders/{id}/charge", placed.orderId())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(
+                                    onePayment(card.getId(), new BigDecimal("250.0000"))))
+                            .with(scopedSalesJwt()))
+                    .andReturn();
+            assertThat(excess.getResponse().getStatus()).isEqualTo(409);
+            assertThat(excess.getResponse().getContentAsString()).contains("its payments add up to 250.0000");
+
+            // Nothing landed, and nothing that would have to be taken back: no payment (the table is append-only),
+            // the document where the case left it, and no unit booked.
+            assertThat(paymentsOf(placed.orderId())).isEmpty();
+            assertThat(inTransaction(() -> salesOrderRepository
+                            .findById(placed.orderId())
+                            .orElseThrow()
+                            .getStatus()))
+                    .isEqualTo(SalesOrderState.ACTIVE);
+            assertThat(movementsOf(variant.getId())).isEmpty();
+            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("10.00"));
+        }
+
+        /**
+         * M4: change is returned only for a cash method, and the refusal names the method.
+         *
+         * <p><b>Why the request below is otherwise valid.</b> The tender arithmetic holds — 250 handed over, 200
+         * applied, 50 back — so the only rule that can refuse it is the method's {@code is_cash}, which is the flag
+         * this slice is the first reader of in {@code salesorder}. A refusal that named the amount instead of the
+         * method would send an operator to recount a drawer that is already correct.</p>
+         */
+        @Test
+        @DisplayName("refuses a tender on a method that is not cash, naming the method (M4)")
+        void charge_CardPaymentStatingATender_isRefusedByName() throws Exception {
+            var variant = createTestVariant(new BigDecimal("10.00"));
+            var placed = createOrder(line(null, variant.getId(), "2.00"));
+            transitionOrder(placed.orderId(), activeStatusId);
+            var card = savedCardPaymentMethod();
+
+            var charge = new ChargeSalesOrderRequest(List.of(new SalePaymentRequest(
+                    card.getId(), new BigDecimal("200.0000"), new BigDecimal("250.0000"), new BigDecimal("50.0000"))));
+
+            var refused = mockMvc.perform(patch("/api/sales-orders/{id}/charge", placed.orderId())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(charge))
+                            .with(scopedSalesJwt()))
+                    .andReturn();
+
+            assertThat(refused.getResponse().getStatus()).isEqualTo(409);
+            assertThat(refused.getResponse().getContentAsString())
+                    .as("the refusal names the method it is about, by name and by id")
+                    .contains("is not a cash method")
+                    .contains(card.getPaymentMethodName())
+                    .contains(card.getId().toString());
+
+            assertThat(paymentsOf(placed.orderId())).isEmpty();
+            assertThat(inTransaction(() -> salesOrderRepository
+                            .findById(placed.orderId())
+                            .orElseThrow()
+                            .getStatus()))
+                    .isEqualTo(SalesOrderState.ACTIVE);
+            assertThat(movementsOf(variant.getId())).isEmpty();
+        }
+
+        /**
+         * The tender arithmetic, refused as a 400 and never as the constraint's 409.
+         *
+         * <p><b>Why the status is part of the assertion.</b> {@code ck_payment_tender} holds exactly this arithmetic,
+         * so a service that did not judge it would still refuse the request — with the generic data-constraint 409,
+         * at flush, naming neither the payment nor the number. That answer is indistinguishable from a stock
+         * conflict on this endpoint, and it is the answer D-g's slice exists to put a legible refusal in front of.
+         * The constraint keeps its job as the last line of defence; it is simply not what a client meets.</p>
+         */
+        @Test
+        @DisplayName("refuses an inconsistent tender as a 400, never as the constraint's 409")
+        void charge_InconsistentTender_IsRefusedAsABadRequest() throws Exception {
+            var variant = createTestVariant(new BigDecimal("10.00"));
+            var placed = createOrder(line(null, variant.getId(), "2.00"));
+            transitionOrder(placed.orderId(), activeStatusId);
+            var cash = savedCashPaymentMethod();
+
+            // 250 handed over for a 200 payment leaves 50, and the request says 40.
+            assertTenderRefusedAsBadRequest(
+                    placed.orderId(),
+                    new SalePaymentRequest(
+                            cash.getId(),
+                            new BigDecimal("200.0000"),
+                            new BigDecimal("250.0000"),
+                            new BigDecimal("40.0000")),
+                    "the change of a cash payment is tendered - amount");
+
+            // The pair is stated together or not at all: half of it says neither how much was counted nor how
+            // much went back, and ck_payment_tender reads both columns for that reason.
+            assertTenderRefusedAsBadRequest(
+                    placed.orderId(),
+                    new SalePaymentRequest(cash.getId(), new BigDecimal("200.0000"), new BigDecimal("250.0000"), null),
+                    "together or not at all");
+            assertTenderRefusedAsBadRequest(
+                    placed.orderId(),
+                    new SalePaymentRequest(cash.getId(), new BigDecimal("200.0000"), null, new BigDecimal("50.0000")),
+                    "together or not at all");
+
+            // Less handed over than applied to the sale is not a tender: it is a payment that has not been made.
+            assertTenderRefusedAsBadRequest(
+                    placed.orderId(),
+                    new SalePaymentRequest(
+                            cash.getId(), new BigDecimal("200.0000"), new BigDecimal("150.0000"), BigDecimal.ZERO),
+                    "cannot be less than what the payment applies");
+
+            assertThat(paymentsOf(placed.orderId())).isEmpty();
+            assertThat(movementsOf(variant.getId())).isEmpty();
+            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("10.00"));
+        }
+
+        /**
+         * One refusal of the tender arithmetic: a 400 that names the payment, and not the constraint's envelope.
+         *
+         * <p>{@code violates a data constraint} is the sentence {@code GlobalExceptionHandler} answers a
+         * {@code DataIntegrityViolationException} with, so its absence here is what separates "the service refused
+         * this" from "the database refused it at flush" — a 400 either way would prove neither.</p>
+         */
+        private void assertTenderRefusedAsBadRequest(UUID orderId, SalePaymentRequest payment, String expectedFragment)
+                throws Exception {
+            var refused = mockMvc.perform(patch("/api/sales-orders/{id}/charge", orderId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(new ChargeSalesOrderRequest(List.of(payment))))
+                            .with(scopedSalesJwt()))
+                    .andReturn();
+
+            assertThat(refused.getResponse().getStatus()).isEqualTo(400);
+            assertThat(refused.getResponse().getContentAsString())
+                    .contains(expectedFragment)
+                    .doesNotContain("violates a data constraint");
         }
     }
 
@@ -2721,8 +3045,8 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
          *
          * <p>The charged document is the only one that has a payment, and the response that reports it is the one
          * the charge builds — not a later GET, which would let a mapper that read an empty persistence context
-         * pass a case a client would fail. One {@code CHARGE} for the whole total, and an absent tender: this
-         * slice's charge states the total and no cash in hand (T7b owns the tender and the change).</p>
+         * pass a case a client would fail. One {@code CHARGE} for the whole total, and an absent tender: the body
+         * this case sends states a card payment and no cash in hand, which T7b reads as a tender nobody counted.</p>
          */
         @Test
         @DisplayName("the charged order's response states exactly one CHARGE payment for its total, with no tender")
@@ -2735,7 +3059,8 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
 
             var charged = mockMvc.perform(patch("/api/sales-orders/{id}/charge", placed.orderId())
                             .contentType(MediaType.APPLICATION_JSON)
-                            .content(objectMapper.writeValueAsString(new ChargeSalesOrderRequest(paymentMethodId)))
+                            .content(objectMapper.writeValueAsString(
+                                    chargeForItsTotal(placed.orderId(), paymentMethodId)))
                             .with(scopedSalesJwt()))
                     .andExpect(status().isOk())
                     .andReturn();
@@ -3107,8 +3432,10 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             transitionOrder(placed.orderId(), activeStatusId);
             mockMvc.perform(patch("/api/sales-orders/{id}/charge", placed.orderId())
                             .contentType(MediaType.APPLICATION_JSON)
+                            // The body states an amount for the lines the document no longer has: the refusal is
+                            // the document's — nothing to pay — and not the amount's.
                             .content(objectMapper.writeValueAsString(
-                                    new ChargeSalesOrderRequest(savedPaymentMethodId())))
+                                    onePayment(savedPaymentMethodId(), new BigDecimal("400.0000"))))
                             .with(scopedSalesJwt()))
                     .andExpect(status().isConflict())
                     .andExpect(jsonPath("$.message")
@@ -3576,7 +3903,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             mockMvc.perform(patch("/api/sales-orders/{id}/charge", placed.orderId())
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(
-                                    new ChargeSalesOrderRequest(savedPaymentMethodId())))
+                                    chargeForItsTotal(placed.orderId(), savedPaymentMethodId())))
                             .with(scopedSalesJwt()))
                     .andExpect(status().isConflict())
                     .andExpect(jsonPath("$.status").value(409))
@@ -3625,7 +3952,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             mockMvc.perform(patch("/api/sales-orders/{id}/charge", placed.orderId())
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(
-                                    new ChargeSalesOrderRequest(savedPaymentMethodId())))
+                                    chargeForItsTotal(placed.orderId(), savedPaymentMethodId())))
                             .with(scopedSalesJwt()))
                     .andExpect(status().isConflict());
 
@@ -4001,7 +4328,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             mockMvc.perform(patch("/api/sales-orders/{id}/charge", placed.orderId())
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(
-                                    new ChargeSalesOrderRequest(savedPaymentMethodId())))
+                                    chargeForItsTotal(placed.orderId(), savedPaymentMethodId())))
                             .with(scopedSalesJwt()))
                     .andExpect(status().isConflict())
                     .andExpect(jsonPath("$.status").value(409))

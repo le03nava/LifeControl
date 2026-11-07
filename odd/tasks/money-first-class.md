@@ -6,9 +6,9 @@
 both sales tables, T3 the runnable pre-flight of migration step 2, T4 the platform `tax_code` catalog with its
 tenant rate table and the resolver, T5 the payment rows, their voids and the cash flag the guard reads, and T6 the
 charge in two slices, each named in its own `Tasks` row: T6a is its money half, and T6b moved the stock booking
-from the create/edit path into that same charge. T7 is the API surface, in three slices that follow — T7c the line
-total `V85` derives, T7a the read sheet, T7b the charge with many payments — and T8 edits the Angular POS while
-T10 is the suite that states the invariants. Nothing is dropped or deferred silently: T4 owes the copy of the
+from the create/edit path into that same charge. T7 is the API surface, in three slices: T7c the line total
+`V85` derives, T7a the read sheet, T7b the charge with many payments. T8 edits the Angular POS and T10 is the
+suite that states the invariants. Nothing is dropped or deferred silently: T4 owes the copy of the
 rate onto the line until some unit states a line's `tax_code`, T5 owes the historical payment backfill of
 ADR-0002 step 4, and step 6's drop of `sales_orders.payment_method_id` waits on both that backfill and the POS
 reader T8 moves. `sales_orders.company_id`, the column that used to be named here as another unit's to deliver,
@@ -98,9 +98,9 @@ every cash report by date wrong from that minute on».
 | T5 | S1, S4 | **(done, 2026-11-05)** `V83`: `sale_payment` and `sale_payment_void` with the three indexes, both append-only halves (the trigger **and** `REVOKE UPDATE, DELETE` + `GRANT SELECT, INSERT`, because `V52:187` and `V52:196-197` hand the pool all four privileges on every new table), `payment_methods.is_cash` with the backfill of **D-b** (decided 2026-11-05) and `isCash` through the ABM, `uq_sales_orders_company_id` — the target of `fk_payment_order_same_company`, which `V64` gave to `purchase_orders` and `goods_receipts` but never to `sales_orders` — and the two new tables armed by `apply_tenant_isolation` in the file that creates them. **`sales_orders` was already armed**: `V65` applies the policy to it, so "all three sales tables" was one table already done and two new. `V83` and not `V82`: that version belongs to the tax unit's own branch, and the gap is Flyway's to tolerate until it lands | ADR-0003 (**stale**, `sales_orders.company_id` exists since `V64`), D-b | inline |
 | T6a | S1, S5, S6 | **(done, 2026-11-06)** `chargeSalesOrder`, money half: `SELECT … FOR UPDATE` on the order row (M10), ADR-0004's guard extended with M3/M4/M8, one `CHARGE` payment row for the total from the existing single `paymentMethodId`, the breakdown written under the lock so M1 and M2 hold (exactly), the transition appended, and `SaleCharged` **not** published because no consumer is named (g) — one transaction. The many-payments surface stays in T7, per the 2026-11-06 log entry | T2, T4, T5, ADR-0004 | inline |
 | T6b | S1, S5, S6 | **(done, 2026-11-06)** The stock half of the same decision: the per-line deduction leaves `createSalesOrder`, the line add/edit/delete paths and their `V73` write sequence, and lands in the charge as one batch under the same order lock; a reversal then exists only for an order whose charge booked something. `sales-location-aware-stock` and `ledger-per-write-identity` are edited with it | T6a, ADR-0001 | inline |
-| T7c | S1, S2, S3 | `V85`: `final_price` becomes the line total the ADR defines — `subtotal - discount_applied + tax_amount` — derived by a `BEFORE INSERT OR UPDATE OF list_price, quantity, discount_applied, tax_amount` trigger exactly as `V81` derives `subtotal`, with a backfill that restates the column from each row's own parts before `ck_item_total` judges it (**D-h**, decided 2026-11-07). It moves no `total_amount`: since T6a the document's total is Σ of the parts and never a sum of `final_price`. The entity field becomes read-only and the write sites stop stating a number the schema owns. Ships first, because T7a reports a column whose meaning this slice settles | T6a, T2 | inline; item 1, own commit |
-| T7a | S1, S2, S3 | Read surface: `SalesOrderResponse` gains `currency`, the four breakdown parts and `payments`; `SalesOrderItemResponse` gains `subtotal`, `tax_code`/`tax_rate`/`tax_amount` and the two catalog snapshots, and `finalPrice` keeps reporting the stored line total. The breakdown stays read-only in both directions: no request states a part, and no response omits one | T7c | inline |
-| T7b | S1, S3, S4, S6 | Write surface: `ChargeSalesOrderRequest` carries a payment list with tender and change, **D-g** (decided 2026-11-07) fixes it to `CHARGE` only — a `REFUND` is refused by name — M3 becomes exact equality against the breakdown, M4 refuses change on a method that is not cash, and `@Digits(fraction = 4)` plus `@Valid` on the items state the scale the columns carry on both requests | T7a, T5, D-g | inline |
+| T7c | S1, S2, S3 | **(done, 2026-11-07)** `V85`: `final_price` becomes the line total the ADR defines — `subtotal - discount_applied + tax_amount` — derived by a `BEFORE INSERT OR UPDATE OF list_price, quantity, discount_applied, tax_amount` trigger exactly as `V81` derives `subtotal`, with a backfill that restates the column from each row's own parts before `ck_item_total` judges it (**D-h**, decided 2026-11-07). It moves no `total_amount`: since T6a the document's total is Σ of the parts and never a sum of `final_price`. The entity field becomes read-only and the write sites stop stating a number the schema owns. Ships first, because T7a reports a column whose meaning this slice settles | T6a, T2 | inline; item 1, own commit |
+| T7a | S1, S2, S3 | **(done, 2026-11-07)** Read surface: `SalesOrderResponse` gains `currency`, the four breakdown parts and `payments`; `SalesOrderItemResponse` gains `subtotal`, `tax_code`/`tax_rate`/`tax_amount` and the two catalog snapshots, and `finalPrice` keeps reporting the stored line total. The breakdown stays read-only in both directions: no request states a part, and no response omits one | T7c | inline |
+| T7b | S1, S3, S4, S6 | **(done, 2026-11-07)** Write surface: `ChargeSalesOrderRequest` carries a payment list with tender and change, **D-g** (decided 2026-11-07) fixes it to `CHARGE` only — a `REFUND` is refused by name — M3 becomes exact equality against the breakdown, M4 refuses change on a method that is not cash, and `@Digits(fraction = 4)` plus `@Valid` on the items state the scale the columns carry on both requests | T7a, T5, D-g | inline |
 | T8 | S1, S2 | Angular POS: the document's currency instead of `DEFAULT_CURRENCY_CODE`, four-decimal amounts without losing the display rounding, mixed tender with change, the item table showing the server's line parts, and the discard notice when a breakdown part cannot be represented | T7 | inline; disjoint surface from T2–T7, so a second writer is admissible |
 | T9 | — | The four ADR corrections under `## Reconciliation`: `purchase_order_items` → `purchase_order_details`, the two drifted line citations, the `NOT NULL` method against a nullable column, and `is_cash` with no backfill | — | inline |
 | T10 | S1–S7 | Tests: RED first per spec, M1 and M5 through the schema, M2 and M10 through the service under concurrency, M4 through the domain guard, and the scale/rounding boundary in place of the two-decimal assertions | T2–T8 | inline |
@@ -1030,3 +1030,51 @@ were retargeted to the values their own fixtures now produce — not deleted, an
 **The review boundary of `T7a`.** ~570 lines, of which ~400 are the three integration cases and their four
 helpers: the read sheet cannot be proven by a unit mock (a mock runs no trigger and has no policy), so the proof
 lives where the schema is, and the slice is stacked on `T7c` in the chained form already recorded.
+
+**2026-11-07 — `T7b` implemented: the charge takes many payments, and the three invariants the schema cannot express move into the service.** `ChargeSalesOrderRequest` is now `payments` — a non-empty, `@Valid` list of
+`SalePaymentRequest` (`paymentMethodId`, `amount`, and the optional tender pair) — and the charge appends one
+`CHARGE` row per payment. **No `direction` is accepted anywhere**, which is D-g: the schema keeps `REFUND`
+expressible and the endpoint that records money coming in never becomes the endpoint money leaves by. The claim
+that a client stating one is refused *by name* is true rather than aspirational, and it is not this slice's doing:
+`spring.jackson.deserialization.fail-on-unknown-properties=true` (`application.properties:69`) turns an undeclared
+field into a `400`, so a body that states what the record does not declare is refused instead of quietly charged.
+
+**The three guards, and why each one is Java and not SQL.** M4 — change is returned only for a cash method — has
+**no schema form at all**: a `CHECK` cannot read another table, so `ck_payment_tender` holds the arithmetic and a
+card payment with a tender and a consistent change passes it. `payment_methods.is_cash`, written in T5 and read by
+nobody until now, is what the guard reads. The **tender arithmetic** is refused as a `400` before the insert,
+because a request whose change is not `tendered - amount` is the client's to fix and the constraint's generic `409`
+names neither the payment nor the two numbers. And **M3** is exact equality between the payments' sum and the
+document's total — not "at least", because each payment's `amount` is what it applies to the sale, and "the customer
+handed over 500" belongs in `tendered_amount`, which is the column that exists for it.
+
+**The measured proof that M4 needs the service, produced by ablation.** The natural RED here is a **compile
+failure**, not an assertion — the pre-slice charge reads `paymentMethodId`, so no new case can even compile against
+it (`18 errors: cannot find symbol … SalePaymentRequest`) — and that is the weaker observation, so it was not the
+only one. With both guards commented out, the four new cases answered `4 tests completed, 3 failed`:
+M4's `expected: 409 but was: 200` — the card row with a tender landed, which is the schema's blind spot stated as a
+measurement — the arithmetic case `expected: 400 but was: 409` (the constraint's envelope, which is what a client
+would have met), and the M3 case answered by the table guard's sentence instead of the request's. Guards restored
+and the final run re-executed.
+
+**Two decisions the brief left open, and why these.** The statuses: M4 and M3-on-the-request are `409`
+(`ConflictException`, the family `SalesOrderEmptyChargeException` and `SalesOrderPaymentInsufficientException`
+already belong to), and only the tender arithmetic is the `400` the brief demanded — the difference is that in the
+first two every payment is well formed and it is the document's state that the request cannot satisfy, while the
+third is a number the client stated wrong. And the refusal messages name the payment's **position** ("payment 2 of
+3") rather than an id it does not have yet, because a client holding the body it just sent has no other handle.
+
+**`sales_orders.payment_method_id` keeps being written**, from the first `CHARGE` row, with step 6's two conditions
+in the comment. The consequence is named where it bites: a sale paid half in cash and half by card reports one
+method, so a report grouping by that column under-counts the second until T8 moves every reader and step 4's
+historical backfill exists. That is the column's pending drop, not a defect of this slice.
+
+**GREEN, the whole module, on the final bytes.** `spotlessCheck test spotbugsMain` → **1,083 suites / 4,592
+tests / 0 failures / 0 errors / 0 skipped**, `spotbugsMain` with **0** `BugInstance`, `spotlessCheck` green in the
+same run — 14 more tests than T6b's closing gate (4,578), which is the three slices' new cases. The sales suites
+alone are 222.
+
+**The review boundary of `T7b`.** ~565 lines, of which ~470 are the two suites' retargeted bodies: the request
+changed shape, so about thirty construction sites had to move, and moving them is what keeps `M10`'s retry case,
+the empty-charge refusal and the stock refusals asserting what they always asserted. The branch now holds T7 in
+three stacked slices, and the record's delivery shape is unchanged: `T7c` first, `T7a` and `T7b` on top.
