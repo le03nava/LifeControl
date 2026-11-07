@@ -1103,7 +1103,7 @@ class SalesOrderServiceTest {
         void updateStatus_DraftToActive_Success() {
             var statusRequest = new UpdateSalesOrderStatusRequest(activoStatus.getId());
 
-            when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
+            when(salesOrderRepository.findByIdForUpdate(orderId)).thenReturn(Optional.of(testOrder));
             // The target is resolved through the catalog's code and not through its label (ADR-0004
             // decision 7): the service asks the catalog one question and the enum answers the rest.
             when(statusCatalog.requireOrderState(activoStatus.getId())).thenReturn(SalesOrderState.ACTIVE);
@@ -1139,7 +1139,7 @@ class SalesOrderServiceTest {
         void updateStatus_DraftToCancelled_Success() {
             var statusRequest = new UpdateSalesOrderStatusRequest(canceladaStatus.getId());
 
-            when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
+            when(salesOrderRepository.findByIdForUpdate(orderId)).thenReturn(Optional.of(testOrder));
             when(statusCatalog.requireOrderState(canceladaStatus.getId())).thenReturn(SalesOrderState.CANCELLED);
 
             var updatedOrder = SalesOrder.builder()
@@ -1172,7 +1172,7 @@ class SalesOrderServiceTest {
         void updateStatus_DraftToCompleted_ThrowsInvalidTransition() {
             var statusRequest = new UpdateSalesOrderStatusRequest(cerradaStatus.getId());
 
-            when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
+            when(salesOrderRepository.findByIdForUpdate(orderId)).thenReturn(Optional.of(testOrder));
             when(statusCatalog.requireOrderState(cerradaStatus.getId())).thenReturn(SalesOrderState.COMPLETED);
 
             assertThatThrownBy(() -> salesOrderService.updateSalesOrderStatus(orderId, statusRequest))
@@ -1197,7 +1197,7 @@ class SalesOrderServiceTest {
 
             var statusRequest = new UpdateSalesOrderStatusRequest(wrongTypeStatus.getId());
 
-            when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
+            when(salesOrderRepository.findByIdForUpdate(orderId)).thenReturn(Optional.of(testOrder));
             // The catalog is the one that refuses a row of another family, and the service must not swallow
             // it: the real refusal is asserted against the query in `SalesOrderStatusCatalogTest`.
             when(statusCatalog.requireOrderState(wrongTypeStatus.getId()))
@@ -1216,7 +1216,7 @@ class SalesOrderServiceTest {
         @DisplayName("should throw SalesOrderNotFoundException when order not found")
         void updateStatus_OrderNotFound_ThrowsException() {
             var statusRequest = new UpdateSalesOrderStatusRequest(enviadaStatus.getId());
-            when(salesOrderRepository.findById(orderId)).thenReturn(Optional.empty());
+            when(salesOrderRepository.findByIdForUpdate(orderId)).thenReturn(Optional.empty());
 
             assertThatThrownBy(() -> salesOrderService.updateSalesOrderStatus(orderId, statusRequest))
                     .isInstanceOf(SalesOrderNotFoundException.class)
@@ -1242,7 +1242,7 @@ class SalesOrderServiceTest {
 
             var statusRequest = new UpdateSalesOrderStatusRequest(canceladaStatus.getId());
 
-            when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
+            when(salesOrderRepository.findByIdForUpdate(orderId)).thenReturn(Optional.of(testOrder));
             when(statusCatalog.requireOrderState(canceladaStatus.getId())).thenReturn(SalesOrderState.CANCELLED);
 
             var updatedOrder = SalesOrder.builder()
@@ -1267,6 +1267,25 @@ class SalesOrderServiceTest {
             assertThat(result).isNotNull();
             assertThat(result.statusName()).isEqualTo("Cancelled");
             verifyNoStockWork();
+        }
+
+        @Test
+        @DisplayName("should take the order row lock before cancelling, so a charge cannot be overwritten")
+        void updateStatus_TakesTheRowLock() {
+            // The two reads answer the same row in the database, so the fixture's lenient delegate makes them
+            // indistinguishable by state — which is exactly why the pin is the statement, not the answer: a
+            // regression to the unlocked read leaves the locking one uninvoked, and this case is what says so.
+            // Without the lock, a cancellation that read PENDING can overwrite the COMPLETED a concurrent charge
+            // committed while it waited for the row, and the reversal gate (status == COMPLETED) then finds
+            // nothing to give back.
+            when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
+            when(statusCatalog.requireOrderState(canceladaStatus.getId())).thenReturn(SalesOrderState.CANCELLED);
+            when(salesOrderRepository.save(any(SalesOrder.class))).thenReturn(testOrder);
+
+            salesOrderService.updateSalesOrderStatus(
+                    orderId, new UpdateSalesOrderStatusRequest(canceladaStatus.getId()));
+
+            verify(salesOrderRepository).findByIdForUpdate(orderId);
         }
     }
 

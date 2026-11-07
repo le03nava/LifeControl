@@ -183,8 +183,9 @@ public class SalesOrderService {
 
         // The allocation is the last write before the row is created, not the last write before commit:
         // `sales_orders` needs its number at INSERT time, so "allocate as the last write before commit" is
-        // unattainable on this path. The sequence row's lock is therefore held while the lines and their
-        // stock work run, which is the cost the ADR records rather than one this code can avoid.
+        // unattainable on this path. The sequence row's lock is therefore held while the lines are written,
+        // which is the cost the ADR records rather than one this code can avoid. No stock work runs here any
+        // more: the charge books it (ADR-0002 decision 7).
         var seqValue = documentSequenceAllocator.allocate(companyId, DocumentType.SALES_ORDER, period);
         var docNumber = DocumentNumberRenderer.renderPeriodNumber(DocumentType.SALES_ORDER, period, seqValue);
 
@@ -429,7 +430,7 @@ public class SalesOrderService {
         moveOrder(so, SalesOrderState.COMPLETED, "charge");
 
         // Transition the lines that are waiting for it to Added. A line's classification is its typed
-        // state and not a catalog lookup: CANCELLED is terminal (its reversal is booked, so there is no
+        // state and not a catalog lookup: CANCELLED is terminal (the batch above skipped it, so there is no
         // edge out of it) and ADDED is already charged, so only PENDING moves — the same rule that used
         // to be the `!"Cancelled".equals(statusName)` test, stated once, next to the enum (ADR-0004
         // decision 3).
@@ -471,14 +472,19 @@ public class SalesOrderService {
     public SalesOrderResponse updateSalesOrderStatus(UUID id, UpdateSalesOrderStatusRequest request) {
         logger.info("Updating sales order status: id={}", id);
 
-        var so = salesOrderRepository.findById(id).orElseThrow(() -> new SalesOrderNotFoundException(id));
+        // The row is read WITH the lock, and that is the whole of the fix this method needs: a cancellation that
+        // read the row unlocked and then wrote its state could overwrite a charge that committed while it waited
+        // for the row at flush. The history table compares a document only with its latest transition, so the
+        // overwrite would commit — leaving a CANCELLED document with a payment row and a booked deduction, and
+        // `deleteSalesOrder` reverses only a COMPLETED one, so the stock would be stranded and paid for.
+        var so = salesOrderRepository.findByIdForUpdate(id).orElseThrow(() -> new SalesOrderNotFoundException(id));
 
         // The request names a catalog row; the machine only reads its code (ADR-0004 decision 7). This is
         // also where a status of another family, an uncoded row or a code the enum lacks is refused.
         var newState = statusCatalog.requireOrderState(request.statusId());
-        // The guard runs BEFORE the reversal below, and the order of the two is the invariant: a refused
-        // move is a 409 that leaves the row, the history and the stock exactly as they were, so a stock
-        // side effect that ran first would be a refusal that already changed something (ADR-0004 T2).
+        // The guard runs before the write below, and the order of the two is the invariant: a refused move is a
+        // 409 that leaves the row and the history exactly as they were, so a write that ran first would be a
+        // refusal that already changed something (ADR-0004 T2).
         DocumentStates.requireTransition(so.getStatus(), newState);
 
         // No reversal here: a cancellation only ever leaves Draft, Active or Pending, and none of those holds
@@ -703,12 +709,11 @@ public class SalesOrderService {
     /**
      * Rejects a write against an order that has reached a terminal status.
      *
-     * <p>A terminal status has no outgoing transition, so the order is closed: letting a write run
-     * would move stock that no automatic path can bring back. The concrete case is the order-level
-     * item diff on a {@code Cancelled} order: a new line was inserted and its full quantity deducted,
-     * while order cancel and order delete both skip a {@code Cancelled} order and charge refuses it,
-     * so the deduction was stranded. {@code Completed} is terminal for the same reason and is refused
-     * too.</p>
+     * <p>A terminal status has no outgoing transition, so the order is closed: a line written into it is a line
+     * the charge can never book, because the charge walks the enabled lines of a Pending or Active document only.
+     * The concrete case is the order-level item diff on a {@code Cancelled} order — the line would sit there with
+     * nothing booked and no path would ever sell it or give it back. {@code Completed} is terminal for the same
+     * reason and is refused too.</p>
      *
      * <p>It answers nothing because it is the whole rule: no write surface is stricter than this one
      * since F-3 closed the item-level endpoints on the same policy.</p>
@@ -725,11 +730,10 @@ public class SalesOrderService {
     }
 
     /**
-     * Rejects an item-level write against a line that no longer holds stock. A {@code Cancelled}
-     * line was reversed in full, so selling it again would leave a {@code SALE} row the rule says no
-     * line holds; a soft-deleted line is never re-enabled by the item-level endpoint, so a deduction
-     * on it would be stranded. The order-level PUT is the supported route to revive either one,
-     * because it re-enables the line before re-selling it (W3-D11).
+     * Rejects an item-level write against a line the charge will never book. A {@code Cancelled} line is terminal
+     * and outside the set the charge walks; a soft-deleted line is never re-enabled by the item-level endpoint, so
+     * editing it would change a line that no path sells and none gives back. The order-level PUT is the supported
+     * route to revive either one, because it re-enables the line before the charge can see it again (W3-D11).
      *
      * @throws SalesOrderItemNotModifiableException (409) when the line is cancelled or soft-deleted
      */
@@ -808,7 +812,7 @@ public class SalesOrderService {
      * whether <em>a row</em> exists: no product, no store, no tenant, and it accepts another company's
      * variant as readily as this one's — which is the weakest question this feature can ask of a
      * catalog that became per company. The company asked for is the one that owns the order's store,
-     * because the stock the line is about to deduct lives at that store.
+     * because the stock the charge will book for this line lives at that store.
      *
      * <p>The store row is read rather than the whole entity cached on the order: {@code SalesOrder}
      * carries only {@code company_store_id}. A missing store is a 404 of its own, since there is no
