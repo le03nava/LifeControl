@@ -18,9 +18,10 @@
 #      `ENABLE` + `FORCE` ROW LEVEL SECURITY (`V65`), and `apply_tenant_isolation` makes the owner
 #      subject to the policy too. Run as `lifecontrol_owner` — the role Flyway uses — this report reads
 #      **zero rows and prints a clean dataset**, which is the exact failure `V54` and `V64` already
-#      record. So the reader is resolved by asking `pg_roles` for `rolsuper`, in the same order the roles
-#      wrapper uses, and the owner is deliberately **not** a candidate: a candidate that connects but
-#      reads nothing is worse than no answer.
+#      record. That resolution is not this script's: it lives in `_preflight_reader.sh`, which the
+#      payment-method pre-flight of ADR-0002 step 4 sources too, so the two reports cannot disagree about
+#      who may read the table. The `FORCE ROW LEVEL SECURITY` reasoning, the candidates and the probe are
+#      there, once.
 #   2. **The line sum is read from the column, not re-derived.** The ADR's block computes each line's
 #      candidate inline because, when it was written, no column held it. `V81` derives that same
 #      expression into `sales_order_items.subtotal` and enforces it with `ck_item_subtotal`, so this
@@ -47,6 +48,10 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=_common.sh
 source "$SCRIPT_DIR/_common.sh"
+# The reporting reader both money pre-flights share: role candidates, the `rolsuper` probe, the database
+# name and the one psql call shape. Resolved after the environment, below.
+# shellcheck source=_preflight_reader.sh
+source "$SCRIPT_DIR/_preflight_reader.sh"
 
 usage() {
 	cat <<'EOF'
@@ -76,53 +81,11 @@ case "${1:-dev}" in
 esac
 
 resolve_compose_env "${1:-dev}"
+init_preflight_reader
 
-POSTGRES_SERVICE="lifecontrol-postgres"
-# The maintenance superuser is the first candidate for a reason `V64` records: PostgreSQL refuses to take
-# SUPERUSER away from the role initdb created, so on any volume this repository initializes,
-# `lifecontrol_bootstrap` is a superuser with no password that reaches the database over the container's
-# local socket. `postgres` covers an image that still has it, and the declared initdb role covers a volume
-# whose key names something else. The owner is not a candidate — see the header.
-REPORT_ROLE_CANDIDATES="lifecontrol_bootstrap postgres"
-SUPERUSER_PROBE="SELECT 1 FROM pg_roles WHERE rolname = current_user AND rolsuper"
 # 2 is not 1 on purpose: 1 is "the report did not run", and a caller that treats both as failure still
 # has to tell an operator "the deploy needs a human" from "the deploy could not ask the question".
 EXIT_MANUAL_DECISION=2
-
-db_name="$(get_env_var LIFECONTROL_POSTGRES_DB)"
-if [ -z "$db_name" ]; then
-	db_name="lifecontrol"
-fi
-
-# A declared role that is already a candidate is not tried twice: the report would ask the same role the
-# same question and print the same answer, which reads as two candidates to an operator debugging it.
-declared_role="$(get_env_var LIFECONTROL_POSTGRES_USER)"
-case " $REPORT_ROLE_CANDIDATES " in
-*" $declared_role "*) ;;
-*) [ -z "$declared_role" ] || REPORT_ROLE_CANDIDATES="$REPORT_ROLE_CANDIDATES $declared_role" ;;
-esac
-
-psql_report() {
-	local username="$1"
-	shift
-	compose_run exec -T "$POSTGRES_SERVICE" psql \
-		--username "$username" --dbname "$db_name" \
-		--no-psqlrc --no-password --tuples-only --no-align "$@"
-}
-
-# resolve_report_role echoes the first candidate that connects AND answers `rolsuper` with one row. A
-# candidate that connects but is not a superuser prints no row, which is the shape of the defect this
-# whole resolution exists for: the report would run and find nothing.
-resolve_report_role() {
-	local candidate
-	for candidate in $REPORT_ROLE_CANDIDATES; do
-		if [ "$(psql_report "$candidate" --command "$SUPERUSER_PROBE" 2>/dev/null)" = "1" ]; then
-			printf '%s' "$candidate"
-			return 0
-		fi
-	done
-	return 1
-}
 
 # The report. Every amount on both tables is `NUMERIC(19,4)` since `V80`/`V81`, so the drift is exact and
 # `<> 0` is the honest filter: `V80`'s own self-check for the parts equation asks the same question the

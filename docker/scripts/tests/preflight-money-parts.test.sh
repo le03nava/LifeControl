@@ -91,7 +91,11 @@ assert_absent() {
 # ------------------------------------------
 WORK="$TMP_BASE/preflight"
 mkdir -p "$WORK/scripts" "$WORK/bin"
-cp "$PREFLIGHT_SH" "$DOCKER_DIR/scripts/_common.sh" "$WORK/scripts/" 2>/dev/null || true
+# The script under test and the two libraries it sources: `_common.sh` and the shared reporting reader,
+# which both money pre-flights source. A library missing from this copy makes every case fail at source
+# time, which is the failure this line exists to prevent.
+cp "$PREFLIGHT_SH" "$DOCKER_DIR/scripts/_common.sh" "$DOCKER_DIR/scripts/_preflight_reader.sh" \
+	"$WORK/scripts/" 2>/dev/null || true
 
 printf 'LIFECONTROL_POSTGRES_DB=lifecontrol\nLIFECONTROL_POSTGRES_USER=lifecontrol_bootstrap\n' >"$WORK/.env.dev"
 
