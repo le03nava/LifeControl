@@ -375,45 +375,65 @@ de sus líneas.
 > del job `Shell & Artifact Integrity` la cablea por existir.
 
 ### preflight-payment-methods.sh
-Responde la pregunta que el paso 4 de ADR-0002 no puede responderse solo: **qué órdenes tomaron plata y no
-llevan método de pago**, o sea las que el backfill histórico de pagos tendría que inventar.
+Responde la pregunta que el paso 6 de ADR-0002 no puede responderse solo: **qué órdenes `COMPLETED` harían que
+`V87` se niegue a dropear `sales_orders.payment_method_id`, y por qué**.
 ```bash
 ./docker/scripts/preflight-payment-methods.sh [dev|staging|prod]
 ```
-> Es el pre-flight del paso **4** de ADR-0002, **no** del paso 2: el paso 2 —el total contra la suma de las
-> líneas— es `preflight-money-parts.sh`, y por eso ese reporte no contesta esto. De este reporte depende
-> **D-a** de `odd/tasks/money-first-class.md`: «Skip the order and report it — and measure before deciding.
-> T3's pre-flight emits the count and the ids; at zero the decision evaporates, at a non-zero count it is
-> taken per row with the list in hand». El paso 4 inserta un `sale_payment` por orden `Completed` con «the
-> order's `payment_method_id`», pero esa columna es nullable (`V1:478`) y `sale_payment.method_id` es `NOT
-> NULL` (`V83`): una orden completada sin método no tiene fila que satisfaga las dos. D-a elige **saltear la
-> orden y reportarla** en vez de inventar un método centinela en un catálogo global que vería todo tenant, y
-> este script es la medición que esa decisión necesita.
+> Es el pre-flight del paso **4** de ADR-0002 **y** el gate del **paso 6**, porque las dos dependen de la misma
+> medición: el paso 4 inserta un `sale_payment` por orden `Completed` con «the order's `payment_method_id`», y
+> el paso 6 dropea esa columna «once the payment rows are populated and every reader has moved». Una orden
+> bloqueada no puede recibir fila de pago (`sale_payment.method_id` es `NOT NULL`, `V83`) y, mientras siga
+> bloqueada, la columna es el único registro de que esa venta tomó plata — por eso `V87` se niega a dropearla y
+> por eso el reporte es también el pre-flight de su guard. El paso 2 —el total contra la suma de las líneas—
+> sigue siendo `preflight-money-parts.sh`, y ese reporte no contesta esto.
 >
-> **Qué es "se tomó plata" y qué es "no lleva método", leídos del árbol y no adivinados.** Se tomó plata es
+> **Qué es "se tomó plata" y qué es "bloquea el drop", leídos del árbol y no adivinados.** Se tomó plata es
 > `sales_orders.status = 'COMPLETED'` —`SalesOrderService.java:461`, después del guard de `:426` que exige que
 > los pagos no anulados cubran el total; `PENDING` es el estado transitorio que la misma transacción
-> autopromueve y que en reposo no tiene plata—. No lleva método son **dos** hechos juntos, porque el esquema
-> del head registra la plata de una venta en dos lugares: `payment_method_id IS NULL` (la columna que el paso
-> 4 lee) **y** ninguna fila de `sale_payment` que nombre la orden (`V83`; desde T6a el charge escribe esas
-> filas, así que una orden que ya la tiene registra cómo se pagó y el paso 4 no tendría que inventar nada).
-> `enabled` **no** se filtra: una orden borrada lógicamente igual tomó plata.
+> autopromueve y que en reposo no tiene plata—. Bloquea el drop es exactamente el predicado del guard de
+> `V87`: una orden `COMPLETED` **sin fila de `sale_payment` no anulada** (`V83`: un void es una fila anexada en
+> `sale_payment_void`, nunca una columna de estado). **No** es `net = total`, y la diferencia es la que importa:
+> una venta reembolsada por completo tiene neto cero y **no** bloquea nada, porque sí tiene filas que dicen cómo
+> se pagó. `enabled` **no** se filtra: una orden borrada lógicamente igual tomó plata.
+>
+> **Cada orden bloqueada declara uno de dos motivos, disjuntos a propósito** para que los conteos sumen y
+> ninguna orden se nombre dos veces —los mismos dos conjuntos que `V86` nombra en sus `RAISE NOTICE`—:
+> **`no_method`** (la orden no declara método y `sale_payment.method_id` es `NOT NULL`, así que el backfill no
+> puede inventarlo: es el conjunto de **D-a**, y el motivo sólo existe mientras la columna exista) y
+> **`zero_total`** (declara método y su total es 0, y `sale_payment.amount` lleva `CHECK (amount > 0)`). Una
+> orden completada con método, total positivo y sin fila de pago **no** se lista: la escribe `V86`, así que no
+> hay nada que decidir. D-a quedó **cerrado por medición** en `odd/tasks/money-first-class.md`, que nombra a
+> este script como «the gate that would answer if a dataset ever appears».
 >
 > Imprime, por fila, lo que una decisión por orden necesita: id, `order_number`, `company_id`, el estado,
 > `order_date`, **`updated_at`** —el `coalesce(o.updated_at, o.order_date)` con el que el paso 4 fecha
-> `paid_at`, nunca `now()`, que fecharía todo pago histórico el día del deploy— y `total_amount`, que es el
-> `amount` que llevaría la fila inventada. Los veredictos son **`nothing_to_decide`** (ninguna orden
-> `COMPLETED` sin método, así que el paso 4 no tiene nada que inventar y D-a se evapora) y **`manual`** (hay al
-> menos una, y D-a se toma por fila con la lista en la mano: saltearla y reportarla, o nombrar un método). Los
-> códigos de salida son el mismo contrato de tres formas que el pre-flight del paso 2, por la misma razón:
-> **0** nada que decidir, **2** al menos una decisión por fila, **1** el reporte no pudo correr (sin
+> `paid_at`, nunca `now()`, que fecharía todo pago histórico el día del deploy— `total_amount`, que es el
+> `amount` que llevaría la fila inventada, y el **motivo**. Los veredictos son **`nothing_to_decide`** (ninguna
+> orden bloqueada, así que el backfill no tiene nada que inventar y el paso 6 puede dropear) y **`manual`** (hay
+> al menos una, y la decisión se toma por fila con la lista en la mano, antes del backfill y no por el
+> backfill). Los códigos de salida son el mismo contrato de tres formas que el pre-flight del paso 2, por la
+> misma razón: **0** nada que decidir, **2** al menos una decisión por fila, **1** el reporte no pudo correr (sin
 > superusuario, psql falló, o el esquema no es el de este árbol) — nunca se lee como un dataset limpio.
 >
+> **Contesta desde las filas de pago, así que no se rompe cuando la columna se va.** El paso 6 dropea
+> `payment_method_id`, y una sentencia que la nombrara como columna dejaría de parsear en cuanto la migración
+> corriera —el reporte saldría **1**, que un operador lee como "la base está atrás" cuando en realidad está
+> adelante—. Hay una sola `SELECT` (dos sentencias romperían el contrato de una sola lectura, y además podrían
+> leer dos datasets distintos) y la columna se lee a través de la **imagen de la fila**,
+> `to_jsonb(o) ->> 'payment_method_id'`, que es una búsqueda de clave en un documento JSON y no una referencia
+> a columna: en un esquema sin la columna devuelve `NULL` en vez de fallar. Ese `NULL` no es la respuesta —una
+> columna dropeada y una que no declara nada se ven igual—, así que un primer CTE le pregunta a
+> `information_schema.columns` si la columna todavía existe y `no_method` sólo es alcanzable mientras exista.
+> **Antes del drop pueden aparecer los dos motivos; después, sólo `zero_total`**, y la pregunta es la misma en
+> los dos esquemas.
+>
 > **Un esquema que no puede leer es un rechazo, no un dataset limpio.** El reporte apunta al esquema del árbol
-> que viaja: estado tipado de `V66`, `total_amount NUMERIC(19,4)` de `V80` y `sale_payment` de `V83`. En una
-> base más vieja —dev está en `V78`— la sentencia no parsea y el script sale **1** nombrando las piezas que
-> necesita y las palabras de psql, porque sobre una base sin libro de pagos toda orden completada parece
-> impaga y un "0 órdenes" ahí sería una respuesta que nadie pudo dar.
+> que viaja: estado tipado de `V66`, `total_amount NUMERIC(19,4)` de `V80` y `sale_payment` /
+> `sale_payment_void` de `V83` (la columna que dropea `V87` es opcional justamente porque el reporte la lee por
+> la imagen de la fila). En una base más vieja —dev está en `V78`— la sentencia no parsea y el script sale **1**
+> nombrando las piezas que necesita y las palabras de psql, porque sobre una base sin libro de pagos toda orden
+> completada parece impaga y un "0 órdenes" ahí sería una respuesta que nadie pudo dar.
 >
 > Es **sólo lectura**: una sola `SELECT`, sin `CREATE`, `INSERT`, `ALTER`, advisory lock ni `SET` de sesión, y
 > lee como **superusuario** por la misma razón que el otro pre-flight —`sales_orders` está con `FORCE ROW
