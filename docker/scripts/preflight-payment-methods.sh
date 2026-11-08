@@ -121,6 +121,7 @@ case "${1:-dev}" in
 esac
 
 resolve_compose_env "${1:-dev}"
+db_name="$(preflight_db_name)"
 init_preflight_reader
 
 # 2 is not 1 on purpose: 1 is "the report did not run", and a caller that treats both as failure still

@@ -32,9 +32,25 @@ POSTGRES_SERVICE="lifecontrol-postgres"
 # filtered by the policy answers every report with an empty set and exit 0.
 SUPERUSER_PROBE="SELECT 1 FROM pg_roles WHERE rolname = current_user AND rolsuper"
 
-# init_preflight_reader sets REPORT_ROLE_CANDIDATES and db_name from the env file `resolve_compose_env`
-# resolved. It is a function rather than top-level code so the sourcing script keeps its own order:
-# argument parsing (`--help` must not need a database), then the environment, then the reader.
+# The database the reports read, assigned by the sourcing script between `resolve_compose_env` and its
+# report. Declared here so this file analyses as one unit: shellcheck cannot see a caller's assignment
+# through `source`, and a warning suppressed is not the same as a variable that exists.
+: "${db_name:=}"
+
+# preflight_db_name echoes the database name the env file declares, or the default when it declares none.
+preflight_db_name() {
+	local configured
+	configured="$(get_env_var LIFECONTROL_POSTGRES_DB)"
+	if [ -n "$configured" ]; then
+		printf '%s' "$configured"
+		return 0
+	fi
+	printf '%s' lifecontrol
+}
+
+# init_preflight_reader sets REPORT_ROLE_CANDIDATES from the env file `resolve_compose_env` resolved. It is
+# a function rather than top-level code so the sourcing script keeps its own order: argument parsing
+# (`--help` must not need a database), then the environment, then the reader.
 init_preflight_reader() {
 	local declared_role
 
@@ -44,11 +60,6 @@ init_preflight_reader() {
 	# container's local socket. `postgres` covers an image that still has it, and the declared initdb role
 	# covers a volume whose key names something else. The owner is not a candidate — see the header.
 	REPORT_ROLE_CANDIDATES="lifecontrol_bootstrap postgres"
-
-	db_name="$(get_env_var LIFECONTROL_POSTGRES_DB)"
-	if [ -z "$db_name" ]; then
-		db_name="lifecontrol"
-	fi
 
 	# A declared role that is already a candidate is not tried twice: the report would ask the same role
 	# the same question and print the same answer, which reads as two candidates to an operator debugging
