@@ -30,7 +30,10 @@ import java.util.UUID;
  * @param totalAmount what the document is worth, and the sum of the four parts above — never a second
  *     derivation of them
  * @param payments the payments the document has taken, oldest first (decision 5). Read-only: a payment is an
- *     appended row and nothing in a request states one. Empty until the charge, which is the only writer
+ *     appended row and nothing in a request states one. Empty until the charge, which is the only writer. Since
+ *     ADR-0002 step 6 dropped {@code sales_orders.payment_method_id} ({@code V87}), this list is <b>the only
+ *     statement of how a document was paid</b>: a tender is a row with a method, a direction and an amount, and
+ *     there is no single-method column left to answer a second time
  */
 public record SalesOrderResponse(
         UUID id,
@@ -49,7 +52,6 @@ public record SalesOrderResponse(
         BigDecimal taxTotal,
         BigDecimal roundingAdjustment,
         BigDecimal totalAmount,
-        UUID paymentMethodId,
         Boolean enabled,
         LocalDateTime createdAt,
         LocalDateTime updatedAt,

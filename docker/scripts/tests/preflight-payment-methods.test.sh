@@ -1,26 +1,36 @@
 #!/bin/bash
 # ============================================
-# LifeControl - the pre-flight report of ADR-0002 migration step 4 (D-a of money-first-class)
+# LifeControl - the pre-flight report of ADR-0002 migration steps 4 and 6 (D-a of money-first-class)
 # ============================================
-# `preflight-payment-methods.sh` is the report `odd/tasks/money-first-class.md` asks for in D-a: «Skip the
-# order and report it — and measure before deciding. T3's pre-flight emits the count and the ids; at zero
-# the decision evaporates, at a non-zero count it is taken per row with the list in hand». T3 shipped the
-# pre-flight of ADR-0002 **step 2** (the total against the line sum), so this suite pins the measurement
-# D-a depends on, which is step 4's:
+# `preflight-payment-methods.sh` is the report `odd/tasks/money-first-class.md` records under D-a, which
+# names it as «the gate that would answer if a dataset ever appears». Since `V86` and `V87` exist, the
+# question that gate has to answer is the one `V87`'s guard refuses on, and this suite pins that:
 #
 #   1. **The question is the tree's, not a guess.** "Money was taken" is `status = 'COMPLETED'` —
-#      `SalesOrderService.java:461`, after the guard at `:426` — and "no payment method" is
-#      `payment_method_id IS NULL` **and** no `sale_payment` row (`V83`). Both halves are asserted against
-#      the SQL the script actually sent, so a future edit that answers a different question fails here.
-#   2. **The verdicts and the exit codes are the step-2 report's contract**, for the same reason: 0
+#      `SalesOrderService.java:461`, after the guard at `:426` — and a *blocking* order is one with **no
+#      non-voided `sale_payment` row**: the exact shape `V87`'s guard asks (`V83`: a void is an appended
+#      `sale_payment_void` row, never a status column), so a fully refunded sale does not block the drop.
+#      Each row states *why* it blocks, with the two reasons `V86` names in its own notices and which are
+#      disjoint on purpose so the counts add up and no order is named twice: `no_method` (the document
+#      states no method, so `V86` may not invent one) and `zero_total` (`sale_payment.amount` carries
+#      `CHECK (amount > 0)`). Both are asserted against the SQL the script actually sent, so a future edit
+#      that answers a different question fails here.
+#   2. **The statement parses before and after `V87`.** `V87` drops `sales_orders.payment_method_id`, and a
+#      report that named it as a column would stop parsing the moment the migration ran — while still
+#      looking like a report. The statement reads the document's method through its row image and asks
+#      `information_schema` whether the column still exists, so the suite asserts that **every** mention of
+#      the name in the statement is a quoted string and that the `no_method` reason is gated by that probe.
+#      After the drop only `zero_total` can appear.
+#   3. **The verdicts and the exit codes are the step-2 report's contract**, for the same reason: 0
 #      nothing to decide, 2 at least one per-row decision, 1 the report could not run. 2 is not 1 because
 #      a deploy has to tell "needs a human" from "could not ask".
-#   3. **A schema it cannot read is a refusal, never a clean dataset.** A database older than the tree has
+#   4. **A schema it cannot read is a refusal, never a clean dataset.** A database older than the tree has
 #      no `sale_payment`, so every completed order would look unpaid and the report would answer "nothing
 #      to decide" with confidence it did not earn. That case exits 1 and names what it needed.
-#   4. **It reads as a superuser and writes nothing.** `sales_orders` is `FORCE ROW LEVEL SECURITY`
+#   5. **It reads as a superuser and writes nothing.** `sales_orders` is `FORCE ROW LEVEL SECURITY`
 #      (`V65`), so the owner reads zero rows; and the report issues exactly one `SELECT` — no `INSERT`,
-#      `UPDATE`, `DELETE`, `ALTER`, `CREATE` or `DROP` in the statement it sends.
+#      `UPDATE`, `DELETE`, `ALTER`, `CREATE` or `DROP` in the statement it sends, and none outside the
+#      comments either.
 #
 # No Docker daemon, no network, no psql, no repository file written: the script runs in a throwaway tree
 # under `mktemp -d` with a stub `docker` on PATH that logs every argv, models the `rolsuper` probe, and
@@ -178,7 +188,7 @@ PRE_CALLS=""
 PRE_SQL=""
 
 # rows <line>...  — the report rows a case answers with, in the script's own field order:
-# order_id|order_number|company_id|state|order_date|updated_at|total_amount
+# order_id|order_number|company_id|state|order_date|updated_at|total_amount|reason
 rows() {
 	: >"$WORK/report-rows"
 	for line in "$@"; do
@@ -189,14 +199,14 @@ rows() {
 env_before="$(cksum <"$WORK/.env.dev")"
 
 # ------------------------------------------
-# 1. The question: an order that took money and carries no method is a per-row decision.
+# 1. The question: an order that took money and states no method blocks the drop of the column.
 # ------------------------------------------
-echo "== 1. one order in that state exits 2 and names the row the decision is about"
+echo "== 1. an order with no method exits 2, names the row and states the reason"
 
-rows '11111111-1111-1111-1111-111111111111|A-1|aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa|COMPLETED|2026-01-02 03:04:05|2026-01-03 04:05:06|1234.5600'
+rows '11111111-1111-1111-1111-111111111111|A-1|aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa|COMPLETED|2026-01-02 03:04:05|2026-01-03 04:05:06|1234.5600|no_method'
 SUPERUSERS="lifecontrol_bootstrap" run_preflight
 
-check_equal "one order missing a method exits 2" "2" "$PRE_RC"
+check_equal "one order with no method exits 2" "2" "$PRE_RC"
 assert_matches "the row is named with its verdict and order number" "$PRE_TEXT" '^manual +A-1 '
 assert_contains "the row carries the order id" "$PRE_TEXT" '11111111-1111-1111-1111-111111111111'
 assert_contains "the row carries the tenant the payment would belong to" "$PRE_TEXT" \
@@ -206,70 +216,123 @@ assert_contains "the row carries the order date" "$PRE_TEXT" 'order_date=2026-01
 assert_contains "the row carries updated_at, which step 4 dates paid_at with" "$PRE_TEXT" \
 	'updated_at=2026-01-03 04:05:06'
 assert_contains "the row carries the amount the invented payment would state" "$PRE_TEXT" 'total=1234.5600'
-assert_contains "it says the decision is taken per order" "$PRE_TEXT" 'the decision is taken per order'
+assert_contains "the row states which of the two reasons blocks the drop" "$PRE_TEXT" 'reason=no_method'
+assert_contains "it says the decision is taken per order" "$PRE_TEXT" 'decision is taken per order'
 assert_contains "it names the decision D-a records" "$PRE_TEXT" 'skip the order and report it'
 
 # ------------------------------------------
-# 2. Several rows: the count is stated, and every row is listed.
+# 2. The second reason: a completed sale with a total of 0 blocks the drop just as hard, and V86 refuses
+#    it too, because `sale_payment.amount` carries `CHECK (amount > 0)`.
 # ------------------------------------------
-echo "== 2. several orders state the count, and nothing is decided by the report"
+echo "== 2. an order with a total of 0 blocks the drop for the other reason"
 
-rows \
-	'11111111-1111-1111-1111-111111111111|A-1|aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa|COMPLETED|2026-01-02 03:04:05|2026-01-03 04:05:06|10.0000' \
-	'22222222-2222-2222-2222-222222222222|A-2|aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa|COMPLETED|2026-02-02 03:04:05|2026-02-03 04:05:06|20.0000' \
-	'33333333-3333-3333-3333-333333333333|A-3|aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa|COMPLETED|2026-03-02 03:04:05|2026-03-03 04:05:06|30.0000'
+rows '44444444-4444-4444-4444-444444444444|A-0|aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa|COMPLETED|2026-04-02 03:04:05|2026-04-03 04:05:06|0.0000|zero_total'
 SUPERUSERS="lifecontrol_bootstrap" run_preflight
 
-check_equal "three orders exit 2" "2" "$PRE_RC"
-assert_contains "the count is stated" "$PRE_TEXT" 'carry no payment method: 3'
-assert_contains "every order number is listed" "$PRE_TEXT" 'A-1'
-assert_contains "every order number is listed (A-2)" "$PRE_TEXT" 'A-2'
-assert_contains "every order number is listed (A-3)" "$PRE_TEXT" 'A-3'
-assert_contains "the report states it does not decide" "$PRE_TEXT" 'not by it'
+check_equal "a completed order with a total of 0 exits 2" "2" "$PRE_RC"
+assert_contains "the row states its own reason, not the other one" "$PRE_TEXT" 'reason=zero_total'
+assert_absent "and it is not reported as a missing method" "$PRE_TEXT" 'reason=no_method'
+assert_contains "the amount is printed exactly as the schema holds it" "$PRE_TEXT" 'total=0.0000'
+assert_contains "the count names the set that row belongs to" "$PRE_TEXT" 'zero_total: 1'
 
 # ------------------------------------------
-# 3. Nothing to decide exits 0, and says which of the two clean states it is.
+# 3. Both reasons in one dataset: each order is printed once, and the two counts add up to the total.
+#    Disjointness is what makes the pair usable as the per-row list an operator decides from.
 # ------------------------------------------
-echo "== 3. a dataset with no such order exits 0 and says so"
+echo "== 3. a dataset with one of each prints each order once and the two counts add up"
+
+rows \
+	'11111111-1111-1111-1111-111111111111|A-1|aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa|COMPLETED|2026-01-02 03:04:05|2026-01-03 04:05:06|10.0000|no_method' \
+	'44444444-4444-4444-4444-444444444444|A-0|aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa|COMPLETED|2026-04-02 03:04:05|2026-04-03 04:05:06|0.0000|zero_total'
+SUPERUSERS="lifecontrol_bootstrap" run_preflight
+
+check_equal "one of each exits 2" "2" "$PRE_RC"
+assert_contains "the no_method count is stated" "$PRE_TEXT" 'no_method: 1'
+assert_contains "the zero_total count is stated" "$PRE_TEXT" 'zero_total: 1'
+check_equal "each blocking order is named exactly once" "2" \
+	"$(printf '%s\n' "$PRE_TEXT" | grep -cE '^manual ' || true)"
+assert_contains "the row with no method keeps its reason" "$PRE_TEXT" 'reason=no_method'
+assert_contains "the row with a total of 0 keeps its reason" "$PRE_TEXT" 'reason=zero_total'
+
+# ------------------------------------------
+# 4. Nothing to decide exits 0, and says which of the two clean states it is.
+# ------------------------------------------
+echo "== 4. a dataset with neither reason exits 0 and says so"
 
 rows
 SUPERUSERS="lifecontrol_bootstrap" run_preflight
-check_equal "no order missing a method exits 0" "0" "$PRE_RC"
-assert_contains "it says step 4 has nothing to invent" "$PRE_TEXT" 'No completed order is missing a payment method'
+check_equal "no blocking order exits 0" "0" "$PRE_RC"
+assert_contains "it says nothing blocks the drop" "$PRE_TEXT" 'No completed order would block the drop'
+assert_contains "it names the two sets it looked for (no_method)" "$PRE_TEXT" 'no_method'
+assert_contains "it names the two sets it looked for (zero_total)" "$PRE_TEXT" 'zero_total'
 assert_contains "it names the decision that evaporates at zero" "$PRE_TEXT" 'D-a has nothing to decide'
 assert_absent "no per-row verdict is printed" "$PRE_TEXT" 'manual'
 
 # ------------------------------------------
-# 4. The SQL: D-a's question, asked against the schema that exists.
+# 5. The SQL: V87's question, asked against the schema that exists.
 # ------------------------------------------
-echo "== 4. the query asks the question the tree states"
+echo "== 5. the query asks the question V87's guard refuses on"
 
 rows
 SUPERUSERS="lifecontrol_bootstrap" run_preflight
 assert_contains "money was taken is the COMPLETED state" "$PRE_SQL" "o.status = 'COMPLETED'"
-assert_contains "the method column step 4 reads is the one judged" "$PRE_SQL" 'o.payment_method_id IS NULL'
-assert_contains "an order that already has a payment row is not D-a's row" "$PRE_SQL" 'FROM sale_payment p'
-assert_contains "that exclusion is a NOT EXISTS, so the order is still read" "$PRE_SQL" 'NOT EXISTS'
+assert_contains "the ledger is the one a payment row is looked for in" "$PRE_SQL" 'FROM sale_payment p'
+assert_contains "the row is looked for as a NOT EXISTS, so the order is still read" "$PRE_SQL" 'NOT EXISTS'
+assert_contains "a void is a row in sale_payment_void, the same shape V87's guard reads" "$PRE_SQL" \
+	'sale_payment_void v'
 assert_contains "the tenant is read, because the payment row states it" "$PRE_SQL" 'o.company_id'
 assert_contains "updated_at is read, because step 4 dates paid_at with it" "$PRE_SQL" 'o.updated_at'
 assert_contains "the amount the invented row would carry is read" "$PRE_SQL" 'o.total_amount'
+assert_contains "the no_method reason is one of the two the report can state" "$PRE_SQL" "'no_method'"
+assert_contains "the zero_total reason is the other" "$PRE_SQL" "'zero_total'"
+assert_contains "the zero boundary is the amount column's own CHECK" "$PRE_SQL" 'total_amount = 0'
 assert_absent "no payment is dated with now(), which ADR-0002 step 4 forbids" "$PRE_SQL" 'now()'
 assert_contains "the run sets ON_ERROR_STOP so a SQL error is not a clean report" "$PRE_CALLS" \
 	'--set ON_ERROR_STOP=1'
 
 # ------------------------------------------
-# 5. The reader: `FORCE ROW LEVEL SECURITY` filters the owner, so the report needs a superuser.
+# 6. The statement survives the drop. This is the half that a stub cannot measure, so it is asserted
+#    structurally: the only way `payment_method_id` may appear in the statement is as a quoted string,
+#    and the `no_method` reason must be gated by the catalog probe that knows the column is still there.
 # ------------------------------------------
-echo "== 5. the report resolves a superuser and never reads as the owner"
+echo "== 6. the statement parses before and after V87 drops the column"
 
-rows '11111111-1111-1111-1111-111111111111|A-1|aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa|COMPLETED|2026-01-02 03:04:05|2026-01-03 04:05:06|10.0000'
+assert_contains "the column's presence is asked of the catalog, not assumed" "$PRE_SQL" \
+	'information_schema.columns'
+assert_contains "the document's method is read through its row image, which has no column to fail on" \
+	"$PRE_SQL" "to_jsonb(o) ->> 'payment_method_id' IS NULL"
+assert_contains "the reason depends on that probe, so a dropped column is not a missing method" "$PRE_SQL" \
+	'has_method_column'
+assert_absent "the column is never named as a column of the document" "$PRE_SQL" 'o.payment_method_id'
+assert_absent "and never as a qualified column either" "$PRE_SQL" 'sales_orders.payment_method_id'
+
+# Every remaining mention must be inside quotes: strip the quoted string and nothing may be left.
+strip_quotes() {
+	printf '%s' "$1" | sed "s/'payment_method_id'//g"
+}
+check_equal "every mention of the dropped column is a quoted string" "0" \
+	"$(strip_quotes "$PRE_SQL" | grep -c 'payment_method_id' || true)"
+
+# After the drop, the same row can only be answered by the total, and the report still exits 2 on it.
+rows '44444444-4444-4444-4444-444444444444|A-0|aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa|COMPLETED|2026-04-02 03:04:05|2026-04-03 04:05:06|0.0000|zero_total'
+SUPERUSERS="lifecontrol_bootstrap" run_preflight
+check_equal "a post-drop zero-total order still exits 2" "2" "$PRE_RC"
+assert_contains "and it is still named with its reason" "$PRE_TEXT" 'reason=zero_total'
+assert_absent "and the report never calls it a missing method" "$PRE_TEXT" 'reason=no_method'
+
+# ------------------------------------------
+# 7. The reader: `FORCE ROW LEVEL SECURITY` filters the owner, so the report needs a superuser.
+# ------------------------------------------
+echo "== 7. the report resolves a superuser and never reads as the owner"
+
+rows '11111111-1111-1111-1111-111111111111|A-1|aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa|COMPLETED|2026-01-02 03:04:05|2026-01-03 04:05:06|10.0000|no_method'
 SUPERUSERS="lifecontrol_bootstrap" run_preflight
 assert_contains "the maintenance superuser is probed first" "$PRE_CALLS" '--username lifecontrol_bootstrap'
 assert_absent "the owner is never the connection that reads" "$PRE_CALLS" '--username lifecontrol_owner'
 assert_absent "the pool's role is never the connection that reads" "$PRE_CALLS" '--username lifecontrol_app'
 assert_contains "it explains why the owner cannot be the reader" "$PRE_TEXT" 'FORCE ROW LEVEL SECURITY'
 
-rows '11111111-1111-1111-1111-111111111111|A-1|aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa|COMPLETED|2026-01-02 03:04:05|2026-01-03 04:05:06|10.0000'
+rows '11111111-1111-1111-1111-111111111111|A-1|aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa|COMPLETED|2026-01-02 03:04:05|2026-01-03 04:05:06|10.0000|no_method'
 SUPERUSERS="" run_preflight
 check_equal "no superuser means the report does not run" "1" "$PRE_RC"
 assert_contains "the failure says no superuser could connect" "$PRE_TEXT" 'No superuser could connect'
@@ -277,9 +340,9 @@ assert_absent "and no report was attempted" "$PRE_SQL" 'sales_orders'
 assert_absent "and no verdict was printed" "$PRE_TEXT" 'manual'
 
 # ------------------------------------------
-# 6. A report writes nothing.
+# 8. A report writes nothing.
 # ------------------------------------------
-echo "== 6. the report is read-only: one SELECT, no write statement, env file untouched"
+echo "== 8. the report is read-only: one SELECT, no write statement, env file untouched"
 
 rows
 SUPERUSERS="lifecontrol_bootstrap" run_preflight
@@ -300,9 +363,9 @@ check_equal "no login was attempted against the pool's credential" "0" \
 	"$(grep -c -- '--password' "$WORK/docker.log" 2>/dev/null || true)"
 
 # ------------------------------------------
-# 7. Failures are failures: a schema it cannot read, a broken report, an unparsable row.
+# 9. Failures are failures: a schema it cannot read, a broken report, an unparsable row.
 # ------------------------------------------
-echo "== 7. a report that cannot run never reads as a clean dataset"
+echo "== 9. a report that cannot run never reads as a clean dataset"
 
 rows
 SUPERUSERS="lifecontrol_bootstrap" SCHEMA_MISSING=1 run_preflight
@@ -310,14 +373,18 @@ check_equal "a schema without sale_payment exits 1" "1" "$PRE_RC"
 assert_contains "the refusal says the schema is not the one the report reads" "$PRE_TEXT" \
 	'does not carry the schema this report reads'
 assert_contains "it names the table that is missing, in psql's own words" "$PRE_TEXT" 'sale_payment" does not exist'
-assert_contains "it names the migrations the report needs" "$PRE_TEXT" 'V83'
+assert_contains "it names the ledger the report needs" "$PRE_TEXT" 'V83'
+assert_contains "it names the money breakdown the report needs" "$PRE_TEXT" 'V80'
+assert_contains "it names the typed state it reads" "$PRE_TEXT" 'V66'
+assert_contains "it names the column the drop removes, so the operator knows which release this is" \
+	"$PRE_TEXT" 'V87'
 assert_absent "and it is not reported as nothing to decide" "$PRE_TEXT" 'nothing to decide'
 assert_absent "and no per-row verdict is printed" "$PRE_TEXT" 'manual'
 
 rows
 SUPERUSERS="lifecontrol_bootstrap" FAIL_REPORT=1 run_preflight
 check_equal "a psql failure exits 1" "1" "$PRE_RC"
-assert_absent "and it is not reported as a clean dataset" "$PRE_TEXT" 'No completed order is missing'
+assert_absent "and it is not reported as a clean dataset" "$PRE_TEXT" 'No completed order would block'
 assert_contains "the failure shows what psql said" "$PRE_TEXT" 'statement timeout'
 
 rows 'WARNING: this is not a report row'
@@ -325,11 +392,16 @@ SUPERUSERS="lifecontrol_bootstrap" run_preflight
 check_equal "an unparsable row exits 1" "1" "$PRE_RC"
 assert_contains "the failure shows the line it could not read" "$PRE_TEXT" 'WARNING: this is not a report row'
 
-rows '11111111-1111-1111-1111-111111111111|A-1|aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa|COMPLETED|2026-01-02 03:04:05|2026-01-03 04:05:06|not-a-number'
+rows '11111111-1111-1111-1111-111111111111|A-1|aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa|COMPLETED|2026-01-02 03:04:05|2026-01-03 04:05:06|not-a-number|no_method'
 SUPERUSERS="lifecontrol_bootstrap" run_preflight
 check_equal "a non-numeric amount exits 1 instead of being printed as a decision" "1" "$PRE_RC"
 
-rows '11111111-1111-1111-1111-111111111111|A-1|aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa|COMPLETED|2026-01-02 03:04:05|2026-01-03 04:05:06|10.0000|extra'
+rows '11111111-1111-1111-1111-111111111111|A-1|aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa|COMPLETED|2026-01-02 03:04:05|2026-01-03 04:05:06|10.0000|maybe'
+SUPERUSERS="lifecontrol_bootstrap" run_preflight
+check_equal "a reason outside the two the report knows exits 1" "1" "$PRE_RC"
+assert_contains "and it shows the reason it could not read" "$PRE_TEXT" 'maybe'
+
+rows '11111111-1111-1111-1111-111111111111|A-1|aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa|COMPLETED|2026-01-02 03:04:05|2026-01-03 04:05:06|10.0000|no_method|extra'
 SUPERUSERS="lifecontrol_bootstrap" run_preflight
 check_equal "a row with more fields than the report knows exits 1" "1" "$PRE_RC"
 
@@ -341,9 +413,9 @@ check_equal "a row with more fields than the report knows exits 1" "1" "$PRE_RC"
 check_equal "an unknown environment exits 1" "1" "$(cat "$WORK/bad-env.rc")"
 
 # ------------------------------------------
-# 8. `--help` states the question, the two verdicts and the three exit codes.
+# 10. `--help` states the question, the two reasons, the steps it gates and the three exit codes.
 # ------------------------------------------
-echo "== 8. --help is the contract an operator reads before running it"
+echo "== 10. --help is the contract an operator reads before running it"
 
 (
 	set +e
@@ -352,21 +424,27 @@ echo "== 8. --help is the contract an operator reads before running it"
 )
 HELP_TEXT="$(cat "$WORK/help.log")"
 check_equal "--help exits 0" "0" "$(cat "$WORK/help.rc")"
-assert_contains "the help states the question D-a asks" "$HELP_TEXT" \
-	'which orders took money and carry no payment method'
+assert_contains "the help states the question as the drop's guard" "$HELP_TEXT" \
+	'which COMPLETED sales orders would make V87 refuse to drop'
+assert_contains "the help says what a blocking order is" "$HELP_TEXT" 'no non-voided sale_payment row'
 assert_contains "the help names the state that means money was taken" "$HELP_TEXT" \
 	"Money was taken means status = 'COMPLETED'"
+assert_contains "the help names the first reason" "$HELP_TEXT" 'no_method'
+assert_contains "the help names the second reason" "$HELP_TEXT" 'zero_total'
+assert_contains "the help says it is the pre-flight of step 4 as well" "$HELP_TEXT" 'migration step 4'
+assert_contains "the help says it gates step 6's drop" "$HELP_TEXT" 'step 6'
 assert_contains "the help names both verdicts" "$HELP_TEXT" 'nothing_to_decide'
 assert_contains "the help names the per-row verdict" "$HELP_TEXT" 'manual'
 assert_contains "the help names the three exit codes" "$HELP_TEXT" \
 	'Exit codes: 0 nothing to decide, 2 at least one per-row decision, 1 the report could not run'
+assert_contains "the help says it reads the same question before and after the drop" "$HELP_TEXT" \
+	'after the drop'
 assert_contains "the help says it reads as a superuser and why" "$HELP_TEXT" 'FORCE ROW LEVEL SECURITY'
-assert_contains "the help states the ADR step this report is the pre-flight of" "$HELP_TEXT" 'migration step 4'
 
 # ------------------------------------------
-# 9. The record's contract still matches the ADR and the feature record it quotes.
+# 11. The contract this script obeys is still the one the documents state.
 # ------------------------------------------
-echo "== 9. the contract this script obeys is still the one the documents state"
+echo "== 11. the contract this script obeys is still the one the documents state"
 # The step, not the file: squashed to one line and whitespace-collapsed on purpose, because the assertion
 # is about the sentences ADR-0002 states and not about where the file happens to wrap them.
 step4="$(awk '/^4\. \*\*For orders already/,/^5\. Copy/' "$ADR_0002" | tr '\n' ' ' | tr -s ' ')"
@@ -374,14 +452,19 @@ assert_contains "the ADR still backfills the orders already Completed" "$step4" 
 assert_contains "the ADR still dates the historical payment from the order" "$step4" \
 	'coalesce(o.updated_at, o.order_date)'
 assert_contains "the ADR still forbids now() for it" "$step4" 'not `now()`'
-assert_contains "the ADR still reads the method from the order's own column" "$step4" \
-	"the order's \`payment_method_id\`"
+
+step6="$(awk '/^6\. Drop `sales_orders.payment_method_id`/,/^7\. `chargeSalesOrder`/' "$ADR_0002" |
+	tr '\n' ' ' | tr -s ' ')"
+assert_contains "the ADR still drops the column in step 6" "$step6" 'Drop `sales_orders.payment_method_id`'
+assert_contains "and still conditions the drop on the payment rows" "$step6" 'once the payment rows are populated'
 
 decision_a="$(grep -E '^\| D-a \|' "$FEATURE_RECORD" | tr '\n' ' ' | tr -s ' ')"
-assert_contains "D-a still skips the order and reports it" "$decision_a" 'Skip the order and report it'
-assert_contains "D-a still measures before deciding" "$decision_a" 'measure before deciding'
-assert_contains "D-a still takes a non-zero count per row with the list in hand" "$decision_a" \
-	'taken per row with the list in hand'
+assert_contains "D-a is still closed by measurement, not by a guess" "$decision_a" \
+	'the decision evaporates'
+assert_contains "D-a still names this report as the gate for a dataset that appears" "$decision_a" \
+	'the report stays as the gate'
+assert_contains "D-a still names the two sets the backfill refuses" "$decision_a" \
+	'a NULL method or a zero total'
 
 # ------------------------------------------
 # Summary

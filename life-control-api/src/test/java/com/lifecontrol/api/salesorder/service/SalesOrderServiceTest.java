@@ -2422,7 +2422,6 @@ class SalesOrderServiceTest {
                     .orderDate(testOrder.getOrderDate())
                     .status(SalesOrderState.COMPLETED)
                     .totalAmount(BigDecimal.ZERO)
-                    .paymentMethodId(paymentMethodId)
                     .enabled(true)
                     .createdAt(testOrder.getCreatedAt())
                     .updatedAt(testOrder.getUpdatedAt())
@@ -2445,10 +2444,11 @@ class SalesOrderServiceTest {
 
             assertThat(result).isNotNull();
             assertThat(result.statusName()).isEqualTo("Completed");
-            // Verify header saved with Completed status + payment method
-            verify(salesOrderRepository)
-                    .save(argThat(so -> so.getStatus() == SalesOrderState.COMPLETED
-                            && paymentMethodId.equals(so.getPaymentMethodId())));
+            // Verify header saved with Completed status. The document states no payment method any more: V87 dropped
+            // sales_orders.payment_method_id once V86 populated the rows, so the tender the charge took lives in the
+            // payment row asserted by the cases that read `appendedPayments`, and there is no second place to assert
+            // it here.
+            verify(salesOrderRepository).save(argThat(so -> so.getStatus() == SalesOrderState.COMPLETED));
             // Verify both items saved in a single batch with Added status
             var itemsCaptor = ArgumentCaptor.forClass(Iterable.class);
             verify(itemRepository).saveAll(itemsCaptor.capture());
@@ -2563,7 +2563,6 @@ class SalesOrderServiceTest {
                     .orderDate(testOrder.getOrderDate())
                     .status(SalesOrderState.COMPLETED)
                     .totalAmount(BigDecimal.ZERO)
-                    .paymentMethodId(paymentMethodId)
                     .enabled(true)
                     .createdAt(testOrder.getCreatedAt())
                     .updatedAt(testOrder.getUpdatedAt())
@@ -2679,7 +2678,6 @@ class SalesOrderServiceTest {
                     .orderDate(testOrder.getOrderDate())
                     .status(SalesOrderState.COMPLETED)
                     .totalAmount(new BigDecimal("350.0000"))
-                    .paymentMethodId(paymentMethodId)
                     .enabled(true)
                     .build();
 
@@ -2790,7 +2788,6 @@ class SalesOrderServiceTest {
                     .orderDate(testOrder.getOrderDate())
                     .status(SalesOrderState.COMPLETED)
                     .totalAmount(new BigDecimal("120.0000"))
-                    .paymentMethodId(paymentMethodId)
                     .enabled(true)
                     .build();
 
@@ -2872,7 +2869,6 @@ class SalesOrderServiceTest {
                     .orderDate(testOrder.getOrderDate())
                     .status(SalesOrderState.COMPLETED)
                     .totalAmount(new BigDecimal("40.0000"))
-                    .paymentMethodId(paymentMethodId)
                     .enabled(true)
                     .build();
 
@@ -2946,7 +2942,6 @@ class SalesOrderServiceTest {
                     .orderDate(testOrder.getOrderDate())
                     .status(SalesOrderState.COMPLETED)
                     .totalAmount(BigDecimal.ZERO)
-                    .paymentMethodId(paymentMethodId)
                     .enabled(true)
                     .createdAt(testOrder.getCreatedAt())
                     .updatedAt(testOrder.getUpdatedAt())
@@ -3037,7 +3032,6 @@ class SalesOrderServiceTest {
                     .orderDate(testOrder.getOrderDate())
                     .status(SalesOrderState.COMPLETED)
                     .totalAmount(new BigDecimal("250.00"))
-                    .paymentMethodId(paymentMethodId)
                     .enabled(true)
                     .createdAt(testOrder.getCreatedAt())
                     .updatedAt(testOrder.getUpdatedAt())
@@ -3086,14 +3080,19 @@ class SalesOrderServiceTest {
 
             assertThat(result).isNotNull();
             assertThat(result.statusName()).isEqualTo("Completed");
-            assertThat(result.paymentMethodId()).isEqualTo(paymentMethodId);
+            assertThat(appendedPayments)
+                    .as("the tender is a row, now that V87 dropped sales_orders.payment_method_id: the method the "
+                            + "request named is on the payment the charge appended, and the response has no "
+                            + "single-method component left to answer it a second time (ADR-0002 step 6)")
+                    .singleElement()
+                    .satisfies(payment -> assertThat(payment.getMethodId()).isEqualTo(paymentMethodId));
             assertThat(result.totalAmount()).isEqualByComparingTo(new BigDecimal("250.00"));
-            // Verify header saved with Completed status + payment method
+            // Verify header saved with Completed status, and nothing about a method: the column that stated one is
+            // dropped by V87 and the payment row above is what states it now.
             var saveCaptor = ArgumentCaptor.forClass(SalesOrder.class);
             verify(salesOrderRepository, times(2)).save(saveCaptor.capture());
             var savedValues = saveCaptor.getAllValues();
             assertThat(savedValues.get(1).getStatus()).isEqualTo(SalesOrderState.COMPLETED);
-            assertThat(savedValues.get(1).getPaymentMethodId()).isEqualTo(paymentMethodId);
             // Verify both items saved in a single batch with Added status
             var itemsCaptor = ArgumentCaptor.forClass(Iterable.class);
             verify(itemRepository).saveAll(itemsCaptor.capture());
@@ -3276,7 +3275,6 @@ class SalesOrderServiceTest {
                     .orderDate(testOrder.getOrderDate())
                     .status(SalesOrderState.COMPLETED)
                     .totalAmount(new BigDecimal("350.0000"))
-                    .paymentMethodId(cashMethodId)
                     .enabled(true)
                     .build();
 

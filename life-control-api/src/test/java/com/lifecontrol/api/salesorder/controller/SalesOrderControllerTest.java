@@ -128,7 +128,6 @@ class SalesOrderControllerTest {
                 BigDecimal.ZERO,
                 BigDecimal.ZERO,
                 BigDecimal.ZERO,
-                null,
                 true,
                 now,
                 now,
@@ -247,7 +246,6 @@ class SalesOrderControllerTest {
                     BigDecimal.ZERO,
                     BigDecimal.ZERO,
                     new BigDecimal("180.00"),
-                    null,
                     true,
                     testOrderResponse.createdAt(),
                     testOrderResponse.updatedAt(),
@@ -434,7 +432,6 @@ class SalesOrderControllerTest {
                     BigDecimal.ZERO,
                     BigDecimal.ZERO,
                     new BigDecimal("180.00"),
-                    null,
                     true,
                     testOrderResponse.createdAt(),
                     testOrderResponse.updatedAt(),
@@ -508,7 +505,6 @@ class SalesOrderControllerTest {
                     BigDecimal.ZERO,
                     BigDecimal.ZERO,
                     new BigDecimal("180.00"),
-                    paymentMethodId,
                     true,
                     testOrderResponse.createdAt(),
                     testOrderResponse.updatedAt(),
@@ -524,7 +520,7 @@ class SalesOrderControllerTest {
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.id").value(testOrderId.toString()))
                     .andExpect(jsonPath("$.statusName").value("Completed"))
-                    .andExpect(jsonPath("$.paymentMethodId").value(paymentMethodId.toString()))
+                    .andExpect(jsonPath("$.paymentMethodId").doesNotExist())
                     .andExpect(jsonPath("$.payments.length()").value(1))
                     .andExpect(jsonPath("$.payments[0].direction").value("CHARGE"))
                     .andExpect(jsonPath("$.payments[0].methodId").value(paymentMethodId.toString()))
@@ -552,7 +548,6 @@ class SalesOrderControllerTest {
                     BigDecimal.ZERO,
                     BigDecimal.ZERO,
                     new BigDecimal("180.00"),
-                    paymentMethodId,
                     true,
                     testOrderResponse.createdAt(),
                     testOrderResponse.updatedAt(),
@@ -568,7 +563,7 @@ class SalesOrderControllerTest {
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.id").value(testOrderId.toString()))
                     .andExpect(jsonPath("$.statusName").value("Completed"))
-                    .andExpect(jsonPath("$.paymentMethodId").value(paymentMethodId.toString()))
+                    .andExpect(jsonPath("$.paymentMethodId").doesNotExist())
                     .andExpect(jsonPath("$.payments.length()").value(1));
         }
 

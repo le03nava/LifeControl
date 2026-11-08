@@ -398,7 +398,6 @@ describe('SalesOrderService', () => {
         ...mockOrder,
         statusId: 'st-completed',
         statusName: 'Completed',
-        paymentMethodId: 'pm-1',
       };
 
       const payments = [{ paymentMethodId: 'pm-1', amount: 1500 }];
@@ -411,7 +410,6 @@ describe('SalesOrderService', () => {
 
       const result = await promise;
       expect(result.statusName).toBe('Completed');
-      expect(result.paymentMethodId).toBe('pm-1');
     });
 
     it('should propagate 400 error when order is not Pending', async () => {
