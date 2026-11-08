@@ -374,6 +374,54 @@ de sus líneas.
 > (T6/T7 de `odd/tasks/money-first-class.md`). `preflight-money-parts.test.sh` lo fija offline, y el glob
 > del job `Shell & Artifact Integrity` la cablea por existir.
 
+### preflight-payment-methods.sh
+Responde la pregunta que el paso 4 de ADR-0002 no puede responderse solo: **qué órdenes tomaron plata y no
+llevan método de pago**, o sea las que el backfill histórico de pagos tendría que inventar.
+```bash
+./docker/scripts/preflight-payment-methods.sh [dev|staging|prod]
+```
+> Es el pre-flight del paso **4** de ADR-0002, **no** del paso 2: el paso 2 —el total contra la suma de las
+> líneas— es `preflight-money-parts.sh`, y por eso ese reporte no contesta esto. De este reporte depende
+> **D-a** de `odd/tasks/money-first-class.md`: «Skip the order and report it — and measure before deciding.
+> T3's pre-flight emits the count and the ids; at zero the decision evaporates, at a non-zero count it is
+> taken per row with the list in hand». El paso 4 inserta un `sale_payment` por orden `Completed` con «the
+> order's `payment_method_id`», pero esa columna es nullable (`V1:478`) y `sale_payment.method_id` es `NOT
+> NULL` (`V83`): una orden completada sin método no tiene fila que satisfaga las dos. D-a elige **saltear la
+> orden y reportarla** en vez de inventar un método centinela en un catálogo global que vería todo tenant, y
+> este script es la medición que esa decisión necesita.
+>
+> **Qué es "se tomó plata" y qué es "no lleva método", leídos del árbol y no adivinados.** Se tomó plata es
+> `sales_orders.status = 'COMPLETED'` —`SalesOrderService.java:461`, después del guard de `:426` que exige que
+> los pagos no anulados cubran el total; `PENDING` es el estado transitorio que la misma transacción
+> autopromueve y que en reposo no tiene plata—. No lleva método son **dos** hechos juntos, porque el esquema
+> del head registra la plata de una venta en dos lugares: `payment_method_id IS NULL` (la columna que el paso
+> 4 lee) **y** ninguna fila de `sale_payment` que nombre la orden (`V83`; desde T6a el charge escribe esas
+> filas, así que una orden que ya la tiene registra cómo se pagó y el paso 4 no tendría que inventar nada).
+> `enabled` **no** se filtra: una orden borrada lógicamente igual tomó plata.
+>
+> Imprime, por fila, lo que una decisión por orden necesita: id, `order_number`, `company_id`, el estado,
+> `order_date`, **`updated_at`** —el `coalesce(o.updated_at, o.order_date)` con el que el paso 4 fecha
+> `paid_at`, nunca `now()`, que fecharía todo pago histórico el día del deploy— y `total_amount`, que es el
+> `amount` que llevaría la fila inventada. Los veredictos son **`nothing_to_decide`** (ninguna orden
+> `COMPLETED` sin método, así que el paso 4 no tiene nada que inventar y D-a se evapora) y **`manual`** (hay al
+> menos una, y D-a se toma por fila con la lista en la mano: saltearla y reportarla, o nombrar un método). Los
+> códigos de salida son el mismo contrato de tres formas que el pre-flight del paso 2, por la misma razón:
+> **0** nada que decidir, **2** al menos una decisión por fila, **1** el reporte no pudo correr (sin
+> superusuario, psql falló, o el esquema no es el de este árbol) — nunca se lee como un dataset limpio.
+>
+> **Un esquema que no puede leer es un rechazo, no un dataset limpio.** El reporte apunta al esquema del árbol
+> que viaja: estado tipado de `V66`, `total_amount NUMERIC(19,4)` de `V80` y `sale_payment` de `V83`. En una
+> base más vieja —dev está en `V78`— la sentencia no parsea y el script sale **1** nombrando las piezas que
+> necesita y las palabras de psql, porque sobre una base sin libro de pagos toda orden completada parece
+> impaga y un "0 órdenes" ahí sería una respuesta que nadie pudo dar.
+>
+> Es **sólo lectura**: una sola `SELECT`, sin `CREATE`, `INSERT`, `ALTER`, advisory lock ni `SET` de sesión, y
+> lee como **superusuario** por la misma razón que el otro pre-flight —`sales_orders` está con `FORCE ROW
+> LEVEL SECURITY` desde `V65`, así que el dueño lee cero filas—. Ese lector está en
+> `docker/scripts/_preflight_reader.sh`, que **los dos** reportes sourcean: una sola copia de los candidatos,
+> del probe `rolsuper` y del porqué, para que no puedan divergir. `preflight-payment-methods.test.sh` lo fija
+> offline, y el glob del job `Shell & Artifact Integrity` la cablea por existir.
+
 ### cleanup.sh
 Limpia recursos de Docker y archivos locales.
 ```bash
