@@ -97,9 +97,6 @@ public class SalesOrder extends Auditable {
     @Column(name = "rounding_adjustment", precision = 19, scale = 4, nullable = false)
     private BigDecimal roundingAdjustment = BigDecimal.ZERO;
 
-    @Column(name = "payment_method_id")
-    private UUID paymentMethodId;
-
     @Column(name = "enabled", nullable = false)
     private Boolean enabled = true;
 
@@ -179,10 +176,6 @@ public class SalesOrder extends Auditable {
         return roundingAdjustment;
     }
 
-    public UUID getPaymentMethodId() {
-        return paymentMethodId;
-    }
-
     public Boolean getEnabled() {
         return enabled;
     }
@@ -258,10 +251,6 @@ public class SalesOrder extends Auditable {
 
     public void setRoundingAdjustment(BigDecimal roundingAdjustment) {
         this.roundingAdjustment = roundingAdjustment;
-    }
-
-    public void setPaymentMethodId(UUID paymentMethodId) {
-        this.paymentMethodId = paymentMethodId;
     }
 
     public void setEnabled(Boolean enabled) {
@@ -343,11 +332,6 @@ public class SalesOrder extends Auditable {
 
         public Builder totalAmount(BigDecimal totalAmount) {
             order.totalAmount = totalAmount;
-            return this;
-        }
-
-        public Builder paymentMethodId(UUID paymentMethodId) {
-            order.paymentMethodId = paymentMethodId;
             return this;
         }
 

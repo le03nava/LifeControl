@@ -145,7 +145,7 @@ class DocumentStateSchemaMigrationIntegrationTest extends AbstractPostgresIntegr
     void backfillsEachFamilyFromItsOwnCatalogNames() throws Exception {
         migrateTo(PRE_UNIT_HEAD);
         var company = seedCompany();
-        var salesOrder = insertSalesOrder(company, 1, "Completed");
+        var salesOrder = insertCompletedSalesOrder(company, 1);
         var salesOrderItem = insertSalesOrderItem(company, salesOrder, "Added");
         var purchaseOrder = insertPurchaseOrder(company, 1, "Billed");
         var purchaseDetail = insertPurchaseDetail(company, purchaseOrder, "Partial Received");
@@ -321,7 +321,7 @@ class DocumentStateSchemaMigrationIntegrationTest extends AbstractPostgresIntegr
     void theSeededDocumentsSurviveWithAState() throws Exception {
         migrateTo(PRE_UNIT_HEAD);
         var company = seedCompany();
-        var salesOrder = insertSalesOrder(company, 1, "Completed");
+        var salesOrder = insertCompletedSalesOrder(company, 1);
         var purchaseOrder = insertPurchaseOrder(company, 1, "Billed");
         var receipt = insertReceipt(company, purchaseOrder, 1, "Registered");
         migrateToHead();
@@ -534,6 +534,27 @@ class DocumentStateSchemaMigrationIntegrationTest extends AbstractPostgresIntegr
 
     private UUID insertSalesOrder(UUID company, long seq, String statusName) throws SQLException {
         return insertSalesOrder(company, seq, statusId("SALES_ORDER", statusName), null);
+    }
+
+    /**
+     * The same document in the one shape a {@code COMPLETED} sale can reach head in: a catalog state of
+     * {@code Completed}, a payment method and a positive total.
+     *
+     * <p><b>Why those two numbers and not just the state.</b> {@code V86} states a historical payment for every
+     * completed sale that carries a method and a positive total, and {@code V87} refuses to drop
+     * {@code sales_orders.payment_method_id} while a completed sale has no payment row — because on a dataset
+     * that has one, that column is the only record the sale took money. A fixture that left both unset would
+     * reproduce a deploy that `V86`'s two notices report and an operator has to decide per row, which is a fact
+     * about production data and not about the mapping {@code V66} performs; this case asserts the mapping, so it
+     * seeds a tree that can reach head.</p>
+     */
+    private UUID insertCompletedSalesOrder(UUID company, long seq) throws SQLException {
+        var id = insertSalesOrder(company, seq, "Completed");
+        execute(
+                company,
+                "UPDATE sales_orders SET payment_method_id = '" + paymentMethodId()
+                        + "', total_amount = 140.00 WHERE id = '" + id + "'");
+        return id;
     }
 
     /**

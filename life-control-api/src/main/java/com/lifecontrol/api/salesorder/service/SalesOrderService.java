@@ -451,12 +451,6 @@ public class SalesOrderService {
         }
         applyStockChanges(stockOperations);
 
-        // The document keeps stating one method, taken from the first CHARGE row of the request. This is not a
-        // leftover: ADR-0002 migration step 6 drops the column only once the payment rows are populated AND every
-        // reader has moved, and both are still pending — the historical backfill is migration step 4's debt, and
-        // the POS that reads `paymentMethodId` from the response is T8's.
-        so.setPaymentMethodId(payments.get(0).paymentMethodId());
-
         // Transition header to Completed
         moveOrder(so, SalesOrderState.COMPLETED, "charge");
 
@@ -1280,7 +1274,6 @@ public class SalesOrderService {
                 so.getTaxTotal(),
                 so.getRoundingAdjustment(),
                 so.getTotalAmount(),
-                so.getPaymentMethodId(),
                 so.getEnabled(),
                 so.getCreatedAt(),
                 so.getUpdatedAt(),

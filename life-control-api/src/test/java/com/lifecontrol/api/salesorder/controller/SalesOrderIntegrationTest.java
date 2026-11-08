@@ -2315,7 +2315,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                             .with(scopedSalesJwt()))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.statusName").value("Completed"))
-                    .andExpect(jsonPath("$.paymentMethodId").value(paymentMethodId.toString()));
+                    .andExpect(jsonPath("$.paymentMethodId").doesNotExist());
 
             // Verify final order status is Completed
             var finalOrder = inTransaction(() ->
@@ -2325,7 +2325,12 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                     .findByTypeNameAndCode("SALES_ORDER", finalOrder.getStatus().name())
                     .orElseThrow());
             assertThat(finalStatus.getStatusName()).isEqualTo("Completed");
-            assertThat(finalOrder.getPaymentMethodId()).isEqualTo(paymentMethodId);
+            assertThat(paymentsOf(UUID.fromString(orderId)))
+                    .as("ADR-0002 step 6 has run: sales_orders.payment_method_id is dropped by V87, and how the "
+                            + "document was paid is a row — the payment the charge appended, naming the method the "
+                            + "request took the money through")
+                    .singleElement()
+                    .satisfies(payment -> assertThat(payment.methodId()).isEqualTo(paymentMethodId));
 
             // The charge is what books the document: 100 - 3 - 2 = 95, one SALE row per line, each naming its
             // own line. Before T6b this assertion said "stock unchanged after charging" — the movement had already
@@ -3152,10 +3157,11 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
          * half (a 100 note) and {@code change_amount} is what went back (50). A sum above the total would be a row
          * stating money the document does not cost.</p>
          *
-         * <p><b>Why the order still carries a method.</b> {@code sales_orders.payment_method_id} is written from the
-         * first {@code CHARGE} row and still reported, because ADR-0002 migration step 6 drops the column only once
-         * the payment rows are populated and every reader has moved — the POS is T8's. The assertion is that the
-         * column and the row agree, which is what makes the drop mechanical when it comes.</p>
+         * <p><b>Why the document carries no method of its own.</b> {@code sales_orders.payment_method_id} used to be
+         * written from the first {@code CHARGE} row and reported beside the payments. ADR-0002 step 6 dropped it
+         * ({@code V87}) once {@code V86} populated the rows: a document with mixed tender has no "the" method, and
+         * the two rows below are the only statement of how this sale was paid. The assertion is that the response
+         * states no such field and both rows agree with the request.</p>
          */
         @Test
         @DisplayName("appends one CHARGE row per payment when cash and card cover the total between them")
@@ -3213,14 +3219,14 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                     .isNull();
             assertThat(cardRow.changeAmount()).isNull();
 
-            // The document, as the charge's own response states it: Completed, one method — the first CHARGE
-            // row's — and both payments on the sheet.
+            // The document, as the charge's own response states it: Completed, no method of its own, and both
+            // payments on the sheet.
             var root = objectMapper.readTree(charged.getResponse().getContentAsString());
             assertThat(root.get("statusName").asText()).isEqualTo("Completed");
-            assertThat(root.get("paymentMethodId").asText())
-                    .as("ADR-0002 step 6 has not run: the column states the first payment's method, and the "
-                            + "response still reports it")
-                    .isEqualTo(cash.getId().toString());
+            assertThat(root.has("paymentMethodId"))
+                    .as("ADR-0002 step 6 has run: V87 dropped the column, so the response states no single method "
+                            + "and the two rows above are the only statement of how this sale was paid")
+                    .isFalse();
             assertThat(root.get("payments").size()).isEqualTo(2);
 
             // And the charge is still the moment the stock moves, once, whatever the tender (decision 7).
