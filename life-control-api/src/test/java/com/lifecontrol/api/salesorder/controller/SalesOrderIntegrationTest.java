@@ -43,6 +43,7 @@ import com.lifecontrol.api.salesorder.dto.SalesOrderRequest;
 import com.lifecontrol.api.salesorder.dto.UpdateSalesOrderStatusRequest;
 import com.lifecontrol.api.salesorder.model.SalesOrderItemState;
 import com.lifecontrol.api.salesorder.model.SalesOrderState;
+import com.lifecontrol.api.salesorder.repository.SalePaymentRepository;
 import com.lifecontrol.api.salesorder.repository.SalesOrderItemRepository;
 import com.lifecontrol.api.salesorder.repository.SalesOrderRepository;
 import com.lifecontrol.api.shift.model.Shift;
@@ -122,6 +123,18 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
 
     @Autowired
     private SalesOrderItemRepository itemRepository;
+
+    /**
+     * The production reader of what a document has paid, which is ADR-0002 M3 and M5 stated once (T10).
+     *
+     * <p><b>Why the suite calls it directly.</b> {@code netPaid}'s {@code NOT EXISTS (… sale_payment_void …)} has no
+     * other reader in the tree: it runs inside a charge, and a charge is refused by the state guard before it asks a
+     * document that is already {@code COMPLETED}. The exclusion of a voided row is therefore only observable through
+     * the statement itself, on a database, with a void row that a case appended — which is what
+     * {@code MoneyInvariantTests} does, instead of leaving the claim in the unit test's javadoc unproved.</p>
+     */
+    @Autowired
+    private SalePaymentRepository salePaymentRepository;
 
     @Autowired
     private ProductVariantRepository productVariantRepository;
@@ -613,17 +626,23 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
     }
 
     /**
-     * A quantity at the scale the documents speak: two decimals.
+     * A quantity at the scale the columns carry: four decimals.
      *
-     * <p>{@code stock_movement.quantity} and the projections derived from it are {@code NUMERIC(19,4)}, so the
-     * {@code 2.00} a line states arrives as {@code 2.0000} — and {@code BigDecimal.equals}, which compares the scale
-     * as well as the value, would call those two different numbers. Every quantity these readers answer goes through
-     * here, so an assertion compares the number a document states instead of the width of the column that stores it.
-     * The rounding mode is {@code UNNECESSARY} on purpose: a movement carrying sub-cent precision is a fixture
-     * stating a quantity this suite cannot have produced, and it should fail loudly instead of being rounded.
+     * <p>{@code sales_order_items.quantity}, {@code stock_movement.quantity} and the projections derived from them
+     * are all {@code NUMERIC(19,4)} (ADR-0002 decision 1, S2), so a line's {@code 0.3333} arrives as
+     * {@code 0.3333} and a whole {@code 2} arrives as {@code 2.0000} — and {@code BigDecimal.equals}, which compares
+     * the scale as well as the value, would call those two different numbers. Every quantity these readers answer
+     * goes through here, so an assertion compares the number a document states instead of the width of the column
+     * that stores it.
+     *
+     * <p><b>Why four and no longer two.</b> This used to state {@code setScale(2, UNNECESSARY)}, which is the grain
+     * the columns had before the money slice and which <b>fails</b> on a legitimate four-decimal quantity — a per-gram
+     * price is exactly the case decision 1 widened the column for. The rounding mode stays {@code UNNECESSARY}: a
+     * value the column cannot hold is a fixture stating something the schema would have refused, and it should fail
+     * loudly instead of being rounded into agreement.
      */
     private static BigDecimal documentQuantity(BigDecimal stored) {
-        return stored == null ? null : stored.setScale(2, RoundingMode.UNNECESSARY);
+        return stored == null ? null : stored.setScale(4, RoundingMode.UNNECESSARY);
     }
 
     /**
@@ -884,8 +903,8 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
 
             var root = objectMapper.readTree(result.getResponse().getContentAsString());
             assertThat(root.get("totalAmount").decimalValue())
-                    .as("the document's total is Σ of the line's parts (M1, M2)")
-                    .isEqualByComparingTo(new BigDecimal("190.00"));
+                    .as("the document's total is Σ of the line's parts (M1, M2), at the grain the column carries")
+                    .isEqualByComparingTo(new BigDecimal("190.0000"));
             assertThat(root.get("items").get(0).get("finalPrice").decimalValue())
                     .as("V85 (D-h): the response reports the row the trigger wrote — read back, not the number "
                             + "the service built — which is the same fresh-context trap trg_sales_order_items_"
@@ -1159,7 +1178,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             assertThat(locationStockOf(variant.getId(), salesLocationId)).isEqualByComparingTo(new BigDecimal("98.00"));
             assertThat(movementsOf(variant.getId()))
                     .extracting(LedgerMovement::movementType, LedgerMovement::sourceId, LedgerMovement::quantity)
-                    .containsExactly(tuple(StockLedgerWriter.SALE, itemId, new BigDecimal("2.00")));
+                    .containsExactly(tuple(StockLedgerWriter.SALE, itemId, new BigDecimal("2.0000")));
             assertThat(movementsOfType(variant.getId(), StockLedgerWriter.SALE_REVERSAL))
                     .as("nothing was given back, because nothing had been taken")
                     .isEmpty();
@@ -1808,7 +1827,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             var stock = stockPositionOf(variant.getId());
             assertThat(stock)
                     .as("the winner's deduction, and only that one")
-                    .isIn(new BigDecimal("2.00"), new BigDecimal("5.00"));
+                    .isIn(new BigDecimal("2.0000"), new BigDecimal("5.0000"));
             assertThat(stock.compareTo(BigDecimal.ZERO)).isGreaterThanOrEqualTo(0);
             assertThat(locationStockOf(variant.getId(), salesLocationId)).isEqualByComparingTo(stock);
 
@@ -1821,6 +1840,168 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             assertThat(paymentsOf(eight.orderId()).size()
                             + paymentsOf(five.orderId()).size())
                     .isEqualTo(1);
+        }
+
+        /**
+         * Two retries of <b>one</b> charge, released together: one document, one payment, one movement (M10).
+         *
+         * <p><b>Why the sibling case above does not state this.</b> It charges two different documents, so the
+         * serialization it observes is the stock position's. M10 is about the document's own row: «one charge per
+         * order, even under concurrent retries» — and a retry is the same request twice, from the same client, with
+         * the same order id. Two threads, one {@code PATCH /charge}, is what a double-tapped button looks like.</p>
+         *
+         * <p><b>What the lock buys, and what its absence looks like.</b> Both threads read the row before either
+         * commits; without {@code SELECT … FOR UPDATE} both see {@code PENDING}, both pass the guard, both append a
+         * payment and both book the stock. {@code sale_payment} is append-only and the ledger is too, so neither
+         * extra row could be taken back by anything this suite could do: the document would state a sale the
+         * customer paid for twice. With the lock the loser waits, re-reads {@code COMPLETED} and is refused by the
+         * state guard — which is why the refusal's <b>message</b> is asserted and not only its status: a 400 that
+         * came from anywhere else would not be the serialization the invariant claims.</p>
+         */
+        @Test
+        @DisplayName("should append exactly one payment when two retries of one charge race")
+        void concurrentRetriesOfOneCharge_appendExactlyOnePayment() throws Exception {
+            var variant = createTestVariant(new BigDecimal("100.00"));
+            var placed = createOrder(line(null, variant.getId(), "2.00"));
+            transitionOrder(placed.orderId(), activeStatusId);
+            var paymentMethodId = savedPaymentMethodId();
+            var amount = orderMoneyOf(placed.orderId()).totalAmount();
+            var latch = new CountDownLatch(2);
+            var startSignal = new CountDownLatch(1);
+            var answers = new ChargeAnswer[2];
+
+            var first = CompletableFuture.runAsync(
+                    () -> answers[0] = chargeAnswer(latch, startSignal, placed.orderId(), paymentMethodId, amount));
+            var second = CompletableFuture.runAsync(
+                    () -> answers[1] = chargeAnswer(latch, startSignal, placed.orderId(), paymentMethodId, amount));
+
+            latch.await(5, TimeUnit.SECONDS);
+            startSignal.countDown();
+            CompletableFuture.allOf(first, second).get(30, TimeUnit.SECONDS);
+
+            assertThat(List.of(answers[0].status(), answers[1].status()))
+                    .as("the lock makes the retry a no-op: one charge wins the row and the other is refused")
+                    .containsExactlyInAnyOrder(200, 400);
+
+            var refused = answers[0].status() == 200 ? answers[1] : answers[0];
+            assertThat(refused.body())
+                    .as("the loser is refused by the state guard, by name, and not by the database")
+                    .contains("current status is COMPLETED");
+
+            assertThat(paymentsOf(placed.orderId()))
+                    .as("one payment: `sale_payment` is append-only, so a second row could not be taken back")
+                    .hasSize(1);
+            assertThat(movementsOfType(variant.getId(), StockLedgerWriter.SALE))
+                    .as("and one movement: the loser never reached the engine")
+                    .hasSize(1);
+            assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("98.00"));
+            assertThat(orderStateOf(placed.orderId())).isEqualTo(SalesOrderState.COMPLETED);
+        }
+
+        /**
+         * Two line writes on <b>one</b> document, released together: the parts the document states are the sum of
+         * the lines that survived (M2).
+         *
+         * <p><b>Why the sequential case could not state it.</b> {@code updateOrderItems_recomputesTheBreakdown…}
+         * writes one line and reads the parts afterwards, so it proves the recomputation happens and nothing about
+         * the moment it reads. M2 is a statement about a <b>concurrent</b> writer: the parts are recomputed in the
+         * same transaction as the line write <b>under the order's row lock</b>, because a cross-row sum is not
+         * expressible as a {@code CHECK} — nothing but the lock stops two writers from each summing a snapshot in
+         * which the other's line is not there yet, and each committing its own version of the document.</p>
+         *
+         * <p><b>What the loser's state looks like without the lock.</b> Both threads write their own line (no
+         * contention there — two rows), then both sum the lines and both write the five money columns of the same
+         * order row. The last writer wins the parts, and if it summed before the other committed, the parts state a
+         * document that never existed: subtotal 700 against lines that add up to 900, with the two lines intact. No
+         * constraint refuses it — {@code ck_order_total} only holds the parts against each other, which is exactly
+         * why M2 is a service invariant with a named lock.</p>
+         *
+         * <p><b>Why rounds.</b> The window is between the sum and the commit, so an unlocked run can also get the
+         * interleaving right by luck; a probe that runs it once passes about half the time, and a regression case
+         * that passes by luck is not one. Each round owns its document and its two variants, so a round cannot
+         * inherit the previous one's parts.</p>
+         */
+        @Test
+        @DisplayName("should keep the document's parts equal to its lines when two line writes race")
+        void concurrentLineWrites_recomputeThePartsUnderTheOrderLock() throws Exception {
+            for (var round = 1; round <= 5; round++) {
+                var variant = createTestVariant(new BigDecimal("100.00"));
+                var variantB = createTestVariantB(new BigDecimal("100.00"));
+                var placed = createOrder(line(null, variant.getId(), "2.00"), line(null, variantB.getId(), "2.00"));
+                var firstLine = placed.itemId(variant.getId());
+                var secondLine = placed.itemId(variantB.getId());
+
+                var latch = new CountDownLatch(2);
+                var startSignal = new CountDownLatch(1);
+                var results = new int[2];
+
+                var first = CompletableFuture.runAsync(() -> results[0] =
+                        writeLineStatus(latch, startSignal, placed.orderId(), firstLine, variant.getId(), "4.00"));
+                var second = CompletableFuture.runAsync(() -> results[1] =
+                        writeLineStatus(latch, startSignal, placed.orderId(), secondLine, variantB.getId(), "5.00"));
+
+                latch.await(5, TimeUnit.SECONDS);
+                startSignal.countDown();
+                CompletableFuture.allOf(first, second).get(30, TimeUnit.SECONDS);
+
+                assertThat(results)
+                        .as(
+                                "round %d: two lines of one document are two writes, and neither is the other's conflict",
+                                round)
+                        .containsOnly(200);
+
+                var money = orderMoneyOf(placed.orderId());
+                var lines = linePartsOf(placed.orderId());
+                assertThat(money.subtotal())
+                        .as(
+                                "round %d: M2 — the document's subtotal is Σ of its lines', with no lost update and no "
+                                        + "line counted twice",
+                                round)
+                        .isEqualByComparingTo(lines.subtotal());
+                assertThat(money.discountTotal())
+                        .as("round %d: and its discount total is Σ of the lines'", round)
+                        .isEqualByComparingTo(lines.discountTotal());
+                assertThat(money.taxTotal())
+                        .as("round %d: and its tax total is Σ of the lines'", round)
+                        .isEqualByComparingTo(lines.taxTotal());
+                // And the numbers themselves: 4 x 100 and 5 x 100, the two writes that survived.
+                assertThat(money.subtotal())
+                        .as("round %d: the two lines as both writers left them", round)
+                        .isEqualByComparingTo(new BigDecimal("900.0000"));
+                assertThat(money.totalAmount())
+                        .as("round %d: M1 — the total the parts add up to", round)
+                        .isEqualByComparingTo(new BigDecimal("900.0000"));
+            }
+        }
+
+        /**
+         * Writes one line of one document from one of a case's threads and answers the status the API stated.
+         *
+         * <p>The item-level {@code PUT} and not the order-level one: the order-level request replaces the whole line
+         * set, so two of them would overwrite each other's line as well and the race would be about last-write-wins
+         * instead of about the two sums. One line each is the shape that leaves both writes standing and only the
+         * document's money to disagree.</p>
+         */
+        private int writeLineStatus(
+                CountDownLatch ready,
+                CountDownLatch start,
+                UUID orderId,
+                UUID itemId,
+                UUID variantId,
+                String quantity) {
+            try {
+                ready.countDown();
+                start.await(5, TimeUnit.SECONDS);
+                return mockMvc.perform(put("/api/sales-orders/{id}/items/{itemId}", orderId, itemId)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsString(line(itemId, variantId, quantity)))
+                                .with(scopedSalesJwt()))
+                        .andReturn()
+                        .getResponse()
+                        .getStatus();
+            } catch (Exception failed) {
+                return 500;
+            }
         }
 
         /**
@@ -1965,30 +2146,6 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                                 .contentType(MediaType.APPLICATION_JSON)
                                 .content(objectMapper.writeValueAsString(
                                         new UpdateSalesOrderStatusRequest(cancelledStatusId)))
-                                .with(scopedSalesJwt()))
-                        .andReturn()
-                        .getResponse()
-                        .getStatus();
-            } catch (Exception failed) {
-                return 500;
-            }
-        }
-
-        /**
-         * Charges one order from one of the case's threads and answers the status the API stated.
-         *
-         * <p>The amount is the case's, read from the document's row <b>before</b> the two threads are released:
-         * the charge's payments add up to the total exactly (T7b), so a body read inside the race would add a
-         * statement to the window the case exists to measure.</p>
-         */
-        private int chargeStatus(
-                CountDownLatch ready, CountDownLatch start, UUID orderId, UUID paymentMethodId, BigDecimal amount) {
-            try {
-                ready.countDown();
-                start.await(5, TimeUnit.SECONDS);
-                return mockMvc.perform(patch("/api/sales-orders/{id}/charge", orderId)
-                                .contentType(MediaType.APPLICATION_JSON)
-                                .content(objectMapper.writeValueAsString(onePayment(paymentMethodId, amount)))
                                 .with(scopedSalesJwt()))
                         .andReturn()
                         .getResponse()
@@ -2398,6 +2555,43 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
         return new ChargeSalesOrderRequest(List.of(new SalePaymentRequest(paymentMethodId, amount, null, null)));
     }
 
+    /** What one concurrent charge answered: the status, and the body that names which guard refused it. */
+    private record ChargeAnswer(int status, String body) {}
+
+    /**
+     * Charges one order from one of a case's threads and answers what the API stated, body included.
+     *
+     * <p>The amount is the case's, read from the document's row <b>before</b> the two threads are released:
+     * the charge's payments add up to the total exactly (T7b), so a body read inside the race would add a
+     * statement to the window the case exists to measure.</p>
+     *
+     * <p><b>Why the body and not only the status.</b> Two refusals can answer {@code 400} on this endpoint — the
+     * state guard and the tender arithmetic — and only one of them is the loser of a race on the document's state.
+     * A case that asserted the number alone would call a request refused for an unrelated reason a serialization.</p>
+     */
+    private ChargeAnswer chargeAnswer(
+            CountDownLatch ready, CountDownLatch start, UUID orderId, UUID paymentMethodId, BigDecimal amount) {
+        try {
+            ready.countDown();
+            start.await(5, TimeUnit.SECONDS);
+            var response = mockMvc.perform(patch("/api/sales-orders/{id}/charge", orderId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(onePayment(paymentMethodId, amount)))
+                            .with(scopedSalesJwt()))
+                    .andReturn()
+                    .getResponse();
+            return new ChargeAnswer(response.getStatus(), response.getContentAsString());
+        } catch (Exception failed) {
+            return new ChargeAnswer(500, String.valueOf(failed));
+        }
+    }
+
+    /** The status alone, for a case whose assertion is the pair of answers and not the reason of one. */
+    private int chargeStatus(
+            CountDownLatch ready, CountDownLatch start, UUID orderId, UUID paymentMethodId, BigDecimal amount) {
+        return chargeAnswer(ready, start, orderId, paymentMethodId, amount).status();
+    }
+
     /**
      * Charges the document from whatever state the case left it in, which is the whole of what a case needs to
      * say about it.
@@ -2432,6 +2626,94 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
         assertThat(movementsOf(variantId))
                 .as("and the ledger holds no movement of this document's")
                 .isEmpty();
+    }
+
+    /**
+     * The lines' own money, summed from the table the document's parts are derived from: Σ {@code subtotal},
+     * Σ {@code discount_applied} and Σ {@code tax_amount} over the enabled lines (ADR-0002 M2).
+     *
+     * <p><b>Why the columns and not the entities.</b> {@code subtotal} is derived by {@code V81}'s trigger and
+     * {@code final_price} by {@code V85}'s, so the rows are the only place a line's money exists: an entity a write
+     * left behind carries the number the insert sent. Reading the two sides from the schema is also what makes the
+     * comparison the invariant — the document's parts against its lines — instead of two readers of one list.</p>
+     */
+    private record LineParts(BigDecimal subtotal, BigDecimal discountTotal, BigDecimal taxTotal) {}
+
+    private LineParts linePartsOf(UUID orderId) {
+        return inTransaction(() -> jdbcTemplate.queryForObject(
+                """
+                SELECT COALESCE(SUM(subtotal), 0), COALESCE(SUM(discount_applied), 0), COALESCE(SUM(tax_amount), 0)
+                  FROM sales_order_items
+                 WHERE sales_order_id = ? AND enabled
+                """,
+                (rs, rowNum) -> new LineParts(rs.getBigDecimal(1), rs.getBigDecimal(2), rs.getBigDecimal(3)),
+                orderId));
+    }
+
+    /**
+     * The ids of a document's payments, oldest first: what a void row has to name.
+     *
+     * <p>Read under the tenant like {@link #paymentsOf}: {@code V83} armed {@code sale_payment} and forced the
+     * policy, so an unscoped read answers no row instead of the row that is there.</p>
+     */
+    private List<UUID> paymentIdsOf(UUID orderId) {
+        return inTransaction(() -> jdbcTemplate.queryForList(
+                "SELECT id FROM sale_payment WHERE company_id = ? AND sales_order_id = ? ORDER BY paid_at, id",
+                UUID.class,
+                companyId,
+                orderId));
+    }
+
+    /**
+     * The void rows a document's payments carry, read from the table that makes a payment void (M5).
+     *
+     * <p>Its own reader and not a flag on {@link #paymentsOf}: the void is a row in another table, and a payment is
+     * void <b>if and only if</b> a row here names it — so the assertion has to be about these rows and not about a
+     * column somebody could have set.</p>
+     */
+    private List<UUID> voidedPaymentIdsOf(UUID orderId) {
+        return inTransaction(() -> jdbcTemplate.queryForList("""
+                SELECT v.payment_id
+                  FROM sale_payment_void v
+                  JOIN sale_payment p ON p.id = v.payment_id AND p.company_id = v.company_id
+                 WHERE v.company_id = ? AND p.sales_order_id = ?
+                 ORDER BY v.occurred_at, v.payment_id
+                """, UUID.class, companyId, orderId));
+    }
+
+    /**
+     * Appends the void row that makes a payment void (ADR-0002 decision 5, M5).
+     *
+     * <p><b>Why the fixture is the writer.</b> The void is the payment's transition, and no unit of this tree
+     * authorizes one yet: {@code chargeSalesOrder} takes money in and never gives it back (D-g), so the endpoint that
+     * voids a payment is a later unit's. A case that asserts the net excludes a void therefore has to state the row
+     * the way that unit will, through the one privilege the application role holds on this table — {@code INSERT},
+     * which is the half of the append-only rule that must stay open.</p>
+     */
+    private void voidPayment(UUID paymentId, String reason) {
+        inTransaction(() -> jdbcTemplate.update(
+                "INSERT INTO sale_payment_void (payment_id, company_id, actor, reason) VALUES (?, ?, ?, ?)",
+                paymentId,
+                companyId,
+                "supervisor",
+                reason));
+    }
+
+    /**
+     * Appends a {@code REFUND} row the charge never writes: the one direction the request cannot state (D-g).
+     *
+     * <p>It exists here because M3's row-reading half — {@code Σ CHARGE − Σ REFUND} over the non-voided rows — has no
+     * other way to see a refund: the endpoint only charges, so a refund is a row only a fixture can state.</p>
+     */
+    private UUID recordRefund(UUID orderId, UUID paymentMethodId, BigDecimal amount) {
+        return inTransaction(() -> {
+            var paymentId = UUID.randomUUID();
+            jdbcTemplate.update("""
+                    INSERT INTO sale_payment (id, company_id, sales_order_id, method_id, direction, amount, paid_at, actor)
+                    VALUES (?, ?, ?, ?, 'REFUND', ?, now(), ?)
+                    """, paymentId, companyId, orderId, paymentMethodId, amount, "seller");
+            return paymentId;
+        });
     }
 
     @Nested
@@ -2664,6 +2946,181 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             // would send is empty and nothing reached the engine at all.
             assertThat(movementsOf(variant.getId())).isEmpty();
             assertThat(stockPositionOf(variant.getId())).isEqualByComparingTo(new BigDecimal("10.00"));
+        }
+    }
+
+    // ─── T10 — M5's void and M8's rounding boundary ──────────────
+
+    /**
+     * The two invariants of ADR-0002 that no single row can state, and that this suite had never observed.
+     *
+     * <p><b>M5's second half: a void row excludes its payment from the net.</b> The first half — a void is never an
+     * {@code UPDATE} and never a {@code DELETE} — is the trigger and the two {@code REVOKE}s of {@code V83}, and
+     * {@code SalePaymentRepository} is the only reader of the other half: {@code netPaid}'s
+     * {@code NOT EXISTS (SELECT 1 FROM sale_payment_void …)}. No case in the tree inserted a
+     * {@code sale_payment_void} row, so that statement had never run against PostgreSQL, while the unit test's
+     * javadoc already claimed this suite proved it.</p>
+     *
+     * <p><b>M8 and decision 1: the rounding happens once, at the document boundary.</b> Every money assertion in the
+     * service suite states {@code roundingAdjustment = 0.0000}, because every fixture's lines are exactly
+     * representable in MXN — so the one place {@code SalesOrderService.recomputeBreakdown} rounds to the document's
+     * {@code currency.minor_units} was unobserved. The case below builds a line whose money is a ten-thousandth of a
+     * peso, which is the only way to make the adjustment non-zero.</p>
+     */
+    @Nested
+    @DisplayName("T10 A void excludes its payment (M5) and the total is rounded once (M8)")
+    class MoneyInvariantTests {
+
+        /**
+         * M5, read through the production reader, on a database: the net is the charge's payment until a void row
+         * names it, and the payment itself survives.
+         *
+         * <p><b>Why the positive control is half the case.</b> A {@code netPaid} that answered zero for everything
+         * would satisfy the assertion after the void just as well, so the same statement is read before it: the
+         * number has to be the total first and zero second, and the only thing that changed between the two reads is
+         * the void row. That is the biconditional M5 states — a payment is void <b>if and only if</b> a void row names
+         * it — observed from the side that decides what the customer has paid.</p>
+         *
+         * <p><b>Why the row count is the other half.</b> A void that deleted the payment would also make the net
+         * zero, and it would destroy the drawer's history: {@code sale_payment_void} is an appended row precisely so
+         * the voided payment is still readable beside the row that voided it.</p>
+         */
+        @Test
+        @DisplayName("a void row excludes its payment from the net, and the payment row survives it")
+        void voidRow_excludesItsPaymentFromTheNet() throws Exception {
+            var variant = createTestVariant(new BigDecimal("100.00"));
+            var placed = createOrder(line(null, variant.getId(), "2.00"));
+            transitionOrder(placed.orderId(), activeStatusId);
+            charge(placed.orderId(), savedPaymentMethodId());
+
+            var total = orderMoneyOf(placed.orderId()).totalAmount();
+            assertThat(inTransaction(() -> salePaymentRepository.netPaid(companyId, placed.orderId())))
+                    .as("what the document has paid is the charge's one payment")
+                    .isEqualByComparingTo(total);
+
+            var paymentId = paymentIdsOf(placed.orderId()).get(0);
+            voidPayment(paymentId, "wrong tender: the customer paid with a card");
+
+            assertThat(inTransaction(() -> salePaymentRepository.netPaid(companyId, placed.orderId())))
+                    .as("M5: a payment is void if and only if a void row names it, so the net no longer counts it")
+                    .isEqualByComparingTo(new BigDecimal("0.0000"));
+            assertThat(paymentsOf(placed.orderId()))
+                    .as("and the payment is still there — a void is an appended row, never a delete")
+                    .hasSize(1);
+            assertThat(voidedPaymentIdsOf(placed.orderId()))
+                    .as("the void row names exactly the payment it voids")
+                    .containsExactly(paymentId);
+        }
+
+        /**
+         * M5 through the only HTTP path that reads the net: a voided refund stops reducing what the document has
+         * paid, so the same request that was refused is accepted.
+         *
+         * <p><b>Why a refund and not a charge.</b> The request the charge appends is always for the document's total,
+         * so a voided {@code CHARGE} row only ever adds to the sum and no answer would change. A {@code REFUND}
+         * subtracts — M3 states {@code Σ CHARGE − Σ REFUND} — which makes it the one row whose exclusion is
+         * observable through the guard: counted, the net is 150 against a total of 200 and the charge is refused;
+         * voided, the net is 200 and the same charge completes.</p>
+         *
+         * <p><b>What this pins besides the exclusion.</b> That the guard reads rows and not the request: the two
+         * attempts send the identical body, and only the void row between them changed the answer. And that a
+         * refused charge appends nothing — the 200 row it inserted before the guard is rolled back with the
+         * transaction, which is the half {@code sale_payment}'s append-only rule makes unrecoverable if it were not.</p>
+         */
+        @Test
+        @DisplayName(
+                "the guard reads the net of the non-voided rows: a live refund reduces it and a voided one does not")
+        void chargeGuard_readsTheNetOfTheNonVoidedRows() throws Exception {
+            var variant = createTestVariant(new BigDecimal("100.00"));
+            var placed = createOrder(line(null, variant.getId(), "2.00"));
+            transitionOrder(placed.orderId(), activeStatusId);
+            var paymentMethodId = savedPaymentMethodId();
+            var total = orderMoneyOf(placed.orderId()).totalAmount();
+
+            var refundId = recordRefund(placed.orderId(), paymentMethodId, new BigDecimal("50.0000"));
+
+            var refused = mockMvc.perform(patch("/api/sales-orders/{id}/charge", placed.orderId())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(onePayment(paymentMethodId, total)))
+                            .with(scopedSalesJwt()))
+                    .andReturn();
+            assertThat(refused.getResponse().getStatus()).isEqualTo(409);
+            assertThat(refused.getResponse().getContentAsString())
+                    .as("the refusal states the net it read: the charge's 200 minus the live refund's 50")
+                    .contains("its non-voided payments add up to 150.0000")
+                    // The total is the one the breakdown just wrote, so it is stated at the currency's own
+                    // scale: MXN rounds to two decimals (decision 1), and 200.0000 is the column's grain.
+                    .contains("does not cover the order's total of 200.00");
+            assertThat(paymentsOf(placed.orderId()))
+                    .as("the refused charge appended nothing: the table holds the refund and only it")
+                    .hasSize(1);
+
+            voidPayment(refundId, "the refund was recorded against the wrong document");
+
+            charge(placed.orderId(), paymentMethodId);
+
+            assertThat(paymentsOf(placed.orderId()))
+                    .as("the voided refund and the charge: two rows, neither of them edited")
+                    .hasSize(2);
+            assertThat(voidedPaymentIdsOf(placed.orderId())).containsExactly(refundId);
+            assertThat(inTransaction(() -> salesOrderRepository
+                            .findById(placed.orderId())
+                            .orElseThrow()
+                            .getStatus()))
+                    .as("and the document completed, on the net the void left")
+                    .isEqualTo(SalesOrderState.COMPLETED);
+        }
+
+        /**
+         * M8 and decision 1, at the boundary they are about: the line keeps a ten-thousandth, the document rounds
+         * once, and the difference is stated as the adjustment instead of being absorbed.
+         *
+         * <p><b>Why {@code 0.3333 × 1.0000}.</b> MXN's minor unit is 0.01 ({@code currency.minor_units = 2}), so the
+         * line's 0.3333 is not representable in it. Rounding the <b>line</b> to 0.33 would make the document's
+         * subtotal disagree with its own lines by a ten-thousandth per line — which is what «never per line, which
+         * is how a total stops matching the paper» (S2) forbids. Rounding only the total is what leaves an
+         * adjustment of {@code 0.3300 − 0.3333 = −0.0033}.</p>
+         *
+         * <p><b>What each assertion rules out.</b> The subtotal at four decimals rules out a per-line rounding; the
+         * total at two rules out no rounding at all; the adjustment being exactly the difference rules out a total
+         * that was rounded and a document that did not say so; M1's exact sum is the {@code CHECK} read back; and the
+         * bound is M8's, one minor unit of the document's own currency — a {@code CHECK} cannot read the catalog, so
+         * this is the only place the bound can be stated against the currency instead of against the literal 1.</p>
+         */
+        @Test
+        @DisplayName("rounds the total once at the document boundary and states the difference as the adjustment")
+        void documentTotal_roundsOnceAtTheDocumentBoundary() throws Exception {
+            var variant = createTestVariant(new BigDecimal("100.00"));
+
+            var placed = createOrder(new SalesOrderItemRequest(
+                    null, variant.getId(), new BigDecimal("0.3333"), new BigDecimal("1.0000"), BigDecimal.ZERO, null));
+
+            var money = orderMoneyOf(placed.orderId());
+            assertThat(money.subtotal())
+                    .as("the line's money is not rounded: four decimals is the grain the column carries")
+                    .isEqualByComparingTo(new BigDecimal("0.3333"));
+            assertThat(money.roundingAdjustment())
+                    .as("the difference is stated as the adjustment instead of being absorbed silently")
+                    .isEqualByComparingTo(new BigDecimal("-0.0033"));
+            assertThat(money.totalAmount())
+                    .as("decision 1: rounded once, at the document boundary, to the currency's minor units")
+                    .isEqualByComparingTo(new BigDecimal("0.3300"));
+            assertThat(money.subtotal()
+                            .subtract(money.discountTotal())
+                            .add(money.taxTotal())
+                            .add(money.roundingAdjustment()))
+                    .as("M1, exact equality: the four parts add up to the total")
+                    .isEqualByComparingTo(money.totalAmount());
+            assertThat(money.roundingAdjustment().abs())
+                    .as("M8: the adjustment stays within one minor unit of the document's currency (0.01)")
+                    .isLessThan(new BigDecimal("0.01"));
+
+            var root = orderResponseOf(placed.orderId());
+            assertThat(decimalOf(root, "totalAmount")).isEqualByComparingTo(new BigDecimal("0.3300"));
+            assertThat(decimalOf(root, "roundingAdjustment")).isEqualByComparingTo(new BigDecimal("-0.0033"));
+            assertThat(decimalOf(root.get("items").get(0), "subtotal"))
+                    .as("the line's own money is stated at four decimals, unrounded")
+                    .isEqualByComparingTo(new BigDecimal("0.3333"));
         }
     }
 
@@ -3276,8 +3733,8 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             assertThat(sales)
                     .extracting(LedgerMovement::storeLocationId, LedgerMovement::quantity)
                     .containsExactlyInAnyOrder(
-                            tuple(salesLocationId, new BigDecimal("3.00")),
-                            tuple(secondaryLocationId, new BigDecimal("2.00")));
+                            tuple(salesLocationId, new BigDecimal("3.0000")),
+                            tuple(secondaryLocationId, new BigDecimal("2.0000")));
             assertThat(sales).allSatisfy(m -> assertThat(m.sourceId()).isEqualTo(itemId));
 
             // Deleting the charged document reverses the ledger, so each location gets back exactly what it gave
@@ -3295,8 +3752,8 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             assertThat(reversals)
                     .extracting(LedgerMovement::storeLocationId, LedgerMovement::quantity)
                     .containsExactlyInAnyOrder(
-                            tuple(salesLocationId, new BigDecimal("3.00")),
-                            tuple(secondaryLocationId, new BigDecimal("2.00")));
+                            tuple(salesLocationId, new BigDecimal("3.0000")),
+                            tuple(secondaryLocationId, new BigDecimal("2.0000")));
         }
     }
 
@@ -3562,7 +4019,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             assertThat(locationStockOf(variant.getId(), salesLocationId)).isEqualByComparingTo(new BigDecimal("95.00"));
             assertThat(movementsOf(variant.getId()))
                     .extracting(LedgerMovement::movementType, LedgerMovement::sourceId, LedgerMovement::quantity)
-                    .containsExactly(tuple(StockLedgerWriter.SALE, itemId, new BigDecimal("5.00")));
+                    .containsExactly(tuple(StockLedgerWriter.SALE, itemId, new BigDecimal("5.0000")));
             assertThat(movementsOfType(variant.getId(), StockLedgerWriter.SALE_REVERSAL))
                     .isEmpty();
         }
@@ -3591,7 +4048,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                     .isEqualByComparingTo(new BigDecimal("10.00"));
             assertThat(movementsOf(variant.getId()))
                     .extracting(LedgerMovement::movementType, LedgerMovement::storeLocationId, LedgerMovement::quantity)
-                    .containsExactly(tuple(StockLedgerWriter.SALE, salesLocationId, new BigDecimal("2.00")));
+                    .containsExactly(tuple(StockLedgerWriter.SALE, salesLocationId, new BigDecimal("2.0000")));
         }
 
         @Test
@@ -3663,7 +4120,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                     .isEqualByComparingTo(new BigDecimal("11.00"));
             assertThat(movementsOfType(newVariant.getId(), StockLedgerWriter.SALE))
                     .extracting(LedgerMovement::sourceId, LedgerMovement::quantity)
-                    .containsExactly(tuple(itemId, new BigDecimal("2.00")));
+                    .containsExactly(tuple(itemId, new BigDecimal("2.0000")));
             assertThat(itemRepository.findById(itemId).orElseThrow().getProductVariantId())
                     .isEqualTo(newVariant.getId());
         }
@@ -3777,7 +4234,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                     .isEqualByComparingTo(new BigDecimal("7.00"));
             assertThat(movementsOfType(newVariant.getId(), StockLedgerWriter.SALE))
                     .extracting(LedgerMovement::sourceId, LedgerMovement::quantity)
-                    .containsExactly(tuple(itemId, new BigDecimal("3.00")));
+                    .containsExactly(tuple(itemId, new BigDecimal("3.0000")));
             assertThat(itemRepository.findById(itemId).orElseThrow().getProductVariantId())
                     .isEqualTo(newVariant.getId());
         }
