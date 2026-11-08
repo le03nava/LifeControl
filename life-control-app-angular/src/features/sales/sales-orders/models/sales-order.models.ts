@@ -31,14 +31,11 @@ export interface SalesOrder {
   roundingAdjustment?: number;
   totalAmount: number;
   /**
-   * The single payment method of the charge that has not become a payment list yet.
+   * The payment rows a charge appended, oldest first.
    *
-   * @deprecated `sale_payment` rows carry the tender since `V83` (ADR-0002 decision 5). Migration step 6 drops
-   * this column once the historical backfill and the POS reader have landed; until then it is read-only here and
-   * the charge states `payments`.
+   * The only statement of how the document was paid: ADR-0002 step 6 dropped `sales_orders.payment_method_id`
+   * (`V87`), so the response no longer carries a single method. A tender is a row, and a sale can have several.
    */
-  paymentMethodId?: string;
-  /** The payment rows a charge appended, oldest first. */
   payments?: SalePayment[];
   enabled: boolean;
   createdAt: string;
