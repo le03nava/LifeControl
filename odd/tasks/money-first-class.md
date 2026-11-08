@@ -9,7 +9,8 @@ charge in two slices, each named in its own `Tasks` row: T6a is its money half, 
 from the create/edit path into that same charge. T7 is the API surface, in three slices: T7c the line total
 `V85` derives, T7a the read sheet, T7b the charge with many payments. T8 is the Angular POS — the document's
 currency in place of the app's default, four-decimal amounts, mixed tender with change, the server's line parts,
-and the notice for the rows the server has not answered for — and T10 is the suite that states the invariants. Nothing is dropped or deferred silently: T4 owes the copy of the
+and the notice for the rows the server has not answered for — and T10 is the suite that states the invariants, which it now does: every gap it existed for is closed and each
+case was observed failing against a deliberately broken invariant before it was declared green. Nothing is dropped or deferred silently: T4 owes the copy of the
 rate onto the line until some unit states a line's `tax_code`, T5 owes the historical payment backfill of
 ADR-0002 step 4, and step 6's drop of `sales_orders.payment_method_id` waits on that backfill, which the POS reader no
 longer blocks (T8 moved every reader of the document's money), together with both of step 6's own conditions. `sales_orders.company_id`, the column that used to be named here as another unit's to deliver,
@@ -104,7 +105,7 @@ every cash report by date wrong from that minute on».
 | T7b | S1, S3, S4, S6 | **(done, 2026-11-07)** Write surface: `ChargeSalesOrderRequest` carries a payment list with tender and change, **D-g** (decided 2026-11-07) fixes it to `CHARGE` only — a `REFUND` is refused by name — M3 becomes exact equality against the breakdown, M4 refuses change on a method that is not cash, and `@Digits(fraction = 4)` plus `@Valid` on the items state the scale the columns carry on both requests | T7a, T5, D-g | inline |
 | T8 | S1, S2 | **(done, 2026-11-07)** Angular POS. `MoneyPipe` (`shared/pipes/money.pipe.ts`) renders every sales money value in the document's own `currency` at `1.4-4` and names its absence instead of falling back to the app's default (**D-j**); the item table renders the server's `subtotal`/`taxAmount`/`finalPrice` in place of its own arithmetic and names the rows it could not represent (**D-i**); the money inputs take four decimals (`step="0.0001"`); and `sales-order-charge-panel` states a payment list — mixed tender, tender and change only for a cash method (M4) — because `PATCH /charge` has taken `payments[]` since T7b and the old single-method button still sent `{ paymentMethodId }`. `sales-money-currency.spec.ts` fails the build if a sales template uses a bare `\| currency` or an `'MXN'` literal | T7 | inline; disjoint surface from T2–T7, so a second writer is admissible |
 | T9 | — | The four ADR corrections under `## Reconciliation`: `purchase_order_items` → `purchase_order_details`, the two drifted line citations, the `NOT NULL` method against a nullable column, and `is_cash` with no backfill | — | inline |
-| T10 | S1–S7 | Tests: RED first per spec, M1 and M5 through the schema, M2 and M10 through the service under concurrency, M4 through the domain guard, and the scale/rounding boundary in place of the two-decimal assertions | T2–T8 | inline |
+| T10 | S1–S7 | **(done, 2026-11-07)** The invariant suite, over gaps measured before it was written. **M5's second half** had never run against a database — no test anywhere inserted a `sale_payment_void` row — so `MoneyInvariantTests` charges, voids the payment, and reads the net (`SalesOrderIntegrationTest.java:2990`), with a second case taking the same reader through the charge guard (409, and the refusal states the net it read). **M10** gains the case it lacked, two concurrent **retries of one order** (200 + 400, one `sale_payment` row, one movement), and the charge's own `findByIdForUpdate` is pinned at the statement in the unit test. **M2** gains concurrent line writes on one order asserting the parts stay Σ of the lines. **M8's domain half** gains the case nothing produced before: a total that its currency cannot represent, so `rounding_adjustment` is non-zero, the adjustment absorbs at most one minor unit and M1 stays exact. **M4** gains the domain-guard cases (non-cash tender refused by name, tender below the amount and change beyond the tender both refused, cash with a consistent pair accepted). The two-decimal assumptions the ADR's consequence names are gone: `documentQuantity` reads at the columns' scale instead of `setScale(2, UNNECESSARY)`, and the tuple constants and total assertions it feeds state four decimals — values unchanged, grain restated. Test-only: `git diff -- life-control-api/src/main` is empty | T2–T8 | inline; three commits — one per suite file, then this record |
 
 ## Reconciliation — four corrections and three decisions
 
@@ -1144,3 +1145,76 @@ display and charge — share four files (`sales-order.models.ts`, `sales-order.s
 page does not yet pass, i.e. a commit that is not green. The unit is ~1,300 authored lines including tests, over
 the ~400 budget, so the PR that ships it should carry it as two slices cut along those four files at author time
 if the reviewer wants them apart.
+
+**2026-11-07 — T8 delivered.** PR **#807** (`feat(sales): state the document's money and take payments on the
+POS`) merged to `main` as **`f57a8e66`**; issue **#806** approved (`status:approved`) and closed by `Closes #806`.
+Two commits travelled: `3f921558` (source + specs) and `7fc3e69a` (this record). CI green on all six checks —
+`Lint & Build`, both unit shards, `Coverage`, and the two label/issue guards — over 26 files and +1,371/−109
+lines; the local gate was `npx ng test --no-watch` at **198 files / 4,137 cases** and `npm run lint`, plus
+`odd-status-headers.test.sh` (148 records) because the slice edits this record. The delivery carried T8 as one
+PR rather than two slices: the display and charge halves share four files (`sales-order.models.ts`,
+`sales-order.service.ts`, and the edit page's `.ts` and `.html`), so the split would have left an intermediate
+commit whose item table asks for a currency its page does not yet pass.
+
+**2026-11-07 — T10 states the invariants, and every case was made to fail before it was believed.** The gaps were
+measured first, and four of the ten invariants had a half that nothing observed: M5's second half was never run
+against a database (no test in the tree inserted a `sale_payment_void` row, and the unit test's javadoc already
+claimed an integration suite proved it), M10 had a sequential retry and a two-different-orders race but no
+concurrent retry of **one** order, M2 had only the sequential recompute, and M8's `minor_units` half was
+unobserved because every existing service assertion carried `rounding_adjustment = 0.0000`.
+
+**The mutations are the evidence, and they are the reason to trust the suite.** Each new case was run against a
+deliberately broken invariant and observed failing, then restored; `git diff -- life-control-api/src/main` is
+empty. The five, with the failure each produced:
+
+- drop the `NOT EXISTS … sale_payment_void` half of `SalePaymentRepository.netPaid:39-45` → M5's direct case
+  reads `200.0000` where it expects `0.0000`, and the guard case answers `200` where the voided refund should have
+  left it refusing with `409`.
+- `findByIdForUpdate` → `findById` at the top of `chargeSalesOrder` (`SalesOrderService.java:371`) → the two
+  concurrent retries of one order both pass the guard and the loser dies at the database (`[200, 500]` where
+  `[200, 400]` is required); the unit pin fails too, with the charge sailing past the row it no longer locked.
+- remove the lock from the line-write path — **both** take-order-lock sites, `loadAndValidateModifiableSO:822`
+  **and** `recomputeBreakdown:1134` → M2's concurrent case reads `700.0000` where it expects `900.0000`. The first
+  attempt, removing only the load's lock, left the case **passing**: the line-write path takes that lock twice and
+  the load-bearing one is the recompute's. Recorded because a case that cannot tell two locks apart is worth
+  knowing about.
+- drop the minor-units rounding (`SalesOrderService.java:1151`) → the rounding-boundary case reads
+  `rounding_adjustment = 0.0000` where the exact arithmetic produced `-0.0033`, i.e. the difference was absorbed
+  silently, which is the behaviour decision 1 forbids.
+- neutralise the cash check (`SalesOrderService.java:535`) → the three M4 unit cases fail by name, and the
+  pre-existing HTTP case flips from `409` to `200`.
+
+**What the suite now states, with the numbers it states them at.** `MoneyInvariantTests` is a nested class in
+`SalesOrderIntegrationTest` (`:2990-3125`) and carries M5's biconditional, the same reader through the charge
+guard, and the rounding boundary — the case that finally produces a non-zero `rounding_adjustment`
+(`subtotal 0.3333`, adjustment `-0.0033`, total `0.3300`, |adjustment| ≤ one MXN minor unit, and M1 exact).
+`concurrentRetriesOfOneCharge_appendExactlyOnePayment` (`:1863`) and
+`concurrentLineWrites_recomputeThePartsUnderTheOrderLock` (`:1926`) hold the two concurrency cases, and
+`chargeStatus` moved to the outer class delegating to one `chargeAnswer` so the three concurrency cases share a
+single request shape. In the unit suite, `chargeSalesOrder_TakesTheRowLock` (`SalesOrderServiceTest.java:3149`)
+pins the locked read — with `doReturn`, because `when()` cannot state it while the lenient fixture answer routes
+through the unlocked read — and the three M4 guard cases sit at `:3177`, `:3210` and `:3252`.
+
+**The two-decimal grain is gone, and no value changed.** `documentQuantity` reads at the columns' own scale
+instead of `setScale(2, RoundingMode.UNNECESSARY)` — the one `RoundingMode` in the whole test tree, and it failed
+on any legitimate four-decimal quantity — and the literals it feeds, the tuple constants and the seven total assertions now say `190.0000`/`0.0000`/`2.0000`. Every restatement was verified to state
+the same number at the grain the column carries.
+
+**GREEN on the final bytes.** `./gradlew spotlessCheck test spotbugsMain` → **1,084 result suites / 4,601 tests /
+0 failures / 0 errors / 0 skipped**, `spotbugsMain` with **0** `BugInstance`, exit 0; the sales-order suites alone
+are **231**. `spotlessCheck` failed once on hand-formatting before `spotlessApply` reformatted the two test files
+and nothing else.
+
+**The slice boundary, measured.** Three commits: `SalesOrderIntegrationTest` (+501/−44), `SalesOrderServiceTest`
+(+217/−7) and this record. The first is over the ~400 budget on purpose — it carries four invariants that share the
+same new helpers (`paymentIdsOf`, `voidedPaymentIdsOf`, `voidPayment`, `recordRefund`, `linePartsOf`,
+`chargeAnswer`) and the `documentQuantity` grain change that every one of them reads through, so splitting it
+would have meant writing those helpers twice or leaving a commit whose cases do not compile.
+
+**Three limits are named rather than smoothed over.** (a) M2's concurrent case is timing-dependent by nature: it
+runs five rounds and the mutation failed on the first, but a future run could in principle be luckier, so the case
+is evidence and not a proof. (b) The new M4 unit cases stub the locked read, so they also fail under the
+charge-lock mutation: their red is not exclusively M4's. (c) The guard case asserts the total as the refusal
+messages it — `200.00`, the value `recomputeBreakdown` writes at MXN's minor units, not the column's `200.0000` —
+and the comment in place says why, so a later reader does not "fix" it into a fourth decimal the message never
+had.
