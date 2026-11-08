@@ -7,11 +7,12 @@ both sales tables, T3 the runnable pre-flight of migration step 2, T4 the platfo
 tenant rate table and the resolver, T5 the payment rows, their voids and the cash flag the guard reads, and T6 the
 charge in two slices, each named in its own `Tasks` row: T6a is its money half, and T6b moved the stock booking
 from the create/edit path into that same charge. T7 is the API surface, in three slices: T7c the line total
-`V85` derives, T7a the read sheet, T7b the charge with many payments. T8 edits the Angular POS and T10 is the
-suite that states the invariants. Nothing is dropped or deferred silently: T4 owes the copy of the
+`V85` derives, T7a the read sheet, T7b the charge with many payments. T8 is the Angular POS — the document's
+currency in place of the app's default, four-decimal amounts, mixed tender with change, the server's line parts,
+and the notice for the rows the server has not answered for — and T10 is the suite that states the invariants. Nothing is dropped or deferred silently: T4 owes the copy of the
 rate onto the line until some unit states a line's `tax_code`, T5 owes the historical payment backfill of
-ADR-0002 step 4, and step 6's drop of `sales_orders.payment_method_id` waits on both that backfill and the POS
-reader T8 moves. `sales_orders.company_id`, the column that used to be named here as another unit's to deliver,
+ADR-0002 step 4, and step 6's drop of `sales_orders.payment_method_id` waits on that backfill, which the POS reader no
+longer blocks (T8 moved every reader of the document's money), together with both of step 6's own conditions. `sales_orders.company_id`, the column that used to be named here as another unit's to deliver,
 exists since `V64`, and the document state guard and the stock ledger this record once waited on are T6's and
 landed. Six decisions are taken: D-c (`companies.currency`), which decision 2, the `## Schema` block and
 migration step 1 of the accepted ADR state; **D-e** (2026-11-01), which keeps the 0002 → 0004 edge and moves
@@ -101,7 +102,7 @@ every cash report by date wrong from that minute on».
 | T7c | S1, S2, S3 | **(done, 2026-11-07)** `V85`: `final_price` becomes the line total the ADR defines — `subtotal - discount_applied + tax_amount` — derived by a `BEFORE INSERT OR UPDATE OF list_price, quantity, discount_applied, tax_amount` trigger exactly as `V81` derives `subtotal`, with a backfill that restates the column from each row's own parts before `ck_item_total` judges it (**D-h**, decided 2026-11-07). It moves no `total_amount`: since T6a the document's total is Σ of the parts and never a sum of `final_price`. The entity field becomes read-only and the write sites stop stating a number the schema owns. Ships first, because T7a reports a column whose meaning this slice settles | T6a, T2 | inline; item 1, own commit |
 | T7a | S1, S2, S3 | **(done, 2026-11-07)** Read surface: `SalesOrderResponse` gains `currency`, the four breakdown parts and `payments`; `SalesOrderItemResponse` gains `subtotal`, `tax_code`/`tax_rate`/`tax_amount` and the two catalog snapshots, and `finalPrice` keeps reporting the stored line total. The breakdown stays read-only in both directions: no request states a part, and no response omits one | T7c | inline |
 | T7b | S1, S3, S4, S6 | **(done, 2026-11-07)** Write surface: `ChargeSalesOrderRequest` carries a payment list with tender and change, **D-g** (decided 2026-11-07) fixes it to `CHARGE` only — a `REFUND` is refused by name — M3 becomes exact equality against the breakdown, M4 refuses change on a method that is not cash, and `@Digits(fraction = 4)` plus `@Valid` on the items state the scale the columns carry on both requests | T7a, T5, D-g | inline |
-| T8 | S1, S2 | Angular POS: the document's currency instead of `DEFAULT_CURRENCY_CODE`, four-decimal amounts without losing the display rounding, mixed tender with change, the item table showing the server's line parts, and the discard notice when a breakdown part cannot be represented | T7 | inline; disjoint surface from T2–T7, so a second writer is admissible |
+| T8 | S1, S2 | **(done, 2026-11-07)** Angular POS. `MoneyPipe` (`shared/pipes/money.pipe.ts`) renders every sales money value in the document's own `currency` at `1.4-4` and names its absence instead of falling back to the app's default (**D-j**); the item table renders the server's `subtotal`/`taxAmount`/`finalPrice` in place of its own arithmetic and names the rows it could not represent (**D-i**); the money inputs take four decimals (`step="0.0001"`); and `sales-order-charge-panel` states a payment list — mixed tender, tender and change only for a cash method (M4) — because `PATCH /charge` has taken `payments[]` since T7b and the old single-method button still sent `{ paymentMethodId }`. `sales-money-currency.spec.ts` fails the build if a sales template uses a bare `\| currency` or an `'MXN'` literal | T7 | inline; disjoint surface from T2–T7, so a second writer is admissible |
 | T9 | — | The four ADR corrections under `## Reconciliation`: `purchase_order_items` → `purchase_order_details`, the two drifted line citations, the `NOT NULL` method against a nullable column, and `is_cash` with no backfill | — | inline |
 | T10 | S1–S7 | Tests: RED first per spec, M1 and M5 through the schema, M2 and M10 through the service under concurrency, M4 through the domain guard, and the scale/rounding boundary in place of the two-decimal assertions | T2–T8 | inline |
 
@@ -344,6 +345,8 @@ edits this same table, and **D-a is the one still open** — it is a measurement
 
 | D-g | **Decided 2026-11-07, by the maintainer on the recommendation: the charge takes money in only.** `sale_payment.direction` stays in the schema and a `REFUND` row stays expressible, but `PATCH /api/sales-orders/{id}/charge` inserts `CHARGE` rows and refuses a refund **by name**, so the endpoint that records money coming in never becomes the endpoint money leaves by | Decision 5 gives refunds a direction and a row, and the ADR's `## Out of scope` says who authorizes one «is a workflow and not this schema». Accepting `REFUND` here would answer that question with "whoever can charge" — a money-out surface with no control of its own — and the void table T5 built would still have no endpoint either way. A refusal that names the direction costs one exception now and leaves the authorization unit free to choose its own shape |
 | D-h | **Decided 2026-11-07, by the maintainer: `final_price` is the line total the ADR defines, and `ck_item_total` lands with it.** `V85` derives the column (`subtotal - discount_applied + tax_amount`) and restates the historical rows from their own parts before the constraint judges them | The other two shapes each leave the tree stating one thing twice. Pinning the unit grain means the ADR's `ck_item_total` is never enforceable and `ck_item_tax` keeps computing a line's tax from a line subtotal minus one unit's discount. Leaving it out a third time keeps `final_price` as the only stored money column with no invariant, in the slice whose whole subject is the document's parts. The reading costs a restated derived column and no document total: `total_amount` is untouched, `final_price` has no money consumer inside the API since T6a, and after the backfill the column has one meaning rather than two |
+| D-i | **Decided 2026-11-07 by the maintainer, on the recommendation: the «discard notice» is the row the server has not answered for.** The table renders the server's `subtotal`, `taxAmount` and `finalPrice`; a row that has no parts yet shows the local estimate **labelled** as one, under `[data-testid="local-parts-notice"]`, and the summary labels a local total the same way | The row T8 names is not developed by the ADR, and this is the only reading the ADR does not contradict. Per-part rounding contradicts decision 1's «rounding happens once, at the document boundary»: it would make the screen disagree with the stored value. A client-side copy of M3 is the integrity boundary `## Out of scope, named` refuses («the form is not an integrity boundary»), and the server already refuses it. And the case is real rather than hypothetical: `mergeLineItems` keeps a row without an `id` while its own create is in flight, and the three server fields were being discarded at `toItemTableRow` — «discard» names the defect this slice removes |
+| D-j | **Decided 2026-11-07 by the maintainer: `DEFAULT_CURRENCY_CODE` stays, and the sales surface stops depending on it.** `MoneyPipe` takes the currency as an argument, names its absence as «(no currency)» instead of falling back to the token, and a source spec fails the build if a template under `src/features/sales` uses a bare `\| currency` or states an `'MXN'` literal | One `provide()` and six templates outside sales read the token (`product-variant-list`, `product-variant-stock-search`, `purchase-order-edit`, `detail-table`, `product-variant-picker`, `contract-history`). Removing it does not make them currency-less: it makes them render **USD**, Angular's own fallback, in five features this unit does not own — a regression dressed as a cleanup. The rule stays local and enforced; the debt that leaves is named: each of those features needs its own document currency before its template can state one |
 
 The order that follows: accept and implement ADR-0003, then T5 and ADR-0004 in parallel, then T6. Money's
 T1–T4 run alongside, because they read neither `sales_orders.company_id` nor the guard. Two items in this
@@ -1078,3 +1081,66 @@ alone are 222.
 changed shape, so about thirty construction sites had to move, and moving them is what keeps `M10`'s retry case,
 the empty-charge refusal and the stock refusals asserting what they always asserted. The branch now holds T7 in
 three stacked slices, and the record's delivery shape is unchanged: `T7c` first, `T7a` and `T7b` on top.
+
+**2026-11-07 — T8 is the POS, and it takes two decisions ADR-0002 does not.** The Angular surface is
+`life-control-app-angular/src/features/sales`, and it held three defects: `app.config.ts:33` provided
+`DEFAULT_CURRENCY_CODE 'MXN'`, so five sales templates printed a currency the sale had not stated
+(`sales-order-item-table.html:56,77,86,127`, `sales-order-list.html:91`, `product-variant-selector.html:28`);
+`toItemTableRow` (`sales-order-edit.ts:820-838`) **discarded** `subtotal`, `taxAmount` and `finalPrice`, so the
+table showed `rowSubtotal()` — `quantity × listPrice − discountApplied` in float — where the server's own part
+belongs; and the charge was one button per payment method still sending `{ paymentMethodId }`
+(`sales-order.service.ts:67-71`), a body `T7b` had already made unsendable.
+
+**`D-i` — the «discard notice» is the row the server has not answered for.** T8's row names it and the ADR does
+not develop it, so the reading was decided rather than assumed (see the table row). What makes it the reading and
+not a preference: `mergeLineItems` deliberately keeps a row without an `id` while its own create is in flight
+(`sales-order-edit.ts:459-463`), so the case is real; and the word «discard» names the defect the same slice
+removes. The other two candidate readings are refused by the ADR's own text — per-part rounding against decision
+1's «rounding happens once, at the document boundary», and a client-side M3 pre-check against
+`## Out of scope, named` («the form is not an integrity boundary»). The table therefore renders
+`lineSubtotal`/`lineTaxAmount`/`lineFinalPrice` from the server's parts, falls back to the local estimate only for
+a row without them, and counts those rows in `[data-testid="local-parts-notice"]`; the summary shows the
+document's own `totalAmount` and labels the local sum `(local estimate)` when the document has none.
+
+**`D-j` — the global default stays and the sales surface stops depending on it.** One `provide()` and six
+templates outside sales read `DEFAULT_CURRENCY_CODE`; removing it would not make them currency-less, it would make
+them render **USD** — Angular's own fallback — in five features this unit does not own. So the token stays, and
+the rule becomes local and mechanical instead: `MoneyPipe` (`shared/pipes/money.pipe.ts`) takes the currency as an
+argument and renders `(no currency)` when it is absent rather than consulting the token, every sales money value
+goes through it at `1.4-4`, and `sales-money-currency.spec.ts` fails on a bare `| currency` or an `'MXN'` literal
+under `src/features/sales`. The debt is named where it now lives: each of those five features needs its own
+document currency before its template can state one.
+
+**The charge is a list, not a button.** `sales-order-charge-panel` states a `SalePaymentRequest[]`: one row per
+tender with method and amount, a tender pair (and the change it implies) only for a method whose `is_cash` is
+true (M4), `step="0.0001"` on every money input, and float noise trimmed to the scale `@Digits(fraction = 4)`
+holds. It **reports** the difference against the document's total (`data-testid="charge-difference"`) and does not
+refuse the charge: M3 is the server's, and the panel refusing would be the client copy of it the ADR declines. What
+`amount` costs and what the drawer counts are held apart on purpose — a cash row whose tender is below its amount
+covers only the tender, so the screen names the shortfall instead of reporting a covered row.
+
+**RED then GREEN, on the fixture that had to move.** RED first: `MoneyPipe` did not exist (`Cannot find module
+'./money.pipe'`) and `ItemTableRow` carried no parts (`'taxAmount' does not exist in type 'Partial<ItemTableRow>'`).
+Six fixtures across `order-header-form`, `status-transition`, `sales-order.service`, `sales-order-edit` and
+`sales-order-list` now state `currency: 'MXN'`: `SalesOrder.currency` is a required field because the server has
+sent it since `T7a`, and a fixture that omits it is a fixture claiming to be a response the API cannot produce.
+**GREEN**: `npx ng test --no-watch` → **198 files / 4,137 tests / 0 failed / 0 skipped**, `npm run lint` →
+"All files pass linting". The sales suite alone is 270 cases across 12 files, of which the new behaviour is 20 in
+`sales-order-charge-panel.spec.ts`, 13 in `sales-order-item-table.spec.ts` and 5 in `money.pipe.spec.ts`, plus the
+3 guard cases.
+
+**One assertion was deleted on purpose, and this is why.** The money-pipe case `should honour the locale it is
+injected with` asserted `$1,234.5678` under `es-MX`, and in this environment Angular renders the ISO code
+(`MXN1,234.5678`) because no locale data is registered outside the app bootstrap. Keeping it would have meant
+registering locale data globally for every suite, i.e. changing the harness to keep a case whose rule —
+Angular's symbol table — is not this unit's. The tests that remain assert what T8 owns: the rendered currency is
+the one the caller passed (MXN and USD differ), four decimals survive, and an absent currency is named. The
+currency-change case in the item table proves the argument is live by switching the input, not by trusting one
+render.
+
+**The review shape of `T8` is one commit, and that is a measurement, not a preference.** The two halves —
+display and charge — share four files (`sales-order.models.ts`, `sales-order.service.ts`, and the edit page's
+`.ts` and `.html`), so splitting them would leave an intermediate commit whose item table asks for a currency its
+page does not yet pass, i.e. a commit that is not green. The unit is ~1,300 authored lines including tests, over
+the ~400 budget, so the PR that ships it should carry it as two slices cut along those four files at author time
+if the reviewer wants them apart.

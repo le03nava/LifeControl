@@ -13,10 +13,10 @@ import {
   viewChild,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { CurrencyPipe } from '@angular/common';
 import { HttpClient } from '@angular/common/http';
 import { map } from 'rxjs/operators';
 import { ConfigService } from '@app/services/config.service';
+import { MoneyPipe } from '@shared/pipes/money.pipe';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatAutocompleteModule, MatAutocompleteTrigger } from '@angular/material/autocomplete';
@@ -35,7 +35,7 @@ import type { ProductVariantOption, Page } from '../../models/sales-order.models
 @Component({
   selector: 'app-product-variant-selector',
   standalone: true,
-  imports: [CurrencyPipe, MatFormFieldModule, MatInputModule, MatAutocompleteModule],
+  imports: [MoneyPipe, MatFormFieldModule, MatInputModule, MatAutocompleteModule],
   templateUrl: './product-variant-selector.html',
   styleUrl: './product-variant-selector.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -47,6 +47,14 @@ export class ProductVariantSelector {
 
   /** Store ID to scope the search to the current order's store. */
   readonly storeId = input<string | null>(null);
+
+  /**
+   * The order's currency, for the price of each suggestion.
+   *
+   * A variant price is money of the document being built, so it is rendered in that document's currency rather
+   * than in the app's configured default (see {@link MoneyPipe}).
+   */
+  readonly currency = input<string>('');
 
   /** Scan mode toggle. When true, Enter triggers an immediate barcode lookup. */
   readonly scanMode = input(true);

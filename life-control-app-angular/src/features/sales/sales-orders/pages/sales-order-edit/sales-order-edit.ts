@@ -24,10 +24,12 @@ import {
   type ItemTableRow,
 } from '../../components/sales-order-item-table/sales-order-item-table';
 import { ProductVariantSelector } from '../../components/product-variant-selector/product-variant-selector';
+import { SalesOrderChargePanel } from '../../components/sales-order-charge-panel/sales-order-charge-panel';
 import type {
   SalesOrder,
   SalesOrderRequest,
   SalesOrderItemRequest,
+  SalePaymentRequest,
   PaymentMethodOption,
   CustomerOption,
   Page,
@@ -55,6 +57,7 @@ import { ErrorBanner } from '@shared/ui';
     ErrorBanner,
     SalesOrderItemTable,
     ProductVariantSelector,
+    SalesOrderChargePanel,
     MatButtonModule,
     MatIconModule,
     MatTooltipModule,
@@ -136,6 +139,22 @@ export class SalesOrderEdit implements OnInit {
 
   /** Store name fetched from the stores API using profile cascade IDs. */
   readonly displayStoreName = computed(() => this.userStoreName());
+
+  /**
+   * The document's currency, stated by the sale itself (`sales_orders.currency`, `V80`).
+   *
+   * Empty while no order is loaded: the money surfaces render «(no currency)» in that state rather than a
+   * currency nobody chose, which is the whole point of T8.
+   */
+  readonly orderCurrency = computed(() => this.loadedOrder()?.currency ?? '');
+
+  /**
+   * The document total as the server stated it, or `null` while the order has none.
+   *
+   * The page never sums the lines for this: `sales_orders.total_amount` is the server's breakdown result and a
+   * client sum of unit prices is exactly what `recalculateTotalAmount` used to be.
+   */
+  readonly orderTotal = computed(() => this.loadedOrder()?.totalAmount ?? null);
 
   /** Header title: [StoreName] - OrderNumber/No Order. */
   readonly pageTitle = computed(() => {
@@ -483,15 +502,7 @@ export class SalesOrderEdit implements OnInit {
   }
 
   private populateLineItems(items: SalesOrder['items']): void {
-    const rows: ItemTableRow[] = items.map((item) => ({
-      id: item.id,
-      productVariantId: item.productVariantId,
-      productVariantName: item.productVariantName ?? '',
-      quantity: item.quantity,
-      listPrice: item.listPrice,
-      discountApplied: item.discountApplied,
-    }));
-    this.lineItems.set(rows);
+    this.lineItems.set(items.map((item) => this.toItemTableRow(item)));
   }
 
   // ══════════════════════════════════════════════════════════
@@ -698,8 +709,8 @@ export class SalesOrderEdit implements OnInit {
       });
   }
 
-  /** Called by a payment-method button to charge the current Pending sales order. */
-  onCharge(paymentMethodId: string): void {
+  /** Called by the charge panel with the payments the operator stated. */
+  onCharge(payments: SalePaymentRequest[]): void {
     const id = this.orderId();
     if (!id) return;
 
@@ -707,7 +718,7 @@ export class SalesOrderEdit implements OnInit {
     this.generalError.set(null);
 
     this.salesOrderService
-      .chargeSalesOrder(id, paymentMethodId)
+      .chargeSalesOrder(id, payments)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: () => {
@@ -816,7 +827,12 @@ export class SalesOrderEdit implements OnInit {
     this.generalError.set(message);
   }
 
-  /** Convert a `SalesOrderItem` from the server into an `ItemTableRow`. */
+  /** Convert a `SalesOrderItem` from the server into an `ItemTableRow`.
+   *
+   * The four money fields of the row are the server's own parts (`V81`'s `subtotal`, `V82`'s `taxAmount`, `V85`'s
+   * `finalPrice`) and they are carried through, not recomputed: they used to be dropped here, which is what left
+   * the table showing a client estimate in place of the server's statement (T8 of `odd/tasks/money-first-class.md`).
+   */
   private toItemTableRow(item: {
     id: string;
     productVariantId: string;
@@ -824,6 +840,11 @@ export class SalesOrderEdit implements OnInit {
     quantity: number;
     listPrice: number;
     discountApplied: number;
+    subtotal?: number;
+    taxAmount?: number;
+    finalPrice?: number;
+    taxCode?: string | null;
+    taxRate?: number | null;
   }): ItemTableRow {
     return {
       id: item.id,
@@ -832,6 +853,11 @@ export class SalesOrderEdit implements OnInit {
       quantity: item.quantity,
       listPrice: item.listPrice,
       discountApplied: item.discountApplied,
+      subtotal: item.subtotal ?? null,
+      taxAmount: item.taxAmount ?? null,
+      finalPrice: item.finalPrice ?? null,
+      taxCode: item.taxCode ?? null,
+      taxRate: item.taxRate ?? null,
     };
   }
 

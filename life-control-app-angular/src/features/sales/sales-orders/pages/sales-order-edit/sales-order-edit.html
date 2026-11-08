@@ -80,6 +80,8 @@
           [items]="lineItems()"
           [isModifiable]="isModifiable()"
           [savingRowIds]="savingRowIds()"
+          [currency]="orderCurrency()"
+          [documentTotal]="orderTotal()"
           (itemRemoved)="onItemRemoved($event)"
           (quantityChanged)="onQuantityChanged($event)"
           (listPriceChanged)="onListPriceChanged($event)"
@@ -88,6 +90,7 @@
           <app-product-variant-selector
             variant-selector
             [storeId]="loadedOrder()?.companyStoreId ?? null"
+            [currency]="orderCurrency()"
             [scanMode]="scanMode()"
             (variantSelected)="onVariantSelected($event)"
           />
@@ -96,32 +99,14 @@
 
       <!-- Cobrar / Charge (edit mode only) -->
       @if (isEditMode()) {
-        <div class="charge-section">
-          <span class="charge-label">Cobrar con:</span>
-          <div class="payment-buttons">
-            @for (pm of paymentMethods(); track pm.id) {
-              <button
-                mat-flat-button
-                color="primary"
-                [disabled]="charging() || lineItems().length === 0"
-                [matTooltip]="
-                  lineItems().length === 0
-                    ? 'Add at least one product before charging'
-                    : 'Charge with ' + pm.paymentMethodName
-                "
-                (click)="onCharge(pm.id)"
-                [attr.aria-label]="'Charge with ' + pm.paymentMethodName"
-              >
-                @if (charging()) {
-                  <mat-icon fontIcon="hourglass_empty" />
-                } @else {
-                  <mat-icon fontIcon="payments" />
-                }
-                {{ pm.paymentMethodName }}
-              </button>
-            }
-          </div>
-        </div>
+        <app-sales-order-charge-panel
+          [total]="orderTotal() ?? 0"
+          [currency]="orderCurrency()"
+          [paymentMethods]="paymentMethods()"
+          [charging]="charging()"
+          [disabled]="lineItems().length === 0"
+          (charge)="onCharge($event)"
+        />
       }
     </form>
   }

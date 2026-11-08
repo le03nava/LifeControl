@@ -1,0 +1,54 @@
+.charge-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-top: 1rem;
+  padding: 1rem;
+  border: 1px solid var(--mat-sys-outline-variant, #ccc);
+  border-radius: 8px;
+}
+
+.charge-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.charge-label {
+  font-weight: 600;
+}
+
+.charge-total {
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: var(--mat-sys-primary, #1976d2);
+}
+
+.charge-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.charge-field {
+  width: 9rem;
+}
+
+.charge-change {
+  font-weight: 600;
+  color: var(--mat-sys-primary, #1976d2);
+}
+
+.charge-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.charge-difference {
+  font-size: 0.875rem;
+  color: var(--mat-sys-error, #b3261e);
+}

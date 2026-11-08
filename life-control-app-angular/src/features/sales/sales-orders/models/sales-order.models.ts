@@ -12,12 +12,52 @@ export interface SalesOrder {
   orderDate: string;
   statusId: string;
   statusName: string;
+  /**
+   * The document's currency, `sales_orders.currency` since `V80`.
+   *
+   * The sale owns it — it is not a company default and not a UI preference — and every amount of the document is
+   * expressed in it. `PaymentMethodOption` and the templates take it from here.
+   */
+  currency: string;
+  /**
+   * The document's breakdown, `sales_orders` since `V80`/`V84`.
+   *
+   * `totalAmount = subtotal - discountTotal + taxTotal + roundingAdjustment`, exact: the parts are the server's
+   * statement and the client never re-derives them.
+   */
+  subtotal?: number;
+  discountTotal?: number;
+  taxTotal?: number;
+  roundingAdjustment?: number;
   totalAmount: number;
+  /**
+   * The single payment method of the charge that has not become a payment list yet.
+   *
+   * @deprecated `sale_payment` rows carry the tender since `V83` (ADR-0002 decision 5). Migration step 6 drops
+   * this column once the historical backfill and the POS reader have landed; until then it is read-only here and
+   * the charge states `payments`.
+   */
   paymentMethodId?: string;
+  /** The payment rows a charge appended, oldest first. */
+  payments?: SalePayment[];
   enabled: boolean;
   createdAt: string;
   updatedAt: string;
   items: SalesOrderItem[];
+}
+
+/** One payment row of a charged document (`sale_payment`). */
+export interface SalePayment {
+  id: string;
+  methodId: string;
+  /** `CHARGE` for every row this client can cause: a refund is not expressible (decision `D-g`). */
+  direction: 'CHARGE' | 'REFUND';
+  amount: number;
+  tenderedAmount?: number | null;
+  changeAmount?: number | null;
+  reference?: string | null;
+  paidAt: string;
+  actor: string;
 }
 
 /** Line item within a Sales Order. */
@@ -29,6 +69,18 @@ export interface SalesOrderItem {
   quantity: number;
   listPrice: number;
   discountApplied: number;
+  /** `quantity × listPrice`, derived by `V81` and held by `ck_item_subtotal`. */
+  subtotal?: number;
+  /** The platform tax code the line states, when it states one. */
+  taxCode?: string | null;
+  /** The rate `tax_rate` resolved for this line's document date. */
+  taxRate?: number | null;
+  /** The tax amount the server computed, held by `ck_item_tax`. */
+  taxAmount?: number;
+  /**
+   * The line total, `subtotal - discountApplied + taxAmount` since `V85` (`T7c`), derived by the server and
+   * read-only here.
+   */
   finalPrice: number;
   promotionId?: string;
   statusId: string;
@@ -114,11 +166,35 @@ export interface OpenShiftOption {
 
 /** Request body for charging a sales order. */
 export interface ChargeSalesOrderRequest {
+  /**
+   * The payments this charge appends, one per tender (ADR-0002 decision 5).
+   *
+   * Between them the amounts add up to the document's total **exactly** (M3) — the server refuses a sum that is
+   * short or over, and the panel that builds this list reports the difference before sending it.
+   */
+  payments: SalePaymentRequest[];
+}
+
+/** One payment a charge is asked to append. */
+export interface SalePaymentRequest {
   paymentMethodId: string;
+  /** What this payment applies to the sale, at most four decimals. */
+  amount: number;
+  /** What the customer handed over. Only for a cash method (M4); omitted rather than zero. */
+  tenderedAmount?: number;
+  /** What came back, held by `ck_payment_tender` to `tenderedAmount - amount`. */
+  changeAmount?: number;
 }
 
 /** Payment method option for the charge selector. */
 export interface PaymentMethodOption {
   id: string;
   paymentMethodName: string;
+  /**
+   * Whether the method is cash (`payment_methods.is_cash`, `V83`).
+   *
+   * Only a cash payment can state a tender and its change: M4 refuses change on any other method, because a card
+   * hands back nothing. Absent means «not stated», which the panel reads as not cash rather than guessing.
+   */
+  isCash?: boolean;
 }

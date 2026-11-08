@@ -25,7 +25,8 @@
             <input
               matInput
               type="number"
-              min="1"
+              min="0"
+              step="0.0001"
               [value]="row.quantity"
               [disabled]="isRowSaving(row.id)"
               (input)="onQuantityChange(i, +$any($event.target).value)"
@@ -46,14 +47,14 @@
               matInput
               type="number"
               min="0"
-              step="0.01"
+              step="0.0001"
               [value]="row.listPrice"
               [disabled]="isRowSaving(row.id)"
               (input)="onListPriceChange(i, +$any($event.target).value)"
               class="inline-input"
             />
           } @else {
-            {{ row.listPrice | currency }}
+            {{ row.listPrice | money: currency() }}
           }
         </td>
       </ng-container>
@@ -67,23 +68,39 @@
               matInput
               type="number"
               min="0"
-              step="0.01"
+              step="0.0001"
               [value]="row.discountApplied"
               [disabled]="isRowSaving(row.id)"
               (input)="onDiscountChange(i, +$any($event.target).value)"
               class="inline-input"
             />
           } @else {
-            {{ row.discountApplied | currency }}
+            {{ row.discountApplied | money: currency() }}
           }
         </td>
       </ng-container>
 
-      <!-- Subtotal (read-only, computed) -->
+      <!-- Subtotal: the server's own part (V81) — read-only, never re-derived for a saved row -->
       <ng-container matColumnDef="subtotal">
         <th mat-header-cell *matHeaderCellDef>Subtotal</th>
         <td mat-cell *matCellDef="let row">
-          {{ rowSubtotal(row) | currency }}
+          {{ lineSubtotal(row) | money: currency() }}
+        </td>
+      </ng-container>
+
+      <!-- Tax: the amount the server computed against the resolved rate (V82) -->
+      <ng-container matColumnDef="taxAmount">
+        <th mat-header-cell *matHeaderCellDef>Tax</th>
+        <td mat-cell *matCellDef="let row">
+          {{ lineTaxAmount(row) | money: currency() }}
+        </td>
+      </ng-container>
+
+      <!-- Line total: V85's stored final_price (subtotal − discount + tax) -->
+      <ng-container matColumnDef="finalPrice">
+        <th mat-header-cell *matHeaderCellDef>Total</th>
+        <td mat-cell *matCellDef="let row">
+          {{ lineFinalPrice(row) | money: currency() }}
         </td>
       </ng-container>
 
@@ -116,6 +133,18 @@
     </div>
   }
 
+  <!-- The rows whose parts the server has not stated: the table says so instead of passing its own arithmetic off
+       as the server's. -->
+  @if (hasLocalEstimates()) {
+    <div class="local-parts-notice" role="note" data-testid="local-parts-notice">
+      <mat-icon fontIcon="info" />
+      <span>
+        {{ localEstimateCount() }} row(s) show a local estimate, not the server's parts. Save the
+        line to see the subtotal, tax and total the server states for it.
+      </span>
+    </div>
+  }
+
   <!-- Summary (always visible) -->
   <div class="line-items-summary">
     <div class="summary-row">
@@ -124,7 +153,12 @@
     </div>
     <div class="summary-row summary-row--total">
       <span class="summary-label">Total:</span>
-      <span class="summary-value">{{ lineItemsTotal() | currency }}</span>
+      <span class="summary-value">
+        {{ summaryTotal() | money: currency() }}
+        @if (summaryIsLocal()) {
+          <span class="summary-value-note">(local estimate)</span>
+        }
+      </span>
     </div>
   </div>
 </div>

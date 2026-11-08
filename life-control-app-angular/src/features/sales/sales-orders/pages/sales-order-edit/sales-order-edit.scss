@@ -53,34 +53,8 @@
 }
 
 // ─── Charge Section ──────────────────────────────────────
-
-.charge-section {
-  display: flex;
-  align-items: center;
-  gap: var(--space-md);
-  padding: var(--space-lg);
-  margin-bottom: var(--space-lg);
-  background: var(--mat-sys-surface-container-lowest, #fff);
-  border: 1px solid var(--mat-sys-outline-variant, #e2e8f0);
-  border-radius: var(--radius-md);
-
-  .charge-label {
-    font-weight: 600;
-    font-size: 0.95rem;
-    white-space: nowrap;
-    color: var(--mat-sys-on-surface, #1e293b);
-  }
-
-  .payment-buttons {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-sm);
-
-    button {
-      min-width: 120px;
-    }
-  }
-}
+// The charge surface is its own component (app-sales-order-charge-panel) since T8 of
+// odd/tasks/money-first-class.md: mixed tender needs a row per payment, which is not a row of buttons.
 
 // ─── Form Actions ──────────────────────────────────────
 

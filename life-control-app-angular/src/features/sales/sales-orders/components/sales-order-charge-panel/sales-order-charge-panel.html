@@ -1,0 +1,94 @@
+<section class="charge-panel">
+  <header class="charge-header">
+    <span class="charge-label">Cobrar</span>
+    <span class="charge-total"> Total: {{ total() | money: currency() }} </span>
+  </header>
+
+  @for (row of rows(); track $index; let i = $index) {
+    <div class="charge-row">
+      <mat-form-field appearance="outline" class="charge-field">
+        <mat-label>Method</mat-label>
+        <mat-select
+          [value]="row.paymentMethodId"
+          (selectionChange)="updateMethod(i, $event.value)"
+          [attr.aria-label]="'Payment method ' + (i + 1)"
+        >
+          @for (method of paymentMethods(); track method.id) {
+            <mat-option [value]="method.id">{{ method.paymentMethodName }}</mat-option>
+          }
+        </mat-select>
+      </mat-form-field>
+
+      <mat-form-field appearance="outline" class="charge-field">
+        <mat-label>Amount</mat-label>
+        <input
+          matInput
+          type="number"
+          min="0"
+          step="0.0001"
+          [value]="row.amount ?? ''"
+          (input)="updateAmount(i, +$any($event.target).value)"
+          [attr.aria-label]="'Payment amount ' + (i + 1)"
+        />
+      </mat-form-field>
+
+      @if (isCash(row.paymentMethodId)) {
+        <mat-form-field appearance="outline" class="charge-field">
+          <mat-label>Tendered</mat-label>
+          <input
+            matInput
+            type="number"
+            min="0"
+            step="0.0001"
+            [value]="row.tendered ?? ''"
+            (input)="updateTendered(i, +$any($event.target).value)"
+            [attr.aria-label]="'Tendered amount ' + (i + 1)"
+          />
+        </mat-form-field>
+
+        @if (changeFor(row); as change) {
+          <span class="charge-change">Change: {{ change | money: currency() }}</span>
+        }
+      }
+
+      <button
+        mat-icon-button
+        type="button"
+        (click)="removePayment(i)"
+        [disabled]="rows().length === 1"
+        [attr.aria-label]="'Remove payment ' + (i + 1)"
+        matTooltip="Remove this payment"
+      >
+        <mat-icon>delete</mat-icon>
+      </button>
+    </div>
+  }
+
+  <div class="charge-actions">
+    <button mat-stroked-button type="button" (click)="addPayment()">
+      <mat-icon fontIcon="add" /> Add payment
+    </button>
+
+    @if (differenceLabel(); as difference) {
+      <span class="charge-difference" data-testid="charge-difference">{{ difference }}</span>
+    }
+
+    <button
+      mat-flat-button
+      color="primary"
+      type="button"
+      [disabled]="!canSubmit()"
+      (click)="submit()"
+      [matTooltip]="
+        disabled() ? 'Add at least one product before charging' : 'Charge the stated payments'
+      "
+    >
+      @if (charging()) {
+        <mat-icon fontIcon="hourglass_empty" />
+      } @else {
+        <mat-icon fontIcon="payments" />
+      }
+      Charge
+    </button>
+  </div>
+</section>

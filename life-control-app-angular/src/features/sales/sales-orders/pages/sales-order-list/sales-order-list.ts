@@ -8,8 +8,9 @@ import {
 } from '@angular/core';
 import { rxResource } from '@angular/core/rxjs-interop';
 import { Router } from '@angular/router';
-import { DatePipe, CurrencyPipe } from '@angular/common';
+import { DatePipe } from '@angular/common';
 import { PageHeader } from '@shared/ui';
+import { MoneyPipe } from '@shared/pipes/money.pipe';
 import { httpErrorMessage } from '@shared/data';
 import { SalesOrderService } from '../../data/sales-order.service';
 import { SO_STATUS_COLORS } from '../../data/status-config';
@@ -30,7 +31,7 @@ import { MatTooltipModule } from '@angular/material/tooltip';
   imports: [
     PageHeader,
     DatePipe,
-    CurrencyPipe,
+    MoneyPipe,
     MatTableModule,
     MatIconModule,
     MatPaginatorModule,
