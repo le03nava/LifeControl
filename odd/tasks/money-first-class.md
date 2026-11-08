@@ -339,7 +339,7 @@ edits this same table, and **D-a is the one still open** — it is a measurement
 
 | ID | Recommendation | Why not the alternative |
 | --- | --- | --- |
-| D-a | **Skip the order and report it — and measure before deciding.** T3's pre-flight emits the count and the ids; at zero the decision evaporates, at a non-zero count it is taken per row with the list in hand | A sentinel method lands in a **global** catalog with a full ABM (`PaymentMethodController` has POST/PUT/DELETE/PATCH, `PaymentMethodRequest` is name/short-name/enabled), visible in every tenant's POS. A missing payment row says "unknown", which is true; an invented one states how a sale was paid when the data never said |
+| D-a | **Skip the order and report it — and measure before deciding.** **Still open, and the measurement now has a home**: T3's pre-flight reports drift of `total_amount` against the line sum and never emitted this count, so the report D-a assumed existed is `docker/scripts/preflight-payment-methods.sh` (2026-11-07). At zero rows the decision evaporates; at non-zero it is taken per row with the list in hand. Measured so far: **dev cannot answer it** — 0 rows, Flyway V78, no `sale_payment` table; the report refuses that schema (exit 1) instead of printing a clean dataset | A sentinel method lands in a **global** catalog with a full ABM (`PaymentMethodController` has POST/PUT/DELETE/PATCH, `PaymentMethodRequest` is name/short-name/enabled), visible in every tenant's POS. A missing payment row says "unknown", which is true; an invented one states how a sale was paid when the data never said |
 | D-b | **Decided 2026-11-05, by the maintainer: backfill in the migration by the seed's exact name (`Efectivo`, `V3:385`), with a `RAISE NOTICE` when it affects zero rows, and give the ABM an `isCash`.** `PaymentMethodRequest` carries no such field today, so a method created after the deploy can never be cash and M4 refuses its change forever with no UI path | An operator step in a comment fails at the counter, not at the deploy: the cashier discovers it when the customer asks for change. The notice is what makes a renamed catalog say so instead of passing silently |
 | D-d | **Decided 2026-11-05, by the maintainer: a platform `tax_code` catalog**, the same shape as `currency` (no `company_id`, no policy): `tax_rate` gets the FK, the line keeps the text snapshot that decision 4 requires | Free text cannot carry what the tax actually needs: CFDI separates Tasa 0% from Exento, and both have `rate = 0` — a string plus a rate cannot tell them apart, and the first typo taxes a line at zero without an error. If T4 slips, T2's `'NA'` with `tax_total = 0` stays valid |
 | D-e | **Decided 2026-11-01, by the maintainer: add the 0002 → 0004 edge and move ADR-0004 ahead of T6. Do not split T6.** | M3, M4 and M10 *are* the safety properties of taking money (no Completed sale uncovered by payments, change only on cash, no double charge on a retry). Splitting T6 writes `chargeSalesOrder` twice, the second time under a different state mechanism, and leaves that window open precisely while the payment code is least proven. `docs/adr/README.md` justifies 0004 last as "benefits from a settled shape" — backwards: its shape is an **input** of money |
@@ -1218,3 +1218,63 @@ charge-lock mutation: their red is not exclusively M4's. (c) The guard case asse
 messages it — `200.00`, the value `recomputeBreakdown` writes at MXN's minor units, not the column's `200.0000` —
 and the comment in place says why, so a later reader does not "fix" it into a fourth decimal the message never
 had.
+
+**2026-11-07 — D-a is measured, and the answer is that no dataset here can answer it.** The decision says
+«T3's pre-flight emits the count and the ids», and that turned out to be a claim about a report that does not
+exist: `docker/scripts/preflight-money-parts.sh` reports drift of `total_amount` against the line sum, which is
+step 2's question and not this one. So the first result of measuring D-a is that the measurement had no home.
+
+**What the environments can answer, measured rather than assumed.**
+- `dev`: `sales_orders` holds **0 rows**; Flyway is at **V78** (`seed currency process`), so `sales_orders` there
+  still carries `total_amount numeric(12,2)` and none of the money work since `V79` has ever run on that datadir;
+  `to_regclass('public.sale_payment')` is `absent`. The stack's images are worse than the datadir: `deploy.sh dev
+  version` reports `api-gateway`, `lifecontrol-api` and `web-app` all built from `bdedefac2ef6` against `HEAD
+  3d945aad` — **drift on all three**. Zero orders is not «nothing to decide»; it is a dataset with no opinion.
+- `staging`/`prod`: not reachable from this session, and not touched.
+So D-a stays open, and it closes where the orders are — with the report below, which is what makes it closeable
+at all.
+
+**The report, and the two facts that had to be stated because the tree did not state them.** `preflight-payment-methods.sh`
+asks one question: which orders that took money carry no payment method, and what would step 4 have to invent for
+them. It carries per row the columns a per-row decision needs — id, `order_number`, `company_id`, state,
+`order_date`, `updated_at` and `total_amount` — because step 4's `paid_at = coalesce(o.updated_at, o.order_date)`
+is the ADR's own sentence and «not `now()`» is the half of it that dates every historical payment the day of the
+deploy. Two definitions were taken from the code and cited in its header rather than guessed: the state that took
+money is `COMPLETED` (`SalesOrderService.java:461`, behind the guard at `:426`, and the ADR's own step 4 says «For
+orders already `Completed`»), and «carries no payment method» is **two** facts, `sales_orders.payment_method_id IS
+NULL` (`V1:478`) **and** no `sale_payment` row (`V83`) — an order with a method and no payment row is step 4's
+normal work, while one that already has a row must not get a second.
+
+**The reader is shared now, because two copies of it is how a report learns to lie.** The resolution of the
+reporting role moved out of the step-2 report into `docker/scripts/_preflight_reader.sh`, reasons included, and
+both reports source it: `sales_orders` is `FORCE ROW LEVEL SECURITY`, the owner is subject to the policy, and an
+owner that connects and reads zero rows prints a clean dataset — the failure `V54` and `V64` already record. The
+step-2 suite is the differential check that the move changed nothing: **43 passed / 0 failed before and after**,
+same assertions; the only fixture line that moved is the throwaway tree's `cp` list, which now needs the library
+to exist.
+
+**Refusing is a verdict.** Run against `dev` the report connects as `lifecontrol_bootstrap`, runs its single
+SELECT, and exits **1** naming what it needs (`sales_orders.status` V66, `payment_method_id` V1:478,
+`total_amount` at `NUMERIC(19,4)` V80, `sale_payment` V83) because psql answers `relation "sale_payment" does not
+exist`. That is the behaviour the exit-code contract exists for: an empty answer from a schema that cannot be read
+would be a false clean dataset, and a report that fails is never read as a clean one. The positive shapes — zero
+rows → 0, rows → 2 with the list — are pinned offline by the 79-assertion suite, with `docker` stubbed and no
+database involved.
+
+**GREEN.** `preflight-payment-methods.test.sh` 79 passed / 0 failed; `preflight-money-parts.test.sh` 43 passed /
+0 failed; the whole `docker/scripts/tests/*.test.sh` glob **27 suites, none failed** (26 before this unit); `bash -n`
+clean on the three scripts. `shellcheck --severity=warning` produced **no evidence**: the binary is not installed
+in this environment, so the PR reports it as owed to CI, whose `Shell & Artifact Integrity` job runs it over the
+glob — `bash -n` is the only local syntax evidence and it is not a substitute.
+
+**One pre-existing defect is preserved and named, not fixed here.** `resolve_report_role` discards compose's
+stderr, so a checkout without a materialized `docker/.env.<env>` reads as «No superuser could connect» rather than
+«compose could not start». Fixing it changes the step-2 report's messages, which this unit deliberately does not
+touch; it is a follow-up of its own.
+
+**The slice boundary, measured.** Three commits: `1cb74bff` the shared reader (+85/−46 with the step-2 suite's
+fixture line), `42fa77f0` the report + its 79-assertion suite + the `AGENTS.md` entry (+665), `d1e6e8ef` this
+record. The middle one is over the ~400 budget and is not split further on purpose: the suite is the evidence for
+the script it ships with, and a commit carrying the script without it would be a commit whose refusals and exit
+codes nobody checked. The unit ships as **one** PR because the refactor is the report's prerequisite, not a second
+change type.
