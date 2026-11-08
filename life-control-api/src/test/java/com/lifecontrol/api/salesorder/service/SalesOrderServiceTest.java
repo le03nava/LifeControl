@@ -8,6 +8,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeast;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
@@ -50,7 +51,10 @@ import com.lifecontrol.api.salesorder.exception.SalesOrderItemNotFoundException;
 import com.lifecontrol.api.salesorder.exception.SalesOrderItemNotModifiableException;
 import com.lifecontrol.api.salesorder.exception.SalesOrderNotFoundException;
 import com.lifecontrol.api.salesorder.exception.SalesOrderStoreReassignmentNotAllowedException;
+import com.lifecontrol.api.salesorder.exception.SalesOrderTenderInconsistentException;
+import com.lifecontrol.api.salesorder.exception.SalesOrderTenderNotCashException;
 import com.lifecontrol.api.salesorder.model.SalePayment;
+import com.lifecontrol.api.salesorder.model.SalePaymentDirection;
 import com.lifecontrol.api.salesorder.model.SalesOrder;
 import com.lifecontrol.api.salesorder.model.SalesOrderItem;
 import com.lifecontrol.api.salesorder.model.SalesOrderItemState;
@@ -1486,7 +1490,7 @@ class SalesOrderServiceTest {
             assertThat(testOrder.getDiscountTotal()).isEqualByComparingTo(new BigDecimal("10.0000"));
             assertThat(testOrder.getTaxTotal()).isEqualByComparingTo(new BigDecimal("0.0000"));
             assertThat(testOrder.getRoundingAdjustment()).isEqualByComparingTo(new BigDecimal("0.0000"));
-            assertThat(testOrder.getTotalAmount()).isEqualByComparingTo(new BigDecimal("190.00"));
+            assertThat(testOrder.getTotalAmount()).isEqualByComparingTo(new BigDecimal("190.0000"));
         }
 
         @Test
@@ -1733,7 +1737,7 @@ class SalesOrderServiceTest {
             assertThat(testOrder.getDiscountTotal()).isEqualByComparingTo(new BigDecimal("10.0000"));
             assertThat(testOrder.getTaxTotal()).isEqualByComparingTo(new BigDecimal("0.0000"));
             assertThat(testOrder.getRoundingAdjustment()).isEqualByComparingTo(new BigDecimal("0.0000"));
-            assertThat(testOrder.getTotalAmount()).isEqualByComparingTo(new BigDecimal("190.00"));
+            assertThat(testOrder.getTotalAmount()).isEqualByComparingTo(new BigDecimal("190.0000"));
         }
 
         @Test
@@ -1952,7 +1956,7 @@ class SalesOrderServiceTest {
             assertThat(activeOrder.getDiscountTotal()).isEqualByComparingTo(new BigDecimal("10.0000"));
             assertThat(activeOrder.getTaxTotal()).isEqualByComparingTo(new BigDecimal("0.0000"));
             assertThat(activeOrder.getRoundingAdjustment()).isEqualByComparingTo(new BigDecimal("0.0000"));
-            assertThat(activeOrder.getTotalAmount()).isEqualByComparingTo(new BigDecimal("190.00"));
+            assertThat(activeOrder.getTotalAmount()).isEqualByComparingTo(new BigDecimal("190.0000"));
         }
 
         @Test
@@ -2064,7 +2068,7 @@ class SalesOrderServiceTest {
             assertThat(testOrder.getDiscountTotal()).isEqualByComparingTo(new BigDecimal("0.0000"));
             assertThat(testOrder.getTaxTotal()).isEqualByComparingTo(new BigDecimal("0.0000"));
             assertThat(testOrder.getRoundingAdjustment()).isEqualByComparingTo(new BigDecimal("0.0000"));
-            assertThat(testOrder.getTotalAmount()).isEqualByComparingTo(new BigDecimal("0.00"));
+            assertThat(testOrder.getTotalAmount()).isEqualByComparingTo(new BigDecimal("0.0000"));
             // A line of an uncharged document holds no stock, so removing it gives nothing back: the charge is
             // what would have booked it, and the line it no longer sees is simply not booked (ADR-0002
             // decision 7). The reversal exists only for a document whose charge booked something.
@@ -2186,7 +2190,7 @@ class SalesOrderServiceTest {
             assertThat(activeOrder.getDiscountTotal()).isEqualByComparingTo(new BigDecimal("0.0000"));
             assertThat(activeOrder.getTaxTotal()).isEqualByComparingTo(new BigDecimal("0.0000"));
             assertThat(activeOrder.getRoundingAdjustment()).isEqualByComparingTo(new BigDecimal("0.0000"));
-            assertThat(activeOrder.getTotalAmount()).isEqualByComparingTo(new BigDecimal("0.00"));
+            assertThat(activeOrder.getTotalAmount()).isEqualByComparingTo(new BigDecimal("0.0000"));
             // Active is not charged either: the document holds no stock until the charge books it.
             verifyNoStockWork();
         }
@@ -2221,7 +2225,7 @@ class SalesOrderServiceTest {
             assertThat(pendingOrder.getDiscountTotal()).isEqualByComparingTo(new BigDecimal("0.0000"));
             assertThat(pendingOrder.getTaxTotal()).isEqualByComparingTo(new BigDecimal("0.0000"));
             assertThat(pendingOrder.getRoundingAdjustment()).isEqualByComparingTo(new BigDecimal("0.0000"));
-            assertThat(pendingOrder.getTotalAmount()).isEqualByComparingTo(new BigDecimal("0.00"));
+            assertThat(pendingOrder.getTotalAmount()).isEqualByComparingTo(new BigDecimal("0.0000"));
             // Pending is the state a charge starts from, not one that holds stock: the line is deleted from a
             // document that never booked it.
             verifyNoStockWork();
@@ -3097,6 +3101,212 @@ class SalesOrderServiceTest {
             itemsCaptor.getValue().forEach(i -> savedItems.add((SalesOrderItem) i));
             assertThat(savedItems).hasSize(2).allMatch(i -> i.getStatus() == SalesOrderItemState.ADDED);
         }
+
+        /**
+         * The state a charge is taken from, as this fixture states it: one Pending document of its store.
+         *
+         * <p>Pending and not Active because a case about the payment guards has no subject in the
+         * auto-promotion: the guards run after it, and an Active document would add a transition the refusal
+         * below would have to roll back.</p>
+         */
+        private SalesOrder pendingOrder() {
+            return SalesOrder.builder()
+                    .id(orderId)
+                    .orderNumber(testOrder.getOrderNumber())
+                    .companyId(companyId)
+                    .customerId(customerId)
+                    .companyStoreId(companyStoreId)
+                    .shiftId(shiftId)
+                    .userId("user123")
+                    .orderDate(testOrder.getOrderDate())
+                    .status(SalesOrderState.PENDING)
+                    .totalAmount(BigDecimal.ZERO)
+                    .enabled(true)
+                    .build();
+        }
+
+        /**
+         * ADR-0002 M10 at the statement that holds it: {@code chargeSalesOrder} reads the order <b>with</b> the
+         * row lock.
+         *
+         * <p><b>Why the pin is the statement and not the answer.</b> In the database the locked and the unlocked
+         * read answer the same row — the fixture's lenient delegate makes them indistinguishable by state, which
+         * is exactly why a case that only asserted the outcome would pass over a regression to the unlocked read.
+         * So the two answers are stated differently on purpose: the unlocked read answers the document and the
+         * locked one answers nothing, so a charge that kept the lock is refused as a missing order while one that
+         * dropped it would sail past the guard. Without the lock, two retries of one charge both read
+         * {@code PENDING}, both append a payment and both book the stock — and {@code sale_payment} is append-only,
+         * so the second row could not be taken back.</p>
+         *
+         * <p><b>Why {@code doReturn} and not {@code when}.</b> The fixture's lenient answer for the locked read
+         * <em>calls</em> the unlocked one, so a {@code when(salesOrderRepository.findByIdForUpdate(…))} would record
+         * the inner call as the invocation being stubbed and quietly re-stub the unlocked read instead.
+         * {@code doReturn} states the answer without invoking the method, which is the only shape that can state
+         * two different answers for the two reads.</p>
+         */
+        @Test
+        @DisplayName("should take the order row lock before charging, so a retried charge appends no second payment")
+        void chargeSalesOrder_TakesTheRowLock() {
+            var request = chargeOf(UUID.randomUUID(), UNREAD_AMOUNT);
+
+            lenient().when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(pendingOrder()));
+            doReturn(Optional.empty()).when(salesOrderRepository).findByIdForUpdate(orderId);
+
+            assertThatThrownBy(() -> salesOrderService.chargeSalesOrder(orderId, request))
+                    .isInstanceOf(SalesOrderNotFoundException.class)
+                    .hasMessageContaining("Sales order not found with id");
+
+            verify(salesOrderRepository).findByIdForUpdate(orderId);
+            assertThat(appendedPayments)
+                    .as("the charge never reached the payments, because it never reached the row")
+                    .isEmpty();
+            verifyNoStockWork();
+        }
+
+        /**
+         * ADR-0002 M4 through the domain guard: a tender on a method that is not cash is refused, by name.
+         *
+         * <p><b>Why the request is otherwise valid.</b> 400 handed over for 350 applied is a consistent pair, so
+         * the arithmetic guards pass and the only rule left that can refuse it is the method's {@code is_cash} —
+         * the fact {@code ck_payment_tender} cannot read, because a {@code CHECK} cannot see another table. A
+         * refusal that named the amount instead of the method would send an operator to recount a drawer that is
+         * already correct.</p>
+         */
+        @Test
+        @DisplayName("should refuse a tender on a method that is not cash, naming the method (M4)")
+        void chargeSalesOrder_TenderOnANonCashMethod_IsRefusedByName() {
+            var paymentMethodId = UUID.randomUUID();
+            var request = new ChargeSalesOrderRequest(List.of(new SalePaymentRequest(
+                    paymentMethodId,
+                    new BigDecimal("350.0000"),
+                    new BigDecimal("400.0000"),
+                    new BigDecimal("50.0000"))));
+
+            doReturn(Optional.of(pendingOrder())).when(salesOrderRepository).findByIdForUpdate(orderId);
+
+            assertThatThrownBy(() -> salesOrderService.chargeSalesOrder(orderId, request))
+                    .isInstanceOf(SalesOrderTenderNotCashException.class)
+                    .hasMessageContaining("which is not a cash method")
+                    .hasMessageContaining("'Tarjeta'")
+                    .hasMessageContaining(paymentMethodId.toString());
+
+            assertThat(appendedPayments)
+                    .as("the refusal runs before the insert, so no row states a tender nobody may take")
+                    .isEmpty();
+            verifyNoStockWork();
+        }
+
+        /**
+         * The tender's arithmetic, refused before it can reach {@code ck_payment_tender}.
+         *
+         * <p><b>The two shapes a cash sale can state wrongly.</b> A change larger than the tender leaves (250 handed
+         * over for a 350 payment leaves nothing, and the request says 50) is a pair that does not add up; a tender
+         * below the amount it is supposed to cover (300 for 350) is not a tender at all. Both are the request's
+         * mistake, so both are a {@code 400} that names the payment and the number, never the constraint's generic
+         * {@code 409} at flush.</p>
+         */
+        @Test
+        @DisplayName("should refuse a change larger than the tender leaves, and a tender below the amount (M4)")
+        void chargeSalesOrder_InconsistentTender_IsRefused() {
+            var cashMethodId = UUID.randomUUID();
+            when(paymentMethodRepository.findById(cashMethodId))
+                    .thenReturn(Optional.of(PaymentMethod.builder()
+                            .id(cashMethodId)
+                            .paymentMethodName("Efectivo")
+                            .paymentMethodShortName("EFECTIVO")
+                            .enabled(true)
+                            .isCash(true)
+                            .build()));
+            doReturn(Optional.of(pendingOrder())).when(salesOrderRepository).findByIdForUpdate(orderId);
+
+            // 300 handed over for 350 applied leaves -50, which no change can be: the tender is below the amount.
+            var belowTheAmount = new ChargeSalesOrderRequest(List.of(new SalePaymentRequest(
+                    cashMethodId, new BigDecimal("350.0000"), new BigDecimal("300.0000"), BigDecimal.ZERO)));
+            assertThatThrownBy(() -> salesOrderService.chargeSalesOrder(orderId, belowTheAmount))
+                    .isInstanceOf(SalesOrderTenderInconsistentException.class)
+                    .hasMessageContaining("cannot be less than what the payment applies to the sale")
+                    .hasMessageContaining("ck_payment_tender holds the same arithmetic");
+
+            // 400 handed over for 350 applied leaves 50, and the request states a change of 60.
+            var changeLargerThanTheTenderLeaves = new ChargeSalesOrderRequest(List.of(new SalePaymentRequest(
+                    cashMethodId, new BigDecimal("350.0000"), new BigDecimal("400.0000"), new BigDecimal("60.0000"))));
+            assertThatThrownBy(() -> salesOrderService.chargeSalesOrder(orderId, changeLargerThanTheTenderLeaves))
+                    .isInstanceOf(SalesOrderTenderInconsistentException.class)
+                    .hasMessageContaining("the change of a cash payment is tendered - amount = 50.0000");
+
+            assertThat(appendedPayments).isEmpty();
+            verifyNoStockWork();
+        }
+
+        /**
+         * The accepting half of M4: a cash method with a consistent pair is charged, and the row keeps the pair.
+         *
+         * <p><b>Why the row and not only the outcome.</b> {@code tendered_amount} and {@code change_amount} are the
+         * only record of what the customer handed over — the payment's {@code amount} is what applies to the sale —
+         * so a charge that accepted the pair and then dropped it would leave a drawer that cannot be reconciled with
+         * the sale it settled. The numbers here are the request's, and the difference between them is exactly the
+         * change {@code ck_payment_tender} holds.</p>
+         */
+        @Test
+        @DisplayName("should charge a cash method with a consistent tender and keep the pair on the row (M4)")
+        void chargeSalesOrder_CashMethodWithAConsistentTender_IsAccepted() {
+            var cashMethodId = UUID.randomUUID();
+            var request = new ChargeSalesOrderRequest(List.of(new SalePaymentRequest(
+                    cashMethodId, new BigDecimal("350.0000"), new BigDecimal("400.0000"), new BigDecimal("50.0000"))));
+
+            var pending = pendingOrder();
+            var line = SalesOrderItem.builder()
+                    .id(UUID.randomUUID())
+                    .salesOrderId(orderId)
+                    .productVariantId(variantId)
+                    .quantity(new BigDecimal("2.00"))
+                    .listPrice(new BigDecimal("100.00"))
+                    .discountApplied(BigDecimal.ZERO)
+                    .status(SalesOrderItemState.PENDING)
+                    .enabled(true)
+                    .build();
+            var charged = SalesOrder.builder()
+                    .id(orderId)
+                    .orderNumber(testOrder.getOrderNumber())
+                    .companyId(companyId)
+                    .customerId(customerId)
+                    .companyStoreId(companyStoreId)
+                    .shiftId(shiftId)
+                    .userId("user123")
+                    .orderDate(testOrder.getOrderDate())
+                    .status(SalesOrderState.COMPLETED)
+                    .totalAmount(new BigDecimal("350.0000"))
+                    .paymentMethodId(cashMethodId)
+                    .enabled(true)
+                    .build();
+
+            when(paymentMethodRepository.findById(cashMethodId))
+                    .thenReturn(Optional.of(PaymentMethod.builder()
+                            .id(cashMethodId)
+                            .paymentMethodName("Efectivo")
+                            .paymentMethodShortName("EFECTIVO")
+                            .enabled(true)
+                            .isCash(true)
+                            .build()));
+            doReturn(Optional.of(pending)).when(salesOrderRepository).findByIdForUpdate(orderId);
+            when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(charged));
+            when(itemRepository.findBySalesOrderId(orderId)).thenReturn(List.of(line));
+            when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId)).thenReturn(List.of());
+            when(itemRepository.sumMoneyParts(orderId))
+                    .thenReturn(moneyPartsRow(
+                            new BigDecimal("350.0000"), new BigDecimal("0.0000"), new BigDecimal("0.0000")));
+            when(itemRepository.bumpWriteSeq(line.getId())).thenReturn(1L);
+
+            var result = salesOrderService.chargeSalesOrder(orderId, request);
+
+            assertThat(result.statusName()).isEqualTo("Completed");
+            assertThat(appendedPayments).singleElement().satisfies(payment -> {
+                assertThat(payment.getDirection()).isEqualTo(SalePaymentDirection.CHARGE);
+                assertThat(payment.getAmount()).isEqualByComparingTo(new BigDecimal("350.0000"));
+                assertThat(payment.getTenderedAmount()).isEqualByComparingTo(new BigDecimal("400.0000"));
+                assertThat(payment.getChangeAmount()).isEqualByComparingTo(new BigDecimal("50.0000"));
+            });
+        }
     }
 
     // ─────────────────────────────────────────────
@@ -3303,7 +3513,7 @@ class SalesOrderServiceTest {
             assertThat(testOrder.getDiscountTotal()).isEqualByComparingTo(new BigDecimal("0.0000"));
             assertThat(testOrder.getTaxTotal()).isEqualByComparingTo(new BigDecimal("0.0000"));
             assertThat(testOrder.getRoundingAdjustment()).isEqualByComparingTo(new BigDecimal("0.0000"));
-            assertThat(testOrder.getTotalAmount()).isEqualByComparingTo(new BigDecimal("100.00"));
+            assertThat(testOrder.getTotalAmount()).isEqualByComparingTo(new BigDecimal("100.0000"));
             // The recalculation is the whole write: the new line books no stock here.
             verifyNoStockWork();
         }
