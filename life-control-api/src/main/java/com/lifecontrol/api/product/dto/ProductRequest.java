@@ -41,8 +41,10 @@ import java.util.UUID;
  * <b>article</b> and never on a sale line: the line copies the product's code and its resolved rate at write
  * time (ADR-0002 decision 6), so a client cannot state a tax for a document. Absent or blank means "no tax
  * applies" on creation ({@code Product#DEFAULT_TAX_CODE}) and "leave the stored code alone" on update, the
- * same meaning {@code attributes} already carries here — never an invented {@code NA}. The vocabulary is
- * the catalog's: an unknown code is refused by {@code fk_products_tax_code}, not by this record.</p>
+ * same meaning {@code attributes} already carries here — never an invented {@code NA}. The vocabulary is the
+ * catalog's, and it is resolved there before anything is written: an unknown code is a {@code 404} and a retired
+ * one a {@code 400}, both naming the code, instead of a {@code 500} from {@code fk_products_tax_code} that names
+ * only the constraint (T6 of {@code odd/tasks/product-tax-code.md}).</p>
  *
  * <p>{@code variants} is <b>appended last</b>, after {@code variantMode}, so the seven- and eight-argument
  * shapes every existing caller uses keep compiling. {@code taxCode} sits beside {@code satCode} — the two
