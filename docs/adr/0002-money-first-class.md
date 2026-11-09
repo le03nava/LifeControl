@@ -40,7 +40,7 @@ measured in the tree:
 | Scale | `12,2` cannot hold a unit price such as 0,0375 per gram, nor a quantity such as 0,375 g, so the rounding lands on the line instead of the document |
 
 `promotions` (V1:424-437) stores a `discount_type`/`discount_value`, and `sales_order_items` stores
-`list_price`, `discount_applied` and `final_price` (`V1:496-509`). Those two facts are the good half:
+`list_price`, `discount_applied` and `final_price` (`V1:499-509`). Those two facts are the good half:
 the line already snapshots its price. What is missing is the layer above and below it.
 
 The money that exists outside a sales document is measured here and scoped out, because this ADR is
@@ -242,7 +242,17 @@ REVOKE UPDATE, DELETE ON sale_payment      FROM lifecontrol_app;
 REVOKE UPDATE, DELETE ON sale_payment_void FROM lifecontrol_app;
 
 ALTER TABLE payment_methods ADD COLUMN is_cash BOOLEAN NOT NULL DEFAULT false;
+
+UPDATE payment_methods SET is_cash = true
+ WHERE lower(payment_method_name) = lower('Efectivo');
 ```
+
+> **Amended 2026-11-09 (D-b, `odd/tasks/money-first-class.md`).** `DEFAULT false` alone leaves **every**
+> method of `V3:384-398` non-cash, so M4's domain guard would refuse change on a cash sale from the first
+> deploy onward, and no error would name the flag. The `UPDATE` above is that backfill, matched by name
+> because the catalog is global and its seeded names are the only thing the migration can read; it ships in
+> `V83` and a `RAISE NOTICE` states how many rows it marked. A catalog whose cash row was renamed gets the
+> notice instead of silence: the row is not invented, and marking one by hand is the stated operator step.
 
 The "cash only" half of M4 is a domain guard, not a constraint: a `CHECK` cannot read another table,
 so `method_is_cash(method_id)` is not admissible inside one. `payment_methods` is a global catalog
@@ -319,6 +329,20 @@ the amount, so a card payment cannot carry a change value even by mistake.
    or the literal `'unknown:migration'` where it is null, because the column is `NOT NULL` and a
    backfill is not allowed to invent a person. Nothing else is invented: the row says "one payment,
    whole amount, method as recorded".
+
+   > **Amended 2026-11-09 (D-a, `odd/tasks/money-first-class.md`).** «The order's `payment_method_id`»
+   > assumes the column is always stated, and `V1:478` lets it be `NULL` while `sale_payment.method_id` is
+   > `NOT NULL`: a `Completed` order with no method has no row that satisfies both. Nothing is skipped
+   > silently and nothing is invented. `V86` inserts for every completed sale that carries a method and a
+   > positive total, and it names the two sets it cannot represent with `RAISE NOTICE` — no method, and a
+   > total of `0`, which `CHECK (amount > 0)` refuses. They are disjoint on purpose (`method IS NULL` versus
+   > `method IS NOT NULL AND total_amount = 0`) so the counts add up and no order is printed twice. Since
+   > they are exactly the reason the column cannot go, `V87` refuses step 6 while any of them exists, and
+   > states the count. **D-a closed 2026-11-07 by measurement at zero rows**: no environment here holds that
+   > dataset, and `docker/scripts/preflight-payment-methods.sh` is the read-only gate that answers the same
+   > question per row — with `no_method` or `zero_total` as the reason — before the migration runs, or after
+   > a restored dump.
+
 5. Copy `product_name`/`variant_name` into the snapshots from the current catalog. `tax_code` stays
    `'NA'` and `tax_rate` stays 0 until a rate row exists, and `ck_order_total` still holds because
    `tax_total` is 0.
