@@ -62,12 +62,17 @@ why each needed its own decision, and why the count in this paragraph has now be
 
 One edge is missing from the table above and is stated here instead, because the column mirrors each
 ADR's own `Depends on` line: ADR-0006's `## Schema` references `currency (code)` and `tax_rate (id)`,
-which ADR-0002 creates. The `currency` half is **satisfied** — `V57` created the catalog and
-`companies.currency`, and `V58` created `variant_listing` reading it. The `tax_rate` half is **not**: no
-migration in the tree creates that table, ADR-0002's T4 still owes it, and `V58` names the departure it
-took instead of inventing one (`V58__variant_listing.sql:26-31`) — so adding `variant_listing.tax_rate_id`
-is an `ALTER` in the slice that creates `tax_rate`. The `variant_mode`, measure-unit and barcode slices
-carry no such constraint.
+which ADR-0002 creates. **Both halves are satisfied.** `V57` created the currency catalog and
+`companies.currency`, and `V58` created `variant_listing` reading it. `V82` created `tax_rate` with the
+tax-code catalog (ADR-0002's T4), and `V88` added the pointer `V58:26-32` had promised to the slice that
+created the table: `variant_listing.tax_rate_id`, nullable, written as a **composite** foreign key
+`(company_id, tax_rate_id)` → `tax_rate (company_id, id)` rather than the block's literal
+`REFERENCES tax_rate (id)`. That departure is ADR-0005's, not this unit's invention: `tax_rate` is a
+tenant table under `ENABLE`+`FORCE`, and a referential check bypasses row security, so an id-only pointer
+would let one tenant name another tenant's rate — an unreadable row the resolver would tax at zero in
+silence. No write path resolves a rate for a listing yet, so the column is `NULL` everywhere for now
+(`odd/tasks/variant-listing-tax-rate.md`, T4). The `variant_mode`, measure-unit and barcode slices carry
+no such constraint.
 
 One expectation is recorded here because it was written down as settled and is not: ADR-0001's T5d was
 closed as blocked on ADR-0004, on the reading that the state machine's per-transition identity would

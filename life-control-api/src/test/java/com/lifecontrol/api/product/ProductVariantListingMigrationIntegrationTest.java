@@ -182,11 +182,92 @@ class ProductVariantListingMigrationIntegrationTest extends AbstractPostgresInte
 
         assertThat(columns)
                 .as("quantity is ADR-0001's ledger and cost is the inbound movement's, so neither is a "
-                        + "column here; `tax_rate_id` is absent because `tax_rate` does not exist yet; and "
-                        + "`enabled` is absent because the per-store availability toggle is out of scope by "
-                        + "decision and `V79` dropped it (#777)")
+                        + "column here; `enabled` is absent because the per-store availability toggle is out "
+                        + "of scope by decision and `V79` dropped it (#777); and `tax_rate_id` is here because "
+                        + "`V88` added the pointer decision 5 declares, which `V58` could not")
                 .containsExactly(
-                        "company_id", "company_store_id", "currency", "id", "list_price", "product_variant_id");
+                        "company_id",
+                        "company_store_id",
+                        "currency",
+                        "id",
+                        "list_price",
+                        "product_variant_id",
+                        "tax_rate_id");
+    }
+
+    @Test
+    @DisplayName("V88: the tax pointer decision 5 declares, nullable, and NULL on what V58 copied")
+    void addsTheTaxRatePointer() throws Exception {
+        migrateTo(PRE_UNIT_HEAD);
+
+        var company = insertCompany("MXN");
+        var store = insertStore(company, "V88 Store");
+        var product = insertProduct(company, "V88-SKU", "V88 Article");
+        var variant = insertVariant(company, product, "Unica");
+        insertStorePrice(company, variant, store, "100.50");
+
+        migrateToHead();
+
+        assertThat(readScoped(
+                        company,
+                        "SELECT data_type FROM information_schema.columns WHERE table_name = 'variant_listing'"
+                                + " AND column_name = 'tax_rate_id'"))
+                .as("the column ADR-0006 decision 5 declares in its `## Schema` block, and that `V58:26-32` named"
+                        + " as the ALTER waiting for `tax_rate`")
+                .isEqualTo("uuid");
+
+        assertThat(readScoped(
+                        company,
+                        "SELECT is_nullable FROM information_schema.columns WHERE table_name = 'variant_listing'"
+                                + " AND column_name = 'tax_rate_id'"))
+                .as("nullable: a listing states its price today and its tax once a write path resolves one, "
+                        + "and NOT NULL would refuse every row `V58` already copied")
+                .isEqualTo("YES");
+
+        assertThat(readScoped(company, "SELECT tax_rate_id FROM variant_listing"))
+                .as("the row `V58` copied keeps no tax: this migration invents no rate for it, and NULL is the "
+                        + "honest answer while nothing resolves one")
+                .isNull();
+
+        var definition = readScoped(
+                company, "SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname = 'fk_listing_tax_rate'");
+        assertThat(definition)
+                .as("composite, not `REFERENCES tax_rate (id)` as the ADR's block literally writes it: the "
+                        + "pointer names the rate AND the tenant, which is the whole of S5")
+                .contains("FOREIGN KEY (company_id, tax_rate_id)")
+                .contains("REFERENCES tax_rate(company_id, id)");
+    }
+
+    @Test
+    @DisplayName("V88: this tenant's rate is accepted, another tenant's and one that does not exist are refused")
+    void refusesACrossTenantTaxRate() throws Exception {
+        migrateTo(PRE_UNIT_HEAD);
+
+        var company = insertCompany("MXN");
+        var store = insertStore(company, "V88 FK Store");
+        var product = insertProduct(company, "V88-FK", "V88 FK Article");
+        var variant = insertVariant(company, product, "Unica");
+        var otherCompany = insertCompany("MXN");
+
+        migrateToHead();
+
+        var ownRate = insertTaxRate(company, "IVA", "0.160000", "2026-01-01");
+        var foreignRate = insertTaxRate(otherCompany, "IVA", "0.160000", "2026-01-01");
+
+        assertThatThrownBy(() -> insertListingWithTaxRate(company, variant, store, "10.00", foreignRate))
+                .as("this tenant's listing naming another tenant's rate: under this tenant's policy that row is "
+                        + "unreadable, so the tax would resolve to nothing instead of failing here")
+                .hasStackTraceContaining("fk_listing_tax_rate");
+
+        assertThatThrownBy(() -> insertListingWithTaxRate(company, variant, store, "10.00", UUID.randomUUID()))
+                .as("a rate id that names no row is refused by the same constraint")
+                .hasStackTraceContaining("fk_listing_tax_rate");
+
+        insertListingWithTaxRate(company, variant, store, "10.00", ownRate);
+
+        assertThat(readScoped(company, "SELECT tax_rate_id FROM variant_listing"))
+                .as("the pointer stores the row a resolver would have answered with")
+                .isEqualTo(ownRate.toString());
     }
 
     @Test
@@ -399,6 +480,29 @@ class ProductVariantListingMigrationIntegrationTest extends AbstractPostgresInte
                 "INSERT INTO variant_listing (company_id, product_variant_id, company_store_id, list_price, currency)"
                         + " VALUES ('" + company + "', '" + variant + "', '" + store + "', '" + listPrice
                         + "', 'MXN')");
+    }
+
+    /** The same insert with the tax pointer `V88` adds, which is what carries the tenancy rule. */
+    private void insertListingWithTaxRate(UUID company, UUID variant, UUID store, String listPrice, UUID taxRateId)
+            throws SQLException {
+        execute(
+                company,
+                "INSERT INTO variant_listing (company_id, product_variant_id, company_store_id, list_price,"
+                        + " currency, tax_rate_id) VALUES ('" + company + "', '" + variant + "', '" + store
+                        + "', '" + listPrice + "', 'MXN', '" + taxRateId + "')");
+    }
+
+    /**
+     * One rate of one company. The code comes from the platform catalog `V82` seeds — a rate cannot name a
+     * code that is not there, which is the point of the catalog being a table and not free text.
+     */
+    private UUID insertTaxRate(UUID company, String taxCode, String rate, String effectiveFrom) throws SQLException {
+        var id = UUID.randomUUID();
+        execute(
+                company,
+                "INSERT INTO tax_rate (id, company_id, tax_code, rate, effective_from) VALUES ('" + id + "', '"
+                        + company + "', '" + taxCode + "', " + rate + ", '" + effectiveFrom + "')");
+        return id;
     }
 
     /** The {@code measure_units} row {@code V3} seeds as "Pieza", read and never invented. */

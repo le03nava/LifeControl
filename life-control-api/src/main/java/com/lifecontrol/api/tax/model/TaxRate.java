@@ -30,7 +30,7 @@ import java.util.UUID;
 @Table(name = "tax_rate")
 public class TaxRate {
 
-    /** Surrogate key, and the column {@code variant_listing.tax_rate_id} will reference later (V58:26-32). */
+    /** One half of the key {@code variant_listing.tax_rate_id} references since {@code V88}, with {@code company_id}. */
     @Id
     @Column(name = "id", nullable = false, updatable = false)
     private UUID id;
