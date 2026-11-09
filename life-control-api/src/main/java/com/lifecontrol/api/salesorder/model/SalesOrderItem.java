@@ -201,8 +201,22 @@ public class SalesOrderItem extends Auditable {
         return taxCode;
     }
 
+    /**
+     * Sets the code this line snapshots. Used only by the one path that may legitimately restate it: a line
+     * moved to another variant, which is no longer the article whose tax was copied. A plain edit cannot
+     * restate the snapshot — ADR-0002 decision 6 — so this setter is not part of the ordinary update path.
+     */
+    public void setTaxCode(String taxCode) {
+        this.taxCode = taxCode;
+    }
+
     public BigDecimal getTaxRate() {
         return taxRate;
+    }
+
+    /** Sets the rate that pairs with {@link #setTaxCode(String)}; the derivation reads both. */
+    public void setTaxRate(BigDecimal taxRate) {
+        this.taxRate = taxRate;
     }
 
     public BigDecimal getTaxAmount() {

@@ -4243,6 +4243,61 @@ class SalesOrderServiceTest {
             assertThat(taxedLine.getQuantity()).isEqualByComparingTo(new BigDecimal("3.00"));
         }
 
+        @Test
+        @DisplayName("a line moved to another variant resolves again: it is no longer the same article")
+        void updateItem_toAnotherVariant_takesTheNewArticlesSnapshot() {
+            var otherVariantId = UUID.randomUUID();
+            var taxedLine = SalesOrderItem.builder()
+                    .id(itemId)
+                    .salesOrderId(orderId)
+                    .productVariantId(variantId)
+                    .quantity(new BigDecimal("2.00"))
+                    .listPrice(new BigDecimal("100.00"))
+                    .discountApplied(BigDecimal.ZERO)
+                    .taxCode("IVA")
+                    .taxRate(new BigDecimal("0.160000"))
+                    .status(SalesOrderItemState.PENDING)
+                    .enabled(true)
+                    .build();
+
+            when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
+            when(itemRepository.findById(itemId)).thenReturn(Optional.of(taxedLine));
+            when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
+            when(productVariantRepository.existsByIdAndCompanyIdAndEnabledTrue(otherVariantId, companyId))
+                    .thenReturn(true);
+            when(productVariantRepository.findProductTaxCodeByVariantId(otherVariantId))
+                    .thenReturn(Optional.of("IVA"));
+            // A rate the OLD line did not carry. An 8% answer here is only reachable if the resolution really
+            // ran again: the stored snapshot says 16%, and re-resolution is the one thing an edit may not do
+            // for a line that stays the same article.
+            when(taxRateService.resolve(
+                            companyId, "IVA", testOrder.getOrderDate().toLocalDate()))
+                    .thenReturn(Optional.of(new TaxRateResolution(
+                            UUID.randomUUID(), "IVA", new BigDecimal("0.080000"), LocalDate.of(2026, 1, 1))));
+            when(itemRepository.save(any(SalesOrderItem.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+            salesOrderService.updateSalesOrderItem(
+                    orderId,
+                    itemId,
+                    new SalesOrderItemRequest(
+                            itemId,
+                            otherVariantId,
+                            new BigDecimal("2.00"),
+                            new BigDecimal("100.00"),
+                            BigDecimal.ZERO,
+                            null));
+
+            assertThat(taxedLine.getProductVariantId()).isEqualTo(otherVariantId);
+            assertThat(taxedLine.getTaxCode())
+                    .as("a different article is a different fact, not a rate change: its product declares the "
+                            + "code, so the previous article's snapshot cannot survive the swap")
+                    .isEqualTo("IVA");
+            assertThat(taxedLine.getTaxRate())
+                    .as("the document's date resolves the new article's rate; the notes on the same-variant case "
+                            + "explain why it must not run there")
+                    .isEqualByComparingTo(new BigDecimal("0.080000"));
+        }
+
         /** The three answers every line write needs before it reaches the tax: the order, its store and the variant. */
         private void sellableVariant() {
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
