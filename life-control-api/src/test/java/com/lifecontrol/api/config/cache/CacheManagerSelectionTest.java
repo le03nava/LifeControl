@@ -74,13 +74,14 @@ class CacheManagerSelectionTest {
     }
 
     @Test
-    @DisplayName("spring.cache.type=simple registers the seven cache regions the fallback serves")
+    @DisplayName("spring.cache.type=simple registers the eight cache regions the fallback serves")
     void cacheTypeSimple_RegistersTheCacheRegions() {
         runner().withPropertyValues("spring.cache.type=simple")
                 .run(context -> assertThat(context.getBean(CacheManager.class).getCacheNames())
                         .containsExactlyInAnyOrder(
                                 "countries",
                                 "currencies",
+                                "taxCodes",
                                 "statusTypes",
                                 "statuses",
                                 "measureUnits",

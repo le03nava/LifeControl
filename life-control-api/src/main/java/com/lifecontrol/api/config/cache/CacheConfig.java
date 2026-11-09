@@ -186,6 +186,7 @@ public class CacheConfig {
         cacheManager.setCaches(Set.of(
                 new ConcurrentMapCache("countries"),
                 new ConcurrentMapCache("currencies"),
+                new ConcurrentMapCache("taxCodes"),
                 new ConcurrentMapCache("statusTypes"),
                 new ConcurrentMapCache("statuses"),
                 new ConcurrentMapCache("measureUnits"),

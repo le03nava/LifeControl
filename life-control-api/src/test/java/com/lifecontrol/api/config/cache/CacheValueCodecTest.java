@@ -10,6 +10,7 @@ import com.lifecontrol.api.paymentmethod.dto.PaymentMethodResponse;
 import com.lifecontrol.api.status.dto.StatusResponse;
 import com.lifecontrol.api.status.dto.StatusTypeResponse;
 import com.lifecontrol.api.status.service.StatusTypePage;
+import com.lifecontrol.api.tax.dto.TaxCodeResponse;
 import java.lang.reflect.Method;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -201,6 +202,13 @@ class CacheValueCodecTest {
         var currency = new CurrencyResponse("MXN", (short) 2, "$", true);
         values.put(CurrencyResponse.class.getName(), currency);
         values.put(listOf(CurrencyResponse.class), List.of(currency));
+
+        // The other platform catalog served with the same shape: `TaxCodeService.getAllTaxCodes` caches
+        // `Stream#toList`'s ListN exactly like `CurrencyService` does, so a hit has to be reconstructible
+        // without knowing the declared type or the second call to `GET /api/tax-codes` answers 500.
+        var taxCode = new TaxCodeResponse("IVA", "IVA", true);
+        values.put(TaxCodeResponse.class.getName(), taxCode);
+        values.put(listOf(TaxCodeResponse.class), List.of(taxCode));
 
         return Map.copyOf(values);
     }
