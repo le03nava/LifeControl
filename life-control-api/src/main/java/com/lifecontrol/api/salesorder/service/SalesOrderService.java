@@ -354,6 +354,7 @@ public class SalesOrderService {
                     var item = itemRepository
                             .findById(reqItem.id())
                             .orElseThrow(() -> new SalesOrderItemNotFoundException(reqItem.id()));
+                    var variantChanged = !item.getProductVariantId().equals(reqItem.productVariantId());
                     item.setProductVariantId(reqItem.productVariantId());
                     item.setQuantity(reqItem.quantity());
                     item.setListPrice(reqItem.listPrice());
@@ -370,6 +371,17 @@ public class SalesOrderService {
                     // names `list_price`, `quantity`, `discount_applied` and `tax_rate`, so `V90`'s trigger
                     // restates `tax_amount` and `final_price` from the STORED rate, which is the right arithmetic
                     // when a discount or a quantity changes.
+                    //
+                    // THE ONE EXCEPTION, because it is a different fact and not a rate change: a line moved to
+                    // another variant stops being the same article, so the code its product declares and the rate
+                    // the document's date resolves are taken again. Keeping the previous article's snapshot would
+                    // tax this sale with a code its product does not declare — a wrong number, silently, which is
+                    // the failure this unit exists to remove.
+                    if (variantChanged) {
+                        var tax = lineTaxFor(so.getCompanyId(), reqItem.productVariantId(), so.getOrderDate());
+                        item.setTaxCode(tax.taxCode());
+                        item.setTaxRate(tax.taxRate());
+                    }
                     itemRepository.save(item);
                 } else {
                     // INSERT: new item with default "Pending" status
@@ -775,15 +787,23 @@ public class SalesOrderService {
 
         var discountApplied = request.discountApplied() != null ? request.discountApplied() : BigDecimal.ZERO;
 
-        // NO RE-RESOLUTION, for the reason stated on the order-level PUT: this path mutates an existing row's
-        // quantity, price and discount, and the rate on it is the snapshot of the sale that created it. The
-        // derivation restates `tax_amount` and `final_price` from that stored rate, which is the arithmetic these
-        // setters actually change.
+        // NO RE-RESOLUTION when the row stays the same article, for the reason stated on the order-level PUT:
+        // this path mutates an existing row's quantity, price and discount, and the rate on it is the snapshot of
+        // the sale that created it. The derivation restates `tax_amount` and `final_price` from that stored rate,
+        // which is the arithmetic these setters actually change. A line moved to another variant is the exception,
+        // for the same reason as there: it is no longer the article whose tax was copied.
+        var variantChanged = !item.getProductVariantId().equals(request.productVariantId());
         item.setProductVariantId(request.productVariantId());
         item.setQuantity(request.quantity());
         item.setListPrice(request.listPrice());
         item.setDiscountApplied(discountApplied);
         item.setPromotionId(request.promotionId());
+
+        if (variantChanged) {
+            var tax = lineTaxFor(so.getCompanyId(), request.productVariantId(), so.getOrderDate());
+            item.setTaxCode(tax.taxCode());
+            item.setTaxRate(tax.taxRate());
+        }
 
         var updated = itemRepository.save(item);
 
