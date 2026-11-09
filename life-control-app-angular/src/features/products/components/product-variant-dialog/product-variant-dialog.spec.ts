@@ -85,6 +85,7 @@ describe('ProductVariantDialog', () => {
       categoryId: null,
       companyId,
       variantMode: 'SIMPLE',
+      taxCode: 'NA',
       ...overrides,
     };
   }

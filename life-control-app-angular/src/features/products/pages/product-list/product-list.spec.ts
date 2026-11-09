@@ -46,6 +46,7 @@ describe('ProductList', () => {
       updatedAt: '',
       companyId,
       variantMode: 'SIMPLE',
+      taxCode: 'NA',
     },
     {
       id: '2',
@@ -56,6 +57,7 @@ describe('ProductList', () => {
       updatedAt: '',
       companyId,
       variantMode: 'SIMPLE',
+      taxCode: 'NA',
     },
     {
       id: '3',
@@ -66,6 +68,7 @@ describe('ProductList', () => {
       updatedAt: '',
       companyId,
       variantMode: 'SIMPLE',
+      taxCode: 'NA',
     },
   ];
 

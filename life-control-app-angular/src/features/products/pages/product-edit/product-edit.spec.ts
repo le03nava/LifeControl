@@ -34,6 +34,8 @@ import { ProductSupplierDialog } from '../../components/product-supplier-dialog/
 import { ProductsForm } from '../../components/products-form/products-form';
 import { ProfileService } from '@features/user/profile/data/profile.service';
 import { ProfileResponse } from '@features/user/profile/data/profile.models';
+import { TaxCodeService } from '@features/tax/data/tax-code.service';
+import { DEFAULT_TAX_CODE, TaxCode } from '@features/tax/data/tax-code.models';
 
 describe('ProductEdit', () => {
   let component: ProductEdit;
@@ -56,6 +58,7 @@ describe('ProductEdit', () => {
   let profileServiceMock: { getProfile: ReturnType<typeof vi.fn> };
   let companyServiceMock: { getCompanySelector: ReturnType<typeof vi.fn> };
   let measureUnitServiceMock: { getMeasureUnits: ReturnType<typeof vi.fn> };
+  let taxCodeServiceMock: { getTaxCodes: ReturnType<typeof vi.fn> };
   let categoryServiceMock: { getCategories: ReturnType<typeof vi.fn> };
   let routerMock: {
     navigate: ReturnType<typeof vi.fn>;
@@ -122,6 +125,7 @@ describe('ProductEdit', () => {
       updatedAt: '',
       companyId,
       variantMode: 'SIMPLE',
+      taxCode: DEFAULT_TAX_CODE,
       ...overrides,
     };
   }
@@ -161,6 +165,16 @@ describe('ProductEdit', () => {
         createdAt: '2026-01-01T00:00:00',
         updatedAt: '2026-01-01T00:00:00',
       },
+    ];
+  }
+
+  /** The tax-code catalog `GET /api/tax-codes` serves: the enabled codes `V82` seeds. */
+  function createTaxCodes(): TaxCode[] {
+    return [
+      { code: 'NA', label: 'No aplica', enabled: true },
+      { code: 'IVA', label: 'IVA 16%', enabled: true },
+      { code: 'TASA_0', label: 'Tasa 0%', enabled: true },
+      { code: 'EXENTO', label: 'Exento', enabled: true },
     ];
   }
 
@@ -355,6 +369,7 @@ describe('ProductEdit', () => {
     };
     companyServiceMock = { getCompanySelector: vi.fn().mockReturnValue(of(createCompanyPage())) };
     measureUnitServiceMock = { getMeasureUnits: vi.fn().mockReturnValue(of(createMeasureUnits())) };
+    taxCodeServiceMock = { getTaxCodes: vi.fn().mockReturnValue(of(createTaxCodes())) };
     tree$ = new Subject<ProductCategory[]>();
     categoryServiceMock = {
       getCategories: options.categoriesFailing
@@ -389,6 +404,7 @@ describe('ProductEdit', () => {
         { provide: ProfileService, useValue: profileServiceMock },
         { provide: CompanyService, useValue: companyServiceMock },
         { provide: MeasureUnitService, useValue: measureUnitServiceMock },
+        { provide: TaxCodeService, useValue: taxCodeServiceMock },
         { provide: ProductCategoryService, useValue: categoryServiceMock },
         { provide: Router, useValue: routerMock },
         { provide: MatDialog, useValue: dialogMock },
@@ -1131,6 +1147,7 @@ describe('ProductEdit', () => {
       name: 'Zapatilla Runner',
       shortName: 'Runner',
       satCode: '12345678',
+      taxCode: DEFAULT_TAX_CODE,
       productType: 'PRODUCT',
       attributes: { color: 'red' },
     };
@@ -1215,6 +1232,51 @@ describe('ProductEdit', () => {
         ...requestFields,
         categoryId: 'sub2-1',
       });
+    });
+  });
+
+  /**
+   * S2, S4: «el código vive en el catálogo del artículo».
+   *
+   * The screen's half of that decision is small and load-bearing: it reads the platform catalog for the
+   * select, it opens on the server's own default (`NA`) so an untouched field still states a code, and it
+   * forwards whatever the form holds in the explicit body `ProductRequest` requires.
+   */
+  describe("the product's tax code (S2, S4)", () => {
+    it('should open a creation on NA, the code the server itself defaults to', () => {
+      setup();
+
+      // `products.tax_code` is `NOT NULL DEFAULT 'NA'` (V82), so the form starts on the same answer the
+      // API would write for a request that stated none — and it states one anyway.
+      expect(component.productForm().controls.taxCode.value).toBe('NA');
+    });
+
+    it('should read the catalog once for the select', () => {
+      setup();
+
+      expect(taxCodeServiceMock.getTaxCodes).toHaveBeenCalled();
+    });
+
+    it('should carry the chosen code in the creation body', () => {
+      setup();
+      const response = createProductData({ id: 'new-id' });
+      productServiceMock.createProduct = vi.fn().mockReturnValue(of(response));
+
+      component.onSaveProduct(createFormValue({ id: '', taxCode: 'IVA' }));
+
+      expect(productServiceMock.createProduct.mock.calls[0][1]).toStrictEqual(
+        expect.objectContaining({ taxCode: 'IVA' }),
+      );
+    });
+
+    it('should seed the stored code on edit, so the select shows what the product declares', async () => {
+      setup({
+        edit: true,
+        product: createProductData({ id: 'existing-id', taxCode: 'TASA_0' }),
+      });
+      await settle();
+
+      expect(component.productForm().controls.taxCode.value).toBe('TASA_0');
     });
   });
 

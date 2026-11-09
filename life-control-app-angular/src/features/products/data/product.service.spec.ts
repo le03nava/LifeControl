@@ -24,6 +24,7 @@ describe('ProductService', () => {
     updatedAt: '',
     companyId,
     variantMode: 'SIMPLE',
+    taxCode: 'NA',
   };
 
   beforeEach(() => {

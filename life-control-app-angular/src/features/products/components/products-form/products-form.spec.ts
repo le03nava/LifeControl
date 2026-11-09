@@ -12,6 +12,7 @@ import {
 import type { MeasureUnit } from '../../models/product-variant.models';
 import { measurementUnitName, measurementValueName } from '../../models/product-attribute-form';
 import { ProductCategory } from '../../models/product-category.models';
+import { DEFAULT_TAX_CODE, TaxCode } from '@features/tax/data/tax-code.models';
 
 describe('ProductsForm', () => {
   let component: ProductsForm;
@@ -30,6 +31,8 @@ describe('ProductsForm', () => {
       }),
       shortName: new FormControl<string | null>(null),
       satCode: new FormControl<string | null>(null),
+      // The host seeds the server's own default, so an untouched select still states a code (S2).
+      taxCode: new FormControl(DEFAULT_TAX_CODE, { nonNullable: true }),
       productType: new FormControl<string | null>(null),
       attributes: new FormControl<string | null>(null),
       enabled: new FormControl<boolean>(true, { nonNullable: true }),
@@ -709,8 +712,9 @@ describe('ProductsForm', () => {
         ]),
       );
       // Every select is a real control of the form, not just a label: the company, the three levels,
-      // the article's mode (decision 1) and the unit of its inline variant (decision 3).
-      expect(fixture.nativeElement.querySelectorAll('mat-select').length).toBe(6);
+      // the article's mode (decision 1), the unit of its inline variant (decision 3) and the fiscal
+      // code the product declares (S2).
+      expect(fixture.nativeElement.querySelectorAll('mat-select').length).toBe(7);
     });
 
     describe('the Empresa field (S3)', () => {
@@ -1231,6 +1235,76 @@ describe('ProductsForm', () => {
 
       expect(spy).toHaveBeenCalledTimes(1);
       expect(spy.mock.calls[0][0].variants).toEqual([]);
+    });
+  });
+
+  /**
+   * S2, S4: the fiscal code is the product's — «el código vive en el catálogo del artículo» — and the
+   * platform catalog is what the select offers.
+   *
+   * The catalog is the host's read (`taxCodes`), the same division of labour `measureUnits` has: the
+   * form renders the list it is given and owns no HTTP, so an empty list only means the read has not
+   * answered yet. The default `NA` is the server's own (`products.tax_code NOT NULL DEFAULT 'NA'`),
+   * which is why an operator who never opens the select still states a code instead of sending
+   * `undefined`: an absent code means "the server decides", and that is not what an untouched form said.
+   */
+  describe('the tax-code select (S2, S4)', () => {
+    const catalog: TaxCode[] = [
+      { code: 'NA', label: 'No aplica', enabled: true },
+      { code: 'IVA', label: 'IVA 16%', enabled: true },
+      { code: 'TASA_0', label: 'Tasa 0%', enabled: true },
+    ];
+
+    /** The select bound to the `taxCode` control, found by the control it writes. */
+    function taxSelect(): MatSelect {
+      const select = fixture.debugElement
+        .queryAll(By.directive(MatSelect))
+        .map((element) => element.componentInstance as MatSelect)
+        .find((candidate) => candidate.ngControl?.name === 'taxCode');
+      expect(select).toBeDefined();
+      return select as MatSelect;
+    }
+
+    function renderCatalog(): void {
+      fixture.componentRef.setInput('taxCodes', catalog);
+      fixture.detectChanges();
+    }
+
+    it('should render one option per catalog code the host passes', () => {
+      renderCatalog();
+
+      expect(taxSelect().options.map((option) => option.value)).toEqual(['NA', 'IVA', 'TASA_0']);
+      expect((fixture.nativeElement as HTMLElement).textContent).toContain('Código de impuesto');
+    });
+
+    it('should emit the code the operator picks', () => {
+      const spy = vi.fn();
+      component.saveProduct.subscribe(spy);
+      renderCatalog();
+
+      const fg = component.formGroup();
+      fg.patchValue({ sku: 'SKU-TAX', name: 'Articulo con impuesto', taxCode: 'IVA' });
+      fixture.detectChanges();
+
+      component.onSave();
+
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(spy.mock.calls[0][0].taxCode).toBe('IVA');
+    });
+
+    it('should send NA, never undefined, when the operator never touches the select', () => {
+      const spy = vi.fn();
+      component.saveProduct.subscribe(spy);
+      renderCatalog();
+
+      const fg = component.formGroup();
+      fg.patchValue({ sku: 'SKU-NA', name: 'Articulo sin tocar el impuesto' });
+      fixture.detectChanges();
+
+      component.onSave();
+
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(spy.mock.calls[0][0].taxCode).toBe('NA');
     });
   });
 });

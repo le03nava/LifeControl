@@ -114,6 +114,24 @@
       }
     </mat-form-field>
 
+    <!--
+      S2, S4: the fiscal code lives on the article — «el código vive en el catálogo del artículo» — and it
+      is chosen from the platform catalog, never typed. The options are the host's read of
+      `GET /api/tax-codes` (enabled codes only), and the list is empty until it answers: the control keeps
+      the code it already holds, so a slow or failed read neither clears it nor blocks the save.
+    -->
+    <mat-form-field appearance="outline">
+      <mat-label>Código de impuesto</mat-label>
+      <mat-select formControlName="taxCode" placeholder="— Elegir código —">
+        @for (taxCode of taxCodes(); track taxCode.code) {
+          <mat-option [value]="taxCode.code"> {{ taxCode.code }} — {{ taxCode.label }} </mat-option>
+        }
+      </mat-select>
+      <mat-hint
+        >El código fiscal del artículo, elegido del catálogo de códigos de impuesto.</mat-hint
+      >
+    </mat-form-field>
+
     <mat-form-field appearance="outline">
       <mat-label>Tipo de Producto</mat-label>
       <input

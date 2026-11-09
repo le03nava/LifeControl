@@ -38,6 +38,7 @@ describe('ProductVariantEdit', () => {
     updatedAt: '',
     companyId: mockCompanyId,
     variantMode: 'SIMPLE',
+    taxCode: 'NA',
   };
 
   const mockVariant: ProductVariant = {
