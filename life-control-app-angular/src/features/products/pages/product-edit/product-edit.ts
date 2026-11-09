@@ -46,6 +46,8 @@ import { MatButtonModule } from '@angular/material/button';
 import { ProductSupplierList } from '../product-supplier-list/product-supplier-list';
 import { ProductVariantList } from '../product-variant-list/product-variant-list';
 import type { UnsavedChangesAware } from '@core/guards/unsaved-changes.guard';
+import { TaxCodeService } from '@features/tax/data/tax-code.service';
+import { DEFAULT_TAX_CODE, TaxCode } from '@features/tax/data/tax-code.models';
 
 /** The three workspace tabs, in display order; the index doubles as `selectedIndex`. */
 const WORKSPACE_TABS = ['datos', 'proveedores', 'variantes'] as const;
@@ -88,6 +90,7 @@ export class ProductEdit implements OnInit, UnsavedChangesAware {
   private readonly route = inject(ActivatedRoute);
   private readonly productService = inject(ProductService);
   private readonly measureUnitService = inject(MeasureUnitService);
+  private readonly taxCodeService = inject(TaxCodeService);
   private readonly categoryService = inject(ProductCategoryService);
   private readonly companyService = inject(CompanyService);
   private readonly fb = inject(NonNullableFormBuilder);
@@ -186,6 +189,19 @@ export class ProductEdit implements OnInit, UnsavedChangesAware {
       catchError(() => of([] as MeasureUnit[])),
     ),
     { initialValue: [] as MeasureUnit[] },
+  );
+
+  /**
+   * The enabled tax-code catalog the form's `Código de impuesto` select offers (S2, S4).
+   *
+   * Read here and not by the form for the same reason the measure units are: the form is presentational
+   * and owns no HTTP. The service caches its answer for the session, so opening one product after another
+   * does not spend a request each time. A failed read leaves the catalog empty and the form keeps the code
+   * it already holds — a catalog outage must not clear a product's fiscal code nor block its save.
+   */
+  readonly taxCodes = toSignal(
+    this.taxCodeService.getTaxCodes().pipe(catchError(() => of([] as TaxCode[]))),
+    { initialValue: [] as TaxCode[] },
   );
 
   /**
@@ -440,6 +456,9 @@ export class ProductEdit implements OnInit, UnsavedChangesAware {
               name: this.fb.control(product.name, Validators.required),
               shortName: this.fb.control(product.shortName ?? null),
               satCode: this.fb.control(product.satCode ?? null),
+              // S2: the code the product declares, which is what the select shows on edit. The `??` is
+              // the server's own default restated, not a guess: `products.tax_code` is NOT NULL.
+              taxCode: this.fb.control(product.taxCode ?? DEFAULT_TAX_CODE),
               productType: this.fb.control(product.productType ?? null),
               attributes: this.fb.control(
                 product.attributes ? JSON.stringify(product.attributes) : null,
@@ -470,6 +489,9 @@ export class ProductEdit implements OnInit, UnsavedChangesAware {
       name: this.fb.control('', Validators.required),
       shortName: this.fb.control<string | null>(null),
       satCode: this.fb.control<string | null>(null),
+      // S2: the server's own default (`V82`: NOT NULL DEFAULT 'NA'), so an operator who never opens the
+      // select still states a code instead of sending `undefined` and delegating the decision.
+      taxCode: this.fb.control(DEFAULT_TAX_CODE),
       productType: this.fb.control<string | null>(null),
       attributes: this.fb.control<string | null>(null),
       enabled: this.fb.control(true),
@@ -573,6 +595,9 @@ export class ProductEdit implements OnInit, UnsavedChangesAware {
       name: productData.name,
       shortName: productData.shortName,
       satCode: productData.satCode,
+      // S2: the fiscal code the article declares. It travels on the article and never on a sale line, so
+      // this is the only place a client states one (ADR-0002 decision 6).
+      taxCode: productData.taxCode,
       productType: productData.productType,
       attributes: productData.attributes,
       // S3: the deepest selected node, or an explicit `null` — which is how the field is cleared.

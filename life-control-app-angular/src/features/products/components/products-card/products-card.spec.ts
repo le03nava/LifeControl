@@ -18,6 +18,7 @@ describe('ProductsCard', () => {
     updatedAt: '2024-01-01',
     companyId: 'company-1',
     variantMode: 'SIMPLE',
+    taxCode: 'NA',
   };
 
   beforeEach(async () => {

@@ -36,6 +36,7 @@ import {
 } from '../../models/product-attribute-form';
 import { MAX_CATEGORY_DEPTH, ProductCategory } from '../../models/product-category.models';
 import { ProductAttributeFields } from '../product-attribute-fields/product-attribute-fields';
+import type { TaxCode } from '@features/tax/data/tax-code.models';
 import { CompanySelectorOption } from '@features/companies/companies/models/company.models';
 import { MatButtonModule } from '@angular/material/button';
 import { MatFormFieldModule } from '@angular/material/form-field';
@@ -160,6 +161,16 @@ export class ProductsForm {
    * unit stays required either way, because decision 3 is the API's rule and not the catalog's answer.
    */
   measureUnits = input<MeasureUnit[]>([]);
+
+  /**
+   * The enabled tax-code catalog the `Código de impuesto` select offers (S2, S4).
+   *
+   * Read by the host for the same reason `measureUnits` is: this form is presentational and owns no HTTP.
+   * An empty list therefore only means the read has not answered (or failed), never that the product has
+   * no fiscal code — the control keeps the code it was seeded with either way, and the API refuses a code
+   * the catalog does not have rather than this screen hiding it.
+   */
+  taxCodes = input<TaxCode[]>([]);
 
   readonly defaultErrorMessages: Record<string, (error: unknown) => string> = {
     required: () => 'Este campo es obligatorio.',
@@ -594,6 +605,7 @@ export class ProductsForm {
         name: raw.name,
         shortName: raw.shortName ?? undefined,
         satCode: raw.satCode ?? undefined,
+        taxCode: raw.taxCode,
         productType: raw.productType ?? undefined,
         attributes: parsedAttributes,
         enabled: raw.enabled ?? true,

@@ -17,6 +17,18 @@ export interface Product {
   name: string;
   shortName?: string;
   satCode?: string;
+  /**
+   * The fiscal code the article declares, from the platform catalog `tax_code` (V82).
+   *
+   * It sits beside `satCode` because the two are read together, but they are different facts: `satCode` is
+   * the SAT product key, and this is the tax code a sale **copies** onto its line together with the rate
+   * resolved at write time (ADR-0002 decision 6). It is never stated on a line's request, which is why it
+   * lives here and not on the sale: «el código vive en el catálogo del artículo» (S2).
+   *
+   * Required, unlike `satCode`, because `products.tax_code` is `NOT NULL DEFAULT 'NA'`: the API always
+   * answers it, and a screen that read it as "maybe absent" would have to invent the answer it has.
+   */
+  taxCode: string;
   productType?: string;
   attributes?: Record<string, unknown>;
   enabled: boolean;
@@ -85,6 +97,15 @@ export interface ProductRequest {
   name: string;
   shortName?: string;
   satCode?: string;
+  /**
+   * The fiscal code to store, from the platform catalog.
+   *
+   * Optional on the wire and defaulting server-side: absent or blank means "the server's default" on
+   * creation and "leave the stored code alone" on update (`ProductService.taxCode`). This screen always
+   * states one — an untouched select holds `NA` — so neither of those meanings ever applies to it, and the
+   * optionality is the API's shape rather than this form's behaviour.
+   */
+  taxCode?: string;
   productType?: string;
   attributes?: Record<string, unknown>;
   /**
@@ -133,6 +154,15 @@ export interface ProductControl {
   name: FormControl<string>;
   shortName: FormControl<string | null>;
   satCode: FormControl<string | null>;
+  /**
+   * The article's fiscal code, from the platform catalog (S2).
+   *
+   * Non-nullable and seeded with the server's own default (`DEFAULT_TAX_CODE`) by the host that builds the
+   * group, so an operator who never opens the select still sends a code: `undefined` would mean "the
+   * server decides", which is not what an untouched form said. It carries no validators — the vocabulary
+   * is the catalog's and the API refuses what it does not have — exactly as the neighbouring selects do.
+   */
+  taxCode: FormControl<string>;
   productType: FormControl<string | null>;
   attributes: FormControl<string | null>;
   enabled: FormControl<boolean>;
