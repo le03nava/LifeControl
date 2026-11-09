@@ -1,5 +1,6 @@
 package com.lifecontrol.api.product.controller;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.hasKey;
 import static org.hamcrest.Matchers.not;
 import static org.mockito.ArgumentMatchers.any;
@@ -37,6 +38,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -90,6 +92,7 @@ class ProductControllerTest {
                 "Test Product",
                 "Test",
                 "SAT-001",
+                "IVA",
                 "SERVICE",
                 Map.of("color", "red"),
                 true,
@@ -141,6 +144,7 @@ class ProductControllerTest {
                     .andExpect(jsonPath("$.name").value("Test Product"))
                     .andExpect(jsonPath("$.shortName").value("Test"))
                     .andExpect(jsonPath("$.satCode").value("SAT-001"))
+                    .andExpect(jsonPath("$.taxCode").value("IVA"))
                     .andExpect(jsonPath("$.productType").value("SERVICE"))
                     .andExpect(jsonPath("$.attributes.color").value("red"))
                     .andExpect(jsonPath("$.enabled").value(true))
@@ -181,6 +185,8 @@ class ProductControllerTest {
                     "Simple Product",
                     null,
                     null,
+                    // The fiscal code is `NOT NULL` since V89: a product nobody classified declares `NA`.
+                    "NA",
                     null,
                     null,
                     true,
@@ -199,6 +205,32 @@ class ProductControllerTest {
                     .andExpect(status().isCreated())
                     .andExpect(jsonPath("$.sku").value("SKU-SIMPLE"))
                     .andExpect(jsonPath("$.attributes").doesNotExist());
+        }
+
+        /**
+         * S2 of the tax unit over the wire: the fiscal code travels <b>in the product's request</b>, because
+         * the article is where it lives — no sale line states one, and the server never guesses one.
+         *
+         * <p>The assertion is on what the service receives and not on the response: the response here is a
+         * stub, so only the captured request can say whether the body's field survived deserialization.</p>
+         */
+        @Test
+        @DisplayName("should take taxCode from the body and hand it to the service")
+        void createProduct_WithTaxCode_CarriesItToTheService() throws Exception {
+            when(productService.createProduct(eq(companyId), any(ProductRequest.class)))
+                    .thenReturn(testProductResponse);
+
+            var body = objectMapper.writeValueAsString(testProductRequest);
+            var withTaxCode = body.substring(0, body.lastIndexOf('}')) + ",\"taxCode\":\"TASA_0\"}";
+
+            mockMvc.perform(post("/api/companies/{companyId}/products", companyId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(withTaxCode))
+                    .andExpect(status().isCreated());
+
+            var sent = ArgumentCaptor.forClass(ProductRequest.class);
+            verify(productService).createProduct(eq(companyId), sent.capture());
+            assertThat(sent.getValue().taxCode()).isEqualTo("TASA_0");
         }
 
         @Test
@@ -541,6 +573,7 @@ class ProductControllerTest {
                             "Test Product",
                             "Test",
                             "SAT-001",
+                            "IVA",
                             "SERVICE",
                             Map.of("color", "red"),
                             true,
@@ -608,6 +641,7 @@ class ProductControllerTest {
                     "Updated Name",
                     "Upd",
                     "SAT-NEW",
+                    "TASA_0",
                     "GOODS",
                     Map.of("color", "blue"),
                     true,
@@ -621,7 +655,16 @@ class ProductControllerTest {
                     .thenReturn(updatedResponse);
 
             var request = new ProductRequest(
-                    "SKU-001", "Updated Name", "Upd", "SAT-NEW", "GOODS", Map.of("color", "blue"), null);
+                    "SKU-001",
+                    "Updated Name",
+                    "Upd",
+                    "SAT-NEW",
+                    "TASA_0",
+                    "GOODS",
+                    Map.of("color", "blue"),
+                    null,
+                    null,
+                    null);
 
             mockMvc.perform(put("/api/companies/{companyId}/products/{id}", companyId, productId)
                             .contentType(MediaType.APPLICATION_JSON)
@@ -629,7 +672,13 @@ class ProductControllerTest {
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.name").value("Updated Name"))
                     .andExpect(jsonPath("$.satCode").value("SAT-NEW"))
+                    // The code an edit states comes back as the product's, so the form reopens on it.
+                    .andExpect(jsonPath("$.taxCode").value("TASA_0"))
                     .andExpect(jsonPath("$.attributes.color").value("blue"));
+
+            var sent = ArgumentCaptor.forClass(ProductRequest.class);
+            verify(productService).updateProduct(eq(companyId), eq(productId), sent.capture());
+            assertThat(sent.getValue().taxCode()).isEqualTo("TASA_0");
         }
 
         @Test
@@ -639,6 +688,7 @@ class ProductControllerTest {
                     productId,
                     "SKU-001",
                     "Product",
+                    null,
                     null,
                     null,
                     null,

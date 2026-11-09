@@ -54,6 +54,30 @@ class ProductTest {
         }
 
         @Test
+        @DisplayName("should default the fiscal code to 'NA' when not explicitly set")
+        void buildProduct_DefaultTaxCode() {
+            var product =
+                    Product.builder().sku("TAX-001").name("Fiscal default").build();
+
+            assertThat(product.getTaxCode())
+                    .as("the column's own default since V89: `no aplica` is a code, not an absence")
+                    .isEqualTo(Product.DEFAULT_TAX_CODE)
+                    .isEqualTo("NA");
+        }
+
+        @Test
+        @DisplayName("should carry the fiscal code the builder states")
+        void buildProduct_TaxCode() {
+            var product = Product.builder()
+                    .sku("TAX-002")
+                    .name("Fiscal explicit")
+                    .taxCode("IVA")
+                    .build();
+
+            assertThat(product.getTaxCode()).isEqualTo("IVA");
+        }
+
+        @Test
         @DisplayName("should allow attributes to be null")
         void buildProduct_NullAttributes() {
             var product = Product.builder()
@@ -82,6 +106,7 @@ class ProductTest {
             product.setName("Setter Product");
             product.setShortName("Set");
             product.setSatCode("SAT-999");
+            product.setTaxCode("TASA_0");
             product.setProductType("FOOD");
             product.setAttributes(attrs);
             product.setEnabled(false);
@@ -91,6 +116,7 @@ class ProductTest {
             assertThat(product.getName()).isEqualTo("Setter Product");
             assertThat(product.getShortName()).isEqualTo("Set");
             assertThat(product.getSatCode()).isEqualTo("SAT-999");
+            assertThat(product.getTaxCode()).isEqualTo("TASA_0");
             assertThat(product.getProductType()).isEqualTo("FOOD");
             assertThat(product.getAttributes()).isEqualTo(attrs);
             assertThat(product.getEnabled()).isFalse();

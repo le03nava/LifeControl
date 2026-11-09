@@ -29,6 +29,13 @@ import java.util.UUID;
  * Angular form decides with it whether the barcode of a variant is required (decision 4) — and because a
  * reader of the catalog has to be able to tell what the creation wrote without re-deriving it from the
  * variant count, which is a different fact (a {@code MULTI} product with one variant is legal).</p>
+ *
+ * <p>{@code taxCode} is the fiscal code the product declares, from the platform catalog {@code tax_code}
+ * (V82) — S2 of {@code odd/tasks/product-tax-code.md}. It is reported because it is the <b>source</b> of the
+ * snapshot a sale line takes: the line copies this code and the rate resolved for it at write time
+ * (ADR-0002 decision 6), so the form has to show what a sale of this article would declare, and an operator
+ * has to be able to read it back without inferring it from a past sale. {@code NA} means no tax applies and
+ * is the value of every product that never stated one.</p>
  */
 public record ProductResponse(
         UUID id,
@@ -36,6 +43,7 @@ public record ProductResponse(
         String name,
         String shortName,
         String satCode,
+        String taxCode,
         String productType,
         Map<String, Object> attributes,
         Boolean enabled,
