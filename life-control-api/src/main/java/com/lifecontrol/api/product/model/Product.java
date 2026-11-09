@@ -66,8 +66,10 @@ public class Product extends Auditable {
      *
      * <p>{@link #DEFAULT_TAX_CODE} is the column's own default and the value of every product that existed
      * before {@code V89}: "no aplica" is a code with a meaning, not a missing value, so a product always
-     * declares one and the column is {@code NOT NULL}. A code the catalog does not have is refused by the
-     * foreign key {@code fk_products_tax_code}, not by this class.</p>
+     * declares one and the column is {@code NOT NULL}. A code the catalog does not have is refused by
+     * {@code ProductService#resolveTaxCode} — as a {@code 404} when no such code exists and as a {@code 400} when
+     * it exists but was retired — before this row is written; the foreign key {@code fk_products_tax_code} is the
+     * schema's own last line and not the answer a client reads (T6 of {@code odd/tasks/product-tax-code.md}).</p>
      */
     @Column(name = "tax_code", nullable = false)
     private String taxCode = DEFAULT_TAX_CODE;

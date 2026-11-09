@@ -18,6 +18,9 @@ import com.lifecontrol.api.product.exception.VariantModeMismatchException;
 import com.lifecontrol.api.product.exception.VariantsRequiredException;
 import com.lifecontrol.api.product.model.Product;
 import com.lifecontrol.api.product.repository.ProductRepository;
+import com.lifecontrol.api.tax.exception.DisabledTaxCodeException;
+import com.lifecontrol.api.tax.exception.TaxCodeNotFoundException;
+import com.lifecontrol.api.tax.repository.TaxCodeRepository;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -60,6 +63,7 @@ public class ProductService {
     private final ProductVariantService productVariantService;
     private final CompanyRepository companyRepository;
     private final CurrentUserContext currentUserContext;
+    private final TaxCodeRepository taxCodeRepository;
 
     public ProductService(
             ProductRepository productRepository,
@@ -67,13 +71,15 @@ public class ProductService {
             ProductAttributeCatalogService productAttributeCatalogService,
             ProductVariantService productVariantService,
             CompanyRepository companyRepository,
-            CurrentUserContext currentUserContext) {
+            CurrentUserContext currentUserContext,
+            TaxCodeRepository taxCodeRepository) {
         this.productRepository = productRepository;
         this.productCategoryRepository = productCategoryRepository;
         this.productAttributeCatalogService = productAttributeCatalogService;
         this.productVariantService = productVariantService;
         this.companyRepository = companyRepository;
         this.currentUserContext = currentUserContext;
+        this.taxCodeRepository = taxCodeRepository;
     }
 
     @Transactional
@@ -102,8 +108,9 @@ public class ProductService {
                 .shortName(request.shortName())
                 .satCode(request.satCode())
                 // S2 of the tax unit: the fiscal code is a property of the article, and an absent one is `NA`
-                // — the column's own default — instead of a NOT NULL the caller has to know about.
-                .taxCode(taxCode(request))
+                // — the column's own default — instead of a NOT NULL the caller has to know about. The code the
+                // request does state is resolved against the platform catalog before this row is built (T6).
+                .taxCode(resolveTaxCode(request.taxCode()))
                 .productType(request.productType())
                 .attributes(request.attributes())
                 .category(category)
@@ -153,6 +160,11 @@ public class ProductService {
         // from leaving behind attributes the new branch does not define.
         var attributesToStore = request.attributes() != null ? request.attributes() : product.getAttributes();
         validateAttributes(category, attributesToStore);
+        // Resolved here, with the category and the attributes and before the first setter: a code the catalog
+        // does not back is a refusal that has to leave the stored row exactly as it was, and a setter that had
+        // already renamed the product would make the refusal a half-write (T6).
+        var taxCode =
+                request.taxCode() == null || request.taxCode().isBlank() ? null : resolveTaxCode(request.taxCode());
 
         // Update scalar fields
         product.setSku(request.sku());
@@ -163,8 +175,8 @@ public class ProductService {
         // nothing leaves the stored value alone, because `tax_code` is NOT NULL and "no fiscal code" is not a
         // state a product can be in — `NA` is a code with a meaning, not an absence (S2, V89). An absent field
         // is therefore not a request to clear it, and clearing it is not offered at all.
-        if (request.taxCode() != null && !request.taxCode().isBlank()) {
-            product.setTaxCode(request.taxCode());
+        if (taxCode != null) {
+            product.setTaxCode(taxCode);
         }
         product.setProductType(request.productType());
         // `null` clears the classification on purpose: the form sends what its three selects hold, and
@@ -364,17 +376,35 @@ public class ProductService {
     }
 
     /**
-     * The fiscal code a creation stores: the request's, or {@code NA} when it states none.
+     * The fiscal code a write stores, resolved against the platform catalog {@code tax_code}.
      *
-     * <p>Absent and blank mean the same thing here — <b>no tax applies</b> — and {@code NA} is the catalog's
-     * seeded code for exactly that (S2 of {@code odd/tasks/product-tax-code.md}, {@code V82:45-49}). It is not
-     * an invented default: the column carries the same one ({@code V89}), so a caller that never heard of the
-     * field and a caller that sends {@code ""} both reach the state a product without a fiscal code has always
-     * had.</p>
+     * <p><b>Why a lookup and not the foreign key.</b> Until T6 an unknown code travelled to
+     * {@code fk_products_tax_code} and came back as a {@code DataIntegrityViolation} — a {@code 500} whose body
+     * names a constraint and never the value that was wrong. The catalog is reference data the caller picked from,
+     * so the two answers it can give are the two {@code CompanyService#resolveCurrency} already gives for a
+     * company's currency, with the same exception shapes: <b>not found</b> ({@code 404}) when the code does not
+     * exist, and a <b>client error</b> ({@code 400}) when it exists but was retired. Neither reaches the database
+     * as a write, so a refused product leaves no row behind.</p>
+     *
+     * <p><b>Why absent and blank are not resolved.</b> They are not a code the client stated: they are the empty
+     * form control, and {@link Product#DEFAULT_TAX_CODE} is the column's own default since {@code V89} — the value
+     * the schema would write for a product nobody classified. That is also why this path costs no query: the
+     * platform's own default is not something a caller can have a stale selection of, and retiring {@code NA}
+     * would break the column's default rather than this method.</p>
+     *
+     * <p>The <b>code</b> the row carries is taken from the catalog's answer, not from the request's string: they
+     * are the same value (the code is the primary key), and reading it back is what makes "what was stored" and
+     * "what was looked up" one fact.</p>
      */
-    private String taxCode(ProductRequest request) {
-        var taxCode = request.taxCode();
-        return taxCode == null || taxCode.isBlank() ? Product.DEFAULT_TAX_CODE : taxCode;
+    private String resolveTaxCode(String code) {
+        if (code == null || code.isBlank()) {
+            return Product.DEFAULT_TAX_CODE;
+        }
+        var taxCode = taxCodeRepository.findById(code).orElseThrow(() -> new TaxCodeNotFoundException(code));
+        if (!Boolean.TRUE.equals(taxCode.getEnabled())) {
+            throw new DisabledTaxCodeException(taxCode);
+        }
+        return taxCode.getCode();
     }
 
     private ProductResponse mapToResponse(Product product) {

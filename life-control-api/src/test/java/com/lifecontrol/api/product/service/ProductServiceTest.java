@@ -22,6 +22,10 @@ import com.lifecontrol.api.product.exception.VariantModeMismatchException;
 import com.lifecontrol.api.product.exception.VariantsRequiredException;
 import com.lifecontrol.api.product.model.Product;
 import com.lifecontrol.api.product.repository.ProductRepository;
+import com.lifecontrol.api.tax.exception.DisabledTaxCodeException;
+import com.lifecontrol.api.tax.exception.TaxCodeNotFoundException;
+import com.lifecontrol.api.tax.model.TaxCode;
+import com.lifecontrol.api.tax.repository.TaxCodeRepository;
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
@@ -62,6 +66,15 @@ class ProductServiceTest {
 
     @Mock
     private ProductVariantService productVariantService;
+
+    /**
+     * The platform catalog a write resolves its fiscal code against (T6 of
+     * {@code odd/tasks/product-tax-code.md}). A mock, because what the catalog holds and seeds is {@code V82}'s
+     * and its migration suite's; what is pinned here is that the service asks it before writing and refuses the
+     * two answers it must not store.
+     */
+    @Mock
+    private TaxCodeRepository taxCodeRepository;
 
     @InjectMocks
     private ProductService productService;
@@ -125,6 +138,21 @@ class ProductServiceTest {
                 categoryId,
                 null,
                 List.of(creationVariant("Unica")));
+    }
+
+    /**
+     * A catalog row, as {@code V82} seeds one: a code, its label and the {@code enabled} flag a reviewed migration
+     * is the only writer of.
+     *
+     * <p>Built <b>before</b> the {@code when(...)} it is handed to, never inside it: a {@code mock(...)} in a
+     * stubbing argument is Mockito's {@code UnfinishedStubbing}, and the failure names this helper instead of the
+     * mistake.</p>
+     */
+    private TaxCode catalogTaxCode(String code, boolean enabled) {
+        var row = mock(TaxCode.class);
+        lenient().when(row.getCode()).thenReturn(code);
+        lenient().when(row.getEnabled()).thenReturn(enabled);
+        return row;
     }
 
     /**
@@ -212,6 +240,10 @@ class ProductServiceTest {
             var request = creationRequestWithTaxCode("IVA");
             when(productRepository.existsBySkuAndCompanyId("SKU-TAX", companyId))
                     .thenReturn(false);
+            // The row is built before the stubbing: a mock(...) inside a when(...) argument is Mockito's
+            // UnfinishedStubbing, and that failure named the helper instead of the mistake.
+            var catalogRow = catalogTaxCode("IVA", true);
+            when(taxCodeRepository.findById("IVA")).thenReturn(Optional.of(catalogRow));
             when(productRepository.save(any(Product.class))).thenAnswer(inv -> inv.getArgument(0));
 
             var result = productService.createProduct(companyId, request);
@@ -557,6 +589,10 @@ class ProductServiceTest {
             var request = new ProductRequest("SKU-001", "Product", null, null, "TASA_0", null, null, null, null, null);
 
             when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(existing));
+            // The row is built before the stubbing: a mock(...) inside a when(...) argument is Mockito's
+            // UnfinishedStubbing, and that failure named the helper instead of the mistake.
+            var catalogRow = catalogTaxCode("TASA_0", true);
+            when(taxCodeRepository.findById("TASA_0")).thenReturn(Optional.of(catalogRow));
             when(productRepository.save(any(Product.class))).thenAnswer(inv -> inv.getArgument(0));
 
             var result = productService.updateProduct(companyId, productId, request);
@@ -1223,6 +1259,110 @@ class ProductServiceTest {
             when(category.getId()).thenReturn(id);
             when(category.getCompany()).thenReturn(company);
             return category;
+        }
+    }
+
+    // ─── The fiscal code, resolved against the catalog (S2, T6) ──────────
+
+    /**
+     * A client's fiscal code is resolved against the platform catalog <b>before</b> anything is written, in the
+     * shape {@code CompanyService#resolveCurrency} already uses for a company's currency: a code the catalog does
+     * not hold is a {@code 404}, one it holds but has retired is a {@code 400}, both naming the code, and neither
+     * reaches {@code fk_products_tax_code} as a {@code 500} whose message is the constraint's.
+     *
+     * <p><b>Why the "untouched" assertion is a case of its own.</b> The refusal is only worth having if it happens
+     * before the entity is mutated: a product half-written and then refused would answer an error and still leave
+     * a changed row in the persistence context, which is the failure mode {@code updateProduct}'s category and
+     * attribute checks were ordered to avoid. So the stored entity is read after the refusal, not only the
+     * exception.</p>
+     */
+    @Nested
+    @DisplayName("the fiscal code is resolved against the catalog, not left to the foreign key")
+    class TaxCodeResolutionTests {
+
+        @Test
+        @DisplayName("an unknown code is refused as not found, naming it, and nothing is written")
+        void unknownCode_isRefusedAsNotFound() {
+            var request = creationRequestWithTaxCode("NOPE");
+            when(productRepository.existsBySkuAndCompanyId("SKU-TAX", companyId))
+                    .thenReturn(false);
+            when(taxCodeRepository.findById("NOPE")).thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> productService.createProduct(companyId, request))
+                    .as("the catalog is the reference data the caller picked from, so a code it does not carry "
+                            + "is a name that does not exist — the currency path's answer to the same question")
+                    .isInstanceOf(TaxCodeNotFoundException.class)
+                    .hasMessageContaining("NOPE");
+
+            verify(productRepository, never()).save(any(Product.class));
+        }
+
+        @Test
+        @DisplayName("a retired code is refused as a client error, naming it, and nothing is written")
+        void retiredCode_isRefusedAsAClientError() {
+            var request = creationRequestWithTaxCode("IVA");
+            when(productRepository.existsBySkuAndCompanyId("SKU-TAX", companyId))
+                    .thenReturn(false);
+            // The row is built before the stubbing: a mock(...) inside a when(...) argument is Mockito's
+            // UnfinishedStubbing, and that failure named the helper instead of the mistake.
+            var catalogRow = catalogTaxCode("IVA", false);
+            when(taxCodeRepository.findById("IVA")).thenReturn(Optional.of(catalogRow));
+
+            assertThatThrownBy(() -> productService.createProduct(companyId, request))
+                    .as("a caller holding a stale selection is the client's mistake, and the row is kept so "
+                            + "history that names it keeps resolving")
+                    .isInstanceOf(DisabledTaxCodeException.class)
+                    .hasMessageContaining("IVA");
+
+            verify(productRepository, never()).save(any(Product.class));
+        }
+
+        @Test
+        @DisplayName("a code the catalog still offers is the one stored")
+        void enabledCode_isStored() {
+            var request = creationRequestWithTaxCode("IVA");
+            when(productRepository.existsBySkuAndCompanyId("SKU-TAX", companyId))
+                    .thenReturn(false);
+            // The row is built before the stubbing: a mock(...) inside a when(...) argument is Mockito's
+            // UnfinishedStubbing, and that failure named the helper instead of the mistake.
+            var catalogRow = catalogTaxCode("IVA", true);
+            when(taxCodeRepository.findById("IVA")).thenReturn(Optional.of(catalogRow));
+            when(productRepository.save(any(Product.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            var result = productService.createProduct(companyId, request);
+
+            var stored = ArgumentCaptor.forClass(Product.class);
+            verify(productRepository).save(stored.capture());
+            assertThat(stored.getValue().getTaxCode())
+                    .as("the code the catalog answered is the one the row carries")
+                    .isEqualTo("IVA");
+            assertThat(result.taxCode()).isEqualTo("IVA");
+        }
+
+        @Test
+        @DisplayName("an update stating an unknown code is refused and leaves the stored product as it was")
+        void refusedUpdate_leavesTheStoredProductUntouched() {
+            var existing = Product.builder()
+                    .id(productId)
+                    .sku("SKU-001")
+                    .name("Product")
+                    .taxCode("NA")
+                    .enabled(true)
+                    .build();
+            var request = new ProductRequest("SKU-001", "Renamed", null, null, "NOPE", null, null, null, null, null);
+
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(existing));
+            when(taxCodeRepository.findById("NOPE")).thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> productService.updateProduct(companyId, productId, request))
+                    .isInstanceOf(TaxCodeNotFoundException.class)
+                    .hasMessageContaining("NOPE");
+
+            assertThat(existing.getName())
+                    .as("the code is resolved with the category and the attributes, before the first setter")
+                    .isEqualTo("Product");
+            assertThat(existing.getTaxCode()).isEqualTo("NA");
+            verify(productRepository, never()).save(any(Product.class));
         }
     }
 }
