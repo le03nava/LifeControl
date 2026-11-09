@@ -54,6 +54,7 @@ public class Routes {
         .route(RequestPredicates.path("/api/user/**"), HandlerFunctions.http())
         .route(RequestPredicates.path("/api/countries/**"), HandlerFunctions.http())
         .route(RequestPredicates.path("/api/currencies/**"), HandlerFunctions.http())
+        .route(RequestPredicates.path("/api/tax-codes/**"), HandlerFunctions.http())
         .route(RequestPredicates.path("/api/users-admin/**"), HandlerFunctions.http())
         .route(RequestPredicates.path("/api/suppliers/**"), HandlerFunctions.http())
         .route(RequestPredicates.path("/api/purchase-orders/**"), HandlerFunctions.http())

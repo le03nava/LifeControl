@@ -241,6 +241,48 @@ class TenantScopeFilterIntegrationTest extends AbstractPostgresIntegrationTest {
     }
 
     @Test
+    @DisplayName("the tax-code catalog is tenancy-agnostic, so a two-claim token reads it")
+    void theTaxCodeCatalogIsTenantAgnostic() throws Exception {
+        // `/api/tax-codes` reads `tax_code`, the platform catalog `V82:22-29` seeds with four codes: no
+        // `company_id`, no policy, no `tenant_table` row — the same shape as `currency`, and the reason the
+        // rate lives in the tenant table while WHAT the tax is does not. Without its entry on the closed
+        // list a multi-company caller is refused with a 403 while plainly authenticated, which is the
+        // silent failure the list exists to make loud, so this test is the one that would notice the entry
+        // going missing.
+        mockMvc.perform(get("/api/tax-codes").with(tokenOf(claimedCompany, foreignCompany)))
+                .andExpect(status().isOk());
+
+        assertThat(ScopeRecorderConfiguration.SEEN.get())
+                .as("exempt and company-less: a platform catalog needs no tenant, and inventing one from a "
+                        + "multi-valued claim is the widening this filter refuses")
+                .isEqualTo(new TenantScope.Scope(null, SUBJECT));
+        assertThat(TenantScope.current())
+                .as("and the filter still cleared the holder in its finally")
+                .isEmpty();
+    }
+
+    @Test
+    @DisplayName("the tax-code exemption is segment-safe: a neighbour path keeps the two-claim refusal")
+    void theTaxCodeExemptionDoesNotCoverANeighbourPath() throws Exception {
+        // Same relaxation as the currency pair above: the exemption is matched as `path.equals(prefix) ||
+        // path.startsWith(prefix + "/")`, so an entry names a path and its subtree, never a bare prefix.
+        // Both neighbours are checked because a plain `startsWith` admits both, one by the substring
+        // (`/api/tax-codes-archive`) and one by the separator (`/api/tax-code`), and neither reads the
+        // catalog.
+        for (String neighbour : new String[] {"/api/tax-codes-archive", "/api/tax-code"}) {
+            mockMvc.perform(get(neighbour).with(tokenOf(claimedCompany, foreignCompany)))
+                    .andExpect(status().isForbidden());
+
+            assertThat(ScopeRecorderConfiguration.SEEN.get())
+                    .as("a neighbour of an exempt path is not exempt: no controller saw a scope for %s", neighbour)
+                    .isNull();
+            assertThat(TenantScope.current())
+                    .as("and the refusal stated nothing on the thread that served %s", neighbour)
+                    .isEmpty();
+        }
+    }
+
+    @Test
     @DisplayName("two requests on the same thread do not share a scope")
     void aSecondRequestOnTheSameThreadStartsWithoutAScope() throws Exception {
         mockMvc.perform(get("/api/companies/{id}", claimedCompany).with(token(claimedCompany)))
