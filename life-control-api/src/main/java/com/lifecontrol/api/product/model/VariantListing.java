@@ -22,11 +22,15 @@ import org.hibernate.type.SqlTypes;
  * names and this slice stops hiding.</p>
  *
  * <p><b>What it deliberately does not carry.</b> No {@code stock} and no {@code cost_price}: quantity is
- * ADR-0001's ledger and cost is the inbound movement's (ADR-0006 C7).
- * No {@code tax_rate_id} either, and that is a
- * reported departure rather than an omission: {@code tax_rate} does not exist in the tree yet — it is
- * ADR-0002's T4, gated on its decision D-d — so {@code V58:33-39} adds the column later, by
- * {@code ALTER}, in the slice that creates the table it references.</p>
+ * ADR-0001's ledger and cost is the inbound movement's (ADR-0006 C7).</p>
+ *
+ * <p><b>The tax pointer, and what it is not yet.</b> {@code tax_rate_id} exists since {@code V88}, as a
+ * composite foreign key {@code (company_id, tax_rate_id)} → {@code tax_rate (company_id, id)}: the pointer
+ * names the rate and its tenant together, so one company's listing cannot name another company's rate — a
+ * row that company's own policy makes unreadable, and one the resolver would then tax at zero in silence.
+ * The column is nullable and <b>unmapped here on purpose</b>: no write path resolves a rate for a listing
+ * yet, so a field would advertise a value this tree never writes. It gets one in the slice that resolves
+ * the rate at the store-price write path.</p>
  *
  * <p><b>No {@code Auditable}.</b> {@code variant_listing} has no {@code created_at}/{@code updated_at}
  * columns, so extending {@code Auditable} would map two columns a database booted at head does not have —
