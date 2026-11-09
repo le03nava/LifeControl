@@ -36,8 +36,17 @@ public class SalesOrderItem extends Auditable {
     private BigDecimal discountApplied = BigDecimal.ZERO;
 
     /**
-     * The line's total as `V85` derives it: `round(list_price * quantity, 4) - discount_applied + tax_amount`,
-     * by the trigger `trg_sales_order_items_final_price`, never by this mapping.
+     * The line's total as the schema derives it:
+     * {@code round(list_price * quantity, 4) - discount_applied + tax_amount}, by the one function
+     * {@code sales_order_item_tax_and_total()} through its trigger {@code trg_sales_order_items_tax_and_total},
+     * never by this mapping.
+     *
+     * <p><b>Why the function, and not the trigger {@code V85} installed.</b> Until {@code V90} this column had a
+     * trigger of its own, {@code trg_sales_order_items_final_price}, whose function read {@code NEW.tax_amount};
+     * {@code V90} dropped that pair and derives both columns from {@code tax_rate} in one function, because
+     * same-event triggers fire in name order and a separate {@code tax_amount} trigger would sort after the
+     * total's and be read stale (S5 of {@code odd/tasks/product-tax-code.md}). The name is stated here so a
+     * reader looking for the writer finds a trigger that exists.</p>
      *
      * <p><b>Why read-only.</b> The tree wrote the <b>unit</b> net price here until `V85` —
      * `list_price - discount_applied` — which is a different number on every line whose quantity is not 1 (D-f).
@@ -62,16 +71,46 @@ public class SalesOrderItem extends Auditable {
     @Column(name = "subtotal", precision = 19, scale = 4, insertable = false, updatable = false)
     private BigDecimal subtotal;
 
-    /** The catalog code the rate was resolved from (ADR-0002 decision 6); `NA` until a rate exists. */
-    @Column(name = "tax_code", length = 20, insertable = false, updatable = false)
-    private String taxCode;
+    /**
+     * The catalog code the rate was resolved from (ADR-0002 decision 6), copied from the sold variant's product
+     * at write time and never restated.
+     *
+     * <p><b>Why writable, and why only a writer that creates a line states it.</b> {@code V81} created this
+     * column with the default {@code NA} and, until T4, nothing in Java ever wrote it — the mapping said
+     * {@code insertable = false, updatable = false} and every line stayed at the default whether its product
+     * declared {@code IVA} or not. The copy is the writer (S1 of {@code odd/tasks/product-tax-code.md}), so the
+     * column is mapped like every other field a request may set. What is <b>not</b> writable is a client's: the
+     * code comes from the product, and {@code SalesOrderItemRequest} deliberately carries no field for it (S2) —
+     * a document stating its own code would be the server guessing a fiscal fact.</p>
+     *
+     * <p>An edit of an existing line does not re-resolve it. The stored pair is the snapshot of the sale; a
+     * re-resolution on a later edit could only pick up a rate stated afterwards, which is exactly what decision 6
+     * forbids (the service says the same where it implements it).</p>
+     */
+    @Column(name = "tax_code", length = 20, nullable = false)
+    private String taxCode = "NA";
 
-    /** The rate as it stood at write time: a snapshot, so a later `tax_rate` row never restates history. */
-    @Column(name = "tax_rate", precision = 9, scale = 6, insertable = false, updatable = false)
-    private BigDecimal taxRate;
+    /**
+     * The rate as it stood at write time: a snapshot, so a later {@code tax_rate} row never restates history.
+     *
+     * <p>Writable for the same reason as {@link #taxCode}, and it is the <b>input</b> of the derivation
+     * {@code V90} installed: the trigger listens to this column rather than to the derived {@code tax_amount}, so
+     * stating the rate is what makes the schema compute the tax. {@code V81} gives it the default {@code 0}, and
+     * a line whose code is zero by definition (D-a) carries exactly that.</p>
+     */
+    @Column(name = "tax_rate", precision = 9, scale = 6, nullable = false)
+    private BigDecimal taxRate = BigDecimal.ZERO;
 
-    /** `round((subtotal - discount_applied) * tax_rate, 4)`, held by `ck_item_tax`. */
-    @Column(name = "tax_amount", precision = 19, scale = 4, insertable = false, updatable = false)
+    /**
+     * `round((subtotal - discount_applied) * tax_rate, 4)`, derived by the same function as {@link #finalPrice}
+     * and held by `ck_item_tax`.
+     *
+     * <p>Still read-only, and for the reason {@code V90} exists: the trigger writes it from the rate the row
+     * carries, so a value stated by Java would be overwritten on the way in — and, on a statement whose column
+     * list does not name the rate, a stale mapped value would be the one that lands and {@code ck_item_tax} would
+     * refuse the write. {@code V90}'s own suite pins that a hand-written amount that disagrees is refused.</p>
+     */
+    @Column(name = "tax_amount", precision = 19, scale = 4, nullable = false, insertable = false, updatable = false)
     private BigDecimal taxAmount;
 
     /**
@@ -262,6 +301,21 @@ public class SalesOrderItem extends Auditable {
 
         public Builder discountApplied(BigDecimal discountApplied) {
             item.discountApplied = discountApplied;
+            return this;
+        }
+
+        /**
+         * The code the sale copies from the product (S1, S2 of {@code odd/tasks/product-tax-code.md}). Stated by
+         * the service at the moment a line row is created — never by a request, which has no such field.
+         */
+        public Builder taxCode(String taxCode) {
+            item.taxCode = taxCode;
+            return this;
+        }
+
+        /** The rate the document's date resolved, copied onto the line as the snapshot decision 6 describes. */
+        public Builder taxRate(BigDecimal taxRate) {
+            item.taxRate = taxRate;
             return this;
         }
 

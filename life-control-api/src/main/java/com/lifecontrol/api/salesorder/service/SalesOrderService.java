@@ -51,6 +51,7 @@ import com.lifecontrol.api.store.exception.CompanyStoreNotFoundException;
 import com.lifecontrol.api.store.model.CompanyStore;
 import com.lifecontrol.api.store.repository.CompanyStoreRepository;
 import com.lifecontrol.api.store.service.CompanyStoreOwnerResolver;
+import com.lifecontrol.api.tax.service.TaxRateService;
 import jakarta.persistence.EntityManager;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -93,6 +94,27 @@ public class SalesOrderService {
      */
     private static final String SALE_REFERENCE_TYPE = "SALES_ORDER_ITEM";
 
+    /**
+     * The codes that are <b>zero by definition</b>, so a line carrying one states rate {@code 0} without a
+     * {@code tax_rate} row: decision <b>D-a</b> of {@code odd/tasks/product-tax-code.md} (S6), taken 2026-11-08
+     * because decision 6 does not answer it.
+     *
+     * <p><b>Why these three and not "any code with no rate".</b> {@code NA} is the column's own default and every
+     * environment's {@code tax_rate} table is empty, so "no rate means refuse" applied uniformly would refuse
+     * every sale in the tree — and "no rate means zero" applied uniformly is the silent zero ADR-0002 exists to
+     * forbid. These three say <i>why</i> their zero is a zero, which is also why the catalog separates them: CFDI
+     * distinguishes Tasa 0% from Exento and both charge nothing (D-d).</p>
+     *
+     * <p><b>Why a {@link List} and not a {@code Set}.</b> Three values, one {@code contains} and a refusal that
+     * names them: an insertion-ordered list makes that sentence the same on every run, and a {@code Set.of}'s
+     * iteration order is deliberately unspecified.</p>
+     *
+     * <p><b>Why the name alone decides, with no catalog read.</b> The rule is about the code, not about the row:
+     * a rate row of {@code 0} would make {@code IVA} zero too, which is the mistake the whole decision protects
+     * against. A code outside this set needs a rate, and one that cannot be resolved refuses the line.</p>
+     */
+    private static final List<String> ZERO_RATE_CODES = List.of("NA", "TASA_0", "EXENTO");
+
     private final SalesOrderRepository salesOrderRepository;
     private final SalesOrderItemRepository itemRepository;
     private final SalePaymentRepository salePaymentRepository;
@@ -101,6 +123,7 @@ public class SalesOrderService {
     private final CompanyStoreOwnerResolver companyStoreOwnerResolver;
     private final ShiftRepository shiftRepository;
     private final ProductVariantRepository productVariantRepository;
+    private final TaxRateService taxRateService;
     private final StockLedgerEngine stockLedgerEngine;
     private final StatusRepository statusRepository;
     private final PaymentMethodRepository paymentMethodRepository;
@@ -125,6 +148,7 @@ public class SalesOrderService {
             CompanyStoreOwnerResolver companyStoreOwnerResolver,
             ShiftRepository shiftRepository,
             ProductVariantRepository productVariantRepository,
+            TaxRateService taxRateService,
             StockLedgerEngine stockLedgerEngine,
             StatusRepository statusRepository,
             PaymentMethodRepository paymentMethodRepository,
@@ -141,6 +165,7 @@ public class SalesOrderService {
         this.companyStoreOwnerResolver = companyStoreOwnerResolver;
         this.shiftRepository = shiftRepository;
         this.productVariantRepository = productVariantRepository;
+        this.taxRateService = taxRateService;
         this.stockLedgerEngine = stockLedgerEngine;
         this.statusRepository = statusRepository;
         this.paymentMethodRepository = paymentMethodRepository;
@@ -237,12 +262,18 @@ public class SalesOrderService {
         if (request.items() != null && !request.items().isEmpty()) {
             for (var reqItem : request.items()) {
                 var discount = reqItem.discountApplied() != null ? reqItem.discountApplied() : BigDecimal.ZERO;
+                // The copy: a row is born here, so its code and rate are resolved now and never again. The
+                // document's own date is the one allocated above and stored on the header, which is what makes
+                // "the rate that applies" a fact about this sale and not about when a reader looks at it.
+                var tax = lineTaxFor(companyId, reqItem.productVariantId(), orderDate);
                 var newItem = SalesOrderItem.builder()
                         .salesOrderId(saved.getId())
                         .productVariantId(reqItem.productVariantId())
                         .quantity(reqItem.quantity())
                         .listPrice(reqItem.listPrice())
                         .discountApplied(discount)
+                        .taxCode(tax.taxCode())
+                        .taxRate(tax.taxRate())
                         .promotionId(reqItem.promotionId())
                         .status(INITIAL_ITEM_STATE)
                         .enabled(true)
@@ -330,16 +361,29 @@ public class SalesOrderService {
                     item.setDiscountApplied(discount);
                     item.setPromotionId(reqItem.promotionId());
                     item.setEnabled(true);
+                    // NO RE-RESOLUTION, and this is the rule rather than an omission (ADR-0002 decision 6, S1).
+                    // The rate was copied when the line's row was created, and that copy is the snapshot that
+                    // makes a rate change unable to rewrite history. The document's date did not move either —
+                    // it is the header's `order_date`, stated once at creation — so resolving again here could
+                    // only ever pick up a rate stated after this sale existed, and would restate a past sale in
+                    // the one place decision 6 says it must not happen. The derivation still runs: the update
+                    // names `list_price`, `quantity`, `discount_applied` and `tax_rate`, so `V90`'s trigger
+                    // restates `tax_amount` and `final_price` from the STORED rate, which is the right arithmetic
+                    // when a discount or a quantity changes.
                     itemRepository.save(item);
                 } else {
                     // INSERT: new item with default "Pending" status
                     var discount = reqItem.discountApplied() != null ? reqItem.discountApplied() : BigDecimal.ZERO;
+                    // A new row is a new sale, so the copy runs here for the same reason it runs on the create.
+                    var tax = lineTaxFor(so.getCompanyId(), reqItem.productVariantId(), so.getOrderDate());
                     var newItem = SalesOrderItem.builder()
                             .salesOrderId(id)
                             .productVariantId(reqItem.productVariantId())
                             .quantity(reqItem.quantity())
                             .listPrice(reqItem.listPrice())
                             .discountApplied(discount)
+                            .taxCode(tax.taxCode())
+                            .taxRate(tax.taxRate())
                             .promotionId(reqItem.promotionId())
                             .status(INITIAL_ITEM_STATE)
                             .enabled(true)
@@ -677,12 +721,17 @@ public class SalesOrderService {
 
         var discountApplied = request.discountApplied() != null ? request.discountApplied() : BigDecimal.ZERO;
 
+        // A row is born on this path too, so the tax snapshot is resolved here and nowhere else on it (S1).
+        var tax = lineTaxFor(so.getCompanyId(), request.productVariantId(), so.getOrderDate());
+
         var item = SalesOrderItem.builder()
                 .salesOrderId(salesOrderId)
                 .productVariantId(request.productVariantId())
                 .quantity(request.quantity())
                 .listPrice(request.listPrice())
                 .discountApplied(discountApplied)
+                .taxCode(tax.taxCode())
+                .taxRate(tax.taxRate())
                 .promotionId(request.promotionId())
                 .status(INITIAL_ITEM_STATE)
                 .enabled(true)
@@ -726,6 +775,10 @@ public class SalesOrderService {
 
         var discountApplied = request.discountApplied() != null ? request.discountApplied() : BigDecimal.ZERO;
 
+        // NO RE-RESOLUTION, for the reason stated on the order-level PUT: this path mutates an existing row's
+        // quantity, price and discount, and the rate on it is the snapshot of the sale that created it. The
+        // derivation restates `tax_amount` and `final_price` from that stored rate, which is the arithmetic these
+        // setters actually change.
         item.setProductVariantId(request.productVariantId());
         item.setQuantity(request.quantity());
         item.setListPrice(request.listPrice());
@@ -948,6 +1001,78 @@ public class SalesOrderService {
                 id, companyStoreOwnerResolver.companyIdOf(store))) {
             throw new ProductVariantNotFoundException(id);
         }
+    }
+
+    // ─── The line's tax snapshot (ADR-0002 decision 6) ──────────────────
+
+    /**
+     * The two facts a line snapshots when its row is created: the catalog code its product declares, and the rate
+     * that applies to the document's date.
+     *
+     * <p>It is a value and not two setters at each of the three creation sites, so the two columns cannot be
+     * stated apart: a code without its rate would be a line whose {@code ck_item_tax} disagrees with the sale.
+     */
+    private record LineTax(String taxCode, BigDecimal taxRate) {}
+
+    /**
+     * Resolves the tax a line being written must carry: the code from the sold variant's product, and the rate the
+     * document's own date resolves for it (ADR-0002 decision 6 verbatim in S1 of
+     * {@code odd/tasks/product-tax-code.md}).
+     *
+     * <p><b>Why the code comes from the product and not from the request.</b> S2: «El código vive en el catálogo del
+     * artículo». {@code SalesOrderItemRequest} has no tax field and deliberately gains none — a client that could
+     * state one would be stating a fiscal fact about an article it is only selling, and the server would have
+     * nothing to check it against.</p>
+     *
+     * <p><b>Why an unresolvable rate is a refusal and not zero</b> (D-a, S6). {@code tax_rate} is empty in every
+     * environment today and {@code NA} is the column's default, so "no rate means refuse" applied to every code
+     * would refuse every sale in the tree, while "no rate means zero" applied to every code is exactly the silent
+     * zero decision 6 exists to forbid. The two halves are therefore split by the code: the ones that are zero by
+     * definition ({@link #ZERO_RATE_CODES}) state {@code 0} with no lookup, and every other code either resolves or
+     * refuses the line naming the code and the document's date — the two facts whoever states the rate needs.</p>
+     *
+     * <p><b>Why the refusal is an {@code IllegalArgumentException}.</b> The {@code GlobalExceptionHandler} already
+     * maps that class to {@code 400} with the message as the body, which is the shape the company currency's
+     * {@code DisabledCurrencyException} uses for the same kind of sentence ("the catalog is the reference data you
+     * picked from, and this value is not assignable"). No new exception type is needed, and its name would promise
+     * a distinction nothing branches on. The line is refused before it is written, so the whole document rolls back
+     * and no order row survives a refusal.</p>
+     *
+     * <p><b>Why no rate change can reach a line twice.</b> This method has exactly three callers, and all three
+     * create a row (the order's create, the order-level PUT's insert branch and {@code addSalesOrderItem}). Every
+     * path that mutates an existing row — the PUT's update branch and {@code updateSalesOrderItem} — deliberately
+     * does not call it: the stored pair is the snapshot of the sale, and re-resolving on an edit could only pick up
+     * a backdated rate that must not touch a past sale.</p>
+     *
+     * @param companyId the company that files the rate — the order's tenant, never a global default
+     * @param productVariantId the variant the line sells, the only path from a line to a product's code
+     * @param orderDate the order's own {@code order_date}; its date is the document's date, never "today"
+     * @throws IllegalArgumentException (400) when the code needs a rate and the company states none for that date
+     * @throws ProductVariantNotFoundException (404) when the variant is not readable, which also means the sale the
+     *     line would be written into has nothing to sell
+     */
+    private LineTax lineTaxFor(UUID companyId, UUID productVariantId, LocalDateTime orderDate) {
+        var taxCode = productVariantRepository
+                .findProductTaxCodeByVariantId(productVariantId)
+                // The code is NOT NULL since V89, so an empty answer is not "a product with no code": it is a
+                // variant (or its product) this tenant cannot see, which is the 404 the other two line-write
+                // sites already answer for the same reason.
+                .orElseThrow(() -> new ProductVariantNotFoundException(productVariantId));
+
+        if (ZERO_RATE_CODES.contains(taxCode)) {
+            return new LineTax(taxCode, BigDecimal.ZERO);
+        }
+
+        var documentDate = orderDate.toLocalDate();
+        return taxRateService
+                .resolve(companyId, taxCode, documentDate)
+                .map(resolution -> new LineTax(resolution.taxCode(), resolution.rate()))
+                .orElseThrow(() -> new IllegalArgumentException("Cannot write the line: tax code "
+                        + taxCode + " has no enabled rate applicable on " + documentDate
+                        + ", the document's date. The sale is refused rather than taxed at zero (ADR-0002 "
+                        + "decision 6, D-a): if the line is not taxable its product must declare a code that is "
+                        + "zero by definition (" + String.join(", ", ZERO_RATE_CODES) + "), and otherwise the "
+                        + "company has to state the rate that applies from " + documentDate + " onward."));
     }
 
     // ─── The typed state machine ────────────────────────────────────────
@@ -1304,16 +1429,19 @@ public class SalesOrderService {
     }
 
     /**
-     * The line's money the schema writes — {@code subtotal} and the tax triple (`V81`), {@code final_price}
-     * (`V85`) — and the reason a response cannot simply read the instance a write left behind.
+     * The line's money the schema writes — {@code subtotal} (`V81`), {@code tax_amount} (`V90`) and
+     * {@code final_price} (`V90`) — and the reason a response cannot simply read the instance a write left behind.
      *
-     * <p><b>What goes wrong without it.</b> Those four columns are {@code insertable = false, updatable =
+     * <p><b>What goes wrong without it.</b> Those three columns are {@code insertable = false, updatable =
      * false}, so Hibernate omits them from the insert and never populates the field; the first-level cache then
      * answers every query inside the transaction with that same instance. A response built from it would report
      * {@code null} for every derived column, which is worse than a stale number: it is an absence a client
-     * cannot tell apart from a line that has no money.</p>
+     * cannot tell apart from a line that has no money. The line's {@code tax_code} and {@code tax_rate} are
+     * written by the application since T4 and need no refresh; they are on the same row, so the refresh that
+     * fetches the three derived columns brings them back too — and reading them from the row is what makes the
+     * response state what was stored rather than what was sent.</p>
      *
-     * <p><b>Why the check is the column and not a flag.</b> All four are {@code NOT NULL} in the schema, so a
+     * <p><b>Why the check is the column and not a flag.</b> All three are {@code NOT NULL} in the schema, so a
      * non-null {@code final_price} is proof the instance was read from a row, and a plain GET — the common
      * path — needs no second statement. A null is proof it was built by this application, and that is the only
      * case that pays for the round trip.</p>

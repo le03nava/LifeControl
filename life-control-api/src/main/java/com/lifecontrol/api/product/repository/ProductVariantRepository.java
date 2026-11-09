@@ -120,6 +120,31 @@ public interface ProductVariantRepository extends JpaRepository<ProductVariant, 
      */
     Optional<ProductVariant> findByIdAndCompanyIdAndEnabledTrue(UUID id, UUID companyId);
 
+    /**
+     * The fiscal code the product of a variant declares — what a sales line copies when it is written (S1, S2 of
+     * {@code odd/tasks/product-tax-code.md}).
+     *
+     * <p><b>Why a projection and not two loads.</b> A line has a variant id and nothing else, so the code lives
+     * two hops away ({@code product_variants.product_id} &rarr; {@code products.tax_code}). Loading the variant and
+     * then its product would be two statements and two entities the sale never otherwise touches; the write path
+     * needs one string.</p>
+     *
+     * <p><b>Why the empty answer is the caller's to interpret.</b> {@code products.tax_code} is {@code NOT NULL}
+     * since {@code V89}, so a join that finds nothing means the variant is not there — or not visible under the
+     * caller's tenant, because {@code products} is policy-armed ({@code ENABLE} + {@code FORCE}) and
+     * {@code product_variants} carries the same {@code company_id}. It never means "a product with no code".</p>
+     *
+     * @param variantId the variant the sold line names
+     * @return the product's code, or empty when no such variant is readable
+     */
+    @Query("""
+            SELECT p.taxCode
+            FROM ProductVariant pv
+            JOIN Product p ON p.id = pv.productId
+            WHERE pv.id = :variantId
+            """)
+    Optional<String> findProductTaxCodeByVariantId(@Param("variantId") UUID variantId);
+
     // ─── Measure-unit type coherence (D4) ─────────────────────────────────
 
     /**

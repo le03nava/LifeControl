@@ -14,12 +14,14 @@ import java.util.UUID;
  *     {@code CANCELLED} — and the authority the pair is derived from
  * @param subtotal the line's money as {@code V81} derives it: {@code round(list_price * quantity, 4)}, by the
  *     trigger {@code trg_sales_order_items_subtotal}. Read from the row, never re-derived here
- * @param taxCode the catalog code the rate was resolved from (decision 6); {@code NA} until a unit states a
- *     line's tax code, which is T4's open question
+ * @param taxCode the catalog code the line copied from its product at write time (decision 6, S1/S2); it
+ *     travels even when the rate is {@code 0} — {@code TASA_0} and {@code EXENTO} are two different zeroes —
+ *     and it is the snapshot, never a lookup performed while answering this response
  * @param taxRate the rate as it stood at write time — a snapshot, so a later {@code tax_rate} row never
  *     restates a past sale
- * @param taxAmount {@code round((subtotal - discount_applied) * tax_rate, 4)}, held by {@code ck_item_tax}
- * @param finalPrice the line's total as {@code V85} derives it: {@code subtotal - discount_applied +
+ * @param taxAmount {@code round((subtotal - discount_applied) * tax_rate, 4)}, derived by
+ *     {@code trg_sales_order_items_tax_and_total} and held by {@code ck_item_tax}
+ * @param finalPrice the line's total as {@code V90} derives it: {@code subtotal - discount_applied +
  *     tax_amount}. It reports the stored line total and not the unit price the line was built from
  * @param productNameSnapshot the product's name as the catalog gave it when {@code V81} backfilled the line,
  *     so a ticket reprinted in a year reads the same whatever the catalog says then (decision 4). Null on a
