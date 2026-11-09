@@ -20,7 +20,10 @@ migration step 1 of the accepted ADR state; **D-e** (2026-11-01), which keeps th
 ADR-0004 ahead of T6 in `docs/adr/README.md`'s adoption order so the charge rewrite is written once, after the
 guard; **D-d** and **D-b** (2026-11-05), which the tax and payment slices carry; and **D-g** and **D-h**
 (2026-11-07), which say that the charge takes money in and never gives it back, and that `final_price` is the line
-total the ADR already defines. T9 is closed (applied with the acceptance) and edits no decision.
+total the ADR already defines. T9 (2026-11-09) corrects in the accepted ADR the four citations `## Reconciliation`
+records — including the two that the acceptance note left out, `V1:499-509` for `sales_order_items`' columns and
+the amendments (c) and (d) state — and edits no decision. Nothing in this unit is open:
+the ADR, the migrations, the API surface, the POS and the invariant suite state the same money.
 **Created**: 2026-10-30
 **Risk**: items 1 and 3 — item 1 because the migrations rewrite stored money on financial rows (`total_amount`
 and the four parts in `V80`/`V84`, `final_price` in `V85`) and a mis-stated backfill is not detectable by any
@@ -104,7 +107,7 @@ every cash report by date wrong from that minute on».
 | T7a | S1, S2, S3 | **(done, 2026-11-07)** Read surface: `SalesOrderResponse` gains `currency`, the four breakdown parts and `payments`; `SalesOrderItemResponse` gains `subtotal`, `tax_code`/`tax_rate`/`tax_amount` and the two catalog snapshots, and `finalPrice` keeps reporting the stored line total. The breakdown stays read-only in both directions: no request states a part, and no response omits one | T7c | inline |
 | T7b | S1, S3, S4, S6 | **(done, 2026-11-07)** Write surface: `ChargeSalesOrderRequest` carries a payment list with tender and change, **D-g** (decided 2026-11-07) fixes it to `CHARGE` only — a `REFUND` is refused by name — M3 becomes exact equality against the breakdown, M4 refuses change on a method that is not cash, and `@Digits(fraction = 4)` plus `@Valid` on the items state the scale the columns carry on both requests | T7a, T5, D-g | inline |
 | T8 | S1, S2 | **(done, 2026-11-07)** Angular POS. `MoneyPipe` (`shared/pipes/money.pipe.ts`) renders every sales money value in the document's own `currency` at `1.4-4` and names its absence instead of falling back to the app's default (**D-j**); the item table renders the server's `subtotal`/`taxAmount`/`finalPrice` in place of its own arithmetic and names the rows it could not represent (**D-i**); the money inputs take four decimals (`step="0.0001"`); and `sales-order-charge-panel` states a payment list — mixed tender, tender and change only for a cash method (M4) — because `PATCH /charge` has taken `payments[]` since T7b and the old single-method button still sent `{ paymentMethodId }`. `sales-money-currency.spec.ts` fails the build if a sales template uses a bare `\| currency` or an `'MXN'` literal | T7 | inline; disjoint surface from T2–T7, so a second writer is admissible |
-| T9 | — | The four ADR corrections under `## Reconciliation`: `purchase_order_items` → `purchase_order_details`, the two drifted line citations, the `NOT NULL` method against a nullable column, and `is_cash` with no backfill | — | inline |
+| T9 | — | **(done, 2026-11-09)** The four ADR corrections under `## Reconciliation`, applied to the accepted ADR and re-read at the line: (a) `purchase_order_items` → `purchase_order_details` (`V1:341`, and `V1:346-347` are its `unit_price`/`total`), which the acceptance already carried; (b) `total_amount` at `V1:477` and `sales_order_items` opening at `V1:496` were also already there — the one that was not is the column list, cited as `V1:496-509` and now `V1:499-509`, because `:496` is the `CREATE TABLE` and the columns are `:499-509`; (c) step 4 stops assuming a method every order has (**D-a**), amended with the two sets `V86` states and `V87` refuses on; (d) the `is_cash` schema block gains the backfill of `Efectivo` that `DEFAULT false` was standing in for (**D-b**, as `V83` ships it). No decision changes and no slice gains or loses work | — | inline |
 | T10 | S1–S7 | **(done, 2026-11-07)** The invariant suite, over gaps measured before it was written. **M5's second half** had never run against a database — no test anywhere inserted a `sale_payment_void` row — so `MoneyInvariantTests` charges, voids the payment, and reads the net (`SalesOrderIntegrationTest.java:2990`), with a second case taking the same reader through the charge guard (409, and the refusal states the net it read). **M10** gains the case it lacked, two concurrent **retries of one order** (200 + 400, one `sale_payment` row, one movement), and the charge's own `findByIdForUpdate` is pinned at the statement in the unit test. **M2** gains concurrent line writes on one order asserting the parts stay Σ of the lines. **M8's domain half** gains the case nothing produced before: a total that its currency cannot represent, so `rounding_adjustment` is non-zero, the adjustment absorbs at most one minor unit and M1 stays exact. **M4** gains the domain-guard cases (non-cash tender refused by name, tender below the amount and change beyond the tender both refused, cash with a consistent pair accepted). The two-decimal assumptions the ADR's consequence names are gone: `documentQuantity` reads at the columns' scale instead of `setScale(2, UNNECESSARY)`, and the tuple constants and total assertions it feeds state four decimals — values unchanged, grain restated. Test-only: `git diff -- life-control-api/src/main` is empty | T2–T8 | inline; three commits — one per suite file, then this record |
 
 ## Reconciliation — four corrections and three decisions
@@ -1365,3 +1368,26 @@ its cases is an unproven backfill on financial rows that the append-only trigger
 the Java removal cannot travel separately from the drop, because the app maps the column until the same commit
 removes it. The cheaper-looking split (migrations first, Java second) produces a commit that stops the application
 from booting at V87. The PR records the same boundary and names the two-slice cut a reviewer can ask for.
+
+**2026-11-09 — T9 lands, and three of its four corrections were still owed by the accepted ADR.** The task row said
+«the four ADR corrections under `## Reconciliation`» and this header said they were «applied with the acceptance».
+Measured against the tree, part of that was true: (a) `purchase_order_details` (`V1:341`) and two thirds of (b) —
+`total_amount` at `V1:477`, `sales_order_items` opening at `V1:496` — already read that way in the `Accepted`
+note, in the Context and in the out-of-scope table. What the acceptance never carried is the fourth citation: the
+column list was cited as `V1:496-509`, which starts at the `CREATE TABLE` and not at the columns. It is
+`V1:499-509`, and that is where `list_price`, `discount_applied` and `final_price` are. The other two were
+**decisions** written into this record and never into the ADR the acceptance declares, so its migration step 4
+still read as though every `Completed` order states a `payment_method_id`, and its schema block still added
+`is_cash` with `DEFAULT false` and no backfill. Both are amendments on the text they correct rather than a
+rewrite: step 4 now says what `V86` inserts, which two disjoint sets it names with `RAISE NOTICE`, and why `V87`
+refuses step 6 while any of them exists; the schema block carries the `UPDATE … lower(payment_method_name) =
+lower('Efectivo')` that ships in `V83`, with the notice that fires when the catalog has no such row. No decision
+moves, no migration step moves, and no slice gains or loses work.
+
+**Evidence.** Every `V1` claim the ADR makes was re-read at the line and none of them moved: `:341` `CREATE TABLE
+purchase_order_details`, `:346-347` its `unit_price`/`total`, `:477` `total_amount`, `:478`
+`payment_method_id`, `:496` `CREATE TABLE sales_order_items`, `:499-509` its column list. `git diff --stat`
+names the ADR and this record and nothing else, and `git diff -- life-control-api life-control-app-angular` is
+empty: the slice touches no code, which is also why it needs no migration, no suite and no gate beyond the record
+and header guards. Tracked as issue #825, and `bash .github/scripts/tests/odd-status-headers.test.sh` exits 0
+against the header above — 78 assertions, 149 records checked.
