@@ -64,6 +64,7 @@ import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
 import com.lifecontrol.api.support.TenantFixtures;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
@@ -2757,7 +2758,8 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                     .asText());
 
             // The parts are the lines': subtotal is Σ round(list_price × quantity, 4) = 200 + 150, the
-            // discount is Σ discount_applied = 10, and nothing in this tree states a tax yet.
+            // discount is Σ discount_applied = 10, and neither product declares a taxed code (the column's
+            // `NA` default is zero by definition), so there is no tax to add.
             var money = orderMoneyOf(orderId);
             assertThat(money.subtotal()).isEqualByComparingTo(new BigDecimal("350.0000"));
             assertThat(money.discountTotal()).isEqualByComparingTo(new BigDecimal("10.0000"));
@@ -3482,7 +3484,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                     .as("V81 derives the line's money on the way in; the response reads the row it produced")
                     .isEqualByComparingTo(new BigDecimal("200.0000"));
             assertThat(decimalOf(line, "taxRate"))
-                    .as("no unit states a line's tax code yet, so the rate is the migration's zero")
+                    .as("the fixture's product declares no code, so the line keeps the schema's zero")
                     .isEqualByComparingTo(BigDecimal.ZERO);
             assertThat(decimalOf(line, "taxAmount")).isEqualByComparingTo(BigDecimal.ZERO);
             assertThat(decimalOf(line, "finalPrice")).isEqualByComparingTo(new BigDecimal("200.0000"));
@@ -3579,6 +3581,252 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                     .as("a document nobody has charged states an empty list, never a missing one")
                     .isNotNull();
             assertThat(root.get("payments").size()).isZero();
+        }
+    }
+
+    // ─── T4 — the line copies the product's code and the resolved rate ───
+
+    /**
+     * The copy ADR-0002 decision 6 states, driven through the API a sale really goes through (S1, S3 and S6 of
+     * {@code odd/tasks/product-tax-code.md}).
+     *
+     * <p><b>What is being proved, and why the response is not enough.</b> Decision 6 says the rate is resolved
+     * server-side from the {@code tax_rate} row that applies to the <i>document's</i> date and is <b>copied</b>
+     * onto the line at write time, so a later rate change never restates a past sale. The line's
+     * {@code tax_amount} is then derived by {@code V90}'s trigger from that stored rate, and the document's
+     * {@code tax_total} from the lines. A mapper that invented a number and a writer that stored one are
+     * indistinguishable on a response alone, so each case reads the row back too.</p>
+     *
+     * <p><b>Before this slice the write was the silent zero, not a refusal.</b> {@code tax_code} and
+     * {@code tax_rate} were mapped {@code insertable = false, updatable = false}, so nothing in Java ever stated
+     * them: every line kept the column defaults ({@code NA}, {@code 0}) and {@code tax_amount} stayed zero for a
+     * product that declares {@code IVA}. That is the failure D-a was decided about, and it is what makes the
+     * first case below fail rather than refuse.</p>
+     *
+     * <p><b>Why every case clears the rates first.</b> {@code tax_rate} is a policy-armed tenant table and the
+     * container is shared by the whole JVM, so a rate another case configured would decide this one's answer. A
+     * case that configures nothing is therefore a case the company states no rate for, which is the state every
+     * environment is in today.</p>
+     */
+    @Nested
+    @DisplayName("T4 The line copies the product's tax code and the rate the document's date resolves")
+    class LineTaxCopyTests {
+
+        @BeforeEach
+        void noRateIsConfigured() {
+            clearTaxRates();
+        }
+
+        @AfterEach
+        void leaveNoRateBehind() {
+            clearTaxRates();
+        }
+
+        @Test
+        @DisplayName("an IVA product's line carries its code, the 16% rate and the tax reaches the total")
+        void ivaLine_copiesTheCodeAndTheRateAndTheTaxReachesTheTotal() throws Exception {
+            // Effective a year before the document's date, which is today: the rate applies, and it is the only
+            // row for the code, so nothing here depends on which of two rows is "the latest".
+            configureTaxRate("IVA", "0.16", LocalDate.now().minusYears(1));
+            var variant = createVariantWithTaxCode("IVA", new BigDecimal("10.00"));
+
+            var request = new SalesOrderRequest(
+                    customerId, companyStoreId, shiftId, "user123", List.of(line(null, variant.getId(), "2.00")));
+            var created = mockMvc.perform(post("/api/sales-orders")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request))
+                            .with(scopedSalesJwt()))
+                    .andExpect(status().isCreated())
+                    .andReturn();
+
+            var root = objectMapper.readTree(created.getResponse().getContentAsString());
+            var orderId = UUID.fromString(root.get("id").asText());
+            var item = root.get("items").get(0);
+
+            assertThat(item.get("taxCode").asText())
+                    .as("the code the sold variant's product declares, copied verbatim onto the line")
+                    .isEqualTo("IVA");
+            assertThat(decimalOf(item, "taxRate"))
+                    .as("the rate the document's date resolves, stored on the line as the snapshot decision 6 "
+                            + "describes")
+                    .isEqualByComparingTo(new BigDecimal("0.160000"));
+            assertThat(decimalOf(item, "taxAmount"))
+                    .as("V90 derives round((subtotal - discount) * stored rate, 4) = round(200 * 0.16, 4)")
+                    .isEqualByComparingTo(new BigDecimal("32.0000"));
+            assertThat(decimalOf(item, "finalPrice"))
+                    .as("the line's total is its money plus the tax the row states")
+                    .isEqualByComparingTo(new BigDecimal("232.0000"));
+
+            // And the document's own parts include it: 200 of goods, 32 of tax, 232 to pay. Reading the
+            // response alone would leave open whether the row says the same thing.
+            assertThat(decimalOf(root, "subtotal")).isEqualByComparingTo(new BigDecimal("200.0000"));
+            assertThat(decimalOf(root, "taxTotal")).isEqualByComparingTo(new BigDecimal("32.0000"));
+            assertThat(decimalOf(root, "totalAmount")).isEqualByComparingTo(new BigDecimal("232.0000"));
+
+            var money = orderMoneyOf(orderId);
+            assertThat(money.taxTotal())
+                    .as("tax_total is the sum of the lines' tax_amount, which is why the line had to carry a "
+                            + "rate at all")
+                    .isEqualByComparingTo(new BigDecimal("32.0000"));
+            assertThat(money.totalAmount()).isEqualByComparingTo(new BigDecimal("232.0000"));
+        }
+
+        @Test
+        @DisplayName("a product that declares NA keeps the zeros the column has always carried")
+        void naProduct_keepsTheZeros() throws Exception {
+            // The regression half of the copy: `NA` is zero by definition (D-a), so it resolves to 0 with no
+            // rate row — the state every line in the tree is in before this slice.
+            var variant = createTestVariant(new BigDecimal("10.00"));
+
+            var placed = createOrder(line(null, variant.getId(), "2.00"));
+            var row = itemFromReadEndpoint(placed.orderId(), placed.itemId(variant.getId()));
+
+            assertThat(row.get("taxCode").asText()).isEqualTo("NA");
+            assertThat(decimalOf(row, "taxRate")).isEqualByComparingTo(BigDecimal.ZERO);
+            assertThat(decimalOf(row, "taxAmount")).isEqualByComparingTo(BigDecimal.ZERO);
+            assertThat(decimalOf(row, "finalPrice"))
+                    .as("nothing to add: the line's total is its own money")
+                    .isEqualByComparingTo(new BigDecimal("200.0000"));
+            assertThat(orderMoneyOf(placed.orderId()).taxTotal()).isEqualByComparingTo(BigDecimal.ZERO);
+        }
+
+        @Test
+        @DisplayName("TASA_0 and EXENTO copy their own code with a zero rate and need no rate row (D-a)")
+        void zeroByDefinitionCodes_copyTheCodeWithNoRateRow() throws Exception {
+            for (var code : List.of("TASA_0", "EXENTO")) {
+                var variant = createVariantWithTaxCode(code, new BigDecimal("10.00"));
+
+                var placed = createOrder(line(null, variant.getId(), "2.00"));
+                var row = itemFromReadEndpoint(placed.orderId(), placed.itemId(variant.getId()));
+
+                assertThat(row.get("taxCode").asText())
+                        .as("the code travels even when the rate is zero: Tasa 0% and Exento are the same zero "
+                                + "with two meanings, and only the code tells them apart")
+                        .isEqualTo(code);
+                assertThat(decimalOf(row, "taxRate"))
+                        .as("the code " + code + " is zero by definition, so no tax_rate row is needed and none "
+                                + "was configured")
+                        .isEqualByComparingTo(BigDecimal.ZERO);
+                assertThat(decimalOf(row, "taxAmount")).isEqualByComparingTo(BigDecimal.ZERO);
+                assertThat(decimalOf(row, "finalPrice")).isEqualByComparingTo(new BigDecimal("200.0000"));
+            }
+        }
+
+        @Test
+        @DisplayName("an IVA product with no rate on the document's date is refused, naming it, and stores nothing")
+        void ivaWithNoRate_isRefusedAndStoresNothing() throws Exception {
+            var variant = createVariantWithTaxCode("IVA", new BigDecimal("10.00"));
+
+            var request = new SalesOrderRequest(
+                    customerId, companyStoreId, shiftId, "user123", List.of(line(null, variant.getId(), "2.00")));
+            var refused = mockMvc.perform(post("/api/sales-orders")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request))
+                            .with(scopedSalesJwt()))
+                    .andReturn();
+
+            assertThat(refused.getResponse().getStatus())
+                    .as("a code the company states no rate for is the client's to fix, and the ADR already says "
+                            + "so: a missing rate is never a silent zero (decision 6, D-a)")
+                    .isEqualTo(400);
+            assertThat(refused.getResponse().getContentAsString())
+                    .as("the refusal names the code and the document's date, the two facts whoever configures "
+                            + "the rate needs")
+                    .contains("IVA")
+                    .contains(LocalDate.now().toString())
+                    .doesNotContain("violates a data constraint");
+
+            assertThat(inTransaction(() -> salesOrderRepository.count()))
+                    .as("a refused line refuses the document: no order row survives the rollback")
+                    .isZero();
+            assertThat(inTransaction(() -> itemRepository.count()))
+                    .as("and no line row either — the copy runs before the line is written, not after")
+                    .isZero();
+        }
+
+        @Test
+        @DisplayName("an edit restates the tax from the stored rate, never from a rate resolved again")
+        void anEditRestatesTheTaxFromTheStoredRate() throws Exception {
+            configureTaxRate("IVA", "0.16", LocalDate.now().minusYears(1));
+            var variant = createVariantWithTaxCode("IVA", new BigDecimal("10.00"));
+            var placed = createOrder(line(null, variant.getId(), "2.00"));
+
+            // A second, later rate for the same code, effective before the document's date — so a resolution
+            // run *now* would answer 8%. A write path that resolved again on an edit would charge 8% of 300
+            // and quietly rewrite a sale the customer already saw at 16%.
+            configureTaxRate("IVA", "0.08", LocalDate.now().minusDays(1));
+
+            var itemId = placed.itemId(variant.getId());
+            updateOrderItems(
+                    placed.orderId(),
+                    new SalesOrderItemRequest(
+                            itemId,
+                            variant.getId(),
+                            new BigDecimal("3.00"),
+                            new BigDecimal("100.00"),
+                            BigDecimal.ZERO,
+                            null));
+
+            var row = itemFromReadEndpoint(placed.orderId(), itemId);
+
+            assertThat(decimalOf(row, "taxRate"))
+                    .as("the rate is the one the line was sold at: an edit of the quantity does not move the "
+                            + "document's date and must not pick up a rate stated afterwards")
+                    .isEqualByComparingTo(new BigDecimal("0.160000"));
+            assertThat(decimalOf(row, "taxAmount"))
+                    .as("the derivation restates the amount from the stored rate: 16% of 300, not 8%")
+                    .isEqualByComparingTo(new BigDecimal("48.0000"));
+            assertThat(decimalOf(row, "finalPrice")).isEqualByComparingTo(new BigDecimal("348.0000"));
+        }
+
+        /**
+         * A rate row for this class's company, stated the way a reviewed migration states one: {@code tax_rate}
+         * has no writer in the application, by decision (ADR-0002 decision 6 and {@code TaxRate}'s javadoc), so
+         * the fixture is the writer here exactly as it is for a line's name snapshots.
+         */
+        private void configureTaxRate(String taxCode, String rate, LocalDate effectiveFrom) {
+            inTransaction(() -> jdbcTemplate.update(
+                    "INSERT INTO tax_rate (id, company_id, tax_code, rate, effective_from, enabled) "
+                            + "VALUES (?, ?, ?, ?, ?, true)",
+                    UUID.randomUUID(),
+                    companyId,
+                    taxCode,
+                    new BigDecimal(rate),
+                    java.sql.Date.valueOf(effectiveFrom)));
+        }
+
+        /** No rate at all for this class's company: the state every environment is in today. */
+        private void clearTaxRates() {
+            inTransaction(() -> jdbcTemplate.update("DELETE FROM tax_rate WHERE company_id = ?", companyId));
+        }
+
+        /**
+         * A product that declares {@code taxCode}, and one stocked variant of it.
+         *
+         * <p>The code is written through {@code Product.Builder} — the column {@code V89} added — so the fixture
+         * states the article the sale will read instead of patching a line: the whole point of S2 is that the
+         * code belongs to the product, and a line has no way to state one.</p>
+         */
+        private ProductVariant createVariantWithTaxCode(String taxCode, BigDecimal stock) {
+            return TenantFixtures.inTenant(companyId, () -> {
+                var product = productRepository.save(Product.builder()
+                        .sku("SKU-TAX-" + UUID.randomUUID().toString().substring(0, 8))
+                        .name("Producto " + taxCode)
+                        .taxCode(taxCode)
+                        .company(companyRepository.findById(companyId).orElseThrow())
+                        .enabled(true)
+                        .build());
+                var variant = new ProductVariant();
+                variant.setProductId(product.getId());
+                variant.setCompanyId(companyId);
+                variant.setMeasureUnitId(pieceUnitId());
+                variant.setBarCode("BAR-" + UUID.randomUUID().toString().substring(0, 12));
+                variant.setVariantName("Variant-" + UUID.randomUUID().toString().substring(0, 8));
+                variant.setEnabled(true);
+                var saved = productVariantRepository.save(variant);
+                saveStoreStock(saved.getId(), stock, new BigDecimal("60.00"));
+                return saved;
+            });
         }
     }
 

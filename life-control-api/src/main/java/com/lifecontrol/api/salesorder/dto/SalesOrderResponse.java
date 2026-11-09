@@ -23,7 +23,10 @@ import java.util.UUID;
  *     column carries
  * @param discountTotal Σ of the lines' discounts — the same money the line table shows, at the document's
  *     level
- * @param taxTotal Σ of the lines' tax amounts. Zero until some unit states a line's {@code tax_code} (T4)
+ * @param taxTotal Σ of the lines' tax amounts, each derived by {@code V90} from the rate its line copied at
+ *     write time. Zero on a document whose products declare a code that is zero by definition ({@code NA},
+ *     {@code TASA_0}, {@code EXENTO}) — and a document that could not resolve a rate is refused rather than
+ *     written with this part at zero
  * @param roundingAdjustment the single rounding to the currency's {@code minor_units} (decision 1), stated so
  *     the four parts add up to {@code totalAmount} <b>exactly</b> (M1). It is not a tolerance: a client that
  *     ignores it is a client whose total will not match the row

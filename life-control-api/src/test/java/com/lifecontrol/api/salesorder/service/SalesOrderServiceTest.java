@@ -74,8 +74,11 @@ import com.lifecontrol.api.store.model.CompanyStore;
 import com.lifecontrol.api.store.repository.CompanyStoreRepository;
 import com.lifecontrol.api.store.service.CompanyStoreOwnerResolver;
 import com.lifecontrol.api.support.TenantFixtures;
+import com.lifecontrol.api.tax.service.TaxRateResolution;
+import com.lifecontrol.api.tax.service.TaxRateService;
 import jakarta.persistence.EntityManager;
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -176,6 +179,15 @@ class SalesOrderServiceTest {
      */
     private final CompanyStoreOwnerResolver companyStoreOwnerResolver = new CompanyStoreOwnerResolver();
 
+    /**
+     * The resolver a line's rate comes from (ADR-0002 decision 6). A mock, because what a rate row is and which
+     * one applies on a date is {@code TaxRateServiceTest}'s and {@code TaxRateMigrationIntegrationTest}'s; what is
+     * pinned here is only that the sale asks it — with the document's date and the product's code — and what the
+     * sale does with each of its two answers.
+     */
+    @Mock
+    private TaxRateService taxRateService;
+
     private SalesOrderService salesOrderService;
 
     private UUID orderId;
@@ -228,6 +240,13 @@ class SalesOrderServiceTest {
         lenient()
                 .when(salesOrderRepository.findByIdForUpdate(any()))
                 .thenAnswer(invocation -> salesOrderRepository.findById(invocation.getArgument(0)));
+
+        // The line's tax snapshot reads the code off the sold variant's product, and `NA` is the column's own
+        // default since V89 — so every fixture whose product states nothing keeps the zero the schema gives it and
+        // no case here depends on a rate table. A case that wants a taxed code states its own answer and wins.
+        lenient()
+                .when(productVariantRepository.findProductTaxCodeByVariantId(any()))
+                .thenReturn(Optional.of("NA"));
 
         // M2: the parts are summed from the schema, not from the list the caller holds, so a document with no
         // line answers an empty sum — the state every fixture starts from.
@@ -423,6 +442,7 @@ class SalesOrderServiceTest {
                 companyStoreOwnerResolver,
                 shiftRepository,
                 productVariantRepository,
+                taxRateService,
                 stockLedgerEngine,
                 statusRepository,
                 paymentMethodRepository,
@@ -4095,6 +4115,140 @@ class SalesOrderServiceTest {
                     .status(state)
                     .enabled(true)
                     .build();
+        }
+    }
+
+    // ─── The line's tax snapshot (ADR-0002 decision 6, S1 and S6) ───────
+
+    /**
+     * The copy's two halves, as only a unit suite can separate them: <b>when</b> a sale asks the catalog and the
+     * rate table and when it must not, and what it does with each of the two answers.
+     *
+     * <p>What a rate row is and which one a date resolves belongs to {@code TaxRateServiceTest}; what the stored
+     * rate becomes on the row — {@code tax_amount} and {@code final_price} — belongs to
+     * {@code SalesOrderIntegrationTest}, because a trigger does the arithmetic and a mock runs no trigger. This
+     * suite pins the asking.</p>
+     */
+    @Nested
+    @DisplayName("the line's tax snapshot: resolved when a row is born, never when an existing one is edited")
+    class LineTaxSnapshotTests {
+
+        @Test
+        @DisplayName("adding a line asks for the product's code and the document's date, and stores both")
+        void addItem_asksForTheCodeAndTheDocumentDate_andStoresBoth() {
+            sellableVariant();
+            when(productVariantRepository.findProductTaxCodeByVariantId(variantId))
+                    .thenReturn(Optional.of("IVA"));
+            when(taxRateService.resolve(
+                            companyId, "IVA", testOrder.getOrderDate().toLocalDate()))
+                    .thenReturn(Optional.of(new TaxRateResolution(
+                            UUID.randomUUID(), "IVA", new BigDecimal("0.160000"), LocalDate.of(2026, 1, 1))));
+            when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId)).thenReturn(List.of());
+            when(itemRepository.save(any(SalesOrderItem.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+            salesOrderService.addSalesOrderItem(orderId, testItemRequest);
+
+            var written = ArgumentCaptor.forClass(SalesOrderItem.class);
+            verify(itemRepository).save(written.capture());
+            assertThat(written.getValue().getTaxCode())
+                    .as("the code comes from the sold variant's product; the request has no field for one (S2)")
+                    .isEqualTo("IVA");
+            assertThat(written.getValue().getTaxRate())
+                    .as("the rate the document's date resolved is copied onto the line, not left to the schema")
+                    .isEqualByComparingTo(new BigDecimal("0.160000"));
+            verify(taxRateService)
+                    .resolve(companyId, "IVA", testOrder.getOrderDate().toLocalDate());
+        }
+
+        @Test
+        @DisplayName("a code that needs a rate and has none refuses the line, naming the code and the date")
+        void addItem_withNoRate_isRefusedNamingTheCodeAndTheDate() {
+            sellableVariant();
+            when(productVariantRepository.findProductTaxCodeByVariantId(variantId))
+                    .thenReturn(Optional.of("IVA"));
+            when(taxRateService.resolve(any(), any(), any())).thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> salesOrderService.addSalesOrderItem(orderId, testItemRequest))
+                    .as("the handler maps this class to 400, which is the shape the currency path already uses "
+                            + "for the same sentence: a value the catalog does not back is the caller's to fix")
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("IVA")
+                    .hasMessageContaining(testOrder.getOrderDate().toLocalDate().toString());
+
+            verify(itemRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("a zero-by-definition code answers 0 without asking the rate table at all (D-a)")
+        void addItem_withAZeroByDefinitionCode_neverAsksTheRateTable() {
+            sellableVariant();
+            when(productVariantRepository.findProductTaxCodeByVariantId(variantId))
+                    .thenReturn(Optional.of("EXENTO"));
+            when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId)).thenReturn(List.of());
+            when(itemRepository.save(any(SalesOrderItem.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+            salesOrderService.addSalesOrderItem(orderId, testItemRequest);
+
+            var written = ArgumentCaptor.forClass(SalesOrderItem.class);
+            verify(itemRepository).save(written.capture());
+            assertThat(written.getValue().getTaxCode())
+                    .as("the code travels even though the rate is zero: Exento and Tasa 0% are two different "
+                            + "zeroes and only the code tells them apart")
+                    .isEqualTo("EXENTO");
+            assertThat(written.getValue().getTaxRate()).isEqualByComparingTo(BigDecimal.ZERO);
+            verifyNoInteractions(taxRateService);
+        }
+
+        @Test
+        @DisplayName("editing an existing line never resolves anything: its stored rate is the snapshot")
+        void updateItem_neverResolvesARate() {
+            var taxedLine = SalesOrderItem.builder()
+                    .id(itemId)
+                    .salesOrderId(orderId)
+                    .productVariantId(variantId)
+                    .quantity(new BigDecimal("2.00"))
+                    .listPrice(new BigDecimal("100.00"))
+                    .discountApplied(BigDecimal.ZERO)
+                    .taxCode("IVA")
+                    .taxRate(new BigDecimal("0.160000"))
+                    .status(SalesOrderItemState.PENDING)
+                    .enabled(true)
+                    .build();
+
+            when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
+            when(itemRepository.findById(itemId)).thenReturn(Optional.of(taxedLine));
+            when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
+            when(productVariantRepository.existsByIdAndCompanyIdAndEnabledTrue(variantId, companyId))
+                    .thenReturn(true);
+            when(itemRepository.save(any(SalesOrderItem.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+            salesOrderService.updateSalesOrderItem(
+                    orderId,
+                    itemId,
+                    new SalesOrderItemRequest(
+                            itemId,
+                            variantId,
+                            new BigDecimal("3.00"),
+                            new BigDecimal("100.00"),
+                            BigDecimal.ZERO,
+                            null));
+
+            // Decision 6: the rate was copied when the row was created and a later edit cannot restate it.
+            // Re-resolving here could only pick up a rate stated after the sale, and the document's date — the
+            // thing a resolution is about — did not move.
+            verifyNoInteractions(taxRateService);
+            verify(productVariantRepository, never()).findProductTaxCodeByVariantId(any());
+            assertThat(taxedLine.getTaxCode()).isEqualTo("IVA");
+            assertThat(taxedLine.getTaxRate()).isEqualByComparingTo(new BigDecimal("0.160000"));
+            assertThat(taxedLine.getQuantity()).isEqualByComparingTo(new BigDecimal("3.00"));
+        }
+
+        /** The three answers every line write needs before it reaches the tax: the order, its store and the variant. */
+        private void sellableVariant() {
+            when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
+            when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
+            when(productVariantRepository.existsByIdAndCompanyIdAndEnabledTrue(variantId, companyId))
+                    .thenReturn(true);
         }
     }
 }
