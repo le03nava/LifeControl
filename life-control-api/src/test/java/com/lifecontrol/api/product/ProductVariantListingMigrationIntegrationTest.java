@@ -212,8 +212,8 @@ class ProductVariantListingMigrationIntegrationTest extends AbstractPostgresInte
                         company,
                         "SELECT data_type FROM information_schema.columns WHERE table_name = 'variant_listing'"
                                 + " AND column_name = 'tax_rate_id'"))
-                .as("the column docs/adr/0006-catalog-identity.md:116 declares, and that `V58:26-32` named as"
-                        + " the ALTER waiting for `tax_rate`")
+                .as("the column ADR-0006 decision 5 declares in its `## Schema` block, and that `V58:26-32` named"
+                        + " as the ALTER waiting for `tax_rate`")
                 .isEqualTo("uuid");
 
         assertThat(readScoped(
