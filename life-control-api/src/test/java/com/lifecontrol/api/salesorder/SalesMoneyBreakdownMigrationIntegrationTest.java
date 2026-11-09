@@ -46,8 +46,18 @@ import org.junit.jupiter.api.Test;
  * ({@code subtotal - discount_applied + tax_amount}, which is exactly what the document's total is made of
  * since T6a), restates every row from its own parts, and lands {@code ck_item_total}. The {@code V85} cases
  * below are its proof, and the first case's line assertion was retargeted with it.</p>
+ *
+ * <p><b>What {@code V90} answers, and why it is one function instead of two.</b> {@code V81} created
+ * {@code tax_amount} but no writer, and {@code V85} records the measurement that decides how a writer has to
+ * look: same-event triggers fire in <b>name order</b>, so a third trigger for {@code tax_amount} would sort
+ * after {@code trg_sales_order_items_final_price} and the total would be derived from a stale amount. So
+ * {@code V90} derives both in one function, listens to {@code tax_rate} instead of to the derived
+ * {@code tax_amount}, and drops the two objects {@code V85} created. Its cases are below: a line that states
+ * a rate gets both columns from the expressions {@code ck_item_tax} and {@code ck_item_total} state, an edit
+ * of the rate alone moves both, a hand-written amount is still refused, and the old trigger and function are
+ * gone rather than orphaned.</p>
  */
-@DisplayName("Sales money breakdown migration (V80, V81, V85)")
+@DisplayName("Sales money breakdown migration (V80, V81, V85, V90)")
 class SalesMoneyBreakdownMigrationIntegrationTest extends AbstractPostgresIntegrationTest {
 
     /** The head these two files start from. */
@@ -321,12 +331,133 @@ class SalesMoneyBreakdownMigrationIntegrationTest extends AbstractPostgresIntegr
                         + "from the two numbers it is made of")
                 .isEqualTo("ck_item_subtotal");
 
+        // Retargeted with `V90`: `tax_rate` became an **input** of the derivation, so a statement that names
+        // it is now the case the trigger answers for. What must stay refused is the amount written by hand,
+        // because the derivation's column list does not name `tax_amount` — the same shape the subtotal and
+        // the total are held in, and the property the derivation must not destroy.
         assertThat(constraintOf(
-                        null,
-                        "UPDATE sales_order_items SET tax_rate = 0.16, tax_amount = 1 WHERE id = '" + document.lineA()
-                                + "'"))
+                        null, "UPDATE sales_order_items SET tax_amount = 1 WHERE id = '" + document.lineA() + "'"))
                 .as("ck_item_tax holds the taxable base times the rate copied onto the line")
                 .isEqualTo("ck_item_tax");
+    }
+
+    @Test
+    @DisplayName("a line that states a tax rate gets its tax amount and its total from the schema")
+    void theLineTaxAmountAndTotalAreDerivedFromTheStatedRate() throws Exception {
+        migrateTo(PRE_UNIT_HEAD);
+        var document = seedLegacyDocument();
+        migrateToHead();
+
+        var variant =
+                readUnscoped("SELECT product_variant_id FROM sales_order_items WHERE id = '" + document.lineA() + "'");
+        var order = UUID.randomUUID();
+        var line = UUID.randomUUID();
+        // The statement T4 will make: the line states the rate it resolved and nothing else. Before `V90`
+        // this row cannot be written at all — `tax_amount` stays at its default 0 while the rate is 0.16, so
+        // `ck_item_tax` refuses it — which is exactly why the derivation and the copy have to land together.
+        inOneTransaction(
+                document.company(),
+                insertOrderStatement(document, order, 5, "0"),
+                creationRow(document.company(), "SALES_ORDER", order, "DRAFT"),
+                "INSERT INTO sales_order_items (id, sales_order_id, product_variant_id, quantity, list_price,"
+                        + " discount_applied, tax_rate, status, created_at) VALUES ('" + line + "', '" + order
+                        + "', '" + variant + "', 2.0000, 100.0000, 10.0000, 0.160000, 'PENDING',"
+                        + " '2026-11-08 10:00:00')",
+                creationRow(document.company(), "SALES_ORDER_ITEM", line, "PENDING"));
+
+        assertThat(lineMoney(line, "tax_amount"))
+                .as("round((subtotal - discount_applied) * tax_rate, 4) = round((200 - 10) * 0.16, 4), the "
+                        + "expression ck_item_tax states, derived instead of trusted to the caller")
+                .isEqualTo("30.4000");
+        assertThat(lineMoney(line, "final_price"))
+                .as("subtotal - discount_applied + tax_amount = 200 - 10 + 30.40, the expression ck_item_total "
+                        + "states. It has to be derived after tax_amount inside one function: same-event "
+                        + "triggers fire in name order, so a separate trigger would read a stale amount")
+                .isEqualTo("220.4000");
+        assertThat(lineMoney(line, "subtotal"))
+                .as("the line's own subtotal is untouched by the swap")
+                .isEqualTo("200.0000");
+    }
+
+    @Test
+    @DisplayName("the derivation rounds to four decimals, exactly as the two checks state it")
+    void theDerivationRoundsAtTheScaleTheChecksState() throws Exception {
+        migrateTo(PRE_UNIT_HEAD);
+        var document = seedLegacyDocument();
+        migrateToHead();
+
+        var variant =
+                readUnscoped("SELECT product_variant_id FROM sales_order_items WHERE id = '" + document.lineA() + "'");
+        var order = UUID.randomUUID();
+        var line = UUID.randomUUID();
+        inOneTransaction(
+                document.company(),
+                insertOrderStatement(document, order, 6, "0"),
+                creationRow(document.company(), "SALES_ORDER", order, "DRAFT"),
+                "INSERT INTO sales_order_items (id, sales_order_id, product_variant_id, quantity, list_price,"
+                        + " tax_rate, status, created_at) VALUES ('" + line + "', '" + order + "', '" + variant
+                        + "', 3.0000, 12.3456, 0.160000, 'PENDING', '2026-11-08 11:00:00')",
+                creationRow(document.company(), "SALES_ORDER_ITEM", line, "PENDING"));
+
+        // 3 x 12.3456 = 37.0368, its 16% is 5.925888, and the check states `round(…, 4)`: 5.9259, not the
+        // unrounded product and not 5.93. A derivation that rounded at two decimals would fail ck_item_tax.
+        assertThat(lineMoney(line, "tax_amount"))
+                .as("the fourth decimal is the check's, so the derivation has to round at the check's scale")
+                .isEqualTo("5.9259");
+        assertThat(lineMoney(line, "final_price")).isEqualTo("42.9627");
+    }
+
+    @Test
+    @DisplayName("an edit of the rate alone re-derives the tax amount and the total")
+    void anEditOfTheRateAloneRederivesBothColumns() throws Exception {
+        migrateTo(PRE_UNIT_HEAD);
+        var document = seedLegacyDocument();
+        migrateToHead();
+
+        // A line written today: no rate, so no tax, and the document it belongs to is a legacy one whose
+        // line A is 2 x 100 with a 10 discount.
+        assertThat(lineMoney(document.lineA(), "tax_amount")).isEqualTo("0.0000");
+        assertThat(lineMoney(document.lineA(), "final_price")).isEqualTo("190.0000");
+
+        inOneTransaction(
+                document.company(),
+                "UPDATE sales_order_items SET tax_rate = 0.16 WHERE id = '" + document.lineA() + "'");
+
+        assertThat(lineMoney(document.lineA(), "tax_amount"))
+                .as("the trigger names tax_rate, so a rate stated after the line exists is derived instead "
+                        + "of leaving a row ck_item_tax would refuse")
+                .isEqualTo("30.4000");
+        assertThat(lineMoney(document.lineA(), "final_price"))
+                .as("and the total moves with it, because the two are derived in that order inside one " + "function")
+                .isEqualTo("220.4000");
+    }
+
+    @Test
+    @DisplayName("the derivation is one function, the derived column is not an input, and V85's pair is gone")
+    void theDerivationIsOneFunctionAndTheOldPairIsGone() throws Exception {
+        migrateTo(PRE_UNIT_HEAD);
+        seedLegacyDocument();
+        migrateToHead();
+
+        assertThat(readUnscoped("SELECT pg_get_triggerdef(t.oid) FROM pg_trigger t JOIN pg_class c ON c.oid ="
+                        + " t.tgrelid WHERE c.relname = 'sales_order_items' AND t.tgname ="
+                        + " 'trg_sales_order_items_tax_and_total'"))
+                .as("the trigger listens to tax_rate and never to tax_amount: the amount is the derived "
+                        + "column now, and V85 records why a derived column must not be an input")
+                .contains("UPDATE OF list_price, quantity, discount_applied, tax_rate")
+                .doesNotContain("tax_amount");
+        assertThat(readUnscoped("SELECT count(*) FROM pg_trigger WHERE NOT tgisinternal AND tgname ="
+                        + " 'trg_sales_order_items_final_price'"))
+                .as("V85's trigger is dropped rather than left to fire beside the new one: two BEFORE "
+                        + "triggers writing final_price is the ambiguity the name-order comment exists for")
+                .isEqualTo("0");
+        assertThat(readUnscoped("SELECT count(*) FROM pg_proc WHERE proname = 'sales_order_item_final_price'"))
+                .as("and its function goes with it, so nothing is orphaned — a function no trigger calls is "
+                        + "the kind of leftover that reads as a live derivation to the next reader")
+                .isEqualTo("0");
+        assertThat(readUnscoped("SELECT count(*) FROM pg_proc WHERE proname = 'sales_order_item_tax_and_total'"))
+                .as("the one function both columns are derived by")
+                .isEqualTo("1");
     }
 
     @Test
