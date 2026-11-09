@@ -263,8 +263,13 @@ public class CompanyService {
         company.setEnabled(request.enabled() != null ? request.enabled() : true);
         // The request replaces the stored value, the same way it replaces every other field: the record
         // carries `currency` as required, so ignoring it here would accept a value and silently keep
-        // another — the shape this contract exists to refuse.
-        company.setCurrency(resolveCurrency(request.currency()).getCode());
+        // another — the shape this contract exists to refuse. The value it does not resolve again is the
+        // stored code itself: a company whose currency the catalog has since retired is not selecting it
+        // again, and refusing the stored value would make an untouched field unsaveable.
+        String storedCurrency = company.getCurrency();
+        if (!storedCurrency.equals(request.currency())) {
+            company.setCurrency(resolveCurrency(request.currency()).getCode());
+        }
         // Update address (dual-path: update existing Address entity or create new one)
         if (request.address() != null) {
             if (company.getAddress() != null) {
