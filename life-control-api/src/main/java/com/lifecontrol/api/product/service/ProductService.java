@@ -101,6 +101,9 @@ public class ProductService {
                 .name(request.name())
                 .shortName(request.shortName())
                 .satCode(request.satCode())
+                // S2 of the tax unit: the fiscal code is a property of the article, and an absent one is `NA`
+                // — the column's own default — instead of a NOT NULL the caller has to know about.
+                .taxCode(taxCode(request))
                 .productType(request.productType())
                 .attributes(request.attributes())
                 .category(category)
@@ -156,6 +159,13 @@ public class ProductService {
         product.setName(request.name());
         product.setShortName(request.shortName());
         product.setSatCode(request.satCode());
+        // The fiscal code follows the rule the attribute set beside it already uses: a request that states
+        // nothing leaves the stored value alone, because `tax_code` is NOT NULL and "no fiscal code" is not a
+        // state a product can be in — `NA` is a code with a meaning, not an absence (S2, V89). An absent field
+        // is therefore not a request to clear it, and clearing it is not offered at all.
+        if (request.taxCode() != null && !request.taxCode().isBlank()) {
+            product.setTaxCode(request.taxCode());
+        }
         product.setProductType(request.productType());
         // `null` clears the classification on purpose: the form sends what its three selects hold, and
         // "sin categoría" has to be expressible.
@@ -353,6 +363,20 @@ public class ProductService {
         productAttributeCatalogService.validate(companyId, categoryId, attributes, ProductAttributeLevel.PRODUCT);
     }
 
+    /**
+     * The fiscal code a creation stores: the request's, or {@code NA} when it states none.
+     *
+     * <p>Absent and blank mean the same thing here — <b>no tax applies</b> — and {@code NA} is the catalog's
+     * seeded code for exactly that (S2 of {@code odd/tasks/product-tax-code.md}, {@code V82:45-49}). It is not
+     * an invented default: the column carries the same one ({@code V89}), so a caller that never heard of the
+     * field and a caller that sends {@code ""} both reach the state a product without a fiscal code has always
+     * had.</p>
+     */
+    private String taxCode(ProductRequest request) {
+        var taxCode = request.taxCode();
+        return taxCode == null || taxCode.isBlank() ? Product.DEFAULT_TAX_CODE : taxCode;
+    }
+
     private ProductResponse mapToResponse(Product product) {
         var category = product.getCategory();
         var company = product.getCompany();
@@ -362,6 +386,7 @@ public class ProductService {
                 product.getName(),
                 product.getShortName(),
                 product.getSatCode(),
+                product.getTaxCode(),
                 product.getProductType(),
                 product.getAttributes(),
                 product.getEnabled(),

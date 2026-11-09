@@ -127,6 +127,26 @@ class ProductServiceTest {
                 List.of(creationVariant("Unica")));
     }
 
+    /**
+     * A creation request that states its fiscal code, one variant and nothing else.
+     *
+     * <p>Written through the canonical constructor on purpose: the convenience shapes above predate
+     * {@code taxCode} and mean "no code", which is the other half of the contract proven below.</p>
+     */
+    private ProductRequest creationRequestWithTaxCode(String taxCode) {
+        return new ProductRequest(
+                "SKU-TAX",
+                "Gravado",
+                null,
+                null,
+                taxCode,
+                "GOODS",
+                null,
+                null,
+                null,
+                List.of(creationVariant("Unica")));
+    }
+
     @Nested
     @DisplayName("createProduct")
     class CreateProductTests {
@@ -179,6 +199,66 @@ class ProductServiceTest {
             assertThat(result.sku()).isEqualTo("SKU-SIMPLE");
             assertThat(result.name()).isEqualTo("Simple Product");
             assertThat(result.attributes()).isNull();
+        }
+
+        /**
+         * S2 of the tax unit: the code lives on the article, so the creation stores the one the request
+         * declares and reports it back. The stored entity is read too — the response is built from the same
+         * object, so a response-only assertion could pass with nothing written.
+         */
+        @Test
+        @DisplayName("should store the fiscal code the request declares")
+        void shouldStoreTheDeclaredTaxCode() {
+            var request = creationRequestWithTaxCode("IVA");
+            when(productRepository.existsBySkuAndCompanyId("SKU-TAX", companyId))
+                    .thenReturn(false);
+            when(productRepository.save(any(Product.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            var result = productService.createProduct(companyId, request);
+
+            var stored = ArgumentCaptor.forClass(Product.class);
+            verify(productRepository).save(stored.capture());
+            assertThat(stored.getValue().getTaxCode())
+                    .as("the row that would be written carries the request's code")
+                    .isEqualTo("IVA");
+            assertThat(result.taxCode())
+                    .as("and the response reports what was stored")
+                    .isEqualTo("IVA");
+        }
+
+        /**
+         * An absent code is not an error and not an invented one: {@code NA} is the catalog's own code for
+         * "no tax applies" and the column's default since {@code V89}, so a caller that never heard of the
+         * field creates exactly the product the schema would have created.
+         */
+        @Test
+        @DisplayName("should store 'NA' when the request declares no fiscal code")
+        void shouldStoreTheDefaultTaxCode_WhenNoneIsDeclared() {
+            var request = creationRequestWithTaxCode(null);
+            when(productRepository.existsBySkuAndCompanyId("SKU-TAX", companyId))
+                    .thenReturn(false);
+            when(productRepository.save(any(Product.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            var result = productService.createProduct(companyId, request);
+
+            assertThat(result.taxCode())
+                    .as("`NA` means no tax applies, which is what a product without a code has always meant")
+                    .isEqualTo(Product.DEFAULT_TAX_CODE);
+        }
+
+        @Test
+        @DisplayName("should store 'NA' when the request declares a blank fiscal code")
+        void shouldStoreTheDefaultTaxCode_WhenBlankIsDeclared() {
+            var request = creationRequestWithTaxCode("   ");
+            when(productRepository.existsBySkuAndCompanyId("SKU-TAX", companyId))
+                    .thenReturn(false);
+            when(productRepository.save(any(Product.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            var result = productService.createProduct(companyId, request);
+
+            assertThat(result.taxCode())
+                    .as("a blank field is the empty form control, never a code the catalog would refuse")
+                    .isEqualTo(Product.DEFAULT_TAX_CODE);
         }
 
         @Test
@@ -462,6 +542,62 @@ class ProductServiceTest {
             assertThat(result.shortName()).isEqualTo("New");
             assertThat(result.satCode()).isEqualTo("SAT-NEW");
             assertThat(result.productType()).isEqualTo("GOODS");
+        }
+
+        @Test
+        @DisplayName("should update the fiscal code when the request states one")
+        void shouldUpdateTheTaxCode() {
+            var existing = Product.builder()
+                    .id(productId)
+                    .sku("SKU-001")
+                    .name("Product")
+                    .taxCode("NA")
+                    .enabled(true)
+                    .build();
+            var request = new ProductRequest("SKU-001", "Product", null, null, "TASA_0", null, null, null, null, null);
+
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(existing));
+            when(productRepository.save(any(Product.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            var result = productService.updateProduct(companyId, productId, request);
+
+            assertThat(existing.getTaxCode())
+                    .as("the stored entity is what a later sale reads the code from")
+                    .isEqualTo("TASA_0");
+            assertThat(result.taxCode()).isEqualTo("TASA_0");
+        }
+
+        /**
+         * The rule {@code attributes} already uses in this method, applied to a {@code NOT NULL} column: a
+         * request that states nothing leaves the stored value alone. Clearing is not offered, because "no
+         * fiscal code" is not a state a product can be in — {@code NA} is a code, not an absence — and a
+         * {@code null} written into the column would be a constraint violation, not an edit.
+         */
+        @Test
+        @DisplayName("should leave the stored fiscal code alone when the request states none or blank")
+        void shouldLeaveTheStoredTaxCode_WhenNoneOrBlankIsDeclared() {
+            var existing = Product.builder()
+                    .id(productId)
+                    .sku("SKU-001")
+                    .name("Product")
+                    .taxCode("IVA")
+                    .enabled(true)
+                    .build();
+            var absent = new ProductRequest("SKU-001", "Product", null, null, null, null, null);
+            var blank = new ProductRequest("SKU-001", "Product", null, null, "  ", null, null, null, null, null);
+
+            when(productRepository.findByIdAndCompanyId(productId, companyId)).thenReturn(Optional.of(existing));
+            when(productRepository.save(any(Product.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            var afterAbsent = productService.updateProduct(companyId, productId, absent);
+            var afterBlank = productService.updateProduct(companyId, productId, blank);
+
+            assertThat(afterAbsent.taxCode())
+                    .as("an absent field is not a request to clear it")
+                    .isEqualTo("IVA");
+            assertThat(afterBlank.taxCode())
+                    .as("a blank field is the empty form control and writes nothing either")
+                    .isEqualTo("IVA");
         }
 
         @Test

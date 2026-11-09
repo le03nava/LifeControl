@@ -102,6 +102,7 @@ class ProductControllerSecurityTest {
                 "Test Product",
                 "Test",
                 "SAT-001",
+                Product.DEFAULT_TAX_CODE,
                 "SERVICE",
                 Map.of("color", "red"),
                 true,

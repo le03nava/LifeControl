@@ -36,8 +36,18 @@ import java.util.UUID;
  * field still compiles through the convenience constructors below, which carry no variant — that is a
  * request the creation path refuses with a 400 that names this field, never a product written with none.</p>
  *
+ * <p>{@code taxCode} is the product's fiscal code, from the platform catalog {@code tax_code} (V82) — S2 of
+ * {@code odd/tasks/product-tax-code.md}, «el código vive en el catálogo del artículo». It is stated on the
+ * <b>article</b> and never on a sale line: the line copies the product's code and its resolved rate at write
+ * time (ADR-0002 decision 6), so a client cannot state a tax for a document. Absent or blank means "no tax
+ * applies" on creation ({@code Product#DEFAULT_TAX_CODE}) and "leave the stored code alone" on update, the
+ * same meaning {@code attributes} already carries here — never an invented {@code NA}. The vocabulary is
+ * the catalog's: an unknown code is refused by {@code fk_products_tax_code}, not by this record.</p>
+ *
  * <p>{@code variants} is <b>appended last</b>, after {@code variantMode}, so the seven- and eight-argument
- * shapes every existing caller uses keep compiling.</p>
+ * shapes every existing caller uses keep compiling. {@code taxCode} sits beside {@code satCode} — the two
+ * fiscal codes read together — and the three shapes that predate it keep compiling through the convenience
+ * constructors below, which state no code and therefore invent none.</p>
  *
  * <p>It is <b>{@code @Valid}-cascaded</b> so a violation inside a variant is refused at the boundary, with the
  * key bean validation gives a list element — {@code variants[<index>].<field>} — instead of travelling to the
@@ -57,6 +67,8 @@ public record ProductRequest(
 
         @Size(max = 20, message = "satCode must not exceed 20 characters")
         String satCode,
+
+        String taxCode,
 
         @Size(max = 50, message = "productType must not exceed 50 characters")
         String productType,
@@ -85,7 +97,7 @@ public record ProductRequest(
             String productType,
             Map<String, Object> attributes,
             UUID categoryId) {
-        this(sku, name, shortName, satCode, productType, attributes, categoryId, null, null);
+        this(sku, name, shortName, satCode, null, productType, attributes, categoryId, null, null);
     }
 
     /**
@@ -103,6 +115,26 @@ public record ProductRequest(
             Map<String, Object> attributes,
             UUID categoryId,
             String variantMode) {
-        this(sku, name, shortName, satCode, productType, attributes, categoryId, variantMode, null);
+        this(sku, name, shortName, satCode, null, productType, attributes, categoryId, variantMode, null);
+    }
+
+    /**
+     * The shape that predates {@code taxCode}: the mode and the variants, without a fiscal code.
+     *
+     * <p>Kept for the callers that state a family and no tax code — which is what every caller did before
+     * {@code V89} — so they keep meaning "let the product's default speak" on creation and "leave the stored
+     * code alone" on update. It carries no {@code taxCode} and therefore invents none.</p>
+     */
+    public ProductRequest(
+            String sku,
+            String name,
+            String shortName,
+            String satCode,
+            String productType,
+            Map<String, Object> attributes,
+            UUID categoryId,
+            String variantMode,
+            List<ProductVariantRequest> variants) {
+        this(sku, name, shortName, satCode, null, productType, attributes, categoryId, variantMode, variants);
     }
 }

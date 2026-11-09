@@ -58,6 +58,23 @@ public class Product extends Auditable {
     @Column(length = 20)
     private String satCode;
 
+    /**
+     * The fiscal code this product declares, from the platform catalog {@code tax_code} (V82) — the
+     * <b>"el código vive en el catálogo del artículo"</b> decision of 2026-11-08 (S2 of
+     * {@code odd/tasks/product-tax-code.md}), which is why a sale never states one: the line copies the
+     * product's code and its resolved rate at write time (ADR-0002 decision 6).
+     *
+     * <p>{@link #DEFAULT_TAX_CODE} is the column's own default and the value of every product that existed
+     * before {@code V89}: "no aplica" is a code with a meaning, not a missing value, so a product always
+     * declares one and the column is {@code NOT NULL}. A code the catalog does not have is refused by the
+     * foreign key {@code fk_products_tax_code}, not by this class.</p>
+     */
+    @Column(name = "tax_code", nullable = false)
+    private String taxCode = DEFAULT_TAX_CODE;
+
+    /** "No aplica": the fiscal code of a product no tax applies to, and the column's default. */
+    public static final String DEFAULT_TAX_CODE = "NA";
+
     @Column(length = 50)
     private String productType;
 
@@ -139,6 +156,10 @@ public class Product extends Auditable {
         return satCode;
     }
 
+    public String getTaxCode() {
+        return taxCode;
+    }
+
     public String getProductType() {
         return productType;
     }
@@ -182,6 +203,10 @@ public class Product extends Auditable {
 
     public void setSatCode(String satCode) {
         this.satCode = satCode;
+    }
+
+    public void setTaxCode(String taxCode) {
+        this.taxCode = taxCode;
     }
 
     public void setProductType(String productType) {
@@ -238,6 +263,11 @@ public class Product extends Auditable {
 
         public Builder satCode(String satCode) {
             product.satCode = satCode;
+            return this;
+        }
+
+        public Builder taxCode(String taxCode) {
+            product.taxCode = taxCode;
             return this;
         }
 
