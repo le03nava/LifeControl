@@ -214,14 +214,14 @@ declara: el servidor no adivina**. El campo viaja en el mismo `CompanyRequest` p
 | Por qué no hay default | Un `MXN` silencioso escribe la moneda de un país sobre las ventas de otro sin decirlo (ADR-0002, decisión 2, `D-c`). Pre-seleccionar en la pantalla sería ese mismo default una capa arriba, así que el select arranca **vacío** y es requerido |
 | El catálogo | `GET /api/currencies` devuelve una lista plana `{code, minorUnits, symbol, enabled}`, sólo habilitadas salvo `?includeDisabled=true`, para cualquier principal autenticado. Es lectura pura: se siembra por migración y no hay ABM |
 | La clave es el **código** | ISO 4217 (`MXN`), nunca el símbolo ni el nombre: `symbol` es presentación y se puede reescribir |
-| Qué resuelve el servidor | El código se resuelve contra el catálogo dentro de la transacción: un código que el catálogo no tiene es **404**, uno que tiene pero está retirado es **400**, y ninguno de los dos llega a la fila. La pantalla ofrece sólo las habilitadas |
+| Qué resuelve el servidor | El código se resuelve contra el catálogo dentro de la transacción: un código que el catálogo no tiene es **404**, uno que tiene pero está retirado es **400** cuando el request lo cambia, y ninguno de los dos llega a la fila. La pantalla ofrece sólo las habilitadas |
 | Lo que **no** cubre | El desglose de impuestos, `tax_rate`, `sale_payment` y la escala de las ventas son `T2` y posteriores de `odd/tasks/money-first-class.md`. Tampoco hay pantalla de administración del catálogo: se edita por migración |
 
-> **Follow-up abierto.** Una empresa cuya moneda se retire del catálogo (`enabled = false`) no se podría
-guardar ni sin tocarla, porque `updateCompany` llama a `resolveCurrency` en cada actualización y
-`resolveCurrency` rechaza el código retirado aunque el valor no haya cambiado. Hoy es inalcanzable —el
-catálogo tiene una sola fila habilitada, `MXN`— y queda registrado en el `## Log` de
-`odd/tasks/company-currency-form.md`.
+> **Una moneda retirada del catálogo no inutiliza la empresa que ya la tenía.** `updateCompany` resuelve
+el código contra el catálogo sólo cuando el request lo **cambia**: si `request.currency()` es exactamente
+la moneda guardada, el valor se conserva sin resolver, porque un código que el catálogo retiró después no
+es una selección que el caller esté haciendo de nuevo y rechazarlo dejaría sin guardar un campo que nadie
+tocó. Cambiar la moneda **a** un código retirado sigue siendo **400**, igual que en el alta.
 
 ## Docker Scripts
 

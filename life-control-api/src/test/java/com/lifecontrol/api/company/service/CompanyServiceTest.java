@@ -801,6 +801,114 @@ class CompanyServiceTest {
             // Assert
             assertThat(result.emailDomain()).isNull();
         }
+
+        /**
+         * The catalog can retire a code a company already states, and {@code currency} is required on
+         * every update: refusing the stored value would make the other fields of that company unsaveable
+         * because of a field the caller did not change.
+         */
+        @Test
+        @DisplayName("updateCompany - should keep a stored currency the catalog has since retired")
+        void updateCompany_KeepsAStoredCurrencyTheCatalogHasRetired() {
+            // Arrange
+            testCompany.setCurrency("XXX");
+            var retired = new Currency("XXX", (short) 2, null, false);
+            lenient().when(currencyRepository.findById("XXX")).thenReturn(Optional.of(retired));
+
+            CompanyRequest updateRequest = new CompanyRequest(
+                    "1",
+                    "Renamed Company",
+                    1,
+                    "Razon Social Test SA de CV",
+                    "XAXX010101000",
+                    "+1234567890",
+                    "test@company.com",
+                    null,
+                    true,
+                    null,
+                    "XXX");
+
+            when(companyRepository.findById(testCompanyId)).thenReturn(Optional.of(testCompany));
+            when(companyRepository.existsByRfcAndIdNot(any(), eq(testCompanyId)))
+                    .thenReturn(false);
+            when(companyRepository.save(any(Company.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            // Act
+            CompanyResponse result = companyService.updateCompany(testCompanyId, updateRequest);
+
+            // Assert
+            assertThat(result.companyName()).isEqualTo("Renamed Company");
+            assertThat(result.currency()).isEqualTo("XXX");
+            var captor = ArgumentCaptor.forClass(Company.class);
+            verify(companyRepository).save(captor.capture());
+            assertThat(captor.getValue().getCurrency()).isEqualTo("XXX");
+        }
+
+        @Test
+        @DisplayName("updateCompany - should store a currency the caller changes to")
+        void updateCompany_StoresAChangedCurrency() {
+            // Arrange
+            var dollars = new Currency("USD", (short) 2, "$", true);
+            when(currencyRepository.findById("USD")).thenReturn(Optional.of(dollars));
+
+            CompanyRequest updateRequest = new CompanyRequest(
+                    "1",
+                    "Test Company",
+                    1,
+                    "Razon Social Test SA de CV",
+                    "XAXX010101000",
+                    "+1234567890",
+                    "test@company.com",
+                    null,
+                    true,
+                    null,
+                    "USD");
+
+            when(companyRepository.findById(testCompanyId)).thenReturn(Optional.of(testCompany));
+            when(companyRepository.existsByRfcAndIdNot(any(), eq(testCompanyId)))
+                    .thenReturn(false);
+            when(companyRepository.save(any(Company.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            // Act
+            CompanyResponse result = companyService.updateCompany(testCompanyId, updateRequest);
+
+            // Assert
+            assertThat(result.currency()).isEqualTo("USD");
+            var captor = ArgumentCaptor.forClass(Company.class);
+            verify(companyRepository).save(captor.capture());
+            assertThat(captor.getValue().getCurrency()).isEqualTo("USD");
+        }
+
+        @Test
+        @DisplayName("updateCompany - should refuse a change to a currency the catalog has retired")
+        void updateCompany_RefusesAChangeToADisabledCurrency() {
+            // Arrange
+            var retired = new Currency("XXX", (short) 2, null, false);
+            when(currencyRepository.findById("XXX")).thenReturn(Optional.of(retired));
+
+            CompanyRequest updateRequest = new CompanyRequest(
+                    "1",
+                    "Test Company",
+                    1,
+                    "Razon Social Test SA de CV",
+                    "XAXX010101000",
+                    "+1234567890",
+                    "test@company.com",
+                    null,
+                    true,
+                    null,
+                    "XXX");
+
+            when(companyRepository.findById(testCompanyId)).thenReturn(Optional.of(testCompany));
+            when(companyRepository.existsByRfcAndIdNot(any(), eq(testCompanyId)))
+                    .thenReturn(false);
+
+            // Act / Assert
+            assertThatThrownBy(() -> companyService.updateCompany(testCompanyId, updateRequest))
+                    .isInstanceOf(DisabledCurrencyException.class)
+                    .hasMessageContaining("XXX");
+            verify(companyRepository, never()).save(any(Company.class));
+        }
     }
 
     @Nested
