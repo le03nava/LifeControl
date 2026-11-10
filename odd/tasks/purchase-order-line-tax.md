@@ -1,9 +1,9 @@
 # ODD feature: purchase-order-line-tax
 
 **Repository**: LifeControl — `life-control-api` (migrations, `purchaseorder`, `tax`, `salesorder`), `life-control-app-angular` (`features/purchases`), `odd/tasks/`
-**Branch**: `feat/purchase-order-line-tax`, created from `origin/main` @ `697a1c0c`; this record is written in that worktree, where the unit's work happens
-**Status**: **blocked** — T2, the one task that stands alone, is written: `ZERO_RATE_CODES` moved out of `SalesOrderService` into `TaxCodeService` as the one list both line writers read, with the sales behaviour unchanged and its existing zero-by-definition test as the pin. T1 and T3–T6 wait on `purchase-order-money`, whose T1/T2 — the derivation function this unit extends in place and the document money columns whose `tax_total` it fills — were specified on 2026-11-10 and never written: #840 merged that record alone, the tree's highest migration is still `V91`, and `purchase_order_details` still carries `total` with no `subtotal` beside it. What the unit is: `purchase_order_details` gains `tax_code`, `tax_rate` and `tax_amount`; the code comes from the product and the rate is snapshotted with the order's date through the existing `TaxRateService.resolve`, never from a client and never re-resolved on edit; a taxable code with no enabled rate on that date is a 400 that writes nothing; and `total` starts including the tax while `subtotal` stays the base. Two shapes the product-sourced code cannot express — a supplier exempt on a taxable product, and frontier IVA 8% beside the general 16% — are gaps with their own issues, not silent behaviour.
-**Created**: 2026-11-10 · **Risk**: items 1 and 6 apply to T1 and T3–T6 — item 1 because `tax_amount` moves stored money on financial purchase rows and a wrong resolution is not detectable after the fact; item 6 because until T5 gives it a reader, `tax_amount` is a column whose only writer is a trigger fed by a rate resolved at write time. T2, the only task this branch carries, is **none**: it moves a constant into the layer that owns the rule and rewrites no behaviour, and the test that already pinned the sales half proves the half that stayed.
+**Branch**: `feat/purchase-order-line-tax`, rebased onto `origin/main` @ `08964f79` — the money unit it depends on is merged; this record is written in that worktree, where the unit's work happens
+**Status**: **implemented** — the unit is the purchase line's own tax: `purchase_order_details` carries `tax_code`, `tax_rate` and `tax_amount`; the code comes from the product, the rate is a snapshot taken with the document's date, a taxable code with no enabled rate on that date is a 400 that writes nothing, and `total` includes the tax while `subtotal` stays the base. The derivation extends V92's line function and V93's document function **in place** — no third trigger, because same-event triggers fire in name order. Two shapes the product-sourced code cannot express — a supplier exempt on a taxable product, and frontier IVA 8% beside the general 16% — are named gaps with their own issues; the inventory cost stays out by decision (S9).
+**Created**: 2026-11-10 · **Risk**: item 1 applies — `tax_amount` moves stored money on financial purchase rows, and a wrong resolution is not detectable after the fact: the rate is copied at creation, so a wrong copy is a wrong invoice line that no later correction re-derives. Item 6 does **not** apply: T4's schema case and T5's screen both read `tax_amount` in the same branch. T2 was **none** — it moved a constant into the layer that owns the rule, proven by the sales test that already pinned the half that stayed.
 
 ## Problem
 
@@ -53,6 +53,18 @@ The tax machinery exists, is generic, and has **no production caller**. Purchase
 
 **Total task count: 6.**
 
+## Slices
+
+The unit is larger than the ~400-authored-line review budget, so it travels as chained slices — and each boundary is
+verified on its own tip before its PR opens, because the predecessor unit paid for that lesson in red: `V92`/`V93` alone
+derived four decimals while the response still carried Java's two, so a "schema only" slice was never green.
+
+| Slice | Tasks | Scope | Why the boundary falls here |
+| --- | --- | --- | --- |
+| 1 | T2, T1 | the rule and the schema: `ZERO_RATE_CODES` in the tax layer, and `V94` | A column list with no writer is not reviewable alone; the rule both line writers read belongs with the columns they fill |
+| 2 | T3, T4 | the copy, the refusals, and the tests that pin them | The service is what decides a code and a date, and the tests are only meaningful against it |
+| 3 | T5, T6 | the screen and the docs | Nothing below changes, and it is the only slice reviewable by looking at rendered numbers |
+
 ## Decisions
 
 **D1 (2026-11-10) — the code comes from the product.** The operator's decision, verbatim: «Del producto, como ventas». Cost recorded rather than argued: two shapes become inexpressible, and they are named below instead of being discovered in production.
@@ -100,3 +112,7 @@ Two things follow, and only one of them is this unit's:
 
 - **Sequences are not gap-free and PostgreSQL does not promise they are.** `nextval()` is non-transactional by design, so any refusal that happens after an allocation burns a number, and so does any failure between the allocation and the commit. Moving the allocation below the line loop would reduce how often that happens; it would not make "no consumption" true, and asserting it would be asserting something the database will not honour. What S5 owes is that the refusal leaves **no order row, no detail row, and no document change**, and that is what test 3 asserts.
 - **Moving the allocation is a change to the identity path, not to this unit.** ADR-0003 decision 4 and the comment at `:213-216` state why the number is taken as part of the document's identity, and an existing expectation in `CreatePurchaseOrderTests` would move with it. That is its own small unit with its own review, named here so it is not rediscovered as a bug: the sequence gap is real, its cost is a skipped number, and it is not a state this tree can corrupt.
+
+**L11 (2026-11-10) — T5 was verified twice, and the second run is the one that counts.** The writer worked in a worktree with no `life-control-app-angular/node_modules`, so it proved its change in a scratch copy under `/tmp` and said so instead of reporting a green it had not measured on the tree. That is the right call, and it is also not verification: the parent installed the dependencies in the worktree (`npm ci`) and ran the gate on the real tree — `src/features/purchases` 20 files / 461 tests, `npm run lint` clean, and `npm run test:coverage:check` at 200 files with 86.7% statements, 86.4% branches, 89.64% lines. The scratch copy and its 357 MB were removed. The lesson generalises past this unit: a worktree is not the anchor, and "it passed somewhere with the same sources" is not the same claim as "it passed here".
+
+**L12 (2026-11-10) — what the docs say now, and one row that had to be revised rather than appended.** `AGENTS.md`'s `## Dinero de la orden de compra` grew five rows — the line's tax columns, why the rate is a column and not a join, the edit rule with its single exception, the refusal and what the sequence does lose, and the zero-by-definition codes owning one list — and its "who writes it" row now names all three derivations instead of two. The "what it does not cover" row was **rewritten**: it used to say the tax was the successor and `tax_total` derived to 0, which is a sentence about a past this tree no longer has; it now carries the inventory-cost decision and the two gaps that belong to the product vocabulary. That is the same failure the money unit's `V94` fixed in a column comment, and it is worth naming: a doc row that promises a successor becomes false the moment the successor lands, and only a reader who comes back to it will notice.
