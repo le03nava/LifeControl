@@ -995,9 +995,7 @@ class PurchaseOrderServiceTest {
             assertThat(purchaseOrder.getEnabled())
                     .as("the order is enabled again")
                     .isTrue();
-            assertThat(detail.getEnabled())
-                    .as("the line is enabled again")
-                    .isTrue();
+            assertThat(detail.getEnabled()).as("the line is enabled again").isTrue();
             // Re-enabling a line is a write of it, so the document's money moved under the V93 trigger and the
             // instance `findById` loaded carries the stale number: the write path reads both back (S5).
             verify(entityManager).refresh(any(PurchaseOrder.class));

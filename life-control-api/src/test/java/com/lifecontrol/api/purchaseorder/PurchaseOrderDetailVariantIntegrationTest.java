@@ -1203,8 +1203,7 @@ class PurchaseOrderDetailVariantIntegrationTest extends AbstractPostgresIntegrat
                     .as("total of the line the create route reported")
                     .isEqualByComparingTo("250.0000");
 
-            mockMvc.perform(delete("/api/purchase-orders/{id}", purchaseOrderId)
-                            .with(adminPrincipal()))
+            mockMvc.perform(delete("/api/purchase-orders/{id}", purchaseOrderId).with(adminPrincipal()))
                     .andExpect(status().isNoContent());
 
             var enabled = mockMvc.perform(patch("/api/purchase-orders/{id}/enable", purchaseOrderId)
@@ -1222,8 +1221,8 @@ class PurchaseOrderDetailVariantIntegrationTest extends AbstractPostgresIntegrat
 
             // The other half of the question: not one response being right, but the server owning the
             // number. A PATCH that agreed with itself while the next read disagreed would still be a lie.
-            var fetched = mockMvc.perform(get("/api/purchase-orders/{id}", purchaseOrderId)
-                            .with(adminPrincipal()))
+            var fetched = mockMvc.perform(
+                            get("/api/purchase-orders/{id}", purchaseOrderId).with(adminPrincipal()))
                     .andExpect(status().isOk())
                     .andReturn();
 
