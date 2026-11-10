@@ -119,6 +119,10 @@ class PurchaseOrderControllerTest {
                 true,
                 LocalDateTime.now(),
                 LocalDateTime.now(),
+                "MXN",
+                new BigDecimal("500.0000"),
+                BigDecimal.ZERO,
+                new BigDecimal("500.0000"),
                 List.of(detailResponse));
     }
 

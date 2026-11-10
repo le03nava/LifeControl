@@ -57,6 +57,18 @@ The Flyway head is `V91`; this unit takes the next free pair.
 
 **Total task count: 7.**
 
+## Slices
+
+The unit is larger than the ~400-authored-line review budget, so it travels as chained slices. Each boundary is
+a place where the tree is coherent and the next slice can be reviewed on its own.
+
+| Slice | Tasks | Scope | Why the boundary falls here |
+| --- | --- | --- | --- |
+| 1 | T1, T2 | the schema: `V92` and `V93` | The two migrations are one subject — the line's money and the document's — and a caller of one without the other is not a state anything reads |
+| 2 | T3, T4 | the verification and the wire: the scratch-database suite and `PurchaseOrderResponse` | The suite is what answers what the migrations did to rows written before them, and the response is the first reader of the columns |
+| 3 | T5, T6 | the screen: `features/purchases/purchase-orders` reads the response through `MoneyPipe` | Nothing above it changes, and it is the only slice that can be reviewed by looking at rendered numbers |
+| 4 | T7 | the docs: the `AGENTS.md` section and this record's evidence | It states what the code does, so it goes last |
+
 ## Decisions
 
 **D1 (2026-11-10) — the money is derived in the database, not in Java.** Sales keeps its document totals in `recomputeBreakdown` under the order's row lock, and `V80`/`V81`/`V90` already derive the parts that constraints check. Purchases has no equivalent writer at all, so a Java path would be the only thing standing between a line mutation and a stale document total — which is the silent-defect shape this unit exists to end. The trigger cannot be forgotten by the next route that adds a line.
@@ -88,3 +100,7 @@ The Flyway head is `V91`; this unit takes the next free pair.
 **L6 (2026-11-10) — the successor, named and not written.** `purchase-order-line-tax` adds `tax_code`, `tax_rate` and `tax_amount` to the line, copies them from `products.tax_code` resolved through `TaxRateService.resolve(companyId, taxCode, createdAt.toLocalDate())` — the same service and `lineTaxAmount` helper that exist today with **no production caller** — moves `ZERO_RATE_CODES` out of `SalesOrderService.java:116` into the tax service where the rule belongs (`TaxCodeService.java:32` already says it does not carry it), and extends the derivation function of T1/T2 in one function rather than adding a third trigger, because same-event triggers fire in name order (`V85:69-71`). Its four tests mirror `SalesOrderServiceTest:4135/4182/4165/4203`.
 
 **L7 (2026-11-10) — the session that answered the question that opened it.** `TaxRateService`, `tax_rate` (armed, per company) and the `tax_code` vocabulary were delivered by `odd/tasks/product-tax-code.md`, which is in `main`; the same session confirmed that purchases has zero occurrences of `tax` in its Java module and no tax column in any purchase-order migration.
+
+**L8 (2026-11-10) — slice 1 is closed, and the boundary is recorded where the reviewer reads it.** Slice 1 of `## Slices` (T1, T2) is commits `d8993b86` (V92, the line's money) and `5e17edd4` (V93, the document's money). The two named 411 authored lines together, which is why the boundary is written down rather than discovered at the next PR: the remaining slices are 2 (T3, T4 — the scratch-database suite and the response), 3 (T5, T6 — the screen) and 4 (T7 — the docs). Nothing about delivery is claimed here; what the record states is where a review of this unit can stop.
+
+**L9 (2026-11-10) — the four tests the unit was allowed to move, and why each one moved.** The first green run after the code was written left four red: `PurchaseOrderServiceTest#computesDetailTotals`, `#addsDetailWhenDraft`, `#updatesDetailAndRecomputesTotal` and `PurchaseOrderDetailVariantIntegrationTest#fractionalQuantityRoundsLineTotalToColumnScale`. None was a regression: the first three assert a `total` that only Java could produce — with the derivation in the schema and mocked repositories, the entity in the persistence context carries `null` on a create and the previous `500.00` on an edit — and the fourth asserts the two-decimal rounding of a column that is now `NUMERIC(19,4)`. They were retargeted rather than deleted: the unit tests now pin that no Java path writes the line's money and that the write path asks the row for it (`verify(entityManager).refresh(...)`), and the integration case keeps its intent — the create response agrees with a later GET — at `308.625`, the number the column now stores.

@@ -6,10 +6,13 @@ import com.lifecontrol.api.paymentmethod.model.PaymentMethod;
 import com.lifecontrol.api.store.model.CompanyStore;
 import com.lifecontrol.api.supplier.model.Supplier;
 import jakarta.persistence.*;
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 @NamedEntityGraph(
         name = "PurchaseOrder.withHierarchy",
@@ -128,6 +131,51 @@ public class PurchaseOrder extends Auditable {
 
     @Column(nullable = false)
     private Boolean enabled = true;
+
+    // ─── the document's money, derived by the schema (`V93`) ───────────────
+    //
+    // Four columns no code in this module writes, and none of them has a setter for that reason: `currency`
+    // comes from the company on insert and freezes there (S4), and the three amounts follow the enabled lines
+    // through `trg_purchase_order_details_document_money`. They are mapped non-writable so Hibernate cannot
+    // send a number the schema would then disagree with, which means a freshly built order carries `null` here
+    // until it is read back — `PurchaseOrderService#refreshDerivedOrderMoney` is what pays for that read, and
+    // only on the paths that just changed a line.
+
+    /**
+     * The currency the order was written in, frozen at creation (S4).
+     *
+     * <p>{@link JdbcTypeCode} states the column's real type: it is {@code CHAR(3)}, and a {@code String} mapped
+     * by default expects {@code varchar(3)}, which fails {@code ddl-auto: validate} at boot — the same mapping
+     * {@code Company.currency} carries for the same reason.</p>
+     */
+    @JdbcTypeCode(SqlTypes.CHAR)
+    @Column(length = 3, nullable = false, insertable = false, updatable = false)
+    private String currency;
+
+    @Column(precision = 19, scale = 4, nullable = false, insertable = false, updatable = false)
+    private BigDecimal subtotal;
+
+    @Column(name = "tax_total", precision = 19, scale = 4, nullable = false, insertable = false, updatable = false)
+    private BigDecimal taxTotal;
+
+    @Column(name = "total_amount", precision = 19, scale = 4, nullable = false, insertable = false, updatable = false)
+    private BigDecimal totalAmount;
+
+    public String getCurrency() {
+        return currency;
+    }
+
+    public BigDecimal getSubtotal() {
+        return subtotal;
+    }
+
+    public BigDecimal getTaxTotal() {
+        return taxTotal;
+    }
+
+    public BigDecimal getTotalAmount() {
+        return totalAmount;
+    }
 
     @OneToMany(mappedBy = "purchaseOrder", fetch = FetchType.LAZY)
     private List<PurchaseOrderDetail> details = new ArrayList<>();

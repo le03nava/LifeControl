@@ -51,8 +51,8 @@ import com.lifecontrol.api.store.service.CompanyStoreOwnerResolver;
 import com.lifecontrol.api.supplier.exception.SupplierNotFoundException;
 import com.lifecontrol.api.supplier.model.Supplier;
 import com.lifecontrol.api.supplier.repository.SupplierRepository;
+import jakarta.persistence.EntityManager;
 import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -99,6 +99,12 @@ public class PurchaseOrderService {
     private final StatusTransitionRecorder statusTransitionRecorder;
     private final DocumentStateCatalog documentStateCatalog;
 
+    /**
+     * The one thing this service asks of the persistence context directly: reading back the money the schema
+     * derives, after the write that produced it. See {@link #refreshDerivedOrderMoney(PurchaseOrder)}.
+     */
+    private final EntityManager entityManager;
+
     public PurchaseOrderService(
             PurchaseOrderRepository purchaseOrderRepository,
             PurchaseOrderDetailRepository detailRepository,
@@ -115,7 +121,8 @@ public class PurchaseOrderService {
             CurrentUserContext currentUserContext,
             DocumentSequenceAllocator documentSequenceAllocator,
             StatusTransitionRecorder statusTransitionRecorder,
-            DocumentStateCatalog documentStateCatalog) {
+            DocumentStateCatalog documentStateCatalog,
+            EntityManager entityManager) {
         this.purchaseOrderRepository = purchaseOrderRepository;
         this.detailRepository = detailRepository;
         this.supplierRepository = supplierRepository;
@@ -132,6 +139,7 @@ public class PurchaseOrderService {
         this.documentSequenceAllocator = documentSequenceAllocator;
         this.statusTransitionRecorder = statusTransitionRecorder;
         this.documentStateCatalog = documentStateCatalog;
+        this.entityManager = entityManager;
     }
 
     // ─── Purchase Order CRUD ────────────────────────────────────────────
@@ -240,7 +248,6 @@ public class PurchaseOrderService {
                 var productVariant = resolveProductVariant(detailReq.productVariantId(), product, store);
                 var detailState =
                         detailReq.statusId() != null ? detailStateOf(detailReq.statusId()) : INITIAL_DETAIL_STATE;
-                var total = lineTotal(detailReq.unitPrice(), detailReq.quantity());
 
                 var detail = PurchaseOrderDetail.builder()
                         .purchaseOrder(po)
@@ -248,7 +255,6 @@ public class PurchaseOrderService {
                         .productVariant(productVariant)
                         .quantity(detailReq.quantity())
                         .unitPrice(detailReq.unitPrice())
-                        .total(total)
                         .receivedQuantity(BigDecimal.ZERO)
                         .comments(detailReq.comments())
                         .status(detailState)
@@ -281,6 +287,10 @@ public class PurchaseOrderService {
 
         eventPublisher.publishEvent(new PurchaseOrderCreatedEvent(
                 this, saved.getId(), saved.getOrderNumber(), supplier.getId(), store.getId()));
+
+        // The four money columns are the schema's answer to the lines just written, so they are read back
+        // rather than assumed (S1: derived, never assigned).
+        refreshDerivedOrderMoney(saved);
 
         return toResponse(saved);
     }
@@ -330,15 +340,12 @@ public class PurchaseOrderService {
                     var productVariant = resolveProductVariant(detailReq.productVariantId(), product, store);
                     var detailState =
                             detailReq.statusId() != null ? detailStateOf(detailReq.statusId()) : INITIAL_DETAIL_STATE;
-                    var total = lineTotal(detailReq.unitPrice(), detailReq.quantity());
-
                     var detail = PurchaseOrderDetail.builder()
                             .purchaseOrder(po)
                             .product(product)
                             .productVariant(productVariant)
                             .quantity(detailReq.quantity())
                             .unitPrice(detailReq.unitPrice())
-                            .total(total)
                             .receivedQuantity(BigDecimal.ZERO)
                             .comments(detailReq.comments())
                             .status(detailState)
@@ -366,6 +373,9 @@ public class PurchaseOrderService {
             po.setStatus(targetState);
             updated = purchaseOrderRepository.save(po);
         }
+        // The lines were replaced, so the document's money moved with them and this instance still carries the
+        // previous total.
+        refreshDerivedOrderMoney(updated);
         return toResponse(updated);
     }
 
@@ -443,7 +453,6 @@ public class PurchaseOrderService {
         var product = validateProductExists(request.productId());
         var productVariant = resolveProductVariant(request.productVariantId(), product, po.getCompanyStore());
         var detailState = detailStateOf(request.statusId());
-        var total = lineTotal(request.unitPrice(), request.quantity());
 
         var detail = PurchaseOrderDetail.builder()
                 .purchaseOrder(po)
@@ -451,7 +460,6 @@ public class PurchaseOrderService {
                 .productVariant(productVariant)
                 .quantity(request.quantity())
                 .unitPrice(request.unitPrice())
-                .total(total)
                 .receivedQuantity(BigDecimal.ZERO)
                 .comments(request.comments())
                 .status(detailState)
@@ -465,6 +473,9 @@ public class PurchaseOrderService {
         statusTransitionRecorder.recordCreation(
                 StatusSubject.PURCHASE_ORDER_DETAIL, companyIdOf(saved.getPurchaseOrder()), saved.getId(), detailState);
         logger.info("Detail added: id={}, poId={}", saved.getId(), purchaseOrderId);
+
+        // The line's subtotal and total are derived, so the response states the row and not the request.
+        refreshDerivedLineMoney(saved);
 
         return toDetailResponse(saved);
     }
@@ -488,13 +499,10 @@ public class PurchaseOrderService {
         if (detailState != detail.getStatus()) {
             DocumentStates.requireTransition(detail.getStatus(), detailState);
         }
-        var total = lineTotal(request.unitPrice(), request.quantity());
-
         detail.setProduct(product);
         detail.setProductVariant(productVariant);
         detail.setQuantity(request.quantity());
         detail.setUnitPrice(request.unitPrice());
-        detail.setTotal(total);
         detail.setComments(request.comments());
 
         PurchaseOrderDetail updated;
@@ -504,6 +512,8 @@ public class PurchaseOrderService {
             detail.setStatus(detailState);
             updated = detailRepository.save(detail);
         }
+        // A quantity or price edit moves both derived columns, and this instance holds the old pair.
+        refreshDerivedLineMoney(updated);
         return toDetailResponse(updated);
     }
 
@@ -1026,6 +1036,10 @@ public class PurchaseOrderService {
                 po.getEnabled(),
                 po.getCreatedAt(),
                 po.getUpdatedAt(),
+                po.getCurrency(),
+                po.getSubtotal(),
+                po.getTaxTotal(),
+                po.getTotalAmount(),
                 detailResponses);
     }
 
@@ -1035,8 +1049,37 @@ public class PurchaseOrderService {
      * later read returns carry the same number; returning the raw product instead let the column round
      * it, and the POST response then disagreed with the GET.
      */
-    private static BigDecimal lineTotal(BigDecimal unitPrice, BigDecimal quantity) {
-        return unitPrice.multiply(quantity).setScale(2, RoundingMode.HALF_UP);
+    /**
+     * Reads back the money the schema derives, after a write that changed it.
+     *
+     * <p><b>Why a write path has to ask.</b> {@code currency}, {@code subtotal}, {@code tax_total} and
+     * {@code total_amount} are {@code insertable = false, updatable = false} ({@code V93}), so Hibernate omits
+     * them from every statement and the first-level cache then answers every query inside the transaction with
+     * the same instance — the one that carries {@code null} on a created order and the **previous** total on an
+     * edited one. A response built from either is worse than stale: it is a number the client cannot tell apart
+     * from a correct one. {@code SalesOrderService#refreshDerivedLineMoney} pays the same cost for sales' derived
+     * columns and states the same reasoning.</p>
+     *
+     * <p><b>Why the flush comes first.</b> A refresh discards what the persistence context has not written, and
+     * the derivation reads the rows: flushing is what makes the trigger fire before the read instead of around
+     * it. It is also what makes the two order columns agree with the lines the caller just wrote.</p>
+     *
+     * <p><b>Why it is called from the four write paths and not from the mapper.</b> A mapper that refreshed
+     * every order would pay a statement per row on the list route, where nothing has changed. Only creating an
+     * order, replacing its lines, adding a line and editing a line move this money.</p>
+     */
+    private void refreshDerivedOrderMoney(PurchaseOrder po) {
+        purchaseOrderRepository.flush();
+        entityManager.refresh(po);
+        if (po.getDetails() != null) {
+            po.getDetails().forEach(entityManager::refresh);
+        }
+    }
+
+    /** The line's half of {@link #refreshDerivedOrderMoney(PurchaseOrder)}: {@code subtotal} and {@code total}. */
+    private void refreshDerivedLineMoney(PurchaseOrderDetail detail) {
+        detailRepository.flush();
+        entityManager.refresh(detail);
     }
 
     private PurchaseOrderDetailResponse toDetailResponse(PurchaseOrderDetail detail) {

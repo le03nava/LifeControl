@@ -64,6 +64,7 @@ import com.lifecontrol.api.store.service.CompanyStoreOwnerResolver;
 import com.lifecontrol.api.supplier.exception.SupplierNotFoundException;
 import com.lifecontrol.api.supplier.model.Supplier;
 import com.lifecontrol.api.supplier.repository.SupplierRepository;
+import jakarta.persistence.EntityManager;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -137,6 +138,16 @@ class PurchaseOrderServiceTest {
      */
     @Mock
     private StatusTransitionRecorder statusTransitionRecorder;
+
+    /**
+     * The persistence context, mocked because the only thing this class asks of it is
+     * {@code refresh} after a write: what a refresh returns is a row, and a row is what this suite has no
+     * database for. The read-back itself is asserted where it can be observed — a scratch database, in
+     * {@code PurchaseOrderMoneyMigrationIntegrationTest}, and the HTTP response in
+     * {@code PurchaseOrderControllerTest}.
+     */
+    @Mock
+    private EntityManager entityManager;
 
     /**
      * The real catalog over the mocked {@code statuses} read: the four refusals are its own contract and are
@@ -317,7 +328,8 @@ class PurchaseOrderServiceTest {
                 currentUserContext,
                 documentSequenceAllocator,
                 statusTransitionRecorder,
-                documentStateCatalog);
+                documentStateCatalog,
+                entityManager);
 
         detail = PurchaseOrderDetail.builder()
                 .id(detailId)
@@ -587,8 +599,8 @@ class PurchaseOrderServiceTest {
         }
 
         @Test
-        @DisplayName("should compute detail totals automatically")
-        void computesDetailTotals() {
+        @DisplayName("should leave the line money to the schema instead of computing it")
+        void doesNotWriteLineMoney() {
             var detailReq = new PurchaseOrderDetailRequest(
                     productId,
                     variantId,
@@ -624,7 +636,13 @@ class PurchaseOrderServiceTest {
 
             var savedPO = captor.getValue();
             assertThat(savedPO.getDetails()).hasSize(1);
-            assertThat(savedPO.getDetails().getFirst().getTotal()).isEqualByComparingTo(new BigDecimal("450.00"));
+            var savedLine = savedPO.getDetails().getFirst();
+            assertThat(savedLine.getUnitPrice()).isEqualByComparingTo("150.00");
+            assertThat(savedLine.getQuantity()).isEqualByComparingTo("3");
+            // V92 derives both columns from those two numbers, so a service that also wrote them would be a
+            // second writer whose value the trigger overwrites on any statement that names the column (S2).
+            assertThat(savedLine.getSubtotal()).isNull();
+            assertThat(savedLine.getTotal()).isNull();
         }
 
         @Test
@@ -993,14 +1011,20 @@ class PurchaseOrderServiceTest {
             when(detailRepository.save(any(PurchaseOrderDetail.class))).thenAnswer(inv -> {
                 var d = inv.getArgument(0, PurchaseOrderDetail.class);
                 d.setId(detailId);
+                // The trigger's answer to 2 x 50.00. The decimals are what tells the two apart: a service that
+                // stated the money itself would answer 100.00, because that is what the deleted lineTotal did.
+                d.setTotal(new BigDecimal("100.0000"));
                 return d;
             });
 
             var result = service.addPurchaseOrderDetail(poId, detailReq);
 
             assertThat(result).isNotNull();
-            assertThat(result.total()).isEqualByComparingTo(new BigDecimal("100.00"));
+            assertThat(result.total()).isEqualByComparingTo(new BigDecimal("100.0000"));
             assertThat(result.productName()).isEqualTo("Test Product");
+            // The response is only able to state the row's number because the write path asked for it: the
+            // entity in the persistence context carries null until it is refreshed (S5).
+            verify(entityManager).refresh(any(PurchaseOrderDetail.class));
         }
 
         @Test
@@ -1024,8 +1048,8 @@ class PurchaseOrderServiceTest {
     class UpdatePurchaseOrderDetailTests {
 
         @Test
-        @DisplayName("should update detail fields and recompute total")
-        void updatesDetailAndRecomputesTotal() {
+        @DisplayName("should update detail fields and read the derived total back")
+        void updatesDetailAndReadsBackTheDerivedTotal() {
             var updatedReq = new PurchaseOrderDetailRequest(
                     productId,
                     variantId,
@@ -1043,12 +1067,18 @@ class PurchaseOrderServiceTest {
             when(productVariantStoreStockRepository.existsByProductVariantIdAndCompanyStoreId(variantId, storeId))
                     .thenReturn(true);
             catalogRow(pendingStatus);
-            when(detailRepository.save(any(PurchaseOrderDetail.class))).thenReturn(detail);
+            when(detailRepository.save(any(PurchaseOrderDetail.class))).thenAnswer(inv -> {
+                var d = inv.getArgument(0, PurchaseOrderDetail.class);
+                // The fixture carries the old 500.00; the trigger is what answers 10 x 25.00 here.
+                d.setTotal(new BigDecimal("250.0000"));
+                return d;
+            });
 
             var result = service.updatePurchaseOrderDetail(poId, detailId, updatedReq);
 
             assertThat(result.quantity()).isEqualByComparingTo("10");
-            assertThat(result.total()).isEqualByComparingTo(new BigDecimal("250.00"));
+            assertThat(result.total()).isEqualByComparingTo(new BigDecimal("250.0000"));
+            verify(entityManager).refresh(any(PurchaseOrderDetail.class));
         }
 
         @Test
