@@ -599,13 +599,14 @@ class PurchaseOrderDetailVariantIntegrationTest extends AbstractPostgresIntegrat
         }
 
         @Test
-        @DisplayName("should round the line total to the column scale so the write response and a later GET agree")
-        void fractionalQuantityRoundsLineTotalToColumnScale() throws Exception {
+        @DisplayName("should carry the four-decimal line total so the write response and a later GET agree")
+        void fractionalQuantityCarriesTheFourDecimalLineTotal() throws Exception {
             var product = createProduct();
             var variant = createVariant(product.getId(), storeId);
             var purchaseOrderId = createEmptyPurchaseOrder();
 
-            // 2.5 x 123.45 = 308.625, which is not a number DECIMAL(12,2) can store.
+            // 2.5 x 123.45 = 308.625, which DECIMAL(19,4) stores exactly and the pre-unit DECIMAL(12,2)
+            // could not: that column answered 308.63 and the rounding was the schema's, not the request's.
             var created = mockMvc.perform(post("/api/purchase-orders/{id}/details", purchaseOrderId)
                             .with(adminPrincipal())
                             .contentType(MediaType.APPLICATION_JSON)
@@ -615,7 +616,7 @@ class PurchaseOrderDetailVariantIntegrationTest extends AbstractPostgresIntegrat
 
             assertThat(totalOf(objectMapper.readTree(created.getResponse().getContentAsString())))
                     .as("total of the create response")
-                    .isEqualByComparingTo("308.63");
+                    .isEqualByComparingTo("308.625");
 
             var listed = mockMvc.perform(get("/api/purchase-orders/{id}/details", purchaseOrderId)
                             .with(adminPrincipal()))
@@ -627,13 +628,13 @@ class PurchaseOrderDetailVariantIntegrationTest extends AbstractPostgresIntegrat
                             .readTree(listed.getResponse().getContentAsString())
                             .get(0)))
                     .as("total of the detail list")
-                    .isEqualByComparingTo("308.63");
+                    .isEqualByComparingTo("308.625");
 
             var persisted = purchaseOrderDetailRepository.findByPurchaseOrderIdAndEnabledTrue(purchaseOrderId);
             assertThat(persisted).hasSize(1);
             assertThat(persisted.getFirst().getTotal())
                     .as("persisted line total")
-                    .isEqualByComparingTo("308.63");
+                    .isEqualByComparingTo("308.625");
         }
 
         @Test
