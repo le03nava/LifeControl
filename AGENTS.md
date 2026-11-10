@@ -223,6 +223,26 @@ la moneda guardada, el valor se conserva sin resolver, porque un código que el 
 es una selección que el caller esté haciendo de nuevo y rechazarlo dejaría sin guardar un campo que nadie
 tocó. Cambiar la moneda **a** un código retirado sigue siendo **400**, igual que en el alta.
 
+## Dinero de la orden de compra (`purchase_orders` / `purchase_order_details`)
+
+La orden de compra tenía **una sola cifra** —el `total` de cada línea, escrito por Java—, así que el documento no
+sabía lo que costaba y la pantalla lo respondía sumando filas en el navegador con un literal `'MXN'`. `V92`/`V93`
+le dan al documento su propio dinero, **derivado en la base** (`odd/tasks/purchase-order-money.md`).
+
+| Regla | Valor |
+|-------|-------|
+| Dónde vive | `purchase_orders.currency CHAR(3) NOT NULL REFERENCES currency (code)`, `subtotal`, `tax_total`, `total_amount`, y `purchase_order_details.subtotal` / `total`, todas `NUMERIC(19,4)` |
+| Quién lo escribe | **Nadie en Java.** `purchase_order_detail_money()` (`BEFORE INSERT OR UPDATE`, trigger `trg_purchase_order_details_money`) deriva `subtotal = round(unit_price * quantity, 4)` y `total = subtotal + tax_amount`; `purchase_order_money()` (`AFTER INSERT OR UPDATE OR DELETE` sobre las líneas, trigger `trg_purchase_order_details_document_money`) recompone el documento bajo el lock de su fila; `purchase_order_currency()` copia `companies.currency` al alta |
+| Las dos mitades de la línea | `subtotal` es la base y `total` lo que la línea cuesta. Son dos columnas desde el principio porque la sucesora agrega el IVA: un único `total` que después empieza a incluir impuesto es una columna que cambia de significado debajo de las filas ya guardadas |
+| Las constraints | `ck_po_order_total` (`total_amount = subtotal + tax_total`) y `ck_po_order_parts_not_negative`. Compras no tiene descuento, así que **no** hay `discount_total` que copiar de ventas |
+| La moneda se congela | Es la de la empresa **al crear la orden** y no se re-deriva: cambiar la moneda de la empresa no reescribe un documento histórico, igual que decidió `V80` para la venta |
+| Lo que sí hace Java | **Leer de vuelta**, nunca asignar: `refreshDerivedOrderMoney` / `refreshDerivedLineMoney` hacen `flush()` + `refresh()` en las cuatro rutas de escritura, porque las columnas son `insertable = false, updatable = false` y la caché de primer nivel devuelve la instancia vieja (el `null` del alta, el total anterior de la edición). El mapper no refresca: la lista pagaría una sentencia por fila sin que nada haya cambiado |
+| La pantalla | Lee `totalAmount` y el `total` de cada fila del response con el `MoneyPipe` compartido y la moneda del documento. **No queda ningún `'MXN'` ni una suma en el browser** en `features/purchases/purchase-orders`, y mientras el documento no tiene respuesta del servidor la pantalla no renderiza cifra en vez de inventarla |
+| Auditoría de la migración | Las filas existentes se recomputan con la misma expresión, así que un `total` guardado puede moverse hasta **0.005** (de 2 a 4 decimales). El backfill de `currency` corre con dos ventanas `NO FORCE ROW LEVEL SECURITY` explícitas, porque `purchase_orders` está armada desde `V53` y Flyway migra como el dueño, al que la policy también alcanza |
+| Lo que **no** cubre | **IVA**: `tax_total` deriva a 0 y `total_amount = subtotal`; lo agrega `odd/tasks/purchase-order-line-tax.md` extendiendo **la misma** función, no con un tercer trigger (dos triggers del mismo evento disparan por orden de nombre, `V85:69-71`). Tampoco conecta el costo de inventario: `purchase_order_details.unit_price` no llega a `cost_price` (`StockLedgerEngine.java:192`, `:822`), y esa es una decisión contable aparte |
+
+---
+
 ## Docker Scripts
 
 Scripts en `docker/scripts/`:
