@@ -88,7 +88,9 @@ $$ LANGUAGE plpgsql;
 -- Name order costs nothing here: `trg_purchase_order_details_money` sorts before
 -- `trg_purchase_order_details_transition_recorded`, and the only other trigger this table ever carried
 -- (`trg_purchase_order_details_status_bridge`, `V66`) was dropped by `V71` with the column it bridged from. So
--- nothing writes a column this function reads, and nothing reads a column this function writes.
+-- nothing writes a column this function reads. The columns it writes do have a reader, and it is the `AFTER`
+-- trigger of `V93` that re-derives the document from them — safe by timing (`BEFORE` runs first), not by
+-- nothing reading them.
 CREATE TRIGGER trg_purchase_order_details_money
     BEFORE INSERT OR UPDATE OF unit_price, quantity ON purchase_order_details
     FOR EACH ROW EXECUTE FUNCTION purchase_order_detail_money();

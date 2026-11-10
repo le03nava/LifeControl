@@ -428,6 +428,9 @@ public class PurchaseOrderService {
         }
 
         var saved = purchaseOrderRepository.save(po);
+        // Re-enabling the lines is a mutation of theirs, so the document's money moved with them and this
+        // instance still carries what `findById` loaded.
+        refreshDerivedOrderMoney(saved);
         return toResponse(saved);
     }
 
@@ -1064,9 +1067,12 @@ public class PurchaseOrderService {
      * the derivation reads the rows: flushing is what makes the trigger fire before the read instead of around
      * it. It is also what makes the two order columns agree with the lines the caller just wrote.</p>
      *
-     * <p><b>Why it is called from the four write paths and not from the mapper.</b> A mapper that refreshed
-     * every order would pay a statement per row on the list route, where nothing has changed. Only creating an
-     * order, replacing its lines, adding a line and editing a line move this money.</p>
+     * <p><b>Why it is called from the paths that write and not from the mapper.</b> A mapper that refreshed
+     * every order would pay a statement per row on the list route, where nothing has changed. What moves this
+     * money is creating an order, replacing its lines, adding a line, editing a line, and re-enabling a
+     * soft-deleted order — because re-enabling writes the lines and the derivation reads them. The two
+     * deletions are the deliberate exception: both return nothing, so there is no body to make agree with the
+     * row.</p>
      */
     private void refreshDerivedOrderMoney(PurchaseOrder po) {
         purchaseOrderRepository.flush();

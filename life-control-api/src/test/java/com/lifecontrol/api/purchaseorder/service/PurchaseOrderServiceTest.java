@@ -643,6 +643,11 @@ class PurchaseOrderServiceTest {
             // second writer whose value the trigger overwrites on any statement that names the column (S2).
             assertThat(savedLine.getSubtotal()).isNull();
             assertThat(savedLine.getTotal()).isNull();
+            // The document and each line are read back instead of assumed: the four money columns are the
+            // schema's answer to the lines just written (S1, S3), and the response is built from the
+            // refreshed entities rather than from the ones the persistence context had (S5).
+            verify(entityManager).refresh(any(PurchaseOrder.class));
+            verify(entityManager).refresh(any(PurchaseOrderDetail.class));
         }
 
         @Test
@@ -861,6 +866,9 @@ class PurchaseOrderServiceTest {
             service.updatePurchaseOrder(poId, request);
 
             assertThat(captor.getValue().getProductVariant()).isSameAs(productVariant);
+            // Replacing the lines moves the document's money, so the write path reads the order back before
+            // the response states it (S5).
+            verify(entityManager).refresh(any(PurchaseOrder.class));
         }
 
         @Test
@@ -961,6 +969,40 @@ class PurchaseOrderServiceTest {
 
             assertThatThrownBy(() -> service.deletePurchaseOrder(poId))
                     .isInstanceOf(PurchaseOrderNotFoundException.class);
+        }
+    }
+
+    // ─── enablePurchaseOrder ────────────────────────────────────────────
+
+    @Nested
+    @DisplayName("enablePurchaseOrder")
+    class EnablePurchaseOrderTests {
+
+        @Test
+        @DisplayName("should re-enable the order and its lines and read the derived money back")
+        void reEnablesTheOrderAndItsLines() {
+            // Stated explicitly because both builders default `enabled` to true: a case that left them alone
+            // would pass without the enable doing anything.
+            purchaseOrder.setEnabled(false);
+            detail.setEnabled(false);
+            purchaseOrder.getDetails().add(detail);
+
+            when(purchaseOrderRepository.findById(poId)).thenReturn(Optional.of(purchaseOrder));
+            when(purchaseOrderRepository.save(any(PurchaseOrder.class))).thenReturn(purchaseOrder);
+
+            service.enablePurchaseOrder(poId);
+
+            assertThat(purchaseOrder.getEnabled())
+                    .as("the order is enabled again")
+                    .isTrue();
+            assertThat(detail.getEnabled())
+                    .as("the line is enabled again")
+                    .isTrue();
+            // Re-enabling a line is a write of it, so the document's money moved under the V93 trigger and the
+            // instance `findById` loaded carries the stale number: the write path reads both back (S5).
+            verify(entityManager).refresh(any(PurchaseOrder.class));
+            verify(entityManager).refresh(any(PurchaseOrderDetail.class));
+            verify(purchaseOrderRepository).save(purchaseOrder);
         }
     }
 

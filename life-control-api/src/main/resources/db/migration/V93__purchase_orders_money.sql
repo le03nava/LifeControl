@@ -102,10 +102,11 @@ UPDATE purchase_orders po
  WHERE parts.order_id = po.id;
 
 -- ─── 5. the deferred judgements run now, while both windows are open ──────────────────────────
--- `trg_purchase_orders_transition_recorded` (`V69:81-84`) is `DEFERRABLE INITIALLY DEFERRED`, so the two
+-- `trg_purchase_orders_transition_recorded` (`V69:79-82`) is `DEFERRABLE INITIALLY DEFERRED`, so the two
 -- `UPDATE`s above queued one event per row and PostgreSQL refuses an `ALTER TABLE` while any are pending
--- (`SQLSTATE 55006`, measured in `V80`, `V84` and `V85` for this same statement shape). `V84` records the
--- consequence of not doing it: the judgement would then run outside the window, where the owner reads nothing.
+-- (`SQLSTATE 55006`, measured in `V80`, `V84` and `V85` for this same statement shape). The judgement itself
+-- changes nothing — the state did not move, and `assert_document_transition_recorded` returns early on a
+-- state-preserving `UPDATE` (`V68:99-101`) — but it has to be discharged before the DDL below regardless.
 SET CONSTRAINTS ALL IMMEDIATE;
 
 -- ─── 6. the promise the backfill just made, and the two checks ────────────────────────────────
