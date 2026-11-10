@@ -323,6 +323,11 @@ export class PurchaseOrderEdit implements OnInit {
       unitPrice: d.unitPrice,
       // The line total the server derived for the row it answered for. The table renders it; nothing multiplies.
       total: d.total,
+      // The tax the same answer carried: the rate it snapshotted and the amount derived from the stored base. Both are
+      // read here and never computed — a `base × rate` or a `total - base` would be a second answer to a number the
+      // server owns.
+      taxRate: d.taxRate,
+      taxAmount: d.taxAmount,
       receivedQuantity: d.receivedQuantity,
       statusName: d.statusName,
     }));

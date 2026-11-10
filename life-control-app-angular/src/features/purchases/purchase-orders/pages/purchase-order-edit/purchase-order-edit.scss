@@ -43,13 +43,27 @@
 
 .actions-summary {
   display: flex;
-  flex-direction: column;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--space-lg);
+
+  .summary-part {
+    display: flex;
+    flex-direction: column;
+  }
 
   .summary-label {
     font-size: 0.75rem;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.5px;
+    color: var(--mat-sys-on-surface-variant);
+  }
+
+  .summary-subtotal,
+  .summary-tax {
+    font-size: 0.9375rem;
+    font-weight: 600;
     color: var(--mat-sys-on-surface-variant);
   }
 
@@ -76,8 +90,6 @@
   }
 
   .actions-summary {
-    flex-direction: row;
-    align-items: baseline;
     justify-content: space-between;
   }
 }

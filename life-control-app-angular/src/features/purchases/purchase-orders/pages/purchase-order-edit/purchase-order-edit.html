@@ -75,12 +75,25 @@
 
     <!-- Sticky action bar -->
     <div class="form-actions">
-      <!-- The document's total, as the server derived it from the order's own lines. Before the order exists there
-           is no server answer, so the screen renders nothing instead of an inferred number (S6). -->
+      <!-- The document's breakdown, as the server stated it: the base, the tax and the total made of them. Before the
+           order exists there is no server answer, so the screen renders nothing instead of an inferred number (S6).
+           The tax appears only when it is non-zero, so an untaxed order does not grow a `0.0000` line it never had. -->
       <div class="actions-summary">
         @if (loadedOrder(); as order) {
-          <span class="summary-label">Total</span>
-          <span class="summary-total">{{ order.totalAmount | money: order.currency }}</span>
+          <span class="summary-part">
+            <span class="summary-label">Subtotal</span>
+            <span class="summary-subtotal">{{ order.subtotal | money: order.currency }}</span>
+          </span>
+          @if (order.taxTotal) {
+            <span class="summary-part">
+              <span class="summary-label">Impuesto</span>
+              <span class="summary-tax">{{ order.taxTotal | money: order.currency }}</span>
+            </span>
+          }
+          <span class="summary-part">
+            <span class="summary-label">Total</span>
+            <span class="summary-total">{{ order.totalAmount | money: order.currency }}</span>
+          </span>
         }
       </div>
       <div class="actions-buttons">

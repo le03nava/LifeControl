@@ -86,9 +86,13 @@ const SAVED_ROW: DetailTableRow = {
   productVariantName: 'Presentación 1L',
   quantity: 4,
   unitPrice: 80,
-  // A ten-thousandth above `quantity × unitPrice` (4 × 80 = 320), so a cell that renders this number cannot be a
-  // client-side product of the row's own fields.
-  total: 320.0001,
+  // The line's total as the server derived it — the base (4 × 80 = 320) plus the tax below — so the cell prints a
+  // number no client-side product of the row's own fields can reach.
+  total: 371.2002,
+  // The rate the server snapshotted, and the amount it derived. `quantity × unitPrice × rate` lands on 51.2000, one
+  // ten-thousandth below what the response states, so a tax the table computed cannot pass for the server's.
+  taxRate: 0.16,
+  taxAmount: 51.2001,
 };
 
 describe('DetailTable', () => {
@@ -203,13 +207,53 @@ describe('DetailTable', () => {
     it('should render the line total the server stated, not quantity × unit price', () => {
       const f = createTable([SAVED_ROW]);
 
-      expect(cellText(f, 'subtotal')).toBe(
+      expect(cellText(f, 'total')).toBe(
         formatMoney(SAVED_ROW.total, DOCUMENT_CURRENCY, SPEC_LOCALE),
       );
       // The row's own arithmetic would land on 320.0000: the cell shows a different number, so nothing multiplied.
-      expect(cellText(f, 'subtotal')).not.toBe(
+      expect(cellText(f, 'total')).not.toBe(
         formatMoney(SAVED_ROW.quantity * SAVED_ROW.unitPrice, DOCUMENT_CURRENCY, SPEC_LOCALE),
       );
+    });
+
+    it('should render the tax the server stated, with the rate it snapshotted', () => {
+      const f = createTable([SAVED_ROW]);
+
+      expect(cellText(f, 'taxAmount')).toContain(
+        formatMoney(SAVED_ROW.taxAmount, DOCUMENT_CURRENCY, SPEC_LOCALE),
+      );
+      // The derivation this cell may not perform: the base times the rate, which is a different number from the one
+      // the response carried.
+      expect(cellText(f, 'taxAmount')).not.toContain(
+        formatMoney(
+          SAVED_ROW.quantity * SAVED_ROW.unitPrice * (SAVED_ROW.taxRate ?? 0),
+          DOCUMENT_CURRENCY,
+          SPEC_LOCALE,
+        ),
+      );
+      // The rate the server sent, printed as the percentage a reader expects from a fraction.
+      expect(cellText(f, 'taxAmount')).toContain('16%');
+      expect((f.nativeElement as HTMLElement).textContent).toContain('Impuesto');
+    });
+
+    it('should render nothing in the tax column for a line the server has not answered for', () => {
+      // A row added in the browser states no tax, and a `0` there would be a number nobody stated (S8).
+      const f = createTable([{ ...SAVED_ROW, total: null, taxRate: null, taxAmount: null }]);
+
+      expect(cellText(f, 'taxAmount')).toBe('');
+    });
+
+    it('should drop the stated tax amount when the quantity is edited, keeping the rate', () => {
+      const f = createTable([SAVED_ROW]);
+      let emitted: DetailTableRow[] | null = null;
+      f.componentInstance.itemsChanged.subscribe((rows) => (emitted = rows));
+
+      f.componentInstance.onRowQuantityChange(0, 2.5);
+
+      // The amount described the base the edit replaced, so it goes with the total. The rate is the line's snapshot:
+      // changing the quantity does not re-resolve it (S3).
+      expect(emitted![0].taxAmount).toBeNull();
+      expect(emitted![0].taxRate).toBe(SAVED_ROW.taxRate);
     });
 
     it('should render the unit price in the document currency, not in a literal of its own', () => {
@@ -225,7 +269,7 @@ describe('DetailTable', () => {
       // A row added in the browser has no server total, and a `0` there would be a number nobody stated (S6).
       const f = createTable([{ ...SAVED_ROW, total: null }]);
 
-      expect(cellText(f, 'subtotal')).toBe('');
+      expect(cellText(f, 'total')).toBe('');
     });
 
     it('should drop the stored total when the quantity is edited', () => {
@@ -328,7 +372,8 @@ describe('DetailTable', () => {
         'variantName',
         'quantity',
         'unitPrice',
-        'subtotal',
+        'taxAmount',
+        'total',
         'actions',
       ]);
 
@@ -349,7 +394,8 @@ describe('DetailTable', () => {
         'received',
         'lineStatus',
         'unitPrice',
-        'subtotal',
+        'taxAmount',
+        'total',
         'actions',
       ]);
     });
@@ -667,12 +713,24 @@ describe('DetailTable (mobile)', () => {
     setupMatchMedia(true);
     const f = createMobileTable([SAVED_ROW], false);
 
-    const subtotal = (f.nativeElement as HTMLElement).querySelector(
-      '.line-item-card .subtotal-value',
-    );
+    const total = (f.nativeElement as HTMLElement).querySelector('.line-item-card .total-value');
 
-    expect(subtotal?.textContent?.trim()).toBe(
+    expect(total?.textContent?.trim()).toBe(
       formatMoney(SAVED_ROW.total, DOCUMENT_CURRENCY, SPEC_LOCALE),
     );
+  });
+
+  it('should render the server tax in the per-line card', () => {
+    setupMatchMedia(true);
+    const f = createMobileTable([SAVED_ROW], false);
+
+    const card = (f.nativeElement as HTMLElement).querySelector('.line-item-card');
+    const tax = card?.querySelector('.line-tax-amount');
+
+    expect(tax?.textContent?.trim()).toBe(
+      formatMoney(SAVED_ROW.taxAmount, DOCUMENT_CURRENCY, SPEC_LOCALE),
+    );
+    // The desktop column is mirrored instead of silently dropped, label included.
+    expect(card?.textContent).toContain('Impuesto');
   });
 });

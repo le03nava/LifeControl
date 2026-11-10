@@ -61,7 +61,7 @@
     gap: var(--space-sm);
   }
 
-  &__subtotal {
+  &__total {
     display: flex;
     align-items: baseline;
     justify-content: space-between;
@@ -69,7 +69,7 @@
     border-top: 1px dashed var(--mat-sys-outline-variant, #e2e8f0);
   }
 
-  .subtotal-label {
+  .total-label {
     font-size: 0.75rem;
     font-weight: 600;
     text-transform: uppercase;
@@ -77,10 +77,18 @@
     color: var(--mat-sys-on-surface-variant, #64748b);
   }
 
-  .subtotal-value {
+  .total-value {
     font-weight: 700;
     color: var(--mat-sys-primary, #2563eb);
   }
+}
+
+// The line's tax: the rate the server snapshotted, then the amount it derived. The rate is muted so the amount — the
+// only figure — stays the thing the eye lands on.
+.line-tax-rate {
+  margin-inline-end: var(--space-xs);
+  font-size: 0.8125rem;
+  color: var(--mat-sys-on-surface-variant, #64748b);
 }
 
 .field {

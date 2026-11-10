@@ -97,11 +97,19 @@
                       <span class="field__value">{{ row.unitPrice | money: currency() }}</span>
                     }
                   </div>
+
+                  <div class="field">
+                    <span class="field__label">Impuesto</span>
+                    <span class="field__value">
+                      <span class="line-tax-rate">{{ row.taxRate | percent: '1.0-2' }}</span>
+                      <span class="line-tax-amount">{{ row.taxAmount | money: currency() }}</span>
+                    </span>
+                  </div>
                 </div>
 
-                <div class="line-item-card__subtotal">
-                  <span class="subtotal-label">Subtotal</span>
-                  <span class="subtotal-value">{{ row.total | money: currency() }}</span>
+                <div class="line-item-card__total">
+                  <span class="total-label">Total</span>
+                  <span class="total-value">{{ row.total | money: currency() }}</span>
                 </div>
               </div>
             }
@@ -188,9 +196,21 @@
               </td>
             </ng-container>
 
-            <!-- Subtotal: the line total the server derived, never a client-side product -->
-            <ng-container matColumnDef="subtotal">
-              <th mat-header-cell *matHeaderCellDef>Subtotal</th>
+            <!-- Tax: the rate the server snapshotted and the amount it derived from the line's base. Both are read
+                 from the response; neither is a product of this row's own fields. -->
+            <ng-container matColumnDef="taxAmount">
+              <th mat-header-cell *matHeaderCellDef>Impuesto</th>
+              <td mat-cell *matCellDef="let row">
+                <span class="line-tax-rate">{{ row.taxRate | percent: '1.0-2' }}</span>
+                <span class="line-tax-amount">{{ row.taxAmount | money: currency() }}</span>
+              </td>
+            </ng-container>
+
+            <!-- Total: the line total the server derived, tax included. The wire states no line subtotal, and this
+                 table never subtracts one from this number: a client-side product would be a second answer to a
+                 number the server owns. -->
+            <ng-container matColumnDef="total">
+              <th mat-header-cell *matHeaderCellDef>Total</th>
               <td mat-cell *matCellDef="let row">{{ row.total | money: currency() }}</td>
             </ng-container>
 
