@@ -34,6 +34,13 @@ public final class Roles {
     // ---- Catalogs (write roles, one per catalog) ----
 
     public static final String COUNTRY = "lc-country";
+
+    /** Currency catalog write role, the pair {@code lc-payment-method} and {@code lc-measure-unit} form.
+     *  Client role of {@code life-control-client}. The currency catalog is global reference data seeded by
+     *  {@code V57}, so this role is deliberately unscoped and <b>absent from every
+     *  {@link ScopeLevel}</b>: there is no tenant in which to scope a code shared by every company. */
+    public static final String CURRENCY = "lc-currency";
+
     public static final String STATUS = "lc-status";
     public static final String STATUS_TYPE = "lc-status-type";
     public static final String PAYMENT_METHOD = "lc-payment-method";

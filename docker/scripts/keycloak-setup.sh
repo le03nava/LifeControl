@@ -487,7 +487,7 @@ fi
 for role in lc-admin lc-company lc-company-read lc-company-country lc-company-country-read \
             lc-company-region lc-company-region-read lc-company-zone lc-company-zone-read \
             lc-company-store lc-company-store-read lc-receiving \
-            lc-country lc-status lc-status-type lc-payment-method lc-measure-unit \
+            lc-country lc-status lc-status-type lc-payment-method lc-measure-unit lc-currency \
             lc-product-supplier lc-sales lc-scheduling lc-scheduling-read \
             lc-department lc-position lc-seniority-level lc-employee lc-employee-access; do
 	if client_role_exists "$APP_CID" "$role"; then

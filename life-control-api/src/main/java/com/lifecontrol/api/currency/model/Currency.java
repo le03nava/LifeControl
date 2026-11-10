@@ -73,4 +73,24 @@ public class Currency {
     public Boolean getEnabled() {
         return enabled;
     }
+
+    // ---- Setters: what the write path needs, and nothing more ----
+    //
+    // `code` has no setter on purpose: it is the primary key and the target of five foreign keys
+    // (`companies.currency`, `variant_listing.currency`, `stock_movement.currency`,
+    // `stock_valuation.currency`, `sales_orders.currency`), so renaming a row in place would leave every
+    // one of those references pointing at a code that no longer exists. A rename is a new row and a data
+    // migration, not a request.
+
+    public void setMinorUnits(Short minorUnits) {
+        this.minorUnits = minorUnits;
+    }
+
+    public void setSymbol(String symbol) {
+        this.symbol = symbol;
+    }
+
+    public void setEnabled(Boolean enabled) {
+        this.enabled = enabled;
+    }
 }
