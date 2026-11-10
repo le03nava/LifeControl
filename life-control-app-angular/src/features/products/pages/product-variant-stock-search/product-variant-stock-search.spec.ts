@@ -190,6 +190,41 @@ describe('ProductVariantStockSearch', () => {
     expect(variantServiceMock.searchVariants).not.toHaveBeenCalled();
   });
 
+  /**
+   * The search is submitted from the page's own `<form>`, and nothing here binds a `FormGroup` —
+   * the box is read through `[value]`/`(input)`. The only thing that can stop the browser's native
+   * submission is a directive attached to that `<form>`; without one the `(ngSubmit)` output never
+   * fires, no listener calls `preventDefault()`, and Enter (or the `Buscar` button) navigates the
+   * document to its own URL with an empty query string — which also drops `?storeId=`/`?companyId=`.
+   * These two assertions are the observable halves of that: the submission is cancelled, and the
+   * search it was for actually runs.
+   */
+  it('should search on a native submit and keep the browser from navigating', async () => {
+    setup({ queryStoreId: 'store-from-link' });
+    await settle();
+
+    type('7791234567890');
+    fixture.detectChanges();
+    await settle();
+
+    const form = fixture.debugElement.query(By.css('form.search-form'));
+    expect(form).toBeTruthy();
+
+    const submit = new Event('submit', { bubbles: true, cancelable: true });
+    form.nativeElement.dispatchEvent(submit);
+    fixture.detectChanges();
+    await settle();
+
+    expect(submit.defaultPrevented).toBe(true);
+    expect(variantServiceMock.searchVariants).toHaveBeenCalledTimes(1);
+    expect(variantServiceMock.searchVariants).toHaveBeenCalledWith(
+      '7791234567890',
+      'store-from-link',
+      0,
+      20,
+    );
+  });
+
   it('should not search before two characters', async () => {
     setup();
     await settle();
