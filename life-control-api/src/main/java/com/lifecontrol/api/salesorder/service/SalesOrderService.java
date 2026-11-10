@@ -51,6 +51,7 @@ import com.lifecontrol.api.store.exception.CompanyStoreNotFoundException;
 import com.lifecontrol.api.store.model.CompanyStore;
 import com.lifecontrol.api.store.repository.CompanyStoreRepository;
 import com.lifecontrol.api.store.service.CompanyStoreOwnerResolver;
+import com.lifecontrol.api.tax.service.TaxCodeService;
 import com.lifecontrol.api.tax.service.TaxRateService;
 import jakarta.persistence.EntityManager;
 import java.math.BigDecimal;
@@ -93,27 +94,6 @@ public class SalesOrderService {
      * reversal of one line is exact and independent of the order's other lines (W3-D6).
      */
     private static final String SALE_REFERENCE_TYPE = "SALES_ORDER_ITEM";
-
-    /**
-     * The codes that are <b>zero by definition</b>, so a line carrying one states rate {@code 0} without a
-     * {@code tax_rate} row: decision <b>D-a</b> of {@code odd/tasks/product-tax-code.md} (S6), taken 2026-11-08
-     * because decision 6 does not answer it.
-     *
-     * <p><b>Why these three and not "any code with no rate".</b> {@code NA} is the column's own default and every
-     * environment's {@code tax_rate} table is empty, so "no rate means refuse" applied uniformly would refuse
-     * every sale in the tree — and "no rate means zero" applied uniformly is the silent zero ADR-0002 exists to
-     * forbid. These three say <i>why</i> their zero is a zero, which is also why the catalog separates them: CFDI
-     * distinguishes Tasa 0% from Exento and both charge nothing (D-d).</p>
-     *
-     * <p><b>Why a {@link List} and not a {@code Set}.</b> Three values, one {@code contains} and a refusal that
-     * names them: an insertion-ordered list makes that sentence the same on every run, and a {@code Set.of}'s
-     * iteration order is deliberately unspecified.</p>
-     *
-     * <p><b>Why the name alone decides, with no catalog read.</b> The rule is about the code, not about the row:
-     * a rate row of {@code 0} would make {@code IVA} zero too, which is the mistake the whole decision protects
-     * against. A code outside this set needs a rate, and one that cannot be resolved refuses the line.</p>
-     */
-    private static final List<String> ZERO_RATE_CODES = List.of("NA", "TASA_0", "EXENTO");
 
     private final SalesOrderRepository salesOrderRepository;
     private final SalesOrderItemRepository itemRepository;
@@ -1048,8 +1028,9 @@ public class SalesOrderService {
      * environment today and {@code NA} is the column's default, so "no rate means refuse" applied to every code
      * would refuse every sale in the tree, while "no rate means zero" applied to every code is exactly the silent
      * zero decision 6 exists to forbid. The two halves are therefore split by the code: the ones that are zero by
-     * definition ({@link #ZERO_RATE_CODES}) state {@code 0} with no lookup, and every other code either resolves or
-     * refuses the line naming the code and the document's date — the two facts whoever states the rate needs.</p>
+     * definition ({@link TaxCodeService#ZERO_RATE_CODES}) state {@code 0} with no lookup, and every other code
+     * either resolves or refuses the line naming the code and the document's date — the two facts whoever
+     * states the rate needs.</p>
      *
      * <p><b>Why the refusal is an {@code IllegalArgumentException}.</b> The {@code GlobalExceptionHandler} already
      * maps that class to {@code 400} with the message as the body, which is the shape the company currency's
@@ -1079,7 +1060,7 @@ public class SalesOrderService {
                 // sites already answer for the same reason.
                 .orElseThrow(() -> new ProductVariantNotFoundException(productVariantId));
 
-        if (ZERO_RATE_CODES.contains(taxCode)) {
+        if (TaxCodeService.isZeroRateByDefinition(taxCode)) {
             return new LineTax(taxCode, BigDecimal.ZERO);
         }
 
@@ -1091,7 +1072,8 @@ public class SalesOrderService {
                         + taxCode + " has no enabled rate applicable on " + documentDate
                         + ", the document's date. The sale is refused rather than taxed at zero (ADR-0002 "
                         + "decision 6, D-a): if the line is not taxable its product must declare a code that is "
-                        + "zero by definition (" + String.join(", ", ZERO_RATE_CODES) + "), and otherwise the "
+                        + "zero by definition (" + String.join(", ", TaxCodeService.ZERO_RATE_CODES)
+                        + "), and otherwise the "
                         + "company has to state the rate that applies from " + documentDate + " onward."));
     }
 

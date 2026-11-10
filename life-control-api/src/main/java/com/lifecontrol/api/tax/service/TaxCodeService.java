@@ -29,18 +29,56 @@ import org.springframework.transaction.annotation.Transactional;
  * {@code sales_order_items.tax_code} snapshots the code a line was written with, so the row is never
  * removed. It is simply not offered — which is why the default answer here is the enabled set only.</p>
  *
- * <p><b>What this class deliberately does not do.</b> It does not say which codes are zero by definition
- * and which need a {@code tax_rate} row: that is D-a of {@code odd/tasks/product-tax-code.md}, and it
- * belongs to the resolver ({@link TaxRateService}) that answers for a company and a document date, not to a
- * catalog read that has neither.</p>
+ * <p><b>What this class carries besides the read.</b> Which codes are zero by definition and which need a
+ * {@code tax_rate} row — decision <b>D-a</b> of {@code odd/tasks/product-tax-code.md}: the codes in
+ * {@link #ZERO_RATE_CODES} state rate {@code 0} with no lookup, and every other code either resolves
+ * ({@link TaxRateService}) or refuses the line naming the code and the document's date. The rule lives here
+ * and not in a caller because it is about what a code <i>means</i>, which is a fact of the catalog and not of
+ * a document. It was written inside the sales consumer, and the second consumer ({@code purchaseorder}) is
+ * what made the extraction legitimate rather than a refactor for its own sake (D3 of
+ * {@code odd/tasks/purchase-order-line-tax.md}).</p>
  */
 @Service
 public class TaxCodeService {
+
+    /**
+     * The codes that are <b>zero by definition</b>, so a line carrying one states rate {@code 0} without a
+     * {@code tax_rate} row: decision <b>D-a</b> of {@code odd/tasks/product-tax-code.md} (S6), taken 2026-11-08
+     * because decision 6 does not answer it.
+     *
+     * <p><b>Why these three and not "any code with no rate".</b> {@code NA} is the column's own default and
+     * every environment's {@code tax_rate} table is empty, so "no rate means refuse" applied uniformly would
+     * refuse every line in the tree — and "no rate means zero" applied uniformly is the silent zero ADR-0002
+     * exists to forbid. These three say <i>why</i> their zero is a zero, which is also why the catalog separates
+     * them: CFDI distinguishes Tasa 0% from Exento and both charge nothing (D-d).</p>
+     *
+     * <p><b>Why a {@link List} and not a {@code Set}.</b> Three values, one {@code contains} and a refusal that
+     * names them: an insertion-ordered list makes that sentence the same on every run, and a {@code Set.of}'s
+     * iteration order is deliberately unspecified.</p>
+     *
+     * <p><b>Why the name alone decides, with no catalog read.</b> The rule is about the code, not about the row:
+     * a rate row of {@code 0} would make {@code IVA} zero too, which is the mistake the whole decision protects
+     * against. A code outside this set needs a rate, and one that cannot be resolved refuses the line.</p>
+     */
+    public static final List<String> ZERO_RATE_CODES = List.of("NA", "TASA_0", "EXENTO");
 
     private final TaxCodeRepository taxCodeRepository;
 
     public TaxCodeService(TaxCodeRepository taxCodeRepository) {
         this.taxCodeRepository = taxCodeRepository;
+    }
+
+    /**
+     * Whether {@code taxCode} states rate {@code 0} by definition, so no {@code tax_rate} row is consulted.
+     *
+     * <p>The one answer the two line writers — sales and purchases — have to agree on, which is why it is a
+     * method beside the list instead of a {@code contains} each caller repeats.</p>
+     *
+     * @param taxCode the code copied from a product's {@code tax_code}; never {@code null}, because the column
+     *     is {@code NOT NULL} since {@code V89}
+     */
+    public static boolean isZeroRateByDefinition(String taxCode) {
+        return ZERO_RATE_CODES.contains(taxCode);
     }
 
     /**
