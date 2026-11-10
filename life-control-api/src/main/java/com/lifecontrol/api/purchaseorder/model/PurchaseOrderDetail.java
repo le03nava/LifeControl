@@ -46,9 +46,48 @@ public class PurchaseOrderDetail extends Auditable {
     @Column(precision = 19, scale = 4, nullable = false, insertable = false, updatable = false)
     private BigDecimal subtotal;
 
-    /** {@code subtotal + tax_amount} — today {@code subtotal}, because this slice states no tax. Same trigger. */
+    /** {@code subtotal + tax_amount}. Same trigger. */
     @Column(precision = 19, scale = 4, nullable = false, insertable = false, updatable = false)
     private BigDecimal total;
+
+    /**
+     * The fiscal code this line was written with, copied from {@code products.tax_code} through the variant
+     * ({@code V94}, S2).
+     *
+     * <p><b>Writable, unlike the three money columns.</b> This one is an <i>input</i> the service states at
+     * creation — the product's code is the fact, and the copy onto the line is what makes a historical document
+     * keep the tax it was written with. {@link #DEFAULT_TAX_CODE} is the column's own default and the value of
+     * every line that predates {@code V94}: {@code NA} is a code with a meaning, not a missing value.</p>
+     */
+    @Column(name = "tax_code", length = 20, nullable = false)
+    private String taxCode = DEFAULT_TAX_CODE;
+
+    /**
+     * The rate as it stood on the document's date when the line was created ({@code V94}, S3) — a snapshot, so
+     * a later {@code tax_rate} row never restates a historical purchase.
+     *
+     * <p>It is the <b>input</b> of {@code trg_purchase_order_details_money}: the trigger listens to this column
+     * rather than to the derived {@code tax_amount}, so stating the rate is what makes the schema compute the
+     * tax. An edit of a line that stays on the same article keeps it; only a line moved to another variant is
+     * re-resolved.</p>
+     */
+    @Column(name = "tax_rate", precision = 9, scale = 6, nullable = false)
+    private BigDecimal taxRate = BigDecimal.ZERO;
+
+    /**
+     * {@code round(subtotal * tax_rate, 4)}, derived by the same trigger and function that derive
+     * {@link #subtotal} and {@link #total} ({@code V94}, S6).
+     *
+     * <p><b>Why it is not writable.</b> The same reason {@link #subtotal} states one line up: a derived column
+     * the application also sends has two writers, and the value a mapping carries is the value the row gets on
+     * any statement this trigger's column list does not name. There is no setter, and the read-back is what
+     * {@code PurchaseOrderService#refreshDerivedLineMoney} pays for on the paths that move the money.</p>
+     */
+    @Column(name = "tax_amount", precision = 19, scale = 4, nullable = false, insertable = false, updatable = false)
+    private BigDecimal taxAmount;
+
+    /** "No aplica": the fiscal code of a line no tax applies to, and the column's default ({@code V94}). */
+    public static final String DEFAULT_TAX_CODE = "NA";
 
     @Column(name = "received_quantity", precision = 12, scale = 2, nullable = false)
     private BigDecimal receivedQuantity = BigDecimal.ZERO;
@@ -108,6 +147,18 @@ public class PurchaseOrderDetail extends Auditable {
         return subtotal;
     }
 
+    public String getTaxCode() {
+        return taxCode;
+    }
+
+    public BigDecimal getTaxRate() {
+        return taxRate;
+    }
+
+    public BigDecimal getTaxAmount() {
+        return taxAmount;
+    }
+
     public BigDecimal getReceivedQuantity() {
         return receivedQuantity;
     }
@@ -148,6 +199,14 @@ public class PurchaseOrderDetail extends Auditable {
 
     public void setUnitPrice(BigDecimal unitPrice) {
         this.unitPrice = unitPrice;
+    }
+
+    public void setTaxCode(String taxCode) {
+        this.taxCode = taxCode;
+    }
+
+    public void setTaxRate(BigDecimal taxRate) {
+        this.taxRate = taxRate;
     }
 
     /**
@@ -215,6 +274,22 @@ public class PurchaseOrderDetail extends Auditable {
 
         public Builder total(BigDecimal total) {
             detail.total = total;
+            return this;
+        }
+
+        public Builder taxCode(String taxCode) {
+            detail.taxCode = taxCode;
+            return this;
+        }
+
+        public Builder taxRate(BigDecimal taxRate) {
+            detail.taxRate = taxRate;
+            return this;
+        }
+
+        /** For fixtures that state a derived amount the trigger would otherwise answer. */
+        public Builder taxAmount(BigDecimal taxAmount) {
+            detail.taxAmount = taxAmount;
             return this;
         }
 

@@ -14,6 +14,12 @@ import java.util.UUID;
  *     {@code IN_PROCESS}, {@code IN_TRANSIT}, {@code PARTIAL_RECEIVED}, {@code RECEIVED}, {@code REJECTED} or
  *     {@code CANCELLED} — and the authority the pair is derived from. This machine is <b>not</b> the sales-order
  *     item set: it has its own tail and no {@code ADDED}
+ * @param taxCode the fiscal code the line was written with, copied from the product at creation (S2) and never
+ *     re-read: {@code NA} means no tax applies
+ * @param taxRate the rate as it stood on the document's date when the line was created (S3) — the snapshot the
+ *     derived amounts come from, not a lookup
+ * @param taxAmount {@code round(subtotal * taxRate, 4)}, derived by the schema from the stored rate and base
+ *     (S6) and read back rather than computed here
  */
 public record PurchaseOrderDetailResponse(
         UUID id,
@@ -25,6 +31,9 @@ public record PurchaseOrderDetailResponse(
         BigDecimal quantity,
         BigDecimal unitPrice,
         BigDecimal total,
+        String taxCode,
+        BigDecimal taxRate,
+        BigDecimal taxAmount,
         BigDecimal receivedQuantity,
         String comments,
         UUID statusId,

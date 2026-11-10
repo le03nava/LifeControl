@@ -64,8 +64,10 @@ import com.lifecontrol.api.store.service.CompanyStoreOwnerResolver;
 import com.lifecontrol.api.supplier.exception.SupplierNotFoundException;
 import com.lifecontrol.api.supplier.model.Supplier;
 import com.lifecontrol.api.supplier.repository.SupplierRepository;
+import com.lifecontrol.api.tax.service.TaxRateService;
 import jakarta.persistence.EntityManager;
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -130,6 +132,14 @@ class PurchaseOrderServiceTest {
 
     @Mock
     private DocumentSequenceAllocator documentSequenceAllocator;
+
+    /**
+     * The resolver, mocked: this suite asserts <b>when</b> the copy asks for a rate and with which date, which is
+     * the snapshot rule (S3). What a resolution returns is the tax layer's own contract
+     * ({@code TaxRateServiceTest}); what the schema derives from the rate is the migration suite's.
+     */
+    @Mock
+    private TaxRateService taxRateService;
 
     /**
      * The history writer, mocked: what this class asserts about it is <b>which</b> rows a path appends — the
@@ -301,8 +311,18 @@ class PurchaseOrderServiceTest {
                 .status(PurchaseOrderState.DRAFT)
                 .comments("Test PO")
                 .enabled(true)
+                // The document's own date (`V64:187-188`): a purchase order has no `order_date` column, so the
+                // tax copy resolves against `created_at`, which a row loaded from the repository always states.
+                .createdAt(LocalDateTime.of(2026, 6, 3, 10, 0))
+                .updatedAt(LocalDateTime.of(2026, 6, 3, 10, 0))
                 .build();
         purchaseOrder.setDetails(new ArrayList<>());
+
+        // Every line copies its product's code. `NA` is the fixture's product and the column's default, so the
+        // cases that are not about tax never consult the rate table; the copy's own cases stub this per test.
+        lenient()
+                .when(productVariantRepository.findProductTaxCodeByVariantId(any()))
+                .thenReturn(Optional.of("NA"));
 
         // The order's owner is resolved from its store on every write (V43), so the company the
         // fixture's store chain already describes is the one that lookup returns. Lenient because most
@@ -329,6 +349,7 @@ class PurchaseOrderServiceTest {
                 documentSequenceAllocator,
                 statusTransitionRecorder,
                 documentStateCatalog,
+                taxRateService,
                 entityManager);
 
         detail = PurchaseOrderDetail.builder()
