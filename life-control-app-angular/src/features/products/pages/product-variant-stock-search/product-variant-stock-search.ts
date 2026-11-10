@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { CurrencyPipe } from '@angular/common';
+import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 import { rxResource, toSignal } from '@angular/core/rxjs-interop';
 import { map } from 'rxjs';
@@ -47,12 +48,20 @@ const MIN_QUERY_LENGTH = 2;
  * debounces because it is an autocomplete; this is a page of results, and the primary
  * flow is scanning or typing an identifier and pressing Enter. Skipping the debounce
  * also keeps the surface deterministic instead of time-dependent.
+ *
+ * **{@link FormsModule} is here for the `<form>` element, not for a control.** `(ngSubmit)` is not a
+ * DOM event: it is an output of `NgForm`, which exists only while that module is imported. Without it
+ * nothing listens, nothing calls `preventDefault()`, and the browser's native submission takes over —
+ * a GET to this page's own URL whose query string is built from the form's controls, of which there
+ * are none with a `name`, so `?storeId=` and `?companyId=` are dropped and the handler never runs.
+ * No control here binds `ngModel`, so the module looks unused to a reader and to a tool; it is not.
  */
 @Component({
   selector: 'app-product-variant-stock-search',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
+    FormsModule,
     MatTableModule,
     MatIconModule,
     MatButtonModule,
