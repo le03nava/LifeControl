@@ -94,14 +94,14 @@
                         [attr.aria-invalid]="isRowInvalid(row)"
                       />
                     } @else {
-                      <span class="field__value">{{ row.unitPrice | currency: 'MXN' }}</span>
+                      <span class="field__value">{{ row.unitPrice | money: currency() }}</span>
                     }
                   </div>
                 </div>
 
                 <div class="line-item-card__subtotal">
                   <span class="subtotal-label">Subtotal</span>
-                  <span class="subtotal-value">{{ rowSubtotal(row) | currency: 'MXN' }}</span>
+                  <span class="subtotal-value">{{ row.total | money: currency() }}</span>
                 </div>
               </div>
             }
@@ -183,15 +183,15 @@
                     [attr.aria-invalid]="isRowInvalid(row)"
                   />
                 } @else {
-                  {{ row.unitPrice | currency: 'MXN' }}
+                  {{ row.unitPrice | money: currency() }}
                 }
               </td>
             </ng-container>
 
-            <!-- Subtotal -->
+            <!-- Subtotal: the line total the server derived, never a client-side product -->
             <ng-container matColumnDef="subtotal">
               <th mat-header-cell *matHeaderCellDef>Subtotal</th>
-              <td mat-cell *matCellDef="let row">{{ rowSubtotal(row) | currency: 'MXN' }}</td>
+              <td mat-cell *matCellDef="let row">{{ row.total | money: currency() }}</td>
             </ng-container>
 
             <!-- Actions -->
@@ -225,11 +225,9 @@
           </table>
         }
 
-        <!-- Total -->
-        <div class="line-items-total">
-          <span class="total-label">Total:</span>
-          <span class="total-value">{{ lineItemsTotal() | currency: 'MXN' }}</span>
-        </div>
+        <!-- The document total is not repeated here: the page renders the `totalAmount` the server derived for the
+             whole order, and a second total summed from these rows would be a different number nobody else can
+             reproduce. -->
 
         @if (hasMissingVariants()) {
           <p class="line-items-warning">
@@ -296,6 +294,7 @@
             [companyId]="companyId()"
             [productId]="newProductId() || null"
             [storeId]="storeId()"
+            [currency]="currency()"
             [disabled]="!isDraft()"
             [variantId]="newVariantId()"
             (variantIdChange)="onVariantIdChange($event)"

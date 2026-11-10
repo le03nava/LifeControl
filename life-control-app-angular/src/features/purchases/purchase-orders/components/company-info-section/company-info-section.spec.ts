@@ -165,6 +165,10 @@ const mockOrder: PurchaseOrder = {
   enabled: true,
   createdAt: '2026-01-01T00:00:00Z',
   updatedAt: '2026-01-01T00:00:00Z',
+  currency: 'EUR',
+  subtotal: 0,
+  taxTotal: 0,
+  totalAmount: 0,
   details: [],
 };
 

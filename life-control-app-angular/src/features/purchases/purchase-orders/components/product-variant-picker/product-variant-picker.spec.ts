@@ -1,9 +1,24 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { LOCALE_ID } from '@angular/core';
+import { By } from '@angular/platform-browser';
+import { MatSelect } from '@angular/material/select';
 import { of, Subject, throwError } from 'rxjs';
 import { ProductVariantPicker } from './product-variant-picker';
 import { ProductVariantService } from '@features/products/data/product-variant.service';
+import { formatMoney } from '@shared/pipes/money.pipe';
 import type { Page } from '@features/products/models/product.models';
 import type { ProductVariant } from '@features/products/models/product-variant.models';
+
+/**
+ * The locale the money expectations are computed in.
+ *
+ * `en-US` and not the app's `es-MX`: `MoneyPipe` formats through `formatCurrency`, and the `es-MX` data is registered by
+ * `app.config.ts`, which a unit test does not load.
+ */
+const SPEC_LOCALE = 'en-US';
+
+/** A currency that is neither the app default nor the literal this picker used to hardcode. */
+const DOCUMENT_CURRENCY = 'EUR';
 
 const variantA: ProductVariant = {
   id: 'var-1',
@@ -64,7 +79,10 @@ describe('ProductVariantPicker', () => {
 
     await TestBed.configureTestingModule({
       imports: [ProductVariantPicker],
-      providers: [{ provide: ProductVariantService, useValue: variantService }],
+      providers: [
+        { provide: LOCALE_ID, useValue: SPEC_LOCALE },
+        { provide: ProductVariantService, useValue: variantService },
+      ],
     }).compileComponents();
 
     fixture = TestBed.createComponent(ProductVariantPicker);
@@ -299,6 +317,51 @@ describe('ProductVariantPicker', () => {
       fixture.detectChanges();
 
       expect(component.variantId()).toBeNull();
+    });
+  });
+
+  describe('catalogue cost price', () => {
+    /** Material renders the options lazily, so the panel has to be open to read what an option states. */
+    function optionTexts(): string[] {
+      const select = fixture.debugElement.query(By.directive(MatSelect))
+        .componentInstance as MatSelect;
+      select.open();
+      fixture.detectChanges();
+
+      const texts = Array.from(document.querySelectorAll('mat-option') as NodeListOf<Element>).map(
+        (option) => option.textContent?.trim() ?? '',
+      );
+
+      select.close();
+      fixture.detectChanges();
+      return texts;
+    }
+
+    beforeEach(() => {
+      fixture.componentRef.setInput('productId', 'prod-1');
+      fixture.componentRef.setInput('storeId', 'store-1');
+    });
+
+    it('should render the cost price in the order currency when the order states one', () => {
+      fixture.componentRef.setInput('currency', DOCUMENT_CURRENCY);
+      fixture.detectChanges();
+
+      // The catalogue price is not the document's money, so it is rendered in the currency of the order the line is
+      // being added to — never in a literal of the picker's own.
+      expect(optionTexts()[0]).toContain(
+        formatMoney(variantA.costPrice, DOCUMENT_CURRENCY, SPEC_LOCALE) ?? '',
+      );
+    });
+
+    it('should claim no currency while the order states none', () => {
+      // The pinned gap: a new order has no currency yet, and the company's is not on this screen. The picker names the
+      // absence instead of guessing one, so the cost price renders with «(no currency)».
+      fixture.detectChanges();
+
+      const texts = optionTexts();
+
+      expect(texts[0]).toContain('(no currency)');
+      expect(texts[0]).toContain(formatMoney(variantA.costPrice, '', SPEC_LOCALE) ?? '');
     });
   });
 

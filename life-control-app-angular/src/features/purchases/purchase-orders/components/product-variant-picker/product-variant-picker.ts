@@ -11,7 +11,7 @@ import {
   signal,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { CurrencyPipe } from '@angular/common';
+import { MoneyPipe } from '@shared/pipes/money.pipe';
 import { ProductVariantService } from '@features/products/data/product-variant.service';
 import type { ProductVariant } from '@features/products/models/product-variant.models';
 import { MatFormFieldModule } from '@angular/material/form-field';
@@ -51,7 +51,7 @@ const VARIANT_PAGE_SIZE = 50;
 @Component({
   selector: 'app-product-variant-picker',
   standalone: true,
-  imports: [CurrencyPipe, MatFormFieldModule, MatSelectModule],
+  imports: [MoneyPipe, MatFormFieldModule, MatSelectModule],
   templateUrl: './product-variant-picker.html',
   styleUrl: './product-variant-picker.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -73,6 +73,17 @@ export class ProductVariantPicker {
 
   /** Store that scopes the variants (the order's store). */
   readonly storeId = input<string | null>(null);
+
+  /**
+   * The document's currency, handed down by the order screen.
+   *
+   * `costPrice` is a **catalogue** price, not the document's money, so this picker states the currency of the order it
+   * is filling a line for when that order exists, and states none when it does not — a new order has no currency yet,
+   * and `MoneyPipe` renders the amount as «(no currency)» rather than claiming one the catalogue never named. Deciding
+   * which currency a bare catalogue cost belongs to is a separate question (`odd/tasks/purchase-order-money.md`, gap
+   * reported by T5): the company's currency is not on this screen.
+   */
+  readonly currency = input<string>('');
 
   /** Blocks interaction (for example when the order is no longer a draft). */
   readonly disabled = input(false);

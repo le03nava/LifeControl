@@ -1,11 +1,30 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { LOCALE_ID } from '@angular/core';
 import { By } from '@angular/platform-browser';
 import { of } from 'rxjs';
 import { DetailTable, type DetailTableRow } from './detail-table';
 import { ProductVariantPicker } from '../product-variant-picker/product-variant-picker';
 import { ProductVariantService } from '@features/products/data/product-variant.service';
+import { formatMoney } from '@shared/pipes/money.pipe';
 import type { Page } from '@features/products/models/product.models';
 import type { ProductVariant } from '@features/products/models/product-variant.models';
+
+/**
+ * The locale the money expectations are computed in.
+ *
+ * `en-US` and not the app's `es-MX`: `MoneyPipe` formats through `formatCurrency`, and the `es-MX` locale data is
+ * registered by `app.config.ts`, which a unit test does not load. Stating it here keeps the expectation and the render
+ * on the same rule instead of on a hardcoded string.
+ */
+const SPEC_LOCALE = 'en-US';
+
+/**
+ * The currency the table is told to render in.
+ *
+ * Neither the app's `DEFAULT_CURRENCY_CODE` nor the literal the templates used to hardcode, so a render that falls back
+ * to either cannot pass for the document's own currency.
+ */
+const DOCUMENT_CURRENCY = 'EUR';
 
 const PRODUCTS = [
   { id: 'prod-1', name: 'Widget A', sku: 'SKU-1' },
@@ -67,6 +86,9 @@ const SAVED_ROW: DetailTableRow = {
   productVariantName: 'Presentación 1L',
   quantity: 4,
   unitPrice: 80,
+  // A ten-thousandth above `quantity × unitPrice` (4 × 80 = 320), so a cell that renders this number cannot be a
+  // client-side product of the row's own fields.
+  total: 320.0001,
 };
 
 describe('DetailTable', () => {
@@ -79,7 +101,10 @@ describe('DetailTable', () => {
 
     await TestBed.configureTestingModule({
       imports: [DetailTable],
-      providers: [{ provide: ProductVariantService, useValue: variantService }],
+      providers: [
+        { provide: LOCALE_ID, useValue: SPEC_LOCALE },
+        { provide: ProductVariantService, useValue: variantService },
+      ],
     }).compileComponents();
   });
 
@@ -87,6 +112,7 @@ describe('DetailTable', () => {
     items: DetailTableRow[],
     isDraft = true,
     showReceiptProgress = false,
+    currency = DOCUMENT_CURRENCY,
   ): ComponentFixture<DetailTable> {
     const f = TestBed.createComponent(DetailTable);
     f.componentRef.setInput('items', items);
@@ -95,6 +121,8 @@ describe('DetailTable', () => {
     f.componentRef.setInput('storeId', 'store-1');
     // The variant picker is company-scoped: the table forwards the order's company like the store.
     f.componentRef.setInput('companyId', 'company-1');
+    // The document's currency, as the order screen hands it down. Never a literal of the table's own.
+    f.componentRef.setInput('currency', currency);
     f.componentRef.setInput('showReceiptProgress', showReceiptProgress);
     f.detectChanges();
     return f;
@@ -168,6 +196,83 @@ describe('DetailTable', () => {
       f.componentInstance.removeItem(0);
 
       expect(emitted).toBe(false);
+    });
+  });
+
+  describe('line money', () => {
+    it('should render the line total the server stated, not quantity × unit price', () => {
+      const f = createTable([SAVED_ROW]);
+
+      expect(cellText(f, 'subtotal')).toBe(
+        formatMoney(SAVED_ROW.total, DOCUMENT_CURRENCY, SPEC_LOCALE),
+      );
+      // The row's own arithmetic would land on 320.0000: the cell shows a different number, so nothing multiplied.
+      expect(cellText(f, 'subtotal')).not.toBe(
+        formatMoney(SAVED_ROW.quantity * SAVED_ROW.unitPrice, DOCUMENT_CURRENCY, SPEC_LOCALE),
+      );
+    });
+
+    it('should render the unit price in the document currency, not in a literal of its own', () => {
+      // Read-only view: in Draft the cell is an input, and the point here is what the rendered amount states.
+      const f = createTable([SAVED_ROW], false);
+
+      expect(cellText(f, 'unitPrice')).toBe(
+        formatMoney(SAVED_ROW.unitPrice, DOCUMENT_CURRENCY, SPEC_LOCALE),
+      );
+    });
+
+    it('should render nothing for a line the server has not answered for', () => {
+      // A row added in the browser has no server total, and a `0` there would be a number nobody stated (S6).
+      const f = createTable([{ ...SAVED_ROW, total: null }]);
+
+      expect(cellText(f, 'subtotal')).toBe('');
+    });
+
+    it('should drop the stored total when the quantity is edited', () => {
+      // The number the server derived no longer describes the row, and the table may not invent a replacement.
+      const f = createTable([SAVED_ROW]);
+      let emitted: DetailTableRow[] | null = null;
+      f.componentInstance.itemsChanged.subscribe((rows) => (emitted = rows));
+
+      f.componentInstance.onRowQuantityChange(0, 2.5);
+
+      expect(emitted).not.toBeNull();
+      expect(emitted![0].quantity).toBe(2.5);
+      expect(emitted![0].total).toBeNull();
+    });
+
+    it('should drop the stored total when the unit price is edited', () => {
+      const f = createTable([SAVED_ROW]);
+      let emitted: DetailTableRow[] | null = null;
+      f.componentInstance.itemsChanged.subscribe((rows) => (emitted = rows));
+
+      f.componentInstance.onRowUnitPriceChange(0, 99);
+
+      expect(emitted![0].unitPrice).toBe(99);
+      expect(emitted![0].total).toBeNull();
+    });
+
+    it('should leave a row it did not edit untouched, total included', () => {
+      const f = createTable([SAVED_ROW]);
+      let emitted: DetailTableRow[] | null = null;
+      f.componentInstance.itemsChanged.subscribe((rows) => (emitted = rows));
+
+      f.componentInstance.onRowQuantityChange(0, 2.5);
+
+      // Same row (there is only one), and the cleared field is only the total the edit invalidated.
+      expect(emitted![0].productVariantId).toBe(SAVED_ROW.productVariantId);
+      expect(emitted![0].unitPrice).toBe(SAVED_ROW.unitPrice);
+    });
+
+    it('should never sum the rows itself', () => {
+      const f = createTable([SAVED_ROW]);
+
+      // The removed derivations, asserted by their absence: `lineItemsTotal` summed the rows and `rowSubtotal`
+      // multiplied one row's fields.
+      expect('lineItemsTotal' in f.componentInstance).toBe(false);
+      expect('rowSubtotal' in f.componentInstance).toBe(false);
+      // The footer that printed the summed total is gone: the page states the document's total instead.
+      expect((f.nativeElement as HTMLElement).querySelector('.line-items-total')).toBeNull();
     });
   });
 
@@ -492,6 +597,7 @@ describe('DetailTable (mobile)', () => {
     await TestBed.configureTestingModule({
       imports: [DetailTable],
       providers: [
+        { provide: LOCALE_ID, useValue: SPEC_LOCALE },
         {
           provide: ProductVariantService,
           useValue: { getVariants: vi.fn().mockReturnValue(of(variantPage([VARIANT_A]))) },
@@ -503,6 +609,7 @@ describe('DetailTable (mobile)', () => {
   function createMobileTable(
     items: DetailTableRow[],
     showReceiptProgress: boolean,
+    currency = DOCUMENT_CURRENCY,
   ): ComponentFixture<DetailTable> {
     const f = TestBed.createComponent(DetailTable);
     f.componentRef.setInput('items', items);
@@ -511,6 +618,7 @@ describe('DetailTable (mobile)', () => {
     f.componentRef.setInput('storeId', 'store-1');
     // The variant picker is company-scoped: the table forwards the order's company like the store.
     f.componentRef.setInput('companyId', 'company-1');
+    f.componentRef.setInput('currency', currency);
     f.componentRef.setInput('showReceiptProgress', showReceiptProgress);
     f.detectChanges();
     return f;
@@ -553,5 +661,18 @@ describe('DetailTable (mobile)', () => {
     expect(input).not.toBeNull();
     expect(input!.step).toBe('0.01');
     expect(input!.min).toBe('0.01');
+  });
+
+  it('should render the server line total in the per-line card', () => {
+    setupMatchMedia(true);
+    const f = createMobileTable([SAVED_ROW], false);
+
+    const subtotal = (f.nativeElement as HTMLElement).querySelector(
+      '.line-item-card .subtotal-value',
+    );
+
+    expect(subtotal?.textContent?.trim()).toBe(
+      formatMoney(SAVED_ROW.total, DOCUMENT_CURRENCY, SPEC_LOCALE),
+    );
   });
 });
