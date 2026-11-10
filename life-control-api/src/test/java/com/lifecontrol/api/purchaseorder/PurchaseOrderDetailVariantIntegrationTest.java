@@ -3,6 +3,7 @@ package com.lifecontrol.api.purchaseorder;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -1154,6 +1155,80 @@ class PurchaseOrderDetailVariantIntegrationTest extends AbstractPostgresIntegrat
             // The route is gone, so the resource handler raises NoResourceFoundException, which the
             // advice answers with 404; asserting the exception proves nothing is mapped.
             assertThat(result.getResolvedException()).isInstanceOf(NoResourceFoundException.class);
+        }
+    }
+
+    @Nested
+    @DisplayName("re-enabling a soft-deleted order")
+    class ReenableSoftDeletedOrderTests {
+
+        /** Raw JSON, as the neighbouring cases send it, so the line's numbers reach the boundary as written. */
+        private String detailPayload(UUID productId, UUID variantId) {
+            return "{\"productId\":\"" + productId
+                    + "\",\"productVariantId\":\"" + variantId
+                    + "\",\"quantity\":10"
+                    + ",\"unitPrice\":25.00"
+                    + ",\"comments\":\"Re-enable money line\""
+                    + ",\"statusId\":\"" + pendingDetailStatusId + "\"}";
+        }
+
+        /** A money field as a decimal, read from the JSON so the assertion does not depend on a DTO. */
+        private BigDecimal moneyOf(JsonNode node, String field) {
+            return new BigDecimal(node.get(field).asText());
+        }
+
+        /**
+         * Soft-deleting the order disables its lines, and the V93 trigger recomputes the document from the
+         * enabled ones — so the row ends at 0. Re-enabling writes the lines again and the same trigger moves
+         * the money back, but the instance {@code findById} loaded still carried the 0: before the service
+         * refreshed it, the PATCH body stated a {@code totalAmount} of 0.0000 beside its own line totaling
+         * 250.0000 and a committed row that said the same — a body that contradicts itself and the next GET
+         * (S5, the server owns the money on the wire).
+         */
+        @Test
+        @DisplayName("should state the money its own lines state, and agree with the GET that follows")
+        void enableStatesTheMoneyOfItsLines() throws Exception {
+            var product = createProduct();
+            var variant = createVariant(product.getId(), storeId);
+            var purchaseOrderId = createEmptyPurchaseOrder();
+
+            var created = mockMvc.perform(post("/api/purchase-orders/{id}/details", purchaseOrderId)
+                            .with(adminPrincipal())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(detailPayload(product.getId(), variant.getId())))
+                    .andExpect(status().isCreated())
+                    .andReturn();
+
+            assertThat(moneyOf(objectMapper.readTree(created.getResponse().getContentAsString()), "total"))
+                    .as("total of the line the create route reported")
+                    .isEqualByComparingTo("250.0000");
+
+            mockMvc.perform(delete("/api/purchase-orders/{id}", purchaseOrderId).with(adminPrincipal()))
+                    .andExpect(status().isNoContent());
+
+            var enabled = mockMvc.perform(patch("/api/purchase-orders/{id}/enable", purchaseOrderId)
+                            .with(adminPrincipal()))
+                    .andExpect(status().isOk())
+                    .andReturn();
+
+            var enableBody = objectMapper.readTree(enabled.getResponse().getContentAsString());
+            assertThat(moneyOf(enableBody, "totalAmount"))
+                    .as("totalAmount of the enable response")
+                    .isEqualByComparingTo("250.0000");
+            assertThat(moneyOf(enableBody, "subtotal"))
+                    .as("subtotal of the enable response")
+                    .isEqualByComparingTo("250.0000");
+
+            // The other half of the question: not one response being right, but the server owning the
+            // number. A PATCH that agreed with itself while the next read disagreed would still be a lie.
+            var fetched = mockMvc.perform(
+                            get("/api/purchase-orders/{id}", purchaseOrderId).with(adminPrincipal()))
+                    .andExpect(status().isOk())
+                    .andReturn();
+
+            assertThat(moneyOf(objectMapper.readTree(fetched.getResponse().getContentAsString()), "totalAmount"))
+                    .as("totalAmount of the GET after the enable")
+                    .isEqualByComparingTo("250.0000");
         }
     }
 }
