@@ -57,6 +57,18 @@ The Flyway head is `V91`; this unit takes the next free pair.
 
 **Total task count: 7.**
 
+## Slices
+
+The unit is larger than the ~400-authored-line review budget, so it travels as chained slices. Each boundary is
+a place where the tree is coherent and the next slice can be reviewed on its own.
+
+| Slice | Tasks | Scope | Why the boundary falls here |
+| --- | --- | --- | --- |
+| 1 | T1, T2 | the schema: `V92` and `V93` | The two migrations are one subject — the line's money and the document's — and a caller of one without the other is not a state anything reads |
+| 2 | T3, T4 | the verification and the wire: the scratch-database suite and `PurchaseOrderResponse` | The suite is what answers what the migrations did to rows written before them, and the response is the first reader of the columns |
+| 3 | T5, T6 | the screen: `features/purchases/purchase-orders` reads the response through `MoneyPipe` | Nothing above it changes, and it is the only slice that can be reviewed by looking at rendered numbers |
+| 4 | T7 | the docs: the `AGENTS.md` section and this record's evidence | It states what the code does, so it goes last |
+
 ## Decisions
 
 **D1 (2026-11-10) — the money is derived in the database, not in Java.** Sales keeps its document totals in `recomputeBreakdown` under the order's row lock, and `V80`/`V81`/`V90` already derive the parts that constraints check. Purchases has no equivalent writer at all, so a Java path would be the only thing standing between a line mutation and a stale document total — which is the silent-defect shape this unit exists to end. The trigger cannot be forgotten by the next route that adds a line.
