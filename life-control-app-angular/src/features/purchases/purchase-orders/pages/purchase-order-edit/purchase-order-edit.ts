@@ -8,7 +8,6 @@ import {
   signal,
 } from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
-import { CurrencyPipe } from '@angular/common';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { catchError, EMPTY, Subject, switchMap } from 'rxjs';
@@ -38,13 +37,13 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatCardModule } from '@angular/material/card';
 import { NotificationService } from '@shared/data/notification';
 import { ErrorBanner } from '@shared/ui';
+import { MoneyPipe } from '@shared/pipes/money.pipe';
 
 @Component({
   selector: 'app-purchase-order-edit',
   standalone: true,
   imports: [
     RouterLink,
-    CurrencyPipe,
     ReactiveFormsModule,
     ErrorBanner,
     PageHeader,
@@ -53,6 +52,7 @@ import { ErrorBanner } from '@shared/ui';
     DetailTable,
     CompanyInfoSection,
     SupplierInfoSection,
+    MoneyPipe,
     MatButtonModule,
     MatIconModule,
     MatCardModule,
@@ -133,11 +133,6 @@ export class PurchaseOrderEdit implements OnInit {
 
   // ─── Line items ────────────────────────────────────────
   readonly lineItems = signal<DetailTableRow[]>([]);
-
-  /** Sum of all line-item subtotals (quantity × unit price). */
-  readonly orderTotal = computed(() =>
-    this.lineItems().reduce((sum, item) => sum + item.quantity * item.unitPrice, 0),
-  );
 
   /** Every line item must have a positive quantity and unit price. */
   readonly lineItemsValid = computed(() =>
@@ -326,6 +321,8 @@ export class PurchaseOrderEdit implements OnInit {
       productVariantName: d.productVariantName,
       quantity: d.quantity,
       unitPrice: d.unitPrice,
+      // The line total the server derived for the row it answered for. The table renders it; nothing multiplies.
+      total: d.total,
       receivedQuantity: d.receivedQuantity,
       statusName: d.statusName,
     }));

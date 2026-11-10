@@ -59,21 +59,29 @@
     />
 
     <!-- Line Items Table -->
+    <!-- The table renders each row's own `total` and the catalogue cost price in the document's currency, so the
+         order's currency is handed down rather than assumed: in create mode there is no document, so there is no
+         currency to state and nothing is claimed. -->
     <app-detail-table
       [items]="lineItems()"
       [isDraft]="isDraft()"
       [availableProducts]="supplierProducts()"
       [storeId]="variantStoreId()"
       [companyId]="orderCompanyId()"
+      [currency]="loadedOrder()?.currency ?? ''"
       [showReceiptProgress]="!!loadedOrder()"
       (itemsChanged)="onItemsChanged($event)"
     />
 
     <!-- Sticky action bar -->
     <div class="form-actions">
+      <!-- The document's total, as the server derived it from the order's own lines. Before the order exists there
+           is no server answer, so the screen renders nothing instead of an inferred number (S6). -->
       <div class="actions-summary">
-        <span class="summary-label">Total</span>
-        <span class="summary-total">{{ orderTotal() | currency: 'MXN' }}</span>
+        @if (loadedOrder(); as order) {
+          <span class="summary-label">Total</span>
+          <span class="summary-total">{{ order.totalAmount | money: order.currency }}</span>
+        }
       </div>
       <div class="actions-buttons">
         <button

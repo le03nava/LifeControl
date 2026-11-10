@@ -35,6 +35,12 @@ const mockOrderAccepted: PurchaseOrder = {
   enabled: true,
   createdAt: '2026-02-01T00:00:00Z',
   updatedAt: '2026-02-01T00:00:00Z',
+  // The four components the API states about the document's money: one line of 10 at 100, so the
+  // parts agree with the line and nothing is taxed in this slice.
+  currency: 'MXN',
+  subtotal: 1000,
+  taxTotal: 0,
+  totalAmount: 1000,
   details: [
     {
       id: 'det-1',

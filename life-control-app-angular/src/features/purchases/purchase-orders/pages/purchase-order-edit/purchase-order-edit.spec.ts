@@ -1,4 +1,5 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { LOCALE_ID } from '@angular/core';
 import { HttpClientTestingModule } from '@angular/common/http/testing';
 import {
   provideRouter,
@@ -27,9 +28,19 @@ import { CompanyStoreService } from '@features/companies/stores/data/company-sto
 import { ProfileService } from '@features/user/profile/data/profile.service';
 import { NotificationService } from '@shared/data/notification';
 import { ConfigService } from '@app/services/config.service';
+import { formatMoney } from '@shared/pipes/money.pipe';
 import type { PurchaseOrder, Page } from '../../models/purchase-order.models';
 
 const TEST_API = 'http://test/api';
+
+/**
+ * The locale the money expectation is computed in.
+ *
+ * `en-US` and not the app's `es-MX`: `MoneyPipe` formats through Angular's `formatCurrency`, and `es-MX` data is
+ * registered by `app.config.ts`, which a unit test does not load. The spec states the locale it injects so the
+ * expected string and the rendered one are produced by the same rule instead of by a hardcoded literal.
+ */
+const SPEC_LOCALE = 'en-US';
 
 const mockOrder: PurchaseOrder = {
   id: 'po-1',
@@ -50,6 +61,14 @@ const mockOrder: PurchaseOrder = {
   enabled: true,
   createdAt: '2026-01-01T00:00:00Z',
   updatedAt: '2026-01-01T00:00:00Z',
+  // Neither the app's `DEFAULT_CURRENCY_CODE` nor the literal the screen used to hardcode: a render that falls back
+  // to either of those cannot produce this string, so "the total is shown in the document's currency" is measurable.
+  currency: 'EUR',
+  subtotal: 1500.0001,
+  taxTotal: 0,
+  // One ten-thousandth above `quantity × unitPrice` (10 × 150 = 1500), so the assertion that the page shows this
+  // number also proves the page is not summing the rows itself.
+  totalAmount: 1500.0001,
   details: [
     {
       id: 'det-1',
@@ -60,7 +79,7 @@ const mockOrder: PurchaseOrder = {
       productVariantName: 'Presentación 1L',
       quantity: 10,
       unitPrice: 150,
-      total: 1500,
+      total: 1500.0001,
       receivedQuantity: 0,
       comments: null,
       statusId: 'st-draft',
@@ -99,6 +118,24 @@ describe('PurchaseOrderEdit', () => {
   let productService: { getProductsBySupplier: ReturnType<typeof vi.fn> };
   let router: Router;
 
+  /**
+   * The document total the sticky bar renders, exactly as the DOM states it.
+   *
+   * `undefined` when the element is absent — which is what create mode must produce: with no server answer there is
+   * nothing to show, and a `0` would be a number nobody stated (S6).
+   */
+  function renderedDocumentTotal(f: ComponentFixture<PurchaseOrderEdit>): string | undefined {
+    const element = (f.nativeElement as HTMLElement).querySelector('.summary-total');
+    return element?.textContent?.trim();
+  }
+
+  /** Everything the sticky summary states, label included. */
+  function summaryText(f: ComponentFixture<PurchaseOrderEdit>): string {
+    return (
+      (f.nativeElement as HTMLElement).querySelector('.actions-summary')?.textContent ?? ''
+    ).trim();
+  }
+
   // ─── Default service mocks (empty) ──────────────────────
 
   const baseMocks = () => ({
@@ -114,6 +151,7 @@ describe('PurchaseOrderEdit', () => {
 
   const baseProviders = (routeId: string | null) => [
     provideRouter([], withRouterConfig({ resolveNavigationPromiseOnError: true })),
+    { provide: LOCALE_ID, useValue: SPEC_LOCALE },
     { provide: ConfigService, useValue: { apiUrl: TEST_API } },
     {
       provide: PurchaseOrderService,
@@ -289,6 +327,13 @@ describe('PurchaseOrderEdit', () => {
       expect(component.loadedOrder()).toBeNull();
       const buttons = fixture.debugElement.queryAll(By.css('.header-tools button'));
       expect(buttons.length).toBe(1);
+    });
+
+    it('should render no document total before the order exists', () => {
+      // The total is the server's statement about the document; before there is one, a number here would be the
+      // client's own arithmetic wearing the server's voice (S6).
+      expect(renderedDocumentTotal(fixture)).toBeUndefined();
+      expect(summaryText(fixture)).toBe('');
     });
 
     it('should load supplier products when supplier changes, scoped to the order company', () => {
@@ -556,6 +601,46 @@ describe('PurchaseOrderEdit', () => {
       expect(items[0].unitPrice).toBe(150);
       expect(items[0].productVariantId).toBe('var-1');
       expect(items[0].productVariantName).toBe('Presentación 1L');
+      // The line total the response carries reaches the row, so the table renders the server's number.
+      expect(items[0].total).toBe(mockOrder.details[0].total);
+    });
+
+    it('should render the document total the response states, in the order currency', () => {
+      expect(renderedDocumentTotal(fixture)).toBe(
+        formatMoney(mockOrder.totalAmount, mockOrder.currency, SPEC_LOCALE),
+      );
+      expect(summaryText(fixture)).toContain('Total');
+    });
+
+    it('should keep the served total when the lines change instead of re-summing them', () => {
+      // The one assertion that fails if any client-side `reduce` came back: a row whose quantity is ten times larger
+      // does not move the number the server stated for the document.
+      expect(renderedDocumentTotal(fixture)).toBe(
+        formatMoney(mockOrder.totalAmount, mockOrder.currency, SPEC_LOCALE),
+      );
+
+      component.onItemsChanged([
+        {
+          id: 'det-1',
+          productId: 'prod-1',
+          productName: 'Widget A',
+          productVariantId: 'var-1',
+          productVariantName: 'Presentación 1L',
+          quantity: 100,
+          unitPrice: 150,
+          total: 1500.0001,
+        },
+      ]);
+      fixture.detectChanges();
+
+      expect(renderedDocumentTotal(fixture)).toBe(
+        formatMoney(mockOrder.totalAmount, mockOrder.currency, SPEC_LOCALE),
+      );
+    });
+
+    it('should carry no client-side total at all', () => {
+      // The removed derivation, asserted by its absence: `orderTotal` summed `quantity × unitPrice` in the browser.
+      expect('orderTotal' in component).toBe(false);
     });
 
     it('should enable the receipt progress view of the detail table for a loaded order', () => {

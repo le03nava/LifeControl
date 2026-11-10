@@ -11,7 +11,9 @@
       <mat-option [value]="variant.id">
         <span class="variant-option-name">{{ variant.variantName }}</span>
         <span class="variant-option-meta">
-          {{ variant.barCode }} · {{ variant.costPrice | currency: 'MXN' }}
+          <!-- The catalogue cost price, rendered in the order's currency when the order exists and with no currency
+               claim when it does not. -->
+          {{ variant.barCode }} · {{ variant.costPrice | money: currency() }}
         </span>
       </mat-option>
     }

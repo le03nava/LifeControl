@@ -7,7 +7,6 @@ import {
   output,
   signal,
 } from '@angular/core';
-import { CurrencyPipe } from '@angular/common';
 import { MatTableModule } from '@angular/material/table';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatSelectModule } from '@angular/material/select';
@@ -18,6 +17,7 @@ import { MatCardModule } from '@angular/material/card';
 import { MatIconModule } from '@angular/material/icon';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { observeMobileViewport } from '@shared/responsive/mobile-viewport';
+import { MoneyPipe } from '@shared/pipes/money.pipe';
 import { ProductVariantPicker } from '../product-variant-picker/product-variant-picker';
 import { StatusChip } from '../status-chip/status-chip';
 import type { ProductVariant } from '@features/products/models/product-variant.models';
@@ -44,6 +44,13 @@ export interface DetailTableRow {
   quantity: number;
   unitPrice: number;
   /**
+   * The line total as the server derived it, or `null`/`undefined` when the server has not answered for this row.
+   *
+   * A row the operator just added has no server total, and one whose quantity or price was edited no longer matches
+   * the one the server stated: both render nothing rather than a number this table computed.
+   */
+  total?: number | null;
+  /**
    * Quantity already received against the line. Only the reception progress
    * view reads it, so the draft editor leaves it `undefined`.
    */
@@ -64,7 +71,7 @@ export interface DetailTableRow {
   selector: 'app-detail-table',
   standalone: true,
   imports: [
-    CurrencyPipe,
+    MoneyPipe,
     MatTableModule,
     MatFormFieldModule,
     MatSelectModule,
@@ -105,6 +112,14 @@ export class DetailTable {
    * reading a catalogue it cannot scope.
    */
   readonly companyId = input<string | null>(null);
+
+  /**
+   * The document's currency, stated by the order itself.
+   *
+   * Defaulted to the empty string only so that a host without a document (a new order) claims nothing: the pipe
+   * then renders the amount with «(no currency)» instead of a currency nobody chose — see {@link MoneyPipe}.
+   */
+  readonly currency = input<string>('');
 
   /**
    * Opt-in reception progress view: adds the received-quantity and line-status
@@ -165,10 +180,6 @@ export class DetailTable {
     columns.splice(columns.indexOf('quantity') + 1, 0, ...RECEIPT_PROGRESS_COLUMNS);
     return columns;
   });
-
-  readonly lineItemsTotal = computed(() =>
-    this.items().reduce((sum, item) => sum + item.quantity * item.unitPrice, 0),
-  );
 
   /**
    * The picked variant must belong to the current product and the current
@@ -321,7 +332,7 @@ export class DetailTable {
     if (!this.isDraft()) {
       return;
     }
-    this.patchRow(index, { quantity: Number.isFinite(value) ? value : 0 });
+    this.patchRow(index, { quantity: Number.isFinite(value) ? value : 0, total: null });
   }
 
   /** Inline-edit the unit price of an already-saved row. */
@@ -329,17 +340,19 @@ export class DetailTable {
     if (!this.isDraft()) {
       return;
     }
-    this.patchRow(index, { unitPrice: Number.isFinite(value) ? value : 0 });
+    this.patchRow(index, { unitPrice: Number.isFinite(value) ? value : 0, total: null });
   }
 
+  /**
+   * Inline edits drop the server's line total.
+   *
+   * The number the server derived no longer describes a row whose quantity or price just changed, and this table may
+   * not invent a replacement: it renders the server's total or nothing. Clearing it here is what keeps a stale amount
+   * from being printed as if the server had stated it for the edited row.
+   */
   private patchRow(index: number, patch: Partial<DetailTableRow>): void {
     this.itemsChanged.emit(
       this.items().map((item, i) => (i === index ? { ...item, ...patch } : item)),
     );
-  }
-
-  /** Subtotal per row (quantity × unitPrice). */
-  rowSubtotal(row: DetailTableRow): number {
-    return row.quantity * row.unitPrice;
   }
 }
