@@ -27,6 +27,7 @@ import com.lifecontrol.api.currency.exception.CurrencyNotFoundException;
 import com.lifecontrol.api.currency.exception.DisabledCurrencyException;
 import com.lifecontrol.api.currency.model.Currency;
 import com.lifecontrol.api.currency.repository.CurrencyRepository;
+import com.lifecontrol.api.currency.service.CurrencyService;
 import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.LinkedHashSet;
@@ -904,6 +905,112 @@ class CompanyServiceTest {
                     .thenReturn(false);
 
             // Act / Assert
+            assertThatThrownBy(() -> companyService.updateCompany(testCompanyId, updateRequest))
+                    .isInstanceOf(DisabledCurrencyException.class)
+                    .hasMessageContaining("XXX");
+            verify(companyRepository, never()).save(any(Company.class));
+        }
+    }
+
+    /**
+     * <b>S6 — the state a retire produces, proven where it is used.</b>
+     *
+     * <p>The two halves belong together because until the catalog had a write half one of them could not
+     * happen at all: {@code enabled = false} was reachable only by writing a migration, so
+     * {@code updateCompany}'s rule (keep a stored code, refuse a change <b>to</b> a retired one) defended
+     * a state the product could not enter. These two cases reach it the way an operator now does — through
+     * {@link CurrencyService#setCurrencyEnabled}, the method behind
+     * {@code PATCH /api/currencies/{code}/enable} — instead of hand-building a row with
+     * {@code enabled = false} as the cases above do, which is what makes it a proven pair rather than two
+     * assertions about a fixture.</p>
+     *
+     * <p>It sits here, in {@code CompanyServiceTest}, rather than in the currency suite, because both
+     * claims are about {@code updateCompany}: the catalog suite can assert that a retire stores
+     * {@code enabled = false}, but only this service decides what a company whose currency was retired may
+     * still save, and that decision is the one that must not drift.</p>
+     */
+    @Nested
+    @DisplayName("S6 — a currency retired by the catalog API")
+    class RetiredCurrencyReachedThroughTheCatalogTests {
+
+        /**
+         * The production write path over the same repository this test's company service reads, so the
+         * retire is performed by the code under test and the row it retires is the row the service then
+         * resolves.
+         */
+        private CurrencyService catalog() {
+            when(currencyRepository.save(any(Currency.class))).thenAnswer(invocation -> invocation.getArgument(0));
+            return new CurrencyService(currencyRepository);
+        }
+
+        @Test
+        @DisplayName("a PUT keeps the stored code after the catalog retires it, and still stores the edit")
+        void updateCompany_KeepsACodeTheCatalogRetiredThroughItsOwnService() {
+            // Arrange: a live code a company already states, retired through the catalog's own write path.
+            var stored = new Currency("XXX", (short) 2, null, true);
+            when(currencyRepository.findById("XXX")).thenReturn(Optional.of(stored));
+
+            catalog().setCurrencyEnabled("XXX", false);
+            assertThat(stored.getEnabled()).isFalse();
+
+            testCompany.setCurrency("XXX");
+
+            CompanyRequest updateRequest = new CompanyRequest(
+                    "1",
+                    "Renamed Company",
+                    1,
+                    "Razon Social Test SA de CV",
+                    "XAXX010101000",
+                    "+1234567890",
+                    "test@company.com",
+                    null,
+                    true,
+                    null,
+                    "XXX");
+
+            when(companyRepository.findById(testCompanyId)).thenReturn(Optional.of(testCompany));
+            when(companyRepository.existsByRfcAndIdNot(any(), eq(testCompanyId)))
+                    .thenReturn(false);
+            when(companyRepository.save(any(Company.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            // Act
+            CompanyResponse result = companyService.updateCompany(testCompanyId, updateRequest);
+
+            // Assert: the untouched field is not the reason the edit fails.
+            assertThat(result.companyName()).isEqualTo("Renamed Company");
+            assertThat(result.currency()).isEqualTo("XXX");
+            var captor = ArgumentCaptor.forClass(Company.class);
+            verify(companyRepository).save(captor.capture());
+            assertThat(captor.getValue().getCurrency()).isEqualTo("XXX");
+        }
+
+        @Test
+        @DisplayName("a PUT that changes TO a code the catalog retired through its own service is a 400")
+        void updateCompany_RefusesAChangeToACodeTheCatalogRetiredThroughItsOwnService() {
+            // Arrange: the company states MXN; XXX is retired by the same call the endpoint makes.
+            var stored = new Currency("XXX", (short) 2, null, true);
+            when(currencyRepository.findById("XXX")).thenReturn(Optional.of(stored));
+
+            catalog().setCurrencyEnabled("XXX", false);
+
+            CompanyRequest updateRequest = new CompanyRequest(
+                    "1",
+                    "Test Company",
+                    1,
+                    "Razon Social Test SA de CV",
+                    "XAXX010101000",
+                    "+1234567890",
+                    "test@company.com",
+                    null,
+                    true,
+                    null,
+                    "XXX");
+
+            when(companyRepository.findById(testCompanyId)).thenReturn(Optional.of(testCompany));
+            when(companyRepository.existsByRfcAndIdNot(any(), eq(testCompanyId)))
+                    .thenReturn(false);
+
+            // Act / Assert: a change TO the retired code is still refused, and nothing is written.
             assertThatThrownBy(() -> companyService.updateCompany(testCompanyId, updateRequest))
                     .isInstanceOf(DisabledCurrencyException.class)
                     .hasMessageContaining("XXX");

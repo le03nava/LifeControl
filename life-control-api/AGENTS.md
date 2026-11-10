@@ -200,8 +200,8 @@ com.lifecontrol.api/
 | `/api/companies/{id}/countries/{cid}/regions`   | `lc-admin\|lc-company\|lc-company-country\|lc-company-region\|lc-company-region-read` (read) / `lc-admin\|lc-company\|lc-company-country\|lc-company-region` (write, method-level) | Regions within a company-country   |
 | `/api/companies/{id}/countries/{cid}/regions/{rid}/zones` | `lc-admin\|lc-company\|lc-company-country\|lc-company-region\|lc-company-zone\|lc-company-zone-read` (read) / `lc-admin\|lc-company\|lc-company-country\|lc-company-region\|lc-company-zone` (write, method-level) | Zones within a region              |
 | `/api/companies/{id}/countries/{cid}/regions/{rid}/zones/{zid}/stores` | `lc-admin\|lc-company\|lc-company-country\|lc-company-region\|lc-company-zone\|lc-company-store\|lc-company-store-read` (read) / `lc-admin\|lc-company\|lc-company-country\|lc-company-region\|lc-company-zone\|lc-company-store` (write, method-level) | Stores within a zone               |
-| `/api/countries, /api/measure-units, /api/payment-methods, /api/statuses, /api/status-types` | authenticated (read) / `lc-admin\|lc-country\|lc-measure-unit\|lc-payment-method\|lc-status\|lc-status-type` (write) | Catalog CRUD — method-level `@PreAuthorize` (`Roles.ADMIN` + domain role for writes) |
-| `/api/currencies`                               | authenticated (read)                  | Platform currency catalog, read-only: seeded by migration (`V57`), no write path. Enabled codes only unless `?includeDisabled=true` |
+| `/api/countries, /api/measure-units, /api/payment-methods, /api/currencies, /api/statuses, /api/status-types` | authenticated (read) / `lc-admin\|lc-country\|lc-measure-unit\|lc-payment-method\|lc-currency\|lc-status\|lc-status-type` (write) | Catalog CRUD — method-level `@PreAuthorize` (`Roles.ADMIN` + domain role for writes) |
+| `/api/currencies`                               | authenticated (read)                  | Platform currency catalog (`currency`, `V57`). Enabled codes only unless `?includeDisabled=true`. Two things are its own: the key **is** the code, so the path is `/{code}` and a code is never renamed; and retiring is `PATCH …/{code}/enable`, because five FK columns point at the row, so a `DELETE` of a referenced code is **409**. Every write evicts the `currencies` region |
 | `/api/activity-logs`                            | `lc-admin`                 | Audit trail query (paginated, filterable) |
 | `/api/purchase-orders`                          | authenticated (read) / `lc-admin\|lc-sales` (write, method-level) | Purchase order CRUD + line items (sales "orders" domain); a line's variant is resolved **inside the company that owns the order's store**, so a variant of another tenant is a 404 and nothing is written |
 | `/api/goods-receipts`                           | `lc-admin\|lc-company\|lc-company-country\|lc-company-region\|lc-company-zone\|lc-company-store\|lc-receiving` (write) / same set + `lc-company-store-read` (read, method-level) | Goods receipts (receptions): register against a purchase order (`POST`, 201) and read (paginated list + `GET /{id}`); non-admins are scoped to their `company_store_id` claim, and the receipt refuses a variant the receiving store's company does not own (404, no stock and no ledger row) |
@@ -538,6 +538,7 @@ Role-based access:
 | `lc-status-type`       | `ROLE_lc-status-type`              | Write access to status types (read requires any authenticated user) |
 | `lc-payment-method`    | `ROLE_lc-payment-method`           | Write access to payment methods (read requires any authenticated user) |
 | `lc-measure-unit`      | `ROLE_lc-measure-unit`             | Write access to measure units (read requires any authenticated user) |
+| `lc-currency`          | `ROLE_lc-currency`                 | Write access to the currency catalog (read requires any authenticated user) |
 | `lc-product-supplier`  | `ROLE_lc-product-supplier`         | Supplier CRUD (soft delete) and product-supplier assignment endpoints |
 | `lc-sales`             | `ROLE_lc-sales`                    | Sales domain: customers, sales orders, purchase orders, shifts, promotions, product variants |
 | `admin`                | `ROLE_admin`                       | Users-admin endpoints (Keycloak admin) |
@@ -714,9 +715,11 @@ app.rate-limit.endpoints./api/users-admin/users.duration=1m
 - Cached regions: `countries`, `currencies`, `statusTypes`, `statuses`, `measureUnits`, `paymentMethods`,
   `seniorityLevels`. `currencies` is one region holding one entry per shape of its read
   (`includeDisabled` false and true), because the two are different answers: an entry of one served to
-  the other is the failure `CurrencyServiceCacheTest` pins. It is read-only and has no `@CacheEvict`
-  counterpart — the catalog is seeded by migration, so nothing in the application can change a cached
-  row. The company-scoped store-tree catalogs (`companyRegions`, `companyZones`) are
+  the other is the failure `CurrencyServiceCacheTest` pins. Every write evicts the whole region
+  (`@CacheEvict(allEntries = true)`, since `odd/tasks/currency-catalog-abm.md`), because once the
+  API can change a row the cache is no longer permanent — the parameter above is why the
+  eviction is `allEntries` and not a single key. The company-scoped store-tree catalogs
+  (`companyRegions`, `companyZones`) are
   deliberately **not** cached: their reads run a scope check whose *result* depends on the caller —
   the claim-filtered list for a region-scoped caller, the whole country for a broader one — so an
   entry warmed by one caller was served to the other, and a cache hit skipped the check entirely
@@ -1062,7 +1065,7 @@ Client roles (`life-control-client`) are provisioned idempotently by
 - **`lc-company-zone`** / **`lc-company-zone-read`** — Zone CRUD / read-only GET, scoped by `company_id`
 - **`lc-company-store`** / **`lc-company-store-read`** — Store CRUD / read-only GET, scoped by `company_id`
 - **`lc-receiving`** — Store-scoped reception (goods receipts): create + read. **Deployment dependencies: API-only until the frontend wires it, the role alone is not sufficient, and the gateway route is provisioned separately — see the warnings below.**
-- **`lc-country`**, **`lc-status`**, **`lc-status-type`**, **`lc-payment-method`**, **`lc-measure-unit`** — write access to catalog domains (reads require any authenticated user)
+- **`lc-country`**, **`lc-status`**, **`lc-status-type`**, **`lc-payment-method`**, **`lc-measure-unit`**, **`lc-currency`** — write access to catalog domains (reads require any authenticated user)
 - **`lc-product-supplier`** — Supplier CRUD and product-supplier assignment endpoints
 - **`lc-sales`** — Sales domain: customers, sales orders, purchase orders, shifts, promotions, product variants
 
