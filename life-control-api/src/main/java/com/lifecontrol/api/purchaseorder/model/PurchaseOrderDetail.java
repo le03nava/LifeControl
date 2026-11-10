@@ -34,7 +34,20 @@ public class PurchaseOrderDetail extends Auditable {
     @Column(name = "unit_price", precision = 12, scale = 2, nullable = false)
     private BigDecimal unitPrice;
 
-    @Column(precision = 12, scale = 2, nullable = false)
+    /**
+     * The line's base, {@code round(unit_price * quantity, 4)}, derived by {@code trg_purchase_order_details_money}
+     * ({@code V92}).
+     *
+     * <p><b>Why it is not writable.</b> A derived column the application also sends is a column with two
+     * writers, and the value a mapping carries is the value the row gets on any statement this trigger's column
+     * list does not name — the stale-mapping trap {@code V81} records for sales. The same reasoning is why
+     * there is no setter the service could call: the number is the schema's.</p>
+     */
+    @Column(precision = 19, scale = 4, nullable = false, insertable = false, updatable = false)
+    private BigDecimal subtotal;
+
+    /** {@code subtotal + tax_amount} — today {@code subtotal}, because this slice states no tax. Same trigger. */
+    @Column(precision = 19, scale = 4, nullable = false, insertable = false, updatable = false)
     private BigDecimal total;
 
     @Column(name = "received_quantity", precision = 12, scale = 2, nullable = false)
@@ -91,6 +104,10 @@ public class PurchaseOrderDetail extends Auditable {
         return total;
     }
 
+    public BigDecimal getSubtotal() {
+        return subtotal;
+    }
+
     public BigDecimal getReceivedQuantity() {
         return receivedQuantity;
     }
@@ -133,6 +150,11 @@ public class PurchaseOrderDetail extends Auditable {
         this.unitPrice = unitPrice;
     }
 
+    /**
+     * Kept for the fixtures that build a line and for nothing else: the column is {@code updatable = false}, so
+     * an {@code UPDATE} that set it would be answered by {@code trg_purchase_order_details_money} with the
+     * expression, and an {@code INSERT} never sends it at all. No production path calls this.
+     */
     public void setTotal(BigDecimal total) {
         this.total = total;
     }
