@@ -26,6 +26,7 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Supplier;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -68,6 +69,19 @@ class ProfileServiceTest {
     @Mock
     private CompanyStoreService companyStoreService;
 
+    /**
+     * The scoped read the profile derives its tenant rows through.
+     *
+     * <p>Transparent by construction: it runs the supplier it is handed, exactly once, and returns its
+     * answer. Every pre-existing case here was written against a caller whose reads simply happen — the
+     * scope the production class states is invisible to a unit suite that has no database and no
+     * policies, and re-deriving it would mean stubbing the claims of a request these cases do not issue.
+     * The scope itself is pinned where it is observable, by
+     * {@code ProfileTenantScopeIntegrationTest}.</p>
+     */
+    @Mock
+    private ProfileTenantReads profileTenantReads;
+
     @Mock
     private SecurityContext securityContext;
 
@@ -81,13 +95,21 @@ class ProfileServiceTest {
 
     @BeforeEach
     void setUp() {
+        // Lenient because the cases that refuse a request before any read (the S5 incoherence refusal)
+        // never reach the scoped read, and the alternative — restating this stub in each of them — would
+        // edit twenty pre-existing cases for a fact that is uniform across them.
+        lenient()
+                .when(profileTenantReads.underEachClaimedCompany(any()))
+                .thenAnswer(invocation -> ((Supplier<Optional<Object>>) invocation.getArgument(0)).get());
+
         profileService = new ProfileService(
                 currentUserContext,
                 identityProvider,
                 userPreferencesRepository,
                 employeeRepository,
                 employeeScopeAssignmentService,
-                new ProfileLocationResolver(companyStoreService));
+                new ProfileLocationResolver(companyStoreService, profileTenantReads),
+                profileTenantReads);
 
         when(currentUserContext.getUserId()).thenReturn(USER_ID);
         when(currentUserContext.getUsername()).thenReturn(USERNAME);

@@ -38,6 +38,7 @@ public class ProfileService {
     private final EmployeeRepository employeeRepository;
     private final EmployeeScopeAssignmentService employeeScopeAssignmentService;
     private final ProfileLocationResolver locationResolver;
+    private final ProfileTenantReads profileTenantReads;
 
     public ProfileService(
             CurrentUserContext currentUserContext,
@@ -45,13 +46,15 @@ public class ProfileService {
             UserPreferencesRepository userPreferencesRepository,
             EmployeeRepository employeeRepository,
             EmployeeScopeAssignmentService employeeScopeAssignmentService,
-            ProfileLocationResolver locationResolver) {
+            ProfileLocationResolver locationResolver,
+            ProfileTenantReads profileTenantReads) {
         this.currentUserContext = currentUserContext;
         this.identityProvider = identityProvider;
         this.userPreferencesRepository = userPreferencesRepository;
         this.employeeRepository = employeeRepository;
         this.employeeScopeAssignmentService = employeeScopeAssignmentService;
         this.locationResolver = locationResolver;
+        this.profileTenantReads = profileTenantReads;
     }
 
     /**
@@ -186,11 +189,20 @@ public class ProfileService {
      * screen serves, and it is by construction a self-scoped read. The
      * {@code Optional} is load-bearing: {@code empty} means <b>unconstrained</b> and must not be
      * confused with an empty list, which means <b>constrained to exactly none</b>.</p>
+     *
+     * <p><b>The whole chain runs under each claimed company</b> (S2/S4 of
+     * {@code odd/tasks/profile-tenant-scope.md}). {@code employees} is armed by ADR-0005 and
+     * {@code /api/profile} is a tenant-agnostic path, so this read answered zero rows for every caller:
+     * {@code assignedStores} was always {@code null} and {@code verifyStoreIsAssigned} — which only
+     * speaks when the set is present — silently accepted any store. Both reads of the chain stay inside
+     * the scoped transaction, and the second one is why: {@code getCurrentStoreAssignments} re-reads the
+     * employee with {@code findById}, and that read is armed too. A present-but-empty list is <b>not</b>
+     * a miss: it is this company's answer, and the next claimed company is not asked.</p>
      */
     private Optional<List<ScopeAssignmentResponse>> resolveAssignedStores(String userId) {
-        return employeeRepository
+        return profileTenantReads.underEachClaimedCompany(() -> employeeRepository
                 .findByKeycloakUserId(userId)
-                .map(employee -> employeeScopeAssignmentService.getCurrentStoreAssignments(employee.getId()));
+                .map(employee -> employeeScopeAssignmentService.getCurrentStoreAssignments(employee.getId())));
     }
 
     /**
