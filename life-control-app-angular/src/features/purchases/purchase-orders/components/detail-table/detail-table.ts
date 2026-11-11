@@ -86,6 +86,32 @@ export interface DetailTableRow {
   receivedQuantity?: number;
   /** Line (detail) status name; `null` when the row carries no status yet. */
   statusName?: string | null;
+  /**
+   * When the server wrote the line, as the response states it.
+   *
+   * Read only to order the rows: the API returns the lines with no `ORDER BY` and the schema has no ordinal, so this
+   * and {@link id} are the only stable order available (S9).
+   */
+  createdAt?: string;
+}
+
+/**
+ * A line the operator asked to add, before the server has answered for it.
+ *
+ * It carries no id and no money parts on purpose: the id is the server's and the line's total and tax are derived from
+ * its stored base, so the row is built from the answer to this payload and never from the payload itself (S4).
+ */
+export interface DetailLineDraft {
+  productId: string;
+  productVariantId: string;
+  quantity: number;
+  unitPrice: number;
+}
+
+/** The two fields of an already-saved line the operator can edit inline. */
+export interface DetailLinePatch {
+  quantity?: number;
+  unitPrice?: number;
 }
 
 /**
@@ -93,6 +119,9 @@ export interface DetailTableRow {
  *
  * Displays product, quantity, unit price, and subtotal columns.
  * Includes an "add row" form and per-row delete buttons guarded by `isDraft`.
+ *
+ * The table persists nothing and stages nothing: an add, an inline edit and a delete are emitted, and the rows it renders
+ * are always the ones its host holds, which the host reconciles from each answer.
  *
  * Covers spec Requirement 7, scenarios 7.1-7.5.
  */
@@ -157,8 +186,14 @@ export class DetailTable {
    */
   readonly showReceiptProgress = input<boolean>(false);
 
-  /** Emits the full updated items array after any add or remove. */
-  readonly itemsChanged = output<DetailTableRow[]>();
+  /** Emits the line to create. The row appears from the answer, so this table stages nothing. */
+  readonly lineAdded = output<DetailLineDraft>();
+
+  /** Emits the saved line the operator edited, by id, with only the fields that changed. */
+  readonly lineEdited = output<{ id: string; changes: DetailLinePatch }>();
+
+  /** Emits the id of the saved line the operator asked to delete. */
+  readonly lineRemoved = output<string>();
 
   /**
    * Narrow viewports render one card per line item instead of the overflowing
@@ -272,22 +307,18 @@ export class DetailTable {
       return;
     }
 
-    const product = this.availableProducts().find((p) => p.id === this.newProductId());
     const variant = this.selectedVariant();
-    if (!product || !variant) {
+    if (!variant) {
       return;
     }
 
-    const newRow: DetailTableRow = {
+    // Nothing is appended here: the id and the line's money are the server's, so the row comes from its answer (S4).
+    this.lineAdded.emit({
       productId: this.newProductId(),
-      productName: product.name,
       productVariantId: variant.id,
-      productVariantName: variant.variantName,
       quantity: this.newQuantity(),
       unitPrice: this.newUnitPrice(),
-    };
-
-    this.itemsChanged.emit([...this.items(), newRow]);
+    });
 
     // Reset form
     this.newProductId.set('');
@@ -303,8 +334,12 @@ export class DetailTable {
     if (!this.isDraft()) {
       return;
     }
-    const updated = this.items().filter((_, i) => i !== index);
-    this.itemsChanged.emit(updated);
+    const row = this.items()[index];
+    // A row with no id does not exist on the server yet, so there is nothing to delete for it.
+    if (!row?.id) {
+      return;
+    }
+    this.lineRemoved.emit(row.id);
   }
 
   onNewProductChange(value: string): void {
@@ -362,11 +397,7 @@ export class DetailTable {
     if (!this.isDraft()) {
       return;
     }
-    this.patchRow(index, {
-      quantity: Number.isFinite(value) ? value : 0,
-      total: null,
-      taxAmount: null,
-    });
+    this.emitRowEdit(index, { quantity: Number.isFinite(value) ? value : 0 });
   }
 
   /** Inline-edit the unit price of an already-saved row. */
@@ -374,26 +405,20 @@ export class DetailTable {
     if (!this.isDraft()) {
       return;
     }
-    this.patchRow(index, {
-      unitPrice: Number.isFinite(value) ? value : 0,
-      total: null,
-      taxAmount: null,
-    });
+    this.emitRowEdit(index, { unitPrice: Number.isFinite(value) ? value : 0 });
   }
 
   /**
-   * Inline edits drop the line total and the tax amount the server derived for this row.
+   * Emits the edit of one saved row, by id.
    *
-   * The numbers the server derived no longer describe a row whose quantity or price just changed, and this table may
-   * not invent replacements: it renders the server's amounts or nothing. Clearing them here is what keeps a stale
-   * amount from being printed as if the server had stated it for the edited row.
-   *
-   * The **rate** is kept, and the difference is the rule rather than an oversight: the rate is the line's snapshot,
-   * resolved once when the line was written, so editing its quantity does not re-resolve it (S3).
+   * The row is not patched here: it is the host's, and the host is the one that persists the change and reconciles the
+   * row from the answer. A row with no id has never been persisted, so there is nothing to address.
    */
-  private patchRow(index: number, patch: Partial<DetailTableRow>): void {
-    this.itemsChanged.emit(
-      this.items().map((item, i) => (i === index ? { ...item, ...patch } : item)),
-    );
+  private emitRowEdit(index: number, changes: DetailLinePatch): void {
+    const row = this.items()[index];
+    if (!row?.id) {
+      return;
+    }
+    this.lineEdited.emit({ id: row.id, changes });
   }
 }

@@ -2,7 +2,12 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { LOCALE_ID } from '@angular/core';
 import { By } from '@angular/platform-browser';
 import { of } from 'rxjs';
-import { DetailTable, type DetailTableRow } from './detail-table';
+import {
+  DetailTable,
+  type DetailLineDraft,
+  type DetailLinePatch,
+  type DetailTableRow,
+} from './detail-table';
 import { ProductVariantPicker } from '../product-variant-picker/product-variant-picker';
 import { ProductVariantService } from '@features/products/data/product-variant.service';
 import { formatMoney } from '@shared/pipes/money.pipe';
@@ -181,21 +186,21 @@ describe('DetailTable', () => {
       expect(f.componentInstance.hasMissingVariants()).toBe(false);
     });
 
-    it('should emit the remaining rows when one is removed', () => {
+    it('should emit the id of the row the operator removed', () => {
       const f = createTable([SAVED_ROW]);
-      let emitted: DetailTableRow[] | null = null;
-      f.componentInstance.itemsChanged.subscribe((rows) => (emitted = rows));
+      let removed: string | null = null;
+      f.componentInstance.lineRemoved.subscribe((id) => (removed = id));
 
       f.componentInstance.removeItem(0);
 
-      expect(emitted).not.toBeNull();
-      expect(emitted!.length).toBe(0);
+      // The table deletes nothing itself: the host persists the delete, and the row leaves when the answer arrives (S4).
+      expect(removed).toBe('det-1');
     });
 
     it('should not remove rows when the order is no longer a draft', () => {
       const f = createTable([SAVED_ROW], false);
       let emitted = false;
-      f.componentInstance.itemsChanged.subscribe(() => (emitted = true));
+      f.componentInstance.lineRemoved.subscribe(() => (emitted = true));
 
       f.componentInstance.removeItem(0);
 
@@ -243,17 +248,16 @@ describe('DetailTable', () => {
       expect(cellText(f, 'taxAmount')).toBe('');
     });
 
-    it('should drop the stated tax amount when the quantity is edited, keeping the rate', () => {
+    it('should emit the quantity change of the edited row, and nothing else', () => {
       const f = createTable([SAVED_ROW]);
-      let emitted: DetailTableRow[] | null = null;
-      f.componentInstance.itemsChanged.subscribe((rows) => (emitted = rows));
+      let emitted: { id: string; changes: DetailLinePatch } | null = null;
+      f.componentInstance.lineEdited.subscribe((edit) => (emitted = edit));
 
       f.componentInstance.onRowQuantityChange(0, 2.5);
 
-      // The amount described the base the edit replaced, so it goes with the total. The rate is the line's snapshot:
-      // changing the quantity does not re-resolve it (S3).
-      expect(emitted![0].taxAmount).toBeNull();
-      expect(emitted![0].taxRate).toBe(SAVED_ROW.taxRate);
+      // The row is the host's: the table names the line and the field that changed. Dropping the derived total and tax
+      // is the host's move, with the rest of the row it reconciles from the answer.
+      expect(emitted).toEqual({ id: 'det-1', changes: { quantity: 2.5 } });
     });
 
     it('should render the unit price in the document currency, not in a literal of its own', () => {
@@ -272,40 +276,14 @@ describe('DetailTable', () => {
       expect(cellText(f, 'total')).toBe('');
     });
 
-    it('should drop the stored total when the quantity is edited', () => {
-      // The number the server derived no longer describes the row, and the table may not invent a replacement.
+    it('should emit the unit price change of the edited row', () => {
       const f = createTable([SAVED_ROW]);
-      let emitted: DetailTableRow[] | null = null;
-      f.componentInstance.itemsChanged.subscribe((rows) => (emitted = rows));
-
-      f.componentInstance.onRowQuantityChange(0, 2.5);
-
-      expect(emitted).not.toBeNull();
-      expect(emitted![0].quantity).toBe(2.5);
-      expect(emitted![0].total).toBeNull();
-    });
-
-    it('should drop the stored total when the unit price is edited', () => {
-      const f = createTable([SAVED_ROW]);
-      let emitted: DetailTableRow[] | null = null;
-      f.componentInstance.itemsChanged.subscribe((rows) => (emitted = rows));
+      let emitted: { id: string; changes: DetailLinePatch } | null = null;
+      f.componentInstance.lineEdited.subscribe((edit) => (emitted = edit));
 
       f.componentInstance.onRowUnitPriceChange(0, 99);
 
-      expect(emitted![0].unitPrice).toBe(99);
-      expect(emitted![0].total).toBeNull();
-    });
-
-    it('should leave a row it did not edit untouched, total included', () => {
-      const f = createTable([SAVED_ROW]);
-      let emitted: DetailTableRow[] | null = null;
-      f.componentInstance.itemsChanged.subscribe((rows) => (emitted = rows));
-
-      f.componentInstance.onRowQuantityChange(0, 2.5);
-
-      // Same row (there is only one), and the cleared field is only the total the edit invalidated.
-      expect(emitted![0].productVariantId).toBe(SAVED_ROW.productVariantId);
-      expect(emitted![0].unitPrice).toBe(SAVED_ROW.unitPrice);
+      expect(emitted).toEqual({ id: 'det-1', changes: { unitPrice: 99 } });
     });
 
     it('should never sum the rows itself', () => {
@@ -346,13 +324,13 @@ describe('DetailTable', () => {
 
     it('should keep a fraction typed in the inline edit instead of rounding it', () => {
       const f = createTable([SAVED_ROW]);
-      let emitted: DetailTableRow[] | null = null;
-      f.componentInstance.itemsChanged.subscribe((rows) => (emitted = rows));
+      let emitted: { id: string; changes: DetailLinePatch } | null = null;
+      f.componentInstance.lineEdited.subscribe((edit) => (emitted = edit));
 
       f.componentInstance.onRowQuantityChange(0, 2.5);
 
       expect(emitted).not.toBeNull();
-      expect(emitted![0].quantity).toBe(2.5);
+      expect(emitted!.changes['quantity']).toBe(2.5);
     });
   });
 
@@ -522,12 +500,12 @@ describe('DetailTable', () => {
       expect(component.newUnitPrice()).toBe(0);
     });
 
-    it('should emit a row carrying both variant fields and reset the form', () => {
+    it('should emit the line to create and reset the form', () => {
       const f = createTable([]);
       const component = f.componentInstance;
 
-      let emitted: DetailTableRow[] | null = null;
-      component.itemsChanged.subscribe((rows) => (emitted = rows));
+      let emitted: DetailLineDraft | null = null;
+      component.lineAdded.subscribe((line) => (emitted = line));
 
       component.onNewProductChange('prod-1');
       f.detectChanges();
@@ -537,13 +515,14 @@ describe('DetailTable', () => {
 
       component.addItem();
 
-      expect(emitted).not.toBeNull();
-      expect(emitted!.length).toBe(1);
-      expect(emitted![0].productVariantId).toBe('var-1');
-      expect(emitted![0].productVariantName).toBe('Presentación 1L');
-      expect(emitted![0].productId).toBe('prod-1');
-      expect(emitted![0].quantity).toBe(3);
-      expect(emitted![0].unitPrice).toBe(80);
+      // The payload names the variant and the pricing the operator chose, and carries no id: the row is the answer's,
+      // not this payload's (S4).
+      expect(emitted).toEqual({
+        productId: 'prod-1',
+        productVariantId: 'var-1',
+        quantity: 3,
+        unitPrice: 80,
+      });
 
       // The form is reset so the next line starts clean.
       expect(component.newProductId()).toBe('');
@@ -558,7 +537,7 @@ describe('DetailTable', () => {
       const component = f.componentInstance;
 
       let emitted = false;
-      component.itemsChanged.subscribe(() => (emitted = true));
+      component.lineAdded.subscribe(() => (emitted = true));
 
       component.onNewProductChange('prod-1');
       f.detectChanges();
@@ -592,8 +571,8 @@ describe('DetailTable', () => {
       const f = createTable([]);
       const component = f.componentInstance;
 
-      let emitted: DetailTableRow[] | null = null;
-      component.itemsChanged.subscribe((rows) => (emitted = rows));
+      let emitted: DetailLineDraft | null = null;
+      component.lineAdded.subscribe((line) => (emitted = line));
 
       component.onNewProductChange('prod-1');
       // The picker has not caught up with the scope change yet: the signal still

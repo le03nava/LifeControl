@@ -59,19 +59,26 @@
     />
 
     <!-- Line Items Table -->
-    <!-- The table renders each row's own `total` and the catalogue cost price in the document's currency, so the
-         order's currency is handed down rather than assumed: in create mode there is no document, so there is no
-         currency to state and nothing is claimed. -->
-    <app-detail-table
-      [items]="lineItems()"
-      [isDraft]="isDraft()"
-      [availableProducts]="supplierProducts()"
-      [storeId]="variantStoreId()"
-      [companyId]="orderCompanyId()"
-      [currency]="loadedOrder()?.currency ?? ''"
-      [showReceiptProgress]="!!loadedOrder()"
-      (itemsChanged)="onItemsChanged($event)"
-    />
+    <!-- The detail area exists only once the order does: a line is addressed by the order's id on the detail
+         sub-resource, so on `/create` the operator sees the header alone (S1). Saving the header turns this same page
+         into the edit surface and the area appears (S2). -->
+    @if (isEditMode()) {
+      <!-- The table renders each row's own `total` and the catalogue cost price in the document's currency, so the
+           order's currency is handed down rather than assumed: while the order is still loading there is no currency to
+           state and nothing is claimed. -->
+      <app-detail-table
+        [items]="lineItems()"
+        [isDraft]="isDraft()"
+        [availableProducts]="supplierProducts()"
+        [storeId]="variantStoreId()"
+        [companyId]="orderCompanyId()"
+        [currency]="loadedOrder()?.currency ?? ''"
+        [showReceiptProgress]="!!loadedOrder()"
+        (lineAdded)="addLine($event)"
+        (lineEdited)="updateLine($event.id, $event.changes)"
+        (lineRemoved)="removeLine($event)"
+      />
+    }
 
     <!-- Sticky action bar -->
     <div class="form-actions">

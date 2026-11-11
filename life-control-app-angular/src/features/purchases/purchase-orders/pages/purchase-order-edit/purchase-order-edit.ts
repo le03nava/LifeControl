@@ -18,7 +18,12 @@ import { ApiError } from '@shared/models';
 import { PageHeader } from '@shared/ui';
 import { StatusSelector } from '../../components/status-selector/status-selector';
 import { StatusChip } from '../../components/status-chip/status-chip';
-import { DetailTable, type DetailTableRow } from '../../components/detail-table/detail-table';
+import {
+  DetailTable,
+  type DetailLineDraft,
+  type DetailLinePatch,
+  type DetailTableRow,
+} from '../../components/detail-table/detail-table';
 import { CompanyInfoSection } from '../../components/company-info-section/company-info-section';
 import { SupplierInfoSection } from '../../components/supplier-info-section/supplier-info-section';
 import { isOrderReceivable } from '../../data/status-config';
@@ -26,7 +31,6 @@ import type {
   PurchaseOrder,
   PurchaseOrderDetail,
   PurchaseOrderRequest,
-  PurchaseOrderDetailRequest,
 } from '../../models/purchase-order.models';
 import type {
   PurchaseOrderHeaderControl,
@@ -38,6 +42,15 @@ import { MatCardModule } from '@angular/material/card';
 import { NotificationService } from '@shared/data/notification';
 import { ErrorBanner } from '@shared/ui';
 import { MoneyPipe } from '@shared/pipes/money.pipe';
+
+/**
+ * Key the add attempt uses in {@link PurchaseOrderEdit.linePending} and {@link PurchaseOrderEdit.lineErrors}.
+ *
+ * A line the operator just added has no id until the server answers for it, and a rejected `POST` leaves no row at all,
+ * so the attempt itself is the only thing its message can be attached to. No detail id can collide with it: those are
+ * UUIDs.
+ */
+export const NEW_LINE_KEY = 'new';
 
 @Component({
   selector: 'app-purchase-order-edit',
@@ -157,12 +170,20 @@ export class PurchaseOrderEdit implements OnInit {
   readonly variantStoreId = signal('');
 
   /**
-   * Legacy rows loaded without a variant cannot produce a valid payload: the API
-   * rejects a detail without `productVariantId`.
+   * Lines being written, by detail id, plus {@link NEW_LINE_KEY} for an add in flight.
+   *
+   * Each line persists on its own (S4), so a slow request must be visible on that row and nowhere else: a single
+   * page-wide flag could not tell the operator which line is still moving.
    */
-  readonly hasLinesWithoutVariant = computed(() =>
-    this.lineItems().some((item) => !item.productVariantId),
-  );
+  readonly linePending = signal<Record<string, boolean>>({});
+
+  /**
+   * The message a rejected line carries, by detail id, plus {@link NEW_LINE_KEY} for a rejected add.
+   *
+   * Kept apart from {@link generalError} on purpose: the banner is reserved for the header, so a rejected line never
+   * reads as a rejected document (S5).
+   */
+  readonly lineErrors = signal<Record<string, string>>({});
 
   // ─── Unsaved-changes tracking ──────────────────────────
   private readonly supplierId$ = new Subject<string>();
@@ -281,11 +302,7 @@ export class PurchaseOrderEdit implements OnInit {
       .getPurchaseOrder(id)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (order) => {
-          this.loadedOrder.set(order);
-          this.populateForm(order);
-          this.populateLineItems(order.details);
-        },
+        next: (order) => this.applyLoadedOrder(order),
         error: (err: HttpErrorResponse) => {
           this.generalError.set(
             err.status === 404
@@ -294,6 +311,18 @@ export class PurchaseOrderEdit implements OnInit {
           );
         },
       });
+  }
+
+  /**
+   * Makes the loaded document the screen's state.
+   *
+   * Shared by the edit-mode load and by a successful create: after the order exists the same page is its edit surface,
+   * so both paths have to leave the form, the rows and the money parts in the same shape.
+   */
+  private applyLoadedOrder(order: PurchaseOrder): void {
+    this.loadedOrder.set(order);
+    this.populateForm(order);
+    this.populateLineItems(order.details);
   }
 
   private populateForm(order: PurchaseOrder): void {
@@ -313,37 +342,196 @@ export class PurchaseOrderEdit implements OnInit {
   }
 
   private populateLineItems(details: PurchaseOrderDetail[]): void {
-    const rows: DetailTableRow[] = details.map((d) => ({
-      id: d.id,
-      productId: d.productId,
-      productName: d.productName,
-      productVariantId: d.productVariantId,
-      productVariantName: d.productVariantName,
-      quantity: d.quantity,
-      unitPrice: d.unitPrice,
-      // The line total the server derived for the row it answered for. The table renders it; nothing multiplies.
-      total: d.total,
-      // The tax the same answer carried: the rate it snapshotted and the amount derived from the stored base. Both are
-      // read here and never computed — a `base × rate` or a `total - base` would be a second answer to a number the
-      // server owns.
-      taxRate: d.taxRate,
-      taxAmount: d.taxAmount,
-      receivedQuantity: d.receivedQuantity,
-      statusName: d.statusName,
-    }));
-    this.lineItems.set(rows);
+    this.applyLineItems(details.map(toDetailTableRow));
     // `lineItemsKey` only projects the editable pricing fields, so the receipt
     // fields above can never make a freshly loaded order look dirty.
     this.lineItemsBaseline.set(this.lineItemsKey());
+  }
+
+  /**
+   * Restates the document's money after a line moved.
+   *
+   * `purchase_order_money()` derives `subtotal`, `tax_total` and `total_amount` in the database from the rows that just
+   * changed, and the line's own answer carries none of them — so this screen cannot compute them and must not try. It asks
+   * the document again and takes the three numbers the server states. A failed read says so instead of leaving totals that
+   * describe the previous set of lines.
+   */
+  private refreshDocumentMoney(orderId: string): void {
+    this.purchaseOrderService
+      .getPurchaseOrder(orderId)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (order) => {
+          const current = this.loadedOrder();
+          if (!current || current.id !== order.id) {
+            return;
+          }
+          this.loadedOrder.set({
+            ...current,
+            currency: order.currency,
+            subtotal: order.subtotal,
+            taxTotal: order.taxTotal,
+            totalAmount: order.totalAmount,
+          });
+        },
+        error: () => {
+          this.generalError.set('Los totales de la orden no se pudieron actualizar.');
+        },
+      });
   }
 
   // ══════════════════════════════════════════════════════════
   // CHILD EVENT HANDLERS
   // ══════════════════════════════════════════════════════════
 
-  /** Called by `<app-detail-table>` when items are added or removed. */
-  onItemsChanged(updated: DetailTableRow[]): void {
-    this.lineItems.set(updated);
+  /**
+   * Creates a line through `POST /{id}/details` and appends the row the server answers for it.
+   *
+   * Nothing is staged here: a rejected `POST` leaves no row, and an accepted one carries the id and the money the server
+   * derived, so the list reconciles from the answer instead of from the payload that asked for it (S4).
+   */
+  addLine(line: DetailLineDraft): void {
+    const orderId = this.orderId();
+    if (!orderId) {
+      return;
+    }
+    this.markLinePending(NEW_LINE_KEY, true);
+    this.setLineError(NEW_LINE_KEY, null);
+    this.purchaseOrderService
+      .addDetail(orderId, line)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (detail) => {
+          this.markLinePending(NEW_LINE_KEY, false);
+          this.applyLineItems([...this.lineItems(), toDetailTableRow(detail)]);
+          this.refreshDocumentMoney(orderId);
+        },
+        error: (err: HttpErrorResponse) => {
+          this.markLinePending(NEW_LINE_KEY, false);
+          this.setLineError(NEW_LINE_KEY, lineErrorMessage(err, 'No se pudo agregar la línea.'));
+        },
+      });
+  }
+
+  /**
+   * Saves one edited line through `PUT /{id}/details/{detailId}`.
+   *
+   * The row shows the edit while the request is in flight and is put back to the values it had before it when the server
+   * rejects it, so a refused edit can never be read as a saved one (S5). The derived total and tax of the edited row go
+   * with the edit: the amounts the server stated describe the base that just changed, and this screen renders the
+   * server's amounts or nothing. The **rate** stays — it is the line's snapshot and editing a quantity does not
+   * re-resolve it.
+   */
+  updateLine(id: string, changes: DetailLinePatch): void {
+    const orderId = this.orderId();
+    if (!orderId) {
+      return;
+    }
+    const current = this.lineItems().find((item) => item.id === id);
+    if (!current) {
+      return;
+    }
+    // A legacy line has no variant, and the API addresses a line by its variant: there is no payload to send.
+    if (!current.productVariantId) {
+      this.setLineError(id, 'La línea no tiene variante: elimínala y agrégala de nuevo.');
+      return;
+    }
+    const previous = { ...current };
+    this.applyLineItems(
+      this.lineItems().map((item) =>
+        item.id === id ? { ...item, ...changes, total: null, taxAmount: null } : item,
+      ),
+    );
+    this.markLinePending(id, true);
+    this.setLineError(id, null);
+    this.purchaseOrderService
+      .updateDetail(orderId, id, {
+        productId: current.productId,
+        productVariantId: current.productVariantId,
+        quantity: changes.quantity ?? current.quantity,
+        unitPrice: changes.unitPrice ?? current.unitPrice,
+      })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (detail) => {
+          this.markLinePending(id, false);
+          this.applyLineItems(
+            this.lineItems().map((item) => (item.id === id ? toDetailTableRow(detail) : item)),
+          );
+          this.refreshDocumentMoney(orderId);
+        },
+        error: (err: HttpErrorResponse) => {
+          this.markLinePending(id, false);
+          this.applyLineItems(this.lineItems().map((item) => (item.id === id ? previous : item)));
+          this.setLineError(id, lineErrorMessage(err, 'No se pudo actualizar la línea.'));
+        },
+      });
+  }
+
+  /**
+   * Removes one line through `DELETE /{id}/details/{detailId}`.
+   *
+   * The row goes at once and comes back with its own message if the server rejects the delete, so a row the server
+   * still holds is never silently hidden.
+   */
+  removeLine(id: string): void {
+    const orderId = this.orderId();
+    if (!orderId) {
+      return;
+    }
+    const removed = this.lineItems().find((item) => item.id === id);
+    if (!removed) {
+      return;
+    }
+    this.applyLineItems(this.lineItems().filter((item) => item.id !== id));
+    this.markLinePending(id, true);
+    this.setLineError(id, null);
+    this.purchaseOrderService
+      .deleteDetail(orderId, id)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: () => {
+          this.markLinePending(id, false);
+          this.refreshDocumentMoney(orderId);
+        },
+        error: (err: HttpErrorResponse) => {
+          this.markLinePending(id, false);
+          // Only the row this request took goes back: anything another line did meanwhile is still the server's state.
+          this.applyLineItems([...this.lineItems(), removed]);
+          this.setLineError(id, lineErrorMessage(err, 'No se pudo eliminar la línea.'));
+        },
+      });
+  }
+
+  private markLinePending(key: string, pending: boolean): void {
+    const next = { ...this.linePending() };
+    if (pending) {
+      next[key] = true;
+    } else {
+      delete next[key];
+    }
+    this.linePending.set(next);
+  }
+
+  private setLineError(key: string, message: string | null): void {
+    const next = { ...this.lineErrors() };
+    if (message) {
+      next[key] = message;
+    } else {
+      delete next[key];
+    }
+    this.lineErrors.set(next);
+  }
+
+  /**
+   * Replaces the rows, in creation order.
+   *
+   * Every path that changes them goes through here — the load and each of the three mutations — because the API returns
+   * them with no `ORDER BY` and the schema has no ordinal: ordering at one call site and not the other is exactly how
+   * the rows would drift apart (S9).
+   */
+  private applyLineItems(rows: DetailTableRow[]): void {
+    this.lineItems.set(orderLineItems(rows));
   }
 
   /**
@@ -370,53 +558,19 @@ export class PurchaseOrderEdit implements OnInit {
       return;
     }
 
-    // A legacy line loaded without a variant has no valid payload. Abort before
-    // touching the request instead of letting the API answer with a raw 400; the
-    // detail table renders the actionable warning next to the offending lines and
-    // the error banner names which lines block the save.
-    const items = this.lineItems();
-    const details: PurchaseOrderDetailRequest[] = [];
-    const missingVariantLines: string[] = [];
-    items.forEach((item, index) => {
-      if (!item.productVariantId) {
-        missingVariantLines.push(`${index + 1}: ${item.productName}`);
-        return;
-      }
-      details.push({
-        productId: item.productId,
-        productVariantId: item.productVariantId,
-        quantity: item.quantity,
-        unitPrice: item.unitPrice,
-      });
-    });
-
-    if (missingVariantLines.length > 0) {
-      // Outside Draft the delete/add controls are disabled, so asking the user
-      // to remove and re-add the lines would be an impossible instruction.
-      const repairInstruction = this.isDraft()
-        ? 'Eliminá esas líneas y agregalas de nuevo eligiendo una variante.'
-        : 'Esas líneas no se pueden reparar en el estado actual de la orden.';
-      this.serverErrors.set({});
-      this.generalError.set(
-        `No se puede guardar: hay líneas sin variante (${missingVariantLines.join(
-          ', ',
-        )}). ${repairInstruction}`,
-      );
-      return;
-    }
-
     this.serverErrors.set({});
     this.generalError.set(null);
     this.saving.set(true);
 
     const formValue = form.getRawValue();
 
+    // The header is all this screen saves: every line was written on its own against the detail sub-resource as it was
+    // added or edited, so neither call carries `details` and no payload here can restate a line (S3, S4).
     const request: PurchaseOrderRequest = {
       supplierId: formValue.supplierId,
       companyStoreId: formValue.companyStoreId,
       paymentMethodId: formValue.paymentMethodId,
       comments: formValue.comments ?? undefined,
-      details: details.length > 0 ? details : undefined,
     };
 
     if (this.isEditMode()) {
@@ -442,12 +596,16 @@ export class PurchaseOrderEdit implements OnInit {
         .create(request)
         .pipe(takeUntilDestroyed(this.destroyRef))
         .subscribe({
-          next: () => {
+          next: (created) => {
             this.saving.set(false);
             this.formDirty.set(false);
-            this.lineItemsBaseline.set(this.lineItemsKey());
             this.notificationService.showSuccess('Orden creada correctamente.');
-            this.router.navigate(['/purchases/orders']);
+            // The created order is this screen's next state: the same page becomes its edit surface, with the detail
+            // area appearing to add products. The navigation replaces the history entry, so Back does not return to a
+            // `/create` URL that would produce a second order (S2).
+            this.orderId.set(created.id);
+            this.applyLoadedOrder(created);
+            this.router.navigate(['/purchases/orders', created.id], { replaceUrl: true });
           },
           error: (err: HttpErrorResponse) => {
             this.saving.set(false);
@@ -493,4 +651,52 @@ export class PurchaseOrderEdit implements OnInit {
   onCancel(): void {
     this.router.navigate(['/purchases/orders']);
   }
+}
+
+/** Maps the line the API answered into the row the table renders. */
+function toDetailTableRow(detail: PurchaseOrderDetail): DetailTableRow {
+  return {
+    id: detail.id,
+    productId: detail.productId,
+    productName: detail.productName,
+    productVariantId: detail.productVariantId,
+    productVariantName: detail.productVariantName,
+    quantity: detail.quantity,
+    unitPrice: detail.unitPrice,
+    // The line total the server derived for the row it answered for. The table renders it; nothing multiplies.
+    total: detail.total,
+    // The tax the same answer carried: the rate it snapshotted and the amount derived from the stored base. Both are
+    // read here and never computed — a `base × rate` or a `total - base` would be a second answer to a number the
+    // server owns.
+    taxRate: detail.taxRate,
+    taxAmount: detail.taxAmount,
+    receivedQuantity: detail.receivedQuantity,
+    statusName: detail.statusName,
+    createdAt: detail.createdAt,
+  };
+}
+
+/**
+ * Lines render in creation order: by `createdAt` then `id`.
+ *
+ * The API returns them with no `ORDER BY` and the schema has no ordinal column, so this is the only stable order there
+ * is (S9). A row the server has not dated sorts first, which is where a line it has not answered for belongs; `id`
+ * still breaks the tie between two such rows, and between two lines written in the same millisecond.
+ */
+function orderLineItems(rows: DetailTableRow[]): DetailTableRow[] {
+  return [...rows].sort((a, b) => {
+    const byCreatedAt = lineCreatedAt(a) - lineCreatedAt(b);
+    return byCreatedAt !== 0 ? byCreatedAt : (a.id ?? '').localeCompare(b.id ?? '');
+  });
+}
+
+function lineCreatedAt(row: DetailTableRow): number {
+  const parsed = row.createdAt ? Date.parse(row.createdAt) : Number.NaN;
+  return Number.isNaN(parsed) ? 0 : parsed;
+}
+
+/** The message the server gave for a rejected line, or the caller's own when it gave none. */
+function lineErrorMessage(err: HttpErrorResponse, fallback: string): string {
+  const apiError = err.error as ApiError | undefined;
+  return apiError?.message ?? fallback;
 }
