@@ -80,6 +80,9 @@ class CompanyStoreServiceTest {
     @Mock
     private StoreAreaService storeAreaService;
 
+    @Mock
+    private StoreLocationChainService storeLocationChainService;
+
     @InjectMocks
     private CompanyStoreService companyStoreService;
 
@@ -530,6 +533,15 @@ class CompanyStoreServiceTest {
             assertThat(result.enabled()).isTrue();
             verify(companyStoreRepository).saveAndFlush(any(CompanyStore.class));
             verify(eventPublisher).publishEvent(any(CompanyStoreCreatedEvent.class));
+
+            // Issue #859: the create path also writes the store's location chain, and it does so between the
+            // store's own insert and the event. The order is the contract: the event's listener runs
+            // AFTER_COMMIT, so publishing before the chain is written (and flushed) would let a Keycloak group
+            // be created for a store whose chain then fails and rolls back.
+            var createOrder = inOrder(companyStoreRepository, storeLocationChainService, eventPublisher);
+            createOrder.verify(companyStoreRepository).saveAndFlush(any(CompanyStore.class));
+            createOrder.verify(storeLocationChainService).createLocationChain(any(CompanyStore.class));
+            createOrder.verify(eventPublisher).publishEvent(any(CompanyStoreCreatedEvent.class));
         }
 
         @Test
@@ -552,6 +564,7 @@ class CompanyStoreServiceTest {
             assertThat(result.address()).isNull();
             assertThat(result.enabled()).isTrue();
             verify(companyStoreRepository).saveAndFlush(any(CompanyStore.class));
+            verify(storeLocationChainService).createLocationChain(any(CompanyStore.class));
             verify(eventPublisher).publishEvent(any(CompanyStoreCreatedEvent.class));
         }
 
@@ -568,6 +581,7 @@ class CompanyStoreServiceTest {
                             companyId, companyCountryId, regionId, zoneId, createWithAddressRequest))
                     .isInstanceOf(DuplicateCompanyStoreException.class);
             verify(companyStoreRepository, never()).saveAndFlush(any());
+            verify(storeLocationChainService, never()).createLocationChain(any());
             verify(eventPublisher, never()).publishEvent(any());
         }
 
@@ -588,6 +602,7 @@ class CompanyStoreServiceTest {
                             companyId, companyCountryId, regionId, zoneId, createWithAddressRequest))
                     .isInstanceOf(CompanyZoneNotFoundException.class);
             verify(companyStoreRepository, never()).saveAndFlush(any());
+            verify(storeLocationChainService, never()).createLocationChain(any());
             verify(eventPublisher, never()).publishEvent(any());
         }
 
@@ -603,6 +618,7 @@ class CompanyStoreServiceTest {
                     .isInstanceOf(AccessDeniedException.class)
                     .hasMessage("Store-scoped users cannot create stores");
             verify(companyStoreRepository, never()).saveAndFlush(any());
+            verify(storeLocationChainService, never()).createLocationChain(any());
             verify(eventPublisher, never()).publishEvent(any());
         }
     }

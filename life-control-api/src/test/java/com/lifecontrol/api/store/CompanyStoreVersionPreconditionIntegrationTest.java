@@ -18,14 +18,21 @@ import com.lifecontrol.api.company.repository.CompanyRegionRepository;
 import com.lifecontrol.api.company.repository.CompanyRepository;
 import com.lifecontrol.api.company.repository.CompanyZoneRepository;
 import com.lifecontrol.api.country.repository.CountryRepository;
+import com.lifecontrol.api.inventory.repository.StoreInventorySettingsRepository;
 import com.lifecontrol.api.store.dto.CreateCompanyStoreRequest;
 import com.lifecontrol.api.store.dto.UpdateCompanyStoreRequest;
 import com.lifecontrol.api.store.model.CompanyStore;
 import com.lifecontrol.api.store.repository.CompanyStoreRepository;
+import com.lifecontrol.api.store.repository.StoreAreaRepository;
+import com.lifecontrol.api.store.repository.StoreLocationRepository;
+import com.lifecontrol.api.store.repository.StoreZoneRepository;
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
 import com.lifecontrol.api.support.TenantFixtures;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -85,15 +92,66 @@ class CompanyStoreVersionPreconditionIntegrationTest extends AbstractPostgresInt
     @Autowired
     private CompanyZoneRepository companyZoneRepository;
 
+    @Autowired
+    private StoreAreaRepository storeAreaRepository;
+
+    @Autowired
+    private StoreZoneRepository storeZoneRepository;
+
+    @Autowired
+    private StoreLocationRepository storeLocationRepository;
+
+    @Autowired
+    private StoreInventorySettingsRepository storeInventorySettingsRepository;
+
     private UUID companyId;
     private UUID companyCountryId;
     private UUID regionId;
     private UUID zoneId;
     private UUID storeId;
 
+    /** The stores this class created through the endpoint, so their chain does not outlive it. */
+    private final List<UUID> storesCreatedThroughTheEndpoint = new ArrayList<>();
+
     @BeforeEach
     void setUp() {
         seedCompanyHierarchy();
+    }
+
+    /**
+     * Removes the stores {@link #postAnswersTimestampsAndVersion} created, leaf-first.
+     *
+     * <p>Since issue #859 {@code POST …/stores} also writes the store's location chain and its
+     * {@code store_inventory_settings} row. That row references {@code store_locations} with no cascade, so a
+     * leftover one breaks the {@code storeLocationRepository.deleteAll()} that the store-tree and receipt
+     * suites open their own fixtures with — and it would break them in whichever class runs next, not here. The
+     * order of these deletes is the constraint's: settings, locations, zones, areas, then the store.
+     */
+    @AfterEach
+    void removeStoresCreatedThroughTheEndpoint() {
+        for (var createdStoreId : List.copyOf(storesCreatedThroughTheEndpoint)) {
+            storeInventorySettingsRepository
+                    .findById(createdStoreId)
+                    .ifPresent(storeInventorySettingsRepository::delete);
+            TenantFixtures.inTenant(companyId, () -> {
+                storeAreaRepository
+                        .findByCompanyStoreIdOrderByDisplayOrderAscAreaCodeAsc(createdStoreId)
+                        .forEach(area -> {
+                            storeZoneRepository
+                                    .findByStoreAreaIdOrderByDisplayOrderAscZoneCodeAsc(area.getId())
+                                    .forEach(zone -> {
+                                        storeLocationRepository.deleteAll(
+                                                storeLocationRepository
+                                                        .findByStoreZoneIdOrderByDisplayOrderAscLocationCodeAsc(
+                                                                zone.getId()));
+                                        storeZoneRepository.deleteById(zone.getId());
+                                    });
+                            storeAreaRepository.deleteById(area.getId());
+                        });
+                companyStoreRepository.findById(createdStoreId).ifPresent(companyStoreRepository::delete);
+            });
+        }
+        storesCreatedThroughTheEndpoint.clear();
     }
 
     /** Find-or-create the company &rarr; country &rarr; region &rarr; zone &rarr; store chain. */
@@ -292,5 +350,8 @@ class CompanyStoreVersionPreconditionIntegrationTest extends AbstractPostgresInt
         assertThat(created.get("createdAt").isNull()).isFalse();
         assertThat(created.get("updatedAt").isNull()).isFalse();
         assertThat(created.get("version").asLong()).isZero();
+
+        // Removed by the teardown: the create path writes the store's location chain too (issue #859).
+        storesCreatedThroughTheEndpoint.add(UUID.fromString(created.get("id").asText()));
     }
 }
