@@ -480,7 +480,10 @@ public class PurchaseOrderService {
         var po = loadAndValidateDraftPO(purchaseOrderId);
         var product = validateProductExists(request.productId());
         var productVariant = resolveProductVariant(request.productVariantId(), product, po.getCompanyStore());
-        var detailState = detailStateOf(request.statusId());
+        // An omitted `statusId` is the state every line is born in, exactly as an omitted order `statusId` is
+        // the order's initial state (`:203`, `:261`, `:364`). The alternative — refusing the absence — forced
+        // every caller to carry a catalog UUID it has no business knowing (D1).
+        var detailState = request.statusId() != null ? detailStateOf(request.statusId()) : INITIAL_DETAIL_STATE;
         // The copy (S2, S3), before the row is built and written: the code is the product's, read through the
         // variant, and the rate is the one that applied on the document's date. A purchase order's date is its
         // `created_at` — it carries no `order_date` column (`V64:187-188`) — so a line added to an old draft is
@@ -524,15 +527,17 @@ public class PurchaseOrderService {
 
         loadAndValidateDraftPO(purchaseOrderId);
 
+        // Both ids, one query: a `detailId` of another order is not found for this one (S3, D3).
         var detail = detailRepository
-                .findById(detailId)
+                .findByIdAndPurchaseOrderIdAndEnabledTrue(detailId, purchaseOrderId)
                 .orElseThrow(() -> new PurchaseOrderDetailNotFoundException(detailId));
 
         var product = validateProductExists(request.productId());
         var productVariant = resolveProductVariant(
                 request.productVariantId(), product, detail.getPurchaseOrder().getCompanyStore());
-        var detailState = detailStateOf(request.statusId());
-        // The line's own guard, before any field is written: a forbidden move leaves the row untouched.
+        var detailState = request.statusId() != null ? detailStateOf(request.statusId()) : detail.getStatus();
+        // The line's own guard, before any field is written: a forbidden move leaves the row untouched. An
+        // omission is not a move — the resolved state equals the stored one, so nothing is evaluated (S2, D2).
         if (detailState != detail.getStatus()) {
             DocumentStates.requireTransition(detail.getStatus(), detailState);
         }
@@ -582,8 +587,9 @@ public class PurchaseOrderService {
 
         loadAndValidateDraftPO(purchaseOrderId);
 
+        // Same scoped lookup as the update path: a foreign `detailId` is 404 and nothing is disabled (S3).
         var detail = detailRepository
-                .findById(detailId)
+                .findByIdAndPurchaseOrderIdAndEnabledTrue(detailId, purchaseOrderId)
                 .orElseThrow(() -> new PurchaseOrderDetailNotFoundException(detailId));
 
         detail.setEnabled(false);

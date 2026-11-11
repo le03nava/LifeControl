@@ -1231,4 +1231,214 @@ class PurchaseOrderDetailVariantIntegrationTest extends AbstractPostgresIntegrat
                     .isEqualByComparingTo("250.0000");
         }
     }
+
+    // ─── The detail sub-resource at the wire (S1-S4) ────────────────────
+    //
+    // The service cases pin what the resolver decides; these pin what a client that carries no state catalog
+    // actually gets, through the routes it calls. Two halves of the unit are only observable here: the
+    // `enabled` clause of S3, and the fact that the path's second id really filters a real query.
+
+    @Nested
+    @DisplayName("detail sub-resource: default, keep-on-omission, scoping and Draft guard")
+    class DetailSubResourceWireTests {
+
+        private String linePayload(
+                UUID productId, UUID variantId, int quantity, String unitPrice, UUID detailStatusId) {
+            return "{\"productId\":\"" + productId
+                    + "\",\"productVariantId\":\"" + variantId
+                    + "\",\"quantity\":" + quantity
+                    + ",\"unitPrice\":" + unitPrice
+                    + (detailStatusId == null ? "" : ",\"statusId\":\"" + detailStatusId + "\"")
+                    + ",\"comments\":\"Wire line\"}";
+        }
+
+        /** A line created the way the flow creates one: no state id in the payload. */
+        private UUID createLine(UUID purchaseOrderId, UUID productId, UUID variantId) throws Exception {
+            var created = mockMvc.perform(post("/api/purchase-orders/{id}/details", purchaseOrderId)
+                            .with(adminPrincipal())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(linePayload(productId, variantId, 2, "25.00", null)))
+                    .andExpect(status().isCreated())
+                    .andReturn();
+
+            return UUID.fromString(objectMapper
+                    .readTree(created.getResponse().getContentAsString())
+                    .get("id")
+                    .asText());
+        }
+
+        private JsonNode linesOf(UUID purchaseOrderId) throws Exception {
+            var body = mockMvc.perform(get("/api/purchase-orders/{id}/details", purchaseOrderId)
+                            .with(adminPrincipal()))
+                    .andExpect(status().isOk())
+                    .andReturn()
+                    .getResponse()
+                    .getContentAsString();
+
+            return objectMapper.readTree(body);
+        }
+
+        @Test
+        @DisplayName("S1: POST /details without statusId answers 201 and stores the line as PENDING")
+        void createWithoutStatusIdIsPending() throws Exception {
+            var product = createProduct();
+            var variant = createVariant(product.getId(), storeId);
+            var purchaseOrderId = createEmptyPurchaseOrder();
+
+            mockMvc.perform(post("/api/purchase-orders/{id}/details", purchaseOrderId)
+                            .with(adminPrincipal())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(linePayload(product.getId(), variant.getId(), 2, "25.00", null)))
+                    .andExpect(status().isCreated())
+                    .andExpect(jsonPath("$.status").value("PENDING"))
+                    .andExpect(jsonPath("$.statusName").value("Pending"));
+
+            var lines = linesOf(purchaseOrderId);
+            assertThat(lines)
+                    .as("the order's lines after a statusId-less create")
+                    .hasSize(1);
+            assertThat(lines.get(0).get("status").asText())
+                    .as("persisted state of a line created without statusId")
+                    .isEqualTo("PENDING");
+        }
+
+        @Test
+        @DisplayName("S2: PUT /details without statusId keeps the stored state and evaluates no transition")
+        void updateWithoutStatusIdKeepsTheStoredState() throws Exception {
+            var product = createProduct();
+            var variant = createVariant(product.getId(), storeId);
+            var purchaseOrderId = createEmptyPurchaseOrder();
+            var detailId = createLine(purchaseOrderId, product.getId(), variant.getId());
+            var cancelledStatusId = statusRepository
+                    .findByTypeNameAndStatusName("PURCHASE_ORDER_DETAIL", "Cancelled")
+                    .orElseThrow()
+                    .getId();
+
+            // A stored state that is NOT the add default, so "keep it" and "reset to PENDING" differ here.
+            mockMvc.perform(put("/api/purchase-orders/{id}/details/{did}", purchaseOrderId, detailId)
+                            .with(adminPrincipal())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(linePayload(product.getId(), variant.getId(), 2, "25.00", cancelledStatusId)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.status").value("CANCELLED"));
+
+            mockMvc.perform(put("/api/purchase-orders/{id}/details/{did}", purchaseOrderId, detailId)
+                            .with(adminPrincipal())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(linePayload(product.getId(), variant.getId(), 7, "25.00", null)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.quantity").value(7))
+                    .andExpect(jsonPath("$.status").value("CANCELLED"));
+
+            var line = linesOf(purchaseOrderId).get(0);
+            assertThat(line.get("status").asText())
+                    .as("state of a line edited without statusId")
+                    .isEqualTo("CANCELLED");
+            assertThat(line.get("quantity").decimalValue())
+                    .as("quantity of a line edited without statusId")
+                    .isEqualByComparingTo("7");
+        }
+
+        @Test
+        @DisplayName("S3: PUT and DELETE answer 404 for a detailId of another order and write nothing")
+        void foreignDetailIdIsNotFound() throws Exception {
+            var product = createProduct();
+            var variant = createVariant(product.getId(), storeId);
+            var owningOrderId = createEmptyPurchaseOrder();
+            var otherOrderId = createEmptyPurchaseOrder();
+            var lineOfTheOwner = createLine(owningOrderId, product.getId(), variant.getId());
+
+            mockMvc.perform(put("/api/purchase-orders/{id}/details/{did}", otherOrderId, lineOfTheOwner)
+                            .with(adminPrincipal())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(linePayload(product.getId(), variant.getId(), 9, "99.00", null)))
+                    .andExpect(status().isNotFound());
+            mockMvc.perform(delete("/api/purchase-orders/{id}/details/{did}", otherOrderId, lineOfTheOwner)
+                            .with(adminPrincipal()))
+                    .andExpect(status().isNotFound());
+
+            // The owning order still states exactly what it stated: the two refusals wrote nothing.
+            var lines = linesOf(owningOrderId);
+            assertThat(lines).hasSize(1);
+            assertThat(lines.get(0).get("id").asText()).isEqualTo(lineOfTheOwner.toString());
+            assertThat(lines.get(0).get("quantity").decimalValue()).isEqualByComparingTo("2");
+            assertThat(lines.get(0).get("unitPrice").decimalValue()).isEqualByComparingTo("25.00");
+            assertThat(linesOf(otherOrderId))
+                    .as("lines of the order that named a foreign id")
+                    .isEmpty();
+        }
+
+        @Test
+        @DisplayName("S3: a soft-deleted line answers 404 to PUT and DELETE")
+        void disabledLineIsNotFound() throws Exception {
+            var product = createProduct();
+            var variant = createVariant(product.getId(), storeId);
+            var purchaseOrderId = createEmptyPurchaseOrder();
+            var detailId = createLine(purchaseOrderId, product.getId(), variant.getId());
+
+            mockMvc.perform(delete("/api/purchase-orders/{id}/details/{did}", purchaseOrderId, detailId)
+                            .with(adminPrincipal()))
+                    .andExpect(status().isNoContent());
+
+            // The `enabled = true` half of the scoped lookup: the row exists and is still the order's line,
+            // and it is refused because it is no longer an enabled one.
+            mockMvc.perform(delete("/api/purchase-orders/{id}/details/{did}", purchaseOrderId, detailId)
+                            .with(adminPrincipal()))
+                    .andExpect(status().isNotFound());
+            mockMvc.perform(put("/api/purchase-orders/{id}/details/{did}", purchaseOrderId, detailId)
+                            .with(adminPrincipal())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(linePayload(product.getId(), variant.getId(), 3, "25.00", null)))
+                    .andExpect(status().isNotFound());
+
+            assertThat(linesOf(purchaseOrderId))
+                    .as("the refused PUT did not bring the disabled line back")
+                    .isEmpty();
+        }
+
+        @Test
+        @DisplayName("S4: a non-Draft order answers 409 with the detail-mutation message and persists nothing")
+        void detailWritesRequireADraftOrder() throws Exception {
+            var product = createProduct();
+            var variant = createVariant(product.getId(), storeId);
+            var purchaseOrderId = createEmptyPurchaseOrder();
+            var detailId = createLine(purchaseOrderId, product.getId(), variant.getId());
+            var sentStatusId = statusRepository
+                    .findByTypeNameAndStatusName("PURCHASE_ORDER", "Sent")
+                    .orElseThrow()
+                    .getId();
+
+            mockMvc.perform(patch("/api/purchase-orders/{id}/status", purchaseOrderId)
+                            .with(adminPrincipal())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(
+                                    new UpdatePurchaseOrderStatusRequest(sentStatusId))))
+                    .andExpect(status().isOk());
+
+            var conflict = "Invalid status transition: SENT → detail mutation";
+            mockMvc.perform(post("/api/purchase-orders/{id}/details", purchaseOrderId)
+                            .with(adminPrincipal())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(linePayload(product.getId(), variant.getId(), 5, "10.00", null)))
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.message").value(conflict));
+            mockMvc.perform(put("/api/purchase-orders/{id}/details/{did}", purchaseOrderId, detailId)
+                            .with(adminPrincipal())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(linePayload(product.getId(), variant.getId(), 5, "10.00", null)))
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.message").value(conflict));
+            mockMvc.perform(delete("/api/purchase-orders/{id}/details/{did}", purchaseOrderId, detailId)
+                            .with(adminPrincipal()))
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.message").value(conflict));
+
+            var lines = linesOf(purchaseOrderId);
+            assertThat(lines).as("the order's lines after three refusals").hasSize(1);
+            assertThat(lines.get(0).get("id").asText()).isEqualTo(detailId.toString());
+            assertThat(lines.get(0).get("quantity").decimalValue())
+                    .as("quantity of the untouched line")
+                    .isEqualByComparingTo("2");
+        }
+    }
 }
