@@ -1109,12 +1109,7 @@ class PurchaseOrderServiceTest {
         @DisplayName("should create the line in Pending, and consult no catalog row, when the payload omits statusId")
         void createsLineInPendingWhenStatusIdIsOmitted() {
             var detailReq = new PurchaseOrderDetailRequest(
-                    productId,
-                    variantId,
-                    BigDecimal.valueOf(2),
-                    new BigDecimal("50.00"),
-                    "Note",
-                    null);
+                    productId, variantId, BigDecimal.valueOf(2), new BigDecimal("50.00"), "Note", null);
 
             when(purchaseOrderRepository.findById(poId)).thenReturn(Optional.of(purchaseOrder));
             when(productRepository.findById(productId)).thenReturn(Optional.of(product));
@@ -1160,7 +1155,8 @@ class PurchaseOrderServiceTest {
                     pendingStatus.getId());
 
             when(purchaseOrderRepository.findById(poId)).thenReturn(Optional.of(purchaseOrder));
-            when(detailRepository.findByIdAndPurchaseOrderIdAndEnabledTrue(detailId, poId)).thenReturn(Optional.of(detail));
+            when(detailRepository.findByIdAndPurchaseOrderIdAndEnabledTrue(detailId, poId))
+                    .thenReturn(Optional.of(detail));
             when(productRepository.findById(productId)).thenReturn(Optional.of(product));
             when(productVariantRepository.findByIdAndProductIdAndCompanyIdAndEnabledTrue(
                             variantId, productId, companyId))
@@ -1189,7 +1185,8 @@ class PurchaseOrderServiceTest {
                     productId, null, BigDecimal.valueOf(10), new BigDecimal("25.00"), "Updated", pendingStatus.getId());
 
             when(purchaseOrderRepository.findById(poId)).thenReturn(Optional.of(purchaseOrder));
-            when(detailRepository.findByIdAndPurchaseOrderIdAndEnabledTrue(detailId, poId)).thenReturn(Optional.empty());
+            when(detailRepository.findByIdAndPurchaseOrderIdAndEnabledTrue(detailId, poId))
+                    .thenReturn(Optional.empty());
 
             assertThatThrownBy(() -> service.updatePurchaseOrderDetail(poId, detailId, updatedReq))
                     .isInstanceOf(PurchaseOrderDetailNotFoundException.class);
@@ -1286,7 +1283,8 @@ class PurchaseOrderServiceTest {
         @DisplayName("should soft-delete detail")
         void softDeletesDetail() {
             when(purchaseOrderRepository.findById(poId)).thenReturn(Optional.of(purchaseOrder));
-            when(detailRepository.findByIdAndPurchaseOrderIdAndEnabledTrue(detailId, poId)).thenReturn(Optional.of(detail));
+            when(detailRepository.findByIdAndPurchaseOrderIdAndEnabledTrue(detailId, poId))
+                    .thenReturn(Optional.of(detail));
 
             service.deletePurchaseOrderDetail(poId, detailId);
 
@@ -1298,7 +1296,8 @@ class PurchaseOrderServiceTest {
         @DisplayName("should throw PurchaseOrderDetailNotFoundException when detail missing")
         void throwsWhenDetailMissing() {
             when(purchaseOrderRepository.findById(poId)).thenReturn(Optional.of(purchaseOrder));
-            when(detailRepository.findByIdAndPurchaseOrderIdAndEnabledTrue(detailId, poId)).thenReturn(Optional.empty());
+            when(detailRepository.findByIdAndPurchaseOrderIdAndEnabledTrue(detailId, poId))
+                    .thenReturn(Optional.empty());
 
             assertThatThrownBy(() -> service.deletePurchaseOrderDetail(poId, detailId))
                     .isInstanceOf(PurchaseOrderDetailNotFoundException.class);
@@ -1519,7 +1518,8 @@ class PurchaseOrderServiceTest {
                     pendingStatus.getId());
 
             when(purchaseOrderRepository.findById(poId)).thenReturn(Optional.of(purchaseOrder));
-            when(detailRepository.findByIdAndPurchaseOrderIdAndEnabledTrue(detailId, poId)).thenReturn(Optional.of(detail));
+            when(detailRepository.findByIdAndPurchaseOrderIdAndEnabledTrue(detailId, poId))
+                    .thenReturn(Optional.of(detail));
             when(productRepository.findById(productId)).thenReturn(Optional.of(product));
             when(productVariantRepository.findByIdAndProductIdAndCompanyIdAndEnabledTrue(
                             variantId, productId, companyId))
@@ -1541,7 +1541,8 @@ class PurchaseOrderServiceTest {
                     pendingStatus.getId());
 
             when(purchaseOrderRepository.findById(poId)).thenReturn(Optional.of(purchaseOrder));
-            when(detailRepository.findByIdAndPurchaseOrderIdAndEnabledTrue(detailId, poId)).thenReturn(Optional.of(detail));
+            when(detailRepository.findByIdAndPurchaseOrderIdAndEnabledTrue(detailId, poId))
+                    .thenReturn(Optional.of(detail));
             when(productRepository.findById(productId)).thenReturn(Optional.of(product));
             when(productVariantRepository.findByIdAndProductIdAndCompanyIdAndEnabledTrue(
                             variantId, productId, companyId))
@@ -2371,7 +2372,8 @@ class PurchaseOrderServiceTest {
                     .build();
 
             when(purchaseOrderRepository.findById(poId)).thenReturn(Optional.of(purchaseOrder));
-            when(detailRepository.findByIdAndPurchaseOrderIdAndEnabledTrue(detailId, poId)).thenReturn(Optional.of(taxedLine));
+            when(detailRepository.findByIdAndPurchaseOrderIdAndEnabledTrue(detailId, poId))
+                    .thenReturn(Optional.of(taxedLine));
             when(productRepository.findById(productId)).thenReturn(Optional.of(product));
             stubStockedVariant(productVariant);
             catalogRow(pendingStatus);

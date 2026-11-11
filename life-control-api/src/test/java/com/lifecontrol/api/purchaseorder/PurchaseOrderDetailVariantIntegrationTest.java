@@ -1294,7 +1294,9 @@ class PurchaseOrderDetailVariantIntegrationTest extends AbstractPostgresIntegrat
                     .andExpect(jsonPath("$.statusName").value("Pending"));
 
             var lines = linesOf(purchaseOrderId);
-            assertThat(lines).as("the order's lines after a statusId-less create").hasSize(1);
+            assertThat(lines)
+                    .as("the order's lines after a statusId-less create")
+                    .hasSize(1);
             assertThat(lines.get(0).get("status").asText())
                     .as("persisted state of a line created without statusId")
                     .isEqualTo("PENDING");
@@ -1361,7 +1363,9 @@ class PurchaseOrderDetailVariantIntegrationTest extends AbstractPostgresIntegrat
             assertThat(lines.get(0).get("id").asText()).isEqualTo(lineOfTheOwner.toString());
             assertThat(lines.get(0).get("quantity").decimalValue()).isEqualByComparingTo("2");
             assertThat(lines.get(0).get("unitPrice").decimalValue()).isEqualByComparingTo("25.00");
-            assertThat(linesOf(otherOrderId)).as("lines of the order that named a foreign id").isEmpty();
+            assertThat(linesOf(otherOrderId))
+                    .as("lines of the order that named a foreign id")
+                    .isEmpty();
         }
 
         @Test

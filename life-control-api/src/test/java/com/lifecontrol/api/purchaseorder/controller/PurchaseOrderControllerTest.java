@@ -392,12 +392,7 @@ class PurchaseOrderControllerTest {
         @DisplayName("should return 409 when the order is not Draft")
         void returns409WhenOrderIsNotDraft() throws Exception {
             var detailReq = new PurchaseOrderDetailRequest(
-                    productId,
-                    UUID.randomUUID(),
-                    BigDecimal.valueOf(5),
-                    new BigDecimal("100.00"),
-                    "Note",
-                    null);
+                    productId, UUID.randomUUID(), BigDecimal.valueOf(5), new BigDecimal("100.00"), "Note", null);
             when(purchaseOrderService.addPurchaseOrderDetail(eq(poId), any()))
                     .thenThrow(new InvalidStatusTransitionException("SENT", "detail mutation"));
 
@@ -450,12 +445,7 @@ class PurchaseOrderControllerTest {
         @DisplayName("should return 409 when the order is not Draft")
         void returns409WhenOrderIsNotDraft() throws Exception {
             var detailReq = new PurchaseOrderDetailRequest(
-                    productId,
-                    UUID.randomUUID(),
-                    BigDecimal.valueOf(10),
-                    new BigDecimal("50.00"),
-                    "Updated",
-                    null);
+                    productId, UUID.randomUUID(), BigDecimal.valueOf(10), new BigDecimal("50.00"), "Updated", null);
             when(purchaseOrderService.updatePurchaseOrderDetail(eq(poId), eq(detailId), any()))
                     .thenThrow(new InvalidStatusTransitionException("SENT", "detail mutation"));
 
