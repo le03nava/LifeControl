@@ -31,7 +31,11 @@ export interface PurchaseOrder {
   currency: string;
   /** Sum of the line bases, derived by the server from the order's own lines. The client never re-derives it. */
   subtotal: number;
-  /** Sum of the line taxes, also derived by the server. 0 in this slice: a purchase order states no tax yet. */
+  /**
+   * Sum of the lines' `taxAmount`, derived by the server from the same rows its `subtotal` is summed from.
+   *
+   * `0` on an order whose lines state no tax — and `0` is a value the screen reads, not one it infers.
+   */
   taxTotal: number;
   /**
    * `subtotal + taxTotal` as the server derived it — the document's only total.
@@ -54,8 +58,33 @@ export interface PurchaseOrderDetail {
   productVariantName: string | null;
   quantity: number;
   unitPrice: number;
-  /** Line total, derived by the database at four decimals (`subtotal + tax`, tax 0 in this slice). */
+  /**
+   * Line total as the database derived it: `subtotal + taxAmount`, at four decimals.
+   *
+   * The wire states this total and the tax, never the line's base: the screen renders the two numbers the response
+   * carries and never subtracts or multiplies to produce a third one.
+   */
   total: number;
+  /**
+   * The fiscal code the line was written with, copied from the product when the line was created.
+   *
+   * `NA`, `TASA_0` and `EXENTO` all mean «no tax is owed», for three different reasons: a code names **what** the tax
+   * is and never how much, so the amount is read from {@link taxAmount} instead of being inferred from this one.
+   *
+   * Optional exactly like the three tax fields of `SalesOrderItem`, which is the surface this one mirrors: not because
+   * the API may omit them — the columns are `NOT NULL` — but because a fixture written before the tax columns existed
+   * carries no tax parts, and a screen reading them must render nothing rather than a `0` it invented.
+   */
+  taxCode?: string;
+  /**
+   * The rate as it stood on the document's date when the line was created, as a fraction: `0.16` is 16%.
+   *
+   * A snapshot, not a lookup: the screen prints it and never resolves a rate of its own, and a later rate change does
+   * not restate this line.
+   */
+  taxRate?: number;
+  /** `round(subtotal * taxRate, 4)`, derived by the schema from the stored rate and base and read back here. */
+  taxAmount?: number;
   receivedQuantity: number;
   comments: string | null;
   statusId: string;

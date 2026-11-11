@@ -7,6 +7,7 @@ import {
   output,
   signal,
 } from '@angular/core';
+import { PercentPipe } from '@angular/common';
 import { MatTableModule } from '@angular/material/table';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatSelectModule } from '@angular/material/select';
@@ -22,8 +23,22 @@ import { ProductVariantPicker } from '../product-variant-picker/product-variant-
 import { StatusChip } from '../status-chip/status-chip';
 import type { ProductVariant } from '@features/products/models/product-variant.models';
 
-/** Column ids of the editable draft view, in render order. */
-const BASE_COLUMNS = ['productName', 'variantName', 'quantity', 'unitPrice', 'subtotal', 'actions'];
+/**
+ * Column ids of the editable draft view, in render order.
+ *
+ * `taxAmount` and `total` are the two money parts the response states for a line. There is no `subtotal` column on
+ * purpose: the wire carries the line's total and its tax, never its base, so this table prints those two numbers and
+ * never subtracts one from the other to produce a third.
+ */
+const BASE_COLUMNS = [
+  'productName',
+  'variantName',
+  'quantity',
+  'unitPrice',
+  'taxAmount',
+  'total',
+  'actions',
+];
 
 /** Column ids the opt-in reception progress view inserts after `quantity`. */
 const RECEIPT_PROGRESS_COLUMNS = ['received', 'lineStatus'];
@@ -51,6 +66,20 @@ export interface DetailTableRow {
    */
   total?: number | null;
   /**
+   * The rate the server snapshotted for this line, as a fraction (`0.16` is 16%).
+   *
+   * Absent on a row the server has not answered for. It survives an inline edit on purpose: the rate is a snapshot of
+   * the line, so changing its quantity or its price does not re-resolve it.
+   */
+  taxRate?: number | null;
+  /**
+   * The tax the server derived from that rate and the line's base, or `null`/`undefined` when the server has not
+   * answered for this row.
+   *
+   * Never a product of the row's own fields: the amount is the server's number or nothing, exactly like {@link total}.
+   */
+  taxAmount?: number | null;
+  /**
    * Quantity already received against the line. Only the reception progress
    * view reads it, so the draft editor leaves it `undefined`.
    */
@@ -72,6 +101,7 @@ export interface DetailTableRow {
   standalone: true,
   imports: [
     MoneyPipe,
+    PercentPipe,
     MatTableModule,
     MatFormFieldModule,
     MatSelectModule,
@@ -332,7 +362,11 @@ export class DetailTable {
     if (!this.isDraft()) {
       return;
     }
-    this.patchRow(index, { quantity: Number.isFinite(value) ? value : 0, total: null });
+    this.patchRow(index, {
+      quantity: Number.isFinite(value) ? value : 0,
+      total: null,
+      taxAmount: null,
+    });
   }
 
   /** Inline-edit the unit price of an already-saved row. */
@@ -340,15 +374,22 @@ export class DetailTable {
     if (!this.isDraft()) {
       return;
     }
-    this.patchRow(index, { unitPrice: Number.isFinite(value) ? value : 0, total: null });
+    this.patchRow(index, {
+      unitPrice: Number.isFinite(value) ? value : 0,
+      total: null,
+      taxAmount: null,
+    });
   }
 
   /**
-   * Inline edits drop the server's line total.
+   * Inline edits drop the line total and the tax amount the server derived for this row.
    *
-   * The number the server derived no longer describes a row whose quantity or price just changed, and this table may
-   * not invent a replacement: it renders the server's total or nothing. Clearing it here is what keeps a stale amount
-   * from being printed as if the server had stated it for the edited row.
+   * The numbers the server derived no longer describe a row whose quantity or price just changed, and this table may
+   * not invent replacements: it renders the server's amounts or nothing. Clearing them here is what keeps a stale
+   * amount from being printed as if the server had stated it for the edited row.
+   *
+   * The **rate** is kept, and the difference is the rule rather than an oversight: the rate is the line's snapshot,
+   * resolved once when the line was written, so editing its quantity does not re-resolve it (S3).
    */
   private patchRow(index: number, patch: Partial<DetailTableRow>): void {
     this.itemsChanged.emit(

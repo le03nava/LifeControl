@@ -80,12 +80,38 @@ const mockOrder: PurchaseOrder = {
       quantity: 10,
       unitPrice: 150,
       total: 1500.0001,
+      // This order states no tax, which is the zero case the breakdown has to stay silent about.
+      taxCode: 'NA',
+      taxRate: 0,
+      taxAmount: 0,
       receivedQuantity: 0,
       comments: null,
       statusId: 'st-draft',
       statusName: 'Draft',
       createdAt: '2026-01-01T00:00:00Z',
       updatedAt: '2026-01-01T00:00:00Z',
+    },
+  ],
+};
+
+/**
+ * The same document with a tax, for the breakdown the bar has to state.
+ *
+ * `taxTotal` is one ten-thousandth above `subtotal × 0.16` (240.0000), so a bar that multiplied the base by the rate
+ * instead of reading the response cannot print the string these tests expect. `totalAmount` is the response's own sum,
+ * so the three parts stay a coherent document.
+ */
+const TAXED_ORDER: PurchaseOrder = {
+  ...mockOrder,
+  subtotal: 1500.0001,
+  taxTotal: 240.0001,
+  totalAmount: 1740.0002,
+  details: [
+    {
+      ...mockOrder.details[0],
+      taxCode: 'IVA',
+      taxRate: 0.16,
+      taxAmount: 240.0001,
     },
   ],
 };
@@ -134,6 +160,19 @@ describe('PurchaseOrderEdit', () => {
     return (
       (f.nativeElement as HTMLElement).querySelector('.actions-summary')?.textContent ?? ''
     ).trim();
+  }
+
+  /**
+   * One part of the document breakdown the sticky bar states, exactly as the DOM prints it.
+   *
+   * `undefined` when the part is absent — which is what the tax has to be on an order that states none.
+   */
+  function renderedBreakdownPart(
+    f: ComponentFixture<PurchaseOrderEdit>,
+    part: 'subtotal' | 'tax' | 'total',
+  ): string | undefined {
+    const element = (f.nativeElement as HTMLElement).querySelector(`.summary-${part}`);
+    return element?.textContent?.trim();
   }
 
   // ─── Default service mocks (empty) ──────────────────────
@@ -641,6 +680,53 @@ describe('PurchaseOrderEdit', () => {
     it('should carry no client-side total at all', () => {
       // The removed derivation, asserted by its absence: `orderTotal` summed `quantity × unitPrice` in the browser.
       expect('orderTotal' in component).toBe(false);
+    });
+
+    it('should render the three parts the response states', () => {
+      purchaseOrderService.getPurchaseOrder = vi.fn().mockReturnValue(of(TAXED_ORDER));
+      const f = TestBed.createComponent(PurchaseOrderEdit);
+      f.detectChanges();
+
+      expect(renderedBreakdownPart(f, 'subtotal')).toBe(
+        formatMoney(TAXED_ORDER.subtotal, TAXED_ORDER.currency, SPEC_LOCALE),
+      );
+      expect(renderedBreakdownPart(f, 'tax')).toBe(
+        formatMoney(TAXED_ORDER.taxTotal, TAXED_ORDER.currency, SPEC_LOCALE),
+      );
+      expect(renderedBreakdownPart(f, 'total')).toBe(
+        formatMoney(TAXED_ORDER.totalAmount, TAXED_ORDER.currency, SPEC_LOCALE),
+      );
+      // `subtotal × rate` lands a ten-thousandth lower: the bar prints the response's tax, not a product of it.
+      expect(renderedBreakdownPart(f, 'tax')).not.toBe(
+        formatMoney(
+          TAXED_ORDER.subtotal * (TAXED_ORDER.details[0].taxRate ?? 0),
+          TAXED_ORDER.currency,
+          SPEC_LOCALE,
+        ),
+      );
+    });
+
+    it('should carry the response tax into the line rows', () => {
+      purchaseOrderService.getPurchaseOrder = vi.fn().mockReturnValue(of(TAXED_ORDER));
+      const f = TestBed.createComponent(PurchaseOrderEdit);
+      f.detectChanges();
+
+      const row = f.componentInstance.lineItems()[0];
+      expect(row.taxRate).toBe(TAXED_ORDER.details[0].taxRate);
+      expect(row.taxAmount).toBe(TAXED_ORDER.details[0].taxAmount);
+    });
+
+    it('should render no tax line for an order that states no tax', () => {
+      // `mockOrder` states `taxTotal: 0`: an untaxed order must not grow a `0.0000` line it never had.
+      expect(renderedBreakdownPart(fixture, 'tax')).toBeUndefined();
+      expect(summaryText(fixture)).not.toContain('Impuesto');
+      // The parts that are always stated are still there, so the absence above is the tax and not the breakdown.
+      expect(renderedBreakdownPart(fixture, 'subtotal')).toBe(
+        formatMoney(mockOrder.subtotal, mockOrder.currency, SPEC_LOCALE),
+      );
+      expect(renderedBreakdownPart(fixture, 'total')).toBe(
+        formatMoney(mockOrder.totalAmount, mockOrder.currency, SPEC_LOCALE),
+      );
     });
 
     it('should enable the receipt progress view of the detail table for a loaded order', () => {

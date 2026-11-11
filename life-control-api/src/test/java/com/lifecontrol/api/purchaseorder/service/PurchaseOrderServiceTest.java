@@ -2005,8 +2005,12 @@ class PurchaseOrderServiceTest {
     // ─── The line's tax snapshot (S3, S4 and S5 of odd/tasks/purchase-order-line-tax.md) ───
 
     /**
-     * The copy's four halves, as only a unit suite can separate them: <b>when</b> a purchase line asks the
+     * The copy's halves, as only a unit suite can separate them: <b>when</b> a purchase line asks the
      * product for its code and the rate table for a rate, when it must not, and what it keeps of each answer.
+     *
+     * <p>A full replacement is where "born" and "edited" stop being the same question: {@code updatePurchaseOrder}
+     * soft-deletes the stored lines and writes new rows, so each replacement line takes a create's copy. That is
+     * the last case here, pinned as intended after review finding R4-1 rather than left to be rediscovered.</p>
      *
      * <p>What a rate row is and which one a date resolves belongs to {@code TaxRateServiceTest}; what the stored
      * rate becomes on the row — {@code tax_amount} and {@code total} — belongs to
@@ -2278,6 +2282,122 @@ class PurchaseOrderServiceTest {
         }
 
         /**
+         * <b>Decision (review finding R4-1, kept as intended and specified rather than silently kept).</b> A full
+         * replacement — {@code updatePurchaseOrder}, the PUT that re-sends the document's whole line set —
+         * soft-deletes the stored rows and creates <b>new</b> ones, so every replacement line copies what a created
+         * line copies: the product's <b>current</b> {@code tax_code} and the rate in effect on the order's
+         * {@code created_at}. It is <b>not</b> the "editing does not re-resolve" rule, which governs
+         * {@code updatePurchaseOrderDetail} on an existing row (the case above), because that row is the one the
+         * document already froze and this one has never existed.
+         *
+         * <p>Two conditions move the snapshot, and both are named in the spec as intended: the product's
+         * {@code tax_code} changed, or a {@code tax_rate} row with {@code effective_from <= created_at} was
+         * published <b>after</b> the order was created. The reassuring half is what bounds the damage, so the case
+         * pins it first: a rate published effective <b>after</b> {@code created_at} is invisible to the copy, so a
+         * normal rate change does not restate history.</p>
+         */
+        @Test
+        @DisplayName("replacing the whole line set re-copies each new row from the product's current code and the"
+                + " rate in effect on the document's date: a rate published afterwards never moves it, a changed"
+                + " code does (R4-1)")
+        void replacingTheLines_reCopiesFromTheProductsCurrentCodeAndTheDocumentsOwnDate() {
+            // The line the order was created with: IVA at 16%, the pair a created line stores.
+            var storedLine = PurchaseOrderDetail.builder()
+                    .id(detailId)
+                    .purchaseOrder(purchaseOrder)
+                    .product(product)
+                    .productVariant(productVariant)
+                    .quantity(new BigDecimal("3.00"))
+                    .unitPrice(new BigDecimal("150.00"))
+                    .taxCode("IVA")
+                    .taxRate(new BigDecimal("0.160000"))
+                    .receivedQuantity(BigDecimal.ZERO)
+                    .status(PurchaseOrderDetailState.PENDING)
+                    .enabled(true)
+                    .build();
+            purchaseOrder.getDetails().add(storedLine);
+
+            // The catalog the company has published: IVA at 16% since 2026-01-01, and a 5% row effective
+            // 2026-07-01 — after the order's own date, 2026-06-03 (`purchaseOrder.createdAt` in the fixture).
+            //
+            // The stub answers by the DATE it is asked for, so an implementation that resolved against today, or
+            // against the newest row, answers 0.05 and the assertion below sees it. Nothing else in the fixture
+            // can produce 0.16, which is what keeps the reassuring half from being decorative.
+            var inEffectOnTheDocumentDate = new TaxRateResolution(
+                    UUID.randomUUID(), "IVA", new BigDecimal("0.160000"), LocalDate.of(2026, 1, 1));
+            var publishedAfterwards = new TaxRateResolution(
+                    UUID.randomUUID(), "IVA", new BigDecimal("0.050000"), LocalDate.of(2026, 7, 1));
+            when(taxRateService.resolve(eq(companyId), eq("IVA"), any())).thenAnswer(inv -> {
+                LocalDate askedOn = inv.getArgument(2);
+                return askedOn.isBefore(publishedAfterwards.effectiveFrom())
+                        ? Optional.of(inEffectOnTheDocumentDate)
+                        : Optional.of(publishedAfterwards);
+            });
+            when(productVariantRepository.findProductTaxCodeByVariantId(variantId))
+                    .thenReturn(Optional.of("IVA"));
+
+            stubReplacementUpdate();
+            var sameLine = new PurchaseOrderDetailRequest(
+                    productId,
+                    variantId,
+                    new BigDecimal("3.00"),
+                    new BigDecimal("150.00"),
+                    null,
+                    pendingStatus.getId());
+            var request = new PurchaseOrderRequest(
+                    supplierId, storeId, pmId, draftStatusId, "Same line, sent again", List.of(sameLine));
+            var written = ArgumentCaptor.forClass(PurchaseOrderDetail.class);
+            when(detailRepository.save(written.capture())).thenAnswer(inv -> inv.getArgument(0));
+
+            service.updatePurchaseOrder(poId, request);
+
+            // ── Half 1: a rate published after `created_at` does not move the snapshot ──
+            var replacement = written.getAllValues().getLast();
+            assertThat(replacement)
+                    .as("a full replacement writes a NEW row; the stored one is soft-deleted, which is exactly why "
+                            + "this copy is a create's copy and not an edit's")
+                    .isNotSameAs(storedLine);
+            assertThat(storedLine.getEnabled())
+                    .as("the row the document was created with is replaced, not edited")
+                    .isFalse();
+            assertThat(replacement.getTaxCode()).isEqualTo("IVA");
+            assertThat(replacement.getTaxRate())
+                    .as("the 5% row is effective from 2026-07-01 and the order was created on 2026-06-03, so a "
+                            + "normal rate change does not restate a historical document")
+                    .isEqualByComparingTo(new BigDecimal("0.160000"));
+            var askedOn = ArgumentCaptor.forClass(LocalDate.class);
+            verify(taxRateService).resolve(eq(companyId), eq("IVA"), askedOn.capture());
+            assertThat(askedOn.getValue())
+                    .as("the date is the document's own `created_at`, not the instant this edit runs")
+                    .isEqualTo(LocalDate.of(2026, 6, 3));
+
+            // ── Half 2: a changed product code does move the snapshot — what R4-1 flagged, now pinned ──
+            // The product stops being taxable. The next replacement line is a new row too, so it reads the
+            // product's current code instead of inheriting the one the replaced row carried.
+            when(productVariantRepository.findProductTaxCodeByVariantId(variantId))
+                    .thenReturn(Optional.of("EXENTO"));
+
+            service.updatePurchaseOrder(poId, request);
+
+            var recoded = written.getAllValues().getLast();
+            assertThat(recoded).isNotSameAs(replacement);
+            assertThat(recoded.getTaxCode())
+                    .as("the replacement row is new, so it carries the product's CURRENT code; the code the "
+                            + "replaced row froze stays on the soft-deleted row it belongs to")
+                    .isEqualTo("EXENTO");
+            assertThat(recoded.getTaxRate())
+                    .as("EXENTO is zero by definition, so the new row states 0 for the new code")
+                    .isEqualByComparingTo(BigDecimal.ZERO);
+            // The interaction, not only the number: the second write asked the product again, once per write. This
+            // is what separates "the new row copied the current code" from "the new row inherited the replaced
+            // row's pair", which would leave the product repository untouched on this PUT.
+            verify(productVariantRepository, times(2)).findProductTaxCodeByVariantId(variantId);
+            // Still exactly one ask across both writes: the zero-by-definition code answers 0 without the rate
+            // table, and the first write was the only one that had a rate to resolve.
+            verify(taxRateService, times(1)).resolve(any(), any(), any());
+        }
+
+        /**
          * Everything a successful create needs that no tax case decides: the store's company, its supplier, the
          * payment method, the catalog rows, the product and the number. Each case states its own tax answer.
          */
@@ -2292,6 +2412,23 @@ class PurchaseOrderServiceTest {
             when(documentSequenceAllocator.allocate(eq(companyId), eq(DocumentType.PURCHASE_ORDER), anyString()))
                     .thenReturn(1L);
             return request;
+        }
+
+        /**
+         * Everything the full-replacement route needs that no tax case decides. It is not {@link #stubCreateOf}
+         * because only a create allocates a document number, and a stub this route never reaches would fail the
+         * case for the stub it did not need instead of for the behaviour it asserts.
+         */
+        private void stubReplacementUpdate() {
+            when(purchaseOrderRepository.findById(poId)).thenReturn(Optional.of(purchaseOrder));
+            when(companyStoreRepository.findById(storeId)).thenReturn(Optional.of(store));
+            when(supplierRepository.findByIdAndCompanyId(supplierId, companyId)).thenReturn(Optional.of(supplier));
+            when(paymentMethodRepository.findById(pmId)).thenReturn(Optional.of(paymentMethod));
+            catalogRow(draftStatus);
+            catalogRow(pendingStatus);
+            when(productRepository.findById(productId)).thenReturn(Optional.of(product));
+            stubStockedVariant(productVariant);
+            when(purchaseOrderRepository.save(any(PurchaseOrder.class))).thenReturn(purchaseOrder);
         }
 
         /** A variant of the fixture's product that the order's store stocks, which is what a line must name. */
