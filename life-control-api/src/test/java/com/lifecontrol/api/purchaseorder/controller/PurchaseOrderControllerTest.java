@@ -387,6 +387,25 @@ class PurchaseOrderControllerTest {
                     .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.errors.productVariantId").value("productVariantId is required"));
         }
+
+        @Test
+        @DisplayName("should return 409 when the order is not Draft")
+        void returns409WhenOrderIsNotDraft() throws Exception {
+            var detailReq = new PurchaseOrderDetailRequest(
+                    productId,
+                    UUID.randomUUID(),
+                    BigDecimal.valueOf(5),
+                    new BigDecimal("100.00"),
+                    "Note",
+                    null);
+            when(purchaseOrderService.addPurchaseOrderDetail(eq(poId), any()))
+                    .thenThrow(new InvalidStatusTransitionException("SENT", "detail mutation"));
+
+            mockMvc.perform(post("/api/purchase-orders/{id}/details", poId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(detailReq)))
+                    .andExpect(status().isConflict());
+        }
     }
 
     // ─── PUT detail ─────────────────────────────────────────────────────
@@ -425,6 +444,25 @@ class PurchaseOrderControllerTest {
                     .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.errors.productVariantId").value("productVariantId is required"));
         }
+
+        @Test
+        @DisplayName("should return 409 when the order is not Draft")
+        void returns409WhenOrderIsNotDraft() throws Exception {
+            var detailReq = new PurchaseOrderDetailRequest(
+                    productId,
+                    UUID.randomUUID(),
+                    BigDecimal.valueOf(10),
+                    new BigDecimal("50.00"),
+                    "Updated",
+                    null);
+            when(purchaseOrderService.updatePurchaseOrderDetail(eq(poId), eq(detailId), any()))
+                    .thenThrow(new InvalidStatusTransitionException("SENT", "detail mutation"));
+
+            mockMvc.perform(put("/api/purchase-orders/{id}/details/{did}", poId, detailId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(detailReq)))
+                    .andExpect(status().isConflict());
+        }
     }
 
     // ─── DELETE detail ──────────────────────────────────────────────────
@@ -449,6 +487,17 @@ class PurchaseOrderControllerTest {
 
             mockMvc.perform(delete("/api/purchase-orders/{id}/details/{did}", poId, detailId))
                     .andExpect(status().isNotFound());
+        }
+
+        @Test
+        @DisplayName("should return 409 when the order is not Draft")
+        void returns409WhenOrderIsNotDraft() throws Exception {
+            doThrow(new InvalidStatusTransitionException("SENT", "detail mutation"))
+                    .when(purchaseOrderService)
+                    .deletePurchaseOrderDetail(poId, detailId);
+
+            mockMvc.perform(delete("/api/purchase-orders/{id}/details/{did}", poId, detailId))
+                    .andExpect(status().isConflict());
         }
     }
 

@@ -1104,6 +1104,42 @@ class PurchaseOrderServiceTest {
             assertThatThrownBy(() -> service.addPurchaseOrderDetail(poId, detailReq))
                     .isInstanceOf(ProductNotFoundException.class);
         }
+
+        @Test
+        @DisplayName("should create the line in Pending, and consult no catalog row, when the payload omits statusId")
+        void createsLineInPendingWhenStatusIdIsOmitted() {
+            var detailReq = new PurchaseOrderDetailRequest(
+                    productId,
+                    variantId,
+                    BigDecimal.valueOf(2),
+                    new BigDecimal("50.00"),
+                    "Note",
+                    null);
+
+            when(purchaseOrderRepository.findById(poId)).thenReturn(Optional.of(purchaseOrder));
+            when(productRepository.findById(productId)).thenReturn(Optional.of(product));
+            when(productVariantRepository.findByIdAndProductIdAndCompanyIdAndEnabledTrue(
+                            variantId, productId, companyId))
+                    .thenReturn(Optional.of(productVariant));
+            when(productVariantStoreStockRepository.existsByProductVariantIdAndCompanyStoreId(variantId, storeId))
+                    .thenReturn(true);
+            when(detailRepository.save(any(PurchaseOrderDetail.class))).thenAnswer(inv -> {
+                var d = inv.getArgument(0, PurchaseOrderDetail.class);
+                d.setId(detailId);
+                d.setTotal(new BigDecimal("100.0000"));
+                return d;
+            });
+
+            var result = service.addPurchaseOrderDetail(poId, detailReq);
+
+            // The absence resolves to the constant every line is born in, which is the same state the
+            // whole-order create path names for the same absence.
+            assertThat(result.status()).isEqualTo("PENDING");
+            assertThat(result.statusId()).isEqualTo(pendingStatus.getId());
+            // ...and it resolves it without a catalog read: a caller that carries no state catalog in hand
+            // causes no lookup at all, which is what made the route unusable (S1, D1).
+            verify(statusRepository, never()).findWithStatusTypeById(any());
+        }
     }
 
     // ─── updatePurchaseOrderDetail ───────────────────────────────────────
@@ -1124,7 +1160,7 @@ class PurchaseOrderServiceTest {
                     pendingStatus.getId());
 
             when(purchaseOrderRepository.findById(poId)).thenReturn(Optional.of(purchaseOrder));
-            when(detailRepository.findById(detailId)).thenReturn(Optional.of(detail));
+            when(detailRepository.findByIdAndPurchaseOrderIdAndEnabledTrue(detailId, poId)).thenReturn(Optional.of(detail));
             when(productRepository.findById(productId)).thenReturn(Optional.of(product));
             when(productVariantRepository.findByIdAndProductIdAndCompanyIdAndEnabledTrue(
                             variantId, productId, companyId))
@@ -1153,10 +1189,90 @@ class PurchaseOrderServiceTest {
                     productId, null, BigDecimal.valueOf(10), new BigDecimal("25.00"), "Updated", pendingStatus.getId());
 
             when(purchaseOrderRepository.findById(poId)).thenReturn(Optional.of(purchaseOrder));
-            when(detailRepository.findById(detailId)).thenReturn(Optional.empty());
+            when(detailRepository.findByIdAndPurchaseOrderIdAndEnabledTrue(detailId, poId)).thenReturn(Optional.empty());
 
             assertThatThrownBy(() -> service.updatePurchaseOrderDetail(poId, detailId, updatedReq))
                     .isInstanceOf(PurchaseOrderDetailNotFoundException.class);
+        }
+
+        @Test
+        @DisplayName("should keep the stored status and evaluate no transition when the payload omits statusId")
+        void keepsTheStoredStatusWhenStatusIdIsOmitted() {
+            // A state that is not the initial one, so a fallback to PENDING would be visible here.
+            detail.setStatus(PurchaseOrderDetailState.IN_PROCESS);
+            var updatedReq = new PurchaseOrderDetailRequest(
+                    productId, variantId, BigDecimal.valueOf(3), new BigDecimal("10.00"), "Edited", null);
+
+            when(purchaseOrderRepository.findById(poId)).thenReturn(Optional.of(purchaseOrder));
+            when(detailRepository.findByIdAndPurchaseOrderIdAndEnabledTrue(detailId, poId))
+                    .thenReturn(Optional.of(detail));
+            when(productRepository.findById(productId)).thenReturn(Optional.of(product));
+            when(productVariantRepository.findByIdAndProductIdAndCompanyIdAndEnabledTrue(
+                            variantId, productId, companyId))
+                    .thenReturn(Optional.of(productVariant));
+            when(productVariantStoreStockRepository.existsByProductVariantIdAndCompanyStoreId(variantId, storeId))
+                    .thenReturn(true);
+            when(detailRepository.save(any(PurchaseOrderDetail.class))).thenAnswer(inv -> {
+                var d = inv.getArgument(0, PurchaseOrderDetail.class);
+                d.setTotal(new BigDecimal("30.0000"));
+                return d;
+            });
+
+            var result = service.updatePurchaseOrderDetail(poId, detailId, updatedReq);
+
+            assertThat(result.status()).isEqualTo("IN_PROCESS");
+            assertThat(result.statusId()).isEqualTo(inProcessStatus.getId());
+            assertThat(detail.getStatus()).isEqualTo(PurchaseOrderDetailState.IN_PROCESS);
+        }
+
+        @Test
+        @DisplayName("should still refuse a state the payload sends that the line cannot reach")
+        void refusesAForbiddenExplicitTransition() {
+            var updatedReq = new PurchaseOrderDetailRequest(
+                    productId,
+                    variantId,
+                    BigDecimal.valueOf(3),
+                    new BigDecimal("10.00"),
+                    "Edited",
+                    receivedStatus.getId());
+
+            when(purchaseOrderRepository.findById(poId)).thenReturn(Optional.of(purchaseOrder));
+            when(detailRepository.findByIdAndPurchaseOrderIdAndEnabledTrue(detailId, poId))
+                    .thenReturn(Optional.of(detail));
+            when(productRepository.findById(productId)).thenReturn(Optional.of(product));
+            when(productVariantRepository.findByIdAndProductIdAndCompanyIdAndEnabledTrue(
+                            variantId, productId, companyId))
+                    .thenReturn(Optional.of(productVariant));
+            when(productVariantStoreStockRepository.existsByProductVariantIdAndCompanyStoreId(variantId, storeId))
+                    .thenReturn(true);
+            catalogRow(receivedStatus);
+
+            // PENDING reaches IN_PROCESS and CANCELLED, never RECEIVED.
+            assertThatThrownBy(() -> service.updatePurchaseOrderDetail(poId, detailId, updatedReq))
+                    .isInstanceOf(InvalidStatusTransitionException.class)
+                    .hasMessage("Invalid status transition: PENDING → RECEIVED");
+            // Refused before the first setter: the row still states what it stated, and nothing is written.
+            assertThat(detail.getQuantity()).isEqualByComparingTo("5");
+            assertThat(detail.getUnitPrice()).isEqualByComparingTo("100.00");
+            verify(detailRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("should answer 404 and write nothing when the line belongs to another order")
+        void refusesALineOfAnotherOrder() {
+            var updatedReq = new PurchaseOrderDetailRequest(
+                    productId, variantId, BigDecimal.valueOf(3), new BigDecimal("10.00"), "Edited", null);
+
+            when(purchaseOrderRepository.findById(poId)).thenReturn(Optional.of(purchaseOrder));
+            when(detailRepository.findByIdAndPurchaseOrderIdAndEnabledTrue(detailId, poId))
+                    .thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> service.updatePurchaseOrderDetail(poId, detailId, updatedReq))
+                    .isInstanceOf(PurchaseOrderDetailNotFoundException.class);
+            // The path's second id is part of the lookup, not a decoration: the same line is reachable only
+            // through the order that owns it (S3, D3).
+            verify(detailRepository).findByIdAndPurchaseOrderIdAndEnabledTrue(detailId, poId);
+            verify(detailRepository, never()).save(any());
         }
     }
 
@@ -1170,7 +1286,7 @@ class PurchaseOrderServiceTest {
         @DisplayName("should soft-delete detail")
         void softDeletesDetail() {
             when(purchaseOrderRepository.findById(poId)).thenReturn(Optional.of(purchaseOrder));
-            when(detailRepository.findById(detailId)).thenReturn(Optional.of(detail));
+            when(detailRepository.findByIdAndPurchaseOrderIdAndEnabledTrue(detailId, poId)).thenReturn(Optional.of(detail));
 
             service.deletePurchaseOrderDetail(poId, detailId);
 
@@ -1182,10 +1298,54 @@ class PurchaseOrderServiceTest {
         @DisplayName("should throw PurchaseOrderDetailNotFoundException when detail missing")
         void throwsWhenDetailMissing() {
             when(purchaseOrderRepository.findById(poId)).thenReturn(Optional.of(purchaseOrder));
-            when(detailRepository.findById(detailId)).thenReturn(Optional.empty());
+            when(detailRepository.findByIdAndPurchaseOrderIdAndEnabledTrue(detailId, poId)).thenReturn(Optional.empty());
 
             assertThatThrownBy(() -> service.deletePurchaseOrderDetail(poId, detailId))
                     .isInstanceOf(PurchaseOrderDetailNotFoundException.class);
+        }
+
+        @Test
+        @DisplayName("should answer 404 and leave every row alone when the line belongs to another order")
+        void refusesALineOfAnotherOrder() {
+            when(purchaseOrderRepository.findById(poId)).thenReturn(Optional.of(purchaseOrder));
+            when(detailRepository.findByIdAndPurchaseOrderIdAndEnabledTrue(detailId, poId))
+                    .thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> service.deletePurchaseOrderDetail(poId, detailId))
+                    .isInstanceOf(PurchaseOrderDetailNotFoundException.class);
+            verify(detailRepository).findByIdAndPurchaseOrderIdAndEnabledTrue(detailId, poId);
+            verify(detailRepository, never()).save(any());
+        }
+    }
+
+    // ─── The Draft guard on the three detail writes (S4) ─────────────────
+
+    @Nested
+    @DisplayName("detail writes on an order that is not Draft")
+    class DetailWriteDraftGuardTests {
+
+        @Test
+        @DisplayName("should refuse POST, PUT and DELETE with the transition conflict and save nothing")
+        void refusesEveryDetailWriteWhenTheOrderLeftDraft() {
+            purchaseOrder.setStatus(PurchaseOrderState.SENT);
+            when(purchaseOrderRepository.findById(poId)).thenReturn(Optional.of(purchaseOrder));
+            var detailReq = new PurchaseOrderDetailRequest(
+                    productId, variantId, BigDecimal.ONE, new BigDecimal("10.00"), "Note", null);
+
+            // One rule, three routes: the guard is the same call and it answers the same conflict.
+            assertThatThrownBy(() -> service.addPurchaseOrderDetail(poId, detailReq))
+                    .isInstanceOf(InvalidStatusTransitionException.class)
+                    .hasMessage("Invalid status transition: SENT → detail mutation");
+            assertThatThrownBy(() -> service.updatePurchaseOrderDetail(poId, detailId, detailReq))
+                    .isInstanceOf(InvalidStatusTransitionException.class)
+                    .hasMessage("Invalid status transition: SENT → detail mutation");
+            assertThatThrownBy(() -> service.deletePurchaseOrderDetail(poId, detailId))
+                    .isInstanceOf(InvalidStatusTransitionException.class)
+                    .hasMessage("Invalid status transition: SENT → detail mutation");
+
+            // Nothing stored moved: no line was written and none was even read.
+            verify(detailRepository, never()).save(any());
+            verify(detailRepository, never()).findByIdAndPurchaseOrderIdAndEnabledTrue(any(), any());
         }
     }
 
@@ -1359,7 +1519,7 @@ class PurchaseOrderServiceTest {
                     pendingStatus.getId());
 
             when(purchaseOrderRepository.findById(poId)).thenReturn(Optional.of(purchaseOrder));
-            when(detailRepository.findById(detailId)).thenReturn(Optional.of(detail));
+            when(detailRepository.findByIdAndPurchaseOrderIdAndEnabledTrue(detailId, poId)).thenReturn(Optional.of(detail));
             when(productRepository.findById(productId)).thenReturn(Optional.of(product));
             when(productVariantRepository.findByIdAndProductIdAndCompanyIdAndEnabledTrue(
                             variantId, productId, companyId))
@@ -1381,7 +1541,7 @@ class PurchaseOrderServiceTest {
                     pendingStatus.getId());
 
             when(purchaseOrderRepository.findById(poId)).thenReturn(Optional.of(purchaseOrder));
-            when(detailRepository.findById(detailId)).thenReturn(Optional.of(detail));
+            when(detailRepository.findByIdAndPurchaseOrderIdAndEnabledTrue(detailId, poId)).thenReturn(Optional.of(detail));
             when(productRepository.findById(productId)).thenReturn(Optional.of(product));
             when(productVariantRepository.findByIdAndProductIdAndCompanyIdAndEnabledTrue(
                             variantId, productId, companyId))
@@ -2211,7 +2371,7 @@ class PurchaseOrderServiceTest {
                     .build();
 
             when(purchaseOrderRepository.findById(poId)).thenReturn(Optional.of(purchaseOrder));
-            when(detailRepository.findById(detailId)).thenReturn(Optional.of(taxedLine));
+            when(detailRepository.findByIdAndPurchaseOrderIdAndEnabledTrue(detailId, poId)).thenReturn(Optional.of(taxedLine));
             when(productRepository.findById(productId)).thenReturn(Optional.of(product));
             stubStockedVariant(productVariant);
             catalogRow(pendingStatus);
