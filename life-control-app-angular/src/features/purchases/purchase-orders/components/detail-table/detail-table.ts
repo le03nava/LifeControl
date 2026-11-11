@@ -115,13 +115,26 @@ export interface DetailLinePatch {
 }
 
 /**
+ * One option of the supplier's catalogue, as the host's search answered it.
+ *
+ * Narrower than `SupplierProduct` on purpose: the picker only needs something to show and an id to select, and the
+ * host is the one that owns the term and the request.
+ */
+export interface CatalogueOption {
+  id: string;
+  name: string;
+  sku: string;
+}
+
+/**
  * Standalone line-items table component.
  *
  * Displays product, quantity, unit price, and subtotal columns.
  * Includes an "add row" form and per-row delete buttons guarded by `isDraft`.
  *
  * The table persists nothing and stages nothing: an add, an inline edit and a delete are emitted, and the rows it renders
- * are always the ones its host holds, which the host reconciles from each answer.
+ * are always the ones its host holds, which the host reconciles from each answer. The product catalogue is the same
+ * arrangement: the host searches the server and this table renders what it is handed and emits the term.
  *
  * Covers spec Requirement 7, scenarios 7.1-7.5.
  */
@@ -154,8 +167,43 @@ export class DetailTable {
   /** Whether the parent order is in Draft status (mutation guard). */
   readonly isDraft = input<boolean>(false);
 
-  /** Available products for the add-row product autocomplete. */
-  readonly availableProducts = input.required<{ id: string; name: string; sku: string }[]>();
+  /**
+   * The supplier's catalogue as the host's last search answered it.
+   *
+   * Already narrowed: the search happens on the server (S6), so this table never filters the list it is given.
+   */
+  readonly availableProducts = input.required<CatalogueOption[]>();
+
+  /** Whether the host has a catalogue read in flight; drives the in-panel status row. */
+  readonly searching = input<boolean>(false);
+
+  /** Whether the host's last catalogue read failed, which is not the same fact as an empty catalogue. */
+  readonly searchFailed = input<boolean>(false);
+
+  /**
+   * The term the options on screen answer for: `''` when they are the supplier's whole catalogue.
+   *
+   * The host states it because only the host knows which term reached the server — a one-character term issues no
+   * request at all — and without it "the supplier has no products" and "nothing matched" would read the same.
+   */
+  readonly searchedTerm = input<string>('');
+
+  /** Lines being written, by detail id. One line's state is that line's, so it renders on the row (S5). */
+  readonly linePending = input<Record<string, boolean>>({});
+
+  /** The message a rejected line carries, by detail id. */
+  readonly lineErrors = input<Record<string, string>>({});
+
+  /**
+   * Whether the add attempt is in flight.
+   *
+   * The host resolves it from its own sentinel key: a line the operator just added has no detail id until the server
+   * answers for it, and this table holds no id of the host's making.
+   */
+  readonly newLinePending = input<boolean>(false);
+
+  /** The message a rejected add carries. */
+  readonly newLineError = input<string | null>(null);
 
   /**
    * Store that scopes the variant picker. Required: a line without a store
@@ -195,6 +243,9 @@ export class DetailTable {
   /** Emits the id of the saved line the operator asked to delete. */
   readonly lineRemoved = output<string>();
 
+  /** Emits the term the operator typed into the product field, so the host can search the server (S6). */
+  readonly searchChanged = output<string>();
+
   /**
    * Narrow viewports render one card per line item instead of the overflowing
    * `mat-table`.
@@ -220,16 +271,6 @@ export class DetailTable {
    * Reset whenever the product or the variant changes, and after a line is added.
    */
   private readonly priceManuallyEdited = signal(false);
-
-  /** Products filtered by the local search query (client-side on the already supplier-filtered list). */
-  readonly filteredProducts = computed(() => {
-    const query = this.searchQuery().toLowerCase();
-    const products = this.availableProducts();
-    if (!query) return products;
-    return products.filter(
-      (p) => p.name.toLowerCase().includes(query) || p.sku.toLowerCase().includes(query),
-    );
-  });
 
   // ─── Computed ──────────────────────────────────────────
   /**
@@ -264,6 +305,7 @@ export class DetailTable {
   readonly canAddItem = computed(
     () =>
       this.isDraft() &&
+      !this.newLinePending() &&
       this.newProductId() !== '' &&
       this.newVariantId() !== null &&
       this.isSelectedVariantInScope() &&
@@ -293,6 +335,16 @@ export class DetailTable {
 
   isRowInvalid(row: DetailTableRow): boolean {
     return row.quantity <= 0 || row.unitPrice <= 0;
+  }
+
+  /** Whether this row is the one a write is in flight for. */
+  isRowPending(row: DetailTableRow): boolean {
+    return row.id !== undefined && this.linePending()[row.id] === true;
+  }
+
+  /** The message the server gave for this row's rejected write, if it has one. */
+  rowError(row: DetailTableRow): string | null {
+    return row.id === undefined ? null : (this.lineErrors()[row.id] ?? null);
   }
 
   // ─── Mutations ─────────────────────────────────────────
@@ -328,6 +380,8 @@ export class DetailTable {
     this.selectedVariant.set(null);
     this.searchQuery.set('');
     this.priceManuallyEdited.set(false);
+    // The field is empty again, so the options behind it have to be the whole catalogue again, not the previous search.
+    this.searchChanged.emit('');
   }
 
   removeItem(index: number): void {
@@ -358,6 +412,8 @@ export class DetailTable {
     // Any manual edit invalidates the previous selection, otherwise "+" would
     // add a product that no longer matches what the field shows.
     this.newProductId.set('');
+    // The term is the host's to search: nothing is filtered here (S6).
+    this.searchChanged.emit(value);
   }
 
   onNewQuantityChange(value: number): void {

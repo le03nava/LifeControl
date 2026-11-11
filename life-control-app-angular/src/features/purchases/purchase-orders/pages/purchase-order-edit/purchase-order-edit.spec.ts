@@ -825,7 +825,7 @@ describe('PurchaseOrderEdit', () => {
       expect(row.statusName).toBe('Draft');
     });
 
-    it('should keep the unsaved-changes baseline after loading a received line', () => {
+    it('should not report unsaved changes after loading a received line', () => {
       const receivedOrder: PurchaseOrder = {
         ...mockOrder,
         statusName: 'Accepted',
@@ -839,8 +839,8 @@ describe('PurchaseOrderEdit', () => {
 
       expect(comp.lineItems()[0].receivedQuantity).toBe(4);
       expect(comp.lineItems()[0].statusName).toBe('Partial Received');
-      // The baseline is taken from the same mapped rows, so the receipt fields
-      // must not make a freshly loaded order look dirty.
+      // The receipt fields describe lines the server already holds, so they must
+      // not make a freshly loaded order look dirty.
       expect(comp.hasUnsavedChanges()).toBe(false);
     });
 
@@ -887,8 +887,17 @@ describe('PurchaseOrderEdit', () => {
     });
 
     it('should follow the header store selection for the variant picker', () => {
-      component.headerForm().controls.companyStoreId.setValue('store-9');
-      expect(component.variantStoreId()).toBe('store-9');
+      // A store the operator picks only moves while the order holds no lines: with one, the store is locked and a
+      // disabled control emits no value change (S7).
+      purchaseOrderService.getPurchaseOrder = vi
+        .fn()
+        .mockReturnValue(of({ ...mockOrder, details: [] }));
+      const f = TestBed.createComponent(PurchaseOrderEdit);
+      f.detectChanges();
+
+      f.componentInstance.headerForm().controls.companyStoreId.setValue('store-9');
+
+      expect(f.componentInstance.variantStoreId()).toBe('store-9');
     });
 
     it('should compute isDraft = true when statusName is Draft', () => {
@@ -928,13 +937,24 @@ describe('PurchaseOrderEdit', () => {
       expect(component.hasUnsavedChanges()).toBe(false);
     });
 
-    it('should report unsaved changes after editing line items', () => {
+    it('should not report unsaved changes after a line was persisted', () => {
       purchaseOrderService.updateDetail = vi
         .fn()
         .mockReturnValue(of(detailFixture({ quantity: 20 })));
 
       component.updateLine('det-1', { quantity: 20 });
 
+      // Every line saves on its own request as it is added or edited, so a persisted line leaves nothing unsaved
+      // behind and navigating away must not prompt about it (S11).
+      expect(component.hasUnsavedChanges()).toBe(false);
+    });
+
+    it('should still report unsaved changes for a header edit while the order holds lines', () => {
+      expect(component.lineItems().length).toBeGreaterThan(0);
+
+      component.headerForm().controls.comments.setValue('nota sin guardar');
+
+      // The guard covers the header alone, and the header of an order with lines is still the operator's to edit.
       expect(component.hasUnsavedChanges()).toBe(true);
     });
 
@@ -1252,6 +1272,302 @@ describe('PurchaseOrderEdit', () => {
 
       // The added line was written before the loaded one, so it sorts first even though it arrived last.
       expect(component.lineItems().map((item) => item.id)).toEqual(['det-0', 'det-1']);
+    });
+  });
+
+  // ══════════════════════════════════════════════════════════
+  // HEADER LOCK
+  // ══════════════════════════════════════════════════════════
+
+  describe('header lock', () => {
+    beforeEach(async () => {
+      await TestBed.configureTestingModule({
+        imports: [PurchaseOrderEdit, HttpClientTestingModule],
+        providers: baseProviders('po-1'),
+      }).compileComponents();
+
+      purchaseOrderService = TestBed.inject(
+        PurchaseOrderService,
+      ) as unknown as typeof purchaseOrderService;
+      fixture = TestBed.createComponent(PurchaseOrderEdit);
+      component = fixture.componentInstance;
+      fixture.detectChanges();
+    });
+
+    /** The page rendered over a given document, for the cases that need an order without lines. */
+    function renderWithOrder(order: PurchaseOrder) {
+      purchaseOrderService.getPurchaseOrder = vi.fn().mockReturnValue(of(order));
+      const rendered = TestBed.createComponent(PurchaseOrderEdit);
+      const comp = rendered.componentInstance;
+      rendered.detectChanges();
+      return { rendered, comp };
+    }
+
+    it('should not lock the header while the order holds no lines', () => {
+      const { comp } = renderWithOrder({ ...mockOrder, details: [] });
+
+      // Editable at zero lines, so a typo is still correctable before a line is loaded (S7, D2).
+      expect(comp.headerLocked()).toBe(false);
+      expect(comp.headerForm().controls.supplierId.disabled).toBe(false);
+      expect(comp.headerForm().controls.companyStoreId.disabled).toBe(false);
+    });
+
+    it('should lock the supplier and the store once the order holds a line', () => {
+      expect(component.lineItems().length).toBe(1);
+      expect(component.headerLocked()).toBe(true);
+
+      // The lock is applied to the control through the form, so its validity and its value follow the lock instead of
+      // a `[disabled]` attribute the control would ignore.
+      expect(component.headerForm().controls.supplierId.disabled).toBe(true);
+      expect(component.headerForm().controls.companyStoreId.disabled).toBe(true);
+    });
+
+    it('should lock the header when the first line is added to an order that had none', () => {
+      const { rendered, comp } = renderWithOrder({ ...mockOrder, details: [] });
+      purchaseOrderService.addDetail = vi.fn().mockReturnValue(of(detailFixture({ id: 'det-9' })));
+      expect(comp.headerLocked()).toBe(false);
+
+      comp.addLine({ productId: 'prod-2', productVariantId: 'var-2', quantity: 2, unitPrice: 30 });
+      rendered.detectChanges();
+
+      expect(comp.lineItems().map((item) => item.id)).toEqual(['det-9']);
+      expect(comp.headerLocked()).toBe(true);
+      expect(comp.headerForm().controls.supplierId.disabled).toBe(true);
+      expect(comp.headerForm().controls.companyStoreId.disabled).toBe(true);
+    });
+
+    it('should keep the payment method and the comments editable while the header is locked', () => {
+      expect(component.headerForm().controls.paymentMethodId.disabled).toBe(false);
+      expect(component.headerForm().controls.comments.disabled).toBe(false);
+
+      component.headerForm().controls.paymentMethodId.setValue('pm-2');
+      component.headerForm().controls.comments.setValue('nota con la orden bloqueada');
+      component.onSave();
+
+      expect(purchaseOrderService.update).toHaveBeenCalledWith('po-1', {
+        supplierId: 'sup-1',
+        companyStoreId: 'store-1',
+        paymentMethodId: 'pm-2',
+        comments: 'nota con la orden bloqueada',
+      });
+    });
+
+    it('should still send the locked supplier and store, which the raw value carries', () => {
+      // The lock disables the control; it does not drop its value. `onSave` reads `getRawValue()`, so the request still
+      // states the store and the supplier the lines were bought from.
+      expect(component.headerForm().getRawValue().supplierId).toBe('sup-1');
+
+      component.onSave();
+
+      expect(purchaseOrderService.update).toHaveBeenCalledWith('po-1', {
+        supplierId: 'sup-1',
+        companyStoreId: 'store-1',
+        paymentMethodId: 'pm-1',
+        comments: 'Test order',
+      });
+    });
+
+    it('should not let the company cascade move the locked store', () => {
+      const cascadeChild = fixture.debugElement.query(By.directive(CompanyInfoSection))
+        .componentInstance as CompanyInfoSection;
+      expect(component.headerForm().controls.companyStoreId.value).toBe('store-1');
+
+      cascadeChild.onCompanyChange('comp-2');
+      fixture.detectChanges();
+
+      // Every cascade handler empties the store; with a line in the order the store is the order's and cannot move, so
+      // the locked value stays authoritative and the variant picker keeps its scope (S7).
+      expect(component.headerForm().controls.companyStoreId.value).toBe('store-1');
+      expect(component.headerForm().controls.companyStoreId.disabled).toBe(true);
+      expect(component.variantStoreId()).toBe('store-1');
+    });
+
+    it('should unlock the supplier and the store when the last line is removed', () => {
+      purchaseOrderService.deleteDetail = vi.fn().mockReturnValue(of(undefined));
+
+      component.removeLine('det-1');
+      fixture.detectChanges();
+
+      // Removing the lines is the only way back: no unlock control exists (S8).
+      expect(component.lineItems()).toEqual([]);
+      expect(component.headerLocked()).toBe(false);
+      expect(component.headerForm().controls.supplierId.disabled).toBe(false);
+      expect(component.headerForm().controls.companyStoreId.disabled).toBe(false);
+    });
+
+    it('should explain the lock next to each control it locks', () => {
+      const element = fixture.nativeElement as HTMLElement;
+
+      // The reason sits with the control it locks, and it names the path that releases it (S8).
+      expect(element.querySelector('.supplier-lock-reason')?.textContent).toContain(
+        'Eliminá las líneas',
+      );
+      expect(element.querySelector('.store-lock-reason')?.textContent).toContain(
+        'Eliminá las líneas',
+      );
+    });
+  });
+
+  // ══════════════════════════════════════════════════════════
+  // SERVER-SEARCHED CATALOGUE
+  // ══════════════════════════════════════════════════════════
+
+  describe('server-searched catalogue', () => {
+    /**
+     * The order as the API states it: its own company, derived from the store chain the document holds.
+     *
+     * `mockOrder` carries `companyId: null`, which is why the defect L7 measured was never covered: the read was
+     * keyed on a company that only the cascade could resolve, and it resolved after the request had been skipped.
+     */
+    const ORDER_WITH_COMPANY: PurchaseOrder = { ...mockOrder, companyId: 'comp-1' };
+    const CATALOGUE = [{ productId: 'prod-1', productName: 'Widget A', sku: 'SKU-1' }];
+
+    beforeEach(async () => {
+      await TestBed.configureTestingModule({
+        imports: [PurchaseOrderEdit, HttpClientTestingModule],
+        providers: baseProviders('po-1'),
+      }).compileComponents();
+
+      purchaseOrderService = TestBed.inject(
+        PurchaseOrderService,
+      ) as unknown as typeof purchaseOrderService;
+      purchaseOrderService.getPurchaseOrder = vi.fn().mockReturnValue(of(ORDER_WITH_COMPANY));
+      productService = TestBed.inject(ProductService) as unknown as typeof productService;
+      productService.getProductsBySupplier = vi.fn().mockReturnValue(of(CATALOGUE));
+
+      fixture = TestBed.createComponent(PurchaseOrderEdit);
+      component = fixture.componentInstance;
+      fixture.detectChanges();
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('should read the catalogue for the order’s own company, before the cascade resolves', () => {
+      // The root cause L7 measured: the read was skipped while the company was still the cascade's to resolve, and
+      // nothing re-emitted it. The company now comes from the document itself, which states it.
+      expect(component.orderCompanyId()).toBeNull();
+      expect(productService.getProductsBySupplier).toHaveBeenCalledWith('comp-1', 'sup-1');
+      // Asked for without the `search` parameter, not with an empty one: the picker is offered the supplier's whole
+      // catalogue before anyone types (S6).
+      expect(productService.getProductsBySupplier.mock.calls[0]).toHaveLength(2);
+      expect(component.supplierProducts()).toEqual([
+        { id: 'prod-1', name: 'Widget A', sku: 'SKU-1' },
+      ]);
+      expect(component.catalogueTerm()).toBe('');
+    });
+
+    it('should issue no request for a single character and keep the result it has', () => {
+      vi.useFakeTimers();
+      const requested = productService.getProductsBySupplier.mock.calls.length;
+
+      component.onCatalogueSearch('w');
+      vi.advanceTimersByTime(300);
+
+      // One letter is neither a search nor the whole catalogue, so the options on screen stay (S6).
+      expect(productService.getProductsBySupplier.mock.calls.length).toBe(requested);
+      expect(component.supplierProducts()).toEqual([
+        { id: 'prod-1', name: 'Widget A', sku: 'SKU-1' },
+      ]);
+      expect(component.catalogueTerm()).toBe('');
+    });
+
+    it('should narrow the catalogue once, after the debounce, for two characters or more', () => {
+      vi.useFakeTimers();
+      const requested = productService.getProductsBySupplier.mock.calls.length;
+
+      component.onCatalogueSearch('wi');
+      vi.advanceTimersByTime(299);
+      // Still inside the window: nothing was asked for yet.
+      expect(productService.getProductsBySupplier.mock.calls.length).toBe(requested);
+
+      // A second keystroke restarts the window instead of issuing a request of its own: one search, not one per letter.
+      component.onCatalogueSearch('wid');
+      vi.advanceTimersByTime(300);
+
+      expect(productService.getProductsBySupplier.mock.calls.length).toBe(requested + 1);
+      expect(productService.getProductsBySupplier).toHaveBeenLastCalledWith(
+        'comp-1',
+        'sup-1',
+        'wid',
+      );
+      expect(component.catalogueTerm()).toBe('wid');
+    });
+
+    it('should hand the picker the searched catalogue and the state of the read', () => {
+      const table = fixture.debugElement.query(By.directive(DetailTable))
+        .componentInstance as DetailTable;
+
+      expect(table.availableProducts()).toEqual([{ id: 'prod-1', name: 'Widget A', sku: 'SKU-1' }]);
+      expect(table.searching()).toBe(false);
+      expect(table.searchFailed()).toBe(false);
+      expect(table.searchedTerm()).toBe('');
+    });
+
+    it('should report a failed catalogue read as a failure, not as an empty catalogue', () => {
+      productService.getProductsBySupplier = vi
+        .fn()
+        .mockReturnValue(throwError(() => new HttpErrorResponse({ status: 500 })));
+
+      const f = TestBed.createComponent(PurchaseOrderEdit);
+      const comp = f.componentInstance;
+      f.detectChanges();
+
+      expect(comp.catalogueFailed()).toBe(true);
+      expect(comp.catalogueLoading()).toBe(false);
+      // The options are gone, so nothing stale can read as this search's answer.
+      expect(comp.supplierProducts()).toEqual([]);
+    });
+
+    it('should hand each line’s state to the table, the add attempt under its own key', () => {
+      const table = (): DetailTable =>
+        fixture.debugElement.query(By.directive(DetailTable)).componentInstance as DetailTable;
+      const inFlight = new Subject<PurchaseOrderDetail>();
+      purchaseOrderService.addDetail = vi.fn().mockReturnValue(inFlight.asObservable());
+      purchaseOrderService.updateDetail = vi.fn().mockReturnValue(
+        throwError(
+          () =>
+            new HttpErrorResponse({
+              error: { message: 'La cantidad supera el stock' },
+              status: 400,
+              statusText: 'Bad Request',
+            }),
+        ),
+      );
+
+      component.addLine({
+        productId: 'prod-2',
+        productVariantId: 'var-2',
+        quantity: 1,
+        unitPrice: 10,
+      });
+      fixture.detectChanges();
+
+      // An add has no detail id until the server answers for it, so its state travels keyed by the page's sentinel,
+      // resolved here before the table sees it.
+      expect(table().newLinePending()).toBe(true);
+      expect(table().newLineError()).toBeNull();
+
+      inFlight.error(
+        new HttpErrorResponse({
+          error: { message: 'La variante no pertenece a la tienda' },
+          status: 400,
+          statusText: 'Bad Request',
+        }),
+      );
+      fixture.detectChanges();
+
+      expect(table().newLinePending()).toBe(false);
+      expect(table().newLineError()).toBe('La variante no pertenece a la tienda');
+
+      component.updateLine('det-1', { quantity: 99 });
+      fixture.detectChanges();
+
+      // A row's own message, and the add's still apart from it: neither is the document's (S5).
+      expect(table().lineErrors()['det-1']).toBe('La cantidad supera el stock');
+      expect(table().newLineError()).toBe('La variante no pertenece a la tienda');
+      expect(component.generalError()).toBeNull();
     });
   });
 

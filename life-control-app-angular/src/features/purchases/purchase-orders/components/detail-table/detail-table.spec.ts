@@ -1,6 +1,7 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { LOCALE_ID } from '@angular/core';
 import { By } from '@angular/platform-browser';
+import { MatAutocompleteTrigger } from '@angular/material/autocomplete';
 import { of } from 'rxjs';
 import {
   DetailTable,
@@ -144,6 +145,27 @@ describe('DetailTable', () => {
 
   function pickerOf(f: ComponentFixture<DetailTable>): ProductVariantPicker {
     return f.debugElement.query(By.directive(ProductVariantPicker)).componentInstance;
+  }
+
+  /** Opens the product autocomplete overlay so its projected options are in the DOM. */
+  function openPanel(f: ComponentFixture<DetailTable>): void {
+    f.debugElement
+      .query(By.directive(MatAutocompleteTrigger))
+      .injector.get(MatAutocompleteTrigger)
+      .openPanel();
+    f.detectChanges();
+  }
+
+  /** The visible option labels inside the open product panel. */
+  function panelOptionTexts(): string[] {
+    return Array.from(
+      document.querySelectorAll('.mat-mdc-autocomplete-panel mat-option') as NodeListOf<Element>,
+    ).map((option) => option.textContent?.trim() ?? '');
+  }
+
+  /** The rendered data rows, header excluded. */
+  function bodyRows(f: ComponentFixture<DetailTable>): HTMLElement[] {
+    return Array.from((f.nativeElement as HTMLElement).querySelectorAll<HTMLElement>('tbody tr'));
   }
 
   describe('existing rows', () => {
@@ -295,6 +317,133 @@ describe('DetailTable', () => {
       expect('rowSubtotal' in f.componentInstance).toBe(false);
       // The footer that printed the summed total is gone: the page states the document's total instead.
       expect((f.nativeElement as HTMLElement).querySelector('.line-items-total')).toBeNull();
+    });
+  });
+
+  describe('server-searched catalogue', () => {
+    it('should emit the term the operator typed and narrow nothing itself', () => {
+      const f = createTable([SAVED_ROW]);
+      let emitted: string | null = null;
+      f.componentInstance.searchChanged.subscribe((term) => (emitted = term));
+
+      f.componentInstance.onSearchChange('widget b');
+      f.detectChanges();
+
+      // The host owns the search: the table names the term and keeps rendering the options it is handed (S6).
+      expect(emitted).toBe('widget b');
+      openPanel(f);
+      expect(panelOptionTexts().length).toBe(2);
+    });
+
+    it('should say the supplier has no products when the catalogue is empty and no term was applied', () => {
+      const f = createTable([]);
+      f.componentRef.setInput('availableProducts', []);
+      f.componentRef.setInput('searching', false);
+      f.componentRef.setInput('searchFailed', false);
+      f.componentRef.setInput('searchedTerm', '');
+      f.detectChanges();
+
+      openPanel(f);
+
+      expect(panelOptionTexts()).toEqual(['El proveedor no tiene productos cargados.']);
+      // An answer, not a selectable product.
+      expect(
+        document
+          .querySelectorAll('.mat-mdc-autocomplete-panel mat-option')
+          .item(0)
+          .hasAttribute('disabled'),
+      ).toBe(true);
+    });
+
+    it('should say nothing matched the term instead of blaming the supplier', () => {
+      const f = createTable([]);
+      f.componentRef.setInput('availableProducts', []);
+      f.componentRef.setInput('searching', false);
+      f.componentRef.setInput('searchFailed', false);
+      f.componentRef.setInput('searchedTerm', 'zz');
+      f.detectChanges();
+
+      openPanel(f);
+
+      // The same empty list, a different fact: "nothing matched 'zz'" is not "this supplier has nothing" (S6).
+      expect(panelOptionTexts()).toEqual(['Sin resultados para "zz".']);
+    });
+
+    it('should report a read in flight distinctly from an empty catalogue', () => {
+      const f = createTable([]);
+      f.componentRef.setInput('availableProducts', []);
+      f.componentRef.setInput('searching', true);
+      f.detectChanges();
+
+      openPanel(f);
+
+      expect(panelOptionTexts()).toEqual(['Buscando productos…']);
+    });
+
+    it('should report a failed read distinctly from an empty catalogue', () => {
+      const f = createTable([]);
+      f.componentRef.setInput('availableProducts', []);
+      f.componentRef.setInput('searching', false);
+      f.componentRef.setInput('searchFailed', true);
+      f.detectChanges();
+
+      openPanel(f);
+
+      expect(panelOptionTexts()).toEqual(['No se pudo leer el catálogo de productos.']);
+    });
+  });
+
+  describe('per-line state', () => {
+    const SECOND_ROW: DetailTableRow = {
+      ...SAVED_ROW,
+      id: 'det-2',
+      productId: 'prod-2',
+      productName: 'Widget B',
+      productVariantId: 'var-2',
+      productVariantName: 'Presentación 2L',
+      createdAt: '2026-01-02T00:00:00Z',
+    };
+
+    it('should mark the row that is being written, and only that row', () => {
+      const f = createTable([SAVED_ROW, SECOND_ROW]);
+      f.componentRef.setInput('linePending', { 'det-1': true });
+      f.detectChanges();
+
+      const [first, second] = bodyRows(f);
+      expect(first.querySelector('.line-pending')).not.toBeNull();
+      expect(second.querySelector('.line-pending')).toBeNull();
+      // A row whose write is in flight is neither re-edited nor removed underneath the request.
+      expect(first.querySelector<HTMLInputElement>('input[type="number"]')!.disabled).toBe(true);
+      expect(first.querySelector<HTMLButtonElement>('button')!.disabled).toBe(true);
+      expect(second.querySelector<HTMLInputElement>('input[type="number"]')!.disabled).toBe(false);
+    });
+
+    it('should show the message a rejected row carries, on that row alone', () => {
+      const f = createTable([SAVED_ROW, SECOND_ROW]);
+      f.componentRef.setInput('lineErrors', { 'det-1': 'La cantidad supera el stock' });
+      f.detectChanges();
+
+      const [first, second] = bodyRows(f);
+      expect(first.textContent).toContain('La cantidad supera el stock');
+      expect(second.textContent).not.toContain('La cantidad supera el stock');
+      // In the row, never in a page-wide banner: the banner is the header's (S5).
+      expect((f.nativeElement as HTMLElement).querySelector('app-error-banner')).toBeNull();
+    });
+
+    it('should show the add attempt its own pending and error state', () => {
+      const f = createTable([]);
+      f.componentRef.setInput('newLineError', 'No se pudo agregar la línea.');
+      f.detectChanges();
+
+      const addRow = (f.nativeElement as HTMLElement).querySelector('.add-line-item')!;
+      expect(addRow.textContent).toContain('No se pudo agregar la línea.');
+
+      f.componentRef.setInput('newLinePending', true);
+      f.detectChanges();
+
+      expect(addRow.querySelector('.line-pending')).not.toBeNull();
+      // While the add is in flight the row cannot post the same line twice.
+      expect(f.componentInstance.canAddItem()).toBe(false);
     });
   });
 
@@ -532,6 +681,20 @@ describe('DetailTable', () => {
       expect(component.newQuantity()).toBe(1);
     });
 
+    it('should not offer the add row at all when the order is not a Draft', () => {
+      // Draft orders keep it, and that guard is the order's status alone (S10).
+      expect(
+        (createTable([SAVED_ROW], true).nativeElement as HTMLElement).querySelector(
+          '.add-line-item',
+        ),
+      ).not.toBeNull();
+      expect(
+        (createTable([SAVED_ROW], false).nativeElement as HTMLElement).querySelector(
+          '.add-line-item',
+        ),
+      ).toBeNull();
+    });
+
     it('should not add a line while the order is not a draft', () => {
       const f = createTable([], false);
       const component = f.componentInstance;
@@ -539,13 +702,16 @@ describe('DetailTable', () => {
       let emitted = false;
       component.lineAdded.subscribe(() => (emitted = true));
 
-      component.onNewProductChange('prod-1');
-      f.detectChanges();
-      pickerOf(f).onSelectionChange('var-1');
-      f.detectChanges();
+      // The add row is not rendered outside Draft, so the state is set here directly: the guard has to refuse on its
+      // own instead of relying on the form being absent from the DOM.
+      component.newProductId.set('prod-1');
+      component.onVariantSelected(VARIANT_A);
+      component.onVariantIdChange(VARIANT_A.id);
+      component.onNewUnitPriceChange(50);
 
       component.addItem();
 
+      expect(component.canAddItem()).toBe(false);
       expect(emitted).toBe(false);
     });
 

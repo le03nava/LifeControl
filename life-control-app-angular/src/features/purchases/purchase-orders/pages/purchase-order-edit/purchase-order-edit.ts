@@ -10,7 +10,18 @@ import {
 import { HttpErrorResponse } from '@angular/common/http';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { catchError, EMPTY, Subject, switchMap } from 'rxjs';
+import {
+  catchError,
+  debounceTime,
+  distinctUntilChanged,
+  EMPTY,
+  finalize,
+  map,
+  merge,
+  of,
+  Subject,
+  switchMap,
+} from 'rxjs';
 import { NonNullableFormBuilder, FormGroup, Validators, ReactiveFormsModule } from '@angular/forms';
 import { PurchaseOrderService } from '../../data/purchase-order.service';
 import { ProductService } from '@features/products/data/product.service';
@@ -20,6 +31,7 @@ import { StatusSelector } from '../../components/status-selector/status-selector
 import { StatusChip } from '../../components/status-chip/status-chip';
 import {
   DetailTable,
+  type CatalogueOption,
   type DetailLineDraft,
   type DetailLinePatch,
   type DetailTableRow,
@@ -96,11 +108,10 @@ export class PurchaseOrderEdit implements OnInit {
   /**
    * The company the order belongs to: the header's cascade root, as the cascade resolves it.
    *
-   * It is the company every product read of this screen is scoped to — the supplier search, the
-   * supplier's product list and, through {@link DetailTable}, the variant picker — because a product and
-   * a supplier belong to one company and those endpoints take it in the path. There is no second place
-   * this is chosen: the cascade group is the order's own company, and `null` is the honest answer while
-   * an order being created has none yet.
+   * It scopes the supplier search, the variant picker and, through {@link DetailTable}, the line's own reads, because a
+   * product and a supplier belong to one company and those endpoints take it in the path. The product catalogue is the
+   * one read that prefers the document's own company over this signal — see {@link catalogueCompanyId} — because this
+   * one only resolves once the cascade does.
    *
    * Fed by `(companyResolved)`, never by `valueChanges`: the cascade patches its controls with
    * `emitEvent: false`, so the stream would stay silent on the profile prefill, the order
@@ -152,8 +163,53 @@ export class PurchaseOrderEdit implements OnInit {
     this.lineItems().every((item) => item.quantity > 0 && item.unitPrice > 0),
   );
 
-  /** Products filtered by the selected supplier, passed to DetailTable. */
-  readonly supplierProducts = signal<{ id: string; name: string; sku: string }[]>([]);
+  /**
+   * Whether the header's supplier and store are locked.
+   *
+   * They lock on the first line, not on creation (S7): a typo in either is still correctable while the order holds no
+   * lines, and once it holds one the supplier and the store are what the lines were written against, so moving them
+   * would leave the document inconsistent. Unlocking is not offered — removing the lines is the way back (S8).
+   */
+  readonly headerLocked = computed(() => this.lineItems().length > 0);
+
+  /**
+   * The supplier's catalogue, as the server answered the last search: the options the product picker offers.
+   *
+   * Searched on the server (S6) instead of narrowed here: `by-supplier` is unpaginated, so downloading the whole
+   * catalogue to filter it in the browser costs more than every request this replaces.
+   */
+  readonly supplierProducts = signal<CatalogueOption[]>([]);
+
+  /** Whether a catalogue read is in flight. */
+  readonly catalogueLoading = signal(false);
+
+  /**
+   * Whether the last catalogue read failed.
+   *
+   * A separate fact from an empty list: the picker has to say the search could not be read instead of claiming the
+   * supplier has no products, which is what a silent `[]` used to say.
+   */
+  readonly catalogueFailed = signal(false);
+
+  /**
+   * The term the options on screen answer for: `''` when they are the supplier's whole catalogue.
+   *
+   * Only this page knows which term actually reached the server — a one-character term issues no request at all — and
+   * the picker needs it to tell "the supplier has no products" from "nothing matched" (S6).
+   */
+  readonly catalogueTerm = signal('');
+
+  /**
+   * The company the catalogue is read for: the order's own, with the cascade as the fallback.
+   *
+   * The document states its company (`PurchaseOrderResponse.companyId`, derived from its store's chain), and that is
+   * the read's scope. The cascade is only the fallback for an order that states none — one being created — and it is
+   * not the primary source: it resolves *after* the form is populated, so a read keyed on it was skipped and never
+   * re-emitted, which is what left an existing order with no catalogue at all (L7).
+   */
+  private readonly catalogueCompanyId = computed(
+    () => this.loadedOrder()?.companyId ?? this.orderCompanyId(),
+  );
 
   /**
    * Store that scopes the line-item variant picker. Two channels feed it:
@@ -185,26 +241,39 @@ export class PurchaseOrderEdit implements OnInit {
    */
   readonly lineErrors = signal<Record<string, string>>({});
 
+  /**
+   * The add attempt's own state, resolved from the sentinel key so the table never has to know it.
+   *
+   * An add in flight has no detail id to be keyed by, which is why {@link NEW_LINE_KEY} exists; resolving it here keeps
+   * the component free of a key that belongs to this page's state.
+   */
+  readonly newLinePending = computed(() => this.linePending()[NEW_LINE_KEY] === true);
+
+  /** The message a rejected add carries, or `null` when it has none. */
+  readonly newLineError = computed(() => this.lineErrors()[NEW_LINE_KEY] ?? null);
+
+  // ─── Catalogue search ──────────────────────────────────
+  /** Keystrokes from the product picker; debounced, deduped and gated by the stream in `ngOnInit`. */
+  private readonly catalogueTerm$ = new Subject<string>();
+
+  /**
+   * A scope change: a new supplier or a new company is a new catalogue.
+   *
+   * Carries the term to read it with, so a narrowed read stays narrowed after the scope changes instead of answering
+   * with the whole catalogue under a field that still shows what was typed.
+   */
+  private readonly catalogueReset$ = new Subject<string>();
+
   // ─── Unsaved-changes tracking ──────────────────────────
-  private readonly supplierId$ = new Subject<string>();
   private readonly formDirty = signal(false);
-  private readonly lineItemsBaseline = signal('[]');
 
-  private readonly lineItemsKey = computed(() =>
-    JSON.stringify(
-      this.lineItems().map((item) => ({
-        productId: item.productId,
-        productVariantId: item.productVariantId,
-        quantity: item.quantity,
-        unitPrice: item.unitPrice,
-      })),
-    ),
-  );
-
-  /** Exposed to `unsavedChangesGuard` so navigation can warn before losing edits. */
-  readonly hasUnsavedChanges = computed(
-    () => this.formDirty() || this.lineItemsKey() !== this.lineItemsBaseline(),
-  );
+  /**
+   * Exposed to `unsavedChangesGuard` so navigation can warn before losing edits.
+   *
+   * Only the header can be dirty (S11): every line was written on its own request as it was added or edited, so a
+   * persisted line leaves nothing unsaved behind and the guard must not prompt about it.
+   */
+  readonly hasUnsavedChanges = computed(() => this.formDirty());
 
   ngOnInit(): void {
     // A user edit flips the dirty flag. Programmatic patches use
@@ -213,23 +282,53 @@ export class PurchaseOrderEdit implements OnInit {
       .valueChanges.pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe(() => this.formDirty.set(true));
 
-    // Supplier changes drive the product list. The Subject + `switchMap`
-    // cancels the previous request, so switching suppliers quickly can never
-    // resolve with a stale product list.
-    this.supplierId$
+    // The catalogue is read for the order's company and its supplier, and narrowed by the term the picker emits. The
+    // triggers share one cancellable stream, so a scope change cancels a search whose answer would describe the previous
+    // supplier — the idiom `product-supplier-dialog.ts:161-171` documents.
+    merge(
+      // The seed: an empty term, so the picker offers the supplier's catalogue before anyone types (S6).
+      of(''),
+      // A scope change is not a keystroke: it is read at once, without waiting for a debounce window.
+      this.catalogueReset$,
+      // Keystrokes are debounced and deduped; a one-character term is dropped below, because it matches almost
+      // everything and would otherwise cost a request per letter (S6).
+      this.catalogueTerm$.pipe(debounceTime(300), distinctUntilChanged()),
+    )
       .pipe(
-        switchMap((supplierId) => {
-          // The company is the order's, read at request time (the cascade group may have been filled by
-          // the picker or by the order load). No company is not "any company": it is an order that is not
-          // attributable yet, so no request is issued and the list stays empty rather than showing a
-          // company-blind catalogue.
-          const companyId = this.orderCompanyId();
+        switchMap((term) => {
+          // Read at request time, so the seed and every trigger read the scope the page has *now*: the order's own
+          // company (see {@link catalogueCompanyId}) and the supplier the form holds. No company and no supplier is not
+          // "any company": it is an order that is not attributable yet, so no request is issued and no company-blind
+          // catalogue is offered.
+          const companyId = this.catalogueCompanyId();
+          const supplierId = this.headerForm().controls.supplierId.value;
           if (!supplierId || !companyId) {
             this.supplierProducts.set([]);
             return EMPTY;
           }
-          return this.productService.getProductsBySupplier(companyId, supplierId).pipe(
+
+          const narrowed = term.trim();
+          if (narrowed.length === 1) {
+            // Neither a search nor the whole catalogue: the previous answer stays on screen, which is what S6 asks of a
+            // single character.
+            return EMPTY;
+          }
+
+          this.catalogueLoading.set(true);
+          this.catalogueFailed.set(false);
+          // The whole catalogue is asked for without the parameter rather than with an empty one: the endpoint treats
+          // both the same, and the wire should say what was meant.
+          const request$ = narrowed
+            ? this.productService.getProductsBySupplier(companyId, supplierId, narrowed)
+            : this.productService.getProductsBySupplier(companyId, supplierId);
+          return request$.pipe(
+            map((products) => ({ narrowed, products })),
+            // Cancelled or not, the attempt is over: a term the gate above drops must not leave a spinner running for a
+            // request `switchMap` has already unsubscribed.
+            finalize(() => this.catalogueLoading.set(false)),
             catchError(() => {
+              this.catalogueFailed.set(true);
+              // The options go with the failure: a page from another term must not read as this search's answer.
               this.supplierProducts.set([]);
               return EMPTY;
             }),
@@ -237,20 +336,17 @@ export class PurchaseOrderEdit implements OnInit {
         }),
         takeUntilDestroyed(this.destroyRef),
       )
-      .subscribe((products) =>
+      .subscribe(({ narrowed, products }) => {
+        this.catalogueTerm.set(narrowed);
         this.supplierProducts.set(
-          products.map((p) => ({
-            id: p.productId,
-            name: p.productName,
-            sku: p.sku,
-          })),
-        ),
-      );
+          products.map((p) => ({ id: p.productId, name: p.productName, sku: p.sku })),
+        );
+      });
 
-    // Bridge the supplier form control into the Subject.
+    // A supplier picked from the field restarts the catalogue at the term the options on screen answer for.
     this.headerForm()
       .controls.supplierId.valueChanges.pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe((supplierId) => this.supplierId$.next(supplierId));
+      .subscribe(() => this.catalogueReset$.next(this.catalogueTerm()));
 
     // Channel 1: user-driven store selections emit an event, so `valueChanges`
     // catches them here (channel 2 is the child's `(storeResolved)` output,
@@ -287,6 +383,15 @@ export class PurchaseOrderEdit implements OnInit {
   }
 
   /**
+   * Called by `<app-detail-table>` on every keystroke of the product field (S6).
+   *
+   * The term is not searched here: it goes into the stream that gates a single character and debounces the rest.
+   */
+  onCatalogueSearch(term: string): void {
+    this.catalogueTerm$.next(term);
+  }
+
+  /**
    * Called by `<app-company-info-section>` whenever the cascade resolves a company.
    *
    * The company control is patched silently for the same reason the store is (programmatic patches
@@ -294,7 +399,14 @@ export class PurchaseOrderEdit implements OnInit {
    * supplier search, the supplier's products and the variant picker would all stay company-less.
    */
   onCompanyResolved(companyId: string | null): void {
+    const scopedTo = this.catalogueCompanyId();
     this.orderCompanyId.set(companyId);
+    if (this.catalogueCompanyId() === scopedTo) {
+      return;
+    }
+    // A different company is a different catalogue: re-read it for the scope the page now has. When the order already
+    // states its company the scope above did not move, so the cascade resolving it re-reads nothing.
+    this.catalogueReset$.next(this.catalogueTerm());
   }
 
   private loadOrder(id: string): void {
@@ -335,17 +447,16 @@ export class PurchaseOrderEdit implements OnInit {
       },
       { emitEvent: false },
     );
-    // valueChanges is suppressed above, so load the products explicitly.
-    this.supplierId$.next(order.supplierId);
+    // valueChanges is suppressed above, so read the catalogue explicitly, and from the whole catalogue: a document
+    // just loaded has no term over it.
+    this.catalogueTerm.set('');
+    this.catalogueReset$.next('');
     this.variantStoreId.set(order.companyStoreId);
     this.formDirty.set(false);
   }
 
   private populateLineItems(details: PurchaseOrderDetail[]): void {
     this.applyLineItems(details.map(toDetailTableRow));
-    // `lineItemsKey` only projects the editable pricing fields, so the receipt
-    // fields above can never make a freshly loaded order look dirty.
-    this.lineItemsBaseline.set(this.lineItemsKey());
   }
 
   /**
@@ -582,7 +693,6 @@ export class PurchaseOrderEdit implements OnInit {
           next: () => {
             this.saving.set(false);
             this.formDirty.set(false);
-            this.lineItemsBaseline.set(this.lineItemsKey());
             this.notificationService.showSuccess('Orden actualizada correctamente.');
             this.router.navigate(['/purchases/orders']);
           },

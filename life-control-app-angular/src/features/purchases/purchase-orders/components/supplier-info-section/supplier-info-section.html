@@ -31,6 +31,12 @@
             @if (serverFieldError('supplierId'); as err) {
               <mat-error>{{ err }}</mat-error>
             }
+            @if (headerLocked()) {
+              <mat-hint class="supplier-lock-reason">
+                El proveedor no se puede cambiar porque la orden ya tiene líneas. Eliminá las líneas
+                para cambiarlo.
+              </mat-hint>
+            }
           </mat-form-field>
 
           <!-- Payment Method -->

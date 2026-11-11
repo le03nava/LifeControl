@@ -248,6 +248,27 @@ le dan al documento su propio dinero, **derivado en la base** (`odd/tasks/purcha
 
 ---
 
+## Pantalla de orden de compra (dos pasos)
+
+El alta y la edición dejan de ser una sola superficie con líneas adentro: la orden primero, las líneas después, cada una por su
+propio request (`odd/tasks/purchase-order-create-then-lines.md`).
+
+| Regla | Valor |
+|-------|-------|
+| El alta no tiene líneas | `/purchases/orders/create` renderiza **sólo el encabezado**. El área de detalle no existe hasta que la orden existe, porque una línea se direcciona por el id de la orden en el sub-recurso |
+| Al guardar, la misma pantalla se vuelve la edición | `save()` en modo alta postea el encabezado con `details` **ausente** y navega a `/purchases/orders/{id}` con `replaceUrl: true`, así el operador no pierde el lugar |
+| Cada línea se persiste sola | `POST` / `PUT` / `DELETE /api/purchase-orders/{id}/details` por fila: no hay guardado por lote ni staging local. La tabla emite lo que el operador hizo y la página persiste, con `linePending` / `lineErrors` por fila |
+| La fila se reconcilia desde la respuesta | El id, el total y el impuesto son los que el servidor contestó, nunca los del payload; una edición optimista se restaura si el servidor la rechaza, y el error queda en esa fila, no en un banner general |
+| La plata del documento se relee | `subtotal` / `taxTotal` / `totalAmount` los deriva `purchase_order_money()` **en la base** a partir de las filas, así que la página vuelve a leer la orden después de cada mutación (`refreshDocumentMoney`) y toma los tres números del servidor. Nunca los suma, y si la relectura falla lo dice en vez de dejar un total que describe otro conjunto de filas |
+| El orden de las filas | `createdAt` y después `id`, en la carga y después de cada mutación: el API no ordena y el esquema no tiene ordinal |
+| El catálogo se busca en el servidor | Un stream `merge(of(''), reset$, term$.debounceTime(300).distinctUntilChanged())` + `switchMap`, keyed en la compañía **de la orden guardada** (`loadedOrder().companyId`, con el cascade de respaldo) y el proveedor del formulario; menos de dos caracteres no emite request |
+| Los tres estados vacíos son distintos | buscando / el proveedor no tiene productos / el término no coincide. «No hay productos» dejó de leerse como «nada coincide», que es lo que hacía el filtro en memoria |
+| El encabezado se bloquea con la primera línea | Proveedor y tienda quedan fijos en `lineItems().length > 0`, con la razón visible al lado del control; medio de pago y comentarios siguen editables. El control se deshabilita **por el form** (`disable({ emitEvent: false })`), no con `[disabled]` sobre un `formControlName`, y el guardado lee `getRawValue()` para que el valor bloqueado igual viaje en el request |
+| El guard cubre el encabezado solo | `hasUnsavedChanges` cuenta los cambios del encabezado: una línea ya se guardó por su propio request, así que contarla hacía preguntar por algo que ya estaba persistido |
+| Lo que **no** cubre | No hay purga de borradores abandonados (decisión del operador, `T12`) y `by-supplier` sigue sin paginar (`T14`, diferido hasta que un término corto matchee suficientes filas para necesitarlo) |
+
+---
+
 ## Docker Scripts
 
 Scripts en `docker/scripts/`:
