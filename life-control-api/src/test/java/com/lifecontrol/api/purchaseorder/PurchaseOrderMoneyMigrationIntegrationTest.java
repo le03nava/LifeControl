@@ -45,12 +45,22 @@ import org.junit.jupiter.api.Test;
  * {@code total} are read back after the statement that was supposed to move them, because a derivation that
  * ran in the wrong order — or on the wrong set of rows — is invisible in the function's source and obvious in
  * the stored number.</p>
+ *
+ * <p><b>And one case for {@code V94}</b>, the file that adds the line's three tax columns and the term they
+ * contribute ({@code odd/tasks/purchase-order-line-tax.md}, S1/S3/S6). It starts from the head {@code V92} and
+ * {@code V93} leave ({@code 93}), because what it has to prove is twofold: a row written <b>before</b> the tax
+ * columns existed is not disturbed by them, and a row written after them derives
+ * {@code tax_amount = round(subtotal * tax_rate, 4)} from the rate it states — never from a newer row of
+ * {@code tax_rate}, which is the difference between a snapshot and a join.</p>
  */
-@DisplayName("Purchase order money migration (V92, V93)")
+@DisplayName("Purchase order money migration (V92, V93, V94)")
 class PurchaseOrderMoneyMigrationIntegrationTest extends AbstractPostgresIntegrationTest {
 
     /** The head these two files start from. */
     private static final String PRE_UNIT_HEAD = "91";
+
+    /** The head {@code V94} starts from: the money columns exist, the tax columns do not. */
+    private static final String PRE_TAX_HEAD = "93";
 
     /** The role Flyway runs as in delivery: it owns the tables and the policies still apply to it. */
     private static final String OWNER = "lifecontrol_owner";
@@ -286,6 +296,93 @@ class PurchaseOrderMoneyMigrationIntegrationTest extends AbstractPostgresIntegra
 
     // --- migrations ---
 
+    @Test
+    @DisplayName("a line that states a rate gets its tax amount and total from the schema, at four decimals, and a"
+            + " row written before V94 keeps its zero")
+    void theLineTaxIsDerivedFromTheRateTheLineStates() throws Exception {
+        migrateTo(PRE_TAX_HEAD);
+        var company = seedCompany();
+        var order = UUID.randomUUID();
+        var legacyLine = UUID.randomUUID();
+        inOneTransaction(
+                company,
+                insertOrder(company, order, 1),
+                creationRow(company, "PURCHASE_ORDER", order, "DRAFT"),
+                insertLine(company, order, legacyLine, "1.10", "33.33", "36.66"),
+                creationRow(company, "PURCHASE_ORDER_DETAIL", legacyLine, "PENDING"));
+
+        assertThat(lineMoney(legacyLine, "total"))
+                .as("the row as V92 left it: four decimals, derived, and with no tax column to speak of")
+                .isEqualTo("36.6630");
+
+        migrateToHead();
+
+        // The row that existed before `V94`. Its three columns arrive full from their defaults and the extended
+        // derivation states the numbers the row already carries, so nothing about this line is rewritten.
+        assertThat(lineMoney(legacyLine, "tax_code"))
+                .as("a line written before the tax columns existed reads as untaxed, which is what it was")
+                .isEqualTo("NA");
+        assertThat(lineMoney(legacyLine, "tax_rate")).isEqualTo("0.000000");
+        assertThat(lineMoney(legacyLine, "tax_amount"))
+                .as("a rate of 0 derives an amount of 0 — the same answer a zero-by-definition code gets, at the "
+                        + "only layer that can state the number")
+                .isEqualTo("0.0000");
+        assertThat(lineMoney(legacyLine, "subtotal")).isEqualTo("36.6630");
+        assertThat(lineMoney(legacyLine, "total"))
+                .as("the migration backfills nothing: a stored total is not restated to the value it already has")
+                .isEqualTo("36.6630");
+        assertThat(money(company, order, "tax_total")).isEqualTo("0.0000");
+        assertThat(money(company, order, "total_amount")).isEqualTo("36.6630");
+
+        var taxedLine = UUID.randomUUID();
+        // The statement T3 makes: the line states the rate it resolved and nothing else. `unit_price` and
+        // `quantity` are both two-decimal columns (`V1:343-344`), so the base is 12.35 x 3.05 = 37.6675 and the
+        // rate is the six-decimal 0.1625: their product is 6.12096875, whose fourth decimal only exists because
+        // the derivation rounds there. Two decimals would store 6.12 and four store 6.1210.
+        inOneTransaction(
+                company,
+                insertTaxedLine(company, order, taxedLine, "3.05", "12.35", "IVA", "0.162500"),
+                creationRow(company, "PURCHASE_ORDER_DETAIL", taxedLine, "PENDING"));
+
+        assertThat(lineMoney(taxedLine, "subtotal")).isEqualTo("37.6675");
+        assertThat(lineMoney(taxedLine, "tax_amount"))
+                .as("round(37.6675 * 0.1625, 4) = 6.1210. The fourth decimal is the point: a derivation rounding "
+                        + "at two would store 6.12 and disagree with every other money column on the row")
+                .isEqualTo("6.1210");
+        assertThat(lineMoney(taxedLine, "total"))
+                .as("subtotal + tax_amount = 43.7885, derived in the same function after the amount it reads")
+                .isEqualTo("43.7885");
+        assertThat(money(company, order, "subtotal"))
+                .as("the document states both lines: 36.6630 + 37.6675")
+                .isEqualTo("74.3305");
+        assertThat(money(company, order, "tax_total"))
+                .as("the document's tax is the sum of its lines' tax, not a rate resolved again at read time")
+                .isEqualTo("6.1210");
+        assertThat(money(company, order, "total_amount"))
+                .as("and `ck_po_order_total` states that the parts add up to it exactly")
+                .isEqualTo("80.4515");
+
+        // The catalog moves and the document does not. A newer IVA row is published at 5%, and the line is then
+        // edited — the quantity, not the article. A derivation that joined `tax_rate` instead of reading the
+        // snapshot would answer with this row, which is exactly what S3 forbids.
+        execute(
+                company,
+                "INSERT INTO tax_rate (company_id, tax_code, rate, effective_from) VALUES ('" + company
+                        + "', 'IVA', 0.050000, '2026-12-01')");
+        inOneTransaction(company, "UPDATE purchase_order_details SET quantity = 6.10 WHERE id = '" + taxedLine + "'");
+
+        assertThat(lineMoney(taxedLine, "tax_rate"))
+                .as("the edit did not re-resolve: the snapshot is still the rate the line was written with")
+                .isEqualTo("0.162500");
+        assertThat(lineMoney(taxedLine, "tax_amount"))
+                .as("and the amount is re-derived from THAT rate: round(12.35 * 6.10 * 0.1625, 4) = 12.2419, "
+                        + "where the 5% published afterwards would answer 3.7668")
+                .isEqualTo("12.2419");
+        assertThat(lineMoney(taxedLine, "total")).isEqualTo("87.5769");
+        assertThat(money(company, order, "tax_total")).isEqualTo("12.2419");
+        assertThat(money(company, order, "total_amount")).isEqualTo("124.2399");
+    }
+
     private void migrateTo(String target) {
         Flyway.configure()
                 .dataSource(jdbcUrl, OWNER, OWNER_PASSWORD)
@@ -408,6 +505,21 @@ class PurchaseOrderMoneyMigrationIntegrationTest extends AbstractPostgresIntegra
                 + " quantity, unit_price, total, received_quantity, status, created_at)"
                 + " VALUES ('" + id + "', '" + order + "', '" + productOf(company) + "', '" + variantOf(company)
                 + "', " + quantity + ", " + unitPrice + ", " + total + ", 0, 'PENDING', '2026-11-01 10:00:00')";
+    }
+
+    /**
+     * One line at the head {@code V94} starts from, stating its own tax: the code its product declares and the
+     * rate the document's date resolved. The three money columns are not named — the trigger derives them, and
+     * naming them would be a second writer.
+     */
+    private String insertTaxedLine(
+            UUID company, UUID order, UUID id, String quantity, String unitPrice, String taxCode, String taxRate)
+            throws SQLException {
+        return "INSERT INTO purchase_order_details (id, purchase_order_id, product_id, product_variant_id,"
+                + " quantity, unit_price, tax_code, tax_rate, received_quantity, status, created_at)"
+                + " VALUES ('" + id + "', '" + order + "', '" + productOf(company) + "', '" + variantOf(company)
+                + "', " + quantity + ", " + unitPrice + ", '" + taxCode + "', " + taxRate
+                + ", 0, 'PENDING', '2026-11-01 10:00:00')";
     }
 
     /** A creation row written the way the recorder writes it: one per document, {@code from_status NULL}. */

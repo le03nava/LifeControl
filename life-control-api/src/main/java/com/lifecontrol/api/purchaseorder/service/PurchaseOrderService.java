@@ -51,8 +51,11 @@ import com.lifecontrol.api.store.service.CompanyStoreOwnerResolver;
 import com.lifecontrol.api.supplier.exception.SupplierNotFoundException;
 import com.lifecontrol.api.supplier.model.Supplier;
 import com.lifecontrol.api.supplier.repository.SupplierRepository;
+import com.lifecontrol.api.tax.service.TaxCodeService;
+import com.lifecontrol.api.tax.service.TaxRateService;
 import jakarta.persistence.EntityManager;
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -98,6 +101,7 @@ public class PurchaseOrderService {
     private final DocumentSequenceAllocator documentSequenceAllocator;
     private final StatusTransitionRecorder statusTransitionRecorder;
     private final DocumentStateCatalog documentStateCatalog;
+    private final TaxRateService taxRateService;
 
     /**
      * The one thing this service asks of the persistence context directly: reading back the money the schema
@@ -122,6 +126,7 @@ public class PurchaseOrderService {
             DocumentSequenceAllocator documentSequenceAllocator,
             StatusTransitionRecorder statusTransitionRecorder,
             DocumentStateCatalog documentStateCatalog,
+            TaxRateService taxRateService,
             EntityManager entityManager) {
         this.purchaseOrderRepository = purchaseOrderRepository;
         this.detailRepository = detailRepository;
@@ -139,6 +144,7 @@ public class PurchaseOrderService {
         this.documentSequenceAllocator = documentSequenceAllocator;
         this.statusTransitionRecorder = statusTransitionRecorder;
         this.documentStateCatalog = documentStateCatalog;
+        this.taxRateService = taxRateService;
         this.entityManager = entityManager;
     }
 
@@ -243,11 +249,20 @@ public class PurchaseOrderService {
             // A line may omit statusId: the field is optional on the DTO, and both write routes answer such a
             // line with the PENDING default (issue #605). The default is the constant now — there is no catalog
             // row to resolve for it, because the row is the label of this code and not an input to it.
+            //
+            // `purchase_orders` carries no `order_date` (`V64:187-188`): the document's own date is its
+            // `created_at`, and `numberedAt` is the very instant the row keeps (`PurchaseOrder#onCreate` freezes
+            // it), so the rate snapshot and the number's period come from one clock read and not two.
+            var documentDate = numberedAt.toLocalDate();
             for (var detailReq : request.details()) {
                 var product = validateProductExists(detailReq.productId());
                 var productVariant = resolveProductVariant(detailReq.productVariantId(), product, store);
                 var detailState =
                         detailReq.statusId() != null ? detailStateOf(detailReq.statusId()) : INITIAL_DETAIL_STATE;
+                // The copy: a row is born here, so its code and rate are resolved now and never again (S2, S3).
+                // A taxable code the company has no rate for on this date refuses the request before the first
+                // write, so a refused line leaves no row, no detail and no document change (S5).
+                var tax = lineTaxFor(companyId, detailReq.productVariantId(), documentDate);
 
                 var detail = PurchaseOrderDetail.builder()
                         .purchaseOrder(po)
@@ -255,6 +270,8 @@ public class PurchaseOrderService {
                         .productVariant(productVariant)
                         .quantity(detailReq.quantity())
                         .unitPrice(detailReq.unitPrice())
+                        .taxCode(tax.taxCode())
+                        .taxRate(tax.taxRate())
                         .receivedQuantity(BigDecimal.ZERO)
                         .comments(detailReq.comments())
                         .status(detailState)
@@ -335,17 +352,25 @@ public class PurchaseOrderService {
 
             if (!request.details().isEmpty()) {
                 var replacementDetails = new ArrayList<PurchaseOrderDetail>();
+                // The replacement lines are NEW rows even though the document already exists, so each one owes
+                // the copy a created line owes (S2, S3). The date is the document's own — its `created_at`,
+                // because a purchase order has no `order_date` column (`V64:187-188`) — and not the instant this
+                // edit runs, which would silently restate the tax of a document written in another period.
+                var documentDate = po.getCreatedAt().toLocalDate();
                 for (var detailReq : request.details()) {
                     var product = validateProductExists(detailReq.productId());
                     var productVariant = resolveProductVariant(detailReq.productVariantId(), product, store);
                     var detailState =
                             detailReq.statusId() != null ? detailStateOf(detailReq.statusId()) : INITIAL_DETAIL_STATE;
+                    var tax = lineTaxFor(companyId, detailReq.productVariantId(), documentDate);
                     var detail = PurchaseOrderDetail.builder()
                             .purchaseOrder(po)
                             .product(product)
                             .productVariant(productVariant)
                             .quantity(detailReq.quantity())
                             .unitPrice(detailReq.unitPrice())
+                            .taxCode(tax.taxCode())
+                            .taxRate(tax.taxRate())
                             .receivedQuantity(BigDecimal.ZERO)
                             .comments(detailReq.comments())
                             .status(detailState)
@@ -456,6 +481,13 @@ public class PurchaseOrderService {
         var product = validateProductExists(request.productId());
         var productVariant = resolveProductVariant(request.productVariantId(), product, po.getCompanyStore());
         var detailState = detailStateOf(request.statusId());
+        // The copy (S2, S3), before the row is built and written: the code is the product's, read through the
+        // variant, and the rate is the one that applied on the document's date. A purchase order's date is its
+        // `created_at` — it carries no `order_date` column (`V64:187-188`) — so a line added to an old draft is
+        // taxed with the document's period, not with today's catalog (D2). A taxable code with no rate on that
+        // date refuses the request here, before the first write, so nothing is stored (S5).
+        var tax = lineTaxFor(
+                companyIdOf(po), request.productVariantId(), po.getCreatedAt().toLocalDate());
 
         var detail = PurchaseOrderDetail.builder()
                 .purchaseOrder(po)
@@ -463,6 +495,8 @@ public class PurchaseOrderService {
                 .productVariant(productVariant)
                 .quantity(request.quantity())
                 .unitPrice(request.unitPrice())
+                .taxCode(tax.taxCode())
+                .taxRate(tax.taxRate())
                 .receivedQuantity(BigDecimal.ZERO)
                 .comments(request.comments())
                 .status(detailState)
@@ -502,11 +536,33 @@ public class PurchaseOrderService {
         if (detailState != detail.getStatus()) {
             DocumentStates.requireTransition(detail.getStatus(), detailState);
         }
+        // NO RE-RESOLUTION when the row stays the same article (S3): this path mutates an existing line's
+        // quantity, price and comments, and the stored pair is the snapshot of the document that created it.
+        // The derivation restates `tax_amount` and `total` from that stored rate, which is the arithmetic these
+        // setters actually change. A later catalog change must not restate a historical purchase.
+        //
+        // THE ONE EXCEPTION, because it is a different fact and not a rate change: a line moved to another
+        // variant stops being the same article, so the code its product declares and the rate the document's
+        // date resolves are taken again — the rule sales states at `SalesOrderService:380-384`. Keeping the
+        // previous article's snapshot would tax this purchase with a code its product does not declare.
+        var storedVariant = detail.getProductVariant();
+        var variantChanged = storedVariant == null || !storedVariant.getId().equals(request.productVariantId());
+        // Resolved before the first write so a refusal leaves the row untouched (S5).
+        var reResolvedTax = variantChanged
+                ? lineTaxFor(
+                        companyIdOf(detail.getPurchaseOrder()),
+                        request.productVariantId(),
+                        detail.getPurchaseOrder().getCreatedAt().toLocalDate())
+                : null;
         detail.setProduct(product);
         detail.setProductVariant(productVariant);
         detail.setQuantity(request.quantity());
         detail.setUnitPrice(request.unitPrice());
         detail.setComments(request.comments());
+        if (reResolvedTax != null) {
+            detail.setTaxCode(reResolvedTax.taxCode());
+            detail.setTaxRate(reResolvedTax.taxRate());
+        }
 
         PurchaseOrderDetail updated;
         if (detailState != detail.getStatus()) {
@@ -1082,10 +1138,62 @@ public class PurchaseOrderService {
         }
     }
 
-    /** The line's half of {@link #refreshDerivedOrderMoney(PurchaseOrder)}: {@code subtotal} and {@code total}. */
+    /** The line's half of {@link #refreshDerivedOrderMoney(PurchaseOrder)}: {@code subtotal}, {@code tax_amount}
+     * and {@code total} ({@code V94}). */
     private void refreshDerivedLineMoney(PurchaseOrderDetail detail) {
         detailRepository.flush();
         entityManager.refresh(detail);
+    }
+
+    // ─── The line's tax copy ──────────────────────────────────────────────
+
+    /** The pair a line stores: the code its product declares and the rate that applied on the document's date. */
+    private record LineTax(String taxCode, BigDecimal taxRate) {}
+
+    /**
+     * Copies the tax a line is born with ({@code S2}, {@code S3} of {@code odd/tasks/purchase-order-line-tax.md}).
+     *
+     * <p><b>Why the code comes from the product and not from the request.</b> The fiscal code is a fact of the
+     * article, so it is read through the variant the line names — the same scoped projection
+     * {@code ProductVariantRepository#findProductTaxCodeByVariantId} serves sales — and no request record carries
+     * a field for it. An empty answer is not "a product with no code": {@code products.tax_code} is
+     * {@code NOT NULL} since {@code V89}, so it is a variant this tenant cannot see — the same 404 the variant
+     * lookup just answered.</p>
+     *
+     * <p><b>Why the rate is snapshotted and never looked up at read time.</b> The stored rate is what the
+     * derivation on the row reads, so a later catalog change cannot restate a historical purchase. The company
+     * and the date are the caller's: the document's own date, never {@code LocalDate.now()}.
+     * {@code TaxRateService.resolve} is called exactly here, at creation.</p>
+     *
+     * <p><b>Why a code with no rate refuses instead of defaulting to zero.</b> The zero-by-definition answer lives
+     * in {@link TaxCodeService#isZeroRateByDefinition} and it is the only way a line gets a {@code 0} without
+     * consulting {@code tax_rate}; anything else that cannot resolve is a {@link IllegalArgumentException}, which
+     * this module's advice answers with a 400 naming the code and the date. The caller runs this before its first
+     * write, so the refusal stores nothing.</p>
+     *
+     * @param companyId the company that files the rate — the one that owns the order's store
+     * @param productVariantId the variant whose product declares the code
+     * @param documentDate the date the document itself states (a purchase order's {@code created_at})
+     */
+    private LineTax lineTaxFor(UUID companyId, UUID productVariantId, LocalDate documentDate) {
+        var taxCode = productVariantRepository
+                .findProductTaxCodeByVariantId(productVariantId)
+                .orElseThrow(() -> new ProductVariantNotFoundException(productVariantId));
+
+        if (TaxCodeService.isZeroRateByDefinition(taxCode)) {
+            return new LineTax(taxCode, BigDecimal.ZERO);
+        }
+
+        return taxRateService
+                .resolve(companyId, taxCode, documentDate)
+                .map(resolution -> new LineTax(resolution.taxCode(), resolution.rate()))
+                .orElseThrow(() -> new IllegalArgumentException("Cannot write the line: tax code "
+                        + taxCode + " has no enabled rate applicable on " + documentDate
+                        + ", the document's date. The purchase is refused rather than taxed at zero (ADR-0002 "
+                        + "decision 6, D-a): if the line is not taxable its product must declare a code that is "
+                        + "zero by definition (" + String.join(", ", TaxCodeService.ZERO_RATE_CODES)
+                        + "), and otherwise the "
+                        + "company has to state the rate that applies from " + documentDate + " onward."));
     }
 
     private PurchaseOrderDetailResponse toDetailResponse(PurchaseOrderDetail detail) {
@@ -1102,6 +1210,9 @@ public class PurchaseOrderService {
                 detail.getQuantity(),
                 detail.getUnitPrice(),
                 detail.getTotal(),
+                detail.getTaxCode(),
+                detail.getTaxRate(),
+                detail.getTaxAmount(),
                 detail.getReceivedQuantity(),
                 detail.getComments(),
                 detailStatus == null ? null : detailStatus.getId(),

@@ -3,6 +3,7 @@ package com.lifecontrol.api.purchaseorder.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
@@ -10,6 +11,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -64,8 +66,12 @@ import com.lifecontrol.api.store.service.CompanyStoreOwnerResolver;
 import com.lifecontrol.api.supplier.exception.SupplierNotFoundException;
 import com.lifecontrol.api.supplier.model.Supplier;
 import com.lifecontrol.api.supplier.repository.SupplierRepository;
+import com.lifecontrol.api.tax.service.TaxRateResolution;
+import com.lifecontrol.api.tax.service.TaxRateService;
 import jakarta.persistence.EntityManager;
 import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -130,6 +136,14 @@ class PurchaseOrderServiceTest {
 
     @Mock
     private DocumentSequenceAllocator documentSequenceAllocator;
+
+    /**
+     * The resolver, mocked: this suite asserts <b>when</b> the copy asks for a rate and with which date, which is
+     * the snapshot rule (S3). What a resolution returns is the tax layer's own contract
+     * ({@code TaxRateServiceTest}); what the schema derives from the rate is the migration suite's.
+     */
+    @Mock
+    private TaxRateService taxRateService;
 
     /**
      * The history writer, mocked: what this class asserts about it is <b>which</b> rows a path appends — the
@@ -301,8 +315,18 @@ class PurchaseOrderServiceTest {
                 .status(PurchaseOrderState.DRAFT)
                 .comments("Test PO")
                 .enabled(true)
+                // The document's own date (`V64:187-188`): a purchase order has no `order_date` column, so the
+                // tax copy resolves against `created_at`, which a row loaded from the repository always states.
+                .createdAt(LocalDateTime.of(2026, 6, 3, 10, 0))
+                .updatedAt(LocalDateTime.of(2026, 6, 3, 10, 0))
                 .build();
         purchaseOrder.setDetails(new ArrayList<>());
+
+        // Every line copies its product's code. `NA` is the fixture's product and the column's default, so the
+        // cases that are not about tax never consult the rate table; the copy's own cases stub this per test.
+        lenient()
+                .when(productVariantRepository.findProductTaxCodeByVariantId(any()))
+                .thenReturn(Optional.of("NA"));
 
         // The order's owner is resolved from its store on every write (V43), so the company the
         // fixture's store chain already describes is the one that lookup returns. Lenient because most
@@ -329,6 +353,7 @@ class PurchaseOrderServiceTest {
                 documentSequenceAllocator,
                 statusTransitionRecorder,
                 documentStateCatalog,
+                taxRateService,
                 entityManager);
 
         detail = PurchaseOrderDetail.builder()
@@ -1974,6 +1999,318 @@ class PurchaseOrderServiceTest {
             assertThat(detail.getStatus()).isSameAs(to);
             verify(statusTransitionRecorder)
                     .recordReachableMove(StatusSubject.PURCHASE_ORDER_DETAIL, companyId, detailId, from, to, "receipt");
+        }
+    }
+
+    // ─── The line's tax snapshot (S3, S4 and S5 of odd/tasks/purchase-order-line-tax.md) ───
+
+    /**
+     * The copy's four halves, as only a unit suite can separate them: <b>when</b> a purchase line asks the
+     * product for its code and the rate table for a rate, when it must not, and what it keeps of each answer.
+     *
+     * <p>What a rate row is and which one a date resolves belongs to {@code TaxRateServiceTest}; what the stored
+     * rate becomes on the row — {@code tax_amount} and {@code total} — belongs to
+     * {@code PurchaseOrderMoneyMigrationIntegrationTest}, because a trigger does the arithmetic and a mock runs
+     * no trigger. This suite pins the asking and the storing.</p>
+     */
+    @Nested
+    @DisplayName("the line's tax snapshot: resolved when a line is born, never when an existing one is edited")
+    class LineTaxSnapshotTests {
+
+        @Test
+        @DisplayName("creating the order with a line stores the product's code and the document's rate, and a newer"
+                + " catalog row never restates them")
+        void createWithLines_storesTheProductsCodeAndTheDocumentsRate() {
+            var lineReq = new PurchaseOrderDetailRequest(
+                    productId,
+                    variantId,
+                    new BigDecimal("3.00"),
+                    new BigDecimal("150.00"),
+                    null,
+                    pendingStatus.getId());
+            var request = stubCreateOf(List.of(lineReq));
+            stubStockedVariant(productVariant);
+            when(productVariantRepository.findProductTaxCodeByVariantId(variantId))
+                    .thenReturn(Optional.of("IVA"));
+            when(taxRateService.resolve(eq(companyId), eq("IVA"), any()))
+                    .thenReturn(Optional.of(new TaxRateResolution(
+                            UUID.randomUUID(), "IVA", new BigDecimal("0.160000"), LocalDate.of(2026, 1, 1))));
+            var written = ArgumentCaptor.forClass(PurchaseOrder.class);
+            when(purchaseOrderRepository.save(written.capture())).thenAnswer(inv -> {
+                var po = inv.getArgument(0, PurchaseOrder.class);
+                po.setId(poId);
+                return po;
+            });
+
+            var result = service.createPurchaseOrder(request);
+
+            var stored = written.getValue().getDetails().getFirst();
+            assertThat(stored.getTaxCode())
+                    .as("the code comes from the product through the variant; the request has no field for one (S2)")
+                    .isEqualTo("IVA");
+            assertThat(stored.getTaxRate())
+                    .as("the rate the document's date resolved is copied onto the line instead of being joined "
+                            + "at read time (S3)")
+                    .isEqualByComparingTo(new BigDecimal("0.160000"));
+            assertThat(result.details().getFirst().taxCode()).isEqualTo("IVA");
+            assertThat(result.details().getFirst().taxRate())
+                    .as("the response states the pair the row keeps (S8)")
+                    .isEqualByComparingTo(new BigDecimal("0.160000"));
+            // The date is the document's own — its `created_at`, because a purchase order has no `order_date`
+            // column (`V64:187-188`) — and not one the caller could state.
+            verify(taxRateService).resolve(eq(companyId), eq("IVA"), any());
+
+            // The catalog moves: the company publishes a newer IVA row at 8%. A resolver asked at read time would
+            // answer the next question with this rate, and the historical purchase would be restated by a
+            // catalog change — the defect this half of the case exists for.
+            //
+            // Lenient because a correct implementation never asks again, and never asking is precisely what the
+            // assertions below measure; a strict stub would fail the case for the stub it did not need.
+            lenient()
+                    .when(taxRateService.resolve(eq(companyId), eq("IVA"), any()))
+                    .thenReturn(Optional.of(new TaxRateResolution(
+                            UUID.randomUUID(), "IVA", new BigDecimal("0.080000"), LocalDate.of(2026, 7, 1))));
+            when(purchaseOrderRepository.findById(poId)).thenReturn(Optional.of(written.getValue()));
+            when(detailRepository.findByPurchaseOrderIdAndEnabledTrue(poId)).thenReturn(List.of(stored));
+
+            var reRead = service.getPurchaseOrderDetails(poId);
+
+            assertThat(reRead.getFirst().taxCode()).isEqualTo("IVA");
+            assertThat(reRead.getFirst().taxRate())
+                    .as("the row still carries the rate it was written with, so reading it again cannot pick up "
+                            + "the 8% published afterwards")
+                    .isEqualByComparingTo(new BigDecimal("0.160000"));
+            verify(taxRateService, times(1)).resolve(any(), eq("IVA"), any());
+        }
+
+        @Test
+        @DisplayName("every zero-by-definition code answers 0 without asking the rate table at all (S4)")
+        void createWithAZeroByDefinitionCode_neverAsksTheRateTable() {
+            var lineReq = new PurchaseOrderDetailRequest(
+                    productId,
+                    variantId,
+                    new BigDecimal("3.00"),
+                    new BigDecimal("150.00"),
+                    null,
+                    pendingStatus.getId());
+            var request = stubCreateOf(List.of(lineReq));
+            stubStockedVariant(productVariant);
+            var written = ArgumentCaptor.forClass(PurchaseOrder.class);
+            when(purchaseOrderRepository.save(written.capture())).thenAnswer(inv -> {
+                var po = inv.getArgument(0, PurchaseOrder.class);
+                po.setId(poId);
+                return po;
+            });
+
+            for (var code : List.of("NA", "TASA_0", "EXENTO")) {
+                when(productVariantRepository.findProductTaxCodeByVariantId(variantId))
+                        .thenReturn(Optional.of(code));
+
+                var result = service.createPurchaseOrder(request);
+
+                var stored = written.getValue().getDetails().getFirst();
+                assertThat(stored.getTaxCode())
+                        .as("the code travels even though the rate is zero: Exento and Tasa 0% are two different "
+                                + "zeroes and only the code tells them apart")
+                        .isEqualTo(code);
+                assertThat(stored.getTaxRate())
+                        .as("%s is zero by definition, so the line is written with a 0 and not with a rate", code)
+                        .isEqualByComparingTo(BigDecimal.ZERO);
+                assertThat(result.details().getFirst().taxRate()).isEqualByComparingTo(BigDecimal.ZERO);
+                // The amount is the schema's: round(subtotal * 0, 4) = 0 on a rate this layer stated. The zero is
+                // proven on the row by the migration suite; what this suite can prove is that Java invents no
+                // amount of its own, which a second writer would.
+                assertThat(stored.getTaxAmount()).isNull();
+            }
+
+            // The interaction, not just the number: a 0 that came from a lookup is a code whose missing rate row
+            // silently untaxes, which is the failure S4 and S5 exist to separate.
+            verifyNoInteractions(taxRateService);
+        }
+
+        @Test
+        @DisplayName("a taxable code with no rate on the document's date refuses the create-with-lines request,"
+                + " naming the code and the date, and writes nothing")
+        void createWithLines_withATaxableCodeAndNoRate_isRefusedAndWritesNothing() {
+            // The path that matters most: two lines, so the first one is already built when the second one is
+            // refused. A 400 thrown after the first write is the defect this case exists for.
+            var firstVariant = productVariant;
+            var secondVariant = variantNamed("Second Variant");
+            var firstLine = new PurchaseOrderDetailRequest(
+                    productId,
+                    firstVariant.getId(),
+                    new BigDecimal("1.00"),
+                    new BigDecimal("10.00"),
+                    null,
+                    pendingStatus.getId());
+            var secondLine = new PurchaseOrderDetailRequest(
+                    productId,
+                    secondVariant.getId(),
+                    new BigDecimal("2.00"),
+                    new BigDecimal("20.00"),
+                    null,
+                    pendingStatus.getId());
+            var request = stubCreateOf(List.of(firstLine, secondLine));
+            stubStockedVariant(firstVariant);
+            stubStockedVariant(secondVariant);
+            // The first line is untaxed by definition and asks nothing; the second declares IVA and the company
+            // has stated no enabled rate for it on the document's date.
+            when(productVariantRepository.findProductTaxCodeByVariantId(firstVariant.getId()))
+                    .thenReturn(Optional.of("TASA_0"));
+            when(productVariantRepository.findProductTaxCodeByVariantId(secondVariant.getId()))
+                    .thenReturn(Optional.of("IVA"));
+            when(taxRateService.resolve(eq(companyId), eq("IVA"), any())).thenReturn(Optional.empty());
+
+            var refused = catchThrowable(() -> service.createPurchaseOrder(request));
+
+            assertThat(refused)
+                    .as("the handler maps this class to 400, the shape the currency path already uses for the "
+                            + "same sentence: a value the catalog does not back is the caller's to fix (S5)")
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("IVA");
+            var askedOn = ArgumentCaptor.forClass(LocalDate.class);
+            verify(taxRateService).resolve(eq(companyId), eq("IVA"), askedOn.capture());
+            assertThat(refused.getMessage())
+                    .as("the refusal names the date it looked for, so the operator knows which row to publish")
+                    .contains(askedOn.getValue().toString());
+
+            // Nothing is stored: no order row, no line row, no history and no event. The order is written after
+            // every line is built and the lines after that, which is what makes the refusal a refusal.
+            verify(purchaseOrderRepository, never()).save(any(PurchaseOrder.class));
+            verify(detailRepository, never()).save(any(PurchaseOrderDetail.class));
+            verify(detailRepository, never()).saveAll(any());
+            verifyNoInteractions(statusTransitionRecorder);
+            verify(eventPublisher, never()).publishEvent(any());
+            // The one thing the refusal does NOT give back, asserted rather than glossed: ADR-0003 decision 4
+            // allocates the number before the lines are resolved, so a refused request has already taken a value
+            // from the sequence. `createPurchaseOrder` records that as the cost the path cannot avoid; the day
+            // the allocation moves below the line loop this assertion fails and the record changes with it.
+            verify(documentSequenceAllocator).allocate(eq(companyId), eq(DocumentType.PURCHASE_ORDER), anyString());
+        }
+
+        @Test
+        @DisplayName("editing quantity and price keeps the stored pair and re-derives from it; only a line moved to"
+                + " another variant resolves again")
+        void updateDetail_keepsTheStoredPairAndReResolvesOnlyWhenTheArticleChanges() {
+            var taxedLine = PurchaseOrderDetail.builder()
+                    .id(detailId)
+                    .purchaseOrder(purchaseOrder)
+                    .product(product)
+                    .productVariant(productVariant)
+                    .quantity(new BigDecimal("2.00"))
+                    .unitPrice(new BigDecimal("100.00"))
+                    .taxCode("IVA")
+                    .taxRate(new BigDecimal("0.160000"))
+                    .receivedQuantity(BigDecimal.ZERO)
+                    .status(PurchaseOrderDetailState.PENDING)
+                    .enabled(true)
+                    .build();
+
+            when(purchaseOrderRepository.findById(poId)).thenReturn(Optional.of(purchaseOrder));
+            when(detailRepository.findById(detailId)).thenReturn(Optional.of(taxedLine));
+            when(productRepository.findById(productId)).thenReturn(Optional.of(product));
+            stubStockedVariant(productVariant);
+            catalogRow(pendingStatus);
+            when(detailRepository.save(any(PurchaseOrderDetail.class))).thenAnswer(inv -> {
+                var line = inv.getArgument(0, PurchaseOrderDetail.class);
+                // The trigger's answer to 3 x 100.00 at the STORED 16%: 300.00 + 48.00. A re-resolution at the 8%
+                // the catalog states afterwards would answer 324.0000, and that difference is what the assertion
+                // below separates — the rate the derivation reads has to be the one the row already carries.
+                line.setTotal(new BigDecimal("348.0000"));
+                return line;
+            });
+
+            var result = service.updatePurchaseOrderDetail(
+                    poId,
+                    detailId,
+                    new PurchaseOrderDetailRequest(
+                            productId,
+                            variantId,
+                            new BigDecimal("3.00"),
+                            new BigDecimal("100.00"),
+                            null,
+                            pendingStatus.getId()));
+
+            assertThat(result.taxCode()).isEqualTo("IVA");
+            assertThat(result.taxRate()).isEqualByComparingTo(new BigDecimal("0.160000"));
+            assertThat(result.total())
+                    .as("the amounts come from the stored rate: the edit moved the quantity, not the snapshot")
+                    .isEqualByComparingTo(new BigDecimal("348.0000"));
+            assertThat(taxedLine.getTaxCode()).isEqualTo("IVA");
+            assertThat(taxedLine.getTaxRate()).isEqualByComparingTo(new BigDecimal("0.160000"));
+            // Neither the rate table nor the product is asked again: the row stays the same article, so its pair
+            // is the snapshot of the document that created it (S3).
+            verifyNoInteractions(taxRateService);
+            verify(productVariantRepository, never()).findProductTaxCodeByVariantId(any());
+            // The derived pair is read back, because the numbers the response states are the row's and not the
+            // ones this instance carried before the write.
+            verify(entityManager).refresh(any(PurchaseOrderDetail.class));
+
+            // ── The single exception: the line stops being the same article ──
+            var otherVariant = variantNamed("Other Variant");
+            stubStockedVariant(otherVariant);
+            when(productVariantRepository.findProductTaxCodeByVariantId(otherVariant.getId()))
+                    .thenReturn(Optional.of("IVA"));
+            when(taxRateService.resolve(eq(companyId), eq("IVA"), any()))
+                    .thenReturn(Optional.of(new TaxRateResolution(
+                            UUID.randomUUID(), "IVA", new BigDecimal("0.080000"), LocalDate.of(2026, 6, 1))));
+
+            service.updatePurchaseOrderDetail(
+                    poId,
+                    detailId,
+                    new PurchaseOrderDetailRequest(
+                            productId,
+                            otherVariant.getId(),
+                            new BigDecimal("3.00"),
+                            new BigDecimal("100.00"),
+                            null,
+                            pendingStatus.getId()));
+
+            assertThat(taxedLine.getTaxCode()).isEqualTo("IVA");
+            assertThat(taxedLine.getTaxRate())
+                    .as("a line moved to another variant is no longer the article whose tax was copied, so the "
+                            + "copy is taken again — the rule sales states at `SalesOrderService:380-384`")
+                    .isEqualByComparingTo(new BigDecimal("0.080000"));
+            assertThat(taxedLine.getProductVariant()).isSameAs(otherVariant);
+            // And it is the DOCUMENT's date that is resolved for, never today's: an edit does not move the
+            // document's period, so it cannot move the rate either.
+            verify(taxRateService).resolve(companyId, "IVA", LocalDate.of(2026, 6, 3));
+        }
+
+        /**
+         * Everything a successful create needs that no tax case decides: the store's company, its supplier, the
+         * payment method, the catalog rows, the product and the number. Each case states its own tax answer.
+         */
+        private PurchaseOrderRequest stubCreateOf(List<PurchaseOrderDetailRequest> lines) {
+            var request = new PurchaseOrderRequest(supplierId, storeId, pmId, draftStatusId, "Comments", lines);
+            when(supplierRepository.findByIdAndCompanyId(supplierId, companyId)).thenReturn(Optional.of(supplier));
+            when(companyStoreRepository.findById(storeId)).thenReturn(Optional.of(store));
+            when(paymentMethodRepository.findById(pmId)).thenReturn(Optional.of(paymentMethod));
+            catalogRow(draftStatus);
+            catalogRow(pendingStatus);
+            when(productRepository.findById(productId)).thenReturn(Optional.of(product));
+            when(documentSequenceAllocator.allocate(eq(companyId), eq(DocumentType.PURCHASE_ORDER), anyString()))
+                    .thenReturn(1L);
+            return request;
+        }
+
+        /** A variant of the fixture's product that the order's store stocks, which is what a line must name. */
+        private void stubStockedVariant(ProductVariant variant) {
+            when(productVariantRepository.findByIdAndProductIdAndCompanyIdAndEnabledTrue(
+                            variant.getId(), productId, companyId))
+                    .thenReturn(Optional.of(variant));
+            when(productVariantStoreStockRepository.existsByProductVariantIdAndCompanyStoreId(variant.getId(), storeId))
+                    .thenReturn(true);
+        }
+
+        /** A second article of the same product, for the case that moves a line to another one. */
+        private ProductVariant variantNamed(String name) {
+            var variant = new ProductVariant();
+            variant.setId(UUID.randomUUID());
+            variant.setProductId(productId);
+            variant.setVariantName(name);
+            variant.setEnabled(true);
+            return variant;
         }
     }
 }
