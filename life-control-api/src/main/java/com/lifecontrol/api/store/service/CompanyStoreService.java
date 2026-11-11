@@ -55,6 +55,7 @@ public class CompanyStoreService {
     private final CurrentUserContext currentUserContext;
     private final ApplicationEventPublisher eventPublisher;
     private final StoreAreaService storeAreaService;
+    private final StoreLocationChainService storeLocationChainService;
 
     public CompanyStoreService(
             CompanyStoreRepository companyStoreRepository,
@@ -65,7 +66,8 @@ public class CompanyStoreService {
             CountryRepository countryRepository,
             CurrentUserContext currentUserContext,
             ApplicationEventPublisher eventPublisher,
-            StoreAreaService storeAreaService) {
+            StoreAreaService storeAreaService,
+            StoreLocationChainService storeLocationChainService) {
         this.companyStoreRepository = companyStoreRepository;
         this.companyZoneRepository = companyZoneRepository;
         this.companyRegionRepository = companyRegionRepository;
@@ -75,6 +77,7 @@ public class CompanyStoreService {
         this.currentUserContext = currentUserContext;
         this.eventPublisher = eventPublisher;
         this.storeAreaService = storeAreaService;
+        this.storeLocationChainService = storeLocationChainService;
     }
 
     private CompanyZone resolveCompanyZone(UUID companyId, UUID companyCountryId, UUID regionId, UUID zoneId) {
@@ -196,6 +199,14 @@ public class CompanyStoreService {
         // Flush so the response carries the real @Version and non-null createdAt/updatedAt: both the
         // version increment and the Auditable callbacks run at flush time.
         var saved = companyStoreRepository.saveAndFlush(store);
+
+        // Issue #859: the store owns the location chain store_inventory_settings requires — one area, one
+        // zone, one location and the settings row — so it can receive stock with no manual step. It is
+        // written BEFORE the event is published, in this same transaction, and the order is the contract:
+        // KeycloakGroupEventListener runs AFTER_COMMIT, so a chain that failed and rolled the store back
+        // must not leave a Keycloak group for a store that never existed.
+        storeLocationChainService.createLocationChain(saved);
+
         eventPublisher.publishEvent(
                 new CompanyStoreCreatedEvent(this, saved.getId(), companyId, saved.getStoreName(), zone.getZoneName()));
         logger.info("CompanyStore created: name={}, zoneId={}", saved.getStoreName(), zone.getId());
