@@ -404,7 +404,8 @@ class PurchaseOrderControllerTest {
             mockMvc.perform(post("/api/purchase-orders/{id}/details", poId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(detailReq)))
-                    .andExpect(status().isConflict());
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.message").value("Invalid status transition: SENT → detail mutation"));
         }
     }
 
@@ -461,7 +462,8 @@ class PurchaseOrderControllerTest {
             mockMvc.perform(put("/api/purchase-orders/{id}/details/{did}", poId, detailId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(detailReq)))
-                    .andExpect(status().isConflict());
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.message").value("Invalid status transition: SENT → detail mutation"));
         }
     }
 
@@ -497,7 +499,8 @@ class PurchaseOrderControllerTest {
                     .deletePurchaseOrderDetail(poId, detailId);
 
             mockMvc.perform(delete("/api/purchase-orders/{id}/details/{did}", poId, detailId))
-                    .andExpect(status().isConflict());
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.message").value("Invalid status transition: SENT → detail mutation"));
         }
     }
 
