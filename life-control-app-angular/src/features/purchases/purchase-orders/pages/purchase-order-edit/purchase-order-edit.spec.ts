@@ -29,11 +29,7 @@ import { ProfileService } from '@features/user/profile/data/profile.service';
 import { NotificationService } from '@shared/data/notification';
 import { ConfigService } from '@app/services/config.service';
 import { formatMoney } from '@shared/pipes/money.pipe';
-import type {
-  PurchaseOrder,
-  PurchaseOrderDetail,
-  Page,
-} from '../../models/purchase-order.models';
+import type { PurchaseOrder, PurchaseOrderDetail, Page } from '../../models/purchase-order.models';
 
 const TEST_API = 'http://test/api';
 
@@ -753,7 +749,9 @@ describe('PurchaseOrderEdit', () => {
         formatMoney(mockOrder.totalAmount, mockOrder.currency, SPEC_LOCALE),
       );
 
-      purchaseOrderService.updateDetail = vi.fn().mockReturnValue(of(detailFixture({ quantity: 100 })));
+      purchaseOrderService.updateDetail = vi
+        .fn()
+        .mockReturnValue(of(detailFixture({ quantity: 100 })));
       component.updateLine('det-1', { quantity: 100 });
       fixture.detectChanges();
 
@@ -907,11 +905,18 @@ describe('PurchaseOrderEdit', () => {
     });
 
     it('should update only the status without resetting the line rows', () => {
-      purchaseOrderService.addDetail = vi.fn().mockReturnValue(
-        of(detailFixture({ id: 'det-2', productId: 'prod-9', productName: 'Widget nuevo' })),
-      );
+      purchaseOrderService.addDetail = vi
+        .fn()
+        .mockReturnValue(
+          of(detailFixture({ id: 'det-2', productId: 'prod-9', productName: 'Widget nuevo' })),
+        );
 
-      component.addLine({ productId: 'prod-9', productVariantId: 'var-9', quantity: 3, unitPrice: 25 });
+      component.addLine({
+        productId: 'prod-9',
+        productVariantId: 'var-9',
+        quantity: 3,
+        unitPrice: 25,
+      });
 
       component.onStatusChanged('Sent');
 
@@ -924,7 +929,9 @@ describe('PurchaseOrderEdit', () => {
     });
 
     it('should report unsaved changes after editing line items', () => {
-      purchaseOrderService.updateDetail = vi.fn().mockReturnValue(of(detailFixture({ quantity: 20 })));
+      purchaseOrderService.updateDetail = vi
+        .fn()
+        .mockReturnValue(of(detailFixture({ quantity: 20 })));
 
       component.updateLine('det-1', { quantity: 20 });
 
@@ -1043,9 +1050,7 @@ describe('PurchaseOrderEdit', () => {
       // Adding a line never saves the header as a side effect.
       expect(purchaseOrderService.update).not.toHaveBeenCalled();
 
-      inFlight.next(
-        detailFixture({ id: 'det-2', quantity: 6, unitPrice: 190, total: 1140 }),
-      );
+      inFlight.next(detailFixture({ id: 'det-2', quantity: 6, unitPrice: 190, total: 1140 }));
       inFlight.complete();
 
       expect(component.linePending()[NEW_LINE_KEY]).toBeUndefined();
@@ -1060,9 +1065,11 @@ describe('PurchaseOrderEdit', () => {
       purchaseOrderService.addDetail = vi
         .fn()
         .mockReturnValue(of(detailFixture({ id: 'det-2', total: 1140 })));
-      purchaseOrderService.getPurchaseOrder = vi.fn().mockReturnValue(
-        of({ ...mockOrder, subtotal: 2640.0001, taxTotal: 0, totalAmount: 2640.0001 }),
-      );
+      purchaseOrderService.getPurchaseOrder = vi
+        .fn()
+        .mockReturnValue(
+          of({ ...mockOrder, subtotal: 2640.0001, taxTotal: 0, totalAmount: 2640.0001 }),
+        );
 
       component.addLine({
         productId: 'prod-2',
@@ -1198,9 +1205,7 @@ describe('PurchaseOrderEdit', () => {
       purchaseOrderService.getPurchaseOrder = vi.fn().mockReturnValue(
         of({
           ...mockOrder,
-          details: [
-            { ...mockOrder.details[0], productVariantId: null, productVariantName: null },
-          ],
+          details: [{ ...mockOrder.details[0], productVariantId: null, productVariantName: null }],
         }),
       );
 
@@ -1234,9 +1239,9 @@ describe('PurchaseOrderEdit', () => {
     });
 
     it('should keep the creation order after a line is added', () => {
-      purchaseOrderService.addDetail = vi.fn().mockReturnValue(
-        of(detailFixture({ id: 'det-0', createdAt: '2025-12-31T00:00:00Z' })),
-      );
+      purchaseOrderService.addDetail = vi
+        .fn()
+        .mockReturnValue(of(detailFixture({ id: 'det-0', createdAt: '2025-12-31T00:00:00Z' })));
 
       component.addLine({
         productId: 'prod-9',
