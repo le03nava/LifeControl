@@ -9,9 +9,9 @@ import {
   ActivatedRoute,
 } from '@angular/router';
 import { By } from '@angular/platform-browser';
-import { of, throwError } from 'rxjs';
+import { of, Subject, throwError } from 'rxjs';
 import { HttpErrorResponse } from '@angular/common/http';
-import { PurchaseOrderEdit } from './purchase-order-edit';
+import { PurchaseOrderEdit, NEW_LINE_KEY } from './purchase-order-edit';
 import { DetailTable } from '../../components/detail-table/detail-table';
 import { CompanyInfoSection } from '../../components/company-info-section/company-info-section';
 import { CompanyCascadeService } from '../../data/company-cascade.service';
@@ -29,7 +29,7 @@ import { ProfileService } from '@features/user/profile/data/profile.service';
 import { NotificationService } from '@shared/data/notification';
 import { ConfigService } from '@app/services/config.service';
 import { formatMoney } from '@shared/pipes/money.pipe';
-import type { PurchaseOrder, Page } from '../../models/purchase-order.models';
+import type { PurchaseOrder, PurchaseOrderDetail, Page } from '../../models/purchase-order.models';
 
 const TEST_API = 'http://test/api';
 
@@ -114,6 +114,32 @@ const TAXED_ORDER: PurchaseOrder = {
       taxAmount: 240.0001,
     },
   ],
+};
+
+/**
+ * A line as the detail routes answer it.
+ *
+ * Built from the loaded order's own line so every field the response carries is present, and overridable per case: a
+ * test that asserts a row came from the answer has to be able to state numbers the request did not send.
+ */
+function detailFixture(overrides: Partial<PurchaseOrderDetail> = {}): PurchaseOrderDetail {
+  return { ...mockOrder.details[0], ...overrides };
+}
+
+/** A second saved line, for the cases that need one row to stay untouched while another fails. */
+const secondDetail: PurchaseOrderDetail = {
+  ...mockOrder.details[0],
+  id: 'det-2',
+  productId: 'prod-2',
+  productName: 'Widget B',
+  productVariantId: 'var-2',
+  productVariantName: 'Presentación 2L',
+  quantity: 5,
+  unitPrice: 200,
+  total: 1000,
+  taxRate: 0,
+  taxAmount: 0,
+  createdAt: '2026-01-02T00:00:00Z',
 };
 
 const emptyPage: Page<unknown> = {
@@ -355,11 +381,11 @@ describe('PurchaseOrderEdit', () => {
       expect(component.supplierProducts()).toEqual([]);
     });
 
-    it('should keep the receipt progress view off while no order is loaded', () => {
-      const table = fixture.debugElement.query(By.directive(DetailTable))
-        .componentInstance as DetailTable;
-
-      expect(table.showReceiptProgress()).toBe(false);
+    it('should not render the detail area before the order exists', () => {
+      // A line is addressed by the order's id on the detail sub-resource, so before there is one the operator sees the
+      // header only (S1).
+      expect(fixture.debugElement.query(By.directive(DetailTable))).toBeNull();
+      expect((fixture.nativeElement as HTMLElement).querySelector('app-detail-table')).toBeNull();
     });
 
     it('should not offer the receipt action without a loaded order', () => {
@@ -459,7 +485,27 @@ describe('PurchaseOrderEdit', () => {
       });
     });
 
-    it('should navigate to the order list after successful create', () => {
+    it('should call service.create with the header and no details', () => {
+      const form = component.headerForm();
+      form.controls.supplierId.setValue('sup-1');
+      form.controls.companyStoreId.setValue('store-1');
+      form.controls.paymentMethodId.setValue('pm-1');
+      form.controls.comments.setValue('New PO');
+
+      component.onSave();
+
+      expect(purchaseOrderService.create).toHaveBeenCalledWith({
+        supplierId: 'sup-1',
+        companyStoreId: 'store-1',
+        paymentMethodId: 'pm-1',
+        comments: 'New PO',
+      });
+      // The created order is a Draft with no lines: the create call carries the header and nothing else (S3).
+      const request = (purchaseOrderService.create as ReturnType<typeof vi.fn>).mock.calls[0][0];
+      expect('details' in request).toBe(false);
+    });
+
+    it('should create the order and turn the same screen into its edit surface', () => {
       const created: PurchaseOrder = { ...mockOrder, id: 'po-new' };
       purchaseOrderService.create = vi.fn().mockReturnValue(of(created));
 
@@ -469,7 +515,52 @@ describe('PurchaseOrderEdit', () => {
       form.controls.paymentMethodId.setValue('pm-1');
       component.onSave();
 
-      expect(router.navigate).toHaveBeenCalledWith(['/purchases/orders']);
+      // The same page is now the created order's edit surface, and the history entry is replaced so Back does not
+      // return to a `/create` URL that would produce a second order (S2).
+      expect(component.orderId()).toBe('po-new');
+      expect(component.isEditMode()).toBe(true);
+      expect(router.navigate).toHaveBeenCalledWith(['/purchases/orders', 'po-new'], {
+        replaceUrl: true,
+      });
+
+      fixture.detectChanges();
+
+      const table = fixture.debugElement.query(By.directive(DetailTable))
+        .componentInstance as DetailTable;
+      expect(table).toBeTruthy();
+      // The detail area is scoped to the order the server just created.
+      expect(table.storeId()).toBe('store-1');
+      expect(table.currency()).toBe(created.currency);
+    });
+
+    it('should stay on the create screen and create nothing when the create fails', () => {
+      purchaseOrderService.create = vi.fn().mockReturnValue(
+        throwError(
+          () =>
+            new HttpErrorResponse({
+              error: { message: 'La tienda no pertenece a la empresa' },
+              status: 400,
+              statusText: 'Bad Request',
+            }),
+        ),
+      );
+
+      const form = component.headerForm();
+      form.controls.supplierId.setValue('sup-1');
+      form.controls.companyStoreId.setValue('store-1');
+      form.controls.paymentMethodId.setValue('pm-1');
+      form.controls.comments.setValue('nota');
+      component.onSave();
+      fixture.detectChanges();
+
+      expect(component.orderId()).toBeNull();
+      expect(component.isEditMode()).toBe(false);
+      expect(fixture.debugElement.query(By.directive(DetailTable))).toBeNull();
+      expect(router.navigate).not.toHaveBeenCalled();
+      // The header is intact and the server's message is what the operator reads (S3).
+      expect(component.headerForm().controls.comments.value).toBe('nota');
+      expect(component.generalError()).toBe('La tienda no pertenece a la empresa');
+      expect(component.saving()).toBe(false);
     });
 
     it('should show a success notification after create', () => {
@@ -651,25 +742,17 @@ describe('PurchaseOrderEdit', () => {
       expect(summaryText(fixture)).toContain('Total');
     });
 
-    it('should keep the served total when the lines change instead of re-summing them', () => {
+    it('should keep the served total when a line changes instead of re-summing the rows', () => {
       // The one assertion that fails if any client-side `reduce` came back: a row whose quantity is ten times larger
       // does not move the number the server stated for the document.
       expect(renderedDocumentTotal(fixture)).toBe(
         formatMoney(mockOrder.totalAmount, mockOrder.currency, SPEC_LOCALE),
       );
 
-      component.onItemsChanged([
-        {
-          id: 'det-1',
-          productId: 'prod-1',
-          productName: 'Widget A',
-          productVariantId: 'var-1',
-          productVariantName: 'Presentación 1L',
-          quantity: 100,
-          unitPrice: 150,
-          total: 1500.0001,
-        },
-      ]);
+      purchaseOrderService.updateDetail = vi
+        .fn()
+        .mockReturnValue(of(detailFixture({ quantity: 100 })));
+      component.updateLine('det-1', { quantity: 100 });
       fixture.detectChanges();
 
       expect(renderedDocumentTotal(fixture)).toBe(
@@ -821,33 +904,24 @@ describe('PurchaseOrderEdit', () => {
       expect(component.isDraft()).toBe(false);
     });
 
-    it('should update only the status without resetting unsaved line items', () => {
-      component.onItemsChanged([
-        {
-          id: 'det-temp',
-          productId: 'prod-9',
-          productName: 'Unsaved Widget',
-          productVariantId: 'var-9',
-          productVariantName: 'Presentación 9',
-          quantity: 3,
-          unitPrice: 25,
-        },
-      ]);
+    it('should update only the status without resetting the line rows', () => {
+      purchaseOrderService.addDetail = vi
+        .fn()
+        .mockReturnValue(
+          of(detailFixture({ id: 'det-2', productId: 'prod-9', productName: 'Widget nuevo' })),
+        );
+
+      component.addLine({
+        productId: 'prod-9',
+        productVariantId: 'var-9',
+        quantity: 3,
+        unitPrice: 25,
+      });
 
       component.onStatusChanged('Sent');
 
       expect(component.loadedOrder()?.statusName).toBe('Sent');
-      expect(component.lineItems()).toEqual([
-        {
-          id: 'det-temp',
-          productId: 'prod-9',
-          productName: 'Unsaved Widget',
-          productVariantId: 'var-9',
-          productVariantName: 'Presentación 9',
-          quantity: 3,
-          unitPrice: 25,
-        },
-      ]);
+      expect(component.lineItems().map((item) => item.id)).toEqual(['det-1', 'det-2']);
     });
 
     it('should not report unsaved changes right after loading', () => {
@@ -855,17 +929,12 @@ describe('PurchaseOrderEdit', () => {
     });
 
     it('should report unsaved changes after editing line items', () => {
-      component.onItemsChanged([
-        {
-          id: 'det-1',
-          productId: 'prod-1',
-          productName: 'Widget A',
-          productVariantId: 'var-1',
-          productVariantName: 'Presentación 1L',
-          quantity: 20,
-          unitPrice: 150,
-        },
-      ]);
+      purchaseOrderService.updateDetail = vi
+        .fn()
+        .mockReturnValue(of(detailFixture({ quantity: 20 })));
+
+      component.updateLine('det-1', { quantity: 20 });
+
       expect(component.hasUnsavedChanges()).toBe(true);
     });
 
@@ -877,9 +946,7 @@ describe('PurchaseOrderEdit', () => {
       expect(notification.showSuccess).toHaveBeenCalledWith('Orden actualizada correctamente.');
     });
 
-    it('should call service.update with form data on save', () => {
-      // Mark form as valid by ensuring required fields are set
-      // (they are already populated from loadOrder → patchValue)
+    it('should save the header alone, leaving every line to its own route', () => {
       component.onSave();
 
       expect(purchaseOrderService.update).toHaveBeenCalledWith('po-1', {
@@ -887,15 +954,10 @@ describe('PurchaseOrderEdit', () => {
         companyStoreId: 'store-1',
         paymentMethodId: 'pm-1',
         comments: 'Test order',
-        details: [
-          {
-            productId: 'prod-1',
-            productVariantId: 'var-1',
-            quantity: 10,
-            unitPrice: 150,
-          },
-        ],
       });
+      // A batch save would restate lines the detail routes already persisted (S4).
+      const request = (purchaseOrderService.update as ReturnType<typeof vi.fn>).mock.calls[0][1];
+      expect('details' in request).toBe(false);
     });
 
     it('should navigate to list after successful update', () => {
@@ -949,7 +1011,7 @@ describe('PurchaseOrderEdit', () => {
   // LINE ITEMS
   // ══════════════════════════════════════════════════════════
 
-  describe('line items', () => {
+  describe('line persistence', () => {
     beforeEach(async () => {
       await TestBed.configureTestingModule({
         imports: [PurchaseOrderEdit, HttpClientTestingModule],
@@ -965,95 +1027,231 @@ describe('PurchaseOrderEdit', () => {
       fixture.detectChanges();
     });
 
-    it('should update lineItems when onItemsChanged called', () => {
-      const newItems = [
-        {
-          id: 'det-2',
-          productId: 'prod-2',
-          productName: 'Widget B',
-          productVariantId: 'var-2',
-          productVariantName: 'Presentación 2L',
-          quantity: 5,
-          unitPrice: 200,
-        },
-      ];
-      component.onItemsChanged(newItems);
-      expect(component.lineItems()).toEqual(newItems);
-    });
+    it('should create one line through the detail route and take the row from the answer', () => {
+      const inFlight = new Subject<PurchaseOrderDetail>();
+      purchaseOrderService.addDetail = vi.fn().mockReturnValue(inFlight.asObservable());
 
-    it('should include line items in save request (update mode)', () => {
-      component.onItemsChanged([
-        {
-          id: 'det-1',
-          productId: 'prod-1',
-          productName: 'Widget A',
-          productVariantId: 'var-1',
-          productVariantName: 'Presentación 1L',
-          quantity: 20,
-          unitPrice: 150,
-        },
-      ]);
-      component.onSave();
+      component.addLine({
+        productId: 'prod-2',
+        productVariantId: 'var-2',
+        quantity: 5,
+        unitPrice: 200,
+      });
 
-      expect(purchaseOrderService.update).toHaveBeenCalled();
-      const callArgs = (purchaseOrderService.update as ReturnType<typeof vi.fn>).mock.calls[0];
-      const request = callArgs[1];
-      expect(request.details).toEqual([
-        { productId: 'prod-1', productVariantId: 'var-1', quantity: 20, unitPrice: 150 },
-      ]);
-    });
-
-    it('should abort the save when a legacy line has no variant', () => {
-      component.onItemsChanged([
-        {
-          id: 'det-legacy',
-          productId: 'prod-1',
-          productName: 'Widget A',
-          productVariantId: null,
-          productVariantName: null,
-          quantity: 20,
-          unitPrice: 150,
-        },
-      ]);
-
-      component.onSave();
-
-      expect(component.hasLinesWithoutVariant()).toBe(true);
+      expect(purchaseOrderService.addDetail).toHaveBeenCalledWith('po-1', {
+        productId: 'prod-2',
+        productVariantId: 'var-2',
+        quantity: 5,
+        unitPrice: 200,
+      });
+      // The line is pending on its own, and no row exists until the server answers for it (S4).
+      expect(component.linePending()[NEW_LINE_KEY]).toBe(true);
+      expect(component.lineItems().map((item) => item.id)).toEqual(['det-1']);
+      // Adding a line never saves the header as a side effect.
       expect(purchaseOrderService.update).not.toHaveBeenCalled();
-      // The save never starts, so no half-saved state is left behind.
-      expect(component.saving()).toBe(false);
-      // A silent abort is a UX bug: the click must tell the user which line is
-      // unusable and what to do about it.
-      expect(component.generalError()).toContain('1: Widget A');
-      expect(component.generalError()).toContain('sin variante');
-      // The order is still a Draft, so the actionable repair is offered.
-      expect(component.generalError()).toContain(
-        'Eliminá esas líneas y agregalas de nuevo eligiendo una variante.',
+
+      inFlight.next(detailFixture({ id: 'det-2', quantity: 6, unitPrice: 190, total: 1140 }));
+      inFlight.complete();
+
+      expect(component.linePending()[NEW_LINE_KEY]).toBeUndefined();
+      const row = component.lineItems().find((item) => item.id === 'det-2');
+      // The answer's numbers, not the request's: the server owns the line's identity and derives its money.
+      expect(row?.quantity).toBe(6);
+      expect(row?.unitPrice).toBe(190);
+      expect(row?.total).toBe(1140);
+    });
+
+    it('should restate the document money from the server after a line is added', () => {
+      purchaseOrderService.addDetail = vi
+        .fn()
+        .mockReturnValue(of(detailFixture({ id: 'det-2', total: 1140 })));
+      purchaseOrderService.getPurchaseOrder = vi
+        .fn()
+        .mockReturnValue(
+          of({ ...mockOrder, subtotal: 2640.0001, taxTotal: 0, totalAmount: 2640.0001 }),
+        );
+
+      component.addLine({
+        productId: 'prod-2',
+        productVariantId: 'var-2',
+        quantity: 5,
+        unitPrice: 200,
+      });
+
+      // The document's money is derived by the database from its rows, so the page asks again instead of summing.
+      expect(purchaseOrderService.getPurchaseOrder).toHaveBeenCalledWith('po-1');
+      expect(component.loadedOrder()?.totalAmount).toBe(2640.0001);
+      // Only the money is restated: the rows stay the page's, and nothing was saved as a side effect.
+      expect(component.lineItems().map((item) => item.id)).toEqual(['det-1', 'det-2']);
+      expect(purchaseOrderService.update).not.toHaveBeenCalled();
+    });
+
+    it('should leave no row and report on the add alone when the line is rejected', () => {
+      purchaseOrderService.addDetail = vi.fn().mockReturnValue(
+        throwError(
+          () =>
+            new HttpErrorResponse({
+              error: { message: 'La variante no pertenece a la tienda' },
+              status: 400,
+              statusText: 'Bad Request',
+            }),
+        ),
       );
+
+      component.addLine({
+        productId: 'prod-2',
+        productVariantId: 'var-2',
+        quantity: 5,
+        unitPrice: 200,
+      });
+
+      // A rejected POST leaves no row, and its message belongs to that line, not to the document (S5).
+      expect(component.lineItems().map((item) => item.id)).toEqual(['det-1']);
+      expect(component.lineErrors()[NEW_LINE_KEY]).toBe('La variante no pertenece a la tienda');
+      expect(component.linePending()[NEW_LINE_KEY]).toBeUndefined();
+      expect(component.generalError()).toBeNull();
     });
 
-    it('should not ask for an impossible repair when the order is not a Draft', () => {
-      component.loadedOrder.set({ ...mockOrder, statusName: 'Sent' });
-      component.onItemsChanged([
-        {
-          id: 'det-legacy',
-          productId: 'prod-1',
-          productName: 'Widget A',
-          productVariantId: null,
-          productVariantName: null,
-          quantity: 20,
-          unitPrice: 150,
-        },
-      ]);
+    it('should save one edited row through the detail route and reconcile it from the answer', () => {
+      purchaseOrderService.updateDetail = vi
+        .fn()
+        .mockReturnValue(of(detailFixture({ quantity: 12, total: 1800.0004 })));
 
-      component.onSave();
+      component.updateLine('det-1', { quantity: 12 });
 
-      expect(purchaseOrderService.update).not.toHaveBeenCalled();
-      expect(component.generalError()).toContain('1: Widget A');
-      expect(component.generalError()).toContain('no se pueden reparar en el estado actual');
-      // Outside Draft the delete/add controls are disabled, so the repair
-      // instruction must not be shown.
-      expect(component.generalError()).not.toContain('Eliminá esas líneas');
+      expect(purchaseOrderService.updateDetail).toHaveBeenCalledWith('po-1', 'det-1', {
+        productId: 'prod-1',
+        productVariantId: 'var-1',
+        quantity: 12,
+        unitPrice: 150,
+      });
+
+      const row = component.lineItems()[0];
+      expect(row.quantity).toBe(12);
+      // The total is the server's for the edited line, not the one it stated before the edit.
+      expect(row.total).toBe(1800.0004);
+      expect(component.linePending()['det-1']).toBeUndefined();
+      expect(component.lineErrors()['det-1']).toBeUndefined();
+    });
+
+    it('should restore the row, keep the other rows and report on it alone when its edit is rejected', () => {
+      purchaseOrderService.getPurchaseOrder = vi
+        .fn()
+        .mockReturnValue(of({ ...mockOrder, details: [mockOrder.details[0], secondDetail] }));
+      const inFlight = new Subject<PurchaseOrderDetail>();
+      purchaseOrderService.updateDetail = vi.fn().mockReturnValue(inFlight.asObservable());
+
+      const f = TestBed.createComponent(PurchaseOrderEdit);
+      const comp = f.componentInstance;
+      f.detectChanges();
+
+      comp.updateLine('det-1', { quantity: 99 });
+
+      // The edit is on screen while it is in flight, without the amounts the server stated for the base it replaced.
+      expect(comp.lineItems()[0].quantity).toBe(99);
+      expect(comp.lineItems()[0].total).toBeNull();
+      expect(comp.linePending()['det-1']).toBe(true);
+
+      inFlight.error(
+        new HttpErrorResponse({
+          error: { message: 'La cantidad supera el stock' },
+          status: 400,
+          statusText: 'Bad Request',
+        }),
+      );
+
+      const row = comp.lineItems()[0];
+      expect(row.quantity).toBe(10);
+      expect(row.total).toBe(mockOrder.details[0].total);
+      expect(comp.lineErrors()['det-1']).toBe('La cantidad supera el stock');
+      expect(comp.linePending()['det-1']).toBeUndefined();
+      // Neither the other row nor the document is touched by one rejected line (S5).
+      expect(comp.lineItems()[1].id).toBe('det-2');
+      expect(comp.lineItems()[1].quantity).toBe(secondDetail.quantity);
+      expect(comp.generalError()).toBeNull();
+    });
+
+    it('should delete one line through the detail route and drop it from the rows', () => {
+      purchaseOrderService.deleteDetail = vi.fn().mockReturnValue(of(undefined));
+
+      component.removeLine('det-1');
+
+      expect(purchaseOrderService.deleteDetail).toHaveBeenCalledWith('po-1', 'det-1');
+      expect(component.lineItems()).toEqual([]);
+      expect(component.linePending()['det-1']).toBeUndefined();
+    });
+
+    it('should put the row back and report on it when the delete is rejected', () => {
+      purchaseOrderService.deleteDetail = vi.fn().mockReturnValue(
+        throwError(
+          () =>
+            new HttpErrorResponse({
+              error: { message: 'Solo se pueden eliminar líneas en Borrador' },
+              status: 409,
+              statusText: 'Conflict',
+            }),
+        ),
+      );
+
+      component.removeLine('det-1');
+
+      // A row the server still holds is never silently hidden.
+      expect(component.lineItems().map((item) => item.id)).toEqual(['det-1']);
+      expect(component.lineErrors()['det-1']).toBe('Solo se pueden eliminar líneas en Borrador');
+      expect(component.generalError()).toBeNull();
+    });
+
+    it('should not send an update for a line the API cannot address without a variant', () => {
+      purchaseOrderService.getPurchaseOrder = vi.fn().mockReturnValue(
+        of({
+          ...mockOrder,
+          details: [{ ...mockOrder.details[0], productVariantId: null, productVariantName: null }],
+        }),
+      );
+
+      const f = TestBed.createComponent(PurchaseOrderEdit);
+      const comp = f.componentInstance;
+      f.detectChanges();
+
+      comp.updateLine('det-1', { quantity: 12 });
+
+      expect(purchaseOrderService.updateDetail).not.toHaveBeenCalled();
+      expect(comp.lineErrors()['det-1']).toContain('no tiene variante');
+      // The row keeps the values it had: nothing was sent, so nothing may look saved.
+      expect(comp.lineItems()[0].quantity).toBe(10);
+    });
+
+    it('should order the rows by createdAt then id, not as the API sent them', () => {
+      // The API returns the lines with no `ORDER BY` and the schema has no ordinal, so `createdAt` then `id` is the
+      // only stable order available (S9). The two lines written in the same instant are told apart by id.
+      const later = { ...mockOrder.details[0], id: 'det-c', createdAt: '2026-03-01T00:00:00Z' };
+      const sameInstantA = { ...secondDetail, id: 'det-a', createdAt: '2026-01-01T00:00:00Z' };
+      const sameInstantB = { ...secondDetail, id: 'det-b', createdAt: '2026-01-01T00:00:00Z' };
+      purchaseOrderService.getPurchaseOrder = vi
+        .fn()
+        .mockReturnValue(of({ ...mockOrder, details: [later, sameInstantB, sameInstantA] }));
+
+      const f = TestBed.createComponent(PurchaseOrderEdit);
+      const comp = f.componentInstance;
+      f.detectChanges();
+
+      expect(comp.lineItems().map((item) => item.id)).toEqual(['det-a', 'det-b', 'det-c']);
+    });
+
+    it('should keep the creation order after a line is added', () => {
+      purchaseOrderService.addDetail = vi
+        .fn()
+        .mockReturnValue(of(detailFixture({ id: 'det-0', createdAt: '2025-12-31T00:00:00Z' })));
+
+      component.addLine({
+        productId: 'prod-9',
+        productVariantId: 'var-9',
+        quantity: 1,
+        unitPrice: 10,
+      });
+
+      // The added line was written before the loaded one, so it sorts first even though it arrived last.
+      expect(component.lineItems().map((item) => item.id)).toEqual(['det-0', 'det-1']);
     });
   });
 
@@ -1163,19 +1361,12 @@ describe('PurchaseOrderEdit', () => {
       expect(component.variantStoreId()).toBe('store-7');
     });
 
-    it('should push the resolved store into the detail table store input', () => {
-      const table = fixture.debugElement.query(By.directive(DetailTable))
-        .componentInstance as DetailTable;
-
-      expect(table.storeId()).toBe('store-7');
-    });
-
-    it('should clear the table store input when the cascade resets the store', () => {
+    it('should clear the line-item scope when the cascade resets the store', () => {
+      // The detail area is not on this screen until the order exists (S1), so the value the table is bound to is measured
+      // here through the signal itself; the create→edit case asserts the same value reaching the rendered table.
       const cascadeChild = fixture.debugElement.query(By.directive(CompanyInfoSection))
         .componentInstance as CompanyInfoSection;
-      const table = fixture.debugElement.query(By.directive(DetailTable))
-        .componentInstance as DetailTable;
-      expect(table.storeId()).toBe('store-7');
+      expect(component.variantStoreId()).toBe('store-7');
 
       cascadeChild.onZoneChange('zone-9');
       fixture.detectChanges();
@@ -1183,7 +1374,6 @@ describe('PurchaseOrderEdit', () => {
       // The reset is silent too: only the output channel can carry it.
       expect(component.headerForm().controls.companyStoreId.value).toBe('');
       expect(component.variantStoreId()).toBe('');
-      expect(table.storeId()).toBe('');
     });
   });
 
