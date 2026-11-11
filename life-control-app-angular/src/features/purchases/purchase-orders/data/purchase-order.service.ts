@@ -5,6 +5,7 @@ import { ConfigService } from '@app/services/config.service';
 import type {
   PurchaseOrder,
   PurchaseOrderRequest,
+  PurchaseOrderDetail,
   PurchaseOrderDetailRequest,
   UpdatePurchaseOrderStatusRequest,
   Page,
@@ -86,30 +87,46 @@ export class PurchaseOrderService {
     return this.http.patch<PurchaseOrder>(`${this.baseUrl}/${id}/status`, request);
   }
 
-  /** Add a new line item to an existing purchase order. */
+  /**
+   * Add a line to an existing order. The API answers the **line** it created, not the document.
+   *
+   * `request.statusId` may be omitted: the server names the line's initial state itself, so a caller that has no
+   * document-state catalog in hand still creates a line.
+   */
   addDetail(
     purchaseOrderId: string,
     request: PurchaseOrderDetailRequest,
-  ): Observable<PurchaseOrder> {
-    return this.http.post<PurchaseOrder>(`${this.baseUrl}/${purchaseOrderId}/details`, request);
+  ): Observable<PurchaseOrderDetail> {
+    return this.http.post<PurchaseOrderDetail>(
+      `${this.baseUrl}/${purchaseOrderId}/details`,
+      request,
+    );
   }
 
-  /** Update an existing line item. */
+  /**
+   * Update an existing line. The API answers the updated **line**.
+   *
+   * An omitted `statusId` keeps the line's stored state: the caller that edits a quantity does not have to restate a
+   * state it is not changing.
+   */
   updateDetail(
     purchaseOrderId: string,
     detailId: string,
     request: PurchaseOrderDetailRequest,
-  ): Observable<PurchaseOrder> {
-    return this.http.put<PurchaseOrder>(
+  ): Observable<PurchaseOrderDetail> {
+    return this.http.put<PurchaseOrderDetail>(
       `${this.baseUrl}/${purchaseOrderId}/details/${detailId}`,
       request,
     );
   }
 
-  /** Remove a line item from a purchase order (backend enforces Draft-only). */
-  deleteDetail(purchaseOrderId: string, detailId: string): Observable<PurchaseOrder> {
-    return this.http.delete<PurchaseOrder>(
-      `${this.baseUrl}/${purchaseOrderId}/details/${detailId}`,
-    );
+  /**
+   * Remove a line from an order (the backend enforces Draft-only).
+   *
+   * The route answers **204 No Content**: there is no body to type, so this returns `void` rather than a document the
+   * server never sent.
+   */
+  deleteDetail(purchaseOrderId: string, detailId: string): Observable<void> {
+    return this.http.delete<void>(`${this.baseUrl}/${purchaseOrderId}/details/${detailId}`);
   }
 }

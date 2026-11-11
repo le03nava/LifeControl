@@ -6,6 +6,7 @@ import { ConfigService } from '@app/services/config.service';
 import type {
   PurchaseOrder,
   PurchaseOrderRequest,
+  PurchaseOrderDetail,
   PurchaseOrderDetailRequest,
   UpdatePurchaseOrderStatusRequest,
   Page,
@@ -55,6 +56,30 @@ const mockDetailRequest: PurchaseOrderDetailRequest = {
 
 const mockStatusRequest: UpdatePurchaseOrderStatusRequest = {
   statusId: 'st-sent',
+};
+
+/**
+ * What the three detail routes answer: the line itself, not the document it belongs to.
+ *
+ * The shape is not a convenience of this file — it is the API's contract, and it is why the methods below return
+ * this type instead of a whole `PurchaseOrder` the server never sends.
+ */
+const mockDetail: PurchaseOrderDetail = {
+  id: 'det-1',
+  purchaseOrderId: 'po-1',
+  productId: 'prod-1',
+  productName: 'Widget A',
+  productVariantId: 'var-1',
+  productVariantName: 'Presentación 1L',
+  quantity: 10,
+  unitPrice: 150,
+  total: 1500,
+  receivedQuantity: 0,
+  comments: null,
+  statusId: 'st-pending',
+  statusName: 'Pending',
+  createdAt: '2026-01-01T00:00:00Z',
+  updatedAt: '2026-01-01T00:00:00Z',
 };
 
 describe('PurchaseOrderService', () => {
@@ -349,67 +374,35 @@ describe('PurchaseOrderService', () => {
   });
 
   describe('addDetail', () => {
-    it('should POST a new detail line item', async () => {
-      const updated: PurchaseOrder = {
-        ...mockOrder,
-        details: [
-          {
-            id: 'det-1',
-            purchaseOrderId: 'po-1',
-            productId: 'prod-1',
-            productName: 'Widget A',
-            productVariantId: 'var-1',
-            productVariantName: 'Presentación 1L',
-            quantity: 10,
-            unitPrice: 150,
-            total: 1500,
-            receivedQuantity: 0,
-            comments: null,
-            statusId: 'st-draft',
-            statusName: 'Draft',
-            createdAt: '2026-01-01T00:00:00Z',
-            updatedAt: '2026-01-01T00:00:00Z',
-          },
-        ],
-      };
-
+    it('should POST a new detail line item and answer the line, not the document', async () => {
       const promise = firstValueFrom(service.addDetail('po-1', mockDetailRequest));
 
       const req = httpMock.expectOne(`${TEST_API}/purchase-orders/po-1/details`);
       expect(req.request.method).toBe('POST');
       expect(req.request.body).toEqual(mockDetailRequest);
-      req.flush(updated);
+      req.flush(mockDetail);
 
       const result = await promise;
-      expect(result.details.length).toBe(1);
+      expect(result.id).toBe('det-1');
+      expect(result.quantity).toBe(10);
+    });
+
+    it('should accept a payload that omits statusId, the way a client without the catalog creates one', async () => {
+      expect(mockDetailRequest.statusId).toBeUndefined();
+
+      const promise = firstValueFrom(service.addDetail('po-1', mockDetailRequest));
+
+      const req = httpMock.expectOne(`${TEST_API}/purchase-orders/po-1/details`);
+      expect('statusId' in req.request.body).toBe(false);
+      req.flush(mockDetail);
+
+      const result = await promise;
+      expect(result.statusName).toBe('Pending');
     });
   });
 
   describe('updateDetail', () => {
-    it('should PUT an existing detail line item', async () => {
-      const updated: PurchaseOrder = {
-        ...mockOrder,
-        details: [
-          {
-            id: 'det-1',
-            purchaseOrderId: 'po-1',
-            productId: 'prod-1',
-            productName: 'Widget A',
-            productVariantId: 'var-1',
-            productVariantName: 'Presentación 1L',
-            quantity: 20,
-            unitPrice: 150,
-            total: 3000,
-            receivedQuantity: 0,
-            comments: null,
-            statusId: 'st-draft',
-            statusName: 'Draft',
-            createdAt: '2026-01-01T00:00:00Z',
-            updatedAt: '2026-01-01T00:00:00Z',
-          },
-        ],
-      };
-
+    it('should PUT an existing detail line item and answer the updated line', async () => {
       const updatedDetail: PurchaseOrderDetailRequest = {
         ...mockDetailRequest,
         quantity: 20,
@@ -420,23 +413,24 @@ describe('PurchaseOrderService', () => {
       const req = httpMock.expectOne(`${TEST_API}/purchase-orders/po-1/details/det-1`);
       expect(req.request.method).toBe('PUT');
       expect(req.request.body.quantity).toBe(20);
-      req.flush(updated);
+      req.flush({ ...mockDetail, quantity: 20, total: 3000 });
 
       const result = await promise;
-      expect(result.details[0].quantity).toBe(20);
+      expect(result.quantity).toBe(20);
     });
   });
 
   describe('deleteDetail', () => {
-    it('should DELETE a detail line item', async () => {
+    it('should DELETE a detail line item and answer the empty 204 body', async () => {
       const promise = firstValueFrom(service.deleteDetail('po-1', 'det-1'));
 
       const req = httpMock.expectOne(`${TEST_API}/purchase-orders/po-1/details/det-1`);
       expect(req.request.method).toBe('DELETE');
-      req.flush(mockOrder);
+      // The route answers 204 with no body: there is no line and no document to hand back.
+      req.flush(null, { status: 204, statusText: 'No Content' });
 
       const result = await promise;
-      expect(result).toEqual(mockOrder);
+      expect(result).toBeNull();
     });
 
     it('should construct the correct nested URL', async () => {
@@ -446,7 +440,7 @@ describe('PurchaseOrderService', () => {
         (r) =>
           r.url === `${TEST_API}/purchase-orders/po-abc/details/det-xyz` && r.method === 'DELETE',
       );
-      req.flush(mockOrder);
+      req.flush(null, { status: 204, statusText: 'No Content' });
 
       await promise;
     });
