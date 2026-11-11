@@ -433,6 +433,36 @@ class StoreLocationChainCreationIntegrationTest extends AbstractPostgresIntegrat
                 .andExpect(jsonPath("$.length()").value(0));
     }
 
+    @Test
+    @DisplayName("S4: soft-deleting the store removes its settings, so a stock write answers 404 afterwards")
+    void theStoreDeleteRemovesTheInventorySettingsSoALaterStockWriteAnswers404() throws Exception {
+        var storeId = createStoreThroughTheEndpoint("SLCC Settings Removed Store");
+
+        // The premise, asserted so this case cannot pass on a store that never had the row: the write the delete
+        // must take away is accepted before the delete.
+        writeStock(storeId, "3");
+
+        mockMvc.perform(delete(STORE_URL, companyId, companyCountryId, regionId, zoneId, storeId)
+                        .with(editorJwt()))
+                .andExpect(status().isNoContent());
+
+        var body = objectMapper.createObjectNode();
+        body.put("stock", new BigDecimal("4"));
+        var response = mockMvc.perform(put(STORE_STOCK_URL, variantId, storeId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(body))
+                        .with(editorJwt()))
+                .andReturn()
+                .getResponse();
+        assertThat(response.getStatus())
+                .as("a deleted store answers as one that never had settings: %s", response.getContentAsString())
+                .isEqualTo(404);
+
+        assertThat(settingsOf(storeId))
+                .as("the settings row is an address for new writes, not history")
+                .isEmpty();
+    }
+
     // ─────────────────────────── helpers ───────────────────────────
 
     /**

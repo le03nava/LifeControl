@@ -284,8 +284,13 @@ public class CompanyStoreService {
         // same transaction. StoreAreaService owns the single area -> zone cascade implementation.
         storeAreaService.disableAreasOfStore(store.getId());
 
+        // The cascade above disables the chain and keeps it as history, but the settings row is an address for
+        // new writes: left behind, the stock editor's precondition still held for a deleted store and booked stock
+        // into a disabled location. Removing it is what restores the answer a store without settings gives.
+        storeLocationChainService.removeInventorySettings(store.getId());
+
         logger.info(
-                "CompanyStore soft-deleted: id={}, name={}; areas and zones cascaded, actor={}",
+                "CompanyStore soft-deleted: id={}, name={}; areas and zones cascaded, inventory settings removed, actor={}",
                 storeId,
                 store.getStoreName(),
                 currentActor());

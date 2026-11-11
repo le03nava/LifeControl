@@ -9,6 +9,7 @@ import com.lifecontrol.api.store.model.StoreZone;
 import com.lifecontrol.api.store.repository.StoreAreaRepository;
 import com.lifecontrol.api.store.repository.StoreLocationRepository;
 import com.lifecontrol.api.store.repository.StoreZoneRepository;
+import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -144,5 +145,21 @@ public class StoreLocationChainService {
                 area.getId(),
                 zone.getId(),
                 locationId);
+    }
+
+    /**
+     * Removes the store's {@code store_inventory_settings} row, if it has one.
+     *
+     * <p>The rows of the tree are disabled and kept as history when a store is soft-deleted, but this row is an
+     * <b>address for new writes</b> rather than history: while it exists, the per-store stock editor's precondition
+     * still holds and a deleted store keeps booking stock into a disabled location. Removing it restores the answer
+     * a store that never had a row gives. The row's id <b>is</b> {@code company_store_id}, and the find-then-delete
+     * is explicit so an absent row is a no-op instead of a semantic of {@code deleteById}.</p>
+     *
+     * @param storeId the store whose settings row is removed, in the caller's transaction
+     */
+    @Transactional
+    public void removeInventorySettings(UUID storeId) {
+        storeInventorySettingsRepository.findById(storeId).ifPresent(storeInventorySettingsRepository::delete);
     }
 }
