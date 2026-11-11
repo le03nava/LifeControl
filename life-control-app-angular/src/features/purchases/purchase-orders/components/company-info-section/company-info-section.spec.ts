@@ -487,6 +487,79 @@ describe('CompanyInfoSection', () => {
     });
   });
 
+  describe('header lock', () => {
+    /**
+     * The section over a header the page has already locked, after the cascade resolved the order's store.
+     *
+     * The lock is applied after the first change detection because that is when the real screen locks: the store is
+     * known by then, and the value it protects has to survive every later cascade reset.
+     */
+    function createLockedFixture() {
+      const fixture = TestBed.createComponent(CompanyInfoSection);
+      fixture.componentRef.setInput('headerForm', headerForm);
+      fixture.detectChanges();
+      expect(headerForm.controls.companyStoreId.value).toBe('store-1');
+      fixture.componentRef.setInput('headerLocked', true);
+      fixture.detectChanges();
+      return fixture;
+    }
+
+    it('should disable the store through the form while the header is locked', () => {
+      createLockedFixture();
+
+      // Disabling the control is what makes validation and the save payload follow the lock: a `[disabled]` on the
+      // element with `formControlName` warns and leaves the control enabled.
+      expect(headerForm.controls.companyStoreId.disabled).toBe(true);
+    });
+
+    it('should keep the locked store when the cascade resets it', () => {
+      const fixture = createLockedFixture();
+      const comp = fixture.componentInstance;
+
+      // Every cascade handler empties the store (`patchStore('')`), which is right while the store is the operator's to
+      // choose and wrong once the order holds a line: the locked value is the order's store (S7).
+      comp.onCompanyChange('comp-2');
+      fixture.detectChanges();
+
+      expect(headerForm.controls.companyStoreId.value).toBe('store-1');
+      expect(headerForm.controls.companyStoreId.disabled).toBe(true);
+      // The reset empties the cascade's list, so the locked store is merged back in and stays visible instead of a
+      // blank select that would hide both the value and the reason (S8).
+      expect(comp.storeOptions().map((option) => option.id)).toContain('store-1');
+    });
+
+    it('should render why the store is locked', () => {
+      const fixture = createLockedFixture();
+      const reason = (fixture.nativeElement as HTMLElement).querySelector('.store-lock-reason');
+
+      expect(reason?.textContent).toContain('ya tiene líneas');
+      expect(reason?.textContent).toContain('Eliminá las líneas');
+    });
+
+    it('should render no lock reason while the header is unlocked', () => {
+      const fixture = TestBed.createComponent(CompanyInfoSection);
+      fixture.componentRef.setInput('headerForm', headerForm);
+      fixture.detectChanges();
+
+      expect((fixture.nativeElement as HTMLElement).querySelector('.store-lock-reason')).toBeNull();
+      expect(headerForm.controls.companyStoreId.disabled).toBe(false);
+    });
+
+    it('should let the cascade reset the store again once the lock lifts', () => {
+      const fixture = createLockedFixture();
+
+      fixture.componentRef.setInput('headerLocked', false);
+      fixture.detectChanges();
+      expect(headerForm.controls.companyStoreId.disabled).toBe(false);
+
+      fixture.componentInstance.onZoneChange('zone-2');
+      fixture.detectChanges();
+
+      // The reset the existing cases pin is the unlocked behaviour, and lifting the lock gives it back.
+      expect(headerForm.controls.companyStoreId.value).toBe('');
+    });
+  });
+
   describe('form helpers', () => {
     function createFixture() {
       // Override profile mock so cascade doesn't auto-fill form values

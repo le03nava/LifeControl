@@ -44,6 +44,7 @@
       [isEditMode]="isEditMode()"
       [loadedOrder]="loadedOrder()"
       [serverErrors]="serverErrors()"
+      [headerLocked]="headerLocked()"
       (storeResolved)="onStoreResolved($event)"
       (companyResolved)="onCompanyResolved($event)"
     />
@@ -56,6 +57,7 @@
       [isEditMode]="isEditMode()"
       [loadedOrder]="loadedOrder()"
       [serverErrors]="serverErrors()"
+      [headerLocked]="headerLocked()"
     />
 
     <!-- Line Items Table -->
@@ -70,10 +72,18 @@
         [items]="lineItems()"
         [isDraft]="isDraft()"
         [availableProducts]="supplierProducts()"
+        [searching]="catalogueLoading()"
+        [searchFailed]="catalogueFailed()"
+        [searchedTerm]="catalogueTerm()"
+        [linePending]="linePending()"
+        [lineErrors]="lineErrors()"
+        [newLinePending]="newLinePending()"
+        [newLineError]="newLineError()"
         [storeId]="variantStoreId()"
         [companyId]="orderCompanyId()"
         [currency]="loadedOrder()?.currency ?? ''"
         [showReceiptProgress]="!!loadedOrder()"
+        (searchChanged)="onCatalogueSearch($event)"
         (lineAdded)="addLine($event)"
         (lineEdited)="updateLine($event.id, $event.changes)"
         (lineRemoved)="removeLine($event)"

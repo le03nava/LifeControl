@@ -149,6 +149,36 @@
   font-style: italic;
 }
 
+// A line whose own write is in flight. One row's state, so it is rendered on that row and never as the document's.
+.line-pending {
+  margin-inline-end: var(--space-xs);
+  font-size: 18px;
+  width: 18px;
+  height: 18px;
+  vertical-align: middle;
+  color: var(--mat-sys-on-surface-variant, #64748b);
+}
+
+// The message a rejected write gave for one line: beside that line, never in the page's banner.
+.line-error {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  margin-top: 2px;
+  font-size: 0.8125rem;
+  color: var(--mat-sys-error);
+
+  mat-icon {
+    font-size: 16px;
+    width: 16px;
+    height: 16px;
+  }
+}
+
+.add-line-item-error {
+  margin: 0 0 var(--space-md);
+}
+
 .no-line-items {
   display: flex;
   flex-direction: column;

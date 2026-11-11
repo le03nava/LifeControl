@@ -71,12 +71,14 @@
             }
           </ng-container>
 
-          <!-- Store (header-level control, sent to the backend) -->
-          @if (stores().length > 0) {
+          <!-- Store (header-level control, sent to the backend). The options are the cascade's, plus the locked store
+               while the header is locked: an ancestor change empties that list, and the value the order holds has to
+               stay visible with the reason it cannot move. -->
+          @if (storeOptions().length > 0) {
             <mat-form-field appearance="outline" subscriptSizing="dynamic">
               <mat-label>Tienda</mat-label>
               <mat-select formControlName="companyStoreId">
-                @for (s of stores(); track s.id) {
+                @for (s of storeOptions(); track s.id) {
                   <mat-option [value]="s.id">{{ s.name }}</mat-option>
                 }
               </mat-select>
@@ -85,6 +87,12 @@
               }
               @if (serverFieldError('companyStoreId'); as err) {
                 <mat-error>{{ err }}</mat-error>
+              }
+              @if (headerLocked()) {
+                <mat-hint class="store-lock-reason">
+                  La tienda no se puede cambiar porque la orden ya tiene líneas. Eliminá las líneas
+                  para cambiarla.
+                </mat-hint>
               }
             </mat-form-field>
           }

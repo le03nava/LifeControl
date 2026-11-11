@@ -343,6 +343,72 @@ describe('SupplierInfoSection', () => {
     });
   });
 
+  describe('header lock', () => {
+    /** The section over a header the page has already locked because the order holds a line. */
+    function createLockedFixture() {
+      const fixture = TestBed.createComponent(SupplierInfoSection);
+      fixture.componentRef.setInput('headerForm', headerForm);
+      fixture.componentRef.setInput('companyId', companyId);
+      fixture.detectChanges();
+      fixture.componentRef.setInput('headerLocked', true);
+      fixture.detectChanges();
+      return fixture;
+    }
+
+    it('should disable the supplier through the form while the header is locked', () => {
+      createLockedFixture();
+
+      // Disabling the control is what makes validation and the save payload follow the lock: a `[disabled]` on the
+      // element with `formControlName` warns and leaves the control enabled.
+      expect(headerForm.controls.supplierId.disabled).toBe(true);
+    });
+
+    it('should leave the payment method and the comments editable while the supplier is locked', () => {
+      createLockedFixture();
+
+      expect(headerForm.controls.paymentMethodId.disabled).toBe(false);
+      expect(headerForm.controls.comments.disabled).toBe(false);
+    });
+
+    it('should keep the supplier value the lock protects', () => {
+      headerForm.controls.supplierId.setValue('sup-1');
+
+      createLockedFixture();
+
+      // The lock is not a clear: the value is still the one the lines were bought from, and the save path still sends
+      // it.
+      expect(headerForm.controls.supplierId.value).toBe('sup-1');
+    });
+
+    it('should render why the supplier is locked', () => {
+      const fixture = createLockedFixture();
+      const reason = (fixture.nativeElement as HTMLElement).querySelector('.supplier-lock-reason');
+
+      // The reason is visible where the locked control is, and it names the path that releases it (S8).
+      expect(reason?.textContent).toContain('ya tiene líneas');
+      expect(reason?.textContent).toContain('Eliminá las líneas');
+    });
+
+    it('should render no lock reason while the header is unlocked', () => {
+      const fixture = createFixture();
+
+      expect(
+        (fixture.nativeElement as HTMLElement).querySelector('.supplier-lock-reason'),
+      ).toBeNull();
+      expect(headerForm.controls.supplierId.disabled).toBe(false);
+    });
+
+    it('should re-enable the supplier when the lock lifts', () => {
+      const fixture = createLockedFixture();
+
+      fixture.componentRef.setInput('headerLocked', false);
+      fixture.detectChanges();
+
+      // Removing the lines is the way out (S8): the control comes back editable once the order holds none.
+      expect(headerForm.controls.supplierId.disabled).toBe(false);
+    });
+  });
+
   describe('form helpers', () => {
     it('fieldError should return required message when invalid and touched', () => {
       const { componentInstance: comp } = createFixture();

@@ -1,12 +1,14 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  computed,
   DestroyRef,
   effect,
   inject,
   input,
   OnInit,
   output,
+  signal,
   untracked,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
@@ -16,6 +18,7 @@ import { CompanyCascadeService } from '../../data/company-cascade.service';
 import { requiredFieldError, serverError } from '../../utils/form-error.utils';
 import type { PurchaseOrderHeaderControl } from '../../models/purchase-order-control.models';
 import type { PurchaseOrder } from '../../models/purchase-order.models';
+import type { SelectOption } from '../../models/select-option.models';
 import { MatCardModule } from '@angular/material/card';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
@@ -63,6 +66,42 @@ export class CompanyInfoSection implements OnInit {
 
   /** Server-side validation errors keyed by field name. */
   readonly serverErrors = input<Record<string, string>>({});
+
+  /**
+   * Whether the page locked the header because the order already holds a line (S7).
+   *
+   * The store is what every line is stocked against, so it stops moving at the first line. Two things follow from the
+   * lock, and neither is a `[disabled]` on the select: the control itself is disabled through the form — that attribute
+   * warns and leaves a reactive control enabled, while disabling it makes its validity and the value `getRawValue()`
+   * returns follow the lock — and the value it holds survives the cascade, which empties the store on every ancestor
+   * change.
+   */
+  readonly headerLocked = input<boolean>(false);
+
+  /**
+   * The store the lock protects, captured when it engaged.
+   *
+   * Every cascade handler applies `patchStore('')`, which is right while the store is still the operator's to choose and
+   * wrong once it is not. Holding the value here is what lets a reset be undone instead of moving the order's store
+   * (S7).
+   */
+  private readonly lockedStoreId = signal<string | null>(null);
+
+  /**
+   * The options the store select offers.
+   *
+   * The cascade's list is what the operator may pick from, and while the header is locked the store it must keep is
+   * merged in: an ancestor change empties that list, and a select with no matching option would state the store as
+   * blank while the form still holds it — hiding both the locked value and the reason it is locked (S8).
+   */
+  readonly storeOptions = computed<SelectOption[]>(() => {
+    const locked = this.lockedStoreId();
+    const stores = this.stores();
+    if (!locked || stores.some((store) => store.id === locked)) {
+      return stores;
+    }
+    return [{ id: locked, name: this.loadedOrder()?.companyStoreName ?? locked }, ...stores];
+  });
 
   /**
    * Emits the store the cascade applied to the header form.
@@ -117,6 +156,24 @@ export class CompanyInfoSection implements OnInit {
       });
     });
 
+    // The lock follows the lines the page holds: it engages at the first one, with the store the order states by then,
+    // and lifts at the last (S7).
+    effect(() => {
+      const locked = this.headerLocked();
+      untracked(() => {
+        const control = this.headerForm().controls.companyStoreId;
+        if (locked) {
+          if (this.lockedStoreId() === null) {
+            this.lockedStoreId.set(control.value);
+          }
+          control.disable({ emitEvent: false });
+        } else {
+          this.lockedStoreId.set(null);
+          control.enable({ emitEvent: false });
+        }
+      });
+    });
+
     this.companySearch$
       .pipe(debounceTime(300), takeUntilDestroyed(this.destroyRef))
       .subscribe((term) => this.cascade.searchCompanies(term.trim()));
@@ -137,19 +194,39 @@ export class CompanyInfoSection implements OnInit {
   }
 
   onCompanyChange(companyId: string | null): void {
-    this.cascade.onCompanyChange(companyId);
+    this.runCascade(() => this.cascade.onCompanyChange(companyId));
   }
 
   onCountryChange(countryId: string | null): void {
-    this.cascade.onCountryChange(countryId);
+    this.runCascade(() => this.cascade.onCountryChange(countryId));
   }
 
   onRegionChange(regionId: string | null): void {
-    this.cascade.onRegionChange(regionId);
+    this.runCascade(() => this.cascade.onRegionChange(regionId));
   }
 
   onZoneChange(zoneId: string | null): void {
-    this.cascade.onZoneChange(zoneId);
+    this.runCascade(() => this.cascade.onZoneChange(zoneId));
+  }
+
+  /**
+   * Runs a cascade change and puts the locked store back.
+   *
+   * Every cascade handler empties `companyStoreId`, which is the right answer while the store is the operator's to
+   * choose: an ancestor that no longer matches must not leave a stale store selected. Once the order holds a line the
+   * store is not the operator's any more, so the reset is undone with the value the lock captured (S7). The guard lives
+   * here rather than in the cascade because the cascade is shared with the screens that lock nothing.
+   */
+  private runCascade(change: () => void): void {
+    change();
+    const locked = this.lockedStoreId();
+    if (locked === null) {
+      return;
+    }
+    const control = this.headerForm().controls.companyStoreId;
+    if (control.value !== locked) {
+      control.setValue(locked, { emitEvent: false });
+    }
   }
 
   fieldError(field: keyof PurchaseOrderHeaderControl): string | null {

@@ -83,6 +83,16 @@ export class SupplierInfoSection implements OnInit {
   /** Server-side validation errors keyed by field name. */
   readonly serverErrors = input<Record<string, string>>({});
 
+  /**
+   * Whether the page locked the header because the order already holds a line (S7).
+   *
+   * The supplier is what every line was bought from, so it stops moving at the first line. The lock is applied to the
+   * control through the form, not with `[disabled]` on the input: that attribute warns and leaves a reactive control
+   * enabled, while disabling it makes its validity and the value `getRawValue()` returns follow the lock — which is
+   * what keeps the locked supplier in the request the page sends.
+   */
+  readonly headerLocked = input<boolean>(false);
+
   // ─── FK dropdowns ──────────────────────────────────────
   readonly suppliers = signal<SelectOption[]>([]);
   readonly supplierDetail = signal<SupplierDetail | null>(null);
@@ -126,6 +136,19 @@ export class SupplierInfoSection implements OnInit {
     this.supplierSearch$
       .pipe(debounceTime(300), takeUntilDestroyed(this.destroyRef))
       .subscribe((term) => this.searchSuppliers(term.trim()));
+
+    // The lock follows the lines the page holds: it engages at the first one and lifts with the last (S7).
+    effect(() => {
+      const locked = this.headerLocked();
+      untracked(() => {
+        const control = this.headerForm().controls.supplierId;
+        if (locked) {
+          control.disable({ emitEvent: false });
+        } else {
+          control.enable({ emitEvent: false });
+        }
+      });
+    });
   }
 
   ngOnInit(): void {
