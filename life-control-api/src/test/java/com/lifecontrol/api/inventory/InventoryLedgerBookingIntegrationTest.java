@@ -934,6 +934,7 @@ class InventoryLedgerBookingIntegrationTest extends AbstractPostgresIntegrationT
                         storeId,
                         salesLocationId,
                         new BigDecimal("5"),
+                        null,
                         StockLedgerWriter.RECEIPT_LINE_SOURCE_TYPE,
                         UUID.randomUUID(),
                         "receiver"))
@@ -965,6 +966,9 @@ class InventoryLedgerBookingIntegrationTest extends AbstractPostgresIntegrationT
                         storeId,
                         location,
                         new BigDecimal(quantity),
+                        // A ledger-level fixture with no purchase document behind it: it states no price, so the
+                        // movement books the declared cost_price exactly as it did before V96.
+                        null,
                         StockLedgerWriter.RECEIPT_LINE_SOURCE_TYPE,
                         receiptLineId,
                         "receiver"));

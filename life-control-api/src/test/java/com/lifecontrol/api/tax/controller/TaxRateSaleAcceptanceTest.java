@@ -590,6 +590,9 @@ class TaxRateSaleAcceptanceTest extends AbstractPostgresIntegrationTest {
                     companyStoreId,
                     salesLocationId,
                     new BigDecimal("100.00"),
+                    // An opening balance, not a purchase: no price is stated, so the movement books the declared
+                    // cost_price, as this acceptance case always assumed.
+                    null,
                     FIXTURE_OPENING,
                     UUID.randomUUID(),
                     "fixture");

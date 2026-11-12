@@ -393,6 +393,10 @@ class InventoryIntegrationTest extends AbstractPostgresIntegrationTest {
                         storeId,
                         locationId,
                         new BigDecimal(quantity),
+                        // No purchase document in this fixture, so it states no price and the movement books the
+                        // declared cost_price — the same number it booked before V96. A caller that has a price
+                        // states it; this one says plainly that it does not.
+                        null,
                         StockLedgerWriter.RECEIPT_LINE_SOURCE_TYPE,
                         referenceId,
                         "receiver"));
@@ -512,6 +516,7 @@ class InventoryIntegrationTest extends AbstractPostgresIntegrationTest {
                             storeId,
                             locationId,
                             new BigDecimal("12.50"),
+                            null,
                             StockLedgerWriter.RECEIPT_LINE_SOURCE_TYPE,
                             referenceId,
                             "receiver"));
@@ -802,6 +807,7 @@ class InventoryIntegrationTest extends AbstractPostgresIntegrationTest {
                                     storeId,
                                     locationId,
                                     new BigDecimal("5.00"),
+                                    null,
                                     StockLedgerWriter.RECEIPT_LINE_SOURCE_TYPE,
                                     UUID.randomUUID(),
                                     "receiver")))

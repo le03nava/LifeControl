@@ -259,6 +259,7 @@ class StockLedgerMirrorDropMigrationIntegrationTest extends AbstractPostgresInte
                         storeId,
                         locationId,
                         new BigDecimal("6"),
+                        null,
                         StockLedgerWriter.RECEIPT_LINE_SOURCE_TYPE,
                         receiptLineId,
                         "receiver"));

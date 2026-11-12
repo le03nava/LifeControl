@@ -623,7 +623,16 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             return;
         }
         stockLedgerEngine.applyReceipt(
-                variantId, companyStoreId, storeLocationId, quantity, FIXTURE_OPENING, UUID.randomUUID(), "fixture");
+                variantId,
+                companyStoreId,
+                storeLocationId,
+                quantity,
+                // An opening balance, not a purchase: no price is stated, so these units are valued at the
+                // store's declared cost_price — the number this fixture has always used.
+                null,
+                FIXTURE_OPENING,
+                UUID.randomUUID(),
+                "fixture");
     }
 
     /**

@@ -219,6 +219,13 @@ public interface ProductVariantRepository extends JpaRepository<ProductVariant, 
      * receipt into a store that never stocked the variant creates the projection — and is what keeps the row
      * answerable once the legacy membership row stops being written (T5c).
      *
+     * <p><b>{@code averageCost} is a fourth independent {@code LEFT JOIN}, and it is the ledger's number, not a
+     * second column beside the cost</b> ({@code odd/tasks/purchase-cost-into-inventory.md}, S6 as it is actually
+     * satisfiable): {@code stock_valuation.avg_unit_cost} is the weighted moving average {@code V61} derives from
+     * the inbound movements and their allocations, so it is joined here exactly like the position and with the
+     * same meaning when absent — the store never moved this key, so no cost was ever observed. Nothing joins it to
+     * the row's visibility: a price with no valuation is still a row, and the field is simply {@code null}.
+     *
      * <p><b>The listing contributes no flag.</b> {@code variant_listing} carries a price and nothing else:
      * issue #777 decided the per-store availability toggle is out of scope, and {@code V79} dropped the
      * {@code enabled} column that had no writer, so the field this projection carries is
@@ -230,7 +237,7 @@ public interface ProductVariantRepository extends JpaRepository<ProductVariant, 
                 pv.id, pv.productId, COALESCE(pvss.companyStoreId, l.companyStoreId), pv.barCode, p.sku,
                 pv.variantName, l.listPrice, pvss.costPrice, sp.quantity, pv.enabled,
                 pv.createdAt, pv.updatedAt, pv.measureUnitId, pv.attributes,
-                CASE WHEN l.id IS NULL THEN FALSE ELSE TRUE END)
+                CASE WHEN l.id IS NULL THEN FALSE ELSE TRUE END, sv.avgUnitCost)
             FROM ProductVariant pv
             JOIN Product p ON p.id = pv.productId
             LEFT JOIN ProductVariantStoreStock pvss
@@ -239,6 +246,8 @@ public interface ProductVariantRepository extends JpaRepository<ProductVariant, 
                    ON l.productVariantId = pv.id AND l.companyStoreId = :storeId
             LEFT JOIN StockPosition sp
                    ON sp.productVariantId = pv.id AND sp.companyStoreId = :storeId
+            LEFT JOIN StockValuation sv
+                   ON sv.productVariantId = pv.id AND sv.companyStoreId = :storeId
             WHERE pv.productId = :productId
               AND p.company.id = :companyId
               AND pv.enabled = true
@@ -276,7 +285,7 @@ public interface ProductVariantRepository extends JpaRepository<ProductVariant, 
                 pv.id, pv.productId, COALESCE(pvss.companyStoreId, l.companyStoreId), pv.barCode, p.sku,
                 pv.variantName, l.listPrice, pvss.costPrice, sp.quantity, pv.enabled,
                 p.name, p.sku, pv.createdAt, pv.updatedAt,
-                CASE WHEN l.id IS NULL THEN FALSE ELSE TRUE END)
+                CASE WHEN l.id IS NULL THEN FALSE ELSE TRUE END, sv.avgUnitCost)
             FROM ProductVariant pv
             JOIN Product p ON p.id = pv.productId
             LEFT JOIN ProductVariantStoreStock pvss
@@ -285,6 +294,8 @@ public interface ProductVariantRepository extends JpaRepository<ProductVariant, 
                    ON l.productVariantId = pv.id AND l.companyStoreId = :storeId
             LEFT JOIN StockPosition sp
                    ON sp.productVariantId = pv.id AND sp.companyStoreId = :storeId
+            LEFT JOIN StockValuation sv
+                   ON sv.productVariantId = pv.id AND sv.companyStoreId = :storeId
             WHERE (pv.barCode = :query
                OR p.sku = :query
                OR LOWER(pv.variantName) LIKE LOWER(CONCAT('%', :query, '%'))

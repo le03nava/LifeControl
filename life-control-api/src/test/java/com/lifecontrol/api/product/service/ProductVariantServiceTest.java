@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -17,7 +18,9 @@ import com.lifecontrol.api.company.model.CompanyZone;
 import com.lifecontrol.api.inventory.exception.StoreInventorySettingsNotFoundException;
 import com.lifecontrol.api.inventory.ledger.StockLedgerEngine;
 import com.lifecontrol.api.inventory.ledger.StockLedgerWriter;
+import com.lifecontrol.api.inventory.model.StockValuation;
 import com.lifecontrol.api.inventory.repository.StockPositionRepository;
+import com.lifecontrol.api.inventory.repository.StockValuationRepository;
 import com.lifecontrol.api.measureunit.exception.MeasureUnitNotFoundException;
 import com.lifecontrol.api.measureunit.model.MeasureUnit;
 import com.lifecontrol.api.measureunit.model.MeasureUnitType;
@@ -109,6 +112,15 @@ class ProductVariantServiceTest {
      */
     @Mock
     private StockPositionRepository stockPositionRepository;
+
+    /**
+     * The ledger's valuation projection, which is where the store-stock response's {@code averageCost} comes from
+     * since {@code V96}. Mocked like the position above: a case that reports an average states the projection's
+     * number, and a case that reports none leaves the read empty — which is the state a store this variant was
+     * never moved in has.
+     */
+    @Mock
+    private StockValuationRepository stockValuationRepository;
 
     private UUID companyId;
     private UUID companyCountryId;
@@ -222,7 +234,8 @@ class ProductVariantServiceTest {
                 measureUnitRepository,
                 productAttributeCatalogService,
                 stockPositionRepository,
-                stockLedgerWriter);
+                stockLedgerWriter,
+                stockValuationRepository);
     }
 
     /**
@@ -1222,6 +1235,79 @@ class ProductVariantServiceTest {
             assertThat(result.stock()).isEqualByComparingTo(new BigDecimal("50.00"));
             // No stock was sent, so the engine is never asked to move it.
             verify(stockLedgerEngine, never()).applyStockAdjustment(any(), any(), any(), any());
+        }
+
+        @Test
+        @DisplayName("should report the ledger's average cost beside the declared cost, and null where it holds none")
+        void upsertStoreStock_ReportsTheLedgersAverage() {
+            var request = new ProductVariantStoreStockRequest(null, null, null);
+            var row = ProductVariantStoreStock.builder()
+                    .id(UUID.randomUUID())
+                    .productVariantId(variantId)
+                    .companyStoreId(companyStoreId)
+                    .costPrice(new BigDecimal("120.00"))
+                    .build();
+
+            when(productVariantRepository.findById(variantId)).thenReturn(Optional.of(testVariant));
+            when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
+            when(productVariantStoreStockRepository.findByProductVariantIdAndCompanyStoreIdForUpdate(
+                            variantId, companyStoreId))
+                    .thenReturn(Optional.of(row));
+            when(productVariantStoreStockRepository.save(any(ProductVariantStoreStock.class)))
+                    .thenAnswer(inv -> inv.getArgument(0));
+            when(variantListingRepository.findByProductVariantIdAndCompanyStoreId(variantId, companyStoreId))
+                    .thenReturn(Optional.empty());
+            when(stockPositionRepository.findQuantity(companyStoreId, variantId))
+                    .thenReturn(Optional.empty());
+            // The projection, mocked like the position above: what the response must echo is this number and
+            // whatever the ledger's derived average is — never the declared 120.00 beside it.
+            var valuation = mock(StockValuation.class);
+            when(valuation.getAvgUnitCost()).thenReturn(new BigDecimal("137.4200"));
+            when(stockValuationRepository.findByCompanyStoreIdAndProductVariantId(companyStoreId, variantId))
+                    .thenReturn(Optional.of(valuation));
+
+            ProductVariantStoreStockResponse result =
+                    productVariantService.upsertStoreStock(variantId, companyStoreId, request);
+
+            assertThat(result.costPrice())
+                    .as("the declared cost keeps its meaning and its place")
+                    .isEqualByComparingTo(new BigDecimal("120.00"));
+            assertThat(result.averageCost())
+                    .as("the average is the ledger's derived number, read beside it")
+                    .isEqualByComparingTo(new BigDecimal("137.4200"));
+        }
+
+        @Test
+        @DisplayName("should report no average when the ledger holds no valuation for the store")
+        void upsertStoreStock_NoValuationMeansNoAverage() {
+            var request = new ProductVariantStoreStockRequest(null, null, null);
+            var row = ProductVariantStoreStock.builder()
+                    .id(UUID.randomUUID())
+                    .productVariantId(variantId)
+                    .companyStoreId(companyStoreId)
+                    .costPrice(new BigDecimal("120.00"))
+                    .build();
+
+            when(productVariantRepository.findById(variantId)).thenReturn(Optional.of(testVariant));
+            when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
+            when(productVariantStoreStockRepository.findByProductVariantIdAndCompanyStoreIdForUpdate(
+                            variantId, companyStoreId))
+                    .thenReturn(Optional.of(row));
+            when(productVariantStoreStockRepository.save(any(ProductVariantStoreStock.class)))
+                    .thenAnswer(inv -> inv.getArgument(0));
+            when(variantListingRepository.findByProductVariantIdAndCompanyStoreId(variantId, companyStoreId))
+                    .thenReturn(Optional.empty());
+            when(stockPositionRepository.findQuantity(companyStoreId, variantId))
+                    .thenReturn(Optional.empty());
+            when(stockValuationRepository.findByCompanyStoreIdAndProductVariantId(companyStoreId, variantId))
+                    .thenReturn(Optional.empty());
+
+            ProductVariantStoreStockResponse result =
+                    productVariantService.upsertStoreStock(variantId, companyStoreId, request);
+
+            assertThat(result.averageCost())
+                    .as("no movement in this store means no cost was ever observed, which is not 0.00")
+                    .isNull();
         }
 
         @Test

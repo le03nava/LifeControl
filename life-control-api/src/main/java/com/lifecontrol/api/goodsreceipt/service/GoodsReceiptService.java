@@ -274,6 +274,11 @@ public class GoodsReceiptService {
                     .purchaseOrderDetail(line.detail())
                     .productVariant(line.variant())
                     .quantityReceived(line.request().quantityReceived())
+                    // The price these units were received at, which is the line's BASE: `unit_price`, the number
+                    // `subtotal` is derived from (`V92`), and never `total` — a creditable tax is not a cost
+                    // (odd/tasks/purchase-cost-into-inventory.md, S5). Written once here; the column and the
+                    // mapping state that it is not updatable.
+                    .unitCost(line.detail().getUnitPrice())
                     .comments(line.request().comments())
                     .build();
             builtItems.add(item);
@@ -314,6 +319,10 @@ public class GoodsReceiptService {
                     companyStore.getId(),
                     receivingLocationId,
                     line.request().quantityReceived(),
+                    // The same number the line snapshot above records, from the same read: the movement states
+                    // what the units cost and the receipt line keeps it as history, so a divergence between the
+                    // two would mean one of them was derived rather than stated.
+                    line.detail().getUnitPrice(),
                     StockLedgerWriter.RECEIPT_LINE_SOURCE_TYPE,
                     receiptLineId,
                     receivedBy);
@@ -620,7 +629,10 @@ public class GoodsReceiptService {
                         item.getPurchaseOrderDetail().getId(),
                         item.getProductVariant().getId(),
                         item.getQuantityReceived(),
-                        item.getComments()))
+                        item.getComments(),
+                        // The snapshot itself, read back from the row and not recomputed from the purchase line:
+                        // the line can be edited after the reception, and this is the number the movement booked.
+                        item.getUnitCost()))
                 .toList();
 
         return new GoodsReceiptResponse(

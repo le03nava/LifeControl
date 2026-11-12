@@ -27,6 +27,11 @@ import java.util.UUID;
  *       from "listed, nothing to sell", and it is named after that fact and not after
  *       {@code variant_listing} — see {@link ProductVariantResponse#listed()} for the four states.
  *       Appended last, like every field before it.</li>
+ *   <li>{@code averageCost} is the ledger's derived average for the searched store
+ *       ({@code stock_valuation.avg_unit_cost}, {@code V61}), additive beside {@code costPrice}: the store row
+ *       states the declared catalogue cost and the projection states what the inventory paid. {@code null} when
+ *       that store holds no movement for the variant, which is "no cost observed here" and not a zero. See
+ *       {@link ProductVariantResponse#averageCost()}.</li>
  * </ul>
  */
 public record ProductVariantSearchResponse(
@@ -44,7 +49,47 @@ public record ProductVariantSearchResponse(
         String productSku,
         LocalDateTime createdAt,
         LocalDateTime updatedAt,
-        Boolean listed) {
+        Boolean listed,
+        BigDecimal averageCost) {
+
+    /**
+     * The pre-average shape: a caller that states no derived cost states {@code averageCost = null}, which is
+     * exactly what "the ledger has observed no cost here" means.
+     */
+    public ProductVariantSearchResponse(
+            UUID id,
+            UUID productId,
+            UUID companyStoreId,
+            String barCode,
+            String sku,
+            String variantName,
+            BigDecimal listPrice,
+            BigDecimal costPrice,
+            BigDecimal stock,
+            Boolean enabled,
+            String productName,
+            String productSku,
+            LocalDateTime createdAt,
+            LocalDateTime updatedAt,
+            Boolean listed) {
+        this(
+                id,
+                productId,
+                companyStoreId,
+                barCode,
+                sku,
+                variantName,
+                listPrice,
+                costPrice,
+                stock,
+                enabled,
+                productName,
+                productSku,
+                createdAt,
+                updatedAt,
+                listed,
+                null);
+    }
 
     /** The pre-listing shape: a caller that does not read the four states states {@code listed = null}. */
     public ProductVariantSearchResponse(
@@ -77,6 +122,7 @@ public record ProductVariantSearchResponse(
                 productSku,
                 createdAt,
                 updatedAt,
+                null,
                 null);
     }
 }

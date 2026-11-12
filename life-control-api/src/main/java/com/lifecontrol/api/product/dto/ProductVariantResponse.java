@@ -20,8 +20,10 @@ import java.util.UUID;
  *       values, and since ADR-0006 decision 6 / ADR-0001 decision 2 they come from <b>three different
  *       sources</b>: the store row ({@code product_variant_store_stock}) for the cost, the listing
  *       ({@code variant_listing}) for the price, and the ledger's projection ({@code stock_position}) for the
- *       quantity. They are <strong>{@code null} whenever the read is not narrowed to a store</strong> (no
- *       {@code storeId} query parameter), because there is no single store whose values could be reported.</li>
+ *       quantity. {@code averageCost} is the ledger's fourth value and its own projection
+ *       ({@code stock_valuation}, see below). They are all <strong>{@code null} whenever the read is not
+ *       narrowed to a store</strong> (no {@code storeId} query parameter), because there is no single store
+ *       whose values could be reported.</li>
  *   <li>{@code sku} now carries the <strong>PRODUCT</strong> sku ({@code products.sku}). The variant
  *       sku was deleted by decision D2, so this field is not a leftover: it is the product sku by
  *       contract.</li>
@@ -74,6 +76,15 @@ import java.util.UUID;
  * the read is not narrowed to a store — the same rule as {@code companyStoreId}, {@code listPrice} and
  * {@code stock}. A client that only reads {@code listPrice} keeps working: it now carries the listing's
  * price, which is the same number the backfill copied.</p>
+ *
+ * <p><b>{@code averageCost} is the derived average, additive beside {@code costPrice} and never a replacement
+ * for it</b> ({@code odd/tasks/purchase-cost-into-inventory.md}, S6 as the tree can actually satisfy it).
+ * {@code costPrice} is the store's declared catalogue cost ({@code product_variant_store_stock}), the number the
+ * purchase screen pre-fills; {@code averageCost} is the weighted moving average of what the inventory actually
+ * paid, read from the ledger's {@code stock_valuation.avg_unit_cost} — the projection {@code V61} derives from
+ * the inbound movements and their allocations. It is {@code null} when the ledger holds no movement for this
+ * variant in this store (no cost was ever observed) and when the read is not narrowed to a store, the same rule
+ * as the other store-scoped fields. Appended last, like every field before it.</p>
  */
 public record ProductVariantResponse(
         UUID id,
@@ -90,11 +101,51 @@ public record ProductVariantResponse(
         LocalDateTime updatedAt,
         UUID measureUnitId,
         Map<String, Object> attributes,
-        Boolean listed) {
+        Boolean listed,
+        BigDecimal averageCost) {
 
     /**
-     * The pre-listing shape: a caller that does not know the four states states {@code listed = null},
-     * which is exactly what an unscoped read means.
+     * The pre-average shape: a caller that states no derived cost states {@code averageCost = null}, which is
+     * exactly what "the ledger has observed no cost here" means.
+     */
+    public ProductVariantResponse(
+            UUID id,
+            UUID productId,
+            UUID companyStoreId,
+            String barCode,
+            String sku,
+            String variantName,
+            BigDecimal listPrice,
+            BigDecimal costPrice,
+            BigDecimal stock,
+            Boolean enabled,
+            LocalDateTime createdAt,
+            LocalDateTime updatedAt,
+            UUID measureUnitId,
+            Map<String, Object> attributes,
+            Boolean listed) {
+        this(
+                id,
+                productId,
+                companyStoreId,
+                barCode,
+                sku,
+                variantName,
+                listPrice,
+                costPrice,
+                stock,
+                enabled,
+                createdAt,
+                updatedAt,
+                measureUnitId,
+                attributes,
+                listed,
+                null);
+    }
+
+    /**
+     * The pre-listing shape: a caller that does not know the four states states {@code listed = null}, which is
+     * exactly what an unscoped read means — and no derived average either.
      */
     public ProductVariantResponse(
             UUID id,
@@ -126,6 +177,7 @@ public record ProductVariantResponse(
                 updatedAt,
                 measureUnitId,
                 attributes,
+                null,
                 null);
     }
 
@@ -161,6 +213,7 @@ public record ProductVariantResponse(
                 createdAt,
                 updatedAt,
                 measureUnitId,
+                null,
                 null,
                 null);
     }

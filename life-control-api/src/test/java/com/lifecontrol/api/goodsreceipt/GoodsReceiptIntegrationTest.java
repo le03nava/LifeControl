@@ -602,6 +602,23 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
                 variantId));
     }
 
+    /**
+     * The cost the ledger booked for a receipt of this variant: what the received units cost, per
+     * {@code stock_movement.unit_cost}.
+     */
+    private BigDecimal receiptUnitCostOf(UUID variantId) {
+        return inTransaction(() -> jdbcTemplate.queryForObject(
+                "SELECT unit_cost FROM stock_movement WHERE product_variant_id = ? AND movement_type = 'RECEIPT'",
+                BigDecimal.class,
+                variantId));
+    }
+
+    /** The receipt line's own snapshot of the purchase price it was received at. */
+    private BigDecimal receiptLineUnitCostOf(UUID receiptId) {
+        return inTransaction(() -> jdbcTemplate.queryForObject(
+                "SELECT unit_cost FROM goods_receipt_items WHERE goods_receipt_id = ?", BigDecimal.class, receiptId));
+    }
+
     /** The ledger's projection for the store: the number the aggregate column used to hold (T5b). */
     private BigDecimal storePositionOf(UUID variantId) {
         return inTransaction(() -> jdbcTemplate.queryForObject(
@@ -663,6 +680,24 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
 
     /** One variant-backed line of a receivable order, with its own product and variant. */
     private PurchaseOrderDetail addReceivableLine(PurchaseOrder order, String quantity, String detailStatusName) {
+        return addReceivableLine(order, quantity, detailStatusName, "10.00");
+    }
+
+    /**
+     * The same line, at a stated purchase price: the price the receipt has to book is the line's, not the
+     * variant's declared {@code cost_price}, so a case that distinguishes them has to state both.
+     */
+    private PurchaseOrderDetail addReceivableLine(
+            PurchaseOrder order, String quantity, String detailStatusName, String unitPrice) {
+        return addReceivableLine(order, quantity, detailStatusName, unitPrice, null);
+    }
+
+    /**
+     * The same line, taxed: {@code tax_rate} is a snapshot the money trigger reads ({@code V94}), so stating it
+     * here is enough for the row to carry a {@code total} above its {@code subtotal}.
+     */
+    private PurchaseOrderDetail addReceivableLine(
+            PurchaseOrder order, String quantity, String detailStatusName, String unitPrice, String taxRate) {
         return TenantFixtures.inTenant(company.getId(), () -> {
             var product = productRepository.save(Product.builder()
                     .sku("GR-SKU-" + UUID.randomUUID().toString().substring(0, 12))
@@ -679,18 +714,22 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
                     .enabled(true)
                     .build());
             saveStoreStock(variant.getId());
-            var detail = purchaseOrderDetailRepository.saveAndFlush(PurchaseOrderDetail.builder()
+            var lineBuilder = PurchaseOrderDetail.builder()
                     .purchaseOrder(order)
                     .product(product)
                     .productVariant(variant)
                     .quantity(new BigDecimal(quantity))
-                    .unitPrice(new BigDecimal("10.00"))
-                    .total(new BigDecimal("50.00"))
+                    .unitPrice(new BigDecimal(unitPrice))
+                    // V92/94 derive subtotal, tax_amount and total from these facts; the mapping writes none of
+                    // the three, so a fixture that wants a taxed line states only the rate (S5 of this unit).
                     .receivedQuantity(BigDecimal.ZERO)
                     .comments("Reception line")
                     .status(detailState(detailStatusName))
-                    .enabled(true)
-                    .build());
+                    .enabled(true);
+            if (taxRate != null) {
+                lineBuilder.taxCode("IVA").taxRate(new BigDecimal(taxRate));
+            }
+            var detail = purchaseOrderDetailRepository.saveAndFlush(lineBuilder.build());
             // A line is a document of its own family, with its own pair of triggers.
             recordCreation(
                     "PURCHASE_ORDER_DETAIL", detail.getId(), detail.getStatus().name());
@@ -1165,6 +1204,72 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
                     .as("and the over-received line booked no movement: the ledger is the only record of a receipt, "
                             + "so a rejected document leaves nothing behind there")
                     .isEmpty();
+        }
+    }
+
+    @Nested
+    @DisplayName("the cost a receipt states (issue #853)")
+    class ReceiptCostTests {
+
+        @Test
+        @DisplayName("should book the purchase price as the movement's cost, not the variant's declared cost_price")
+        void booksThePurchasePriceNotTheDeclaredCostPrice() {
+            seedReceivingSettings();
+            var order = createReceivableOrder("In Transit");
+            var detail = addReceivableLine(order, "5", "In Transit", "12.50");
+            var variantId = detail.getProductVariant().getId();
+            assertThat(inTransaction(() -> productVariantStoreStockRepository
+                            .findByProductVariantIdAndCompanyStoreId(variantId, store.getId())
+                            .orElseThrow()
+                            .getCostPrice()))
+                    .as("the fixture's declared cost, which the two cases below must not read")
+                    .isEqualByComparingTo("10.00");
+
+            var response = createReceipt(receptionRequest(order, line(detail.getId(), "3")));
+
+            assertThat(receiptUnitCostOf(variantId))
+                    .as("what the units cost is what the purchase line paid for them, not the declared cost_price")
+                    .isEqualByComparingTo("12.50");
+            assertThat(receiptLineUnitCostOf(response.id()))
+                    .as("and the receipt line keeps the price it was received at, written once")
+                    .isEqualByComparingTo("12.50");
+        }
+
+        @Test
+        @DisplayName("should book the line's base price and not its taxed total")
+        void booksTheBasePriceNotTheTaxedTotal() {
+            seedReceivingSettings();
+            var order = createReceivableOrder("In Transit");
+            var detail = addReceivableLine(order, "2", "In Transit", "10.00", "0.16");
+            var variantId = detail.getProductVariant().getId();
+
+            var response = createReceipt(receptionRequest(order, line(detail.getId(), "2")));
+
+            var reloaded =
+                    purchaseOrderDetailRepository.findById(detail.getId()).orElseThrow();
+            assertThat(reloaded.getSubtotal()).isEqualByComparingTo("20.00");
+            assertThat(reloaded.getTaxAmount()).isEqualByComparingTo("3.20");
+            assertThat(reloaded.getTotal()).isEqualByComparingTo("23.20");
+            assertThat(receiptUnitCostOf(variantId))
+                    .as("unit_price is the base; total / quantity (11.60) is not, because a creditable VAT is not a "
+                            + "cost (S5)")
+                    .isEqualByComparingTo("10.00");
+            assertThat(receiptLineUnitCostOf(response.id())).isEqualByComparingTo("10.00");
+        }
+
+        @Test
+        @DisplayName("should return the snapshot on the line response, so the number is auditable")
+        void theLineResponseCarriesTheSnapshot() {
+            seedReceivingSettings();
+            var order = createReceivableOrder("In Transit");
+            var detail = addReceivableLine(order, "5", "In Transit", "12.50");
+
+            var response = createReceipt(receptionRequest(order, line(detail.getId(), "3")));
+
+            assertThat(response.lines())
+                    .as("a snapshot no read route returns is a number nobody can check against the movement it booked")
+                    .singleElement()
+                    .satisfies(line -> assertThat(line.unitCost()).isEqualByComparingTo("12.50"));
         }
     }
 
