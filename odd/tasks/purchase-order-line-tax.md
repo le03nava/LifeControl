@@ -158,3 +158,13 @@ boolean) are what would *create* the ambiguity rather than remove it. Recorded, 
 reopen this is a supplier fiscal profile, which is a decision with fiscal consequences of its own — régimen
 fiscal, constancia, whether a supplier's exemption can override a product's IVA at all — and not a column to
 add under a bug. Issue #855 (frontier IVA 8%) is untouched and stays open.
+
+**L18 (2026-11-12) — `L9`'s tag is gone, and by the route `L9` predicted.** `L9` left the `D-a` half of the refusal's
+citation standing on purpose — "the tag goes when sales is next touched, not by silently forking the wording" — and
+the next touch was its own unit: #856 changed both sentences to cite `ADR-0002 decision 6` alone, purchases and
+sales in the same commit, with two message assertions (`contains "ADR-0002 decision 6"`,
+`not contains "D-a"`) as the guard a third copy would have to pass. The refusal's behaviour, its status, the code it
+names and the zero-by-definition codes it lists are unchanged. Recorded in
+[`odd/tasks/tax-single-expression-and-citation.md`](tax-single-expression-and-citation.md), which is also where the
+dead `lineTaxAmount` helper that `S6` claimed the plpgsql function reused goes: the reuse never happened, and #854
+deleted the method instead of keeping two statements of one rule.
