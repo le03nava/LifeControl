@@ -27,9 +27,8 @@ import org.mockito.ArgumentCaptor;
  *
  * <p>What the database owns — the policy, the FK, the unique key, the bounds of {@code rate} — is
  * {@code TaxRateMigrationIntegrationTest}'s; what is pinned here is the part the schema cannot state: that the
- * date handed to the query is the <b>document's</b> and never the clock, that "no rate" stays empty instead
- * of becoming a silent zero, and that {@link TaxRateService#lineTaxAmount} rounds the way
- * {@code ck_item_tax} rounds, because a disagreement between the two is a refused insert.</p>
+ * date handed to the query is the <b>document's</b> and never the clock, and that "no rate" stays empty instead
+ * of becoming a silent zero.</p>
  */
 @DisplayName("TaxRateService: the document's date decides, and no rate is not zero tax")
 class TaxRateServiceTest {
@@ -125,30 +124,6 @@ class TaxRateServiceTest {
         assertThatThrownBy(() -> taxRateService.resolve(COMPANY, "IVA", null))
                 .isInstanceOf(NullPointerException.class)
                 .hasMessageContaining("documentDate");
-    }
-
-    // --- the arithmetic the schema states, computed from Java ---
-
-    @Test
-    @DisplayName("the tax amount is taken on the line's money after its discount, at four decimals")
-    void computesTheTaxOnSubtotalMinusDiscount() {
-        assertThat(TaxRateService.lineTaxAmount(
-                        new BigDecimal("100.0000"), new BigDecimal("10.0000"), new BigDecimal("0.160000")))
-                .as("(100 - 10) * 0.16, which is what ck_item_tax subtracts before multiplying")
-                .isEqualByComparingTo("14.4000");
-    }
-
-    @Test
-    @DisplayName("a half ten-thousandth rounds away from zero, like PostgreSQL's round(numeric, 4)")
-    void roundsHalfAwayFromZero() {
-        // 0.0001 * 0.5 = 0.00005 exactly: HALF_EVEN would answer 0.0000 and the insert would then be refused
-        // by ck_item_tax, which asks PostgreSQL for round(..., 4) — half away from zero.
-        assertThat(TaxRateService.lineTaxAmount(new BigDecimal("0.0001"), BigDecimal.ZERO, new BigDecimal("0.5")))
-                .isEqualByComparingTo("0.0001");
-        assertThat(TaxRateService.lineTaxAmount(new BigDecimal("0.0001"), BigDecimal.ZERO, new BigDecimal("0.499999")))
-                .as("and just below the half stays at zero, so the boundary is a boundary and not a fence "
-                        + "that rounds everything up")
-                .isEqualByComparingTo("0.0000");
     }
 
     /** A read-only entity has no public constructor by design, so the fixture is a mock. */

@@ -1222,7 +1222,7 @@ public class PurchaseOrderService {
                 .orElseThrow(() -> new IllegalArgumentException("Cannot write the line: tax code "
                         + taxCode + " has no enabled rate applicable on " + documentDate
                         + ", the document's date. The purchase is refused rather than taxed at zero (ADR-0002 "
-                        + "decision 6, D-a): if the line is not taxable its product must declare a code that is "
+                        + "decision 6): if the line is not taxable its product must declare a code that is "
                         + "zero by definition (" + String.join(", ", TaxCodeService.ZERO_RATE_CODES)
                         + "), and otherwise the "
                         + "company has to state the rate that applies from " + documentDate + " onward."));

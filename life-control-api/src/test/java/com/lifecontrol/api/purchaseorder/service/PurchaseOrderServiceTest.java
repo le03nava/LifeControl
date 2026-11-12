@@ -2330,7 +2330,11 @@ class PurchaseOrderServiceTest {
                     .as("the handler maps this class to 400, the shape the currency path already uses for the "
                             + "same sentence: a value the catalog does not back is the caller's to fix (S5)")
                     .isInstanceOf(IllegalArgumentException.class)
-                    .hasMessageContaining("IVA");
+                    .hasMessageContaining("IVA")
+                    // Issue #856: the same sentence as the sale's, citing the same decision and nothing else —
+                    // the `D-a` it used to name is the payment backfill's and answers nothing about tax.
+                    .hasMessageContaining("ADR-0002 decision 6")
+                    .hasMessageNotContaining("D-a");
             var askedOn = ArgumentCaptor.forClass(LocalDate.class);
             verify(taxRateService).resolve(eq(companyId), eq("IVA"), askedOn.capture());
             assertThat(refused.getMessage())

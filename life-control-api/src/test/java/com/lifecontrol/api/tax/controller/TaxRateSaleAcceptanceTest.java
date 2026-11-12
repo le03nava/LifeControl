@@ -211,7 +211,7 @@ class TaxRateSaleAcceptanceTest extends AbstractPostgresIntegrationTest {
 
         assertThat(refused.getResponse().getStatus())
                 .as("a taxable code the company states no rate for is the caller's to fix, and a missing rate is "
-                        + "never a silent zero (ADR-0002 decision 6, D-a)")
+                        + "never a silent zero (ADR-0002 decision 6)")
                 .isEqualTo(400);
         assertThat(refused.getResponse().getContentAsString())
                 .as("the refusal names the code and the document's date — the two facts whoever states the rate "
