@@ -39,6 +39,8 @@ that settled the open questions.
 | [0004](0004-typed-state-machine.md) | Document state is a typed machine with a history, not a string in a lookup table. | accepted | 0003, 0005 | 0002 |
 | [0005](0005-tenant-isolation-rls.md) | Tenant isolation is enforced by Row-Level Security, not by 150 call-site checks. | accepted | — | 0001, 0002, 0003, 0004 |
 | [0006](0006-catalog-identity.md) | Catalog identity: `variant_mode` on the product, a required measure unit, a barcode per mode, and `variant_listing` split from stock. | accepted | 0005 | 0001 |
+| [0007](0007-fiscal-document-is-separate.md) | A fiscal invoice is a document of its own, derived from the sale, never a state of the order. | accepted | 0002, 0003, 0004, 0005 | — |
+| [0008](0008-accounting-is-a-projection.md) | Accounting is a projection derived in the database from the append-only facts, not a book captured and edited. | accepted | 0001, 0002, 0005, 0007 | — |
 
 Read the dependency column literally: an ADR whose dependency is not accepted cannot be implemented,
 and an ADR that blocks another one changes that other ADR's schema. The `Blocks` column is the same edge
