@@ -2,7 +2,7 @@
 
 **Repository**: LifeControl — `life-control-api` (migrations, `purchaseorder`, `tax`, `salesorder`), `life-control-app-angular` (`features/purchases`), `odd/tasks/`
 **Branch**: `feat/purchase-order-line-tax`, rebased onto `origin/main` @ `08964f79` — the money unit it depends on is merged; this record is written in that worktree, where the unit's work happens
-**Status**: **implemented** — the unit is the purchase line's own tax: `purchase_order_details` carries `tax_code`, `tax_rate` and `tax_amount`; the code comes from the product, the rate is a snapshot taken with the document's date, a taxable code with no enabled rate on that date is a 400 that writes nothing, and `total` includes the tax while `subtotal` stays the base. The derivation extends V92's line function and V93's document function **in place** — no third trigger, because same-event triggers fire in name order. Two shapes the product-sourced code cannot express — a supplier exempt on a taxable product, and frontier IVA 8% beside the general 16% — are named gaps with their own issues; the inventory cost stays out by decision (S9).
+**Status**: **implemented** — the unit is the purchase line's own tax: `purchase_order_details` carries `tax_code`, `tax_rate` and `tax_amount`; the code comes from the product, the rate is a snapshot taken with the document's date, a taxable code with no enabled rate on that date is a 400 that writes nothing, and `total` includes the tax while `subtotal` stays the base. The derivation extends V92's line function and V93's document function **in place** — no third trigger, because same-event triggers fire in name order. Two shapes the product-sourced code cannot express were named here on 2026-11-10: one is a named gap with its own issue (frontier IVA 8% beside the general 16%, #855) and the other — a supplier exempt on a taxable product — was answered on 2026-11-12 as a decision of the domain, because the tax code is the product's and a supplier carries no fiscal treatment here (#852, `L17`). The inventory cost stays out by decision (S9).
 **Created**: 2026-11-10 · **Risk**: item 1 applies — `tax_amount` moves stored money on financial purchase rows, and a wrong resolution is not detectable after the fact: the rate is copied at creation, so a wrong copy is a wrong invoice line that no later correction re-derives. Item 6 does **not** apply: T4's schema case and T5's screen both read `tax_amount` in the same branch. T2 was **none** — it moved a constant into the layer that owns the rule, proven by the sales test that already pinned the half that stayed.
 
 ## Problem
@@ -77,14 +77,14 @@ derived four decimals while the response still carried Java's two, so a "schema 
 
 **D5 (2026-11-10) — one function derives three columns.** Same-event triggers fire in name order, so a separate `tax_amount` trigger would be read stale by the money trigger that follows it — the defect `V85:69-71` documents for sales.
 
-## The two gaps this unit carries
+## The two gaps this unit carried, and where each stands
 
-Neither is resolved here; each is a decision of its own, and both are invisible to a test because the input is valid:
+Both were named here on 2026-11-10 as cases the input cannot detect, because each is a decision of its own. One has since been answered by a decision of the domain and the other is still open:
 
-1. **A supplier exempt on a taxable product.** The product says `IVA`, the supplier invoices exempt. The line computes a tax that is not owed — an invented deductible tax, not a rounding difference.
-2. **Frontier IVA 8% beside the general 16%.** Both are the code `IVA`, and `uq_tax_rate_company_code_from` plus `findFirstBy…EffectiveFromDesc` allow exactly one rate per code on one date, so there is nowhere to state the 8%.
+1. **A supplier exempt on a taxable product — closed by decision, 2026-11-12, no code.** «el tax code se define a nivel producto no hay proveedor excento» (issue #852). The tax code is a property of the **product**; a supplier has no fiscal treatment in this domain and no column anywhere carries one (`suppliers` holds name, `razonSocial`, `rfc`, contact, address and `enabled`, and nothing else). So the case the gap described — a line whose supplier *says* exempt — cannot be produced by any write this tree accepts: the code the line copies is the product's, which is also why `lineTaxFor` reading `products.tax_code` through the variant is the whole rule rather than half of one. What would reopen it is a supplier fiscal profile (a code, a boolean, a régimen, a constancia), and that is a different decision with fiscal consequences of its own, not a field to slip under a bug fix. Invariant the decision buys: **a purchase line's tax code is exactly what its product declares**, which is checkable and is what the existing tests already pin.
+2. **Frontier IVA 8% beside the general 16% — still open (issue #855).** Both are the code `IVA`, and `uq_tax_rate_company_code_from` plus `findFirstBy…EffectiveFromDesc` allow exactly one rate per code on one date, so there is nowhere to state the 8%.
 
-S5 is the honest mitigation: where the resolution cannot answer, the request is refused by name instead of defaulting to zero.
+S5 is the honest mitigation for the second: where the resolution cannot answer, the request is refused by name instead of defaulting to zero. The first needs no mitigation, because it has no input.
 
 ## Log
 
@@ -137,3 +137,14 @@ The finding describes the code correctly. It was also seen independently: the ve
 - T4 gains a case with both halves, so half one proves a normal rate change restates nothing and half two pins the restatement as intended.
 
 What this does **not** claim: that the behaviour is safe for a company that backdates rates or recodes products, and that a full replacement is a bad way to correct a line — a document re-sent to fix a comment re-copies every line's tax. If that becomes a real operator flow, the answer is an endpoint that edits one line, not a guard inside this one.
+
+**L17 (2026-11-12) — gap 1 answered as a decision of the domain: a supplier has no fiscal treatment here.** The
+question #852 asks — "either refuse naming both facts, or override and record who stated it" — assumes the
+supplier carries a tax condition, and the answer is that it does not: «el tax code se define a nivel producto no
+hay proveedor excento». So the honest resolution is neither of the two the issue offers, and it is written where
+the gap was named rather than as a code change: the code a purchase line copies is the product's, an invariant
+that already holds and that the existing cases pin, and both candidate shapes (a `suppliers.tax_code`, a
+boolean) are what would *create* the ambiguity rather than remove it. Recorded, not silently dropped: what would
+reopen this is a supplier fiscal profile, which is a decision with fiscal consequences of its own — régimen
+fiscal, constancia, whether a supplier's exemption can override a product's IVA at all — and not a column to
+add under a bug. Issue #855 (frontier IVA 8%) is untouched and stays open.
