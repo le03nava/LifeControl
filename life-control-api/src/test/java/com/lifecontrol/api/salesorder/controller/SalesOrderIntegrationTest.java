@@ -3780,9 +3780,12 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
         }
 
         /**
-         * A rate row for this class's company, stated the way a reviewed migration states one: {@code tax_rate}
-         * has no writer in the application, by decision (ADR-0002 decision 6 and {@code TaxRate}'s javadoc), so
-         * the fixture is the writer here exactly as it is for a line's name snapshots.
+         * A rate row for this class's company, written by SQL on purpose: this suite is about the <b>line's
+         * snapshot</b> — the code and rate a row is born with, and the fact that an edit never re-resolves them —
+         * so the rate is a given, stated the way a reviewed fixture states it, exactly as a line's name snapshots
+         * are. The other half, that the rate can be stated <b>through the application</b>
+         * ({@code POST /api/companies/{companyId}/tax-rates}, issue #858) and that a sale is then accepted with it,
+         * is proved by {@code TaxRateSaleAcceptanceTest}, whose only writer of {@code tax_rate} is that endpoint.
          */
         private void configureTaxRate(String taxCode, String rate, LocalDate effectiveFrom) {
             inTransaction(() -> jdbcTemplate.update(
