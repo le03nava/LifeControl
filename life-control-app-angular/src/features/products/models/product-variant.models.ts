@@ -5,7 +5,8 @@
  * Mirrors the backend `ProductVariantResponse`, which is a hybrid by design: the
  * global sellable definition (`id`, `productId`, `barCode`, `variantName`,
  * `enabled`) plus the per-store values (`companyStoreId`, `listPrice`,
- * `costPrice`, `stock`) that live in `product_variant_store_stock`.
+ * `costPrice`, `stock`) that live in `product_variant_store_stock`, plus the
+ * ledger's derived `averageCost`.
  *
  * The store-scoped fields are `null` when the request omits `?storeId=`: the
  * endpoint then answers with the product's global definitions and there is no
@@ -33,6 +34,24 @@ export interface ProductVariant {
   costPrice: number | null;
   /** `null` when the request omitted `?storeId=`. */
   stock: number | null;
+  /**
+   * The ledger's derived average cost of what this store holds, or `null` when the
+   * ledger never moved the variant in it.
+   *
+   * **Not** a second catalogue price and never a replacement for `costPrice`: this is
+   * `stock_valuation.avg_unit_cost`, the weighted moving average the schema derives
+   * from the inbound movements (what the receipts actually paid) and the allocations
+   * that consumed them, while `costPrice` is the price a human declared on the store
+   * row. That is why the purchase picker keeps pre-filling `unitPrice` from
+   * `costPrice` and never from this one.
+   *
+   * `null` means "no cost has been observed here" and is rendered as the tree's
+   * "no value" mark — never as `0`, which would read as a real cost of nothing, and
+   * never as `costPrice`, which would hide the missing derivation behind a number
+   * nobody derived. Optional because the value is additive: a producer that states no
+   * derived cost omits it, and an absent field means exactly what `null` means.
+   */
+  averageCost?: number | null;
   enabled: boolean;
   /**
    * The measure unit this variant is counted in, as an id of the catalog that
@@ -139,10 +158,20 @@ export interface ProductVariantStoreStock {
   companyStoreId: string;
   /** Sellable price in that store, or `null` when unset. */
   listPrice: number | null;
-  /** Acquisition cost in that store, or `null` when unset. */
+  /** Acquisition cost **declared** for that store, or `null` when unset. */
   costPrice: number | null;
   /** Sellable units in that store, or `null` when unset. */
   stock: number | null;
+  /**
+   * The ledger's derived average cost in that store, or `null` when the ledger holds
+   * no valuation for the variant there.
+   *
+   * Read-only by construction: the schema derives it (`stock_valuation.avg_unit_cost`)
+   * and nothing in this client writes it, which is why
+   * {@link ProductVariantStoreStockRequest} has no field for it. See
+   * {@link ProductVariant.averageCost} for why it is not `costPrice`.
+   */
+  averageCost: number | null;
 }
 
 /**
@@ -168,8 +197,20 @@ export interface ProductVariantSearchResult {
   /** The owning product's name, joined in by search. */
   productName: string;
   listPrice: number | null;
+  /** The declared catalogue cost of the store row. A purchase line pre-fills with it. */
   costPrice: number | null;
   stock: number | null;
+  /**
+   * The ledger's derived average cost of what the store holds, or `null` when the
+   * ledger holds no movement for the variant there.
+   *
+   * A **number** and a **`null`** are the only two states, and they mean different
+   * things: a number is what the receipts actually paid per unit, and `null` is "no
+   * cost was ever observed here". Rendering the second as `0` would state a cost of
+   * nothing, so the screens show their "no value" mark for it. See
+   * {@link ProductVariant.averageCost}.
+   */
+  averageCost: number | null;
 }
 
 /**

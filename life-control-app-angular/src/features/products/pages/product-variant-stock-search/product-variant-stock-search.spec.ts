@@ -47,6 +47,7 @@ describe('ProductVariantStockSearch', () => {
     listPrice: 250,
     costPrice: 150,
     stock: 12,
+    averageCost: null,
     ...overrides,
   });
 

@@ -45,6 +45,7 @@ const STORE_COLUMNS = [
   'variantName',
   'listPrice',
   'costPrice',
+  'averageCost',
   'stock',
   'actions',
 ];

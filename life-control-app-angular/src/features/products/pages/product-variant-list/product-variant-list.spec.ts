@@ -17,6 +17,11 @@ import { ProfileService } from '@features/user/profile/data/profile.service';
 import { NotificationService } from '@shared/data/notification';
 import { ConfirmDialog } from '@shared/ui';
 
+/**
+ * One grain for the money in this table: the declared cost and the derived average are both
+ * rendered through `CurrencyPipe` at two decimals, so two adjacent columns cannot read at
+ * different precisions. The four-decimal value the API answers stays in the response.
+ */
 interface VariantServiceMock {
   getVariants: ReturnType<typeof vi.fn>;
   deleteVariant: ReturnType<typeof vi.fn>;
@@ -49,6 +54,7 @@ describe('ProductVariantList', () => {
       listPrice: null,
       costPrice: null,
       stock: null,
+      averageCost: null,
       enabled: true,
       measureUnitId: null,
       ...overrides,
@@ -160,6 +166,7 @@ describe('ProductVariantList', () => {
                       listPrice: 150,
                       costPrice: 90,
                       stock: 8,
+                      averageCost: v.averageCost ?? null,
                     }))
                   : visible.map((v) => ({
                       ...v,
@@ -167,6 +174,7 @@ describe('ProductVariantList', () => {
                       listPrice: null,
                       costPrice: null,
                       stock: null,
+                      averageCost: null,
                     }));
                 return of(
                   createPage(
@@ -184,7 +192,9 @@ describe('ProductVariantList', () => {
       searchVariants: vi.fn().mockReturnValue(of(createSearchPage([]))),
       upsertStoreStock: vi
         .fn()
-        .mockReturnValue(of({ companyStoreId: 'store-1', listPrice: 1, costPrice: 1, stock: 1 })),
+        .mockReturnValue(
+          of({ companyStoreId: 'store-1', listPrice: 1, costPrice: 1, stock: 1, averageCost: 1 }),
+        ),
     };
 
     profileServiceMock = {
@@ -451,6 +461,7 @@ describe('ProductVariantList', () => {
         'Variante',
         'Precio de venta',
         'Costo',
+        'Costo promedio de recepciones',
         'Stock',
         'Acciones',
       ]);
@@ -758,6 +769,61 @@ describe('ProductVariantList', () => {
       expect(cells.some((cell) => cell.includes('150'))).toBe(true);
       expect(cells.some((cell) => cell.includes('90'))).toBe(true);
       expect(cells).toContain('8');
+    });
+
+    describe('derived average cost', () => {
+      /** Cell texts of the rendered table, in DOM order. */
+      function cellTexts(): string[] {
+        return fixture.debugElement
+          .queryAll(By.css('td.mat-mdc-cell'))
+          .map((cell) => (cell.nativeElement as HTMLElement).textContent?.trim() ?? '');
+      }
+
+      it('should render the derived average beside the declared cost through the money pipe', async () => {
+        setup({
+          profileStoreId: 'store-1',
+          variants: [createVariant(1, { averageCost: 555.55 })],
+        });
+        await settle();
+
+        expect(columnHeaders()).toContain('Costo promedio de recepciones');
+        // One grain for the two adjacent money columns: the derived value is rendered at the same two
+        // decimals as the declared cost next to it, and the four-decimal value stays in the response.
+        expect(cellTexts().some((cell) => cell.includes('555.55'))).toBe(true);
+      });
+
+      it('should keep the declared cost in its own column when a derived average exists', async () => {
+        setup({
+          profileStoreId: 'store-1',
+          variants: [createVariant(1, { averageCost: 555.55 })],
+        });
+        await settle();
+
+        const cells = cellTexts();
+        // Two columns, two facts: the declared cost is untouched by the derived one, which is the whole reason
+        // the average got its own column instead of taking `costPrice` over.
+        expect(cells.some((cell) => cell.includes('90.00'))).toBe(true);
+        expect(cells).not.toContain('$90.00');
+      });
+
+      it('should render a missing derived average as no value, never as zero nor as the declared cost', async () => {
+        setup({ profileStoreId: 'store-1', variants: [createVariant(1, { averageCost: null })] });
+        await settle();
+
+        const cells = cellTexts();
+        expect(cells.some((cell) => cell.trim() === '—')).toBe(true);
+        // A zero would read as a real cost of nothing, and the declared cost would hide the missing
+        // derivation behind a number nobody derived.
+        expect(cells).not.toContain('$0.00');
+        expect(cells).not.toContain('$90.00');
+      });
+
+      it('should not invent the column on the global view, where there is no store to derive it in', async () => {
+        setup();
+        await settle();
+
+        expect(columnHeaders()).not.toContain('Costo promedio de recepciones');
+      });
     });
 
     it('should offer the store scope and hide the disabled filter while it is on', async () => {
