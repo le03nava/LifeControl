@@ -286,6 +286,25 @@ propio request (`odd/tasks/purchase-order-create-then-lines.md`).
 
 ---
 
+## Costo del inventario (`stock_valuation`)
+
+Lo que una compra **pagó** y lo que el inventario **cuesta** eran dos números sin conexión: la entrada al ledger
+registraba el `cost_price` declarado a mano, así que una recepción por un precio distinto dejaba el costo donde estaba,
+en silencio. ADR-0001 ya decía la regla —*"a receipt takes the purchase line's unit cost"*— y ningún código la
+implementaba. `odd/tasks/purchase-cost-into-inventory.md` (issue #853).
+
+| Regla | Valor |
+|-------|-------|
+| Dónde vive el costo de lo que hay en mano | `stock_valuation.avg_unit_cost NUMERIC(19,4)`, que la base deriva: `total_value` es lo que entró valorizado menos lo que las asignaciones congelaron, y el promedio es eso sobre la cantidad (`V60`/`V61`, `replay_stock_valuation` / `refresh_stock_valuation`). **No hay una segunda columna de promedio**: el número es del ledger y desde Java sólo se lee |
+| Quién lo alimenta | La **entrada** de una recepción, con la **base** de la línea de compra (`purchase_order_details.unit_price`), nunca el `total` ni el `cost_price` declarado. El costo viaja también a `goods_receipt_items.unit_cost` (`V96`, `NUMERIC(19,4)`, se escribe una vez y no se reescribe), que es el snapshot auditable de lo que esa mercancía costó |
+| Qué **no** cambió | `cost_price` sigue siendo el precio de **catálogo declarado**, `NUMERIC(12,2)`, editable por el humano, y es lo que la pantalla de compras usa para pre-llenar el precio unitario (`detail-table.ts:447`). El promedio derivado nunca llega a ese campo: pre-llenarlo convertiría el promedio en la próxima compra y amortiguaría la variación que mide |
+| La salida | Una fila de salida **no lleva costo propio**: el costo de las unidades vendidas está en `stock_allocation.unit_cost`, resuelto por `companies.costing_method` — `FIFO` (default) consume las entradas más viejas y `AVERAGE` congela el promedio vigente. Eso es ADR-0001 y esta unidad no lo toca; hay un test que lo fija con las dos políticas |
+| El impuesto | Costo = **base**: el IVA acreditable no es costo. Un impuesto **no deducible** sí lo sería, pero el árbol no puede distinguirlo (no hay marca de deducibilidad en empresa, producto ni documento), así que se declara el límite en vez de adivinarlo |
+| La pantalla | `averageCost` viaja en las respuestas de variante y se muestra **en lectura** junto al precio de catálogo, con la moneda del `MoneyPipe`. `null` significa *el ledger nunca movió esa variante en esa tienda* y se muestra como ausencia — **nunca como `0`**, que se leería como un costo real de nada |
+| Lo que **no** cubre | No hay capas FIFO propias (las del ledger son las suyas). No hay costo de importación (fletes, aranceles). No se revalúa el stock que ya estaba: el primer promedio aparece con la próxima recepción, y una variante que nunca se vuelve a recibir conserva su costo declarado. Y bajo el default `FIFO` el promedio de lo que hay en mano se mueve también al vender, porque es valor sobre cantidad; el promedio como política contable es `costing_method = 'AVERAGE'` |
+
+---
+
 ## Docker Scripts
 
 Scripts en `docker/scripts/`:

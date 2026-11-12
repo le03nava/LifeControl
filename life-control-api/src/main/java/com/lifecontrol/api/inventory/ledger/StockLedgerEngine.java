@@ -89,9 +89,10 @@ public class StockLedgerEngine {
 
     /**
      * Why an inbound movement can be booked at zero cost: {@code ck_movement_inbound_cost} demands a cost and a
-     * currency on every row that adds quantity, and {@code product_variant_store_stock.cost_price} is the only cost
-     * this deployment records. A row with no recorded cost is booked at zero with the reason stated on the row,
-     * exactly as {@code V62}'s backfill decided for the same fact.
+     * currency on every row that adds quantity, and a receipt states the purchase price it paid, falling back to
+     * the cost {@code product_variant_store_stock.cost_price} declares for the variant in that store. A row with
+     * neither is booked at zero with the reason stated on the row, exactly as {@code V62}'s backfill decided for
+     * the same fact.
      */
     private static final String UNRECORDED_COST_REASON =
             "no cost is recorded for this variant in this store, so the inbound movement is booked at 0";
@@ -125,13 +126,17 @@ public class StockLedgerEngine {
      * Receives {@code quantity} of {@code productVariantId} at {@code storeLocationId}: one {@code RECEIPT}
      * movement whose source is the receipt line.
      *
-     * <p>The movement carries the cost this store records for the variant and the company's operating currency,
-     * because {@code ck_movement_inbound_cost} requires both on every row that adds quantity. The projections
-     * ({@code stock_balance}, {@code stock_position}, {@code stock_valuation}) follow from it by trigger, so there
-     * is nothing else to write: the store's sellable row is not maintained here, and neither is the location
-     * balance.</p>
+     * <p>The movement carries {@code purchaseUnitCost} — what those units cost, stated by the document — and the
+     * company's operating currency, because {@code ck_movement_inbound_cost} requires both on every row that adds
+     * quantity. The projections ({@code stock_balance}, {@code stock_position}, {@code stock_valuation}) follow
+     * from it by trigger, so there is nothing else to write: the store's sellable row is not maintained here, and
+     * neither is the location balance.</p>
      *
      * @param quantity signed amount received; must be greater than zero
+     * @param purchaseUnitCost the price the purchase line states for these units — its base
+     *     ({@code purchase_order_details.unit_price}), never its taxed total. Null only when the caller cannot
+     *     state one, in which case the cost the store declares is booked instead (see {@link #applyReceipt} for
+     *     the fallback and why it exists)
      * @param referenceType the source discriminator the movement states
      * @param referenceId identity of that source — for a receipt, the {@code goods_receipt_items} row
      * @param createdBy username of the receiver, when known
@@ -146,6 +151,7 @@ public class StockLedgerEngine {
             UUID companyStoreId,
             UUID storeLocationId,
             BigDecimal quantity,
+            BigDecimal purchaseUnitCost,
             String referenceType,
             UUID referenceId,
             String createdBy) {
@@ -180,7 +186,18 @@ public class StockLedgerEngine {
                 .orElseThrow(() -> new IllegalArgumentException(
                         "Product variant " + productVariantId + " has no stock row in store " + companyStoreId));
 
-        // 5. The movement, and that is the whole write. Its source is the caller's pair, not a mirrored row's id:
+        // 5. WHAT THE UNITS COST, and why the purchase price is the one that counts. ADR-0001's `## Costing and
+        //    valuation` states the rule: "a receipt takes the purchase line's unit cost". The units cost what
+        //    this receipt paid, and the valuation the ledger derives from inbound rows is only the weighted
+        //    average of what was paid if that is the number they carry. `product_variant_store_stock.cost_price`
+        //    is the declared catalogue cost and the FALLBACK, for a caller that cannot state a price — booking it
+        //    by default is the silent divergence issue #853 reports, where a receipt of a line priced 12.50 books
+        //    the declared 10.00 and nothing ever says so. The fallback chain ends where every other cost does:
+        //    neither number present is "unrecorded", booked at zero with the reason on the row, never a zero
+        //    presented as a cost.
+        var recordedCost = purchaseUnitCost != null ? purchaseUnitCost : storeStock.getCostPrice();
+
+        // 6. The movement, and that is the whole write. Its source is the caller's pair, not a mirrored row's id:
         //    a receipt line is its own identity (StockLedgerWriter.RECEIPT_LINE_SOURCE_TYPE).
         bookLedgerInbound(
                 referenceType,
@@ -189,7 +206,7 @@ public class StockLedgerEngine {
                 storeLocationId,
                 productVariantId,
                 quantity,
-                storeStock.getCostPrice(),
+                recordedCost,
                 referenceId,
                 createdBy,
                 true);
@@ -791,10 +808,11 @@ public class StockLedgerEngine {
      * Books an inbound movement (a receipt or the increase side of a manual edit), which is the only write: the
      * projections follow from it by trigger.
      *
-     * <p>The cost is what {@code product_variant_store_stock.cost_price} records for this variant in this store —
-     * the only cost this deployment keeps, and the same source {@code V62}'s backfill used. A missing value is
-     * booked as zero with the reason stated on the row, never refused: a receipt of stock that has no recorded cost
-     * is still a receipt.</p>
+     * <p>The cost is the caller's, not this method's: a receipt states the purchase line's base (ADR-0001,
+     * {@code ## Costing and valuation}), falling back to the cost {@code product_variant_store_stock.cost_price}
+     * declares for this variant; a manual edit states the declared cost too, because it names no document and no
+     * operator in this tree types one. A missing value is booked as zero with the reason stated on the row, never
+     * refused: a receipt of stock that has no recorded cost is still a receipt.</p>
      *
      * @param receipt whether the row is a {@code RECEIPT} rather than an {@code ADJUSTMENT_IN}; the two differ
      *     only in the movement type and in what explains them
@@ -806,7 +824,7 @@ public class StockLedgerEngine {
             UUID storeLocationId,
             UUID productVariantId,
             BigDecimal quantity,
-            BigDecimal recordedCost,
+            BigDecimal statedCost,
             UUID sourceId,
             String createdBy,
             boolean receipt) {
@@ -819,9 +837,9 @@ public class StockLedgerEngine {
                 createdBy,
                 sourceId,
                 StockLedgerWriter.SINGLE_WRITE);
-        var unitCost = orZero(recordedCost);
+        var unitCost = orZero(statedCost);
         var currency = stockLedgerWriter.operatingCurrency(companyId);
-        var reason = recordedCost == null ? UNRECORDED_COST_REASON : null;
+        var reason = statedCost == null ? UNRECORDED_COST_REASON : null;
         if (receipt) {
             stockLedgerWriter.bookReceipt(booking, quantity, unitCost, currency, reason);
         } else {

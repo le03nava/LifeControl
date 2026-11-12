@@ -161,11 +161,16 @@ class StockLedgerEngineTest {
     }
 
     private void applyReceipt(String quantity) {
+        applyReceipt(quantity, null);
+    }
+
+    private void applyReceipt(String quantity, String purchaseUnitCost) {
         stockLedgerEngine.applyReceipt(
                 VARIANT_ID,
                 STORE_ID,
                 LOCATION_ID,
                 new BigDecimal(quantity),
+                purchaseUnitCost == null ? null : new BigDecimal(purchaseUnitCost),
                 StockLedgerWriter.RECEIPT_LINE_SOURCE_TYPE,
                 UUID.randomUUID(),
                 "tester");
@@ -199,7 +204,7 @@ class StockLedgerEngineTest {
         @DisplayName("should reject a null quantity with the plain IllegalArgumentException")
         void rejectsNull() {
             assertThatThrownBy(() -> stockLedgerEngine.applyReceipt(
-                            VARIANT_ID, STORE_ID, LOCATION_ID, null, "GOODS_RECEIPT", null, "tester"))
+                            VARIANT_ID, STORE_ID, LOCATION_ID, null, null, "GOODS_RECEIPT", null, "tester"))
                     .isInstanceOf(IllegalArgumentException.class)
                     .hasMessageContaining("must be greater than zero");
 
@@ -238,6 +243,7 @@ class StockLedgerEngineTest {
                             otherStoreId,
                             LOCATION_ID,
                             new BigDecimal("1.00"),
+                            null,
                             "GOODS_RECEIPT",
                             UUID.randomUUID(),
                             "receiver"))
@@ -286,6 +292,7 @@ class StockLedgerEngineTest {
                     STORE_ID,
                     LOCATION_ID,
                     new BigDecimal("12.50"),
+                    new BigDecimal("9.90"),
                     StockLedgerWriter.RECEIPT_LINE_SOURCE_TYPE,
                     referenceId,
                     "receiver");
@@ -313,15 +320,42 @@ class StockLedgerEngineTest {
             assertThat(booking.productVariantId()).isEqualTo(VARIANT_ID);
             assertThat(booking.actor()).isEqualTo("receiver");
             assertThat(quantityCaptor.getValue()).isEqualByComparingTo("12.50");
-            // The cost is the one the store records (ck_movement_inbound_cost requires one on every row that
-            // adds quantity) and the currency is the company's operating currency, so no reason is stated.
-            assertThat(unitCostCaptor.getValue()).isEqualByComparingTo("7.25");
+            // The cost is the purchase price the caller stated, not the declared 7.25: what the units cost is
+            // what this receipt paid for them (ADR-0001, `## Costing and valuation`), and the currency is the
+            // company's operating currency, so no reason is stated.
+            assertThat(unitCostCaptor.getValue()).isEqualByComparingTo("9.90");
             assertThat(currencyCaptor.getValue()).isEqualTo("MXN");
             assertThat(reasonCaptor.getValue()).isNull();
 
             // The movement is the WHOLE write: nothing else is persisted, and the store row is only read.
             verify(productVariantStoreStockRepository, never()).save(any(ProductVariantStoreStock.class));
             verifyNoInteractions(stockPositionRepository);
+        }
+
+        @Test
+        @DisplayName("should fall back to the declared cost when the receipt states no purchase price")
+        void fallsBackToTheDeclaredCostWhenTheReceiptStatesNoPrice() {
+            when(productVariantRepository.findByIdAndCompanyIdAndEnabledTrue(VARIANT_ID, STORE_COMPANY_ID))
+                    .thenReturn(Optional.of(enabledVariant()));
+            when(productVariantStoreStockRepository.findByProductVariantIdAndCompanyStoreId(VARIANT_ID, STORE_ID))
+                    .thenReturn(Optional.of(storeRowWithCost("7.25")));
+            when(stockLedgerWriter.operatingCurrency(STORE_COMPANY_ID)).thenReturn("MXN");
+
+            applyReceipt("2.00");
+
+            // The declared cost is the fallback, not the primary: a caller that cannot state a price still books
+            // a cost instead of refusing the receipt (ck_movement_inbound_cost demands one).
+            var costCaptor = ArgumentCaptor.forClass(BigDecimal.class);
+            var reasonCaptor = ArgumentCaptor.forClass(String.class);
+            verify(stockLedgerWriter)
+                    .bookReceipt(
+                            any(StockLedgerWriter.Booking.class),
+                            any(BigDecimal.class),
+                            costCaptor.capture(),
+                            any(String.class),
+                            reasonCaptor.capture());
+            assertThat(costCaptor.getValue()).isEqualByComparingTo("7.25");
+            assertThat(reasonCaptor.getValue()).isNull();
         }
 
         @Test

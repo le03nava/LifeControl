@@ -213,6 +213,9 @@ class GoodsReceiptServiceTest {
                 .purchaseOrder(purchaseOrder)
                 .productVariant(variant)
                 .quantity(BigDecimal.valueOf(5))
+                // The line's base price: what the receipt has to book and snapshot, and a number distinct from
+                // every quantity in this fixture so a pass-through that forwarded the wrong thing is visible.
+                .unitPrice(new BigDecimal("12.50"))
                 .receivedQuantity(BigDecimal.ZERO)
                 .enabled(true)
                 .build();
@@ -340,6 +343,13 @@ class GoodsReceiptServiceTest {
             assertThat(savedReceipt.getDocType()).isEqualTo("GOODS_RECEIPT");
             assertThat(savedReceipt.getDocNumber()).isEqualTo("GR-PO-202606-00001-01");
             assertThat(savedReceipt.getReceiptNumber()).isEqualTo(savedReceipt.getDocNumber());
+            assertThat(savedReceipt.getItems().getFirst().getUnitCost())
+                    .as("the line snapshots the purchase price it was received at (S8), which the movement it books "
+                            + "also states")
+                    .isEqualByComparingTo("12.50");
+            assertThat(response.lines().getFirst().unitCost())
+                    .as("and the response carries it back, because an auditable snapshot has to be readable")
+                    .isEqualByComparingTo("12.50");
 
             verify(stockLedgerEngine)
                     .applyReceipt(
@@ -347,6 +357,7 @@ class GoodsReceiptServiceTest {
                             STORE_ID,
                             LOCATION_ID,
                             new BigDecimal("3"),
+                            new BigDecimal("12.50"),
                             StockLedgerWriter.RECEIPT_LINE_SOURCE_TYPE,
                             savedLineIds.getFirst(),
                             "receiver");
@@ -367,6 +378,7 @@ class GoodsReceiptServiceTest {
                             STORE_ID,
                             LOCATION_ID,
                             BigDecimal.ONE,
+                            new BigDecimal("12.50"),
                             StockLedgerWriter.RECEIPT_LINE_SOURCE_TYPE,
                             savedLineIds.getFirst(),
                             "receiver");
@@ -397,6 +409,7 @@ class GoodsReceiptServiceTest {
                             STORE_ID,
                             LOCATION_ID,
                             new BigDecimal("2.5"),
+                            new BigDecimal("12.50"),
                             StockLedgerWriter.RECEIPT_LINE_SOURCE_TYPE,
                             savedLineIds.getFirst(),
                             "receiver");
@@ -417,6 +430,7 @@ class GoodsReceiptServiceTest {
                             STORE_ID,
                             LOCATION_ID,
                             new BigDecimal("3"),
+                            new BigDecimal("12.50"),
                             StockLedgerWriter.RECEIPT_LINE_SOURCE_TYPE,
                             savedLineIds.getFirst(),
                             "receiver");

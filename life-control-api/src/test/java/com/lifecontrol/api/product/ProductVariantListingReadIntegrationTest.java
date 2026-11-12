@@ -340,6 +340,69 @@ class ProductVariantListingReadIntegrationTest extends AbstractPostgresIntegrati
                 .isNull();
     }
 
+    @Test
+    @DisplayName("the store-scoped reads answer averageCost from the ledger's valuation, and null where none exists")
+    void averageCostComesFromTheLedgerValuation() throws Exception {
+        // The three states of one answer: a key the ledger moved (twice), a key it moved and a price it never
+        // got, and a key it never moved at all. The number is read from `stock_valuation.avg_unit_cost`, which V61
+        // derives from the inbound movements — the projection V96 decided NOT to duplicate beside costPrice.
+        var result = mockMvc.perform(get(VARIANTS_URL, companyId, productId)
+                        .param("storeId", storeId.toString())
+                        .with(adminJwt()))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        var byId = contentById(result.getResponse().getContentAsString());
+        assertThat(decimal(byId.get(sellableId.toString()).get("averageCost")))
+                .as("the declared catalogue cost of this fixture is 20.00 and it is also what the units paid; the "
+                        + "assertion below is against the projection itself, not against a literal it could echo")
+                .isEqualByComparingTo(ledgerAverageOf(sellableId));
+        assertThat(decimal(byId.get(stockOnlyId.toString()).get("averageCost")))
+                .as("a variant this store received but never priced still has a valuation: the cost is not the price")
+                .isEqualByComparingTo(ledgerAverageOf(stockOnlyId))
+                .isEqualByComparingTo("5.00");
+        assertThat(decimal(byId.get(listedOnlyId.toString()).get("averageCost")))
+                .as("a listing with no movement has no valuation row, so the average is absent instead of zero — "
+                        + "the same meaning stock = null carries")
+                .isNull();
+
+        // The query level, for both store-scoped reads: the projection carries the fourth LEFT JOIN, and a JSON
+        // assertion alone would not tell a missing join from a field the mapper dropped.
+        var page = TenantFixtures.inTenant(
+                companyId,
+                () -> productVariantRepository.findStoreScopedByProductIdAndStoreId(
+                        companyId, productId, storeId, PageRequest.of(0, 20)));
+        assertThat(page.getContent())
+                .filteredOn(response -> response.id().equals(sellableId))
+                .singleElement()
+                .satisfies(response -> assertThat(response.averageCost()).isEqualByComparingTo("20.00"));
+        assertThat(page.getContent())
+                .filteredOn(response -> response.id().equals(listedOnlyId))
+                .singleElement()
+                .satisfies(response -> assertThat(response.averageCost()).isNull());
+
+        var searched = TenantFixtures.inTenant(
+                companyId,
+                () -> productVariantRepository.searchByQuery(
+                        companyId, barCodeOf(stockOnlyId), storeId, PageRequest.of(0, 20)));
+        assertThat(searched.getContent())
+                .singleElement()
+                .satisfies(response -> assertThat(response.averageCost())
+                        .as("the POS search answers the same derived cost the list does")
+                        .isEqualByComparingTo("5.00"));
+    }
+
+    /** The projection's own number, read where it lives: the assertion above compares against this and nothing else. */
+    private BigDecimal ledgerAverageOf(UUID variantId) {
+        return TenantFixtures.inTenant(
+                companyId,
+                () -> jdbcTemplate.queryForObject(
+                        "SELECT avg_unit_cost FROM stock_valuation WHERE company_store_id = ? AND product_variant_id = ?",
+                        BigDecimal.class,
+                        storeId,
+                        variantId));
+    }
+
     // ─── the source of the number ────────────────
 
     /*
@@ -489,6 +552,9 @@ class ProductVariantListingReadIntegrationTest extends AbstractPostgresIntegrati
                             storeId,
                             salesLocationId,
                             quantity,
+                            // The fixture models an opening balance, not a purchase: no price is stated, so the
+                            // valuation of these units is the store's declared cost_price.
+                            null,
                             "FIXTURE_OPENING",
                             UUID.randomUUID(),
                             "fixture"));

@@ -39,6 +39,24 @@ public class GoodsReceiptItem extends Auditable {
     @Column(name = "quantity_received", precision = 12, scale = 2, nullable = false)
     private BigDecimal quantityReceived;
 
+    /**
+     * The purchase price these units were received at: {@code purchase_order_details.unit_price}, the base of
+     * the line and never its {@code total}.
+     *
+     * <p><b>Written once, and the mapping is what says so.</b> A receipt is immutable — nothing in this tree
+     * edits or deletes one — so {@code updatable = false} states the rule Hibernate would otherwise leave to a
+     * convention: an update that touches the other columns cannot rewrite the price the goods came in at. The
+     * same number is what the {@code RECEIPT} movement this line books carries in
+     * {@code stock_movement.unit_cost}, and it is the record a later costing model reads instead of re-deriving
+     * what the purchase paid.
+     *
+     * <p><b>Nullable, because history is.</b> Rows written before {@code V96} received their units at a price
+     * nobody recorded; the line's current {@code unit_price} is not that price (it can be edited after the
+     * receipt), so null is the honest value and no reader treats it as a zero.
+     */
+    @Column(name = "unit_cost", precision = 19, scale = 4, updatable = false)
+    private BigDecimal unitCost;
+
     @Column(length = 500)
     private String comments;
 
@@ -64,6 +82,10 @@ public class GoodsReceiptItem extends Auditable {
 
     public BigDecimal getQuantityReceived() {
         return quantityReceived;
+    }
+
+    public BigDecimal getUnitCost() {
+        return unitCost;
     }
 
     public String getComments() {
@@ -125,6 +147,11 @@ public class GoodsReceiptItem extends Auditable {
 
         public Builder quantityReceived(BigDecimal quantityReceived) {
             item.quantityReceived = quantityReceived;
+            return this;
+        }
+
+        public Builder unitCost(BigDecimal unitCost) {
+            item.unitCost = unitCost;
             return this;
         }
 

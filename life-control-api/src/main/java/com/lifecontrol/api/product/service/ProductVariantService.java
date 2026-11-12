@@ -3,7 +3,9 @@ package com.lifecontrol.api.product.service;
 import com.lifecontrol.api.common.auth.CurrentUserContext;
 import com.lifecontrol.api.inventory.ledger.StockLedgerEngine;
 import com.lifecontrol.api.inventory.ledger.StockLedgerWriter;
+import com.lifecontrol.api.inventory.model.StockValuation;
 import com.lifecontrol.api.inventory.repository.StockPositionRepository;
+import com.lifecontrol.api.inventory.repository.StockValuationRepository;
 import com.lifecontrol.api.measureunit.exception.MeasureUnitNotFoundException;
 import com.lifecontrol.api.measureunit.model.MeasureUnit;
 import com.lifecontrol.api.measureunit.repository.MeasureUnitRepository;
@@ -92,6 +94,7 @@ public class ProductVariantService {
     private final ProductAttributeCatalogService productAttributeCatalogService;
     private final StockPositionRepository stockPositionRepository;
     private final StockLedgerWriter stockLedgerWriter;
+    private final StockValuationRepository stockValuationRepository;
 
     public ProductVariantService(
             ProductVariantRepository productVariantRepository,
@@ -105,7 +108,8 @@ public class ProductVariantService {
             MeasureUnitRepository measureUnitRepository,
             ProductAttributeCatalogService productAttributeCatalogService,
             StockPositionRepository stockPositionRepository,
-            StockLedgerWriter stockLedgerWriter) {
+            StockLedgerWriter stockLedgerWriter,
+            StockValuationRepository stockValuationRepository) {
         this.productVariantRepository = productVariantRepository;
         this.productVariantStoreStockRepository = productVariantStoreStockRepository;
         this.variantListingRepository = variantListingRepository;
@@ -118,6 +122,7 @@ public class ProductVariantService {
         this.productAttributeCatalogService = productAttributeCatalogService;
         this.stockPositionRepository = stockPositionRepository;
         this.stockLedgerWriter = stockLedgerWriter;
+        this.stockValuationRepository = stockValuationRepository;
     }
 
     @Transactional(readOnly = true)
@@ -137,7 +142,8 @@ public class ProductVariantService {
      *
      * <p>When {@code companyStoreId} is {@code null} the global definitions are returned and the
      * store-scoped fields of {@link ProductVariantResponse} ({@code companyStoreId},
-     * {@code listPrice}, {@code costPrice}, {@code stock}) are {@code null}. That branch reads no
+     * {@code listPrice}, {@code costPrice}, {@code stock}, {@code averageCost}) are {@code null}. That branch
+     * reads no
      * store and applies no guard. {@code includeDisabled} affects this branch only: it defaults to
      * {@code false} (the soft-deleted definitions are filtered out, so the parameterless read keeps
      * its previous behavior) and, when {@code true}, lists them too so a soft-deleted definition can
@@ -766,6 +772,28 @@ public class ProductVariantService {
 
     private ProductVariantStoreStockResponse toStoreResponse(
             ProductVariantStoreStock row, BigDecimal listPrice, BigDecimal stock) {
-        return new ProductVariantStoreStockResponse(row.getCompanyStoreId(), listPrice, row.getCostPrice(), stock);
+        return new ProductVariantStoreStockResponse(
+                row.getCompanyStoreId(),
+                listPrice,
+                row.getCostPrice(),
+                stock,
+                averageCostOf(row.getCompanyStoreId(), row.getProductVariantId()));
+    }
+
+    /**
+     * The ledger's derived average for one {@code (store, variant)}, or {@code null} when it holds no movement
+     * for that key.
+     *
+     * <p>{@code stock_valuation.avg_unit_cost} and nothing else: it is the weighted moving average {@code V61}
+     * derives from the inbound movements' costs and their allocations, so a second number computed here would be
+     * a second answer to the same question — the reason {@code V96} added no average column. Absent is reported as
+     * {@code null}, the meaning the other store-scoped fields already carry for this pair ("nothing was observed
+     * here"), and never as a zero nobody recorded.</p>
+     */
+    private BigDecimal averageCostOf(UUID companyStoreId, UUID productVariantId) {
+        return stockValuationRepository
+                .findByCompanyStoreIdAndProductVariantId(companyStoreId, productVariantId)
+                .map(StockValuation::getAvgUnitCost)
+                .orElse(null);
     }
 }
