@@ -8,6 +8,7 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.UUID;
 
 /**
  * Write payload for declaring a rate, i.e. appending a row to {@code tax_rate}.
@@ -31,10 +32,20 @@ import java.time.LocalDate;
  * never means when they send the field", and {@code companies.currency} is {@code @NotBlank} for the same
  * reason, recorded in {@code AGENTS.md} as "un MXN silencioso escribe la moneda de un país sobre las ventas
  * de otro sin decirlo". This record follows that rule rather than inventing a local preference.</p>
+ *
+ * <p><b>Why {@code regionId} is optional and defaults to nothing.</b> An absent (or {@code null}) region is the
+ * company-wide rate — the only meaning every row that predates {@code V95} has, and the answer for a company
+ * with no frontier store — so there is no value to invent: the absence <i>is</i> the scope. The opposite
+ * direction of the rule above applies here: a default would have to be a region, and no region is the honest
+ * one. A region of another company is refused by the service with a 404 that names it, because a row pointing
+ * at a place this company does not have would make the resolver answer for someone else's geography
+ * ({@code S7}).</p>
  */
 public record TaxRateRequest(
         @NotBlank(message = "taxCode is required") @Size(max = 20)
         String taxCode,
+
+        UUID regionId,
 
         @NotNull(message = "rate is required")
         @DecimalMin(value = "0.0", message = "rate must be between 0 and 1, as a fraction")

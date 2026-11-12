@@ -33,6 +33,12 @@ import org.springframework.web.bind.annotation.*;
  * configuration a company files, not a tenancy level, so {@code lc-tax} is a functional role
  * ({@code Roles.TAX}) and the company boundary is the path plus the policy.</p>
  *
+ * <p><b>A rate can name a region, and naming none is the company-wide rate</b> (issue #855). The resource gained
+ * no route for it: {@code regionId} travels in the create body and comes back on every read, because a rate's
+ * scope is one of its fields and not a sub-resource — two rates for the same code and day differ exactly by it
+ * ({@code V95}'s two partial unique indexes). A region that is not this company's is a 404 naming the id, so a
+ * foreign region is never stored ({@code S7}).</p>
+ *
  * <p><b>There is no DELETE and no way to edit a rate in place.</b> A rate is corrected by appending the next
  * {@code effective_from} ({@code PUT} does exactly that, naming the row it supersedes) or retired by
  * {@code PATCH …/enable}. Deleting a row would delete what a document dated before it must keep resolving.</p>
@@ -77,13 +83,16 @@ public class TaxRateController {
     @PreAuthorize("hasAnyRole('" + ADMIN + "','" + TAX + "')")
     @Operation(
             summary = "Declare a tax rate",
-            description = "Appends a rate for the company, effective from the stated day; exists against the "
-                    + "(company, tax code, effectiveFrom) key")
+            description = "Appends a rate for the company, effective from the stated day; regionId chooses the "
+                    + "scope (absent means the company-wide rate), and the (company, tax code, day) key is per scope")
     @ApiResponses({
         @ApiResponse(responseCode = "201", description = "Tax rate declared"),
         @ApiResponse(responseCode = "400", description = "Validation error, e.g. a rate outside [0, 1]"),
-        @ApiResponse(responseCode = "404", description = "Company not found, or the tax code is not in the catalog"),
-        @ApiResponse(responseCode = "409", description = "The company already states a rate for that code that day")
+        @ApiResponse(
+                responseCode = "404",
+                description = "Company not found, the tax code is not in the catalog, or the region is not this "
+                        + "company's"),
+        @ApiResponse(responseCode = "409", description = "The scope already states a rate for that code on that day")
     })
     public ResponseEntity<TaxRateResponse> declareTaxRate(
             @PathVariable UUID companyId, @Valid @RequestBody TaxRateRequest request) {
@@ -95,15 +104,16 @@ public class TaxRateController {
     @PreAuthorize("hasAnyRole('" + ADMIN + "','" + TAX + "')")
     @Operation(
             summary = "Supersede a tax rate",
-            description = "Appends the successor of the rate named by id, effective from a later day; the named "
-                    + "row is left untouched so documents dated before the successor keep resolving it")
+            description = "Appends the successor of the rate named by id, effective from a later day and in the "
+                    + "same scope (a company-wide rate's successor is company-wide, a region's is that region's); "
+                    + "the named row is left untouched so documents dated before the successor keep resolving it")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Successor declared; the body is the rate now applying"),
         @ApiResponse(
                 responseCode = "400",
                 description = "Validation error, or a successor not after the superseded row"),
         @ApiResponse(responseCode = "404", description = "Tax rate or company not found"),
-        @ApiResponse(responseCode = "409", description = "The company already states a rate for that code that day")
+        @ApiResponse(responseCode = "409", description = "That scope already states a rate for that code on that day")
     })
     public ResponseEntity<TaxRateResponse> supersedeTaxRate(
             @PathVariable UUID companyId, @PathVariable UUID id, @Valid @RequestBody TaxRateSupersedeRequest request) {

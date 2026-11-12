@@ -245,7 +245,9 @@ public class SalesOrderService {
                 // The copy: a row is born here, so its code and rate are resolved now and never again. The
                 // document's own date is the one allocated above and stored on the header, which is what makes
                 // "the rate that applies" a fact about this sale and not about when a reader looks at it.
-                var tax = lineTaxFor(companyId, reqItem.productVariantId(), orderDate);
+                // The region comes from the store this path already holds: since `V95` a rate is scoped by the
+                // place the document is sold in, and the store's chain is what answers which place that is.
+                var tax = lineTaxFor(companyId, taxRegionIdOf(store), reqItem.productVariantId(), orderDate);
                 var newItem = SalesOrderItem.builder()
                         .salesOrderId(saved.getId())
                         .productVariantId(reqItem.productVariantId())
@@ -279,7 +281,9 @@ public class SalesOrderService {
         var so = salesOrderRepository.findByIdForUpdate(id).orElseThrow(() -> new SalesOrderNotFoundException(id));
 
         validateCustomerExists(request.customerId());
-        validateCompanyStoreExists(request.companyStoreId());
+        // The store is kept, not just checked: it is the order's place, and since `V95` the place is part of the
+        // question a line's rate answers (`lineTaxFor` names the region this chain resolves).
+        var store = validateCompanyStoreExists(request.companyStoreId());
         if (request.shiftId() != null) {
             validateShiftExists(request.shiftId());
         }
@@ -358,7 +362,8 @@ public class SalesOrderService {
                     // tax this sale with a code its product does not declare — a wrong number, silently, which is
                     // the failure this unit exists to remove.
                     if (variantChanged) {
-                        var tax = lineTaxFor(so.getCompanyId(), reqItem.productVariantId(), so.getOrderDate());
+                        var tax = lineTaxFor(
+                                so.getCompanyId(), taxRegionIdOf(store), reqItem.productVariantId(), so.getOrderDate());
                         item.setTaxCode(tax.taxCode());
                         item.setTaxRate(tax.taxRate());
                     }
@@ -367,7 +372,8 @@ public class SalesOrderService {
                     // INSERT: new item with default "Pending" status
                     var discount = reqItem.discountApplied() != null ? reqItem.discountApplied() : BigDecimal.ZERO;
                     // A new row is a new sale, so the copy runs here for the same reason it runs on the create.
-                    var tax = lineTaxFor(so.getCompanyId(), reqItem.productVariantId(), so.getOrderDate());
+                    var tax = lineTaxFor(
+                            so.getCompanyId(), taxRegionIdOf(store), reqItem.productVariantId(), so.getOrderDate());
                     var newItem = SalesOrderItem.builder()
                             .salesOrderId(id)
                             .productVariantId(reqItem.productVariantId())
@@ -705,7 +711,9 @@ public class SalesOrderService {
         logger.info("Adding item to sales order: soId={}", salesOrderId);
 
         var so = loadAndValidateModifiableSO(salesOrderId);
-        validateProductVariantExists(request.productVariantId(), so.getCompanyStoreId());
+        // The store is returned rather than discarded because it also answers which region the line's rate is
+        // resolved in since `V95`; a second lookup would be a second answer to the same question.
+        var store = validateProductVariantExists(request.productVariantId(), so.getCompanyStoreId());
 
         // Check if this will be the first item (triggers Draft → Active transition)
         var existingItems = itemRepository.findBySalesOrderIdAndEnabledTrue(salesOrderId);
@@ -714,7 +722,7 @@ public class SalesOrderService {
         var discountApplied = request.discountApplied() != null ? request.discountApplied() : BigDecimal.ZERO;
 
         // A row is born on this path too, so the tax snapshot is resolved here and nowhere else on it (S1).
-        var tax = lineTaxFor(so.getCompanyId(), request.productVariantId(), so.getOrderDate());
+        var tax = lineTaxFor(so.getCompanyId(), taxRegionIdOf(store), request.productVariantId(), so.getOrderDate());
 
         var item = SalesOrderItem.builder()
                 .salesOrderId(salesOrderId)
@@ -763,7 +771,9 @@ public class SalesOrderService {
 
         validateItemIsModifiable(item);
 
-        validateProductVariantExists(request.productVariantId(), so.getCompanyStoreId());
+        // Returned rather than discarded, for the same reason as on `addSalesOrderItem`: the store is also the
+        // region the re-resolved rate is asked about since `V95`.
+        var store = validateProductVariantExists(request.productVariantId(), so.getCompanyStoreId());
 
         var discountApplied = request.discountApplied() != null ? request.discountApplied() : BigDecimal.ZERO;
 
@@ -780,7 +790,8 @@ public class SalesOrderService {
         item.setPromotionId(request.promotionId());
 
         if (variantChanged) {
-            var tax = lineTaxFor(so.getCompanyId(), request.productVariantId(), so.getOrderDate());
+            var tax =
+                    lineTaxFor(so.getCompanyId(), taxRegionIdOf(store), request.productVariantId(), so.getOrderDate());
             item.setTaxCode(tax.taxCode());
             item.setTaxRate(tax.taxRate());
         }
@@ -991,8 +1002,11 @@ public class SalesOrderService {
      * @throws ProductVariantNotFoundException when the variant does not exist, is soft-deleted, or
      *     belongs to another company
      * @throws CompanyStoreNotFoundException when the order's store does not exist
+     * @return the order's store, which the caller needs anyway: since {@code V95} the store's region is part of
+     *     the question a line's rate answers ({@code taxRegionIdOf}), and returning it costs nothing where a
+     *     second lookup of the same row would
      */
-    private void validateProductVariantExists(UUID id, UUID companyStoreId) {
+    private CompanyStore validateProductVariantExists(UUID id, UUID companyStoreId) {
         var store = companyStoreRepository
                 .findById(companyStoreId)
                 .orElseThrow(() -> new CompanyStoreNotFoundException(companyStoreId));
@@ -1001,6 +1015,19 @@ public class SalesOrderService {
                 id, companyStoreOwnerResolver.companyIdOf(store))) {
             throw new ProductVariantNotFoundException(id);
         }
+        return store;
+    }
+
+    /**
+     * The region a document's store sits in — the axis a tax rate is scoped by since {@code V95} (issue #855).
+     *
+     * <p>The chain is the one every store guard in this service already walks
+     * ({@code store &rarr; zone &rarr; region &rarr; country}), and it is read from the entity the caller holds
+     * instead of asked of a repository: the store is already loaded, and a query for the region would be a
+     * second answer to a question the same row answers ({@code S8}).</p>
+     */
+    private static UUID taxRegionIdOf(CompanyStore store) {
+        return store.getCompanyZone().getCompanyRegion().getId();
     }
 
     // ─── The line's tax snapshot (ADR-0002 decision 6) ──────────────────
@@ -1046,13 +1073,17 @@ public class SalesOrderService {
      * a backdated rate that must not touch a past sale.</p>
      *
      * @param companyId the company that files the rate — the order's tenant, never a global default
+     * @param companyRegionId the region of the order's store, or {@code null} when the caller knows none — the
+     *     place is the other half of the question since {@code V95}: the frontier's IVA and the rest of the
+     *     country's are the same code, so only the place tells the two rates apart (issue #855)
      * @param productVariantId the variant the line sells, the only path from a line to a product's code
      * @param orderDate the order's own {@code order_date}; its date is the document's date, never "today"
-     * @throws IllegalArgumentException (400) when the code needs a rate and the company states none for that date
+     * @throws IllegalArgumentException (400) when the code needs a rate and neither the region nor the company
+     *     states one that applies on that date
      * @throws ProductVariantNotFoundException (404) when the variant is not readable, which also means the sale the
      *     line would be written into has nothing to sell
      */
-    private LineTax lineTaxFor(UUID companyId, UUID productVariantId, LocalDateTime orderDate) {
+    private LineTax lineTaxFor(UUID companyId, UUID companyRegionId, UUID productVariantId, LocalDateTime orderDate) {
         var taxCode = productVariantRepository
                 .findProductTaxCodeByVariantId(productVariantId)
                 // The code is NOT NULL since V89, so an empty answer is not "a product with no code": it is a
@@ -1066,7 +1097,7 @@ public class SalesOrderService {
 
         var documentDate = orderDate.toLocalDate();
         return taxRateService
-                .resolve(companyId, taxCode, documentDate)
+                .resolve(companyId, taxCode, companyRegionId, documentDate)
                 .map(resolution -> new LineTax(resolution.taxCode(), resolution.rate()))
                 .orElseThrow(() -> new IllegalArgumentException("Cannot write the line: tax code "
                         + taxCode + " has no enabled rate applicable on " + documentDate

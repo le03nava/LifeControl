@@ -14,6 +14,12 @@ import java.time.LocalDate;
  * named by the path already says which one — so accepting a code here would make "supersede" able to
  * silently move a rate onto a different tax, which is a different act ({@code POST}).</p>
  *
+ * <p><b>Why {@code regionId} is absent too.</b> The same rule one field over, and it is not a convenience: a
+ * successor inherits the scope of the row it supersedes. A company-wide supersession must not swallow a
+ * region's rows, and a region's supersession must not create a rate that applies to every store — both would
+ * change <i>where</i> a rate applies while claiming only to change <i>how much</i>, which is the one edit this
+ * resource exists to make impossible (issue #855).</p>
+ *
  * <p><b>Why nothing is editable in place.</b> The ADR's words are that a rate change appends the next
  * {@code effective_from} and never rewrites history: {@code rate}, {@code tax_code} and {@code effective_from}
  * are {@code updatable = false} on the entity, so there is no shape of this payload that could edit the old

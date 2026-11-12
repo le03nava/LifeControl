@@ -2193,7 +2193,7 @@ class PurchaseOrderServiceTest {
                     .thenReturn(1L);
             when(productVariantRepository.findProductTaxCodeByVariantId(variantId))
                     .thenReturn(Optional.of("IVA"));
-            when(taxRateService.resolve(eq(companyId), eq("IVA"), any()))
+            when(taxRateService.resolve(eq(companyId), eq("IVA"), eq(regionId), any()))
                     .thenReturn(Optional.of(new TaxRateResolution(
                             UUID.randomUUID(), "IVA", new BigDecimal("0.160000"), LocalDate.of(2026, 1, 1))));
             var written = ArgumentCaptor.forClass(PurchaseOrder.class);
@@ -2219,7 +2219,7 @@ class PurchaseOrderServiceTest {
                     .isEqualByComparingTo(new BigDecimal("0.160000"));
             // The date is the document's own — its `created_at`, because a purchase order has no `order_date`
             // column (`V64:187-188`) — and not one the caller could state.
-            verify(taxRateService).resolve(eq(companyId), eq("IVA"), any());
+            verify(taxRateService).resolve(eq(companyId), eq("IVA"), eq(regionId), any());
 
             // The catalog moves: the company publishes a newer IVA row at 8%. A resolver asked at read time would
             // answer the next question with this rate, and the historical purchase would be restated by a
@@ -2228,7 +2228,7 @@ class PurchaseOrderServiceTest {
             // Lenient because a correct implementation never asks again, and never asking is precisely what the
             // assertions below measure; a strict stub would fail the case for the stub it did not need.
             lenient()
-                    .when(taxRateService.resolve(eq(companyId), eq("IVA"), any()))
+                    .when(taxRateService.resolve(eq(companyId), eq("IVA"), eq(regionId), any()))
                     .thenReturn(Optional.of(new TaxRateResolution(
                             UUID.randomUUID(), "IVA", new BigDecimal("0.080000"), LocalDate.of(2026, 7, 1))));
             when(purchaseOrderRepository.findById(poId)).thenReturn(Optional.of(written.getValue()));
@@ -2241,7 +2241,7 @@ class PurchaseOrderServiceTest {
                     .as("the row still carries the rate it was written with, so reading it again cannot pick up "
                             + "the 8% published afterwards")
                     .isEqualByComparingTo(new BigDecimal("0.160000"));
-            verify(taxRateService, times(1)).resolve(any(), eq("IVA"), any());
+            verify(taxRateService, times(1)).resolve(any(), eq("IVA"), any(), any());
         }
 
         @Test
@@ -2322,7 +2322,8 @@ class PurchaseOrderServiceTest {
                     .thenReturn(Optional.of("TASA_0"));
             when(productVariantRepository.findProductTaxCodeByVariantId(secondVariant.getId()))
                     .thenReturn(Optional.of("IVA"));
-            when(taxRateService.resolve(eq(companyId), eq("IVA"), any())).thenReturn(Optional.empty());
+            when(taxRateService.resolve(eq(companyId), eq("IVA"), eq(regionId), any()))
+                    .thenReturn(Optional.empty());
 
             var refused = catchThrowable(() -> service.createPurchaseOrder(request));
 
@@ -2336,7 +2337,7 @@ class PurchaseOrderServiceTest {
                     .hasMessageContaining("ADR-0002 decision 6")
                     .hasMessageNotContaining("D-a");
             var askedOn = ArgumentCaptor.forClass(LocalDate.class);
-            verify(taxRateService).resolve(eq(companyId), eq("IVA"), askedOn.capture());
+            verify(taxRateService).resolve(eq(companyId), eq("IVA"), eq(regionId), askedOn.capture());
             assertThat(refused.getMessage())
                     .as("the refusal names the date it looked for, so the operator knows which row to publish")
                     .contains(askedOn.getValue().toString());
@@ -2420,7 +2421,7 @@ class PurchaseOrderServiceTest {
             stubStockedVariant(otherVariant);
             when(productVariantRepository.findProductTaxCodeByVariantId(otherVariant.getId()))
                     .thenReturn(Optional.of("IVA"));
-            when(taxRateService.resolve(eq(companyId), eq("IVA"), any()))
+            when(taxRateService.resolve(eq(companyId), eq("IVA"), eq(regionId), any()))
                     .thenReturn(Optional.of(new TaxRateResolution(
                             UUID.randomUUID(), "IVA", new BigDecimal("0.080000"), LocalDate.of(2026, 6, 1))));
 
@@ -2443,7 +2444,7 @@ class PurchaseOrderServiceTest {
             assertThat(taxedLine.getProductVariant()).isSameAs(otherVariant);
             // And it is the DOCUMENT's date that is resolved for, never today's: an edit does not move the
             // document's period, so it cannot move the rate either.
-            verify(taxRateService).resolve(companyId, "IVA", LocalDate.of(2026, 6, 3));
+            verify(taxRateService).resolve(companyId, "IVA", regionId, LocalDate.of(2026, 6, 3));
         }
 
         /**
@@ -2492,12 +2493,13 @@ class PurchaseOrderServiceTest {
                     UUID.randomUUID(), "IVA", new BigDecimal("0.160000"), LocalDate.of(2026, 1, 1));
             var publishedAfterwards = new TaxRateResolution(
                     UUID.randomUUID(), "IVA", new BigDecimal("0.050000"), LocalDate.of(2026, 7, 1));
-            when(taxRateService.resolve(eq(companyId), eq("IVA"), any())).thenAnswer(inv -> {
-                LocalDate askedOn = inv.getArgument(2);
-                return askedOn.isBefore(publishedAfterwards.effectiveFrom())
-                        ? Optional.of(inEffectOnTheDocumentDate)
-                        : Optional.of(publishedAfterwards);
-            });
+            when(taxRateService.resolve(eq(companyId), eq("IVA"), eq(regionId), any()))
+                    .thenAnswer(inv -> {
+                        LocalDate askedOn = inv.getArgument(3);
+                        return askedOn.isBefore(publishedAfterwards.effectiveFrom())
+                                ? Optional.of(inEffectOnTheDocumentDate)
+                                : Optional.of(publishedAfterwards);
+                    });
             when(productVariantRepository.findProductTaxCodeByVariantId(variantId))
                     .thenReturn(Optional.of("IVA"));
 
@@ -2531,7 +2533,7 @@ class PurchaseOrderServiceTest {
                             + "normal rate change does not restate a historical document")
                     .isEqualByComparingTo(new BigDecimal("0.160000"));
             var askedOn = ArgumentCaptor.forClass(LocalDate.class);
-            verify(taxRateService).resolve(eq(companyId), eq("IVA"), askedOn.capture());
+            verify(taxRateService).resolve(eq(companyId), eq("IVA"), eq(regionId), askedOn.capture());
             assertThat(askedOn.getValue())
                     .as("the date is the document's own `created_at`, not the instant this edit runs")
                     .isEqualTo(LocalDate.of(2026, 6, 3));
@@ -2559,7 +2561,7 @@ class PurchaseOrderServiceTest {
             verify(productVariantRepository, times(2)).findProductTaxCodeByVariantId(variantId);
             // Still exactly one ask across both writes: the zero-by-definition code answers 0 without the rate
             // table, and the first write was the only one that had a rate to resolve.
-            verify(taxRateService, times(1)).resolve(any(), any(), any());
+            verify(taxRateService, times(1)).resolve(any(), any(), any(), any());
         }
 
         /**
