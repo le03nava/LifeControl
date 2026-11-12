@@ -2,17 +2,44 @@ package com.lifecontrol.api.tax.repository;
 
 import com.lifecontrol.api.tax.model.TaxRate;
 import java.time.LocalDate;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
 /**
- * Reads a company's tax rates. Nothing writes one from Java: a rate is stated by migration, and correcting
- * one means appending the next {@code effective_from} rather than editing history.
+ * Reads a company's tax rates and appends new ones. A rate is never rewritten: correcting one means appending
+ * the next {@code effective_from}, which is what {@code POST} and {@code PUT} on
+ * {@code /api/companies/{companyId}/tax-rates} do (issue #858).
  */
 @Repository
 public interface TaxRateRepository extends JpaRepository<TaxRate, UUID> {
+
+    /**
+     * Every rate of a company, enabled or not, ordered by code and then newest first.
+     *
+     * <p>The order is part of the answer, not a presentation detail: a caller reading a code's history sees the
+     * rate that applies today above the one it replaced. No separate index is needed —
+     * {@code uq_tax_rate_company_code_from} already indexes the {@code (company_id, tax_code)} prefix, as
+     * {@code V82:74} states.</p>
+     */
+    List<TaxRate> findByCompanyIdOrderByTaxCodeAscEffectiveFromDesc(UUID companyId);
+
+    /** The enabled rates of a company, in the same order as {@link #findByCompanyIdOrderByTaxCodeAscEffectiveFromDesc}. */
+    List<TaxRate> findByCompanyIdAndEnabledTrueOrderByTaxCodeAscEffectiveFromDesc(UUID companyId);
+
+    /**
+     * One rate, looked up through the company so a row of another tenant is not addressable.
+     *
+     * <p>The company predicate is redundant with the policy ({@code tax_rate} is armed with {@code FORCE} row-level
+     * security) and is kept anyway: the two are independent statements of the same boundary, and the one written
+     * here is the one a caller without a stated scope — a scheduled job, a unit test — still meets.</p>
+     */
+    Optional<TaxRate> findByCompanyIdAndId(UUID companyId, UUID id);
+
+    /** Whether this company already states a rate for that code effective from that day. */
+    boolean existsByCompanyIdAndTaxCodeAndEffectiveFrom(UUID companyId, String taxCode, LocalDate effectiveFrom);
 
     /**
      * The rate that applies to a document dated {@code documentDate}: the latest {@code effective_from} that
