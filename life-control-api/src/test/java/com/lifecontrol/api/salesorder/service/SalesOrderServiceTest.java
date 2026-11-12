@@ -4173,7 +4173,12 @@ class SalesOrderServiceTest {
                             + "for the same sentence: a value the catalog does not back is the caller's to fix")
                     .isInstanceOf(IllegalArgumentException.class)
                     .hasMessageContaining("IVA")
-                    .hasMessageContaining(testOrder.getOrderDate().toLocalDate().toString());
+                    .hasMessageContaining(testOrder.getOrderDate().toLocalDate().toString())
+                    // Issue #856: the sentence cites the decision the rate snapshot comes from, and nothing
+                    // else. The `D-a` it used to be paired with is the payment backfill's decision and says
+                    // nothing about tax, so a reader following it landed on the wrong part of the ADR.
+                    .hasMessageContaining("ADR-0002 decision 6")
+                    .hasMessageNotContaining("D-a");
 
             verify(itemRepository, never()).save(any());
         }

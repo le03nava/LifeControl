@@ -3727,7 +3727,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
 
             assertThat(refused.getResponse().getStatus())
                     .as("a code the company states no rate for is the client's to fix, and the ADR already says "
-                            + "so: a missing rate is never a silent zero (decision 6, D-a)")
+                            + "so: a missing rate is never a silent zero (ADR-0002 decision 6)")
                     .isEqualTo(400);
             assertThat(refused.getResponse().getContentAsString())
                     .as("the refusal names the code and the document's date, the two facts whoever configures "
