@@ -13,8 +13,6 @@ import com.lifecontrol.api.tax.exception.TaxRateNotFoundException;
 import com.lifecontrol.api.tax.model.TaxRate;
 import com.lifecontrol.api.tax.repository.TaxCodeRepository;
 import com.lifecontrol.api.tax.repository.TaxRateRepository;
-import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Objects;
@@ -53,9 +51,6 @@ import org.springframework.transaction.annotation.Transactional;
 public class TaxRateService {
 
     private static final Logger logger = LoggerFactory.getLogger(TaxRateService.class);
-
-    /** The scale of every money column on a sales document, and of {@code ck_item_tax}'s right-hand side. */
-    private static final int MONEY_SCALE = 4;
 
     private final TaxRateRepository taxRateRepository;
     private final TaxCodeRepository taxCodeRepository;
@@ -249,34 +244,5 @@ public class TaxRateService {
                 rate.getRate(),
                 rate.getEffectiveFrom(),
                 rate.getEnabled());
-    }
-
-    /**
-     * The line's tax amount, computed the way the schema computes it: {@code V81:170-171}'s
-     * {@code ck_item_tax} states
-     * {@code tax_amount = round((subtotal - discount_applied) * tax_rate, 4)}, and this method is that
-     * expression reachable from Java.
-     *
-     * <p><b>Why the base is {@code subtotal - discount_applied} and not {@code final_price}.</b>
-     * {@code final_price} is the <i>unit</i> net price on a legacy line (the measurement D-f records), so
-     * taxing it would multiply the tax by the quantity twice or not at all. The base is the line's money after
-     * its discount, which is exactly what the constraint subtracts.</p>
-     *
-     * <p><b>Why {@link RoundingMode#HALF_UP}.</b> PostgreSQL's {@code round(numeric, int)} rounds half away
-     * from zero, which is {@code HALF_UP} for the positives a line's money can carry; {@code HALF_EVEN} would
-     * disagree with the schema on exactly the half cases and the insert would be refused by the check that
-     * this method is mirroring.</p>
-     *
-     * @param subtotal the line's money before its discount, as {@code sales_order_items.subtotal} holds it
-     * @param discountApplied the line's discount, never {@code null} since {@code V81}
-     * @param rate the resolved rate
-     * @return the tax amount at the scale every money column uses
-     */
-    public static BigDecimal lineTaxAmount(BigDecimal subtotal, BigDecimal discountApplied, BigDecimal rate) {
-        Objects.requireNonNull(subtotal, "subtotal is required");
-        Objects.requireNonNull(discountApplied, "discountApplied is required");
-        Objects.requireNonNull(rate, "rate is required");
-
-        return subtotal.subtract(discountApplied).multiply(rate).setScale(MONEY_SCALE, RoundingMode.HALF_UP);
     }
 }
