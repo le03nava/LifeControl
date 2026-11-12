@@ -692,10 +692,6 @@ class PurchaseOrderServiceTest {
             when(paymentMethodRepository.findById(pmId)).thenReturn(Optional.of(paymentMethod));
             catalogRow(draftStatus);
             when(productRepository.findById(productId)).thenReturn(Optional.of(product));
-            // The allocation runs before the lines are resolved, so even a refused line has already taken a
-            // value; the case is about the refusal, not about numbering.
-            when(documentSequenceAllocator.allocate(eq(companyId), eq(DocumentType.PURCHASE_ORDER), anyString()))
-                    .thenReturn(1L);
             // The order's store belongs to companyId, and no variant of that company carries this id:
             // that is what a variant of another tenant looks like once the lookup is scoped.
             when(productVariantRepository.findByIdAndProductIdAndCompanyIdAndEnabledTrue(
@@ -1372,8 +1368,6 @@ class PurchaseOrderServiceTest {
             when(paymentMethodRepository.findById(pmId)).thenReturn(Optional.of(paymentMethod));
             catalogRow(draftStatus);
             when(productRepository.findById(productId)).thenReturn(Optional.of(product));
-            when(documentSequenceAllocator.allocate(eq(companyId), eq(DocumentType.PURCHASE_ORDER), anyString()))
-                    .thenReturn(1L);
 
             // The column is NOT NULL since V14 and the request is @NotNull, so the null branch of
             // resolveProductVariant was removed: a null id now fails the resolution instead of
@@ -1442,8 +1436,6 @@ class PurchaseOrderServiceTest {
             when(paymentMethodRepository.findById(pmId)).thenReturn(Optional.of(paymentMethod));
             catalogRow(draftStatus);
             when(productRepository.findById(productId)).thenReturn(Optional.of(product));
-            when(documentSequenceAllocator.allocate(eq(companyId), eq(DocumentType.PURCHASE_ORDER), anyString()))
-                    .thenReturn(1L);
             when(productVariantRepository.findByIdAndProductIdAndCompanyIdAndEnabledTrue(
                             variantId, productId, companyId))
                     .thenReturn(Optional.empty());
@@ -1451,6 +1443,8 @@ class PurchaseOrderServiceTest {
             assertThatThrownBy(() -> service.createPurchaseOrder(request))
                     .isInstanceOf(ProductVariantNotFoundException.class)
                     .hasMessageContaining(variantId.toString());
+            // The variant is resolved before the number is taken (issue #857), so this refusal costs nothing.
+            verify(documentSequenceAllocator, never()).allocate(any(), any(), anyString());
         }
 
         @Test
@@ -2195,6 +2189,8 @@ class PurchaseOrderServiceTest {
                     pendingStatus.getId());
             var request = stubCreateOf(List.of(lineReq));
             stubStockedVariant(productVariant);
+            when(documentSequenceAllocator.allocate(eq(companyId), eq(DocumentType.PURCHASE_ORDER), anyString()))
+                    .thenReturn(1L);
             when(productVariantRepository.findProductTaxCodeByVariantId(variantId))
                     .thenReturn(Optional.of("IVA"));
             when(taxRateService.resolve(eq(companyId), eq("IVA"), any()))
@@ -2260,6 +2256,8 @@ class PurchaseOrderServiceTest {
                     pendingStatus.getId());
             var request = stubCreateOf(List.of(lineReq));
             stubStockedVariant(productVariant);
+            when(documentSequenceAllocator.allocate(eq(companyId), eq(DocumentType.PURCHASE_ORDER), anyString()))
+                    .thenReturn(1L);
             var written = ArgumentCaptor.forClass(PurchaseOrder.class);
             when(purchaseOrderRepository.save(written.capture())).thenAnswer(inv -> {
                 var po = inv.getArgument(0, PurchaseOrder.class);
@@ -2346,11 +2344,12 @@ class PurchaseOrderServiceTest {
             verify(detailRepository, never()).saveAll(any());
             verifyNoInteractions(statusTransitionRecorder);
             verify(eventPublisher, never()).publishEvent(any());
-            // The one thing the refusal does NOT give back, asserted rather than glossed: ADR-0003 decision 4
-            // allocates the number before the lines are resolved, so a refused request has already taken a value
-            // from the sequence. `createPurchaseOrder` records that as the cost the path cannot avoid; the day
-            // the allocation moves below the line loop this assertion fails and the record changes with it.
-            verify(documentSequenceAllocator).allocate(eq(companyId), eq(DocumentType.PURCHASE_ORDER), anyString());
+            // Issue #857: the number is allocated after every line has been built, so a request refused inside
+            // the line loop has taken nothing from the sequence. This assertion used to read `verify(...)` on
+            // purpose, documenting the gap rather than endorsing it; what a sequence can never promise is
+            // gaplessness — a crash between the `nextval` and the commit still leaves a hole — and that is the
+            // only window this path can leave.
+            verify(documentSequenceAllocator, never()).allocate(any(), any(), anyString());
         }
 
         @Test
@@ -2561,7 +2560,11 @@ class PurchaseOrderServiceTest {
 
         /**
          * Everything a successful create needs that no tax case decides: the store's company, its supplier, the
-         * payment method, the catalog rows, the product and the number. Each case states its own tax answer.
+         * payment method, the catalog rows and the product. Each case states its own tax answer.
+         *
+         * <p>The document number is deliberately not here (issue #857). A case that is refused inside the line
+         * loop never reaches the allocation, and a shared stub would then fail that case for the stub it did not
+         * need instead of for the behaviour it asserts — the reason {@link #stubReplacementUpdate} is separate.</p>
          */
         private PurchaseOrderRequest stubCreateOf(List<PurchaseOrderDetailRequest> lines) {
             var request = new PurchaseOrderRequest(supplierId, storeId, pmId, draftStatusId, "Comments", lines);
@@ -2571,8 +2574,6 @@ class PurchaseOrderServiceTest {
             catalogRow(draftStatus);
             catalogRow(pendingStatus);
             when(productRepository.findById(productId)).thenReturn(Optional.of(product));
-            when(documentSequenceAllocator.allocate(eq(companyId), eq(DocumentType.PURCHASE_ORDER), anyString()))
-                    .thenReturn(1L);
             return request;
         }
 
