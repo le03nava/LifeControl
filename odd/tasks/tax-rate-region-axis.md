@@ -110,3 +110,16 @@ because a table says it must. The two ABM read endpoints pay one lazy read per r
 that has region rows — inside the transaction, not a hot path, and a fetch-join is the fix if it ever matters. And
 `TaxRateMigrationIntegrationTest` gained no `V95`-specific case: the index's two halves are already pinned by the
 existing company-wide refusal plus the new two-scope acceptance, so a third case would restate them.
+
+**L8 (2026-11-12) — the slice that did not compile alone, and the lesson the CI paid for.** The first delivery was a
+three-slice chain — tax layer, documents, docs — which looked like the repo's own precedent (`purchase-order-line-tax`
+shipped as three PRs). It was wrong, and the reviewer did not have to find out: `#873`'s `Static analysis` and `Test`
+failed at `compileJava` on `SalesOrderService.java:1069` and `PurchaseOrderService.java:1220`, because **slice 1
+changed `resolve`'s signature and both production callers live in slice 2**. The branch tip compiled; the slices did
+not. The rule this unit learned, in the shape it will bite again: *a slice is built against its base alone, so a
+layer-then-callers cut is only legal while the layer does not change a signature the callers share.* The three PRs
+were closed and the unit re-delivered as one pull request — an honest large diff beats a chain whose first link cannot
+compile. The 2091 authored lines are the cost of a behavior whose parts are a schema, a resolver, a write surface and
+two documents; the alternative split that would have compiled (declare the rate first, resolve it second) was
+rejected because the intermediate state silently prices a declared 8% at 16%, which is the bug this issue exists to
+end.
