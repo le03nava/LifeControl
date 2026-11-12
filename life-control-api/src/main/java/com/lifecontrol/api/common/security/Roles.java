@@ -47,6 +47,14 @@ public final class Roles {
     public static final String MEASURE_UNIT = "lc-measure-unit";
     public static final String PRODUCT_SUPPLIER = "lc-product-supplier";
 
+    /** Tax-rate catalog write role, the pair {@code lc-currency} and {@code lc-measure-unit} form.
+     *  Client role of {@code life-control-client}. A <b>functional</b> role like {@link #EMPLOYEE}: stating the
+     *  rates a company files is not a tenancy level, so it is deliberately absent from every
+     *  {@link ScopeLevel} and from {@code GrantablePositionRoles}, and the company scope is still verified
+     *  through the {@code company_id} claim / the {@code {companyId}} path. There is no read-only pair: reads
+     *  of a company's rates need only authentication, as every other catalog read in this tree does. */
+    public static final String TAX = "lc-tax";
+
     /** HR department catalog write role. One write role per catalog, as {@code lc-department}.
      *  Client role of {@code life-control-client}; company-scoped through {@link ScopeLevel#COMPANY}. */
     public static final String DEPARTMENT = "lc-department";

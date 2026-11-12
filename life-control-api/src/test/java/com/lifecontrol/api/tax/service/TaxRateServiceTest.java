@@ -8,7 +8,10 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.lifecontrol.api.common.auth.CurrentUserContext;
+import com.lifecontrol.api.company.repository.CompanyRepository;
 import com.lifecontrol.api.tax.model.TaxRate;
+import com.lifecontrol.api.tax.repository.TaxCodeRepository;
 import com.lifecontrol.api.tax.repository.TaxRateRepository;
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -41,7 +44,13 @@ class TaxRateServiceTest {
     @BeforeEach
     void setUp() {
         taxRateRepository = mock(TaxRateRepository.class);
-        taxRateService = new TaxRateService(taxRateRepository);
+        // The three collaborators the write half takes (issue #858) are irrelevant to the reads pinned here:
+        // `resolve` never reaches them, and mocking them keeps this suite about the resolution alone.
+        taxRateService = new TaxRateService(
+                taxRateRepository,
+                mock(TaxCodeRepository.class),
+                mock(CompanyRepository.class),
+                mock(CurrentUserContext.class));
     }
 
     @Test
