@@ -9,6 +9,7 @@ import {
   output,
   signal,
 } from '@angular/core';
+import { CurrencyPipe } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
 import { FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
@@ -65,7 +66,14 @@ export interface ProductVariantStoreStockControl {
   selector: 'app-product-variant-store-stock',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [ReactiveFormsModule, MatFormFieldModule, MatInputModule, MatButtonModule, ErrorBanner],
+  imports: [
+    CurrencyPipe,
+    ReactiveFormsModule,
+    MatFormFieldModule,
+    MatInputModule,
+    MatButtonModule,
+    ErrorBanner,
+  ],
   templateUrl: './product-variant-store-stock.html',
   styleUrl: './product-variant-store-stock.scss',
   // Per component, not at the root: this panel owns its own store resolution.
@@ -143,6 +151,21 @@ export class ProductVariantStoreStock {
     const error = this.storeRowResource.error();
     return error ? httpErrorMessage(error) : null;
   });
+
+  /**
+   * The ledger's derived average cost of what this store holds, or `null` when the
+   * ledger never moved the variant in it.
+   *
+   * Read-only and **not** a form control on purpose: `stock_valuation.avg_unit_cost` is
+   * what the schema derives from the receipts, so an editable copy could only disagree
+   * with it — and the write request has no field for it either. It is shown beside the
+   * declared cost precisely so the two are not confused: this one is what the inventory
+   * actually paid, `costPrice` is what the operator declared.
+   *
+   * `null` is "no cost was observed here" and the template renders the tree's "no value"
+   * mark for it, never `0` (a real cost of nothing) and never the declared cost.
+   */
+  readonly averageCost = computed<number | null>(() => this.storeRow()?.averageCost ?? null);
 
   constructor() {
     this.storeContext.resolve(this.route.snapshot.queryParamMap.get('storeId'));

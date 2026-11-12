@@ -40,6 +40,7 @@ describe('ProductVariantService', () => {
     listPrice: 120,
     costPrice: 80,
     stock: 12,
+    averageCost: null,
   };
 
   const variantPage = (content: ProductVariant[]): Page<ProductVariant> => ({
@@ -351,6 +352,7 @@ describe('ProductVariantService', () => {
       listPrice: 150,
       costPrice: 80,
       stock: 5,
+      averageCost: null,
     };
 
     it('should GET the search endpoint with the query, the store and the paging', async () => {

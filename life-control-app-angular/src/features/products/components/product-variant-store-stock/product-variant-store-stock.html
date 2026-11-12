@@ -62,6 +62,19 @@
         }
       </mat-form-field>
 
+      <!--
+        The ledger's derived average, read-only and outside the form's controls: it is
+        what the receipts of this store actually paid, so an editable copy could only
+        disagree with the number the schema derives. It spans the form's grid right
+        under the declared cost, and the copy says which of the two it is.
+      -->
+      @let derivedCost = averageCost();
+      <p class="store-stock__hint">
+        Costo promedio de recepciones:
+        <strong>{{ derivedCost !== null ? (derivedCost | currency: 'MXN') : '—' }}</strong>
+        — lo derivan las recepciones de esta tienda, no es el costo declarado del formulario.
+      </p>
+
       <p class="store-stock__hint">
         Un campo vacío deja el valor guardado tal como está; no lo pone en cero. Un 0 es un valor
         real y sí se guarda.

@@ -13,6 +13,11 @@ import { ProfileResponse } from '@features/user/profile/data/profile.models';
 import { ProfileService } from '@features/user/profile/data/profile.service';
 import { NotificationService } from '@shared/data/notification';
 
+/**
+ * One grain for the money in this panel: the declared cost and the derived average are both
+ * rendered through `CurrencyPipe` at two decimals, so the two adjacent numbers cannot read at
+ * different precisions. The four-decimal value the API answers stays in the response.
+ */
 describe('ProductVariantStoreStock', () => {
   let component: ProductVariantStoreStock;
   let fixture: ComponentFixture<ProductVariantStoreStock>;
@@ -38,6 +43,7 @@ describe('ProductVariantStoreStock', () => {
     listPrice: 150,
     costPrice: 90,
     stock: 8,
+    averageCost: null,
     ...overrides,
   });
 
@@ -96,11 +102,15 @@ describe('ProductVariantStoreStock', () => {
         : vi.fn().mockReturnValue(of(searchPage(options.rows ?? [storeRow()]))),
       upsertStoreStock: options.upsertError
         ? vi.fn().mockReturnValue(throwError(() => options.upsertError))
-        : vi
-            .fn()
-            .mockReturnValue(
-              of({ companyStoreId: 'store-1', listPrice: 1, costPrice: 1, stock: 1 }),
-            ),
+        : vi.fn().mockReturnValue(
+            of({
+              companyStoreId: 'store-1',
+              listPrice: 1,
+              costPrice: 1,
+              stock: 1,
+              averageCost: 1,
+            }),
+          ),
     };
     notificationMock = { showSuccess: vi.fn() };
     routerMock = { navigate: vi.fn() };
@@ -201,6 +211,57 @@ describe('ProductVariantStoreStock', () => {
     // A programmatic load is not an operator edit.
     expect(component.storeFormDirty()).toBe(false);
     expect(component.storeForm().pristine).toBe(true);
+  });
+
+  describe('derived average cost', () => {
+    /** The panel's rendered text: the derived value is text, the declared cost is an input. */
+    function renderedText(): string {
+      return (fixture.nativeElement as HTMLElement).textContent ?? '';
+    }
+
+    it('should show the derived average of the receipts next to the declared cost', async () => {
+      setup({ rows: [storeRow({ costPrice: 90, averageCost: 123.4567 })] });
+      await settle();
+
+      const text = renderedText();
+      // The label names the derivation, so the number beside the editable cost cannot be read as that cost.
+      expect(text).toContain('Costo promedio de recepciones');
+      // The neighbour declared cost is rendered at two decimals, so the derived number beside it
+      // is rendered at the same grain: the four-decimal value stays in the API's response.
+      expect(text).toContain('123.46');
+    });
+
+    it('should render the derived average read-only, with no control to edit it', async () => {
+      setup({ rows: [storeRow({ averageCost: 123.4567 })] });
+      await settle();
+
+      const el = fixture.nativeElement as HTMLElement;
+      // Three editable fields and only three: the ledger's average is derived by the schema, so a form control
+      // for it could only ever disagree with the number the server derives.
+      expect(el.querySelectorAll('input[formControlName]').length).toBe(3);
+      expect(el.querySelector('input[formControlName="averageCost"]')).toBeNull();
+    });
+
+    it('should render a missing derived average as no value, never as zero nor as the declared cost', async () => {
+      setup({ rows: [storeRow({ costPrice: 90, averageCost: null })] });
+      await settle();
+
+      const text = renderedText();
+      expect(text).toContain('—');
+      // A zero would read as a real cost of nothing, and the declared cost would hide the missing derivation
+      // behind a number nobody derived.
+      expect(text).not.toContain('$0.00');
+      expect(text).not.toContain('$90.00');
+    });
+
+    it('should keep the declared cost in its editable field when a derived average exists', async () => {
+      setup({ rows: [storeRow({ costPrice: 90, averageCost: 123.4567 })] });
+      await settle();
+
+      // The two numbers never collapse into one: the form still holds what the operator maintains, so saving
+      // cannot write the derived average back into `costPrice`.
+      expect(component.storeForm().getRawValue().costPrice).toBe(90);
+    });
   });
 
   it('should say the store has no row yet and start empty when the search finds none', async () => {
