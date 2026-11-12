@@ -1,8 +1,12 @@
 package com.lifecontrol.api.tax.model;
 
+import com.lifecontrol.api.company.model.CompanyRegion;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.FetchType;
 import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -21,6 +25,13 @@ import java.util.UUID;
  * <p><b>Why it carries no {@code Auditable}.</b> The ADR's {@code ## Schema} block gives this table six
  * columns and no timestamps: a rate is corrected by appending the next {@code effective_from}, never by
  * editing a row, so the history <i>is</i> the audit.</p>
+ *
+ * <p><b>Why it carries a region and what a {@code null} one means.</b> Since {@code V95} a rate can state
+ * the region it applies to, and {@code null} is the company-wide rate — the only meaning the rows that
+ * predated that migration can have. The region is the store's, three hops away
+ * ({@code company_stores.company_zone_id} &rarr; {@code company_zones.company_region_id}), and it exists
+ * because the frontier's 8% IVA and the rest of the country's 16% are <b>the same code</b> in two places
+ * (issue #855, {@code D1}). What the tax <i>is</i> stays where it was: {@code products.tax_code}.</p>
  *
  * <p><b>Why it has a factory and exactly one setter.</b> The rate a company files is stated through
  * {@code /api/companies/{companyId}/tax-rates} (issue #858), and the only way into this entity is
@@ -56,6 +67,20 @@ public class TaxRate {
      */
     @Column(name = "tax_code", length = 20, nullable = false, updatable = false)
     private String taxCode;
+
+    /**
+     * The region this rate applies to, or {@code null} for the company-wide rate ({@code V95}).
+     *
+     * <p>The association is here, unlike {@link #taxCode}'s plain string, because the write path has to name
+     * the region readably when it refuses — a foreign region is a 404 that names the row — and because
+     * {@code tax_rate_company_region_id_fkey} needs a reference to insert. It is {@code updatable = false}
+     * for the same reason the four historical columns are: a rate is corrected by appending the next
+     * {@code effective_from}, and moving a row to another region would restate the place a past document was
+     * taxed in.</p>
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "company_region_id", updatable = false)
+    private CompanyRegion companyRegion;
 
     /**
      * The rate, as a fraction: {@code 0.160000} is 16%.
@@ -103,16 +128,24 @@ public class TaxRate {
      *
      * @param companyId the company filing the rate, never {@code null} since {@code tax_rate.company_id} is
      * @param taxCode the catalog code this rate is for, e.g. {@code IVA}
+     * @param companyRegion the region it applies to — {@code null} for the company-wide rate — and never a
+     *     region of another company (the write path refuses that before this factory is reached, {@code S7})
      * @param rate the rate as a fraction, e.g. {@code 0.160000}
      * @param effectiveFrom the first day it applies
      * @param enabled whether the resolution may answer it
      */
     public static TaxRate declare(
-            UUID companyId, String taxCode, BigDecimal rate, LocalDate effectiveFrom, boolean enabled) {
+            UUID companyId,
+            String taxCode,
+            CompanyRegion companyRegion,
+            BigDecimal rate,
+            LocalDate effectiveFrom,
+            boolean enabled) {
         var taxRate = new TaxRate();
         taxRate.id = UUID.randomUUID();
         taxRate.companyId = companyId;
         taxRate.taxCode = taxCode;
+        taxRate.companyRegion = companyRegion;
         taxRate.rate = rate.setScale(RATE_SCALE, RoundingMode.HALF_UP);
         taxRate.effectiveFrom = effectiveFrom;
         taxRate.enabled = enabled;
@@ -140,6 +173,11 @@ public class TaxRate {
 
     public String getTaxCode() {
         return taxCode;
+    }
+
+    /** The region this rate applies to, or {@code null} when it is the company-wide rate. */
+    public CompanyRegion getCompanyRegion() {
+        return companyRegion;
     }
 
     public BigDecimal getRate() {

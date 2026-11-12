@@ -1,6 +1,7 @@
 package com.lifecontrol.api.tax.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.hamcrest.Matchers.containsString;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -11,8 +12,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.lifecontrol.api.company.model.Company;
+import com.lifecontrol.api.company.model.CompanyCountry;
+import com.lifecontrol.api.company.model.CompanyRegion;
+import com.lifecontrol.api.country.model.Country;
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
 import com.lifecontrol.api.support.TenantFixtures;
+import com.lifecontrol.api.tax.exception.TaxRateRegionGapException;
 import com.lifecontrol.api.tax.service.TaxRateResolution;
 import com.lifecontrol.api.tax.service.TaxRateService;
 import jakarta.persistence.EntityManager;
@@ -99,12 +104,12 @@ class TaxRateControllerHttpIntegrationTest extends AbstractPostgresIntegrationTe
                 .andExpect(jsonPath("$.enabled").value(true));
 
         em.flush();
-        assertThat(taxRateService.resolve(companyId, "IVA", JANUARY))
+        assertThat(taxRateService.resolve(companyId, "IVA", null, JANUARY))
                 .get()
                 .extracting(TaxRateResolution::rate)
                 .isEqualTo(new BigDecimal("0.160000"));
 
-        assertThat(taxRateService.resolve(companyId, "IVA", JANUARY.minusDays(1)))
+        assertThat(taxRateService.resolve(companyId, "IVA", null, JANUARY.minusDays(1)))
                 .as("a document dated before effective_from is not covered by the declared rate")
                 .isEmpty();
     }
@@ -130,11 +135,11 @@ class TaxRateControllerHttpIntegrationTest extends AbstractPostgresIntegrationTe
                 .isNotEqualTo(firstId);
 
         em.flush();
-        assertThat(taxRateService.resolve(companyId, "IVA", JULY))
+        assertThat(taxRateService.resolve(companyId, "IVA", null, JULY))
                 .get()
                 .extracting(TaxRateResolution::taxRateId, TaxRateResolution::rate)
                 .containsExactly(UUID.fromString(secondId), new BigDecimal("0.080000"));
-        assertThat(taxRateService.resolve(companyId, "IVA", JANUARY.plusDays(1)))
+        assertThat(taxRateService.resolve(companyId, "IVA", null, JANUARY.plusDays(1)))
                 .as("a document dated between the two effective_from values still resolves the first rate")
                 .get()
                 .extracting(TaxRateResolution::taxRateId, TaxRateResolution::rate)
@@ -344,6 +349,105 @@ class TaxRateControllerHttpIntegrationTest extends AbstractPostgresIntegrationTe
         assertRow(otherRateId, "0.160000", JANUARY, true);
     }
 
+    // ---- S1, S7: the region is a scope, and it has to be this company's own ----
+
+    @Test
+    @DisplayName("a region-scoped rate and the company-wide one share a code and a day, and each answers its scope")
+    void aRegionRateAndTheCompanyWideRateShareTheCodeAndTheDay() throws Exception {
+        var frontier = insertRegion(companyId, "FRONTERA");
+
+        createRate(companyId, "IVA", "0.16", JANUARY);
+        var regional = createRegionalRate(companyId, "IVA", "0.08", JANUARY, frontier);
+
+        em.flush();
+        assertThat(taxRateService.resolve(companyId, "IVA", frontier, JANUARY))
+                .as("the same code and the same day, two scopes: the region's 8% answers the frontier")
+                .get()
+                .extracting(TaxRateResolution::taxRateId, TaxRateResolution::rate)
+                .containsExactly(UUID.fromString(regional), new BigDecimal("0.080000"));
+        assertThat(taxRateService.resolve(companyId, "IVA", null, JANUARY))
+                .as("and the company-wide question still answers the 16%, which is what V95's two partial keys "
+                        + "exist to make representable")
+                .get()
+                .extracting(TaxRateResolution::rate)
+                .isEqualTo(new BigDecimal("0.160000"));
+        assertThat(countRates(companyId)).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("two rates in the same scope on the same day are still refused, and the refusal names the scope")
+    void twoRatesInTheSameScopeOnTheSameDayAreRefused() throws Exception {
+        var frontier = insertRegion(companyId, "FRONTERA");
+        createRegionalRate(companyId, "IVA", "0.08", JANUARY, frontier);
+        createRate(companyId, "IVA", "0.16", JANUARY);
+        var rowsBefore = countRates(companyId);
+
+        mockMvc.perform(post(BASE_URL, companyId)
+                        .with(taxWriter())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(rateBody("IVA", "0.10", JANUARY, frontier)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.message", containsString("region scope")))
+                .andExpect(jsonPath("$.message", containsString("FRONTERA")));
+
+        mockMvc.perform(post(BASE_URL, companyId)
+                        .with(taxWriter())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(rateBody("IVA", "0.10", JANUARY)))
+                .andExpect(status().isConflict())
+                // Which scope holds the day is the fact the caller has to change, so the sentence says it: a
+                // bare «effective from 2026-01-01 already exists» reads as a contradiction of the 201 the other
+                // scope just answered.
+                .andExpect(jsonPath("$.message", containsString("company-wide scope")));
+
+        assertThat(countRates(companyId))
+                .as("neither refused create appended a row")
+                .isEqualTo(rowsBefore);
+    }
+
+    @Test
+    @DisplayName("a region of another company answers 404 and nothing is stored (S7)")
+    void aForeignRegionIsRefusedAndWritesNothing() throws Exception {
+        var foreignRegion = insertRegion(otherCompanyId, "AJENA");
+        useTenant(companyId);
+
+        mockMvc.perform(post(BASE_URL, companyId)
+                        .with(taxWriter())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(rateBody("IVA", "0.08", JANUARY, foreignRegion)))
+                .andExpect(status().isNotFound())
+                // The body has to be this refusal and not an unmapped route: only the region lookup can name the
+                // id the caller addressed.
+                .andExpect(jsonPath("$.message", containsString(foreignRegion.toString())));
+
+        assertThat(countRates(companyId))
+                .as("a rate pointing at a place this company does not have would make the resolver answer for "
+                        + "someone else's geography, so it is never stored")
+                .isZero();
+        useTenant(otherCompanyId);
+        assertThat(countRates(otherCompanyId))
+                .as("and the other company's rate table stayed untouched")
+                .isZero();
+    }
+
+    @Test
+    @DisplayName("a region whose only rows are retired still refuses the line instead of answering the company rate")
+    void aRegionWithOnlyRetiredRowsRefusesRatherThanFallingBack() throws Exception {
+        var frontier = insertRegion(companyId, "FRONTERA");
+        var regional = createRegionalRate(companyId, "IVA", "0.08", JANUARY, frontier);
+        createRate(companyId, "IVA", "0.16", JANUARY);
+        disable(companyId, regional);
+        em.flush();
+
+        assertThatThrownBy(() -> taxRateService.resolve(companyId, "IVA", frontier, JANUARY))
+                .as("the existence check ignores enabled and the date, so a retired region has still stated this "
+                        + "code: answering the company-wide 16% here is the silent frontier rate D2 refuses")
+                .isInstanceOf(TaxRateRegionGapException.class)
+                .hasMessageContaining("IVA")
+                .hasMessageContaining("FRONTERA")
+                .hasMessageContaining(JANUARY.toString());
+    }
+
     // ---- reads, and the enabled flag the resolver depends on ----
 
     @Test
@@ -377,7 +481,7 @@ class TaxRateControllerHttpIntegrationTest extends AbstractPostgresIntegrationTe
         var laterId = createRate(companyId, "IVA", "0.16", JULY);
 
         em.flush();
-        assertThat(taxRateService.resolve(companyId, "IVA", JULY))
+        assertThat(taxRateService.resolve(companyId, "IVA", null, JULY))
                 .get()
                 .extracting(TaxRateResolution::rate)
                 .isEqualTo(new BigDecimal("0.160000"));
@@ -385,7 +489,7 @@ class TaxRateControllerHttpIntegrationTest extends AbstractPostgresIntegrationTe
         disable(companyId, laterId);
 
         em.flush();
-        assertThat(taxRateService.resolve(companyId, "IVA", JULY))
+        assertThat(taxRateService.resolve(companyId, "IVA", null, JULY))
                 .as("a retired rate keeps its row but stops being answered")
                 .get()
                 .extracting(TaxRateResolution::rate)
@@ -432,6 +536,48 @@ class TaxRateControllerHttpIntegrationTest extends AbstractPostgresIntegrationTe
 
     // ---- helpers ----
 
+    /**
+     * A {@code company_regions} row of a company, found or created, so a case can name a scope.
+     *
+     * <p>The chain is the one the store guard walks and the one the region's owner is derived from: a country
+     * row of the company, then the region under it. {@code company_id} on both is written by {@code V50}'s
+     * trigger, so the fixture states the parent and never the owner.</p>
+     */
+    private UUID insertRegion(UUID company, String regionCode) {
+        useTenant(company);
+        var companyCountry = CompanyCountry.builder()
+                .company(em.find(Company.class, company))
+                .country(countryMx())
+                .build();
+        em.persist(companyCountry);
+        var region = CompanyRegion.builder()
+                .companyCountry(companyCountry)
+                .regionCode(regionCode)
+                .regionName("Region " + regionCode)
+                .enabled(true)
+                .build();
+        em.persist(region);
+        em.flush();
+        return region.getId();
+    }
+
+    /** The one {@code countries} row the fixtures use, created on first use and shared afterwards. */
+    private Country countryMx() {
+        var existing = em.createQuery("select c from Country c where c.countryCode = :code", Country.class)
+                .setParameter("code", "MX")
+                .getResultList();
+        if (!existing.isEmpty()) {
+            return existing.getFirst();
+        }
+        var country = Country.builder()
+                .countryCode("MX")
+                .countryName("Mexico")
+                .enabled(true)
+                .build();
+        em.persist(country);
+        return country;
+    }
+
     private String createRate(UUID company, String taxCode, String rate, LocalDate effectiveFrom) throws Exception {
         useTenant(company);
         var body = mockMvc.perform(post(BASE_URL, company)
@@ -439,6 +585,23 @@ class TaxRateControllerHttpIntegrationTest extends AbstractPostgresIntegrationTe
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(rateBody(taxCode, rate, effectiveFrom)))
                 .andExpect(status().isCreated())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        return idOf(body);
+    }
+
+    /** The same create, for a region scope, asserting the response states the region it was given. */
+    private String createRegionalRate(UUID company, String taxCode, String rate, LocalDate effectiveFrom, UUID regionId)
+            throws Exception {
+        useTenant(company);
+        var body = mockMvc.perform(post(BASE_URL, company)
+                        .with(taxWriter(company))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(rateBody(taxCode, rate, effectiveFrom, regionId)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.regionId").value(regionId.toString()))
+                .andExpect(jsonPath("$.regionName").value("Region FRONTERA"))
                 .andReturn()
                 .getResponse()
                 .getContentAsString();
@@ -472,6 +635,16 @@ class TaxRateControllerHttpIntegrationTest extends AbstractPostgresIntegrationTe
                 {"taxCode": "%s", "rate": %s, "effectiveFrom": %s%s}
                 """.formatted(
                         taxCode, rate, effectiveFrom == null ? "null" : "\"" + effectiveFrom + "\"", enabledFragment);
+    }
+
+    /**
+     * The create body for a scope, with {@code enabled} stated: {@code regionId} absent is the company-wide rate,
+     * and the JSON omits the key entirely there, which is the shape a caller without a frontier store sends.
+     */
+    private String rateBody(String taxCode, String rate, LocalDate effectiveFrom, UUID regionId) {
+        return """
+                {"taxCode": "%s", "regionId": %s, "rate": %s, "effectiveFrom": "%s", "enabled": true}
+                """.formatted(taxCode, regionId == null ? "null" : "\"" + regionId + "\"", rate, effectiveFrom);
     }
 
     /** The supersede body, with {@code enabled} stated for the same reason {@link #rateBody} states it. */
