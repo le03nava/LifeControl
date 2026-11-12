@@ -102,17 +102,15 @@ describe('ProductVariantStoreStock', () => {
         : vi.fn().mockReturnValue(of(searchPage(options.rows ?? [storeRow()]))),
       upsertStoreStock: options.upsertError
         ? vi.fn().mockReturnValue(throwError(() => options.upsertError))
-        : vi
-            .fn()
-            .mockReturnValue(
-              of({
-                companyStoreId: 'store-1',
-                listPrice: 1,
-                costPrice: 1,
-                stock: 1,
-                averageCost: 1,
-              }),
-            ),
+        : vi.fn().mockReturnValue(
+            of({
+              companyStoreId: 'store-1',
+              listPrice: 1,
+              costPrice: 1,
+              stock: 1,
+              averageCost: 1,
+            }),
+          ),
     };
     notificationMock = { showSuccess: vi.fn() };
     routerMock = { navigate: vi.fn() };
