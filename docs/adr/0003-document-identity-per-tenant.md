@@ -65,6 +65,17 @@ that the database enforces is the parts, never the rendered string.**
    once before the allocator runs, and the same value is used for the render. It is never read from the
    wall clock at allocation time, because a sale created at 23:59 on the last day of a month would
    otherwise land in the next period depending on when its transaction happens to reach the allocator.
+
+   **Where "the last write before commit" lands when the document needs its number at INSERT time.** A
+   period-numbered document cannot allocate at commit — `doc_number` is a column of the row it numbers —
+   so its allocation is the **last write before that row is created**, and everything that can refuse the
+   request runs before it: the store, the supplier, the payment method, and every line with its catalogue
+   reads and its tax resolution. A request refused for any of those leaves no row and no consumed value.
+   That is a reading of the rule rather than a change to it, and it had to be written down because
+   `createPurchaseOrder` allocated above the line loop, so a line refused for a taxable code with no rate
+   had already taken a number (issue #857; `L10` and `L16` of `odd/tasks/purchase-order-line-tax.md`). What
+   ordering cannot close is the window between a `nextval` and a crash before the commit, which is exactly
+   the gaplessness decision 8 refuses to promise.
 5. **The document carries its identity in parts, and the parts are what is unique.**
    `doc_type`, `seq_period`, `seq_value` and a rendered `doc_number`; the database key is
    `(company_id, doc_type, seq_period, seq_value)`. `doc_number` is presentation — rendered once,

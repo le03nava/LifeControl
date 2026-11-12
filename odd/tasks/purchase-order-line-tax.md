@@ -138,6 +138,16 @@ The finding describes the code correctly. It was also seen independently: the ve
 
 What this does **not** claim: that the behaviour is safe for a company that backdates rates or recodes products, and that a full replacement is a bad way to correct a line — a document re-sent to fix a comment re-copies every line's tax. If that becomes a real operator flow, the answer is an endpoint that edits one line, not a guard inside this one.
 
+**L16 (2026-11-12) — the second half of `L10`, closed by its own unit rather than by a clause here.** #857 moved
+the allocation below the line loop: `createPurchaseOrder` now resolves every line into a `ResolvedLine` first
+(product, variant, state and the tax snapshot) and only then takes the number, so the refusal this record's
+`S5` describes leaves no row and no consumed value. `L10` predicted the move and named its cost honestly — it
+narrows how often a number is burned, it does not make the sequence gap-free — and that sentence survives as
+written, because it is still true for a crash between the `nextval` and the commit. The unit, its four specs
+and the tests that flipped are recorded in
+[`odd/tasks/purchase-order-refused-create-number.md`](purchase-order-refused-create-number.md); the refusal
+message's `D-a` tag that `L9` left standing is **not** part of it and stays open as issue #856.
+
 **L17 (2026-11-12) — gap 1 answered as a decision of the domain: a supplier has no fiscal treatment here.** The
 question #852 asks — "either refuse naming both facts, or override and record who stated it" — assumes the
 supplier carries a tax condition, and the answer is that it does not: «el tax code se define a nivel producto no
