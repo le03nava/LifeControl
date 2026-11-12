@@ -210,10 +210,40 @@ public class PurchaseOrderService {
         var numberedAt = LocalDateTime.now();
         var period = DocumentNumberRenderer.periodOf(numberedAt.toLocalDate());
 
-        // The allocation is the last write before the row is created, not the last write before commit:
-        // `purchase_orders` needs its number at INSERT time, so "allocate as the last write before commit"
-        // is unattainable on this path. The sequence row's lock is therefore held while the lines are
-        // resolved and written, which is the cost the ADR records rather than one this code can avoid.
+        // Every line is resolved BEFORE the document number is allocated (issue #857). The allocation used to
+        // sit above this loop, so each refusal the loop can produce — a product that does not exist, a variant
+        // of another store, a taxable code with no rate on the document's date — had already cost a value from
+        // the sequence. A refusal is exactly the request that should leave nothing behind, and the clock read
+        // below is not a write, so the period and the row's date still come from one instant.
+        //
+        // What this reorders is the allocation and the resolution, nothing else: `purchase_orders` still needs
+        // its number at INSERT time, so the allocation remains the last write before the row is created, and the
+        // sequence row's lock is now held from here to that INSERT rather than across every catalog read of the
+        // loop. Gaplessness is still not a promise any ordering can make — a crash between the `nextval` and the
+        // commit leaves a hole — which is why the record says "narrower window" and not "no consumption".
+        var documentDate = numberedAt.toLocalDate();
+        var resolvedLines = new ArrayList<ResolvedLine>();
+        if (request.details() != null && !request.details().isEmpty()) {
+            // A line may omit statusId: the field is optional on the DTO, and both write routes answer such a
+            // line with the PENDING default (issue #605). The default is the constant now — there is no catalog
+            // row to resolve for it, because the row is the label of this code and not an input to it.
+            //
+            // `purchase_orders` carries no `order_date` (`V64:187-188`): the document's own date is its
+            // `created_at`, and `numberedAt` is the very instant the row keeps (`PurchaseOrder#onCreate` freezes
+            // it), so the rate snapshot and the number's period come from one clock read and not two.
+            for (var detailReq : request.details()) {
+                var product = validateProductExists(detailReq.productId());
+                var productVariant = resolveProductVariant(detailReq.productVariantId(), product, store);
+                var detailState =
+                        detailReq.statusId() != null ? detailStateOf(detailReq.statusId()) : INITIAL_DETAIL_STATE;
+                // The copy: a row is born here, so its code and rate are resolved now and never again (S2, S3).
+                // A taxable code the company has no rate for on this date refuses the request before the first
+                // write, so a refused line leaves no row, no detail and no document change (S5).
+                var tax = lineTaxFor(companyId, detailReq.productVariantId(), documentDate);
+                resolvedLines.add(new ResolvedLine(product, productVariant, detailReq, detailState, tax));
+            }
+        }
+
         var seqValue = documentSequenceAllocator.allocate(companyId, DocumentType.PURCHASE_ORDER, period);
         var docNumber = DocumentNumberRenderer.renderPeriodNumber(DocumentType.PURCHASE_ORDER, period, seqValue);
 
@@ -241,44 +271,26 @@ public class PurchaseOrderService {
                 .updatedAt(numberedAt)
                 .build();
 
-        // Build the lines first: a line cannot be written before the order it belongs to has an id.
-        // The collection maps the inverse side ({@code mappedBy}), so adding to it never writes a
-        // row, and the 201 would then report lines no read route can return.
+        // Build the lines now that the order exists as an object: a line cannot be written before the order it
+        // belongs to has an id. The collection maps the inverse side ({@code mappedBy}), so adding to it never
+        // writes a row, and the 201 would then report lines no read route can return. Every catalog read and the
+        // tax resolution already happened above, before the number was taken.
         var newDetails = new ArrayList<PurchaseOrderDetail>();
-        if (request.details() != null && !request.details().isEmpty()) {
-            // A line may omit statusId: the field is optional on the DTO, and both write routes answer such a
-            // line with the PENDING default (issue #605). The default is the constant now — there is no catalog
-            // row to resolve for it, because the row is the label of this code and not an input to it.
-            //
-            // `purchase_orders` carries no `order_date` (`V64:187-188`): the document's own date is its
-            // `created_at`, and `numberedAt` is the very instant the row keeps (`PurchaseOrder#onCreate` freezes
-            // it), so the rate snapshot and the number's period come from one clock read and not two.
-            var documentDate = numberedAt.toLocalDate();
-            for (var detailReq : request.details()) {
-                var product = validateProductExists(detailReq.productId());
-                var productVariant = resolveProductVariant(detailReq.productVariantId(), product, store);
-                var detailState =
-                        detailReq.statusId() != null ? detailStateOf(detailReq.statusId()) : INITIAL_DETAIL_STATE;
-                // The copy: a row is born here, so its code and rate are resolved now and never again (S2, S3).
-                // A taxable code the company has no rate for on this date refuses the request before the first
-                // write, so a refused line leaves no row, no detail and no document change (S5).
-                var tax = lineTaxFor(companyId, detailReq.productVariantId(), documentDate);
-
-                var detail = PurchaseOrderDetail.builder()
-                        .purchaseOrder(po)
-                        .product(product)
-                        .productVariant(productVariant)
-                        .quantity(detailReq.quantity())
-                        .unitPrice(detailReq.unitPrice())
-                        .taxCode(tax.taxCode())
-                        .taxRate(tax.taxRate())
-                        .receivedQuantity(BigDecimal.ZERO)
-                        .comments(detailReq.comments())
-                        .status(detailState)
-                        .enabled(true)
-                        .build();
-                newDetails.add(detail);
-            }
+        for (var line : resolvedLines) {
+            var detail = PurchaseOrderDetail.builder()
+                    .purchaseOrder(po)
+                    .product(line.product())
+                    .productVariant(line.productVariant())
+                    .quantity(line.request().quantity())
+                    .unitPrice(line.request().unitPrice())
+                    .taxCode(line.tax().taxCode())
+                    .taxRate(line.tax().taxRate())
+                    .receivedQuantity(BigDecimal.ZERO)
+                    .comments(line.request().comments())
+                    .status(line.detailState())
+                    .enabled(true)
+                    .build();
+            newDetails.add(detail);
         }
 
         var saved = purchaseOrderRepository.save(po);
@@ -1155,6 +1167,20 @@ public class PurchaseOrderService {
 
     /** The pair a line stores: the code its product declares and the rate that applied on the document's date. */
     private record LineTax(String taxCode, BigDecimal taxRate) {}
+
+    /**
+     * One line of a create request after every read that can refuse it and before the document number exists
+     * (issue #857). The split is what lets the refusal come first: a line is fully resolved — product, variant,
+     * state and the tax snapshot — while the number is still unallocated, and only the row itself is built once
+     * the order has one. It carries the request rather than its fields because the builder reads quantity,
+     * unit price and comments straight from it, and a second copy of them would be a second place to differ.
+     */
+    private record ResolvedLine(
+            Product product,
+            ProductVariant productVariant,
+            PurchaseOrderDetailRequest request,
+            PurchaseOrderDetailState detailState,
+            LineTax tax) {}
 
     /**
      * Copies the tax a line is born with ({@code S2}, {@code S3} of {@code odd/tasks/purchase-order-line-tax.md}).
