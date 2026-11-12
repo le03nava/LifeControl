@@ -4140,7 +4140,7 @@ class SalesOrderServiceTest {
             when(productVariantRepository.findProductTaxCodeByVariantId(variantId))
                     .thenReturn(Optional.of("IVA"));
             when(taxRateService.resolve(
-                            companyId, "IVA", testOrder.getOrderDate().toLocalDate()))
+                            companyId, "IVA", regionId, testOrder.getOrderDate().toLocalDate()))
                     .thenReturn(Optional.of(new TaxRateResolution(
                             UUID.randomUUID(), "IVA", new BigDecimal("0.160000"), LocalDate.of(2026, 1, 1))));
             when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId)).thenReturn(List.of());
@@ -4156,8 +4156,11 @@ class SalesOrderServiceTest {
             assertThat(written.getValue().getTaxRate())
                     .as("the rate the document's date resolved is copied onto the line, not left to the schema")
                     .isEqualByComparingTo(new BigDecimal("0.160000"));
+            // The region is the sold store's, resolved through the chain the order already carries: it is the
+            // other half of the question since V95, because the frontier's IVA and the country's are one code.
             verify(taxRateService)
-                    .resolve(companyId, "IVA", testOrder.getOrderDate().toLocalDate());
+                    .resolve(
+                            companyId, "IVA", regionId, testOrder.getOrderDate().toLocalDate());
         }
 
         @Test
@@ -4166,7 +4169,7 @@ class SalesOrderServiceTest {
             sellableVariant();
             when(productVariantRepository.findProductTaxCodeByVariantId(variantId))
                     .thenReturn(Optional.of("IVA"));
-            when(taxRateService.resolve(any(), any(), any())).thenReturn(Optional.empty());
+            when(taxRateService.resolve(any(), any(), any(), any())).thenReturn(Optional.empty());
 
             assertThatThrownBy(() -> salesOrderService.addSalesOrderItem(orderId, testItemRequest))
                     .as("the handler maps this class to 400, which is the shape the currency path already uses "
@@ -4276,7 +4279,7 @@ class SalesOrderServiceTest {
             // ran again: the stored snapshot says 16%, and re-resolution is the one thing an edit may not do
             // for a line that stays the same article.
             when(taxRateService.resolve(
-                            companyId, "IVA", testOrder.getOrderDate().toLocalDate()))
+                            companyId, "IVA", regionId, testOrder.getOrderDate().toLocalDate()))
                     .thenReturn(Optional.of(new TaxRateResolution(
                             UUID.randomUUID(), "IVA", new BigDecimal("0.080000"), LocalDate.of(2026, 1, 1))));
             when(itemRepository.save(any(SalesOrderItem.class))).thenAnswer(invocation -> invocation.getArgument(0));

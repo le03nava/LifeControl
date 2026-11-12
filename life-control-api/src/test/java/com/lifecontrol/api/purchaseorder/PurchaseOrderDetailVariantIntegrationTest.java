@@ -44,6 +44,7 @@ import com.lifecontrol.api.supplier.repository.SupplierRepository;
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
 import com.lifecontrol.api.support.TenantFixtures;
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.UUID;
@@ -58,6 +59,7 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.jwt.Jwt;
@@ -135,6 +137,10 @@ class PurchaseOrderDetailVariantIntegrationTest extends AbstractPostgresIntegrat
 
     @Autowired
     private CompanyZoneRepository companyZoneRepository;
+
+    /** The handle the tax fixture writes {@code tax_rate} rows through: a rate is a given here, not a subject. */
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     private static final SimpleGrantedAuthority ROLE_LC_ADMIN = new SimpleGrantedAuthority("ROLE_lc-admin");
 
@@ -1439,6 +1445,272 @@ class PurchaseOrderDetailVariantIntegrationTest extends AbstractPostgresIntegrat
             assertThat(lines.get(0).get("quantity").decimalValue())
                     .as("quantity of the untouched line")
                     .isEqualByComparingTo("2");
+        }
+    }
+
+    // ─── The line's tax by region (issue #855, S1/S2/S5/S8) ───────────────
+
+    /**
+     * The same code on the same day, two places, two rates — proved on a <b>purchase</b> line.
+     *
+     * <p>{@code TaxRateServiceTest} pins the precedence against a mocked repository and
+     * {@code TaxRateControllerHttpIntegrationTest} against stored rows; neither shows the number reaching a
+     * document. Here two stores of one company buy the same article on the same day, and the verdict is the
+     * line's own {@code tax_code}, {@code tax_rate} and {@code tax_amount} — the snapshot an auditor reads
+     * months later (S2). Before {@code V95} the pair was unrepresentable: the company-wide key allowed one rate
+     * per code per day, so the second store would have been charged the first one's amount.</p>
+     *
+     * <p><b>Why the rates are a SQL fixture.</b> What the ABM writes and refuses is
+     * {@code TaxRateControllerHttpIntegrationTest}'s; what this class is about is the {@code store &rarr; zone
+     * &rarr; region} chain the document writer reads, so the rows are stated and the document is measured.</p>
+     */
+    @Nested
+    @DisplayName("the line's tax by region: the frontier's 8% beside the company-wide 16% (issue #855)")
+    class TaxRegionScopeTests {
+
+        /** The second place: a region of its own, its zone, and the store the case buys from. */
+        private UUID frontierRegionId;
+
+        private UUID frontierStoreId;
+
+        @BeforeEach
+        void seedTheFrontierStore() {
+            clearTaxRates();
+            TenantFixtures.inTenant(companyId, () -> {
+                var country = countryRepository.findByCountryCode("MX").orElseThrow();
+                var companyCountry = companyCountryRepository
+                        .findByCompanyIdAndCountryId(companyId, country.getId())
+                        .orElseThrow();
+                var region =
+                        companyRegionRepository
+                                .findByCompanyCountryIdOrderByRegionNameAsc(companyCountry.getId())
+                                .stream()
+                                .filter(candidate -> "POFRONTERA".equals(candidate.getRegionCode()))
+                                .findFirst()
+                                .orElseGet(() -> companyRegionRepository.save(CompanyRegion.builder()
+                                        .companyCountry(companyCountry)
+                                        .regionCode("POFRONTERA")
+                                        .regionName("PO Frontera Region")
+                                        .enabled(true)
+                                        .build()));
+                var zone = companyZoneRepository.findByCompanyRegionIdOrderByZoneNameAsc(region.getId()).stream()
+                        .findFirst()
+                        .orElseGet(() -> companyZoneRepository.save(CompanyZone.builder()
+                                .companyRegion(region)
+                                .zoneCode("POFRONTERA")
+                                .zoneName("PO Frontera Zone")
+                                .enabled(true)
+                                .build()));
+                var store = companyStoreRepository.findByCompanyZoneId(zone.getId()).stream()
+                        .findFirst()
+                        .orElseGet(() -> companyStoreRepository.save(CompanyStore.builder()
+                                .companyZone(zone)
+                                .storeName("PO Frontera Store")
+                                .enabled(true)
+                                .build()));
+                frontierRegionId = region.getId();
+                frontierStoreId = store.getId();
+            });
+        }
+
+        @AfterEach
+        void leaveNoRateBehind() {
+            clearTaxRates();
+        }
+
+        @Test
+        @DisplayName("the same purchase line on the same day is taxed at 8% in the frontier region and 16% elsewhere")
+        void theSameLineIsTaxedByRegion() throws Exception {
+            var effectiveFrom = LocalDate.now().minusYears(1);
+            configureCompanyWideRate("IVA", "0.16", effectiveFrom);
+            configureRegionalRate("IVA", "0.08", effectiveFrom, frontierRegionId);
+
+            var product = createIvaProduct();
+            var centreLine = createVariant(product.getId(), storeId);
+            var frontierLine = createVariant(product.getId(), frontierStoreId);
+
+            var atTheCentreOrder = createWithOneLine(product.getId(), centreLine.getId(), storeId);
+            var inTheFrontierOrder = createWithOneLine(product.getId(), frontierLine.getId(), frontierStoreId);
+            var atTheCentre = atTheCentreOrder.get("details").get(0);
+            var inTheFrontier = inTheFrontierOrder.get("details").get(0);
+
+            assertThat(atTheCentre.get("taxCode").asText())
+                    .as("the code is still the product's: V95 gave the amount a place, not the code a second home")
+                    .isEqualTo("IVA");
+            assertThat(decimalOf(atTheCentre, "taxRate"))
+                    .as("a store in no region that states rows keeps today's behaviour: the company-wide 16%")
+                    .isEqualByComparingTo("0.160000");
+            assertThat(decimalOf(atTheCentre, "taxAmount"))
+                    .as("V94 derives round(2.5 * 15 * 0.16, 4) from the stored rate")
+                    .isEqualByComparingTo("6.0000");
+
+            assertThat(inTheFrontier.get("taxCode").asText()).isEqualTo("IVA");
+            assertThat(decimalOf(inTheFrontier, "taxRate"))
+                    .as("the region's row is the one that answers a document bought in that region")
+                    .isEqualByComparingTo("0.080000");
+            assertThat(decimalOf(inTheFrontier, "taxAmount"))
+                    .as("and the amount follows the rate the line stores, not the other store's")
+                    .isEqualByComparingTo("3.0000");
+
+            // The rows, not only the responses: the stored pair is what an auditor reads months later, and it is
+            // what identifies which of the two rows the line came from (S2) — the rates differ, so code + rate is
+            // enough to say it.
+            assertThat(storedLineOf(atTheCentreOrder))
+                    .as("the company-wide line stores the 16% it was charged, with the amount V94 derives")
+                    .satisfies(detail -> {
+                        assertThat(detail.getTaxCode()).isEqualTo("IVA");
+                        assertThat(detail.getTaxRate()).isEqualByComparingTo(new BigDecimal("0.160000"));
+                        assertThat(detail.getTaxAmount()).isEqualByComparingTo(new BigDecimal("6.0000"));
+                    });
+            assertThat(storedLineOf(inTheFrontierOrder))
+                    .as("and the frontier's line stores the region's 8%, on the same code and the same day")
+                    .satisfies(detail -> {
+                        assertThat(detail.getTaxCode()).isEqualTo("IVA");
+                        assertThat(detail.getTaxRate()).isEqualByComparingTo(new BigDecimal("0.080000"));
+                        assertThat(detail.getTaxAmount()).isEqualByComparingTo(new BigDecimal("3.0000"));
+                    });
+        }
+
+        @Test
+        @DisplayName(
+                "a frontier store with no rate for the document's day is refused, naming the region, and stores nothing")
+        void aRegionGapRefusesThePurchaseAndStoresNothing() throws Exception {
+            configureCompanyWideRate("IVA", "0.16", LocalDate.now().minusYears(1));
+            // The region has stated IVA — from a day that has not arrived — so it is authoritative for the code
+            // and has no answer for this document.
+            configureRegionalRate("IVA", "0.08", LocalDate.now().plusMonths(1), frontierRegionId);
+
+            var product = createIvaProduct();
+            var variant = createVariant(product.getId(), frontierStoreId);
+            var request = new PurchaseOrderRequest(
+                    supplierId,
+                    frontierStoreId,
+                    paymentMethodId,
+                    draftStatusId,
+                    "Frontier gap",
+                    List.of(new PurchaseOrderDetailRequest(
+                            product.getId(),
+                            variant.getId(),
+                            new BigDecimal("2.00"),
+                            new BigDecimal("15.00"),
+                            null,
+                            pendingDetailStatusId)));
+
+            var refused = mockMvc.perform(post("/api/purchase-orders")
+                            .with(adminPrincipal())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request)))
+                    .andReturn();
+
+            assertThat(refused.getResponse().getStatus())
+                    .as("the line is refused rather than charged the 16% of a place it was not bought in (D2)")
+                    .isEqualTo(400);
+            assertThat(refused.getResponse().getContentAsString())
+                    .as("and the refusal names the code, the region and the document's date")
+                    .contains("IVA")
+                    .contains("PO Frontera Region")
+                    .contains(LocalDate.now().toString())
+                    .doesNotContain("violates a data constraint");
+
+            assertThat(TenantFixtures.inTenant(companyId, () -> purchaseOrderRepository.count()))
+                    .as("the refusal runs before the first write, so no document and no line survive it")
+                    .isZero();
+            assertThat(TenantFixtures.inTenant(companyId, () -> purchaseOrderDetailRepository.count()))
+                    .isZero();
+        }
+
+        /**
+         * A product that declares {@code IVA} and holds more than one variant.
+         *
+         * <p>Both halves are load-bearing: a product without a code keeps the column's {@code NA} default, which is
+         * zero by definition and never asks the rate table — the case would then pass without the resolution
+         * running at all — and {@code MULTI} is what {@code V56}'s trigger requires before a second variant exists,
+         * because the same product is bought at both stores.</p>
+         */
+        private Product createIvaProduct() {
+            return TenantFixtures.inTenant(
+                    companyId,
+                    () -> productRepository.save(Product.builder()
+                            .sku("PO-TAX-" + UUID.randomUUID().toString().substring(0, 12))
+                            .name("IVA product")
+                            .taxCode("IVA")
+                            .variantMode("MULTI")
+                            .company(companyRepository.findById(companyId).orElseThrow())
+                            .enabled(true)
+                            .build()));
+        }
+
+        /** A create with exactly one {@code IVA} line, answered as the document's response. */
+        private JsonNode createWithOneLine(UUID productId, UUID variantId, UUID store) throws Exception {
+            var request = new PurchaseOrderRequest(
+                    supplierId,
+                    store,
+                    paymentMethodId,
+                    draftStatusId,
+                    "Tax by region",
+                    List.of(new PurchaseOrderDetailRequest(
+                            productId,
+                            variantId,
+                            new BigDecimal("2.50"),
+                            new BigDecimal("15.00"),
+                            null,
+                            pendingDetailStatusId)));
+
+            var created = mockMvc.perform(post("/api/purchase-orders")
+                            .with(adminPrincipal())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request)))
+                    .andExpect(status().isCreated())
+                    .andReturn();
+            return objectMapper.readTree(created.getResponse().getContentAsString());
+        }
+
+        /** The stored line behind a create response, read in this class's tenant. */
+        private PurchaseOrderDetail storedLineOf(JsonNode order) {
+            var orderId = UUID.fromString(order.get("id").asText());
+            return TenantFixtures.inTenant(
+                            companyId, () -> purchaseOrderDetailRepository.findByPurchaseOrderIdAndEnabledTrue(orderId))
+                    .getFirst();
+        }
+
+        private BigDecimal decimalOf(JsonNode line, String field) {
+            assertThat(line.get(field)).as("the response states %s", field).isNotNull();
+            return line.get(field).decimalValue();
+        }
+
+        /** The company-wide rate: {@code company_region_id} absent, the shape every row that predates V95 has. */
+        private void configureCompanyWideRate(String taxCode, String rate, LocalDate effectiveFrom) {
+            TenantFixtures.inTenant(
+                    companyId,
+                    () -> jdbcTemplate.update(
+                            "INSERT INTO tax_rate (id, company_id, tax_code, rate, effective_from, enabled) "
+                                    + "VALUES (?, ?, ?, ?, ?, true)",
+                            UUID.randomUUID(),
+                            companyId,
+                            taxCode,
+                            new BigDecimal(rate),
+                            java.sql.Date.valueOf(effectiveFrom)));
+        }
+
+        /** The region's rate: the same columns plus the place it applies to. */
+        private void configureRegionalRate(String taxCode, String rate, LocalDate effectiveFrom, UUID regionId) {
+            TenantFixtures.inTenant(
+                    companyId,
+                    () -> jdbcTemplate.update(
+                            "INSERT INTO tax_rate (id, company_id, tax_code, company_region_id, rate, effective_from, enabled) "
+                                    + "VALUES (?, ?, ?, ?, ?, ?, true)",
+                            UUID.randomUUID(),
+                            companyId,
+                            taxCode,
+                            regionId,
+                            new BigDecimal(rate),
+                            java.sql.Date.valueOf(effectiveFrom)));
+        }
+
+        /** Forgets every rate this company stated, so a case starts from a freshly provisioned company. */
+        private void clearTaxRates() {
+            TenantFixtures.inTenant(
+                    companyId, () -> jdbcTemplate.update("DELETE FROM tax_rate WHERE company_id = ?", companyId));
         }
     }
 }

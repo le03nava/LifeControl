@@ -238,8 +238,10 @@ public class PurchaseOrderService {
                         detailReq.statusId() != null ? detailStateOf(detailReq.statusId()) : INITIAL_DETAIL_STATE;
                 // The copy: a row is born here, so its code and rate are resolved now and never again (S2, S3).
                 // A taxable code the company has no rate for on this date refuses the request before the first
-                // write, so a refused line leaves no row, no detail and no document change (S5).
-                var tax = lineTaxFor(companyId, detailReq.productVariantId(), documentDate);
+                // write, so a refused line leaves no row, no detail and no document change (S5). The region
+                // comes from the store this path already holds: since `V95` a rate is scoped by the place the
+                // document is bought in, and the store's chain is what answers which place that is.
+                var tax = lineTaxFor(companyId, taxRegionIdOf(store), detailReq.productVariantId(), documentDate);
                 resolvedLines.add(new ResolvedLine(product, productVariant, detailReq, detailState, tax));
             }
         }
@@ -374,7 +376,7 @@ public class PurchaseOrderService {
                     var productVariant = resolveProductVariant(detailReq.productVariantId(), product, store);
                     var detailState =
                             detailReq.statusId() != null ? detailStateOf(detailReq.statusId()) : INITIAL_DETAIL_STATE;
-                    var tax = lineTaxFor(companyId, detailReq.productVariantId(), documentDate);
+                    var tax = lineTaxFor(companyId, taxRegionIdOf(store), detailReq.productVariantId(), documentDate);
                     var detail = PurchaseOrderDetail.builder()
                             .purchaseOrder(po)
                             .product(product)
@@ -502,7 +504,10 @@ public class PurchaseOrderService {
         // taxed with the document's period, not with today's catalog (D2). A taxable code with no rate on that
         // date refuses the request here, before the first write, so nothing is stored (S5).
         var tax = lineTaxFor(
-                companyIdOf(po), request.productVariantId(), po.getCreatedAt().toLocalDate());
+                companyIdOf(po),
+                taxRegionIdOf(po.getCompanyStore()),
+                request.productVariantId(),
+                po.getCreatedAt().toLocalDate());
 
         var detail = PurchaseOrderDetail.builder()
                 .purchaseOrder(po)
@@ -568,6 +573,7 @@ public class PurchaseOrderService {
         var reResolvedTax = variantChanged
                 ? lineTaxFor(
                         companyIdOf(detail.getPurchaseOrder()),
+                        taxRegionIdOf(detail.getPurchaseOrder().getCompanyStore()),
                         request.productVariantId(),
                         detail.getPurchaseOrder().getCreatedAt().toLocalDate())
                 : null;
@@ -1183,6 +1189,18 @@ public class PurchaseOrderService {
             LineTax tax) {}
 
     /**
+     * The region a document's store sits in — the axis a tax rate is scoped by since {@code V95} (issue #855).
+     *
+     * <p>The chain is the one every store guard in this service already walks
+     * ({@code store &rarr; zone &rarr; region &rarr; country}), read from the entity the caller holds instead of
+     * asked of a repository: the order already carries its store, and a query for the region would be a second
+     * answer to a question the same row answers ({@code S8}).</p>
+     */
+    private static UUID taxRegionIdOf(CompanyStore store) {
+        return store.getCompanyZone().getCompanyRegion().getId();
+    }
+
+    /**
      * Copies the tax a line is born with ({@code S2}, {@code S3} of {@code odd/tasks/purchase-order-line-tax.md}).
      *
      * <p><b>Why the code comes from the product and not from the request.</b> The fiscal code is a fact of the
@@ -1204,10 +1222,13 @@ public class PurchaseOrderService {
      * write, so the refusal stores nothing.</p>
      *
      * @param companyId the company that files the rate — the one that owns the order's store
+     * @param companyRegionId the region of the order's store, or {@code null} when the caller knows none — the
+     *     place is the other half of the question since {@code V95}: a frontier store's IVA is 8% while the rest of
+     *     the country's is 16% for the same code (issue #855)
      * @param productVariantId the variant whose product declares the code
      * @param documentDate the date the document itself states (a purchase order's {@code created_at})
      */
-    private LineTax lineTaxFor(UUID companyId, UUID productVariantId, LocalDate documentDate) {
+    private LineTax lineTaxFor(UUID companyId, UUID companyRegionId, UUID productVariantId, LocalDate documentDate) {
         var taxCode = productVariantRepository
                 .findProductTaxCodeByVariantId(productVariantId)
                 .orElseThrow(() -> new ProductVariantNotFoundException(productVariantId));
@@ -1217,7 +1238,7 @@ public class PurchaseOrderService {
         }
 
         return taxRateService
-                .resolve(companyId, taxCode, documentDate)
+                .resolve(companyId, taxCode, companyRegionId, documentDate)
                 .map(resolution -> new LineTax(resolution.taxCode(), resolution.rate()))
                 .orElseThrow(() -> new IllegalArgumentException("Cannot write the line: tax code "
                         + taxCode + " has no enabled rate applicable on " + documentDate
