@@ -1,6 +1,6 @@
 -- ============================================
--- V97 — the accounting book: six tenant tables, four tenant-safe pointers and two partial keys
---        (S1, S7 and S8 of odd/tasks/derived-accounting.md, T1)
+-- V97 — the accounting book: six tenant tables, four tenant-safe pointers, two partial keys, and the rules
+--        it cannot break (S1–S8 of odd/tasks/derived-accounting.md, T1–T3)
 -- ============================================
 -- `docs/adr/0008-accounting-is-a-projection.md`, accepted 2026-11-12, decides that accounting in this
 -- system is a **projection derived in the database** from the append-only facts the tree already writes —
@@ -8,8 +8,7 @@
 -- and edits (decisions 1 and 3). This file creates the place that projection lands in: the chart of
 -- accounts, the cost-center catalog, the period, the rules, and the entry with its lines. No posting rule
 -- runs yet, so the book starts empty and stays empty until a later slice fires; what this file makes true is
--- that once something does post, it cannot be written across tenants. That it also cannot commit out of
--- balance, or be amended, is the rules slice's half (S2–S6) and arrives with it.
+-- that once something does post, it cannot be written across tenants, out of balance, or amended.
 --
 -- WHY EVERY TABLE CARRIES `company_id` AND IS ARMED IN THIS FILE (S1, ADR decision 9). The lesson is already
 -- measured in this tree: `sales_order_items` has no `company_id` and therefore no policy, so its tenancy is
@@ -47,11 +46,27 @@
 --   * **No seed, no posting rule and no period close (S9–S18).** The catalogs are empty on purpose: the
 --     starter chart of accounts is T4 and the rules are T6–T8, so a tenant today has a book with no rows,
 --     which is the only honest state for a slice that posts nothing.
---   * **No append-only pair, no balance and no one-posting-per-source key (S2–S6).** The two entry tables
---     are created and armed here, and the rules they cannot break arrive in the slice that follows: T2 adds
---     the append-only trigger and its grant, T3 the deferred balance and minimum-two-lines triggers, the
---     row `CHECK`s and the source key.
 --
+-- WHY THE BALANCE AND THE MINIMUM ARE CHECKED AT COMMIT AND NOT BY THE CODE THAT POSTS (S3, S4; ADR
+-- decision 3 and invariant A1). A posting writes an entry across several statements — the header, then its
+-- debit, then its credit — so at no point before the last one is the entry finished, and a check that ran
+-- per statement would judge an intermediate state that never commits: it would refuse every correct posting
+-- in the system. A check written in the service has the mirror problem, because it is a statement any second
+-- writer can skip, and the book would then hold an entry nothing can reconcile. Both rules are therefore
+-- `DEFERRABLE INITIALLY DEFERRED` constraint triggers, so the state judged is the state committed. The
+-- minimum of two lines needs its own trigger on `account_entry`, and that is not redundancy: a constraint
+-- trigger on a line fires only when a line is written, so an entry committed with **no** line at all is
+-- invisible to it, which is the case section 12's second trigger exists for.
+--
+-- WHY THE BOOK IS APPEND-ONLY IN TWO HALVES (S2, ADR decision 2). Section 11 copies the pair `V83:143-167`
+-- wrote for payments, because "append-only" in this tree is not a convention but an enforced pair, and the
+-- two halves answer two different ways of writing. The trigger refuses `UPDATE` and `DELETE` for the owner
+-- and the superuser — the correction is a reversing entry, never an edit. The `REVOKE` refuses the pool's
+-- role, which is the one the application actually connects with: `V52:186-188` and `:196-199` hand
+-- `lifecontrol_app` all four privileges on every table present and future, so omitting the restrictive half
+-- would leave `UPDATE` and `DELETE` inherited and the trigger would be the only thing standing — which is the
+-- silent half, because a later migration that recreates the trigger drops it with the table.
+
 -- ─── 1. the key a composite pointer needs on the catalog that already exists ────────────────────────
 -- Not a new fact: `id` is the primary key, so the pair is unique by construction. It exists because
 -- `REFERENCES` has no way to say "the id, and also the column beside it" — the sentence V88 wrote for
@@ -229,8 +244,7 @@ COMMENT ON COLUMN account_entry.source_type IS
     '`stock_allocation`. The book never posts from a mutable document (ADR decision 3).';
 COMMENT ON COLUMN account_entry.source_id IS
     'The id of that fact. Paired with `source_type` and `posting` it is how a replay finds the entry that '
-    'already exists instead of writing a second one; the key that refuses the second one is the rules '
-    'slice''s (S6).';
+    'already exists instead of writing a second one (S6, T3).';
 COMMENT ON COLUMN account_entry.reverses_entry_id IS
     'The entry this one reverses, NULL for an original posting. A reversal is a new entry, never an edit: '
     'the shape `sale_payment_void` established for payments (ADR decision 2).';
@@ -270,11 +284,11 @@ COMMENT ON COLUMN account_entry_line.cost_center_id IS
     'guessing, which is why the key tolerates an absence.';
 COMMENT ON COLUMN account_entry_line.debit IS
     'The debit side, `0` when the line is a credit. Four decimals because that is the scale every money part '
-    'of this tree carries since `V80`; the balance rule that sums this pair against `credit` arrives with '
-    'the rules slice (S3).';
+    'of this tree carries since `V80`; the pair with `credit` is what the balance trigger of S3 sums (T3).';
 COMMENT ON COLUMN account_entry_line.credit IS
-    'The credit side, `0` when the line is a debit. The CHECKs that keep a line to one side, and to an '
-    'amount that is money, arrive with the rules slice (S5).';
+    'The credit side, `0` when the line is a debit. `ck_account_entry_line_single_side` and '
+    '`ck_account_entry_line_positive` below keep a line from carrying both sides or neither, and '
+    '`ck_account_entry_line_non_negative` states that the amount is money (S5).';
 COMMENT ON COLUMN account_entry_line.currency IS
     'The currency ADR-0002 put on the document. One document, one currency: this book does no functional-'
     'currency translation and holds no exchange rate (ADR-0008 `## Migration`, one currency).';
@@ -305,7 +319,126 @@ SELECT apply_tenant_isolation('posting_rule');
 SELECT apply_tenant_isolation('account_entry');
 SELECT apply_tenant_isolation('account_entry_line');
 
--- ─── 11. the self-check: the shape the policies, the pointers and the rules depend on, read back ────
+-- ─── 11. append-only, as the trigger and as the grant ──────────────────────────────────────────────
+-- One function for both tables: the shape is identical and a second copy is a second thing that can drift.
+-- `TG_TABLE_NAME` names which half refused, so the message is still the one an operator needs.
+CREATE FUNCTION account_entry_append_only() RETURNS trigger AS $$
+BEGIN
+    RAISE EXCEPTION '% is append-only (ADR-0008 decision 2): % is refused. A mistake is corrected by a new entry that reverses this one; an entry is never amended, because an amended entry is a book with two histories',
+        TG_TABLE_NAME, TG_OP;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_account_entry_append_only
+    BEFORE UPDATE OR DELETE ON account_entry
+    FOR EACH ROW EXECUTE FUNCTION account_entry_append_only();
+
+CREATE TRIGGER trg_account_entry_line_append_only
+    BEFORE UPDATE OR DELETE ON account_entry_line
+    FOR EACH ROW EXECUTE FUNCTION account_entry_append_only();
+
+-- The half a future edit can silently drop: the default privileges grant all four, so the narrowing has to
+-- be stated. `GRANT SELECT, INSERT` follows the `REVOKE` because a role that lost everything is not the
+-- intent — a posting is an insert and every report is a read.
+REVOKE UPDATE, DELETE ON account_entry FROM lifecontrol_app;
+GRANT SELECT, INSERT ON account_entry TO lifecontrol_app;
+
+REVOKE UPDATE, DELETE ON account_entry_line FROM lifecontrol_app;
+GRANT SELECT, INSERT ON account_entry_line TO lifecontrol_app;
+
+-- ─── 12. the rules the book cannot break: it balances, it has two sides, a source posts once ────────
+-- S3 and S4 in one function and two triggers. The function is shared because both tables need the same
+-- verdict about the same entry and a second copy is a second thing that can drift; the two triggers differ
+-- only in how each one learns which entry to read — a line names its entry, an entry is itself.
+--
+-- Both checks read the lines **under the entry's own `company_id`**, which is the column the policy filters
+-- on. A reader that forgot it would count zero lines for every entry and pass all of them, which is the
+-- silent half of a check like this: it exists, it runs, and it refuses nothing.
+--
+-- The messages are written for the operator who meets them at commit time with no other context: which
+-- entry, which company, what the numbers are, and the invariant of ADR-0008 the rule comes from.
+CREATE FUNCTION account_entry_book_rules() RETURNS trigger AS $$
+DECLARE
+    v_entry   uuid;
+    v_company uuid;
+    v_lines   bigint;
+    v_debit   numeric;
+    v_credit  numeric;
+BEGIN
+    IF TG_TABLE_NAME = 'account_entry' THEN
+        v_entry := NEW.id;
+    ELSE
+        v_entry := NEW.entry_id;
+    END IF;
+    v_company := NEW.company_id;
+
+    SELECT count(*), coalesce(sum(l.debit), 0), coalesce(sum(l.credit), 0)
+      INTO v_lines, v_debit, v_credit
+      FROM account_entry_line l
+     WHERE l.entry_id = v_entry
+       AND l.company_id = v_company;
+
+    -- A2 first, because it is the rule with something to say in both shapes: an entry with no line balances
+    -- trivially at 0 = 0, and an entry with one line is half of a fact.
+    IF v_lines < 2 THEN
+        RAISE EXCEPTION 'account entry % of company % has % line(s) and breaks A2 of ADR-0008 — every entry has at least two lines (S4 of odd/tasks/derived-accounting.md). One side of a fact is not the fact: nothing downstream can tell which account is missing, and the book reads as if the money went nowhere',
+            v_entry, v_company, v_lines;
+    END IF;
+
+    IF v_debit <> v_credit THEN
+        RAISE EXCEPTION 'account entry % of company % debits % and credits % and breaks A1 of ADR-0008 — every entry balances (S3 of odd/tasks/derived-accounting.md). An unbalanced entry is a difference no trial balance can explain; it is refused here, at commit, instead of being printed later by the report that finds it',
+            v_entry, v_company, v_debit, v_credit;
+    END IF;
+
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Two constraint triggers, both deferred to commit. A constraint trigger can only be an `AFTER ROW`
+-- trigger, which is what makes the check see the row it just judged, and `DEFERRABLE INITIALLY DEFERRED` is
+-- the whole of S3: PostgreSQL runs it at `COMMIT`, on the transaction's committed state, and a test that
+-- only asserts «an exception happened» could not tell that from a statement check.
+CREATE CONSTRAINT TRIGGER trg_account_entry_book_rules
+    AFTER INSERT ON account_entry
+    DEFERRABLE INITIALLY DEFERRED
+    FOR EACH ROW EXECUTE FUNCTION account_entry_book_rules();
+
+CREATE CONSTRAINT TRIGGER trg_account_entry_line_book_rules
+    AFTER INSERT ON account_entry_line
+    DEFERRABLE INITIALLY DEFERRED
+    FOR EACH ROW EXECUTE FUNCTION account_entry_book_rules();
+
+-- S5, the three `CHECK`s on the row, exactly as the ADR's `## Schema` block states them. The spec names
+-- two — no line carries both a debit and a credit, and none is zero — while the block states three, and the
+-- third is the one that says the amounts are money. The two named ones together do exclude a negative side
+-- (exactly one side is zero, the sum is positive, and neither side can then be negative), so the third does
+-- not close a hole: it makes the failure *name the defect*, because `-5` against `5` is refused as an amount
+-- that is not money instead of as a line that states both sides, which would send its reader to the wrong
+-- half of the row.
+--
+-- The fourth is the one that closes an actual hole rather than naming one, and T3 found it: PostgreSQL sorts
+-- `NaN` above every number and answers `NaN = NaN` with true, so `'NaN'::numeric` passes the non-negative
+-- check, passes exclusivity against a zero on the other side, passes positivity of the sum, and two `NaN`s
+-- satisfy the deferred equality of the two sums (S3). That is the only way an entry could be written
+-- unbalanced and read as balanced, so "money" excludes it explicitly instead of trusting the ordering.
+ALTER TABLE account_entry_line
+    ADD CONSTRAINT ck_account_entry_line_non_negative CHECK (debit >= 0 AND credit >= 0),
+    ADD CONSTRAINT ck_account_entry_line_single_side CHECK ((debit = 0) <> (credit = 0)),
+    ADD CONSTRAINT ck_account_entry_line_positive CHECK (debit + credit > 0),
+    ADD CONSTRAINT ck_account_entry_line_finite
+        CHECK (debit <> 'NaN'::numeric AND credit <> 'NaN'::numeric);
+
+-- S6, one posting per source. `(company_id, source_type, source_id, posting)` is the identity of a posting:
+-- the same payment collected once, the same transition posting its revenue once. A replayed job finds the
+-- key occupied and writes nothing, which is what makes a replay a no-op instead of a second entry
+-- (invariant A5). It is a key of the database and not a guard in the service on purpose — a guard is a
+-- statement a second writer can skip, and a replay is exactly the case where two writers race: the job that
+-- ran twice, or the operator who ran it again while the first one was still going.
+ALTER TABLE account_entry
+    ADD CONSTRAINT uq_account_entry_company_source_posting
+        UNIQUE (company_id, source_type, source_id, posting);
+
+-- ─── 13. the self-check: the shape the policies, the pointers and the rules depend on, read back ────
 -- Catalog reads only, and deliberately so: the six tables are `FORCE`d, and Flyway runs as their owner, whom
 -- the policy also filters (`V54:50-58`, `V64`) — a row count here would answer zero for the wrong reason and
 -- report «nothing wrong» over none of the rows. Every fact asserted below lives in `pg_catalog` or in
@@ -324,6 +457,10 @@ DECLARE
     v_fk_missing text;
     v_store_key  boolean;
     v_bare_key   boolean;
+    v_deferred   text;
+    v_check      text;
+    v_posting    boolean;
+    v_table      text;
 BEGIN
     -- The six tables, by name. A later edit that renames one is a rename of the policy, the keys and every
     -- report that reads it, and this is the only place that would say so.
@@ -491,4 +628,101 @@ BEGIN
             'PostgreSQL treats NULLs as distinct, so without this half a second storeless center for the '
             'same department is accepted — the defect V95 closed for a tax rate whose region is null.';
     END IF;
+
+    -- S3 and S4: a constraint trigger on each of the two tables — deferrable, initially deferred, an AFTER
+    -- ROW trigger on INSERT, calling the one function. The pair is the point and neither half replaces the
+    -- other: the line's trigger is the only one that sees a line, and the entry's is the only one that sees
+    -- an entry with no line at all.
+    SELECT string_agg(e.relname, ', ') INTO v_deferred
+      FROM (VALUES ('account_entry', 'trg_account_entry_book_rules'),
+                   ('account_entry_line', 'trg_account_entry_line_book_rules')) AS e(relname, tgname)
+     WHERE NOT EXISTS (
+           SELECT 1
+             FROM pg_trigger g
+            WHERE g.tgrelid = e.relname::regclass
+              AND g.tgname = e.tgname
+              AND NOT g.tgisinternal
+              AND g.tgdeferrable
+              AND g.tginitdeferred
+              AND (g.tgtype & 1) = 1        -- FOR EACH ROW
+              AND (g.tgtype & 2) = 0        -- AFTER, the only timing a constraint trigger allows
+              AND (g.tgtype & 4) = 4        -- ON INSERT
+              AND g.tgfoid = 'account_entry_book_rules()'::regprocedure);
+
+    IF v_deferred IS NOT NULL THEN
+        RAISE EXCEPTION
+            'V97 did not leave % with a DEFERRABLE INITIALLY DEFERRED row trigger on INSERT running '
+            'account_entry_book_rules(). Without the deferral the balance is judged per statement, so a '
+            'posting that writes its header, its debit and its credit in three statements is refused on the '
+            'first one; and without the trigger on account_entry, an entry committed with no line is judged '
+            'by nobody, because a line trigger only fires when a line is written (S3, S4)', v_deferred;
+    END IF;
+
+    -- S5: the four CHECKs, by the name each is read back by and by the condition it holds. The condition is
+    -- compared as the fragment `pg_get_constraintdef` prints, cast literal included, because that is the
+    -- only text the catalog holds — and because a CHECK that exists under the right name and holds a
+    -- different expression is worse than a missing one: nothing fails, and the row is taken.
+    SELECT string_agg(e.conname, ', ') INTO v_check
+      FROM (VALUES
+            ('ck_account_entry_line_non_negative', 'debit >= (0)::numeric', 'credit >= (0)::numeric'),
+            ('ck_account_entry_line_single_side',
+             '(debit = (0)::numeric) <> (credit = (0)::numeric)', ''),
+            ('ck_account_entry_line_positive', '(debit + credit) > (0)::numeric', ''),
+            ('ck_account_entry_line_finite', 'debit <> ''NaN''::numeric', 'credit <> ''NaN''::numeric')
+           ) AS e(conname, fragment, also)
+     WHERE NOT EXISTS (
+           SELECT 1
+             FROM pg_constraint k
+            WHERE k.conname = e.conname
+              AND k.conrelid = 'account_entry_line'::regclass
+              AND k.contype = 'c'
+              AND strpos(pg_get_constraintdef(k.oid), e.fragment) > 0
+              AND strpos(pg_get_constraintdef(k.oid), e.also) > 0);
+
+    IF v_check IS NOT NULL THEN
+        RAISE EXCEPTION
+            'V97 reads % as missing or as holding a condition other than the one S5 states. A line carries '
+            'one side and it is money: a row that states both sides, neither side, or a negative amount is '
+            'refused there, and a CHECK under the right name that holds another expression is the shape that '
+            'passes every reader and takes the row', v_check;
+    END IF;
+
+    -- S6: the one-posting-per-source key, read back as the unique constraint it must be over the four
+    -- columns it states. A key over the wrong columns is still a key, and it would refuse the second posting
+    -- of a source that is legitimately different while admitting the replay it exists to stop.
+    SELECT k.contype = 'u'
+           AND strpos(pg_get_constraintdef(k.oid), '(company_id, source_type, source_id, posting)') > 0
+      INTO v_posting
+      FROM pg_constraint k
+     WHERE k.conname = 'uq_account_entry_company_source_posting'
+       AND k.conrelid = 'account_entry'::regclass;
+
+    IF v_posting IS NULL OR NOT v_posting THEN
+        RAISE EXCEPTION
+            'V97 left uq_account_entry_company_source_posting as something other than the key S6 declares: a '
+            'UNIQUE over (company_id, source_type, source_id, posting) on account_entry. Without it a '
+            'replayed job writes a second entry for the same source and the book holds the same money '
+            'twice — and a service guard cannot close that, because a replay is exactly where two writers '
+            'race';
+    END IF;
+
+    -- S2's restrictive half, read back from the catalog rather than assumed from the statement above.
+    FOREACH v_table IN ARRAY ARRAY['account_entry', 'account_entry_line'] LOOP
+        IF has_table_privilege('lifecontrol_app', v_table, 'UPDATE')
+           OR has_table_privilege('lifecontrol_app', v_table, 'DELETE') THEN
+            RAISE EXCEPTION
+                'V97 left lifecontrol_app holding UPDATE or DELETE on %: V52 hands the pool''s role all four '
+                'privileges on every table present and future, so the append-only pair is half missing — the '
+                'trigger is there and the grant is not, which is the half a reader cannot see in the data',
+                v_table;
+        END IF;
+
+        IF NOT has_table_privilege('lifecontrol_app', v_table, 'INSERT')
+           OR NOT has_table_privilege('lifecontrol_app', v_table, 'SELECT') THEN
+            RAISE EXCEPTION
+                'V97 left lifecontrol_app without SELECT or INSERT on %: a posting is an insert and every '
+                'report is a read, so the book would be unreadable to the only role that writes it',
+                v_table;
+        END IF;
+    END LOOP;
 END $$;
