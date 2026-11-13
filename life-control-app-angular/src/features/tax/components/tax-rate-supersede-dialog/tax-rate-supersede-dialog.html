@@ -1,0 +1,90 @@
+<h2 mat-dialog-title>Suceder una tasa de impuesto</h2>
+
+<mat-dialog-content>
+  @if (formError(); as errorMessage) {
+    <app-error-banner [message]="errorMessage" />
+  }
+
+  <section class="superseded-row">
+    <h3 class="superseded-title">La tasa que se sucede</h3>
+    <dl class="superseded-facts">
+      <div class="superseded-fact">
+        <dt>Código de impuesto</dt>
+        <dd class="superseded-tax-code">{{ data.rate.taxCode }}</dd>
+      </div>
+      <div class="superseded-fact">
+        <dt>Alcance</dt>
+        <dd class="superseded-scope">{{ scopeLabel(data.rate) }}</dd>
+      </div>
+      <div class="superseded-fact">
+        <dt>Tasa actual</dt>
+        <dd class="superseded-rate">{{ data.rate.rate * 100 | number: '1.0-4' }} %</dd>
+      </div>
+      <div class="superseded-fact">
+        <dt>Vigente desde</dt>
+        <dd class="superseded-day">{{ dayLabel(data.rate.effectiveFrom) }}</dd>
+      </div>
+    </dl>
+    <p class="superseded-readonly-note">
+      No se editan: suceder una tasa agrega una fila nueva y deja esta como está.
+    </p>
+  </section>
+
+  @if (isRegional()) {
+    <p class="scope-warning">{{ regionScopeWarning }}</p>
+  }
+
+  <form class="tax-rate-form" [formGroup]="form()" (ngSubmit)="onSave()">
+    <mat-form-field appearance="outline" subscriptSizing="dynamic">
+      <mat-label>Nueva tasa</mat-label>
+      <input matInput type="number" min="0" max="100" step="0.0001" formControlName="ratePercent" />
+      <span matTextSuffix>%</span>
+      @if (form().controls.ratePercent.hasError('required')) {
+        <mat-error>La tasa es obligatoria</mat-error>
+      }
+      @if (
+        form().controls.ratePercent.hasError('min') || form().controls.ratePercent.hasError('max')
+      ) {
+        <mat-error>La tasa va de 0 a 100 por ciento</mat-error>
+      }
+      @if (form().controls.ratePercent.hasError('pattern')) {
+        <mat-error>Como mucho cuatro decimales: 16, 8,5, 0,1234</mat-error>
+      }
+    </mat-form-field>
+
+    <mat-form-field appearance="outline" subscriptSizing="dynamic">
+      <mat-label>Vigente desde</mat-label>
+      <input matInput type="date" formControlName="effectiveFrom" />
+      @if (form().controls.effectiveFrom.hasError('required')) {
+        <mat-error>La fecha desde la que rige la nueva tasa es obligatoria</mat-error>
+      }
+      @if (form().controls.effectiveFrom.hasError('notAfter')) {
+        <mat-error>
+          La nueva fecha tiene que ser posterior al
+          {{ dayLabel(data.rate.effectiveFrom) }}: ese día y los anteriores los sigue respondiendo
+          la tasa que estás sucediendo.
+        </mat-error>
+      }
+    </mat-form-field>
+
+    <mat-checkbox formControlName="enabled">Vigente desde esa fecha</mat-checkbox>
+  </form>
+
+  <p class="superseded-consequence">
+    La tasa de {{ data.rate.taxCode }} del {{ dayLabel(data.rate.effectiveFrom) }} queda intacta y
+    sigue respondiendo los documentos
+    @if (form().controls.effectiveFrom.value; as successorDay) {
+      con fecha anterior al {{ dayLabel(successorDay) }}
+    } @else {
+      con fecha anterior al día que declares acá
+    }
+    .
+  </p>
+</mat-dialog-content>
+
+<mat-dialog-actions align="end">
+  <button mat-stroked-button type="button" (click)="cancel()">Cancelar</button>
+  <button mat-flat-button color="primary" type="button" [disabled]="saving()" (click)="onSave()">
+    Suceder tasa
+  </button>
+</mat-dialog-actions>

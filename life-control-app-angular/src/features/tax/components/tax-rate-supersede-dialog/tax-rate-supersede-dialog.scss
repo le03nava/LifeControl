@@ -1,0 +1,68 @@
+/* The superseded row reads as a record, not as a form: a boxed block with no control inside it. */
+.superseded-row {
+  margin-bottom: 1rem;
+  padding: 0.75rem 0.875rem;
+  border: 1px solid var(--mat-sys-outline-variant, #cac4d0);
+  border-radius: 8px;
+  background: var(--mat-sys-surface-container, #f3edf7);
+}
+
+.superseded-title {
+  margin: 0 0 0.5rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--mat-sys-on-surface-variant, #49454f);
+}
+
+.superseded-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem 1rem;
+  margin: 0;
+}
+
+.superseded-fact dt {
+  font-size: 0.75rem;
+  color: var(--mat-sys-on-surface-variant, #49454f);
+}
+
+.superseded-fact dd {
+  margin: 0;
+  font-weight: 600;
+}
+
+.superseded-readonly-note {
+  margin: 0.75rem 0 0;
+  font-size: 0.75rem;
+  color: var(--mat-sys-on-surface-variant, #49454f);
+}
+
+.superseded-consequence {
+  margin: 1rem 0 0;
+  padding: 0.625rem 0.75rem;
+  border-left: 3px solid var(--mat-sys-tertiary, #7d5260);
+  background: var(--mat-sys-surface-variant, #f3edf7);
+  border-radius: 4px;
+  font-size: 0.8125rem;
+  line-height: 1.4;
+}
+
+.tax-rate-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding-top: 0.5rem;
+}
+
+/* The S7 commitment sits under the scope being succeeded, boxed so it reads as a condition. */
+.scope-warning {
+  margin: 0 0 0.5rem;
+  padding: 0.625rem 0.75rem;
+  border-left: 3px solid var(--mat-sys-tertiary, #7d5260);
+  background: var(--mat-sys-surface-variant, #f3edf7);
+  border-radius: 4px;
+  font-size: 0.8125rem;
+  line-height: 1.4;
+}

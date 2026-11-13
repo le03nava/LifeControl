@@ -154,3 +154,41 @@ a scope, not a geography, and the country only exists to reach the region. The t
 looks complete. RED observed for both halves before the implementation: the three page rules failed against the
 previous page, and after wiring, the three payload tests failed with `rate: 16` where `0.16` was expected — the
 defect `CHECK (rate >= 0 AND rate <= 1)` cannot catch.
+
+**L10 (2026-11-13) — T3 delivered, and the dismissal that had been read as a success.** The supersede dialog and
+the retire/reinstate flip were built against the four page tests already written and RED. Two corrections came out
+of reviewing the delivered code, both about *absence* being read as *success*:
+
+- `afterClosed()` answers `undefined` for ESC, a backdrop click and the close button, and `null` only for the
+  explicit Cancel. The page read "anything but null" as a supersession, so dismissing the dialog toasted a write
+  that never happened and re-read a book that had not changed. Now only a returned rate confirms. The first test
+  written for T3 had encoded the defect — it mocked `of(undefined)` and expected a reload — so the mock was fixed
+  to answer the rate the server appends, and a separate test pins the dismissal, which is what the distinction
+  needed all along.
+- The superseded row is presented read-only, and the payload carries only `rate`, `effectiveFrom` and `enabled`.
+  `taxCode` and `regionId` are absent **because the server inherits them from the named row**: a form that offered
+  them would let an operator believe a successor can change its code or move scope, which `PUT` does not do.
+
+Reused rather than retyped: the `S7` sentence is the declare dialog's own export, now also shown when the scope
+being succeeded is a region, so the two screens cannot drift. `dayLabel` and the dialog's day formatter became one
+`formatDay`. Green at commit: 58 tests across the tax suite, `npm run lint` clean.
+
+**L11 (2026-11-13) — T4 executed against the running dev stack, plus a correction to how the diff is measured.**
+Five endpoints, live, with an `lc-admin` token carrying `company_id`: `GET` list 200 and `?includeDisabled=true`
+200 with the ordering the server claims; `GET /{id}` 200 and a random UUID 404; `POST` 201 with `rate` answering
+`0.160000`, the same body a second time 409 and no second row, `rate: 16` (the percentage mistake the screen's
+conversion exists to prevent) 400 `"Validation failed"`; `PUT /{id}` 200 appending a successor with
+`effectiveFrom` strictly later, and a non-later date 400; `PATCH /{id}/enable` 200 in both directions and
+`{"enabled": null}` 400. By SQL, as the superuser `tax_rate` requires, the superseded row kept
+`0.160000 / true / 2027-01-01` after its successor was appended — `S5`'s central claim, measured rather than
+assumed. The two rows the probes created were deleted and the table is back to its two baseline rows.
+
+**The diff measurement was wrong in the record's own instruction and the independent verifier caught it.** `git
+diff --stat origin/main` (two dots) reports 4,518 deletions of accounting code, because `origin/main` moved to
+`b8c33d80` (#882–#886) after this branch's base `8eb74638` — none of which this branch touched. The only honest
+form is three dots against the merge base: `git diff --stat origin/main...HEAD -- life-control-api docker` is
+**empty**, and outside the Angular app the branch changes `AGENTS.md` and this record, nothing else.
+
+Two things this leaves open, declared rather than hidden: the retry of an expired token mid-run would have needed a
+second paste, and nothing here proves the screen renders correctly in a browser — the unit suite proves behaviour,
+not pixels.

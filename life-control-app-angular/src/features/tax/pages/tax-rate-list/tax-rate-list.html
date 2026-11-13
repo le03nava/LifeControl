@@ -74,6 +74,36 @@
             </td>
           </ng-container>
 
+          <ng-container matColumnDef="actions">
+            <th mat-header-cell *matHeaderCellDef>Acciones</th>
+            <td mat-cell *matCellDef="let row" class="row-actions">
+              <!-- "Suceder" on every row, retired ones included: a retired rate is corrected by appending a
+                   successor, never by editing the row it is. -->
+              <button
+                mat-button
+                type="button"
+                class="supersede-action"
+                (click)="supersedeRate(row)"
+              >
+                Suceder
+              </button>
+              @if (row.enabled) {
+                <button mat-button type="button" class="retire-action" (click)="toggleEnabled(row)">
+                  Retirar
+                </button>
+              } @else {
+                <button
+                  mat-button
+                  type="button"
+                  class="reinstate-action"
+                  (click)="toggleEnabled(row)"
+                >
+                  Reincorporar
+                </button>
+              }
+            </td>
+          </ng-container>
+
           <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
           <tr mat-row *matRowDef="let row; columns: displayedColumns"></tr>
         </table>

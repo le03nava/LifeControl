@@ -9,12 +9,16 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { MatTableModule } from '@angular/material/table';
 import { CompanyContextService, NotificationService, httpErrorMessage } from '@shared/data';
-import { PageHeader } from '@shared/ui';
+import { ConfirmDialog, ConfirmDialogData, PageHeader } from '@shared/ui';
 import {
   TaxRateDeclareDialog,
   TaxRateDeclareDialogData,
 } from '../../components/tax-rate-declare-dialog/tax-rate-declare-dialog';
-import { COMPANY_WIDE_SCOPE, TaxRate } from '../../data/tax-rate.models';
+import {
+  TaxRateSupersedeDialog,
+  TaxRateSupersedeDialogData,
+} from '../../components/tax-rate-supersede-dialog/tax-rate-supersede-dialog';
+import { COMPANY_WIDE_SCOPE, formatDay, TaxRate } from '../../data/tax-rate.models';
 import { TaxRateService } from '../../data/tax-rate.service';
 
 /** A row plus the one fact the server cannot state: whether it is today's answer for its own scope. */
@@ -151,7 +155,15 @@ export class TaxRateList {
     return error ? httpErrorMessage(error) : null;
   });
 
-  readonly displayedColumns = ['taxCode', 'scope', 'rate', 'effectiveFrom', 'state', 'today'];
+  readonly displayedColumns = [
+    'taxCode',
+    'scope',
+    'rate',
+    'effectiveFrom',
+    'state',
+    'today',
+    'actions',
+  ];
 
   /** The scope in words: the region's name, or the sentence that says there is none. */
   readonly scopeLabel = (rate: TaxRate): string => rate.regionName ?? COMPANY_WIDE_SCOPE;
@@ -162,10 +174,7 @@ export class TaxRateList {
    * `new Date('2026-11-10')` is UTC midnight, and `DatePipe` would print the **9th** for any operator west of
    * Greenwich. The string already is the day the company stated, so it is formatted as three parts.
    */
-  readonly dayLabel = (isoDate: string): string => {
-    const [year, month, day] = isoDate.split('-');
-    return `${day}/${month}/${year}`;
-  };
+  readonly dayLabel = (isoDate: string): string => formatDay(isoDate);
 
   toggleRetired(include: boolean): void {
     this.includeDisabled.set(include);
@@ -203,5 +212,92 @@ export class TaxRateList {
 
   retry(): void {
     this.ratesResource.reload();
+  }
+
+  /**
+   * Appends the successor of one row, then re-reads the list.
+   *
+   * The dialog writes, not this page: it is the only side that knows the day the operator typed and the
+   * refusal that came back. `null` is its explicit cancel, so nothing was written and nothing is re-read;
+   * any other close is read as a supersession to confirm, because a list that keeps showing the book the
+   * operator just wrote is the failure this screen exists to prevent (`S3`).
+   */
+  supersedeRate(rate: TaxRate): void {
+    const companyId = this.companyId();
+    if (!companyId) {
+      return;
+    }
+
+    this.dialog
+      .open<TaxRateSupersedeDialog, TaxRateSupersedeDialogData, TaxRate | null>(
+        TaxRateSupersedeDialog,
+        { data: { companyId, rate }, width: '600px' },
+      )
+      .afterClosed()
+      .subscribe((created) => {
+        // `null` is the dialog's explicit cancel, and `undefined` is every other way out — ESC, a backdrop
+        // click, the close button. Neither wrote anything, so neither is confirmed: reading `undefined` as a
+        // success would toast a supersession that never happened and re-read a book that did not change.
+        if (!created) {
+          return;
+        }
+        // The code is not read from the answer: the server inherits it from the row being superseded, so
+        // this one is exact even before the response exists.
+        this.notifications.showSuccess(`Tasa de ${rate.taxCode} sucedida`);
+        this.ratesResource.reload();
+      });
+  }
+
+  /**
+   * Retires or reinstates one row, behind the confirmation that says what the row keeps doing (`S6`).
+   *
+   * Nothing here says "Eliminar": the row is never deleted, and an operator who reads it as a deletion would
+   * believe old documents lose their rate. Only `true` writes; a dismissal writes nothing and re-reads
+   * nothing.
+   */
+  toggleEnabled(rate: TaxRate): void {
+    const companyId = this.companyId();
+    if (!companyId) {
+      return;
+    }
+
+    const retiring = rate.enabled;
+    const scope = this.scopeLabel(rate);
+    const message = retiring
+      ? `¿Confirmás que querés retirar la tasa de ${rate.taxCode} de ${scope} vigente desde el ` +
+        `${this.dayLabel(rate.effectiveFrom)}? La fila queda como historia y deja de resolver: ningún ` +
+        'documento nuevo la recibe, y los documentos con fecha anterior a otra tasa de ese código y alcance ' +
+        'la siguen resolviendo.'
+      : `¿Confirmás que querés reincorporar la tasa de ${rate.taxCode} de ${scope} vigente desde el ` +
+        `${this.dayLabel(rate.effectiveFrom)}? Vuelve a resolver los documentos de esa fecha en adelante ` +
+        'que no tengan otra tasa posterior.';
+
+    const data: ConfirmDialogData = {
+      title: retiring ? 'Retirar tasa' : 'Reincorporar tasa',
+      message,
+      confirmLabel: retiring ? 'Retirar' : 'Reincorporar',
+      cancelLabel: 'Cancelar',
+    };
+
+    this.dialog
+      .open<ConfirmDialog, ConfirmDialogData, boolean | undefined>(ConfirmDialog, { data })
+      .afterClosed()
+      .subscribe((confirmed) => {
+        if (confirmed !== true) {
+          return;
+        }
+
+        this.taxRateService.setTaxRateEnabled(companyId, rate.id, !rate.enabled).subscribe({
+          next: () => {
+            this.notifications.showSuccess(
+              retiring
+                ? `Tasa de ${rate.taxCode} retirada: la fila queda en la historia`
+                : `Tasa de ${rate.taxCode} reincorporada`,
+            );
+            this.ratesResource.reload();
+          },
+          error: (error: unknown) => this.notifications.showError(httpErrorMessage(error)),
+        });
+      });
   }
 }

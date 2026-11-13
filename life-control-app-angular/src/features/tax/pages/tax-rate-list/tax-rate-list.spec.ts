@@ -31,7 +31,11 @@ function taxRate(overrides: Partial<TaxRate> = {}): TaxRate {
 
 describe('TaxRateList', () => {
   let fixture: ComponentFixture<TaxRateList>;
-  let service: { getTaxRates: ReturnType<typeof vi.fn> };
+  let service: {
+    getTaxRates: ReturnType<typeof vi.fn>;
+    supersedeTaxRate: ReturnType<typeof vi.fn>;
+    setTaxRateEnabled: ReturnType<typeof vi.fn>;
+  };
   let dialog: { open: ReturnType<typeof vi.fn> };
   let notifications: { showSuccess: ReturnType<typeof vi.fn>; showError: ReturnType<typeof vi.fn> };
 
@@ -46,7 +50,11 @@ describe('TaxRateList', () => {
   }
 
   beforeEach(() => {
-    service = { getTaxRates: vi.fn() };
+    service = {
+      getTaxRates: vi.fn(),
+      supersedeTaxRate: vi.fn(() => of(taxRate({ id: 'rate-successor' }))),
+      setTaxRateEnabled: vi.fn(() => of(taxRate({ enabled: false }))),
+    };
     dialog = { open: vi.fn(() => ({ afterClosed: () => of(undefined) })) };
     notifications = { showSuccess: vi.fn(), showError: vi.fn() };
     TestBed.configureTestingModule({
@@ -217,5 +225,147 @@ describe('TaxRateList', () => {
     expect(dialog.open).toHaveBeenCalled();
     expect(service.getTaxRates).toHaveBeenCalledTimes(1);
     expect(notifications.showSuccess).not.toHaveBeenCalled();
+  });
+
+  it('supersedes a row through the dialog and re-reads the list afterwards', async () => {
+    // The dialog closes with the rate the server appended; `undefined` is a dismissal, pinned separately.
+    dialog.open.mockReturnValue({ afterClosed: () => of(taxRate({ id: 'rate-successor' })) });
+    await render([taxRate({ id: 'rate-1', rate: 0.16 })]);
+    expect(service.getTaxRates).toHaveBeenCalledTimes(1);
+
+    const supersede = fixture.nativeElement.querySelector(
+      '.supersede-action',
+    ) as HTMLButtonElement | null;
+    expect(supersede).not.toBeNull();
+    supersede?.click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    // The dialog receives the row it supersedes: the code, the scope and the day the successor must be later
+    // than all come from that row, and the server inherits the scope rather than trusting what a form says.
+    expect(dialog.open).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        data: expect.objectContaining({
+          companyId: 'company-1',
+          rate: expect.objectContaining({ id: 'rate-1' }),
+        }),
+      }),
+    );
+    expect(service.getTaxRates).toHaveBeenCalledTimes(2);
+    expect(notifications.showSuccess).toHaveBeenCalled();
+  });
+
+  it('retires a row through the confirmation, sending the flag the row does not have', async () => {
+    dialog.open.mockReturnValue({ afterClosed: () => of(true) });
+    await render([taxRate({ id: 'rate-1', enabled: true })]);
+
+    const retire = fixture.nativeElement.querySelector(
+      '.retire-action',
+    ) as HTMLButtonElement | null;
+    expect(retire).not.toBeNull();
+    retire?.click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    expect(service.setTaxRateEnabled).toHaveBeenCalledWith('company-1', 'rate-1', false);
+    expect(service.getTaxRates).toHaveBeenCalledTimes(2);
+  });
+
+  it('reinstates a retired row, labelled as a reinstatement and never as a deletion', async () => {
+    dialog.open.mockReturnValue({ afterClosed: () => of(true) });
+    await render([taxRate({ id: 'rate-1', enabled: false })]);
+
+    const reinstate = fixture.nativeElement.querySelector(
+      '.reinstate-action',
+    ) as HTMLButtonElement | null;
+    expect(reinstate).not.toBeNull();
+    expect((reinstate as HTMLElement).textContent).toContain('Reincorporar');
+    reinstate?.click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    expect(service.setTaxRateEnabled).toHaveBeenCalledWith('company-1', 'rate-1', true);
+  });
+
+  it('writes nothing when the retire confirmation is dismissed', async () => {
+    await render([taxRate({ id: 'rate-1', enabled: true })]);
+
+    const retire = fixture.nativeElement.querySelector(
+      '.retire-action',
+    ) as HTMLButtonElement | null;
+    retire?.click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    expect(dialog.open).toHaveBeenCalled();
+    expect(service.setTaxRateEnabled).not.toHaveBeenCalled();
+    expect(service.getTaxRates).toHaveBeenCalledTimes(1);
+  });
+
+  it('writes nothing when the supersede dialog is cancelled', async () => {
+    dialog.open.mockReturnValue({ afterClosed: () => of(null) });
+    await render([taxRate({ id: 'rate-1' })]);
+
+    const supersede = fixture.nativeElement.querySelector(
+      '.supersede-action',
+    ) as HTMLButtonElement | null;
+    supersede?.click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    expect(dialog.open).toHaveBeenCalled();
+    expect(notifications.showSuccess).not.toHaveBeenCalled();
+    expect(service.getTaxRates).toHaveBeenCalledTimes(1);
+  });
+
+  it('states what retiring keeps — the row as history — and never offers a deletion', async () => {
+    dialog.open.mockReturnValue({ afterClosed: () => of(undefined) });
+    await render([taxRate({ id: 'rate-1', enabled: true })]);
+
+    (fixture.nativeElement.querySelector('.retire-action') as HTMLButtonElement | null)?.click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const { data } = dialog.open.mock.calls[0][1] as {
+      data: { title: string; message: string; confirmLabel: string };
+    };
+    expect(data.title).toBe('Retirar tasa');
+    expect(data.confirmLabel).toBe('Retirar');
+    expect(data.message).toContain('queda como historia');
+    expect(data.message).toContain('deja de resolver');
+    expect(data.message).toContain('la siguen resolviendo');
+    // The row is kept, so the word that promises a deletion never appears on this path.
+    expect(JSON.stringify(data)).not.toContain('Eliminar');
+  });
+
+  it('surfaces a refused retire instead of a silent no-op', async () => {
+    dialog.open.mockReturnValue({ afterClosed: () => of(true) });
+    service.setTaxRateEnabled.mockReturnValue(throwError(() => new Error('boom')));
+    await render([taxRate({ id: 'rate-1', enabled: true })]);
+
+    (fixture.nativeElement.querySelector('.retire-action') as HTMLButtonElement | null)?.click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    expect(notifications.showError).toHaveBeenCalled();
+    expect(notifications.showSuccess).not.toHaveBeenCalled();
+  });
+
+  it('confirms nothing when the supersede dialog is dismissed with ESC or a backdrop click', async () => {
+    // `MatDialogRef.afterClosed()` answers `undefined` for every dismissal that is not an explicit cancel.
+    dialog.open.mockReturnValue({ afterClosed: () => of(undefined) });
+    await render([taxRate({ id: 'rate-1' })]);
+
+    const supersede = fixture.nativeElement.querySelector(
+      '.supersede-action',
+    ) as HTMLButtonElement | null;
+    supersede?.click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    expect(dialog.open).toHaveBeenCalled();
+    expect(notifications.showSuccess).not.toHaveBeenCalled();
+    expect(service.getTaxRates).toHaveBeenCalledTimes(1);
   });
 });

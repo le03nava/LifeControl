@@ -42,6 +42,22 @@ export interface DeclareTaxRateRequest {
 }
 
 /**
+ * Body of `PUT /api/companies/{companyId}/tax-rates/{id}` (`TaxRateRequest`), which **appends a successor**
+ * to the named row and leaves that row untouched (`S5`).
+ *
+ * **The absence of `taxCode` and `regionId` is the contract, not an omission.** The code and the scope are
+ * the named row's, and the server inherits both: a form that offered them would be a second place the same
+ * key is stated, and the only thing it could do is disagree with the row it claims to succeed.
+ */
+export interface SupersedeTaxRateRequest {
+  /** The **fraction** the endpoint and the column take (`0.16`), never the percentage the operator types. */
+  rate: number;
+  /** `YYYY-MM-DD`, strictly after the superseded row's day — the server refuses anything else. */
+  effectiveFrom: string;
+  enabled: boolean;
+}
+
+/**
  * The percentage an operator types, as the fraction the contract takes (`16` → `0.16`).
  *
  * **The scale is six decimals on purpose.** `tax_rate.rate` is `NUMERIC(9,6)` and `TaxRateRequest` carries
@@ -51,4 +67,15 @@ export interface DeclareTaxRateRequest {
  */
 export function percentToFraction(percent: number): number {
   return Number((percent / 100).toFixed(6));
+}
+
+/**
+ * A wire `LocalDate` (`YYYY-MM-DD`) as the day the operator reads, without a `Date`.
+ *
+ * `new Date('2026-11-10')` is UTC midnight and `DatePipe` prints the **9th** for any operator west of
+ * Greenwich, so the string is formatted as three parts: the wire already carries the day the company stated.
+ */
+export function formatDay(isoDate: string): string {
+  const [year, month, day] = isoDate.split('-');
+  return `${day}/${month}/${year}`;
 }
