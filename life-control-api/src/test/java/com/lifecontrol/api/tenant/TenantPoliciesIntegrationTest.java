@@ -20,8 +20,9 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
- * Verification of ADR-0005's <b>armed</b> state — the twenty-five tables {@code V53}, {@code V58},
- * {@code V60}, {@code V82} and {@code V83} put under Row-Level Security, one case per rule the ADR states for them.
+ * Verification of ADR-0005's <b>armed</b> state — the thirty-one tables {@code V53}, {@code V58},
+ * {@code V60}, {@code V82}, {@code V83} and {@code V97} put under Row-Level Security, one case per rule the ADR
+ * states for them.
  *
  * <p><b>Every case arms nothing.</b> The policies are the migration's, which is the point of this suite:
  * a case that applied {@code apply_tenant_isolation} itself would prove the helper works, and that is
@@ -49,7 +50,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
  * predicate is built from.</p>
  */
 @SpringBootTest
-@DisplayName("The twenty-five armed tenant tables")
+@DisplayName("The thirty-one armed tenant tables")
 class TenantPoliciesIntegrationTest extends AbstractPostgresIntegrationTest {
 
     /** The role the pool connects as in delivery, and the only one a policy applies to (ADR decision 3). */
@@ -72,22 +73,29 @@ class TenantPoliciesIntegrationTest extends AbstractPostgresIntegrationTest {
     private static final String OWNER_ROLE = "lifecontrol_owner";
 
     /**
-     * The twenty-five rows {@code V53}, {@code V58}, {@code V60}, {@code V82} and {@code V83} write, as the three facts a policy is built
+     * The thirty-one rows {@code V53}, {@code V58}, {@code V60}, {@code V82}, {@code V83} and {@code V97} write,
+     * as the three facts a policy is built
      * from. Frozen literally: a table armed with the wrong kind or the wrong key column filters the wrong thing
      * in silence, and the {@code tenant_table} row is what the policy was generated from.
      */
     private static final List<ArmedTable> ARMED_TABLES = List.of(
+            new ArmedTable("account", "tenant", "company_id"),
+            new ArmedTable("account_entry", "tenant", "company_id"),
+            new ArmedTable("account_entry_line", "tenant", "company_id"),
+            new ArmedTable("accounting_period", "tenant", "company_id"),
             new ArmedTable("companies", "tenant", "id"),
             new ArmedTable("company_countries", "tenant", "company_id"),
             new ArmedTable("company_regions", "tenant", "company_id"),
             new ArmedTable("company_stores", "tenant", "company_id"),
             new ArmedTable("company_zones", "tenant", "company_id"),
+            new ArmedTable("cost_center", "tenant", "company_id"),
             new ArmedTable("departments", "tenant", "company_id"),
             new ArmedTable("employees", "tenant", "company_id"),
             new ArmedTable("product_attribute_profile_roots", "shared", "company_id"),
             new ArmedTable("product_attribute_profiles", "shared", "company_id"),
             new ArmedTable("product_categories", "tenant", "company_id"),
             new ArmedTable("product_suppliers", "tenant", "company_id"),
+            new ArmedTable("posting_rule", "tenant", "company_id"),
             new ArmedTable("product_variants", "tenant", "company_id"),
             new ArmedTable("products", "tenant", "company_id"),
             new ArmedTable("purchase_orders", "tenant", "company_id"),
@@ -128,15 +136,17 @@ class TenantPoliciesIntegrationTest extends AbstractPostgresIntegrationTest {
     // ──────────────────────────────────────
 
     @Test
-    @DisplayName("all twenty-five tables carry one forced FOR ALL policy, of the kind and key the list names")
+    @DisplayName("all thirty-one tables carry one forced FOR ALL policy, of the kind and key the list names")
     void everyTenantTableIsArmedWithItsPolicy() {
         assertThat(ARMED_TABLES)
                 .as("the count is stated once, here: the fifteen tables S2 froze, plus `companies` — the "
                         + "root, isolated by its own id (ADR decision 5 and migration group 3) — plus "
                         + "`variant_listing`, which V58 arms in the migration that creates it (ADR-0006 "
                         + "decision 5), plus the five tables of ADR-0001's stock ledger, which V60 arms in "
-                        + "the migration that creates them (ADR-0001 migration step 2)")
-                .hasSize(25);
+                        + "the migration that creates them (ADR-0001 migration step 2), plus the six tables of "
+                        + "ADR-0008's accounting book, which V97 arms in the migration that creates them "
+                        + "(derived-accounting task T1)")
+                .hasSize(31);
 
         var listed = listedTables();
 
