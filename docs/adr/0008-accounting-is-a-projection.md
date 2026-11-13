@@ -121,16 +121,12 @@ CREATE TABLE account (
     UNIQUE (company_id, code)
 );
 
-CREATE TABLE department (
-    id          UUID PRIMARY KEY,
-    company_id  UUID NOT NULL REFERENCES companies (id),
-    code        VARCHAR(20)  NOT NULL,
-    name        VARCHAR(120) NOT NULL,
-    enabled     BOOLEAN NOT NULL DEFAULT true,
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-    UNIQUE (company_id, code),
-    UNIQUE (company_id, id)                -- the target a composite key can point at
-);
+-- The department catalog is NOT created here: it is `departments`, which `V19__hr_org_structure.sql:15-30`
+-- already creates company-scoped, unique by `(company_id, department_code)` and `(company_id, department_name)`,
+-- and which `V53:132` already arms. The one thing a composite pointer needs and V19 does not state is the
+-- redundant-but-necessary key, exactly what `V88:51-52` added to `tax_rate` for the same reason.
+ALTER TABLE departments
+    ADD CONSTRAINT uq_departments_company_id UNIQUE (company_id, id);
 
 CREATE TABLE cost_center (
     id               UUID PRIMARY KEY,
@@ -142,7 +138,7 @@ CREATE TABLE cost_center (
     enabled          BOOLEAN NOT NULL DEFAULT true,
     created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (company_id, code),
-    FOREIGN KEY (company_id, department_id) REFERENCES department (company_id, id)
+    FOREIGN KEY (company_id, department_id) REFERENCES departments (company_id, id)
 );
 
 -- Several centers per store, so the pair is the key and not the store. Two partial indexes instead of one
@@ -207,7 +203,7 @@ one composite key over a nullable scope admits duplicates exactly where there is
 defect `V95__tax_rate_company_region.sql` closed for a `tax_rate` whose `company_region_id` is null, with the
 same pair of partial indexes. The catalog inherits that decision instead of rediscovering it.
 
-The composite key to `department` follows `V88__variant_listing_tax_rate.sql`, which first wrote
+The composite key to `departments` follows `V88__variant_listing_tax_rate.sql`, which first wrote
 `uq_tax_rate_company_id` on `tax_rate` so a pointer could be composite and therefore tenant-safe. The catalog
 reuses it for the same reason, and `account_entry_line` reuses it for the cost center.
 
@@ -244,7 +240,7 @@ value on its own:
 | Step | Slice | What it makes true |
 | --- | --- | --- |
 | 1 | Schema, RLS, append-only pair, the two constraint triggers, and the department and cost-center catalogs | A1–A4 and A7–A11. No posting yet, so the tables are empty and every invariant is testable on them |
-| 2 | The `department` starter catalog, and `account` and `posting_rule` seeded per tenant with the closed minimum vocabulary: cash, bank, accounts receivable, IVA trasladado, IVA acreditable, inventory, cost of sales, revenue. The same seed runs when a company is created | A8 can fire, and A11 has departments to point at. The vocabulary is seeded, not user-invented, so no tenant starts with a chart of accounts it cannot post to — and a tenant added tomorrow does not arrive without a book |
+| 2 | The `department` starter catalog, and `account` and `posting_rule` seeded per tenant with the closed minimum vocabulary: cash, bank, accounts receivable, IVA trasladado, IVA acreditable, inventory, cost of sales, revenue. The same seed runs when a company is created | A8 can fire, and A11 has departments to point at — the departments the tenant already has, since the catalog is `departments` and not a second one. The vocabulary is seeded, not user-invented, so no tenant starts with a chart of accounts it cannot post to — and a tenant added tomorrow does not arrive without a book |
 | 3 | The three rules that close gross margin: `REVENUE` from the transition to `COMPLETED`, `COLLECTION` from a payment row, `COST_OF_SALES` from the allocation sum, each filling the analytic axis from the store the fact already carries | Revenue − cost = margin, per document, per period and per store. This is the step that turns the existing data into accounting |
 | 4 | Read models: sales journal by date range, trial balance by period, margin by document. Read under the tenant scope; never as the owner | The book becomes readable. The date-range query does not exist today at all — sales is paginated CRUD with a search on the number |
 | 5 | `accounting_period` close | A6, and the only affordable moment to introduce it |
@@ -351,3 +347,17 @@ a starter catalog per tenant elsewhere, so the pattern exists.
 
 Everything above is part of the accepted text. The maintainer accepted this ADR on 2026-11-12 with these
 three corrections in place, which is the only thing that turns a draft into authority.
+
+## Amendments after acceptance
+
+**2026-11-12 — the department catalog is `departments`, decided while B1 was being written.** The schema above
+created a `department` table with `(company_id, code, name)`. The tree already has exactly that catalog:
+`departments` (`V19__hr_org_structure.sql:15-30`), company-scoped, unique by code and by name within the
+company, armed by `V53:132`, with a live CRUD at `DepartmentController.java:28`. The draft was written without
+looking at V19 — its evidence table measures the absence of accounting tables and never asks whether a
+department catalog was already there. The maintainer chose the existing one, so `cost_center.department_id`
+points at `departments` through a composite key, `departments` gains the redundant
+`uq_departments_company_id UNIQUE (company_id, id)` that V88's shape requires, and no `department` table or
+starter department catalog is created. The reason is decision 10 itself: a second catalog with the same meaning
+splits a report with nothing raising, and here it would split it between the department an employee hangs from
+and the department a cost center names. Recorded in `odd/tasks/derived-accounting.md` as L6.
