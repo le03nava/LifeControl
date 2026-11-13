@@ -32,12 +32,14 @@ export const LC_POSITION = 'lc-position';
 export const LC_SENIORITY_LEVEL = 'lc-seniority-level';
 export const LC_EMPLOYEE = 'lc-employee';
 export const LC_EMPLOYEE_ACCESS = 'lc-employee-access';
+export const LC_TAX = 'lc-tax';
 
 /** Const array mirroring `Roles.java`. */
 export const CLIENT_ROLES = [
   LC_ADMIN,
   LC_SALES,
   LC_RECEIVING,
+  LC_TAX,
   LC_COMPANY,
   LC_COMPANY_READ,
   LC_COMPANY_COUNTRY,
@@ -56,6 +58,22 @@ export const CLIENT_ROLES = [
   LC_EMPLOYEE,
   LC_EMPLOYEE_ACCESS,
 ] as const;
+
+/**
+ * Roles allowed to declare, supersede and retire a company's tax rates.
+ *
+ * Mirrors the `@PreAuthorize` set of every **write** endpoint in `TaxRateController`, which gates them on
+ * `hasAnyRole('lc-admin','lc-tax')` (`Roles.TAX`). `lc-tax` already exists in the realm
+ * (`docker/scripts/keycloak-setup.sh`) and was absent from this file, which is why no screen could ask for
+ * it: the role gated the endpoint with nothing in the app naming it.
+ *
+ * The same pair gates the `Configuración` menu entry and the whole route subtree. `lc-tax` alone cannot read
+ * this screen: the endpoints admit any authenticated caller, but a holder of the functional role with no
+ * administration pair still reaches the list by URL, and the landing and the menu entry are the pair the
+ * writes need, so the entry never offers a destination whose only actions it refuses. The **reads** stay
+ * `isAuthenticated()`, exactly as the endpoints are. A flat allow-list, not a role hierarchy.
+ */
+export const TAX_RATE_ROLES = [LC_ADMIN, LC_TAX];
 
 /**
  * Roles allowed to reach the variant administration screens.

@@ -14,7 +14,12 @@ import { MatDividerModule } from '@angular/material/divider';
 import { MatIconModule } from '@angular/material/icon';
 import { MatMenuModule } from '@angular/material/menu';
 import { Router, RouterModule } from '@angular/router';
-import { HR_WRITE_ROLES, LC_RECEIVING, SCHEDULING_READ_ROLES } from '@core/security/roles';
+import {
+  HR_WRITE_ROLES,
+  LC_RECEIVING,
+  SCHEDULING_READ_ROLES,
+  TAX_RATE_ROLES,
+} from '@core/security/roles';
 import { Button, Hyperlink } from '@shared/ui';
 import { CompanyContextService } from '@shared/data/company-context.service';
 import Keycloak from 'keycloak-js';
@@ -53,6 +58,7 @@ export class Header implements OnInit {
   isSalesRole = signal(false);
   isSchedulingRead = signal(false);
   isHr = signal(false);
+  isTaxRate = signal(false);
 
   /** User display name from Keycloak token — signal for template reactivity */
   userName = signal('');
@@ -189,6 +195,19 @@ export class Header implements OnInit {
       });
     }
 
+    // Configuración is the catalogs index, not a catalog of its own: one entry and one landing with a card
+    // per catalog, because an entry per catalog would grow this menu linearly with every ABM the tree ships
+    // (`S1`). Its gate is the same pair its one card's writes use, so the entry cannot offer a destination
+    // the route refuses; `lc-tax` is the functional role those endpoints already authorise.
+    if (this.isTaxRate()) {
+      menuItems.push({
+        id: '11',
+        routeLink: '/configuration',
+        textLink: 'Configuración',
+        icon: 'settings',
+      });
+    }
+
     return menuItems;
   });
 
@@ -233,6 +252,7 @@ export class Header implements OnInit {
         this.isSalesRole.set(clientRoles.includes('lc-sales') || clientRoles.includes('lc-admin'));
         this.isSchedulingRead.set(SCHEDULING_READ_ROLES.some((role) => clientRoles.includes(role)));
         this.isHr.set(HR_WRITE_ROLES.some((role) => clientRoles.includes(role)));
+        this.isTaxRate.set(TAX_RATE_ROLES.some((role) => clientRoles.includes(role)));
         this.updateUserFromToken();
       }
       if (event?.type === KeycloakEventType.AuthLogout) {
@@ -243,6 +263,7 @@ export class Header implements OnInit {
         this.isSalesRole.set(false);
         this.isSchedulingRead.set(false);
         this.isHr.set(false);
+        this.isTaxRate.set(false);
         this.userName.set('');
       }
     });

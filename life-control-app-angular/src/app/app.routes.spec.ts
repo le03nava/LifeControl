@@ -59,6 +59,21 @@ describe('app.routes', () => {
     expect(hrRoute?.loadChildren).toBeDefined();
   });
 
+  it('should gate the configuration subtree on the pair the tax-rate writes use', () => {
+    const configurationRoute = routes.find((r) => r.path === 'configuration');
+
+    expect(configurationRoute).toBeDefined();
+    expect(configurationRoute?.loadChildren).toBeDefined();
+    // The landing and the tax-rate screen are the same pair: `lc-admin` or the
+    // functional role the endpoints already authorise writes with. The guard sits
+    // on the parent so a direct URL to a child is refused for every other role.
+    expect(configurationRoute?.canActivate).toEqual([keycloakRoleGuard]);
+    expect(configurationRoute?.data).toEqual({
+      roles: ['lc-admin', 'lc-tax'],
+      clientId: 'life-control-client',
+    });
+  });
+
   it('should gate the reports route on lc-admin with the lazy feature behind it', () => {
     const reportsRoute = routes.find((r) => r.path === 'reports');
 

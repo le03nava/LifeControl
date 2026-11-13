@@ -1,0 +1,90 @@
+@use '../../../../shared/styles/variables' as *;
+
+:host {
+  display: block;
+  width: 100%;
+  padding: 0 var(--space-md);
+}
+
+.configuration-landing {
+  width: 100%;
+}
+
+/* The same intrinsic card grid the `/companies` landing uses, so the two areas read as one family. */
+.dashboard-cards {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-lg);
+  min-height: 200px;
+  margin-bottom: var(--space-sm);
+
+  @media (min-width: $bp-sm) {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  @media (min-width: $bp-md) {
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  }
+}
+
+.card-wrapper {
+  animation: slideInUp 0.4s ease-out;
+  animation-delay: calc(var(--i, 0) * 50ms);
+  animation-fill-mode: both;
+}
+
+.dashboard-card {
+  height: 100%;
+  cursor: pointer;
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease;
+
+  &:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-md);
+  }
+}
+
+.card-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  margin-bottom: var(--space-sm);
+  border-radius: var(--radius-lg);
+  background: var(--color-gray-100);
+
+  mat-icon {
+    color: var(--color-primary);
+  }
+}
+
+.card-title {
+  margin: 0 0 var(--space-xs);
+  font-size: 1.125rem;
+  font-weight: 600;
+}
+
+.card-description {
+  margin: 0 0 var(--space-sm);
+  color: var(--color-gray-500);
+  line-height: 1.5;
+}
+
+.card-action {
+  font-weight: 500;
+  color: var(--color-primary);
+}
+
+@keyframes slideInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

@@ -1,0 +1,79 @@
+@use '../../../../shared/styles/variables' as *;
+
+:host {
+  display: block;
+  width: 100%;
+  padding: 0 var(--space-md);
+}
+
+.tax-rate-list {
+  width: 100%;
+}
+
+.retired-toggle {
+  margin-inline-start: var(--space-sm);
+  font-size: 0.875rem;
+}
+
+.table-card {
+  margin-top: var(--space-sm);
+}
+
+table {
+  width: 100%;
+}
+
+.resolves-today {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  font-weight: 600;
+  color: var(--color-primary);
+
+  mat-icon {
+    width: 18px;
+    height: 18px;
+    font-size: 18px;
+  }
+}
+
+.resolves-other {
+  color: var(--color-gray-500);
+}
+
+.loading-text {
+  padding: var(--space-lg) 0;
+  color: var(--color-gray-500);
+}
+
+.error-state,
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-xl) var(--space-md);
+  text-align: center;
+  color: var(--color-gray-500);
+}
+
+.error-state mat-icon,
+.empty-state mat-icon {
+  width: 40px;
+  height: 40px;
+  font-size: 40px;
+  color: var(--color-gray-500);
+}
+
+.empty-title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--color-gray-900);
+}
+
+.empty-body {
+  max-width: 40ch;
+  margin: 0;
+  line-height: 1.5;
+}

@@ -139,7 +139,7 @@ describe('Header', () => {
       expect(companiesItem).toBeDefined();
       expect(companiesItem?.textLink).toBe('Companies');
       expect(items.some((i) => i.routeLink === '/users-admin')).toBe(true);
-      expect(items.length).toBe(9); // Companies + Sales + Products + Stock by store + Purchases + Users Admin + Calendario y citas + Recursos Humanos + Reportes
+      expect(items.length).toBe(10); // Companies + Sales + Products + Stock by store + Purchases + Users Admin + Calendario y citas + Recursos Humanos + Reportes + Configuración
     });
 
     it('should NOT show Companies menu when user has no company client roles', () => {
@@ -227,7 +227,7 @@ describe('Header', () => {
       expect(component.isCompanyRole()).toBe(true);
       const items = component.items();
       expect(items.some((i) => i.routeLink === '/users-admin')).toBe(true);
-      expect(items.length).toBe(9); // Companies + Sales + Products + Stock by store + Purchases + Users Admin + Calendario y citas + Recursos Humanos + Reportes
+      expect(items.length).toBe(10); // Companies + Sales + Products + Stock by store + Purchases + Users Admin + Calendario y citas + Recursos Humanos + Reportes + Configuración
     });
 
     it('should NOT show Users Admin for lc-company role', () => {
@@ -534,7 +534,7 @@ describe('Header', () => {
       const items = component.items();
       const salesItem = items.find((i) => i.routeLink === '/sales');
       expect(salesItem).toBeDefined();
-      expect(items.length).toBe(9); // Companies + Sales + Products + Stock by store + Purchases + Users Admin + Calendario y citas + Recursos Humanos + Reportes
+      expect(items.length).toBe(10); // Companies + Sales + Products + Stock by store + Purchases + Users Admin + Calendario y citas + Recursos Humanos + Reportes + Configuración
     });
 
     it('should reset isSalesRole on AuthLogout event', () => {
@@ -875,9 +875,12 @@ describe('Header', () => {
       expect(reportsItem?.icon).toBe('assessment');
       // The next unused id after `9` Recursos Humanos.
       expect(reportsItem?.id).toBe('10');
-      // Appended, not inserted: the entries before it keep their pinned order.
-      expect(items[items.length - 1]?.routeLink).toBe('/reports');
-      expect(items.some((i) => i.routeLink === '/hr')).toBe(true);
+      // Appended, not inserted: /hr still comes before it. It is no longer the last entry — `Configuración`
+      // was appended after it by its own slice — so the claim pinned here is the relative order, not the tail.
+      const hrIndex = items.findIndex((i) => i.routeLink === '/hr');
+      const reportsIndex = items.findIndex((i) => i.routeLink === '/reports');
+      expect(hrIndex).toBeGreaterThanOrEqual(0);
+      expect(reportsIndex).toBeGreaterThan(hrIndex);
     });
 
     it('should NOT show Reportes for a non-admin role', () => {
@@ -888,12 +891,12 @@ describe('Header', () => {
     });
 
     it('should keep every pre-existing entry and its id in the order they had', () => {
-      // PRESERVE pin for the menu this entry was appended to: adding Reportes must
-      // not reorder, re-id or drop an entry that was already there.
+      // PRESERVE pin for the menu these entries were appended to: adding Reportes and
+      // then Configuración must not reorder, re-id or drop an entry that was already there.
       const { component } = setup(['lc-admin']);
       const items = component.items();
 
-      expect(items.map((i) => i.id)).toEqual(['2', '6', '3', '7', '4', '5', '8', '9', '10']);
+      expect(items.map((i) => i.id)).toEqual(['2', '6', '3', '7', '4', '5', '8', '9', '10', '11']);
       expect(items.map((i) => i.routeLink)).toEqual([
         '/companies',
         '/sales',
@@ -904,7 +907,37 @@ describe('Header', () => {
         '/scheduling/list',
         '/hr',
         '/reports',
+        '/configuration',
       ]);
+    });
+  });
+
+  // ─── Configuración entry ──────────────────────────────────────
+
+  describe('configuration menu entry', () => {
+    it('should offer Configuración to a holder of lc-tax, the role the tax-rate writes use', () => {
+      const { component } = setup(['lc-tax']);
+
+      expect(component.isTaxRate()).toBe(true);
+      const entry = component.items().find((i) => i.routeLink === '/configuration');
+      expect(entry?.textLink).toBe('Configuración');
+      // `lc-tax` is a functional role, not an administration one: the only entry it
+      // grants is the one it exists for.
+      expect(component.items().length).toBe(1);
+    });
+
+    it('should not offer Configuración to a company role that cannot write a rate', () => {
+      const { component } = setup(['lc-company']);
+
+      expect(component.isTaxRate()).toBe(false);
+      expect(component.items().some((i) => i.routeLink === '/configuration')).toBe(false);
+    });
+
+    it('should render the entry as a link to the landing, never as a submenu trigger', () => {
+      const { fixture } = setup(['lc-admin']);
+      const link = findNavItem(fixture, 'Configuración')?.querySelector('a');
+
+      expect(link?.getAttribute('href')).toBe('/configuration');
     });
   });
 

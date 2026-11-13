@@ -1,0 +1,80 @@
+<div class="tax-rate-list">
+  <app-page-header
+    title="Impuestos"
+    subtitle="Las tasas que la empresa declara, por código y por alcance"
+  >
+    <mat-slide-toggle
+      class="retired-toggle"
+      [checked]="includeDisabled()"
+      (change)="toggleRetired($event.checked)"
+    >
+      Incluir retiradas
+    </mat-slide-toggle>
+  </app-page-header>
+
+  @if (loading()) {
+    <p class="loading-text">Cargando tasas de impuesto...</p>
+  } @else if (error(); as err) {
+    <div class="error-state">
+      <mat-icon fontIcon="error" />
+      <p>{{ err }}</p>
+      <button mat-stroked-button type="button" (click)="retry()">Reintentar</button>
+    </div>
+  } @else if (rows().length > 0) {
+    <mat-card appearance="outlined" class="table-card">
+      <mat-card-content>
+        <table mat-table [dataSource]="rows()">
+          <ng-container matColumnDef="taxCode">
+            <th mat-header-cell *matHeaderCellDef>Código</th>
+            <td mat-cell *matCellDef="let row">{{ row.taxCode }}</td>
+          </ng-container>
+
+          <ng-container matColumnDef="scope">
+            <th mat-header-cell *matHeaderCellDef>Alcance</th>
+            <td mat-cell *matCellDef="let row">{{ scopeLabel(row) }}</td>
+          </ng-container>
+
+          <ng-container matColumnDef="rate">
+            <th mat-header-cell *matHeaderCellDef>Tasa</th>
+            <td mat-cell *matCellDef="let row">{{ row.rate * 100 | number: '1.0-4' }} %</td>
+          </ng-container>
+
+          <ng-container matColumnDef="effectiveFrom">
+            <th mat-header-cell *matHeaderCellDef>Vigente desde</th>
+            <td mat-cell *matCellDef="let row">{{ dayLabel(row.effectiveFrom) }}</td>
+          </ng-container>
+
+          <ng-container matColumnDef="state">
+            <th mat-header-cell *matHeaderCellDef>Estado</th>
+            <td mat-cell *matCellDef="let row">{{ row.enabled ? 'Vigente' : 'Retirada' }}</td>
+          </ng-container>
+
+          <ng-container matColumnDef="today">
+            <th mat-header-cell *matHeaderCellDef>Resuelve hoy</th>
+            <td mat-cell *matCellDef="let row">
+              @if (row.resolvesToday) {
+                <span class="resolves-today">
+                  <mat-icon fontIcon="check_circle" />
+                  Hoy
+                </span>
+              } @else {
+                <span class="resolves-other">—</span>
+              }
+            </td>
+          </ng-container>
+
+          <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
+          <tr mat-row *matRowDef="let row; columns: displayedColumns"></tr>
+        </table>
+      </mat-card-content>
+    </mat-card>
+  } @else {
+    <div class="empty-state">
+      <mat-icon fontIcon="percent" />
+      <h3 class="empty-title">Esta empresa no declara ninguna tasa</h3>
+      <p class="empty-body">
+        Un documento con un código gravable se rechaza hasta que la tasa que aplica exista.
+      </p>
+    </div>
+  }
+</div>

@@ -15,8 +15,10 @@ import {
   LC_POSITION,
   LC_SALES,
   LC_SENIORITY_LEVEL,
+  LC_TAX,
   POSITION_WRITE_ROLES,
   SENIORITY_LEVEL_WRITE_ROLES,
+  TAX_RATE_ROLES,
   VARIANT_ROLES,
 } from './roles';
 
@@ -44,6 +46,23 @@ describe('roles', () => {
 
     it('should be registered in CLIENT_ROLES', () => {
       expect(CLIENT_ROLES).toContain(LC_SALES);
+    });
+  });
+
+  describe('LC_TAX', () => {
+    it('should equal the wire role name the realm already declares', () => {
+      expect(LC_TAX).toBe('lc-tax');
+    });
+
+    it('should be registered in CLIENT_ROLES', () => {
+      expect(CLIENT_ROLES).toContain(LC_TAX);
+    });
+
+    it('should keep TAX_RATE_ROLES as the flat [lc-admin, lc-tax] allow-list', () => {
+      // Literal wire strings: TaxRateController's @PreAuthorize write set. The header
+      // entry and the `/configuration` route gate render on exactly this pair, so a
+      // change here is a change to both of them.
+      expect(TAX_RATE_ROLES).toEqual(['lc-admin', 'lc-tax']);
     });
   });
 
