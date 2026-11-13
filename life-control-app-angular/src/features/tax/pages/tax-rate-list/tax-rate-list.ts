@@ -4,11 +4,16 @@ import { ActivatedRoute } from '@angular/router';
 import { DecimalPipe } from '@angular/common';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
+import { MatDialog } from '@angular/material/dialog';
 import { MatIconModule } from '@angular/material/icon';
 import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { MatTableModule } from '@angular/material/table';
-import { CompanyContextService, httpErrorMessage } from '@shared/data';
+import { CompanyContextService, NotificationService, httpErrorMessage } from '@shared/data';
 import { PageHeader } from '@shared/ui';
+import {
+  TaxRateDeclareDialog,
+  TaxRateDeclareDialogData,
+} from '../../components/tax-rate-declare-dialog/tax-rate-declare-dialog';
 import { COMPANY_WIDE_SCOPE, TaxRate } from '../../data/tax-rate.models';
 import { TaxRateService } from '../../data/tax-rate.service';
 
@@ -80,6 +85,8 @@ export class TaxRateList {
   private readonly route = inject(ActivatedRoute);
   private readonly companyContext = inject(CompanyContextService);
   private readonly taxRateService = inject(TaxRateService);
+  private readonly dialog = inject(MatDialog);
+  private readonly notifications = inject(NotificationService);
 
   /** The route's own company, captured once; it wins over the session's selection when it is there. */
   private readonly routeCompanyId = this.route.snapshot.queryParamMap.get('companyId');
@@ -162,6 +169,36 @@ export class TaxRateList {
 
   toggleRetired(include: boolean): void {
     this.includeDisabled.set(include);
+  }
+
+  /**
+   * Declares a rate, then re-reads the list.
+   *
+   * The reload is not cosmetic: this service caches nothing on purpose, and the row the server appended is the
+   * only proof the operator's own write landed. A dismissed dialog closes with `null` and reloads nothing —
+   * nothing changed, and a re-read would throw away the scroll position for free.
+   */
+  declareRate(): void {
+    const companyId = this.companyId();
+    if (!companyId) {
+      return;
+    }
+
+    this.dialog
+      .open<TaxRateDeclareDialog, TaxRateDeclareDialogData, TaxRate | null>(TaxRateDeclareDialog, {
+        data: { companyId },
+        width: '560px',
+      })
+      .afterClosed()
+      .subscribe((declared) => {
+        if (!declared) {
+          return;
+        }
+        this.notifications.showSuccess(
+          `Tasa de ${declared.taxCode} declarada desde el ${this.dayLabel(declared.effectiveFrom)}`,
+        );
+        this.ratesResource.reload();
+      });
   }
 
   retry(): void {

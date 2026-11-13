@@ -1,8 +1,9 @@
 import { signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { MatDialog } from '@angular/material/dialog';
 import { provideRouter } from '@angular/router';
 import { of, throwError } from 'rxjs';
-import { CompanyContextService } from '@shared/data';
+import { CompanyContextService, NotificationService } from '@shared/data';
 import { TaxRate } from '../../data/tax-rate.models';
 import { TaxRateService } from '../../data/tax-rate.service';
 import { TaxRateList, todayIso } from './tax-rate-list';
@@ -31,6 +32,8 @@ function taxRate(overrides: Partial<TaxRate> = {}): TaxRate {
 describe('TaxRateList', () => {
   let fixture: ComponentFixture<TaxRateList>;
   let service: { getTaxRates: ReturnType<typeof vi.fn> };
+  let dialog: { open: ReturnType<typeof vi.fn> };
+  let notifications: { showSuccess: ReturnType<typeof vi.fn>; showError: ReturnType<typeof vi.fn> };
 
   async function render(rates: TaxRate[] | Error): Promise<void> {
     service.getTaxRates.mockReturnValue(
@@ -44,11 +47,15 @@ describe('TaxRateList', () => {
 
   beforeEach(() => {
     service = { getTaxRates: vi.fn() };
+    dialog = { open: vi.fn(() => ({ afterClosed: () => of(undefined) })) };
+    notifications = { showSuccess: vi.fn(), showError: vi.fn() };
     TestBed.configureTestingModule({
       imports: [TaxRateList],
       providers: [
         provideRouter([]),
         { provide: TaxRateService, useValue: service },
+        { provide: MatDialog, useValue: dialog },
+        { provide: NotificationService, useValue: notifications },
         {
           provide: CompanyContextService,
           useValue: { currentCompany: signal({ id: 'company-1', companyName: 'Demo' }) },
@@ -164,5 +171,51 @@ describe('TaxRateList', () => {
 
     expect(fixture.nativeElement.querySelector('.empty-state')).not.toBeNull();
     expect(fixture.nativeElement.querySelectorAll('tr.mat-mdc-row').length).toBe(0);
+  });
+
+  it('quotes the refusal this screen exists to resolve, so the empty state names the fix', async () => {
+    await render([]);
+
+    const empty = fixture.nativeElement.querySelector('.empty-state') as HTMLElement;
+    expect(empty.textContent).toContain(
+      "Cannot write the line: tax code IVA has no enabled rate applicable on 2026-11-10, the document's date.",
+    );
+  });
+
+  it('opens the declare dialog with the company, and re-reads the list when a rate comes back', async () => {
+    await render([taxRate()]);
+    expect(service.getTaxRates).toHaveBeenCalledTimes(1);
+    dialog.open.mockReturnValue({ afterClosed: () => of(taxRate({ id: 'rate-new' })) });
+
+    const action = fixture.nativeElement.querySelector(
+      '.declare-action',
+    ) as HTMLButtonElement | null;
+    expect(action).not.toBeNull();
+    action?.click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    expect(dialog.open).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ data: { companyId: 'company-1' } }),
+    );
+    // Re-read after a write: the list never keeps a cached answer the operator's own write contradicts.
+    expect(service.getTaxRates).toHaveBeenCalledTimes(2);
+    expect(notifications.showSuccess).toHaveBeenCalled();
+  });
+
+  it('does not re-read the list when the declare dialog is dismissed', async () => {
+    await render([taxRate()]);
+
+    const action = fixture.nativeElement.querySelector(
+      '.declare-action',
+    ) as HTMLButtonElement | null;
+    action?.click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    expect(dialog.open).toHaveBeenCalled();
+    expect(service.getTaxRates).toHaveBeenCalledTimes(1);
+    expect(notifications.showSuccess).not.toHaveBeenCalled();
   });
 });

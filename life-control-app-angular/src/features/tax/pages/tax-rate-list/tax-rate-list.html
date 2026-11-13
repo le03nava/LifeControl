@@ -3,13 +3,24 @@
     title="Impuestos"
     subtitle="Las tasas que la empresa declara, por código y por alcance"
   >
-    <mat-slide-toggle
-      class="retired-toggle"
-      [checked]="includeDisabled()"
-      (change)="toggleRetired($event.checked)"
-    >
-      Incluir retiradas
-    </mat-slide-toggle>
+    <div class="header-actions">
+      <mat-slide-toggle
+        class="retired-toggle"
+        [checked]="includeDisabled()"
+        (change)="toggleRetired($event.checked)"
+      >
+        Incluir retiradas
+      </mat-slide-toggle>
+      <button
+        mat-flat-button
+        color="primary"
+        type="button"
+        class="declare-action"
+        (click)="declareRate()"
+      >
+        Declarar tasa
+      </button>
+    </div>
   </app-page-header>
 
   @if (loading()) {
@@ -73,8 +84,27 @@
       <mat-icon fontIcon="percent" />
       <h3 class="empty-title">Esta empresa no declara ninguna tasa</h3>
       <p class="empty-body">
-        Un documento con un código gravable se rechaza hasta que la tasa que aplica exista.
+        Un documento con un código gravable se rechaza hasta que la tasa que aplica exista. Es lo
+        que devuelve el servidor hoy:
       </p>
+      <blockquote class="empty-refusal">
+        Cannot write the line: tax code IVA has no enabled rate applicable on 2026-11-10, the
+        document's date.
+      </blockquote>
+      <p class="empty-body">
+        Declará la tasa del código que declara el producto, con una fecha de vigencia anterior o
+        igual a la del documento que querés registrar. Si el producto no es gravable, su código
+        tiene que ser uno de los que ya valen cero por definición (NA, TASA_0, EXENTO).
+      </p>
+      <button
+        mat-flat-button
+        color="primary"
+        type="button"
+        class="declare-action"
+        (click)="declareRate()"
+      >
+        Declarar la primera tasa
+      </button>
     </div>
   }
 </div>

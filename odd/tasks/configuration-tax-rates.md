@@ -130,3 +130,27 @@ read-only first, because it makes the refusal diagnosable at the lowest risk; S2
 entry instead of a fraction (S4); no default seeding of `tax_rate` by migration, and one of the three dev companies
 deliberately left without rates as the live fixture of the refusal path; the typo correction **deferred** (S11) to
 its own issue rather than bundled, and explicitly not solved by a `DELETE`.
+
+**L8 (2026-11-13) — T1 delivered as `b605d6f3`, and the three tests it had never run.** The slice was written on
+2026-11-12 and left uncommitted; its suite had never been executed. Running it found four red tests in three
+files, each a real defect and none of them a behaviour change: (a) `tax-rate-list.spec.ts` asserted the display
+order by slicing each row's flattened text to three characters, so the last row's "NA" read as "NAT" — its own
+neighbour's column; fixed by reading the code cell. (b) `tax-rate.service.spec.ts` never subscribed-and-flushed
+the second read, so `httpMock.verify()` reported the pending request as a leak instead of the cache assertion the
+test meant; fixed to assert a second GET with a changed body. (c) `header.spec.ts` pinned `/reports` as the last
+menu entry and listed the pre-existing ids, both of which the new appended entry legitimately changes; the
+PRESERVE pin now lists ten entries and the reports case asserts relative order instead of the tail. Lint also
+found an unused `component` local in the list spec. Green at commit: `npm run lint` clean, 138 tests across the
+seven touched suites. **The lesson, not the detail**: an uncommitted slice is an unverified slice, and "the tests
+exist" is not "the tests pass" — the worktree had both, and only the second is evidence.
+
+**L9 (2026-11-13) — T2 delivered, and the one UI decision the record had not made.** The declare form needs a
+region to offer, and `CompanyRegionController` keys regions on `/companies/{companyId}/countries/{companyCountryId}/regions`
+— there is no "regions of a company" read. So the dialog walks the same cascade every existing screen walks
+(countries, then each country's regions) and flattens it into one `Alcance` select, labelling each option with its
+country name only when the company has more than one. No country picker is added to the form: the operator chooses
+a scope, not a geography, and the country only exists to reach the region. The tax code is a select over
+`GET /api/tax-codes` (enabled rows) rather than a free text field, because an unknown code is a 404 on a form that
+looks complete. RED observed for both halves before the implementation: the three page rules failed against the
+previous page, and after wiring, the three payload tests failed with `rate: 16` where `0.16` was expected — the
+defect `CHECK (rate >= 0 AND rate <= 1)` cannot catch.

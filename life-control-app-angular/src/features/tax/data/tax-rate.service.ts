@@ -4,6 +4,7 @@ import { Observable, throwError } from 'rxjs';
 import { catchError } from 'rxjs/operators';
 import { ConfigService } from '@app/services/config.service';
 import { TaxRate } from './tax-rate.models';
+import { DeclareTaxRateRequest } from './tax-rate.models';
 
 /**
  * A company's tax-rate book (`/api/companies/{companyId}/tax-rates`, issue #858).
@@ -55,5 +56,23 @@ export class TaxRateService {
           return throwError(() => err);
         }),
       );
+  }
+
+  /**
+   * Declares a rate for the company: `POST`, and the answer is the row the resolution will read from that day.
+   *
+   * `regionId` absent (null) is the company-wide rate; a region makes that scope authoritative for the code
+   * (`S7`), which is the server's rule and not this service's to soften. A duplicate `(code, scope, day)`, a
+   * rate outside `[0, 1]` or a region of another company are the server's refusals — surfaced to the dialog,
+   * never re-judged here.
+   */
+  declareTaxRate(companyId: string, request: DeclareTaxRateRequest): Observable<TaxRate> {
+    this._error.set(null);
+    return this.http.post<TaxRate>(`${this.apiUrl}/${companyId}/tax-rates`, request).pipe(
+      catchError((err) => {
+        this._error.set('No se pudo declarar la tasa de impuesto');
+        return throwError(() => err);
+      }),
+    );
   }
 }
