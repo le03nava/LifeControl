@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
 import com.lifecontrol.api.support.TenantFixtures;
+import java.math.BigDecimal;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
@@ -20,16 +21,18 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
- * Verification of {@code V97__accounting_book.sql} — S1, S7 and S8 of
- * {@code odd/tasks/derived-accounting.md} (T1) — against real PostgreSQL with Flyway enabled, which is the
- * only stack where Row-Level Security, composite foreign keys and partial unique indexes exist at all.
+ * Verification of {@code V97__accounting_book.sql} — S1–S8 of {@code odd/tasks/derived-accounting.md}
+ * (T1–T3) — against real PostgreSQL with Flyway enabled, which is the only stack where Row-Level Security,
+ * composite foreign keys, partial unique indexes and deferred constraint triggers exist at all.
  *
  * <p><b>What each case proves, and why the database is where it has to be proved.</b> Every rule this slice
  * states is enforced by the schema and by nothing else: a table is armed by {@code apply_tenant_isolation},
- * a pointer carries its tenant through a composite foreign key, and a cost center is unique through two
- * partial indexes. A service cannot demonstrate any of them — the application role the pool logs in as is
- * filtered by the policy it is trying to observe, and a referential check bypasses row security precisely
- * where S7 says it must not.</p>
+ * a pointer carries its tenant through a composite foreign key, a cost center is unique through two partial
+ * indexes, an entry balances through a deferred constraint trigger, and a line carries one side through a
+ * row {@code CHECK}. A service cannot demonstrate any of them — the application role the pool logs in as is
+ * filtered by the policy it is trying to observe, a referential check bypasses row security precisely where
+ * S7 says it must not, and <i>when</i> a check runs (at the statement or at commit) is a property of the
+ * constraint's deferral, not of the code that wrote the row.</p>
  *
  * <p><b>Which role each case runs as.</b> The structural cases read {@code pg_class}, {@code pg_policies},
  * {@code information_schema} and {@code tenant_table}, which the application role may read like any other.
@@ -40,12 +43,18 @@ import org.springframework.jdbc.core.JdbcTemplate;
  * reason. Everything those cases write is rolled back in {@link #rollBackEverythingThisTestWrote()}, because
  * sixty-odd sibling suites share this container and none of them asked for these rows.</p>
  *
- * <p><b>What this class deliberately does not cover.</b> The rules the book cannot break — the append-only
- * pair (S2), the deferred balance and minimum-two-lines triggers (S3, S4), the row {@code CHECK}s (S5) and
- * the one-posting-per-source key (S6) — are the subject of the second pull request of this slice, and their
- * tests arrive with them: a case here would assert a constraint this migration does not create. The seed,
- * the posting rules, the period close and the read models (S9–S18, T4–T12) are later slices of the same
- * unit, and their tests belong with them.</p>
+ * <p><b>How a deferred rule is observed without committing.</b> S3 and S4 land in a {@code DEFERRABLE
+ * INITIALLY DEFERRED} constraint trigger, so they judge the state an entry commits rather than each
+ * statement that built it. The cases below prove that timing one way only: they write the whole entry and
+ * then call {@link #commitRefusal(Connection)}, because a test that asserts “some exception” cannot tell a
+ * statement check from a commit check. The transactions that are expected to be accepted are judged by
+ * {@code SET CONSTRAINTS ALL IMMEDIATE} instead of by {@code COMMIT} — the same pass, fired by hand —
+ * because this suite runs against a shared container and an accepted book row cannot be removed afterwards:
+ * both entry tables are append-only, so a committed fixture would outlive the class and be read by sixty
+ * sibling suites that never asked for it.</p>
+ *
+ * <p><b>What this class deliberately does not cover.</b> The seed, the posting rules, the period close and
+ * the read models (S9–S18, T4–T12) are later slices of the same unit, and their tests belong with them.</p>
  */
 @SpringBootTest
 @DisplayName("Accounting schema integration tests")
@@ -336,11 +345,396 @@ class AccountingSchemaMigrationIntegrationTest extends AbstractPostgresIntegrati
                 .isEqualTo(3);
     }
 
+    @Test
+    @DisplayName("S2: a stored entry and its lines refuse UPDATE and DELETE, and both rows survive the attempt")
+    void aStoredEntryAndItsLinesRefuseUpdateAndDelete() throws SQLException {
+        var connection = beginTransaction();
+        var companyId = insertCompany(connection, "APPEND");
+        var accountId = insertAccount(connection, companyId, "4100");
+        var entryId = insertEntry(connection, companyId);
+        var lineId = insertLine(connection, companyId, entryId, accountId, null);
+
+        assertThat(refusal(connection, "UPDATE account_entry SET memo = 'amended' WHERE id = ?::uuid", entryId)
+                        .getMessage())
+                .as("ADR-0008 decision 2: an amended entry is a book with two histories, so a correction is a "
+                        + "reversing entry and never an edit")
+                .contains("append-only")
+                .contains("UPDATE");
+
+        assertThat(refusal(connection, "DELETE FROM account_entry WHERE id = ?::uuid", entryId)
+                        .getMessage())
+                .as("the same section refuses the delete, so the correction cannot be a removal either")
+                .contains("append-only")
+                .contains("DELETE");
+
+        assertThat(refusal(connection, "UPDATE account_entry_line SET debit = 99 WHERE id = ?::uuid", lineId)
+                        .getMessage())
+                .as("the line is the half that actually carries the money, so it is refused by its own "
+                        + "trigger and not only through its entry")
+                .contains("append-only");
+
+        assertThat(refusal(connection, "DELETE FROM account_entry_line WHERE id = ?::uuid", lineId)
+                        .getMessage())
+                .contains("append-only");
+
+        assertThat(rowCount(connection, "SELECT COUNT(*) FROM account_entry")
+                        + rowCount(connection, "SELECT COUNT(*) FROM account_entry_line"))
+                .as("every refusal happened before the write, so the entry and its one line are both still "
+                        + "there and unchanged")
+                .isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("S2: the pool's role keeps SELECT and INSERT on both entry tables and loses UPDATE and DELETE")
+    void theApplicationRoleKeepsOnlySelectAndInsertOnTheEntryTables() {
+        for (var table : List.of("account_entry", "account_entry_line")) {
+            for (var privilege : List.of("SELECT", "INSERT")) {
+                assertThat(privilegeHeld(table, privilege))
+                        .as("S2 keeps %s on %s: a posting is an insert and every report is a read", privilege, table)
+                        .isTrue();
+            }
+            for (var privilege : List.of("UPDATE", "DELETE")) {
+                assertThat(privilegeHeld(table, privilege))
+                        .as(
+                                "%s must not survive on %s. `V52:196-199` hands the pool's role all four "
+                                        + "privileges on every future table, so the restrictive half has to be "
+                                        + "written or it does not exist — and the trigger alone would refuse the "
+                                        + "owner and the superuser while the pool kept the privilege",
+                                privilege, table)
+                        .isFalse();
+            }
+        }
+    }
+
+    // ──────────────────────────────────────
+    // S3 — every entry balances, at commit and not at the statement
+    // ──────────────────────────────────────
+
+    @Test
+    @DisplayName("S3: an entry that debits 100 and credits 90 is refused at commit, after both of its lines "
+            + "were written")
+    void anUnbalancedEntryIsRefusedAtCommitAndNotAtItsStatements() throws SQLException {
+        var connection = beginTransaction();
+        var companyId = insertCompany(connection, "BALANCE");
+        var receivable = insertAccount(connection, companyId, "1200");
+        var revenue = insertAccount(connection, companyId, "4100");
+        var entryId = insertEntry(connection, companyId);
+
+        insertLine(connection, companyId, entryId, receivable, null, new BigDecimal("100.0000"), BigDecimal.ZERO);
+        insertLine(connection, companyId, entryId, revenue, null, BigDecimal.ZERO, new BigDecimal("90.0000"));
+
+        assertThat(rowCount(connection, "SELECT COUNT(*) FROM account_entry_line"))
+                .as("both statements were accepted: that is what DEFERRABLE INITIALLY DEFERRED buys, because "
+                        + "a posting writes an entry across several statements and a per-statement check "
+                        + "would judge an intermediate state that never commits (ADR-0008 decision 3, A1)")
+                .isEqualTo(2);
+
+        var refused = commitRefusal(connection);
+
+        assertThat(refused.getMessage())
+                .as("A1 names the entry, the invariant and the rule, because an operator reads this at commit "
+                        + "time with no other context: it says which entry of which company does not balance "
+                        + "and by how much")
+                .contains("A1")
+                .contains(entryId.toString())
+                .contains("balances");
+
+        assertThat(rowCount(connection, "SELECT COUNT(*) FROM account_entry_line"))
+                .as("the refusal at commit took the whole batch with it: a deferred check that let the "
+                        + "lines through and then refused the entry would leave half a batch behind")
+                .isZero();
+        assertThat(rowCount(connection, "SELECT COUNT(*) FROM account_entry"))
+                .as("and the entry it was reading is not there either")
+                .isZero();
+    }
+
+    @Test
+    @DisplayName("S3: the same entry with its credit corrected to 100 passes the deferred pass that refused it")
+    void aBalancedEntryPassesTheDeferredPass() throws SQLException {
+        var connection = beginTransaction();
+
+        // The control first, and in its own transaction: it is what proves the pass below is not a no-op.
+        // `SET CONSTRAINTS ALL IMMEDIATE` fires a DEFERRABLE INITIALLY DEFERRED trigger now instead of at
+        // commit, so a refused control here is the proof that the acceptance further down was judged.
+        var unbalancedCompany = insertCompany(connection, "PASS-NO");
+        var unbalancedAccounts = insertAccount(connection, unbalancedCompany, "4100");
+        var unbalanced = insertEntry(connection, unbalancedCompany);
+        insertLine(
+                connection,
+                unbalancedCompany,
+                unbalanced,
+                unbalancedAccounts,
+                null,
+                new BigDecimal("100.0000"),
+                BigDecimal.ZERO);
+        insertLine(
+                connection,
+                unbalancedCompany,
+                unbalanced,
+                unbalancedAccounts,
+                null,
+                BigDecimal.ZERO,
+                new BigDecimal("90.0000"));
+
+        assertThat(deferredPassRefusal(connection).getMessage())
+                .as("the control: the deferred pass is the same pass COMMIT runs, and it refuses the entry "
+                        + "the correction below balances — without this, the acceptance would pass whether "
+                        + "or not the trigger exists")
+                .contains("A1")
+                .contains(unbalanced.toString());
+
+        connection.rollback();
+
+        // The same entry, one side corrected. `SET CONSTRAINTS ALL IMMEDIATE` is what judges it, and the
+        // rows stay in the transaction so the suite can roll them back: an accepted book row is append-only
+        // and this container is shared.
+        var companyId = insertCompany(connection, "PASS-YES");
+        var receivable = insertAccount(connection, companyId, "1200");
+        var revenue = insertAccount(connection, companyId, "4100");
+        var entryId = insertEntry(connection, companyId);
+        insertLine(connection, companyId, entryId, receivable, null, new BigDecimal("100.0000"), BigDecimal.ZERO);
+        insertLine(connection, companyId, entryId, revenue, null, BigDecimal.ZERO, new BigDecimal("100.0000"));
+
+        deferredPass(connection);
+
+        assertThat(rowCount(connection, "SELECT COUNT(*) FROM account_entry_line"))
+                .as("A1: the only difference from the refused entry is the credit, so the check that refused "
+                        + "90 accepts 100 and a balanced entry is what the book takes")
+                .isEqualTo(2);
+    }
+
+    // ──────────────────────────────────────
+    // S4 — every entry has at least two lines, including the entry that has none
+    // ──────────────────────────────────────
+
+    @Test
+    @DisplayName("S4: an entry committed with one line is refused, and so is an entry committed with none")
+    void anEntryWithFewerThanTwoLinesIsRefusedAtCommit() throws SQLException {
+        var connection = beginTransaction();
+
+        var singleCompany = insertCompany(connection, "ONE-LINE");
+        var singleAccount = insertAccount(connection, singleCompany, "1200");
+        var singleEntry = insertEntry(connection, singleCompany);
+        insertLine(
+                connection,
+                singleCompany,
+                singleEntry,
+                singleAccount,
+                null,
+                new BigDecimal("100.0000"),
+                BigDecimal.ZERO);
+
+        assertThat(rowCount(connection, "SELECT COUNT(*) FROM account_entry_line"))
+                .as("the line was written, so the refusal below is the entry's shape and not its write")
+                .isEqualTo(1);
+
+        assertThat(commitRefusal(connection).getMessage())
+                .as("A2: one side of a fact is not the fact — nothing downstream can tell which account is "
+                        + "missing, so an entry with a single line is half a double-entry posting")
+                .contains("A2")
+                .contains(singleEntry.toString())
+                .contains("1 line(s)");
+
+        assertThat(rowCount(connection, "SELECT COUNT(*) FROM account_entry"))
+                .as("the refused entry and its line were both rolled back by the commit")
+                .isZero();
+        assertThat(rowCount(connection, "SELECT COUNT(*) FROM account_entry_line"))
+                .isZero();
+
+        // The case the trigger on account_entry exists for. A constraint trigger on the line only fires when
+        // a line is written, so an entry inserted and committed with no line at all is invisible to it.
+        var emptyCompany = insertCompany(connection, "NO-LINE");
+        var emptyEntry = insertEntry(connection, emptyCompany);
+
+        assertThat(rowCount(connection, "SELECT COUNT(*) FROM account_entry_line"))
+                .as("nothing was written for this entry, which is exactly why a line-only trigger would let "
+                        + "it commit")
+                .isZero();
+
+        assertThat(commitRefusal(connection).getMessage())
+                .as("A2 again, from the entry's own trigger: an entry that never had a line written is an "
+                        + "entry the line trigger can never judge")
+                .contains("A2")
+                .contains(emptyEntry.toString())
+                .contains("0 line(s)");
+
+        assertThat(rowCount(connection, "SELECT COUNT(*) FROM account_entry"))
+                .as("the empty entry is not in the book either")
+                .isZero();
+    }
+
+    // ──────────────────────────────────────
+    // S5 — one side per line, and it is money
+    // ──────────────────────────────────────
+
+    @Test
+    @DisplayName("S5: a line with both sides, a line of zeros and a line of minus five are all refused")
+    void aLineCarriesExactlyOneNonNegativeSide() throws SQLException {
+        var connection = beginTransaction();
+        var companyId = insertCompany(connection, "SIDES");
+        var accountId = insertAccount(connection, companyId, "1200");
+        var entryId = insertEntry(connection, companyId);
+
+        assertThat(refusal(
+                                connection,
+                                lineWithAmountsSql(),
+                                UUID.randomUUID(),
+                                companyId,
+                                entryId,
+                                accountId,
+                                null,
+                                new BigDecimal("100.0000"),
+                                new BigDecimal("100.0000"),
+                                TenantFixtures.SEED_CURRENCY)
+                        .getMessage())
+                .as("A3: a line with both sides is one fact counted twice, and no report can tell which half "
+                        + "was meant")
+                .contains("ck_account_entry_line_single_side");
+
+        assertThat(refusal(
+                                connection,
+                                lineWithAmountsSql(),
+                                UUID.randomUUID(),
+                                companyId,
+                                entryId,
+                                accountId,
+                                null,
+                                BigDecimal.ZERO,
+                                BigDecimal.ZERO,
+                                TenantFixtures.SEED_CURRENCY)
+                        .getMessage())
+                .as("A3: a line with neither side is not a posting. It breaks both the exclusivity rule and "
+                        + "the positivity rule, and PostgreSQL reports the first of the two by name")
+                .contains("ck_account_entry_line_positive");
+
+        assertThat(refusal(
+                                connection,
+                                lineWithAmountsSql(),
+                                UUID.randomUUID(),
+                                companyId,
+                                entryId,
+                                accountId,
+                                null,
+                                new BigDecimal("-5.0000"),
+                                new BigDecimal("5.0000"),
+                                TenantFixtures.SEED_CURRENCY)
+                        .getMessage())
+                .as("A3: a negative amount is not money. The ADR states this as its own CHECK instead of "
+                        + "leaving it to be inferred, and a line of -5 against 5 is why: every rule that reads "
+                        + "the row as money cannot be asked a sensible question about it, so the refusal names "
+                        + "the amount and not the shape of the row")
+                .contains("ck_account_entry_line_non_negative");
+
+        assertThat(rowCount(connection, "SELECT COUNT(*) FROM account_entry_line"))
+                .as("three refused writes stored nothing")
+                .isZero();
+
+        insertLine(connection, companyId, entryId, accountId, null, new BigDecimal("100.0000"), BigDecimal.ZERO);
+
+        assertThat(rowCount(connection, "SELECT COUNT(*) FROM account_entry_line"))
+                .as("one positive side is what the schema accepts")
+                .isEqualTo(1);
+    }
+
+    // ──────────────────────────────────────
+    // S6 — one posting per source, so a replayed job is a no-op
+    // ──────────────────────────────────────
+
+    @Test
+    @DisplayName("S6: the same source cannot post twice as the same posting, and a different posting or "
+            + "another company is a different posting")
+    void aSourcePostsOnceAsEachPosting() throws SQLException {
+        var connection = beginTransaction();
+        var companyA = insertCompany(connection, "SOURCE-A");
+        var companyB = insertCompany(connection, "SOURCE-B");
+        var sourceId = UUID.randomUUID();
+
+        insertEntry(connection, companyA, "SALE_PAYMENT", sourceId, "COLLECTION");
+
+        assertThat(refusal(connection, """
+                                INSERT INTO account_entry
+                                    (id, company_id, entry_date, source_type, source_id, posting, actor)
+                                VALUES (?::uuid, ?::uuid, CURRENT_DATE, 'SALE_PAYMENT', ?::uuid, 'COLLECTION', 'suite')
+                                """, UUID.randomUUID(), companyA, sourceId)
+                        .getMessage())
+                .as("A5: a replayed job finds the key occupied instead of writing a second entry, and the key "
+                        + "is the database's rather than a service guard's — a guard is a statement a second "
+                        + "writer can skip, and the second entry is then invisible money in the book")
+                .contains("uq_account_entry_company_source_posting");
+
+        assertThat(rowCount(connection, "SELECT COUNT(*) FROM account_entry"))
+                .as("the refused replay stored nothing")
+                .isEqualTo(1);
+
+        insertEntry(connection, companyA, "SALE_PAYMENT", sourceId, "REVERSAL");
+        insertEntry(connection, companyB, "SALE_PAYMENT", sourceId, "COLLECTION");
+
+        assertThat(rowCount(connection, "SELECT COUNT(*) FROM account_entry"))
+                .as("the key stops at the posting and at the company: one payment posts a collection and "
+                        + "later a reversal, and two tenants number their sources independently, so both of "
+                        + "those rows are accepted beside the first")
+                .isEqualTo(3);
+    }
+
     // ──────────────────────────────────────
     // helpers: the catalog, read as the application role
     // ──────────────────────────────────────
 
     private record Policy(String name, String command, String predicate, String withCheck) {}
+
+    @Test
+    @DisplayName("S5: NaN is not money — the row is refused, and with it the only way to balance a NaN entry")
+    void nanIsNotMoney() throws SQLException {
+        var connection = beginTransaction();
+        var companyId = insertCompany(connection, "NAN");
+        var accountId = insertAccount(connection, companyId, "4200");
+        var entryId = insertEntry(connection, companyId);
+
+        assertThat(refusal(
+                                connection,
+                                """
+                                INSERT INTO account_entry_line
+                                    (id, company_id, entry_id, account_id, debit, credit, currency)
+                                VALUES (?::uuid, ?::uuid, ?::uuid, ?::uuid, 'NaN'::numeric, 0, ?)
+                                """,
+                                UUID.randomUUID(),
+                                companyId,
+                                entryId,
+                                accountId,
+                                TenantFixtures.SEED_CURRENCY)
+                        .getMessage())
+                .as("PostgreSQL sorts NaN above every number and answers NaN = NaN with true, so a NaN debit "
+                        + "passes `debit >= 0`, passes exclusivity against a zero credit and passes "
+                        + "`debit + credit > 0` — and a pair of NaNs satisfies A1's equality of the two sums, "
+                        + "which is the one way this book could be written unbalanced and read as balanced")
+                .contains("ck_account_entry_line_finite");
+
+        assertThat(rowCount(connection, "SELECT COUNT(*) FROM account_entry_line"))
+                .as("the refused row stored nothing: an amount that is not a number is not half a line")
+                .isZero();
+
+        assertThat(refusal(
+                                connection,
+                                """
+                                INSERT INTO account_entry_line
+                                    (id, company_id, entry_id, account_id, debit, credit, currency)
+                                VALUES (?::uuid, ?::uuid, ?::uuid, ?::uuid, 100, 'NaN'::numeric, ?)
+                                """,
+                                UUID.randomUUID(),
+                                companyId,
+                                entryId,
+                                accountId,
+                                TenantFixtures.SEED_CURRENCY)
+                        .getMessage())
+                .as("the credit side is the same column family, so it is refused by the same rule")
+                .contains("ck_account_entry_line_finite");
+    }
+
+    /** Whether the role the pool logs in as holds {@code privilege} directly on {@code table}. */
+    private boolean privilegeHeld(String table, String privilege) {
+        return Boolean.TRUE.equals(jdbcTemplate.queryForObject(
+                "SELECT has_table_privilege('lifecontrol_app', ?::regclass, ?)", Boolean.class, table, privilege));
+    }
 
     /** The two {@code pg_class} flags, in the order ENABLE then FORCE. */
     private List<Boolean> rlsFlags(String table) {
@@ -401,6 +795,15 @@ class AccountingSchemaMigrationIntegrationTest extends AbstractPostgresIntegrati
                 """;
     }
 
+    /** The same statement with the two amounts as parameters, for the lines S3 and S5 judge on value. */
+    private static String lineWithAmountsSql() {
+        return """
+                INSERT INTO account_entry_line
+                    (id, company_id, entry_id, account_id, cost_center_id, debit, credit, currency)
+                VALUES (?::uuid, ?::uuid, ?::uuid, ?::uuid, ?::uuid, ?, ?, ?)
+                """;
+    }
+
     private static UUID insertCompany(Connection connection, String tag) throws SQLException {
         var id = UUID.randomUUID();
         exec(
@@ -446,20 +849,49 @@ class AccountingSchemaMigrationIntegrationTest extends AbstractPostgresIntegrati
     }
 
     private static UUID insertEntry(Connection connection, UUID companyId) throws SQLException {
+        return insertEntry(connection, companyId, "SALES_ORDER", UUID.randomUUID(), "REVENUE");
+    }
+
+    private static UUID insertEntry(
+            Connection connection, UUID companyId, String sourceType, UUID sourceId, String posting)
+            throws SQLException {
         var id = UUID.randomUUID();
         exec(connection, """
                 INSERT INTO account_entry
                     (id, company_id, entry_date, source_type, source_id, posting, actor)
-                VALUES (?::uuid, ?::uuid, CURRENT_DATE, 'SALES_ORDER', ?::uuid, 'REVENUE', 'suite')
-                """, id, companyId, UUID.randomUUID());
+                VALUES (?::uuid, ?::uuid, CURRENT_DATE, ?, ?::uuid, ?, 'suite')
+                """, id, companyId, sourceType, sourceId, posting);
         return id;
     }
 
     private static UUID insertLine(
             Connection connection, UUID companyId, UUID entryId, UUID accountId, UUID costCenterId)
             throws SQLException {
+        return insertLine(
+                connection, companyId, entryId, accountId, costCenterId, new BigDecimal("100.0000"), BigDecimal.ZERO);
+    }
+
+    private static UUID insertLine(
+            Connection connection,
+            UUID companyId,
+            UUID entryId,
+            UUID accountId,
+            UUID costCenterId,
+            BigDecimal debit,
+            BigDecimal credit)
+            throws SQLException {
         var id = UUID.randomUUID();
-        exec(connection, lineSql(), id, companyId, entryId, accountId, costCenterId, TenantFixtures.SEED_CURRENCY);
+        exec(
+                connection,
+                lineWithAmountsSql(),
+                id,
+                companyId,
+                entryId,
+                accountId,
+                costCenterId,
+                debit,
+                credit,
+                TenantFixtures.SEED_CURRENCY);
         return id;
     }
 
@@ -595,5 +1027,56 @@ class AccountingSchemaMigrationIntegrationTest extends AbstractPostgresIntegrati
             connection.rollback(savepoint);
             return refused;
         }
+    }
+
+    /**
+     * Commits the transaction and returns the refusal the commit produced.
+     *
+     * <p>This is the only way to tell a deferred check from a statement check: S3 and S4 land in a
+     * {@code DEFERRABLE INITIALLY DEFERRED} constraint trigger, so the statements that build the entry have
+     * to be accepted and the refusal has to arrive here, at {@code COMMIT}, or nowhere.</p>
+     *
+     * <p>A refusal leaves the transaction rolled back by the server, which is the other half of what the
+     * tests assert: the batch is not half-written.</p>
+     */
+    private static SQLException commitRefusal(Connection connection) throws SQLException {
+        try {
+            connection.commit();
+        } catch (SQLException refused) {
+            connection.rollback();
+            return refused;
+        }
+        connection.rollback();
+        throw new AssertionError(
+                "the transaction committed: the deferred constraint checks neither fired nor refused it");
+    }
+
+    /**
+     * Fires every deferred constraint check the transaction has queued, the way {@code COMMIT} would, and
+     * leaves the transaction open so the caller rolls it back.
+     *
+     * <p>{@code SET CONSTRAINTS ALL IMMEDIATE} runs a {@code DEFERRABLE INITIALLY DEFERRED} trigger now
+     * instead of at the end of the transaction — the same pass, with the same function and the same
+     * message, one statement early. The accepted transactions of this class are judged this way and not by
+     * {@code COMMIT} for one reason: an accepted book row is append-only, so it cannot be deleted from a
+     * shared container afterwards.</p>
+     */
+    private static void deferredPass(Connection connection) throws SQLException {
+        exec(connection, "SET CONSTRAINTS ALL IMMEDIATE");
+    }
+
+    /**
+     * The same pass, expected to refuse: the control that proves {@link #deferredPass(Connection)} is not a
+     * no-op. A refused check aborts the transaction, so this rolls it back and leaves the connection usable.
+     */
+    private static SQLException deferredPassRefusal(Connection connection) throws SQLException {
+        try {
+            deferredPass(connection);
+        } catch (SQLException refused) {
+            connection.rollback();
+            return refused;
+        }
+        connection.rollback();
+        throw new AssertionError("the deferred pass accepted the transaction and should have refused it");
     }
 }
