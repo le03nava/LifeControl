@@ -690,11 +690,18 @@ class AccountingSchemaMigrationIntegrationTest extends AbstractPostgresIntegrati
         var accountId = insertAccount(connection, companyId, "4200");
         var entryId = insertEntry(connection, companyId);
 
-        assertThat(refusal(connection, """
+        assertThat(refusal(
+                                connection,
+                                """
                                 INSERT INTO account_entry_line
                                     (id, company_id, entry_id, account_id, debit, credit, currency)
                                 VALUES (?::uuid, ?::uuid, ?::uuid, ?::uuid, 'NaN'::numeric, 0, ?)
-                                """, UUID.randomUUID(), companyId, entryId, accountId, TenantFixtures.SEED_CURRENCY)
+                                """,
+                                UUID.randomUUID(),
+                                companyId,
+                                entryId,
+                                accountId,
+                                TenantFixtures.SEED_CURRENCY)
                         .getMessage())
                 .as("PostgreSQL sorts NaN above every number and answers NaN = NaN with true, so a NaN debit "
                         + "passes `debit >= 0`, passes exclusivity against a zero credit and passes "
@@ -706,11 +713,18 @@ class AccountingSchemaMigrationIntegrationTest extends AbstractPostgresIntegrati
                 .as("the refused row stored nothing: an amount that is not a number is not half a line")
                 .isZero();
 
-        assertThat(refusal(connection, """
+        assertThat(refusal(
+                                connection,
+                                """
                                 INSERT INTO account_entry_line
                                     (id, company_id, entry_id, account_id, debit, credit, currency)
                                 VALUES (?::uuid, ?::uuid, ?::uuid, ?::uuid, 100, 'NaN'::numeric, ?)
-                                """, UUID.randomUUID(), companyId, entryId, accountId, TenantFixtures.SEED_CURRENCY)
+                                """,
+                                UUID.randomUUID(),
+                                companyId,
+                                entryId,
+                                accountId,
+                                TenantFixtures.SEED_CURRENCY)
                         .getMessage())
                 .as("the credit side is the same column family, so it is refused by the same rule")
                 .contains("ck_account_entry_line_finite");
