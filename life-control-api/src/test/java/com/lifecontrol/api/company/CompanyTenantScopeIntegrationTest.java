@@ -111,7 +111,9 @@ class CompanyTenantScopeIntegrationTest extends AbstractPostgresIntegrationTest 
             // are armed, so an unscoped DELETE removes zero rows and reports success — a tenant left behind
             // is precisely what record L27 found hiding behind a green run. `CompanyService.createCompany`
             // seeds the starter product catalog through `CompanyCreatedEvent`, and
-            // `product_categories.company_id` is a foreign key, so the children go first.
+            // `product_categories.company_id` is a foreign key, so the children go first. The accounting
+            // starter catalog is seeded the same way on `CompanyCreatedEvent`, and both
+            // `posting_rule.company_id` and `account.company_id` are foreign keys to `companies` too.
             var createdCompany = createdCompanyId;
             TenantFixtures.inTenant(createdCompany, () -> {
                 jdbcTemplate.update(
@@ -120,6 +122,8 @@ class CompanyTenantScopeIntegrationTest extends AbstractPostgresIntegrationTest 
                 jdbcTemplate.update(
                         "UPDATE product_categories SET parent_category_id = NULL WHERE company_id = ?", createdCompany);
                 jdbcTemplate.update("DELETE FROM product_categories WHERE company_id = ?", createdCompany);
+                jdbcTemplate.update("DELETE FROM posting_rule WHERE company_id = ?", createdCompany);
+                jdbcTemplate.update("DELETE FROM account WHERE company_id = ?", createdCompany);
                 jdbcTemplate.update("DELETE FROM companies WHERE id = ?", createdCompany);
             });
             createdCompanyId = null;

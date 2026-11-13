@@ -71,10 +71,14 @@ class StarterProductCategoryCompanyCreationIntegrationTest extends AbstractPostg
         // Leaf-first, for the reason ProductCategorySchemaMigrationIntegrationTest records: a parent cannot
         // be deleted while a child survives. And inside each company's own tenant, because
         // `product_categories` and `companies` are armed: an unscoped DELETE removes zero rows and reports
-        // success, which would leave a tenant behind for every other suite to count around.
+        // success, which would leave a tenant behind for every other suite to count around. The accounting
+        // starter catalog is seeded the same way on `CompanyCreatedEvent`, and both
+        // `posting_rule.company_id` and `account.company_id` are foreign keys to `companies` too.
         for (var createdCompanyId : createdCompanyIds) {
             TenantFixtures.inTenant(createdCompanyId, () -> {
                 deleteCatalogOf(createdCompanyId);
+                jdbcTemplate.update("DELETE FROM posting_rule WHERE company_id = ?", createdCompanyId);
+                jdbcTemplate.update("DELETE FROM account WHERE company_id = ?", createdCompanyId);
                 jdbcTemplate.update("DELETE FROM companies WHERE id = ?", createdCompanyId);
             });
         }
