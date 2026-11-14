@@ -11,7 +11,9 @@ import com.lifecontrol.api.company.dto.CompanySelectorResponse;
 import com.lifecontrol.api.company.event.CompanyCreatedEvent;
 import com.lifecontrol.api.company.exception.CompanyNotFoundException;
 import com.lifecontrol.api.company.exception.DuplicateCompanyException;
+import com.lifecontrol.api.company.exception.InvalidRegimenFiscalException;
 import com.lifecontrol.api.company.model.Company;
+import com.lifecontrol.api.company.model.RegimenFiscal;
 import com.lifecontrol.api.company.repository.CompanyRepository;
 import com.lifecontrol.api.country.exception.CountryNotFoundException;
 import com.lifecontrol.api.country.model.Country;
@@ -224,6 +226,8 @@ public class CompanyService {
                 .emailDomain(normalizeEmailDomain(request.emailDomain()))
                 .enabled(request.enabled() != null ? request.enabled() : true)
                 .currency(resolveCurrency(request.currency()).getCode())
+                .regimenFiscal(resolveRegimenFiscal(request.regimenFiscal()))
+                .fiscalZipCode(request.fiscalZipCode())
                 .address(buildAddress(request.address()))
                 .build();
 
@@ -270,6 +274,16 @@ public class CompanyService {
         if (!storedCurrency.equals(request.currency())) {
             company.setCurrency(resolveCurrency(request.currency()).getCode());
         }
+        // The two fiscal facts are optional, so an omitted value means "leave what is stored" and never
+        // "clear it" (S1 of odd/tasks/cfdi-fiscal-document.md, decision L6(a)): a PUT that edits a phone
+        // number must not silently leave the company unable to issue. A stated value replaces the stored one
+        // — but only the field the request states, so the regime and the place of issue are two decisions.
+        if (request.regimenFiscal() != null) {
+            company.setRegimenFiscal(resolveRegimenFiscal(request.regimenFiscal()));
+        }
+        if (request.fiscalZipCode() != null) {
+            company.setFiscalZipCode(request.fiscalZipCode());
+        }
         // Update address (dual-path: update existing Address entity or create new one)
         if (request.address() != null) {
             if (company.getAddress() != null) {
@@ -315,7 +329,9 @@ public class CompanyService {
                 company.getCreatedAt(),
                 company.getUpdatedAt(),
                 buildAddressResponse(company),
-                company.getCurrency());
+                company.getCurrency(),
+                company.getRegimenFiscal(),
+                company.getFiscalZipCode());
     }
 
     /**
@@ -356,6 +372,31 @@ public class CompanyService {
             throw new DisabledCurrencyException(currency);
         }
         return currency;
+    }
+
+    /**
+     * Resolves the issuer's fiscal regime against the closed vocabulary this tree declares, or {@code null}
+     * when the request states none.
+     *
+     * <p><b>Why the service and not bean validation.</b> The vocabulary is {@link RegimenFiscal}, and a
+     * {@code @Pattern} over nineteen codes would be a second copy of it in an annotation, free to drift. The
+     * refusal is a {@link InvalidRegimenFiscalException}, whose superclass is the tree's
+     * {@code FieldViolationException}: a 400 with {@code errors: {regimenFiscal: …}} beside the same sentence
+     * in {@code message}, so the client marks the control instead of matching wording.</p>
+     *
+     * <p>{@code null} stays {@code null}: S1 makes the fiscal identity required to issue and never required
+     * to sell, so the absence of a regime is a state and not an error.</p>
+     *
+     * @param code the code the request states, already normalized from blank by {@link CompanyRequest}
+     * @return the canonical code to store, or {@code null}
+     */
+    private static String resolveRegimenFiscal(String code) {
+        if (code == null) {
+            return null;
+        }
+        return RegimenFiscal.fromCode(code)
+                .orElseThrow(() -> new InvalidRegimenFiscalException(code))
+                .code();
     }
 
     /**

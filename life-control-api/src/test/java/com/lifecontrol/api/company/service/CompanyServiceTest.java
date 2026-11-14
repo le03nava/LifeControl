@@ -155,7 +155,9 @@ class CompanyServiceTest {
                 null,
                 true,
                 null,
-                "MXN");
+                "MXN",
+                null,
+                null);
 
         testCompanyRequestWithAddress = new CompanyRequest(
                 "2",
@@ -169,7 +171,9 @@ class CompanyServiceTest {
                 true,
                 new AddressRequest(
                         "Av. Reforma", "456", "B", "Juarez", "67890", "Guadalajara", "Jalisco", testCountryId),
-                "MXN");
+                "MXN",
+                null,
+                null);
     }
 
     @Nested
@@ -544,7 +548,9 @@ class CompanyServiceTest {
                     null,
                     false,
                     null,
-                    "MXN");
+                    "MXN",
+                    null,
+                    null);
 
             when(companyRepository.findById(testCompanyId)).thenReturn(Optional.of(testCompany));
             when(companyRepository.existsByRfcAndIdNot(updateRequest.rfc(), testCompanyId))
@@ -585,7 +591,9 @@ class CompanyServiceTest {
                     null,
                     new AddressRequest(
                             "Calle Nueva", "999", "1", "Col Nueva", "54321", "Monterrey", "Nuevo Leon", testCountryId),
-                    "MXN");
+                    "MXN",
+                    null,
+                    null);
 
             var country = Country.builder()
                     .id(testCountryId)
@@ -635,7 +643,7 @@ class CompanyServiceTest {
         void updateCompany_DuplicateRfc_ThrowsException() {
             // Arrange
             CompanyRequest duplicateRfcRequest = new CompanyRequest(
-                    "1", "Test Company", null, null, "DUPLICATE_RFC", null, null, null, null, null, "MXN");
+                    "1", "Test Company", null, null, "DUPLICATE_RFC", null, null, null, null, null, "MXN", null, null);
 
             when(companyRepository.findById(testCompanyId)).thenReturn(Optional.of(testCompany));
             when(companyRepository.existsByRfcAndIdNot("DUPLICATE_RFC", testCompanyId))
@@ -662,7 +670,9 @@ class CompanyServiceTest {
                     null,
                     null,
                     null,
-                    "MXN");
+                    "MXN",
+                    null,
+                    null);
 
             when(companyRepository.findById(testCompanyId)).thenReturn(Optional.of(testCompany));
             when(companyRepository.existsByRfcAndIdNot(updateRequest.rfc(), testCompanyId))
@@ -694,7 +704,9 @@ class CompanyServiceTest {
                     null,
                     null,
                     null,
-                    "MXN");
+                    "MXN",
+                    null,
+                    null);
 
             when(companyRepository.findById(testCompanyId)).thenReturn(Optional.of(testCompany));
             when(companyRepository.existsByRfcAndIdNot("XAXX010101000", testCompanyId))
@@ -722,7 +734,9 @@ class CompanyServiceTest {
                     "ACME.com",
                     true,
                     null,
-                    "MXN");
+                    "MXN",
+                    null,
+                    null);
 
             when(companyRepository.findById(testCompanyId)).thenReturn(Optional.of(testCompany));
             when(companyRepository.existsByRfcAndIdNot(any(), eq(testCompanyId)))
@@ -758,7 +772,9 @@ class CompanyServiceTest {
                     "   ",
                     true,
                     null,
-                    "MXN");
+                    "MXN",
+                    null,
+                    null);
 
             when(companyRepository.findById(testCompanyId)).thenReturn(Optional.of(testCompany));
             when(companyRepository.existsByRfcAndIdNot(any(), eq(testCompanyId)))
@@ -789,7 +805,9 @@ class CompanyServiceTest {
                     null,
                     true,
                     null,
-                    "MXN");
+                    "MXN",
+                    null,
+                    null);
 
             when(companyRepository.findById(testCompanyId)).thenReturn(Optional.of(testCompany));
             when(companyRepository.existsByRfcAndIdNot(any(), eq(testCompanyId)))
@@ -827,7 +845,9 @@ class CompanyServiceTest {
                     null,
                     true,
                     null,
-                    "XXX");
+                    "XXX",
+                    null,
+                    null);
 
             when(companyRepository.findById(testCompanyId)).thenReturn(Optional.of(testCompany));
             when(companyRepository.existsByRfcAndIdNot(any(), eq(testCompanyId)))
@@ -863,7 +883,9 @@ class CompanyServiceTest {
                     null,
                     true,
                     null,
-                    "USD");
+                    "USD",
+                    null,
+                    null);
 
             when(companyRepository.findById(testCompanyId)).thenReturn(Optional.of(testCompany));
             when(companyRepository.existsByRfcAndIdNot(any(), eq(testCompanyId)))
@@ -898,7 +920,9 @@ class CompanyServiceTest {
                     null,
                     true,
                     null,
-                    "XXX");
+                    "XXX",
+                    null,
+                    null);
 
             when(companyRepository.findById(testCompanyId)).thenReturn(Optional.of(testCompany));
             when(companyRepository.existsByRfcAndIdNot(any(), eq(testCompanyId)))
@@ -966,7 +990,9 @@ class CompanyServiceTest {
                     null,
                     true,
                     null,
-                    "XXX");
+                    "XXX",
+                    null,
+                    null);
 
             when(companyRepository.findById(testCompanyId)).thenReturn(Optional.of(testCompany));
             when(companyRepository.existsByRfcAndIdNot(any(), eq(testCompanyId)))
@@ -1004,7 +1030,9 @@ class CompanyServiceTest {
                     null,
                     true,
                     null,
-                    "XXX");
+                    "XXX",
+                    null,
+                    null);
 
             when(companyRepository.findById(testCompanyId)).thenReturn(Optional.of(testCompany));
             when(companyRepository.existsByRfcAndIdNot(any(), eq(testCompanyId)))
@@ -1106,7 +1134,9 @@ class CompanyServiceTest {
                     null,
                     true,
                     new AddressRequest("Av. Reforma", "456", "B", "Juarez", "67890", "Guadalajara", "Jalisco", null),
-                    "MXN");
+                    "MXN",
+                    null,
+                    null);
 
             when(companyRepository.existsByCompanyKey(any())).thenReturn(false);
             when(companyRepository.existsByRfc(any())).thenReturn(false);
@@ -1157,7 +1187,9 @@ class CompanyServiceTest {
                     null,
                     true,
                     null,
-                    "MXN");
+                    "MXN",
+                    null,
+                    null);
 
             when(companyRepository.existsByCompanyKey(any())).thenReturn(false);
             when(companyRepository.existsByRfc(any())).thenReturn(false);
@@ -1186,7 +1218,9 @@ class CompanyServiceTest {
                     "  Acme.COM  ",
                     true,
                     null,
-                    "MXN");
+                    "MXN",
+                    null,
+                    null);
 
             when(companyRepository.existsByCompanyKey(any())).thenReturn(false);
             when(companyRepository.existsByRfc(any())).thenReturn(false);
@@ -1287,7 +1321,9 @@ class CompanyServiceTest {
                     null,
                     true,
                     null,
-                    currency);
+                    currency,
+                    null,
+                    null);
         }
     }
 }

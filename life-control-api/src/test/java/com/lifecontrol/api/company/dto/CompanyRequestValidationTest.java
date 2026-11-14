@@ -44,7 +44,9 @@ class CompanyRequestValidationTest {
                     null,
                     true,
                     null,
-                    "MXN");
+                    "MXN",
+                    null,
+                    null);
             Set<ConstraintViolation<CompanyRequest>> violations = validator.validate(request);
             assertThat(violations).isEmpty();
         }
@@ -63,7 +65,9 @@ class CompanyRequestValidationTest {
                     null,
                     true,
                     null,
-                    "MXN");
+                    "MXN",
+                    null,
+                    null);
             Set<ConstraintViolation<CompanyRequest>> violations = validator.validate(request);
             assertThat(violations).isEmpty();
         }
@@ -82,7 +86,9 @@ class CompanyRequestValidationTest {
                     null,
                     true,
                     null,
-                    "MXN");
+                    "MXN",
+                    null,
+                    null);
             Set<ConstraintViolation<CompanyRequest>> violations = validator.validate(request);
             assertThat(violations).isNotEmpty();
             assertThat(violations).anyMatch(v -> v.getPropertyPath().toString().equals("rfc"));
@@ -92,7 +98,19 @@ class CompanyRequestValidationTest {
         @DisplayName("should fail validation with blank RFC")
         void blankRfc_HasViolation() {
             var request = new CompanyRequest(
-                    "1", "Test Company", 1, "Test S.A.", "", "555-1234", "test@test.com", null, true, null, "MXN");
+                    "1",
+                    "Test Company",
+                    1,
+                    "Test S.A.",
+                    "",
+                    "555-1234",
+                    "test@test.com",
+                    null,
+                    true,
+                    null,
+                    "MXN",
+                    null,
+                    null);
             Set<ConstraintViolation<CompanyRequest>> violations = validator.validate(request);
             assertThat(violations).isNotEmpty();
             assertThat(violations).anyMatch(v -> v.getPropertyPath().toString().equals("rfc"));
@@ -118,7 +136,9 @@ class CompanyRequestValidationTest {
                     null,
                     true,
                     null,
-                    "MXN");
+                    "MXN",
+                    null,
+                    null);
             Set<ConstraintViolation<CompanyRequest>> violations = validator.validate(request);
             assertThat(violations).isEmpty();
         }
@@ -137,7 +157,9 @@ class CompanyRequestValidationTest {
                     null,
                     true,
                     null,
-                    "MXN");
+                    "MXN",
+                    null,
+                    null);
             Set<ConstraintViolation<CompanyRequest>> violations = validator.validate(request);
             assertThat(violations).isNotEmpty();
             assertThat(violations).anyMatch(v -> v.getPropertyPath().toString().equals("tipoPersonaId"));
@@ -157,7 +179,9 @@ class CompanyRequestValidationTest {
                     null,
                     true,
                     null,
-                    "MXN");
+                    "MXN",
+                    null,
+                    null);
             Set<ConstraintViolation<CompanyRequest>> violations = validator.validate(request);
             assertThat(violations).isNotEmpty();
             assertThat(violations).anyMatch(v -> v.getPropertyPath().toString().equals("tipoPersonaId"));
@@ -177,7 +201,9 @@ class CompanyRequestValidationTest {
                     null,
                     true,
                     null,
-                    "MXN");
+                    "MXN",
+                    null,
+                    null);
             Set<ConstraintViolation<CompanyRequest>> violations = validator.validate(request);
             assertThat(violations).isNotEmpty();
             assertThat(violations).anyMatch(v -> v.getPropertyPath().toString().equals("tipoPersonaId"));
@@ -192,7 +218,19 @@ class CompanyRequestValidationTest {
         @DisplayName("should fail validation when companyName is blank")
         void blankCompanyName_HasViolation() {
             var request = new CompanyRequest(
-                    "1", "", 1, "Test S.A.", "GOML850101XXX", "555-1234", "test@test.com", null, true, null, "MXN");
+                    "1",
+                    "",
+                    1,
+                    "Test S.A.",
+                    "GOML850101XXX",
+                    "555-1234",
+                    "test@test.com",
+                    null,
+                    true,
+                    null,
+                    "MXN",
+                    null,
+                    null);
             Set<ConstraintViolation<CompanyRequest>> violations = validator.validate(request);
             assertThat(violations).isNotEmpty();
             assertThat(violations).anyMatch(v -> v.getPropertyPath().toString().equals("companyName"));
@@ -212,7 +250,9 @@ class CompanyRequestValidationTest {
                     null,
                     true,
                     null,
-                    "MXN");
+                    "MXN",
+                    null,
+                    null);
             Set<ConstraintViolation<CompanyRequest>> violations = validator.validate(request);
             assertThat(violations).isNotEmpty();
             assertThat(violations).anyMatch(v -> v.getPropertyPath().toString().equals("companyKey"));
@@ -232,7 +272,9 @@ class CompanyRequestValidationTest {
                     null,
                     true,
                     null,
-                    "MXN");
+                    "MXN",
+                    null,
+                    null);
             Set<ConstraintViolation<CompanyRequest>> violations = validator.validate(request);
             assertThat(violations).isNotEmpty();
             assertThat(violations).anyMatch(v -> v.getPropertyPath().toString().equals("email"));
@@ -257,7 +299,9 @@ class CompanyRequestValidationTest {
                     null,
                     true,
                     null,
-                    "MXN");
+                    "MXN",
+                    null,
+                    null);
             Set<ConstraintViolation<CompanyRequest>> violations = validator.validate(request);
             assertThat(violations).isEmpty();
         }
@@ -281,6 +325,8 @@ class CompanyRequestValidationTest {
                     null,
                     true,
                     null,
+                    null,
+                    null,
                     null);
             Set<ConstraintViolation<CompanyRequest>> violations = validator.validate(request);
             assertThat(violations).isNotEmpty();
@@ -303,7 +349,9 @@ class CompanyRequestValidationTest {
                     null,
                     true,
                     null,
-                    "");
+                    "",
+                    null,
+                    null);
             Set<ConstraintViolation<CompanyRequest>> violations = validator.validate(request);
             assertThat(violations).isNotEmpty();
             assertThat(violations).anyMatch(v -> v.getPropertyPath().toString().equals("currency"));
@@ -328,7 +376,9 @@ class CompanyRequestValidationTest {
                     "acme.com",
                     true,
                     null,
-                    "MXN");
+                    "MXN",
+                    null,
+                    null);
             Set<ConstraintViolation<CompanyRequest>> violations = validator.validate(request);
             assertThat(violations).isEmpty();
         }
@@ -348,7 +398,9 @@ class CompanyRequestValidationTest {
                     emailDomain,
                     true,
                     null,
-                    "MXN");
+                    "MXN",
+                    null,
+                    null);
             Set<ConstraintViolation<CompanyRequest>> violations = validator.validate(request);
             assertThat(violations).isNotEmpty();
             assertThat(violations).anyMatch(v -> v.getPropertyPath().toString().equals("emailDomain"));
@@ -368,7 +420,9 @@ class CompanyRequestValidationTest {
                     null,
                     true,
                     null,
-                    "MXN");
+                    "MXN",
+                    null,
+                    null);
             var blankRequest = new CompanyRequest(
                     "1",
                     "Test Company",
@@ -380,7 +434,9 @@ class CompanyRequestValidationTest {
                     "",
                     true,
                     null,
-                    "MXN");
+                    "MXN",
+                    null,
+                    null);
             assertThat(validator.validate(nullRequest)).isEmpty();
             assertThat(validator.validate(blankRequest)).isEmpty();
         }

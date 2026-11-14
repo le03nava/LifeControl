@@ -202,7 +202,9 @@ class CompanyTenantScopeIntegrationTest extends AbstractPostgresIntegrationTest 
                 null,
                 true,
                 null,
-                "MXN"));
+                "MXN",
+                null,
+                null));
         createdCompanyId = created.id();
 
         assertThat(scopeAtTheTransaction.get())

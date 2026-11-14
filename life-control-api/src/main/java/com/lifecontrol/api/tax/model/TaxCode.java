@@ -60,6 +60,31 @@ public class TaxCode {
     @Column(name = "enabled", nullable = false)
     private Boolean enabled = true;
 
+    /**
+     * The authority's {@code Impuesto} code a CFDI tax node states — {@code '002'} for IVA — or {@code null}
+     * when this code has no mapping (S3 of {@code odd/tasks/cfdi-fiscal-document.md},
+     * {@code V103__tax_code_sat_mapping.sql}).
+     *
+     * <p><b>Why it is nullable and unconstrained.</b> Decision 11 of
+     * {@code docs/adr/0007-fiscal-document-is-separate.md} refuses to pin the authority's catalog in this
+     * tree, and a code with no mapping has to be <b>visible as null</b> so a stamp refuses it by name instead
+     * of reading a value somebody guessed. The pair is what lets a document tell an exempt line from a
+     * zero-rate one, which before this column was the same {@code rate = 0} and a different string in
+     * {@code code}.</p>
+     */
+    @Column(name = "sat_impuesto", length = 3)
+    private String satImpuesto;
+
+    /**
+     * The authority's {@code TipoFactor} a CFDI tax node states — {@code 'Tasa'}, {@code 'Cuota'} or
+     * {@code 'Exento'} — or {@code null} when this code states no tax node at all.
+     *
+     * <p>{@code NA} is that case and it is deliberate: "not subject to the tax" is the absence of a tax node,
+     * not a tax of zero ({@code V103} states the mapping and its reasoning).</p>
+     */
+    @Column(name = "sat_tipo_factor", length = 10)
+    private String satTipoFactor;
+
     /** Default constructor for JPA. */
     protected TaxCode() {}
 
@@ -73,5 +98,13 @@ public class TaxCode {
 
     public Boolean getEnabled() {
         return enabled;
+    }
+
+    public String getSatImpuesto() {
+        return satImpuesto;
+    }
+
+    public String getSatTipoFactor() {
+        return satTipoFactor;
     }
 }

@@ -73,7 +73,14 @@ public class CompanyController {
 
     @PostMapping
     @PreAuthorize("hasAnyRole('" + ADMIN + "','" + COMPANY + "')")
-    @Operation(summary = "Create a new company", description = "Creates a new company with the provided details")
+    @Operation(
+            summary = "Create a new company",
+            description = "Creates a new company with the provided details. regimenFiscal is a SAT "
+                    + "c_RegimenFiscal code (601, 603, 605, 606, 607, 608, 610, 611, 612, 614, 615, 616, 620, "
+                    + "621, 622, 623, 624, 625, 626) and fiscalZipCode is the five-digit place of issue; both "
+                    + "are optional because they are required to issue a fiscal document and never required "
+                    + "to sell. An unknown regime code or a postal code that is not five digits is a 400 that "
+                    + "names the field.")
     public ResponseEntity<CompanyResponse> createCompany(@Valid @RequestBody CompanyRequest request) {
         CompanyResponse response = companyService.createCompany(request);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
@@ -81,7 +88,12 @@ public class CompanyController {
 
     @PutMapping("/{id}")
     @PreAuthorize("hasAnyRole('" + ADMIN + "','" + COMPANY + "')")
-    @Operation(summary = "Update a company", description = "Updates an existing company with the provided details")
+    @Operation(
+            summary = "Update a company",
+            description = "Updates an existing company with the provided details. regimenFiscal and "
+                    + "fiscalZipCode are replaced only when the request states them: an omitted value keeps "
+                    + "the stored one, because both are optional and a company must not lose its fiscal "
+                    + "identity on an unrelated edit.")
     public ResponseEntity<CompanyResponse> updateCompany(
             @PathVariable UUID id, @Valid @RequestBody CompanyRequest request) {
         CompanyResponse response = companyService.updateCompany(id, request);

@@ -11,6 +11,12 @@ import java.util.UUID;
  * this tenant's documents are stated in. It is read-only here because it is stated when the company is
  * created; the field exists so a money screen never has to guess the code the way the Angular POS does
  * today with {@code DEFAULT_CURRENCY_CODE}.</p>
+ *
+ * <p>{@code regimenFiscal} and {@code fiscalZipCode} are the issuer's fiscal identity (S1 of
+ * {@code odd/tasks/cfdi-fiscal-document.md}); both are {@code null} until the company declares them, because
+ * they are required to issue a fiscal document and never required to sell. {@code fiscalZipCode} is the
+ * place of issue the document freezes at stamp time, not the mailing address: the mailing one is
+ * {@code address.zipCode} and is a different column with a different shape.</p>
  */
 public record CompanyResponse(
         UUID id,
@@ -26,4 +32,6 @@ public record CompanyResponse(
         LocalDateTime createdAt,
         LocalDateTime updatedAt,
         AddressResponse address,
-        String currency) {}
+        String currency,
+        String regimenFiscal,
+        String fiscalZipCode) {}
