@@ -99,6 +99,11 @@ public class TaxCodeService {
     }
 
     private TaxCodeResponse toResponse(TaxCode taxCode) {
-        return new TaxCodeResponse(taxCode.getCode(), taxCode.getLabel(), taxCode.getEnabled());
+        return new TaxCodeResponse(
+                taxCode.getCode(),
+                taxCode.getLabel(),
+                taxCode.getEnabled(),
+                taxCode.getSatImpuesto(),
+                taxCode.getSatTipoFactor());
     }
 }

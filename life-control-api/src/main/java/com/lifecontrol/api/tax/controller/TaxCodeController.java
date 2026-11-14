@@ -49,7 +49,9 @@ public class TaxCodeController {
     @Operation(
             summary = "Get all tax codes",
             description = "Returns the platform tax-code catalog. Only enabled codes are returned unless "
-                    + "?includeDisabled=true is passed, which also returns the retired ones.")
+                    + "?includeDisabled=true is passed, which also returns the retired ones. Each row carries "
+                    + "its SAT coordinates — satImpuesto and satTipoFactor — which are null for a code with "
+                    + "no mapping; NA states none at all, because a not-applicable line has no tax node.")
     public ResponseEntity<List<TaxCodeResponse>> getAllTaxCodes(
             @RequestParam(name = "includeDisabled", defaultValue = "false") boolean includeDisabled) {
         return ResponseEntity.ok(taxCodeService.getAllTaxCodes(includeDisabled));

@@ -298,3 +298,18 @@ is recorded because it is the argument for decision 11 — the shape of a fiscal
 up, not one to recall.
 
 Accepted with those corrections in place.
+
+## Amendments after acceptance
+
+**2026-11-14 — the issuer's place of issue is a column of its own, and this document's schema block did not list
+it.** Reading `S1` of `odd/tasks/cfdi-fiscal-document.md` against the `## Schema` block above found the gap.
+Decision 8 puts the postal code of the place of issue on the **document**, and the block gives `companies` only
+`regimen_fiscal`; `S1` states both facts on the issuer — `companies` gains "a regime with a closed vocabulary and
+a postal code, both required to issue and neither required to sell". Both readings hold, because they are two
+rows of one fact: the company declares its place of issue **once**, and every document freezes its own copy at
+stamp time (decision 8, `S9`). The column is `companies.fiscal_zip_code VARCHAR(5)`, nullable, with a named
+`CHECK` for exactly five digits, added by `V102`. `companies.zip_code` was refused as its source: it is a
+twenty-character mailing field whose shape nothing validates, and a fiscal fact that shares a column with a
+mailing address is one nobody can rely on afterwards. The values of the regime vocabulary are **not** written
+here, per decision 11: the enum and its mirrored `CHECK` live in code and in `V102`, so a catalog reissue lands
+as a migration and never as a silent acceptance.

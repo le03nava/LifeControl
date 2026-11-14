@@ -68,6 +68,7 @@ public record ProductRequest(
         String shortName,
 
         @Size(max = 20, message = "satCode must not exceed 20 characters")
+        @Pattern(regexp = "\\d{8}", message = "satCode must be eight digits (SAT ClaveProdServ)")
         String satCode,
 
         String taxCode,
@@ -83,6 +84,24 @@ public record ProductRequest(
         String variantMode,
 
         @Valid List<ProductVariantRequest> variants) {
+
+    /**
+     * One absent value for the fiscal key: a blank {@code satCode} becomes {@code null}, so the {@code @Pattern}
+     * above is asked about a value or about nothing and never about an empty string.
+     *
+     * <p>{@code products.sat_code} is optional and validated (S4 of {@code odd/tasks/cfdi-fiscal-document.md},
+     * {@code V104__product_sat_code_format.sql}): the predicate is the one
+     * {@code ck_product_categories_sat_code_format} gives the category's key since {@code V34}, so a product an
+     * operator has not classified stays savable and a key that is present is always eight digits. The
+     * normalization is the same one {@code ProductCategoryRequest} does, for the same reason: without it a
+     * blank value reaches the column and fails its {@code CHECK} with a 500 instead of being the absence it
+     * means.</p>
+     */
+    public ProductRequest {
+        if (satCode != null && satCode.isBlank()) {
+            satCode = null;
+        }
+    }
 
     /**
      * The pre-mode shape, kept so every caller that predates {@code variant_mode} keeps compiling and

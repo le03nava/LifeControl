@@ -65,6 +65,32 @@ public class Company extends Auditable {
     @Column(name = "currency", length = 3, nullable = false)
     private String currency;
 
+    /**
+     * The issuer's fiscal regime: a code of SAT's {@code c_RegimenFiscal} catalog, or {@code null} while the
+     * company has not declared one (S1 of {@code odd/tasks/cfdi-fiscal-document.md},
+     * {@code V102__company_fiscal_identity.sql}).
+     *
+     * <p><b>Why the code string and not an {@code @Enumerated} constant.</b> The column is
+     * {@code VARCHAR(3)} holding {@code '601'}, the same shape {@code currency} has, and the authority's code
+     * is a digit string no Java constant could equal. The vocabulary lives in {@link RegimenFiscal}, which the
+     * service resolves before the value reaches this field; the {@code CHECK} named
+     * {@code ck_companies_regimen_fiscal} is the same vocabulary stated to every writer that bypasses the
+     * API.</p>
+     */
+    @Column(name = "regimen_fiscal", length = 3)
+    private String regimenFiscal;
+
+    /**
+     * The place of issue the fiscal document freezes at stamp time: five digits, and deliberately not the
+     * mailing {@link #zipCode} (L6(b) of the same record).
+     *
+     * <p>Nullable for the same reason as {@link #regimenFiscal}: the document needs it, the sale never does.
+     * {@code ck_companies_fiscal_zip_code} refuses anything but five digits, so a value in this field is
+     * always a postal code a CFDI can state.</p>
+     */
+    @Column(name = "fiscal_zip_code", length = 5)
+    private String fiscalZipCode;
+
     @Column(name = "street")
     private String street;
 
@@ -158,6 +184,14 @@ public class Company extends Auditable {
         return currency;
     }
 
+    public String getRegimenFiscal() {
+        return regimenFiscal;
+    }
+
+    public String getFiscalZipCode() {
+        return fiscalZipCode;
+    }
+
     public String getStreet() {
         return street;
     }
@@ -237,6 +271,14 @@ public class Company extends Auditable {
 
     public void setCurrency(String currency) {
         this.currency = currency;
+    }
+
+    public void setRegimenFiscal(String regimenFiscal) {
+        this.regimenFiscal = regimenFiscal;
+    }
+
+    public void setFiscalZipCode(String fiscalZipCode) {
+        this.fiscalZipCode = fiscalZipCode;
     }
 
     public void setStreet(String street) {
@@ -335,6 +377,16 @@ public class Company extends Auditable {
 
         public Builder currency(String currency) {
             company.currency = currency;
+            return this;
+        }
+
+        public Builder regimenFiscal(String regimenFiscal) {
+            company.regimenFiscal = regimenFiscal;
+            return this;
+        }
+
+        public Builder fiscalZipCode(String fiscalZipCode) {
+            company.fiscalZipCode = fiscalZipCode;
             return this;
         }
 
