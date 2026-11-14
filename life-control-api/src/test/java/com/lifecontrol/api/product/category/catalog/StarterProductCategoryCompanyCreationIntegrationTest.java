@@ -73,10 +73,12 @@ class StarterProductCategoryCompanyCreationIntegrationTest extends AbstractPostg
         // `product_categories` and `companies` are armed: an unscoped DELETE removes zero rows and reports
         // success, which would leave a tenant behind for every other suite to count around. The accounting
         // starter catalog is seeded the same way on `CompanyCreatedEvent`, and both
-        // `posting_rule.company_id` and `account.company_id` are foreign keys to `companies` too.
+        // `posting_rule.company_id` and `account.company_id` are foreign keys to `companies` too. The rule's
+        // lines point at the rule and at an account, so they go before both.
         for (var createdCompanyId : createdCompanyIds) {
             TenantFixtures.inTenant(createdCompanyId, () -> {
                 deleteCatalogOf(createdCompanyId);
+                jdbcTemplate.update("DELETE FROM posting_rule_line WHERE company_id = ?", createdCompanyId);
                 jdbcTemplate.update("DELETE FROM posting_rule WHERE company_id = ?", createdCompanyId);
                 jdbcTemplate.update("DELETE FROM account WHERE company_id = ?", createdCompanyId);
                 jdbcTemplate.update("DELETE FROM companies WHERE id = ?", createdCompanyId);

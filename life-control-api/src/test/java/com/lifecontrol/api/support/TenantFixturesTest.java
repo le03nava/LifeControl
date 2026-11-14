@@ -80,6 +80,9 @@ class TenantFixturesTest {
     @AfterEach
     void restoreTheThread() {
         TenantFixtures.unbindTransactionManager();
+        // Same reason: the container login is a JVM-wide static, and this suite must not leave its own state on
+        // it for the next class.
+        TenantFixtures.unbindContainerSuperuser();
         TenantScope.clear();
     }
 
@@ -267,6 +270,28 @@ class TenantFixturesTest {
     void statingNoTenantRefuses() {
         assertThatThrownBy(() -> TenantFixtures.stateTenantWithinTheOpenTransaction(null, mock(JdbcOperations.class)))
                 .as("a null would be a second way to widen the scope, and it is not this helper's decision to make")
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("company");
+    }
+
+    @Test
+    @DisplayName("deleteBook refuses with no container login bound, instead of building a pool per call")
+    void deleteBookRefusesWithNoContainerSuperuserBound() {
+        TenantFixtures.unbindContainerSuperuser();
+
+        assertThatThrownBy(() -> TenantFixtures.deleteBook(UUID.randomUUID()))
+                .as("a fallback that opened a pool here would leak one HikariDataSource per test method — 26 of them"
+                        + " from the two suites that delete a book in @AfterEach — and the container's 300 slots ran"
+                        + " out in 27 unrelated migration suites")
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("bindContainerSuperuser");
+    }
+
+    @Test
+    @DisplayName("deleteBook refuses a null company, instead of deleting nothing and reading as a pass")
+    void deleteBookRefusesANullCompany() {
+        assertThatThrownBy(() -> TenantFixtures.deleteBook(null))
+                .as("a delete that removes nothing reads as a pass, which is the failure mode the guard exists for")
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("company");
     }
