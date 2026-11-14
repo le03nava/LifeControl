@@ -2,7 +2,13 @@
 export interface SalesOrder {
   id: string;
   orderNumber: string;
-  customerId: string;
+  /**
+   * The receiver, or `null` for a counter sale (`S2`/`S6`).
+   *
+   * Nullable end to end since `V105` deleted the seeded 'Cliente General' the API used to default to: an empty
+   * value is the sale's own statement, so nothing here may substitute a customer for it.
+   */
+  customerId: string | null;
   customerName?: string;
   companyStoreId: string;
   companyStoreName?: string;
@@ -88,7 +94,8 @@ export interface SalesOrderItem {
 
 /** Request body for creating or updating a Sales Order header. */
 export interface SalesOrderRequest {
-  customerId?: string;
+  /** The receiver, or absent for a counter sale: the API states no default any more. */
+  customerId?: string | null;
   companyStoreId: string;
   shiftId?: string;
   userId?: string;

@@ -44,7 +44,15 @@ public class SalesOrder extends Auditable {
     @Column(name = "doc_number", length = 40, nullable = false)
     private String docNumber;
 
-    @Column(name = "customer_id", nullable = false)
+    /**
+     * The receiver, or {@code null} for a counter sale.
+     *
+     * <p>Required until {@code V105} made the column nullable and deleted the seeded {@code 'Cliente General'}
+     * the API used to default to (S2). A null here is a fact about the sale — nobody to invoice — and not a
+     * missing value; the composite pointer {@code V106} added keeps it legal, because {@code MATCH SIMPLE}
+     * skips a key with a null in it.</p>
+     */
+    @Column(name = "customer_id")
     private UUID customerId;
 
     @Column(name = "company_store_id", nullable = false)

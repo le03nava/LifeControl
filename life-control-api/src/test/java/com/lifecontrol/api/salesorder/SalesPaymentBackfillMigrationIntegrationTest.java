@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
+import com.lifecontrol.api.support.TenantFixtures;
 import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.DriverManager;
@@ -504,10 +505,20 @@ class SalesPaymentBackfillMigrationIntegrationTest extends AbstractPostgresInteg
                         + "', 'V86 Zone')",
                 "INSERT INTO company_stores (id, company_id, company_zone_id, store_name, enabled)" + " VALUES ('"
                         + store + "', '" + company + "', '" + zone + "', 'V86 Store', true)",
-                "INSERT INTO customers (id, name, sales_channel) VALUES ('" + customer + "', 'V86 Customer',"
-                        + " 'STORE')");
+                customerStatement(company, customer, "V86 Customer"));
 
         return new Tree(company, store, customer);
+    }
+
+    /**
+     * The customer insert, as a statement, from the shared fixture: the two suites that seed a document by
+     * building a statement list still get the one definition of a {@code customers} row, and the fixture is
+     * what knows the table has no {@code company_id} before {@code V105}.
+     */
+    private String customerStatement(UUID company, UUID customer, String name) throws SQLException {
+        try (Connection connection = DriverManager.getConnection(jdbcUrl, OWNER, OWNER_PASSWORD)) {
+            return TenantFixtures.insertCustomerStatement(connection, company, customer, name);
+        }
     }
 
     /** One row of the platform catalog, with a name no seed states so the fixture names only its own row. */

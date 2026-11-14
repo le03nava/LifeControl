@@ -9,6 +9,7 @@ import com.lifecontrol.api.purchaseorder.model.PurchaseOrderState;
 import com.lifecontrol.api.salesorder.model.SalesOrderItemState;
 import com.lifecontrol.api.salesorder.model.SalesOrderState;
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
+import com.lifecontrol.api.support.TenantFixtures;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
@@ -307,7 +308,7 @@ class DocumentStateSchemaMigrationIntegrationTest extends AbstractPostgresIntegr
                         company,
                         "INSERT INTO sales_orders (id, order_number, customer_id, company_store_id, order_date,"
                                 + " status_id, status, company_id, doc_type, seq_period, seq_value, doc_number)"
-                                + " VALUES ('" + UUID.randomUUID() + "', 'SO-202610-09999', '" + customerId()
+                                + " VALUES ('" + UUID.randomUUID() + "', 'SO-202610-09999', '" + customerId(company)
                                 + "', '" + storeOf(company) + "', '2026-10-05 10:00:00', '" + UUID.randomUUID()
                                 + "', 'DRAFT', '" + company + "', 'SALES_ORDER', '202610', 9999,"
                                 + " 'SO-202610-09999')"))
@@ -521,7 +522,7 @@ class DocumentStateSchemaMigrationIntegrationTest extends AbstractPostgresIntegr
         var number = "SO-202610-" + String.format("%05d", seq);
         var columns = new StringBuilder("INSERT INTO sales_orders (id, order_number, customer_id, company_store_id,"
                 + " order_date, status_id, company_id, doc_type, seq_period, seq_value, doc_number");
-        var values = new StringBuilder(" VALUES ('" + id + "', '" + number + "', '" + customerId() + "', '"
+        var values = new StringBuilder(" VALUES ('" + id + "', '" + number + "', '" + customerId(company) + "', '"
                 + storeOf(company) + "', '2026-10-05 10:00:00', '" + statusId + "', '" + company
                 + "', 'SALES_ORDER', '202610', " + seq + ", '" + number + "'");
         if (status != null) {
@@ -569,7 +570,7 @@ class DocumentStateSchemaMigrationIntegrationTest extends AbstractPostgresIntegr
         var number = "SO-202610-" + String.format("%05d", seq);
         var document = "INSERT INTO sales_orders (id, order_number, customer_id, company_store_id, order_date,"
                 + " status, company_id, doc_type, seq_period, seq_value, doc_number) VALUES ('" + id + "', '"
-                + number + "', '" + customerId() + "', '" + storeOf(company) + "', '2026-10-05 10:00:00', '"
+                + number + "', '" + customerId(company) + "', '" + storeOf(company) + "', '2026-10-05 10:00:00', '"
                 + state + "', '" + company + "', 'SALES_ORDER', '202610', " + seq + ", '" + number + "')";
         var creation = "INSERT INTO status_transition (company_id, document_type, document_id, from_status,"
                 + " to_status, actor, reason) VALUES ('" + company + "', 'SALES_ORDER', '" + id + "', NULL, '"
@@ -686,15 +687,25 @@ class DocumentStateSchemaMigrationIntegrationTest extends AbstractPostgresIntegr
                         + storeOf(company) + "' LIMIT 1");
     }
 
-    private UUID customerId() throws SQLException {
+    /**
+     * The customer the order names, created through
+     * {@link TenantFixtures#insertCustomer(java.sql.Connection, UUID, UUID, String)} — the one place a suite
+     * writes a {@code customers} row.
+     *
+     * <p>The company is a parameter and not "the first row in the table": {@code customers} is armed from
+     * {@code V105}, so at head an unscoped read answers no row at all, and a global lookup would attach one
+     * tenant's customer to another tenant's order. Before {@code V105} the helper writes the shape that
+     * schema has, and the migration derives the company from this very order (S3); at head it states the
+     * company itself.</p>
+     */
+    private UUID customerId(UUID company) throws SQLException {
         var existing = readUnscoped("SELECT id FROM customers LIMIT 1", true);
-        return existing != null ? UUID.fromString(existing) : insertCustomer();
-    }
-
-    private UUID insertCustomer() throws SQLException {
-        var id = UUID.randomUUID();
-        execute(null, "INSERT INTO customers (id, name, sales_channel) VALUES ('" + id + "', 'V66 Customer', 'STORE')");
-        return id;
+        if (existing != null) {
+            return UUID.fromString(existing);
+        }
+        try (Connection connection = DriverManager.getConnection(jdbcUrl, OWNER, OWNER_PASSWORD)) {
+            return TenantFixtures.insertCustomer(connection, company, UUID.randomUUID(), "V66 Customer");
+        }
     }
 
     private UUID supplierId(UUID company) throws SQLException {

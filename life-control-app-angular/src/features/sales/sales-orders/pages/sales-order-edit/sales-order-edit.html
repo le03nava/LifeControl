@@ -74,6 +74,18 @@
        what blanked the screen and dropped the scan input's focus. -->
   @if (!isEditMode() || !initialLoading()) {
     <form [formGroup]="headerForm()" (ngSubmit)="onSave()" novalidate>
+      <!-- Receiver. Empty is a counter sale, and that is a fact about the sale, not a missing value:
+           nobody to invoice (`S2`/`S6`). The label is the state, never a substituted customer. -->
+      <div class="receiver-field">
+        <app-customer-selector
+          [initialCustomer]="selectedCustomer()"
+          (customerSelected)="onCustomerSelected($event)"
+        />
+        @if (isCounterSale()) {
+          <span class="receiver-empty" data-testid="counter-sale">Mostrador</span>
+        }
+      </div>
+
       <!-- Line Items Table (edit mode only — items require an existing order) -->
       @if (isEditMode()) {
         <app-sales-order-item-table

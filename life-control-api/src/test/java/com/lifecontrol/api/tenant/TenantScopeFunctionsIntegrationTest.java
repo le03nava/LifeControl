@@ -32,7 +32,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
  *
  * <ul>
  *   <li>{@code unprotectedTenantTablesReturnsNothingOnceThePoliciesAreArmed} and
- *       {@code theListHoldsExactlyTheTwentyFiveArmedTables} are the same pin T2 wrote, from the other side.
+ *       {@code theListHoldsExactlyTheThirtySevenArmedTables} are the same pin T2 wrote, from the other side.
  *       S2 decided the policy set is «solo las 15 tablas que ya tienen company_id», and {@code companies}
  *       — which carries no {@code company_id} and is isolated by its own {@code id} — is the sixteenth.
  *       The seventeenth is {@code variant_listing}, which {@code V58} arms in the migration that creates it
@@ -84,8 +84,8 @@ class TenantScopeFunctionsIntegrationTest extends AbstractPostgresIntegrationTes
             "user_preferences");
 
     /**
-     * The thirty-six armed rows of {@code V53}, {@code V58}, {@code V60}, {@code V65}, {@code V67},
-     * {@code V82}, {@code V83}, {@code V97} and {@code V99}, as
+     * The thirty-seven armed rows of {@code V53}, {@code V58}, {@code V60}, {@code V65}, {@code V67},
+     * {@code V82}, {@code V83}, {@code V97}, {@code V99} and {@code V105}, as
      * {@code table:kind:key}, frozen literally for the same reason as {@link #S2_TENANT_TABLES}: the kind and
      * the key column <b>are</b> the predicate, so an armed table with the wrong one is a policy that filters
      * the wrong thing — and it passes any assertion that only counts rows. Twenty-nine and not fifteen
@@ -94,7 +94,8 @@ class TenantScopeFunctionsIntegrationTest extends AbstractPostgresIntegrationTes
      * {@code document_sequence}, {@code goods_receipts} and {@code sales_orders} are the three ADR-0003 arms,
      * {@code status_transition} is the one {@code V67} arms, and {@code sale_payment} and
      * {@code sale_payment_void} are the two {@code V83} arms, and {@code tax_rate} is the one {@code V82} arms,
-     * and {@code posting_rule_line} is the one {@code V99} arms.
+     * {@code posting_rule_line} is the one {@code V99} arms, and {@code customers} is the one {@code V105}
+     * arms in the migration that gives it the tenant column.
      */
     private static final List<String> ARMED_TENANT_TABLES = List.of(
             "account:tenant:company_id",
@@ -107,6 +108,7 @@ class TenantScopeFunctionsIntegrationTest extends AbstractPostgresIntegrationTes
             "company_stores:tenant:company_id",
             "company_zones:tenant:company_id",
             "cost_center:tenant:company_id",
+            "customers:tenant:company_id",
             "departments:tenant:company_id",
             "document_sequence:tenant:company_id",
             "employees:tenant:company_id",
@@ -226,8 +228,8 @@ class TenantScopeFunctionsIntegrationTest extends AbstractPostgresIntegrationTes
     // ──────────────────────────────────────
 
     @Test
-    @DisplayName("the list holds exactly the thirty-six armed tables, with their kind and their key")
-    void theListHoldsExactlyTheThirtySixArmedTables() {
+    @DisplayName("the list holds exactly the thirty-seven armed tables, with their kind and their key")
+    void theListHoldsExactlyTheThirtySevenArmedTables() {
         var rows = jdbcTemplate.queryForList("""
                 SELECT table_name::text || ':' || policy_kind || ':' || key_column
                   FROM tenant_table
@@ -267,7 +269,7 @@ class TenantScopeFunctionsIntegrationTest extends AbstractPostgresIntegrationTes
     // ──────────────────────────────────────
 
     @Test
-    @DisplayName("unprotected_tenant_tables() returns nothing: the frozen fifteen are the armed thirty-six")
+    @DisplayName("unprotected_tenant_tables() returns nothing: the frozen fifteen are the armed thirty-seven")
     void unprotectedTenantTablesReturnsNothingOnceThePoliciesAreArmed() {
         var unprotected = jdbcTemplate.queryForList("SELECT t::text FROM unprotected_tenant_tables() t", String.class);
 
@@ -287,7 +289,7 @@ class TenantScopeFunctionsIntegrationTest extends AbstractPostgresIntegrationTes
                         + "(armed by V82), the last six are ADR-0008's accounting book (armed by V97) and "
                         + "posting_rule_line is V99's (armed by V99)")
                 .containsAll(S2_TENANT_TABLES)
-                .hasSize(S2_TENANT_TABLES.size() + 21);
+                .hasSize(S2_TENANT_TABLES.size() + 22);
     }
 
     // ──────────────────────────────────────

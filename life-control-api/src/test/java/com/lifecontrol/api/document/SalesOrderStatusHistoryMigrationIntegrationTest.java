@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
+import com.lifecontrol.api.support.TenantFixtures;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
@@ -320,7 +321,7 @@ class SalesOrderStatusHistoryMigrationIntegrationTest extends AbstractPostgresIn
                 "SO-202611-" + String.format("%05d", seq) + "-" + id.toString().substring(0, 4);
         return "INSERT INTO sales_orders (id, order_number, customer_id, company_store_id, order_date, status_id,"
                 + " status, company_id, doc_type, seq_period, seq_value, doc_number, created_at)"
-                + " VALUES ('" + id + "', '" + number + "', '" + customerId() + "', '" + storeOf(company)
+                + " VALUES ('" + id + "', '" + number + "', '" + customerId(company) + "', '" + storeOf(company)
                 + "', '" + createdAt + "', '" + statusId("SALES_ORDER", state) + "', '" + state + "', '" + company
                 + "', 'SALES_ORDER', '202611', " + seq + ", '" + number + "', '" + createdAt + "')";
     }
@@ -335,7 +336,7 @@ class SalesOrderStatusHistoryMigrationIntegrationTest extends AbstractPostgresIn
                 "SO-202611-" + String.format("%05d", seq) + "-" + id.toString().substring(0, 4);
         return "INSERT INTO sales_orders (id, order_number, customer_id, company_store_id, order_date, status,"
                 + " company_id, doc_type, seq_period, seq_value, doc_number, created_at)"
-                + " VALUES ('" + id + "', '" + number + "', '" + customerId() + "', '" + storeOf(company)
+                + " VALUES ('" + id + "', '" + number + "', '" + customerId(company) + "', '" + storeOf(company)
                 + "', '" + createdAt + "', '" + state + "', '" + company
                 + "', 'SALES_ORDER', '202611', " + seq + ", '" + number + "', '" + createdAt + "')";
     }
@@ -392,15 +393,25 @@ class SalesOrderStatusHistoryMigrationIntegrationTest extends AbstractPostgresIn
         return readUuid(company, "SELECT id FROM company_stores WHERE company_id = '" + company + "'");
     }
 
-    private UUID customerId() throws SQLException {
+    /**
+     * The customer the order names, created through
+     * {@link TenantFixtures#insertCustomer(java.sql.Connection, UUID, UUID, String)} — the one place a suite
+     * writes a {@code customers} row.
+     *
+     * <p>The company is a parameter and not "the first row in the table": {@code customers} is armed from
+     * {@code V105}, so at head an unscoped read answers no row at all, and a global lookup would attach one
+     * tenant's customer to another tenant's order. Before {@code V105} the helper writes the shape that
+     * schema has, and the migration derives the company from this very order (S3); at head it states the
+     * company itself.</p>
+     */
+    private UUID customerId(UUID company) throws SQLException {
         var existing = readUnscoped("SELECT id FROM customers LIMIT 1", true);
-        return existing != null ? UUID.fromString(existing) : insertCustomer();
-    }
-
-    private UUID insertCustomer() throws SQLException {
-        var id = UUID.randomUUID();
-        execute(null, "INSERT INTO customers (id, name, sales_channel) VALUES ('" + id + "', 'V68 Customer', 'STORE')");
-        return id;
+        if (existing != null) {
+            return UUID.fromString(existing);
+        }
+        try (Connection connection = DriverManager.getConnection(jdbcUrl, OWNER, OWNER_PASSWORD)) {
+            return TenantFixtures.insertCustomer(connection, company, UUID.randomUUID(), "V68 Customer");
+        }
     }
 
     private UUID statusId(String typeName, String state) throws SQLException {

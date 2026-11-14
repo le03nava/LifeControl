@@ -127,6 +127,10 @@ class StatusTransitionRecorderIntegrationTest extends AbstractPostgresIntegratio
                     for (var sql : List.of(
                             "DELETE FROM status_transition WHERE company_id = ?",
                             "DELETE FROM sales_orders WHERE company_id = ?",
+                            // The customers this suite created for the company, before the company itself:
+                            // `V105` made `customers.company_id` a foreign key, so the row that names the
+                            // company has to go first.
+                            "DELETE FROM customers WHERE company_id = ?",
                             "DELETE FROM store_locations WHERE company_store_id IN"
                                     + " (SELECT id FROM company_stores WHERE company_id = ?)",
                             "DELETE FROM store_zones WHERE company_store_id IN"
@@ -621,7 +625,7 @@ class StatusTransitionRecorderIntegrationTest extends AbstractPostgresIntegratio
     private UUID insertSalesOrder(UUID company, long seq, String catalogStatus) {
         var id = UUID.randomUUID();
         var number = "SO-202611-" + String.format("%05d", seq);
-        var customer = customerId();
+        var customer = customerId(company);
         // Scoped, because `company_stores` is armed: an unscoped read answers no row at all.
         var store = TenantFixtures.inTenant(
                 company,
@@ -646,15 +650,23 @@ class StatusTransitionRecorderIntegrationTest extends AbstractPostgresIntegratio
         return id;
     }
 
-    /** The one global reference a sales order names; created once, on the container's first use. */
-    private UUID customerId() {
-        var existing = jdbcTemplate.queryForList("SELECT id FROM customers LIMIT 1", UUID.class);
-        if (!existing.isEmpty()) {
-            return existing.get(0);
-        }
-        var id = UUID.randomUUID();
-        jdbcTemplate.update("INSERT INTO customers (id, name, sales_channel) VALUES (?, 'V67 Customer', 'STORE')", id);
-        return id;
+    /**
+     * The customer this company's order names, created once per company through the shared fixture.
+     *
+     * <p><b>Per company and not "the first row in the table".</b> {@code V105} armed {@code customers}, so an
+     * unscoped read answers no row at all, and reusing one global customer for every tenant would write
+     * exactly the cross-tenant pointer {@code V106}'s composite foreign key refuses. The read is stated in
+     * the company's scope for the same reason: the table filters its owner.</p>
+     */
+    private UUID customerId(UUID company) {
+        return TenantFixtures.inTenant(company, () -> {
+            var existing = jdbcTemplate.queryForList(
+                    "SELECT id FROM customers WHERE company_id = ? LIMIT 1", UUID.class, company);
+            if (!existing.isEmpty()) {
+                return existing.get(0);
+            }
+            return TenantFixtures.insertCustomer(jdbcTemplate, company, UUID.randomUUID(), "V67 Customer");
+        });
     }
 
     // ─── the writes the cases need ───────────────────────────────────────────────────────────────────

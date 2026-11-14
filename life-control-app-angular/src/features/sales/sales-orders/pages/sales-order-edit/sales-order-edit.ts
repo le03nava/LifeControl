@@ -12,7 +12,6 @@ import {
 import { HttpErrorResponse, HttpClient } from '@angular/common/http';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { catchError, map, throwError } from 'rxjs';
 import { NonNullableFormBuilder, FormGroup, Validators, ReactiveFormsModule } from '@angular/forms';
 import { SalesOrderService } from '../../data/sales-order.service';
 import { ProfileService } from '@features/user/profile/data/profile.service';
@@ -25,6 +24,7 @@ import {
 } from '../../components/sales-order-item-table/sales-order-item-table';
 import { ProductVariantSelector } from '../../components/product-variant-selector/product-variant-selector';
 import { SalesOrderChargePanel } from '../../components/sales-order-charge-panel/sales-order-charge-panel';
+import { CustomerSelector } from '../../components/customer-selector/customer-selector';
 import type {
   SalesOrder,
   SalesOrderRequest,
@@ -32,7 +32,6 @@ import type {
   SalePaymentRequest,
   PaymentMethodOption,
   CustomerOption,
-  Page,
 } from '../../models/sales-order.models';
 import type { ProductVariantOption } from '../../models/sales-order.models';
 import { NotificationService } from '@shared/data/notification';
@@ -58,6 +57,7 @@ import { ErrorBanner } from '@shared/ui';
     SalesOrderItemTable,
     ProductVariantSelector,
     SalesOrderChargePanel,
+    CustomerSelector,
     MatButtonModule,
     MatIconModule,
     MatTooltipModule,
@@ -180,14 +180,34 @@ export class SalesOrderEdit implements OnInit {
     return order.statusName === 'Pending';
   });
 
-  // ─── Default customer (create mode) ─────────────────────
-  readonly defaultCustomer = signal<CustomerOption | null>(null);
-  private readonly DEFAULT_CUSTOMER_ID = '00000000-0000-0000-0000-000000000001';
+  // ─── Receiver ──────────────────────────────────────────
+  //
+  // A sale states a receiver or none, and none is a counter sale: no receiver, no fiscal profile, nothing to
+  // invoice (`S2` of `odd/tasks/customer-tenant-isolation.md`). The page used to fetch a *fixed* customer id
+  // (`00000000-0000-0000-0000-000000000001`, 'Cliente General') before the order existed and pre-select it, so
+  // every sale created here named a receiver nobody chose — and `V105` deleted that row. The id is the sale's
+  // own statement now: empty means a counter sale, and the only fetch is the one for an id an existing order
+  // already names (the scoped read, which answers 404 for a customer of another company).
+
+  /** The receiver's id as the sale states it; empty means a counter sale. */
+  readonly receiverId = signal('');
+
+  /** The receiver's name, presentation only. Empty when the sale states an id the read could not name. */
+  private readonly receiverName = signal('');
+
+  /** The customer the selector displays, or `null` when the sale states none. */
+  readonly selectedCustomer = computed<CustomerOption | null>(() => {
+    const id = this.receiverId();
+    const name = this.receiverName();
+    return id && name ? { id, name } : null;
+  });
+
+  /** Whether this sale has no receiver: the selector's empty state, rendered as «Mostrador». */
+  readonly isCounterSale = computed(() => this.receiverId() === '');
 
   // ─── Auto-creation on init (create mode) ─────────────────
   readonly creating = signal(false);
   private readonly _storeReady = signal(false);
-  private readonly _customerReady = signal(false);
 
   // ─── Profile step readiness (the store name is resolved once it finished) ───
   //
@@ -220,9 +240,10 @@ export class SalesOrderEdit implements OnInit {
   readonly charging = signal(false);
 
   constructor() {
-    // When both store and customer data are ready, auto-create the order
+    // When the store is known, auto-create the order. The receiver is not a precondition: a counter sale
+    // states none, and waiting for one is what the deleted default fetch used to satisfy.
     effect(() => {
-      if (this._storeReady() && this._customerReady()) {
+      if (this._storeReady()) {
         this.autoCreateOrder();
       }
     });
@@ -245,7 +266,6 @@ export class SalesOrderEdit implements OnInit {
       this.loadPaymentMethods();
     } else {
       this.loadProfile();
-      this.loadDefaultCustomer();
       this.loadPaymentMethods();
     }
   }
@@ -324,47 +344,33 @@ export class SalesOrderEdit implements OnInit {
       });
   }
 
-  /** Load default customer: try UUID lookup first, fall back to name search. */
-  private loadDefaultCustomer(): void {
+  /**
+   * States the receiver the order names, and loads its name for display.
+   *
+   * <p><b>Why it is a read and not a default.</b> The deleted fetch asked for a <b>fixed</b> id before any
+   * order existed, which is how every counter sale acquired a fictitious receiver. This one asks for the id
+   * <b>this document</b> states, through the same scoped endpoint (`/customers/{id}`), so a customer of another
+   * company answers 404 and nothing is fabricated. A failed name read leaves the id as the sale's own
+   * statement: the receiver exists, the page just cannot name it.</p>
+   */
+  private loadReceiverName(id: string): void {
     this.http
-      .get<CustomerOption>(`${this.configService.apiUrl}/customers/${this.DEFAULT_CUSTOMER_ID}`)
-      .pipe(
-        catchError((err: HttpErrorResponse) => {
-          if (err.status === 404 || err.status === 0) {
-            return this.http
-              .get<Page<CustomerOption>>(`${this.configService.apiUrl}/customers`, {
-                params: {
-                  search: 'PUBLICO EN GENERAL',
-                  page: '0',
-                  size: '5',
-                },
-              })
-              .pipe(
-                map((page) => {
-                  const found = page.content.find((c) => c.name === 'PUBLICO EN GENERAL');
-                  if (found) return found;
-                  throw new Error('Default customer not found in fallback search');
-                }),
-              );
-          }
-          return throwError(() => err);
-        }),
-        takeUntilDestroyed(this.destroyRef),
-      )
+      .get<CustomerOption>(`${this.configService.apiUrl}/customers/${id}`)
+      .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (customer) => {
-          this.headerForm().controls.customerId.setValue(customer.id);
-          this.defaultCustomer.set(customer);
-          this._customerReady.set(true);
-        },
-        error: () => {
-          // Non-critical — customer field will be empty for manual selection
-          this._customerReady.set(true);
-        },
+        next: (customer) => this.receiverName.set(customer.name),
+        error: () => this.receiverName.set(''),
       });
   }
 
-  /** Auto-create the sales order when both store and customer data are ready. */
+  /** Called by the customer selector when the operator picks a receiver. */
+  onCustomerSelected(customer: CustomerOption): void {
+    this.receiverId.set(customer.id);
+    this.receiverName.set(customer.name);
+    this.headerForm().controls.customerId.setValue(customer.id);
+  }
+
+  /** Auto-create the sales order once the store is known. A counter sale states no receiver. */
   private autoCreateOrder(): void {
     if (this.isEditMode()) return;
 
@@ -494,11 +500,15 @@ export class SalesOrderEdit implements OnInit {
 
   private populateForm(order: SalesOrder): void {
     this.headerForm().patchValue({
-      customerId: order.customerId,
+      customerId: order.customerId ?? '',
       companyStoreId: order.companyStoreId,
       shiftId: order.shiftId ?? undefined,
       comments: null,
     });
+    this.receiverId.set(order.customerId ?? '');
+    if (order.customerId) {
+      this.loadReceiverName(order.customerId);
+    }
   }
 
   private populateLineItems(items: SalesOrder['items']): void {
@@ -883,8 +893,10 @@ export class SalesOrderEdit implements OnInit {
 
   private createForm(): FormGroup<SalesOrderHeaderControl> {
     return this.fb.group({
-      customerId: this.fb.control('', Validators.required),
-      companyStoreId: this.fb.control(''),
+      // Not required: empty is a counter sale (`S2`). The store is, because the API refuses a sale without
+      // one and the sale number is allocated per tenant, which the store is what resolves.
+      customerId: this.fb.control(''),
+      companyStoreId: this.fb.control('', Validators.required),
       shiftId: this.fb.control(''),
       comments: this.fb.control<string | null>(null),
     });

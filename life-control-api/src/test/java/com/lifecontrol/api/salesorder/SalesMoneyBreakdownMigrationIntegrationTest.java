@@ -3,6 +3,7 @@ package com.lifecontrol.api.salesorder;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
+import com.lifecontrol.api.support.TenantFixtures;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
@@ -697,8 +698,7 @@ class SalesMoneyBreakdownMigrationIntegrationTest extends AbstractPostgresIntegr
                 + " SELECT gen_random_uuid(), '" + company + "', c.id FROM countries c"
                 + " WHERE c.country_code = 'MX'");
         statements.addAll(java.util.List.of(hierarchyStatements(company, store)));
-        statements.add(
-                "INSERT INTO customers (id, name, sales_channel) VALUES ('" + customer + "', 'V80 Customer', 'STORE')");
+        statements.add(customerStatement(company, customer, "V80 Customer"));
         statements.add("INSERT INTO products (id, sku, name, company_id) VALUES ('" + product + "', 'V80-" + suffix
                 + "', 'V80 Product', '" + company + "')");
         statements.add("INSERT INTO product_variants (id, product_id, bar_code, variant_name, measure_unit_id,"
@@ -718,6 +718,17 @@ class SalesMoneyBreakdownMigrationIntegrationTest extends AbstractPostgresIntegr
         statements.add(creationRow(company, "SALES_ORDER_ITEM", lineB, "PENDING"));
         inOneTransaction(company, statements.toArray(String[]::new));
         return document;
+    }
+
+    /**
+     * The customer insert, as a statement, from the shared fixture: the two suites that seed a document by
+     * building a statement list still get the one definition of a {@code customers} row, and the fixture is
+     * what knows the table has no {@code company_id} before {@code V105}.
+     */
+    private String customerStatement(UUID company, UUID customer, String name) throws SQLException {
+        try (Connection connection = DriverManager.getConnection(jdbcUrl, OWNER, OWNER_PASSWORD)) {
+            return TenantFixtures.insertCustomerStatement(connection, company, customer, name);
+        }
     }
 
     /** The company's geography down to a store, which the document keys require. */

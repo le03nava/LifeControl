@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
+import com.lifecontrol.api.support.TenantFixtures;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
@@ -276,7 +277,7 @@ class DocumentIdentityMigrationIntegrationTest extends AbstractPostgresIntegrati
                         // fails on the identity, which is the constraint this case is about.
                         "INSERT INTO sales_orders (id, order_number, customer_id, company_store_id, order_date,"
                                 + " status, company_id, doc_type, seq_period, seq_value, doc_number)"
-                                + " VALUES ('" + UUID.randomUUID() + "', 'SO-202610-00001', '" + customerId()
+                                + " VALUES ('" + UUID.randomUUID() + "', 'SO-202610-00001', '" + customerId(company)
                                 + "', '" + storeOf(company) + "', '2026-10-20 10:00:00', 'DRAFT', '"
                                 + company + "', 'SALES_ORDER', '202610', 1, 'SO-202610-00001')"))
                 .as("the identity is the parts, and a duplicate insert is what fails")
@@ -455,7 +456,8 @@ class DocumentIdentityMigrationIntegrationTest extends AbstractPostgresIntegrati
         execute(
                 company,
                 "INSERT INTO sales_orders (id, order_number, customer_id, company_store_id, order_date, status_id)"
-                        + " VALUES ('" + id + "', '" + orderNumber + "', '" + customerId() + "', '" + storeOf(company)
+                        + " VALUES ('" + id + "', '" + orderNumber + "', '" + customerId(company) + "', '"
+                        + storeOf(company)
                         + "', '" + orderDate + "', '" + statusId("SALES_ORDER") + "')");
         return id;
     }
@@ -509,15 +511,25 @@ class DocumentIdentityMigrationIntegrationTest extends AbstractPostgresIntegrati
                         + storeOf(company) + "' LIMIT 1");
     }
 
-    private UUID customerId() throws SQLException {
+    /**
+     * The customer the order names, created through
+     * {@link TenantFixtures#insertCustomer(java.sql.Connection, UUID, UUID, String)} — the one place a suite
+     * writes a {@code customers} row.
+     *
+     * <p>The company is a parameter and not "the first row in the table": {@code customers} is armed from
+     * {@code V105}, so at head an unscoped read answers no row at all, and a global lookup would attach one
+     * tenant's customer to another tenant's order. Before {@code V105} the helper writes the shape that
+     * schema has, and the migration derives the company from this very order (S3); at head it states the
+     * company itself.</p>
+     */
+    private UUID customerId(UUID company) throws SQLException {
         var existing = readUnscoped("SELECT id FROM customers LIMIT 1", true);
-        return existing != null ? UUID.fromString(existing) : insertCustomer();
-    }
-
-    private UUID insertCustomer() throws SQLException {
-        var id = UUID.randomUUID();
-        execute(null, "INSERT INTO customers (id, name, sales_channel) VALUES ('" + id + "', 'V64 Customer', 'STORE')");
-        return id;
+        if (existing != null) {
+            return UUID.fromString(existing);
+        }
+        try (Connection connection = DriverManager.getConnection(jdbcUrl, OWNER, OWNER_PASSWORD)) {
+            return TenantFixtures.insertCustomer(connection, company, UUID.randomUUID(), "V64 Customer");
+        }
     }
 
     private UUID supplierId(UUID company) throws SQLException {
