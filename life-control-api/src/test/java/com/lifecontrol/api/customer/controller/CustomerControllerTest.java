@@ -76,11 +76,30 @@ class CustomerControllerTest {
                 "PEGJ800101ABC",
                 "TIENDA",
                 true,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
                 now,
                 now);
 
-        testCustomerRequest =
-                new CustomerRequest("Juan Pérez", "juan@example.com", "+525512345678", "PEGJ800101ABC", "TIENDA", true);
+        testCustomerRequest = new CustomerRequest(
+                "Juan Pérez",
+                "juan@example.com",
+                "+525512345678",
+                "PEGJ800101ABC",
+                "TIENDA",
+                true,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null);
     }
 
     // ─────────────────────────────────────────────
@@ -205,7 +224,8 @@ class CustomerControllerTest {
         @Test
         @DisplayName("should return 400 when required fields are missing")
         void createCustomer_MissingRequiredFields_Returns400() throws Exception {
-            var invalidRequest = new CustomerRequest("", null, null, null, "", null);
+            var invalidRequest =
+                    new CustomerRequest("", null, null, null, "", null, null, null, null, null, null, null, null);
 
             mockMvc.perform(post("/api/customers")
                             .contentType(MediaType.APPLICATION_JSON)

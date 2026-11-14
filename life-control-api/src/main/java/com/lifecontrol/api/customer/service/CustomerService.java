@@ -4,8 +4,12 @@ import com.lifecontrol.api.common.tenant.TenantScope;
 import com.lifecontrol.api.customer.dto.CustomerRequest;
 import com.lifecontrol.api.customer.dto.CustomerResponse;
 import com.lifecontrol.api.customer.exception.CustomerNotFoundException;
+import com.lifecontrol.api.customer.exception.InvalidReceiverRegimenFiscalException;
+import com.lifecontrol.api.customer.exception.InvalidReceiverUsoCfdiException;
 import com.lifecontrol.api.customer.model.Customer;
 import com.lifecontrol.api.customer.repository.CustomerRepository;
+import com.lifecontrol.api.fiscal.model.RegimenFiscal;
+import com.lifecontrol.api.fiscal.model.UsoCfdi;
 import java.util.Optional;
 import java.util.UUID;
 import org.slf4j.Logger;
@@ -32,6 +36,16 @@ import org.springframework.util.StringUtils;
  * tenant to read under, so the list is empty, an id is a 404, and a create is a 403 — because a customer
  * with no company is a row the schema refuses, and turning that into a 500 would report a server fault for
  * a token that simply names no tenant.</p>
+ *
+ * <p><b>The fiscal profile's two halves.</b> The receiver's profile (S2 of
+ * {@code odd/tasks/cfdi-fiscal-document.md}, decision L8 of the same record) is written here: the create path
+ * copies all seven facts and the update path copies <b>only the ones the request states</b>, so a PUT that edits
+ * a phone number cannot silently make a customer unable to be invoiced. The all-or-nothing rule — the four facts
+ * a stamp consumes are stated together or not at all — is refused at the boundary by
+ * {@code CustomerRequest}'s {@code @FiscalProfileComplete}, and the issue-time question is
+ * {@link Customer#fiscalProfileComplete()}, which the document slice calls. Two vocabularies are resolved here
+ * against the enums in {@code com.lifecontrol.api.fiscal.model}, because a {@code @Pattern} over their codes
+ * would be a second copy of each catalog, free to drift.</p>
  */
 @Service
 public class CustomerService {
@@ -82,6 +96,15 @@ public class CustomerService {
                 .rfc(request.rfc())
                 .salesChannel(request.salesChannel())
                 .enabled(request.enabled())
+                // The profile is copied whole on a create: the boundary already refused every partial shape, so
+                // what arrives here is either all four facts or none of them plus at most the optional half.
+                .legalName(request.legalName())
+                .regimenFiscal(resolveRegimenFiscal(request.regimenFiscal()))
+                .fiscalStreet(request.fiscalStreet())
+                .fiscalZipCode(request.fiscalZipCode())
+                .fiscalState(request.fiscalState())
+                .fiscalCountryId(request.fiscalCountryId())
+                .defaultUsoCfdi(resolveDefaultUsoCfdi(request.defaultUsoCfdi()))
                 .build();
 
         var saved = customerRepository.save(customer);
@@ -102,6 +125,31 @@ public class CustomerService {
         customer.setRfc(request.rfc());
         customer.setSalesChannel(request.salesChannel());
         customer.setEnabled(request.enabled());
+        // The fiscal profile is copied one stated field at a time, the shape `CompanyService.updateCompany` uses
+        // for the issuer's two: an omitted value means "leave what is stored" and never "clear it", so a PUT that
+        // edits a phone number must not silently leave a declared profile behind. The all-or-nothing rule is the
+        // request's, refused before this method runs, so a request that reaches here states all four or none.
+        if (request.legalName() != null) {
+            customer.setLegalName(request.legalName());
+        }
+        if (request.regimenFiscal() != null) {
+            customer.setRegimenFiscal(resolveRegimenFiscal(request.regimenFiscal()));
+        }
+        if (request.fiscalStreet() != null) {
+            customer.setFiscalStreet(request.fiscalStreet());
+        }
+        if (request.fiscalZipCode() != null) {
+            customer.setFiscalZipCode(request.fiscalZipCode());
+        }
+        if (request.fiscalState() != null) {
+            customer.setFiscalState(request.fiscalState());
+        }
+        if (request.fiscalCountryId() != null) {
+            customer.setFiscalCountryId(request.fiscalCountryId());
+        }
+        if (request.defaultUsoCfdi() != null) {
+            customer.setDefaultUsoCfdi(resolveDefaultUsoCfdi(request.defaultUsoCfdi()));
+        }
 
         var updated = customerRepository.save(customer);
         logger.info("Customer updated: id={}", id);
@@ -184,7 +232,55 @@ public class CustomerService {
                 customer.getRfc(),
                 customer.getSalesChannel(),
                 customer.getEnabled(),
+                customer.getLegalName(),
+                customer.getRegimenFiscal(),
+                customer.getFiscalStreet(),
+                customer.getFiscalZipCode(),
+                customer.getFiscalState(),
+                customer.getFiscalCountryId(),
+                customer.getDefaultUsoCfdi(),
                 customer.getCreatedAt(),
                 customer.getUpdatedAt());
+    }
+
+    // ─── The two fiscal vocabularies ─────────────────────────────────────
+
+    /**
+     * Resolves the receiver's regime against the closed vocabulary this tree declares, or {@code null} when the
+     * request states none.
+     *
+     * <p><b>Why the service and not bean validation.</b> The vocabulary is {@link RegimenFiscal}, and a
+     * {@code @Pattern} over nineteen codes would be a second copy of it in an annotation, free to drift. The
+     * refusal is an {@link InvalidReceiverRegimenFiscalException}, whose superclass is the tree's
+     * {@code FieldViolationException}: a 400 with {@code errors: {regimenFiscal: …}} beside the same sentence in
+     * {@code message}.</p>
+     *
+     * @param code the code the request states, already normalized from blank by {@code CustomerRequest}
+     * @return the canonical code to store, or {@code null}
+     */
+    private static String resolveRegimenFiscal(String code) {
+        if (code == null) {
+            return null;
+        }
+        return RegimenFiscal.fromCode(code)
+                .orElseThrow(() -> new InvalidReceiverRegimenFiscalException(code))
+                .code();
+    }
+
+    /**
+     * Resolves the receiver's default use of the voucher against the closed vocabulary this tree declares, or
+     * {@code null} when the request states none. The same shape as {@link #resolveRegimenFiscal(String)}, for the
+     * same reason: a {@code @Pattern} over twenty-five codes would be a second copy of the catalog.
+     *
+     * @param code the code the request states, already normalized from blank by {@code CustomerRequest}
+     * @return the canonical code to store, or {@code null}
+     */
+    private static String resolveDefaultUsoCfdi(String code) {
+        if (code == null) {
+            return null;
+        }
+        return UsoCfdi.fromCode(code)
+                .orElseThrow(() -> new InvalidReceiverUsoCfdiException(code))
+                .code();
     }
 }

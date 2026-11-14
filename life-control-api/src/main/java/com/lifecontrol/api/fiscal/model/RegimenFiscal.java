@@ -1,4 +1,4 @@
-package com.lifecontrol.api.company.model;
+package com.lifecontrol.api.fiscal.model;
 
 import java.util.Arrays;
 import java.util.List;
@@ -8,6 +8,14 @@ import java.util.Optional;
  * The closed vocabulary of the issuer's fiscal regime — SAT's {@code c_RegimenFiscal} catalog, as the one
  * fact {@code companies.regimen_fiscal} may hold (S1 of {@code odd/tasks/cfdi-fiscal-document.md},
  * {@code V102__company_fiscal_identity.sql}).
+ *
+ * <p><b>Why this vocabulary is not the issuer's.</b> It was {@code com.lifecontrol.api.company.model} while the
+ * issuer was its only user. {@code odd/tasks/cfdi-fiscal-document.md} decision L8(a) moved it here, to
+ * {@code com.lifecontrol.api.fiscal.model}, because the receiver's fiscal profile
+ * ({@code customers.regimen_fiscal}, {@code V107}) reads <b>the same</b> catalog: two copies, one for the issuer
+ * and one for the receiver, would be two copies free to drift, and a customer importing
+ * {@code company.model} would say the vocabulary belongs to the issuer. The SAT catalog is a fact of the fiscal
+ * document, not of a company.</p>
  *
  * <p><b>Why the column stores the code and not this constant's name.</b> {@code companies.regimen_fiscal}
  * is a {@code VARCHAR(3)} holding {@code '601'} — the same shape {@code companies.currency} has, a code
@@ -22,7 +30,8 @@ import java.util.Optional;
  * {@code ProductAttributeKind} mirrors {@code ck_product_attribute_definitions_kind}: the database is the
  * authority for every writer that bypasses the API, and the enum is what lets the API refuse an unknown
  * code with a 400 that names the field instead of a constraint violation that names only the rule.
- * {@code RegimenFiscalIntegrationTest} pins the two together by reading the constraint back.</p>
+ * {@code CompanyFiscalIdentityHttpIntegrationTest} pins the two together for the issuer and
+ * {@code CustomerFiscalProfileHttpIntegrationTest} for the receiver, each by reading the constraint back.</p>
  *
  * <p><b>Why the codes are not derived from the ADR.</b> Decision 11 of
  * {@code docs/adr/0007-fiscal-document-is-separate.md} refuses to pin catalog values in the ADR: they
@@ -102,8 +111,8 @@ public enum RegimenFiscal {
     }
 
     /**
-     * The SAT code this regime is declared by — the value {@code companies.regimen_fiscal} stores and a CFDI
-     * states.
+     * The SAT code this regime is declared by — the value {@code companies.regimen_fiscal} and
+     * {@code customers.regimen_fiscal} store and a CFDI states.
      */
     public String code() {
         return code;

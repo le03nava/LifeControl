@@ -1,7 +1,7 @@
 package com.lifecontrol.api.company.exception;
 
-import com.lifecontrol.api.company.model.RegimenFiscal;
 import com.lifecontrol.api.exception.FieldViolationException;
+import com.lifecontrol.api.fiscal.model.RegimenFiscal;
 
 /**
  * Thrown when a company states a fiscal regime the SAT catalog — as this tree declares it — does not
