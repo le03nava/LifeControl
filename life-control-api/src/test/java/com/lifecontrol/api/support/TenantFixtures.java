@@ -1,11 +1,15 @@
 package com.lifecontrol.api.support;
 
+import com.lifecontrol.api.accounting.catalog.StarterAccountingCatalogApplier;
 import com.lifecontrol.api.common.tenant.TenantScope;
 import com.lifecontrol.api.company.model.Company;
 import com.lifecontrol.api.company.repository.CompanyRepository;
 import jakarta.persistence.EntityManager;
 import java.nio.charset.StandardCharsets;
+import java.sql.SQLException;
+import java.util.List;
 import java.util.UUID;
+import javax.sql.DataSource;
 import org.springframework.jdbc.core.JdbcOperations;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -112,6 +116,9 @@ public final class TenantFixtures {
      */
     public static final String SEED_CURRENCY = "MXN";
 
+    /** The applier {@link #bindStarterCatalog} installs, or {@code null} when no suite asked for a book. */
+    private static StarterAccountingCatalogApplier starterCatalog;
+
     /**
      * The four columns a raw fixture needs against a database that <b>predates</b> {@code V57}:
      * {@code enabled} keeps its schema default of {@code true}, and {@code companies.currency} does not exist
@@ -145,6 +152,26 @@ public final class TenantFixtures {
     private static PlatformTransactionManager transactionManager;
 
     /**
+     * The container's own login, bound <b>once per JVM</b> so a teardown cannot build a pool per call.
+     *
+     * <p><b>Why {@link #deleteBook(UUID)} does not take a {@link DataSource}.</b> It used to, and the shape
+     * leaked: two suites call the delete from {@code @AfterEach} — once per test method — so every method built
+     * a new {@code HikariDataSource}. Measured, that is 26 pools in one JVM, and the container runs
+     * {@code max_connections=300} sized for "one pool per cached Spring context" across 112
+     * {@code @SpringBootTest} classes: the full suite then failed in <b>27 unrelated migration suites</b> with
+     * {@code FATAL: remaining connection slots are reserved for roles with the SUPERUSER attribute} / {@code
+     * sorry, too many clients already}, while those same 27 classes alone ran 166 tests with 0 failures. The
+     * capacity was spent on garbage pools, so the fix is to stop building them and not to raise the ceiling;
+     * a call site that cannot pass a pool cannot leak one.</p>
+     *
+     * <p>Static for the same reason {@link #transactionManager} is: the call sites are teardowns that hold a
+     * company id and nothing else, and the pool is one fact for the whole run — the container itself is one per
+     * JVM. {@code AbstractPostgresIntegrationTest} binds the cleanup pool it already holds here exactly once,
+     * in a static block, so there is still exactly one such pool per JVM.</p>
+     */
+    private static DataSource containerSuperuser;
+
+    /**
      * Binds the manager the writing entry points open their transactions on.
      *
      * <p>Called by {@code AbstractPostgresIntegrationTest} for every PostgreSQL suite; a Mockito suite binds
@@ -162,6 +189,160 @@ public final class TenantFixtures {
      */
     public static void unbindTransactionManager() {
         transactionManager = null;
+    }
+
+    /**
+     * Binds the container's own login {@link #deleteBook(UUID)} deletes through.
+     *
+     * <p>Called by {@code AbstractPostgresIntegrationTest} with the one pool it already holds; a suite that
+     * builds its own binds it here instead of passing it per call.</p>
+     *
+     * @param source the container's own login, which is a SUPERUSER and is therefore the only credential that
+     *     may delete an append-only {@code account_entry} row
+     */
+    public static void bindContainerSuperuser(DataSource source) {
+        containerSuperuser = source;
+    }
+
+    /**
+     * Removes the binding, so a suite that bound its own login does not leave it on the JVM for the next class.
+     * Never called by a production path.
+     */
+    public static void unbindContainerSuperuser() {
+        containerSuperuser = null;
+    }
+
+    /**
+     * The applier every company this class persists is seeded with, bound per test like the transaction
+     * manager and for the same reason: it is a Spring bean, and this class is a static helper with no context.
+     *
+     * <p><b>Why a fixture company needs a book at all.</b> Since {@code V100} a posting rule that is missing is
+     * a refusal, not a silent no-op — a tenant with no chart cannot post revenue, a collection or a cost, and a
+     * suite that completes a sale would fail with a message about the book instead of about its subject. The
+     * one thing a fixture must therefore model is what production actually creates: a company <b>arrives with
+     * its book</b>, because {@code CompanyService.createCompany} publishes {@code CompanyCreatedEvent} and the
+     * {@code BEFORE_COMMIT} listener seeds it in the creation transaction (S9/S10 of
+     * {@code odd/tasks/derived-accounting.md}). A company written through {@code CompanyRepository} or a raw
+     * {@code INSERT} never publishes that event, so it was the fixture, and not the product, that was missing
+     * the book.</p>
+     *
+     * <p><b>Why it is bound rather than global.</b> Seeding <b>every</b> company this class creates would make
+     * about a dozen suites' teardowns fail: {@code DELETE FROM companies} is refused while an
+     * {@code account} or a {@code posting_rule} still names the row, and those teardowns live in suites this
+     * change does not own. A suite whose case actually posts — a completed sale, a payment, an allocated
+     * outbound movement — binds the applier in its {@code @BeforeEach}; every other suite keeps exactly the
+     * fixtures it had. The seed is the applier's, never a copy of the catalog: one writer, one set of rows.</p>
+     *
+     * <p>The seed runs inside the transaction and the scope the caller already opened
+     * ({@link #applyToTheNewCompany}), so a {@code @Transactional} suite rolls the book back with its company
+     * and a suite that commits has to delete it — {@link #deleteBook} is that delete.</p>
+     */
+    public static void bindStarterCatalog(StarterAccountingCatalogApplier applier) {
+        starterCatalog = applier;
+    }
+
+    /** Removes the binding, so a suite does not seed the next class's companies. */
+    public static void unbindStarterCatalog() {
+        starterCatalog = null;
+    }
+
+    /**
+     * Seeds the book of a company this class just persisted, when a suite bound an applier.
+     *
+     * <p>{@link StarterAccountingCatalogApplier#applyTo(UUID)} is idempotent and joins the ambient
+     * transaction, which is what makes this a call and not a second implementation: the rows a fixture company
+     * receives are the ones {@code V98} seeds and {@code CompanyService} creates, down to the account codes.</p>
+     */
+    private static void applyToTheNewCompany(UUID companyId) {
+        if (starterCatalog == null) {
+            return;
+        }
+        starterCatalog.applyTo(companyId);
+    }
+
+    /**
+     * Deletes one company's book — the entries and their lines, the rules and their lines, the accounts — so a
+     * teardown can delete the company itself.
+     *
+     * <p><b>Why it runs on the container's own login, and why it no longer takes one.</b> {@code account_entry}
+     * and {@code account_entry_line} are append-only in both halves {@code V97} copied from {@code V83}: the
+     * application role is not granted {@code DELETE}, and a {@code BEFORE DELETE} trigger refuses it for the
+     * owner too. So this runs on the container's own login, in one transaction with {@code SET LOCAL
+     * session_replication_role = replica} — the same mechanism, and the same reason,
+     * {@code AbstractPostgresIntegrationTest#deleteStockLedger} documents in full. {@code SET LOCAL} dies at
+     * {@code COMMIT}, so no sibling suite can observe a weaker rule, and a failure half-way leaves nothing
+     * switched off.</p>
+     *
+     * <p>That login is <b>bound once</b> ({@link #bindContainerSuperuser}) and read from the binding, never
+     * taken as a parameter: two suites call this from {@code @AfterEach}, and a parameter is what let each of
+     * them build a new pool per test method — 26 leaked pools in one JVM, which is what exhausted the shared
+     * container's connection slots in 27 unrelated suites. A call site that cannot pass a pool cannot leak
+     * one, and this method never builds one of its own.</p>
+     *
+     * <p>The catalog rows go in the same pass because the entry lines point at the accounts: leaf first, or
+     * the deletes fail on {@code fk_account_entry_line_account}. Only a suite that bound the applier has a book
+     * to delete, which is why this is called by the suites and not by this class.</p>
+     *
+     * @param companyId the company whose book goes. Never {@code null}: a null would delete nothing and read as
+     *     a pass, which is the failure mode this helper exists to make impossible
+     * @throws IllegalStateException when no container login is bound, or when a delete fails, so a teardown
+     *     never reports a clean container it did not produce
+     */
+    public static void deleteBook(UUID companyId) {
+        if (companyId == null) {
+            throw new IllegalArgumentException(
+                    "deleting a company's book needs the company the rows belong to, and got null");
+        }
+        try (var connection = requireContainerSuperuser().getConnection()) {
+            connection.setAutoCommit(false);
+            try {
+                try (var statement = connection.createStatement()) {
+                    statement.execute("SET LOCAL session_replication_role = replica");
+                }
+                for (var sql : List.of(
+                        "DELETE FROM account_entry_line WHERE company_id = ?",
+                        "DELETE FROM account_entry WHERE company_id = ?",
+                        "DELETE FROM posting_rule_line WHERE company_id = ?",
+                        "DELETE FROM posting_rule WHERE company_id = ?",
+                        "DELETE FROM account WHERE company_id = ?")) {
+                    try (var prepared = connection.prepareStatement(sql)) {
+                        prepared.setObject(1, companyId);
+                        prepared.executeUpdate();
+                    }
+                }
+                connection.commit();
+            } catch (SQLException failed) {
+                connection.rollback();
+                throw new IllegalStateException("could not delete the book of company " + companyId, failed);
+            } finally {
+                connection.setAutoCommit(true);
+            }
+        } catch (SQLException failed) {
+            throw new IllegalStateException("could not reach the container to delete the book of " + companyId, failed);
+        }
+    }
+
+    /**
+     * The container's own login {@link #deleteBook(UUID)} runs on, refusing when nothing was bound.
+     *
+     * <p><b>Refusing is the fix, not the failure.</b> The alternative — building a {@code HikariDataSource}
+     * here, as an earlier shape did at the call site — leaks one pool per test method and exhausts the
+     * container's 300 connections for suites that have nothing to do with a book. The other alternative, doing
+     * nothing, is worse: a delete that removes no rows reads as a pass, which is why this helper already
+     * refuses a {@code null} company.</p>
+     */
+    private static DataSource requireContainerSuperuser() {
+        var source = containerSuperuser;
+        if (source == null) {
+            throw new IllegalStateException("No container superuser is bound to TenantFixtures: deleting a "
+                    + "company's book runs on the container's own login, because account_entry is append-only and "
+                    + "the application role holds no DELETE on it. A PostgreSQL suite extends "
+                    + "AbstractPostgresIntegrationTest, which binds its one cleanup pool with "
+                    + "TenantFixtures.bindContainerSuperuser(...) once per JVM; a suite that builds its own login "
+                    + "binds it the same way. This helper never builds a pool of its own: one HikariDataSource per "
+                    + "call is what exhausted the container's max_connections across unrelated suites.");
+        }
+        return source;
     }
 
     /**
@@ -295,7 +476,11 @@ public final class TenantFixtures {
      */
     public static Company persist(CompanyRepository repository, Company company) {
         var id = assignId(company);
-        return TenantScope.with(id, () -> repository.save(statingTheSeedCurrency(company)));
+        return TenantScope.with(id, () -> {
+            var saved = repository.save(statingTheSeedCurrency(company));
+            applyToTheNewCompany(saved.getId());
+            return saved;
+        });
     }
 
     /**
@@ -304,7 +489,11 @@ public final class TenantFixtures {
      */
     public static Company persistAndFlush(CompanyRepository repository, Company company) {
         var id = assignId(company);
-        return TenantScope.with(id, () -> repository.saveAndFlush(statingTheSeedCurrency(company)));
+        return TenantScope.with(id, () -> {
+            var saved = repository.saveAndFlush(statingTheSeedCurrency(company));
+            applyToTheNewCompany(saved.getId());
+            return saved;
+        });
     }
 
     /**
@@ -317,6 +506,7 @@ public final class TenantFixtures {
         statingTheSeedCurrency(company);
         return TenantScope.with(id, () -> {
             entityManager.persist(company);
+            applyToTheNewCompany(company.getId());
             return company;
         });
     }
@@ -366,7 +556,10 @@ public final class TenantFixtures {
      */
     public static UUID insertCompany(
             JdbcTemplate jdbcTemplate, UUID id, String companyKey, String companyName, String rfc) {
-        inTenant(id, () -> jdbcTemplate.update(INSERT_COMPANY, id, companyKey, companyName, rfc));
+        inTenant(id, () -> {
+            jdbcTemplate.update(INSERT_COMPANY, id, companyKey, companyName, rfc);
+            applyToTheNewCompany(id);
+        });
         return id;
     }
 
@@ -391,9 +584,10 @@ public final class TenantFixtures {
      */
     public static UUID insertCompany(
             JdbcTemplate jdbcTemplate, UUID id, String companyKey, String companyName, String rfc, String currency) {
-        inTenant(
-                id,
-                () -> jdbcTemplate.update(INSERT_COMPANY_WITH_CURRENCY, id, companyKey, companyName, rfc, currency));
+        inTenant(id, () -> {
+            jdbcTemplate.update(INSERT_COMPANY_WITH_CURRENCY, id, companyKey, companyName, rfc, currency);
+            applyToTheNewCompany(id);
+        });
         return id;
     }
 
