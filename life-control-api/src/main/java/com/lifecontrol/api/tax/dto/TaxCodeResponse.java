@@ -16,5 +16,13 @@ package com.lifecontrol.api.tax.dto;
  * {@code odd/tasks/product-tax-code.md}): which codes resolve to zero without a rate is a rule of the
  * resolver, and a client that needed it would be re-deriving a server decision from a field this catalog
  * does not have.</p>
+ *
+ * <p><b>Why the two SAT coordinates are here.</b> {@code satImpuesto} and {@code satTipoFactor} are the
+ * authority's half of the same row (S3 of {@code odd/tasks/cfdi-fiscal-document.md},
+ * {@code V103__tax_code_sat_mapping.sql}): they travel with the catalog because the document builder reads
+ * them from here and not from a second place, and because a client can then show a line's tax the way the
+ * authority reads it. Both are {@code null} for a code with no mapping — {@code NA} states none at all — and
+ * that absence is served rather than hidden: a null is what makes the stamp refuse a code by name instead of
+ * guessing a factor.</p>
  */
-public record TaxCodeResponse(String code, String label, Boolean enabled) {}
+public record TaxCodeResponse(String code, String label, Boolean enabled, String satImpuesto, String satTipoFactor) {}

@@ -103,7 +103,11 @@ class StarterAccountingCatalogCompanyCreationIntegrationTest extends AbstractPos
                 null,
                 // Required since V57 and stated here, not defaulted: this case is about the book, so it
                 // picks the one currency the seed declares.
-                TenantFixtures.SEED_CURRENCY));
+                TenantFixtures.SEED_CURRENCY,
+                // The two fiscal facts of S1 are optional to sell, so this case states neither: it is about
+                // the chart of accounts a create seeds, not about the issuer's fiscal identity.
+                null,
+                null));
         createdCompanyIds.add(created.id());
 
         assertThat(accountCodes(created.id()))

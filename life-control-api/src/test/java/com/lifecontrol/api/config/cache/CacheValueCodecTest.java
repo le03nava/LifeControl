@@ -206,7 +206,7 @@ class CacheValueCodecTest {
         // The other platform catalog served with the same shape: `TaxCodeService.getAllTaxCodes` caches
         // `Stream#toList`'s ListN exactly like `CurrencyService` does, so a hit has to be reconstructible
         // without knowing the declared type or the second call to `GET /api/tax-codes` answers 500.
-        var taxCode = new TaxCodeResponse("IVA", "IVA", true);
+        var taxCode = new TaxCodeResponse("IVA", "IVA", true, "002", "Tasa");
         values.put(TaxCodeResponse.class.getName(), taxCode);
         values.put(listOf(TaxCodeResponse.class), List.of(taxCode));
 

@@ -91,7 +91,7 @@ class ProductControllerTest {
                 "SKU-001",
                 "Test Product",
                 "Test",
-                "SAT-001",
+                "27111600",
                 "IVA",
                 "SERVICE",
                 Map.of("color", "red"),
@@ -104,7 +104,7 @@ class ProductControllerTest {
                 Product.VARIANT_MODE_SIMPLE);
 
         testProductRequest = new ProductRequest(
-                "SKU-001", "Test Product", "Test", "SAT-001", "SERVICE", Map.of("color", "red"), null);
+                "SKU-001", "Test Product", "Test", "27111600", "SERVICE", Map.of("color", "red"), null);
     }
 
     // ─────────────────────────────────────────────
@@ -143,7 +143,7 @@ class ProductControllerTest {
                     .andExpect(jsonPath("$.sku").value("SKU-001"))
                     .andExpect(jsonPath("$.name").value("Test Product"))
                     .andExpect(jsonPath("$.shortName").value("Test"))
-                    .andExpect(jsonPath("$.satCode").value("SAT-001"))
+                    .andExpect(jsonPath("$.satCode").value("27111600"))
                     .andExpect(jsonPath("$.taxCode").value("IVA"))
                     .andExpect(jsonPath("$.productType").value("SERVICE"))
                     .andExpect(jsonPath("$.attributes.color").value("red"))
@@ -572,7 +572,7 @@ class ProductControllerTest {
                             "SKU-001",
                             "Test Product",
                             "Test",
-                            "SAT-001",
+                            "27111600",
                             "IVA",
                             "SERVICE",
                             Map.of("color", "red"),
@@ -640,7 +640,7 @@ class ProductControllerTest {
                     "SKU-001",
                     "Updated Name",
                     "Upd",
-                    "SAT-NEW",
+                    "27111601",
                     "TASA_0",
                     "GOODS",
                     Map.of("color", "blue"),
@@ -658,7 +658,7 @@ class ProductControllerTest {
                     "SKU-001",
                     "Updated Name",
                     "Upd",
-                    "SAT-NEW",
+                    "27111601",
                     "TASA_0",
                     "GOODS",
                     Map.of("color", "blue"),
@@ -671,7 +671,7 @@ class ProductControllerTest {
                             .content(objectMapper.writeValueAsString(request)))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.name").value("Updated Name"))
-                    .andExpect(jsonPath("$.satCode").value("SAT-NEW"))
+                    .andExpect(jsonPath("$.satCode").value("27111601"))
                     // The code an edit states comes back as the product's, so the form reopens on it.
                     .andExpect(jsonPath("$.taxCode").value("TASA_0"))
                     .andExpect(jsonPath("$.attributes.color").value("blue"));

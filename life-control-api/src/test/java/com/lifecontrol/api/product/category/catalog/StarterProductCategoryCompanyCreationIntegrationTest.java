@@ -103,7 +103,9 @@ class StarterProductCategoryCompanyCreationIntegrationTest extends AbstractPostg
                 null,
                 // Required since V57 and stated here, not defaulted: this case is about the starter
                 // catalog, so it picks the one currency the seed declares.
-                TenantFixtures.SEED_CURRENCY));
+                TenantFixtures.SEED_CURRENCY,
+                null,
+                null));
         createdCompanyIds.add(created.id());
 
         assertThat(countCategories(created.id()))

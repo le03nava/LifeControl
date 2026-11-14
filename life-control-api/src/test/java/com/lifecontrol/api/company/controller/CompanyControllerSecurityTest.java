@@ -91,7 +91,9 @@ class CompanyControllerSecurityTest {
                 null,
                 true,
                 null,
-                "MXN");
+                "MXN",
+                null,
+                null);
     }
 
     // ─── GET /api/companies ──────────────────────────────────
@@ -118,7 +120,9 @@ class CompanyControllerSecurityTest {
                     LocalDateTime.now(),
                     LocalDateTime.now(),
                     null,
-                    "MXN");
+                    "MXN",
+                    null,
+                    null);
             var page = new PageImpl<>(List.of(response), PageRequest.of(0, 12), 1);
             when(companyService.getAllCompanies(any(), eq(null))).thenReturn(page);
 
@@ -157,7 +161,9 @@ class CompanyControllerSecurityTest {
                     LocalDateTime.now(),
                     LocalDateTime.now(),
                     null,
-                    "MXN");
+                    "MXN",
+                    null,
+                    null);
             var page = new PageImpl<>(List.of(response), PageRequest.of(0, 12), 1);
             when(companyService.getAllCompanies(any(), eq(null))).thenReturn(page);
 
@@ -189,7 +195,9 @@ class CompanyControllerSecurityTest {
                     LocalDateTime.now(),
                     LocalDateTime.now(),
                     null,
-                    "MXN");
+                    "MXN",
+                    null,
+                    null);
             when(companyService.getCompanyById(any())).thenReturn(response);
 
             mockMvc.perform(get("/api/companies/{id}", UUID.randomUUID())).andExpect(status().isOk());
@@ -213,7 +221,9 @@ class CompanyControllerSecurityTest {
                     LocalDateTime.now(),
                     LocalDateTime.now(),
                     null,
-                    "MXN");
+                    "MXN",
+                    null,
+                    null);
             when(companyService.getCompanyById(any())).thenReturn(response);
 
             mockMvc.perform(get("/api/companies/{id}", UUID.randomUUID())).andExpect(status().isOk());
@@ -251,7 +261,9 @@ class CompanyControllerSecurityTest {
                     LocalDateTime.now(),
                     LocalDateTime.now(),
                     null,
-                    "MXN");
+                    "MXN",
+                    null,
+                    null);
             when(companyService.createCompany(any())).thenReturn(response);
 
             mockMvc.perform(post("/api/companies")
@@ -298,7 +310,9 @@ class CompanyControllerSecurityTest {
                     LocalDateTime.now(),
                     LocalDateTime.now(),
                     null,
-                    "MXN");
+                    "MXN",
+                    null,
+                    null);
             when(companyService.createCompany(any())).thenReturn(response);
 
             mockMvc.perform(post("/api/companies")
@@ -332,7 +346,9 @@ class CompanyControllerSecurityTest {
                     LocalDateTime.now(),
                     LocalDateTime.now(),
                     null,
-                    "MXN");
+                    "MXN",
+                    null,
+                    null);
             when(companyService.updateCompany(any(), any())).thenReturn(response);
 
             mockMvc.perform(put("/api/companies/{id}", UUID.randomUUID())
@@ -359,7 +375,9 @@ class CompanyControllerSecurityTest {
                     LocalDateTime.now(),
                     LocalDateTime.now(),
                     null,
-                    "MXN");
+                    "MXN",
+                    null,
+                    null);
             when(companyService.updateCompany(any(), any())).thenReturn(response);
 
             mockMvc.perform(put("/api/companies/{id}", UUID.randomUUID())
@@ -434,7 +452,9 @@ class CompanyControllerSecurityTest {
                     LocalDateTime.now(),
                     LocalDateTime.now(),
                     null,
-                    "MXN");
+                    "MXN",
+                    null,
+                    null);
             var page = new PageImpl<>(List.of(response), PageRequest.of(0, 12), 1);
             when(companyService.getAllCompanies(any(), eq(null))).thenReturn(page);
 
@@ -461,7 +481,9 @@ class CompanyControllerSecurityTest {
                     LocalDateTime.now(),
                     LocalDateTime.now(),
                     null,
-                    "MXN");
+                    "MXN",
+                    null,
+                    null);
             when(companyService.getCompanyById(any())).thenReturn(response);
 
             mockMvc.perform(get("/api/companies/{id}", UUID.randomUUID())).andExpect(status().isOk());

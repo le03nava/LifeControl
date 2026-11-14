@@ -1,6 +1,7 @@
 package com.lifecontrol.api.tax.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -50,13 +51,13 @@ class TaxCodeControllerTest {
     private TaxCodeController taxCodeController;
 
     /** The code {@code V81:87} defaults every pre-existing line to, so the catalog cannot omit it. */
-    private static final TaxCodeResponse NA = new TaxCodeResponse("NA", "No aplica", true);
+    private static final TaxCodeResponse NA = new TaxCodeResponse("NA", "No aplica", true, null, null);
 
     /** The taxed bucket: how much is not stated here, it is resolved from {@code tax_rate}. */
-    private static final TaxCodeResponse IVA = new TaxCodeResponse("IVA", "IVA", true);
+    private static final TaxCodeResponse IVA = new TaxCodeResponse("IVA", "IVA", true, "002", "Tasa");
 
     /** A retired code: it stays referenceable by history, and the default answer must not offer it. */
-    private static final TaxCodeResponse RETIRED = new TaxCodeResponse("RETIRED", "Retirado", false);
+    private static final TaxCodeResponse RETIRED = new TaxCodeResponse("RETIRED", "Retirado", false, null, null);
 
     @BeforeEach
     void setUp() {
@@ -79,7 +80,9 @@ class TaxCodeControllerTest {
                     .andExpect(jsonPath("$.length()").value(1))
                     .andExpect(jsonPath("$[0].code").value("NA"))
                     .andExpect(jsonPath("$[0].label").value("No aplica"))
-                    .andExpect(jsonPath("$[0].enabled").value(true));
+                    .andExpect(jsonPath("$[0].enabled").value(true))
+                    .andExpect(jsonPath("$[0].satImpuesto").value(nullValue()))
+                    .andExpect(jsonPath("$[0].satTipoFactor").value(nullValue()));
         }
 
         @Test

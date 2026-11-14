@@ -92,7 +92,7 @@ class ProductControllerSecurityTest {
 
     private ProductRequest buildRequest() {
         return new ProductRequest(
-                "SKU-001", "Test Product", "Test", "SAT-001", "SERVICE", Map.of("color", "red"), null);
+                "SKU-001", "Test Product", "Test", "27111600", "SERVICE", Map.of("color", "red"), null);
     }
 
     private ProductResponse buildResponse() {
@@ -101,7 +101,7 @@ class ProductControllerSecurityTest {
                 "SKU-001",
                 "Test Product",
                 "Test",
-                "SAT-001",
+                "27111600",
                 Product.DEFAULT_TAX_CODE,
                 "SERVICE",
                 Map.of("color", "red"),
