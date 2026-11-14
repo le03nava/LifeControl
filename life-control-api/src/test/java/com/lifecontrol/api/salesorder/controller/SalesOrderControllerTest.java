@@ -1,5 +1,6 @@
 package com.lifecontrol.api.salesorder.controller;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doNothing;
@@ -76,6 +77,7 @@ class SalesOrderControllerTest {
     private UUID testOrderId;
     private UUID testItemId;
     private UUID testStatusId;
+    private UUID testCustomerId;
 
     @BeforeEach
     void setUp() {
@@ -88,6 +90,7 @@ class SalesOrderControllerTest {
         testOrderId = UUID.randomUUID();
         testItemId = UUID.randomUUID();
         testStatusId = UUID.randomUUID();
+        testCustomerId = UUID.randomUUID();
         var now = LocalDateTime.now();
 
         testItemResponse = new SalesOrderItemResponse(
@@ -114,7 +117,7 @@ class SalesOrderControllerTest {
         testOrderResponse = new SalesOrderResponse(
                 testOrderId,
                 "SO-20260610-00001",
-                UUID.fromString("00000000-0000-0000-0000-000000000001"),
+                testCustomerId,
                 UUID.randomUUID(),
                 UUID.randomUUID(),
                 "user123",
@@ -134,12 +137,7 @@ class SalesOrderControllerTest {
                 List.of(),
                 List.of());
 
-        testOrderRequest = new SalesOrderRequest(
-                UUID.fromString("00000000-0000-0000-0000-000000000001"),
-                UUID.randomUUID(),
-                UUID.randomUUID(),
-                "user123",
-                null);
+        testOrderRequest = new SalesOrderRequest(testCustomerId, UUID.randomUUID(), UUID.randomUUID(), "user123", null);
 
         testItemRequest = new SalesOrderItemRequest(
                 null,
@@ -315,6 +313,27 @@ class SalesOrderControllerTest {
                     .andExpect(jsonPath("$.statusName").value("Draft"))
                     .andExpect(jsonPath("$.totalAmount").value(0))
                     .andExpect(jsonPath("$.enabled").value(true));
+        }
+
+        @Test
+        @DisplayName("a body with no customerId reaches the service with a null customer (counter sale)")
+        void createSalesOrder_WithoutACustomer_ReachesTheServiceWithNull() throws Exception {
+            when(salesOrderService.createSalesOrder(any(SalesOrderRequest.class)))
+                    .thenReturn(testOrderResponse);
+            var captured = org.mockito.ArgumentCaptor.forClass(SalesOrderRequest.class);
+
+            mockMvc.perform(post("/api/sales-orders")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("""
+                                    {"companyStoreId": "11111111-2222-3333-4444-555555555555", "userId": "user123"}
+                                    """))
+                    .andExpect(status().isCreated());
+
+            org.mockito.Mockito.verify(salesOrderService).createSalesOrder(captured.capture());
+            assertThat(captured.getValue().customerId())
+                    .as("null means a counter sale: the seeded 'Cliente General' default is gone, and V105 "
+                            + "deleted the row it named")
+                    .isNull();
         }
 
         @Test

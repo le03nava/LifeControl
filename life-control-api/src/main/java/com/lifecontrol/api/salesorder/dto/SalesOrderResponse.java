@@ -19,6 +19,11 @@ import java.util.UUID;
  *     company that owns the document and refuses one that differs from it, so this answers what the row says
  *     and never a platform default: a client that prints an amount has no reason to assume a currency, and a
  *     hardcoded one is how a sale of one country gets printed with another's money
+ * @param customerId the receiver, or {@code null} for a counter sale (S2/S6). Nullable end to end: nothing
+ *     downstream may substitute a customer for it, and before this slice every sale without one answered the
+ *     seeded {@code 'Cliente General'} — a receiver nobody chose. A document that has one still answers the id
+ *     it was given; the name is the client's to read, and it is <b>absent</b> rather than invented when the id
+ *     is null
  * @param subtotal the document's own part (decision 3): Σ of the lines' subtotals, at the four decimals the
  *     column carries
  * @param discountTotal Σ of the lines' discounts — the same money the line table shows, at the document's

@@ -594,13 +594,17 @@ class AccountingPostingIntegrationTest extends AbstractPostgresIntegrationTest {
         return id;
     }
 
+    /**
+     * One customer of this case's company, through the shared fixture.
+     *
+     * <p>{@code V105} armed {@code customers}, so a customer is written with its tenant and under the scope
+     * this suite states in {@link TenantFixtures#stateTenantWithinTheOpenTransaction}: the fixture runs the
+     * statement on the open transaction's connection, which is the one the scope reached.</p>
+     */
     private UUID customer() {
         var id = UUID.randomUUID();
-        jdbc.update(
-                "INSERT INTO customers (id, name, sales_channel) VALUES (?, ?, 'STORE')",
-                id,
-                "V100 Customer " + id.toString().substring(0, 8));
-        return id;
+        return TenantFixtures.insertCustomer(
+                jdbc, company, id, "V100 Customer " + id.toString().substring(0, 8));
     }
 
     /**

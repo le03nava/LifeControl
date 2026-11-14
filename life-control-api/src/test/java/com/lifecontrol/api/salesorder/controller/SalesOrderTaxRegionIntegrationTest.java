@@ -133,6 +133,14 @@ class SalesOrderTaxRegionIntegrationTest extends AbstractPostgresIntegrationTest
     private SalesOrderItemRepository itemRepository;
 
     private UUID companyId;
+
+    /**
+     * The receiver of this suite's sale, which has to exist: {@code V105} removed the seeded walk-in customer, so
+     * a request stating none is a 404 ({@code S2}, and the request's own default is slice C's to remove). The case
+     * under test is the rate, not the receiver, so the fixture states one of this company's.
+     */
+    private UUID customerId;
+
     private UUID variantId;
     private StoreTree frontier;
     private StoreTree centre;
@@ -143,6 +151,7 @@ class SalesOrderTaxRegionIntegrationTest extends AbstractPostgresIntegrationTest
                         companyRepository, COMPANY_KEY, "Tax Region Sales Company", "TRSA010101AA1")
                 .getId();
         TenantScope.set(companyId, null);
+        customerId = TenantFixtures.insertCustomer(jdbc, companyId, UUID.randomUUID(), "Tax Region Customer");
         clearTaxRates();
         frontier = seedStore(FRONTIER_REGION_CODE, "Frontera Store");
         centre = seedStore(CENTRE_REGION_CODE, "Centre Store");
@@ -241,7 +250,7 @@ class SalesOrderTaxRegionIntegrationTest extends AbstractPostgresIntegrationTest
     /** The one sale this suite places: two pieces of the {@code IVA} product at 100 each, at the given store. */
     private String saleBody(StoreTree tree) throws Exception {
         var request = new SalesOrderRequest(
-                null,
+                customerId,
                 tree.storeId(),
                 openShiftOf(tree),
                 "tax-region",
@@ -460,6 +469,9 @@ class SalesOrderTaxRegionIntegrationTest extends AbstractPostgresIntegrationTest
             deleteScopedToThisCompany(List.of(
                     "DELETE FROM sales_order_items WHERE sales_order_id IN (" + ordersOfThisCompany + ")",
                     "DELETE FROM sales_orders WHERE company_id = ?",
+                    // The customer this suite's sale names, before the company it belongs to: `V105` made
+                    // `customers.company_id` a foreign key.
+                    "DELETE FROM customers WHERE company_id = ?",
                     "DELETE FROM document_sequence WHERE company_id = ?",
                     "DELETE FROM tax_rate WHERE company_id = ?",
                     "DELETE FROM shifts WHERE company_store_id IN (" + storesOfThisCompany + ")",

@@ -923,7 +923,25 @@ public class SalesOrderService {
         }
     }
 
+    /**
+     * Refuses a customer id that does not exist <b>in the caller's company</b>.
+     *
+     * <p><b>A counter sale states none, and that is not an error.</b> {@code null} is the sale's own answer
+     * (S2): no receiver, nothing to invoice. It used to be replaced by the seeded {@code 'Cliente General'}
+     * before it ever reached this method, which is the default {@code V105} removed.</p>
+     *
+     * <p><b>Which layer answers a customer of another company, and why only one does.</b> {@code existsById}
+     * runs inside the request's transaction, so ADR-0005's policy on {@code customers} filters it: another
+     * company's row is simply <b>not there</b>, this check refuses it, and the caller reads a 404 — the tree's
+     * {@code ResourceNotFoundException} convention. The composite pointer
+     * {@code (company_id, customer_id) -> customers (company_id, id)} added by {@code V106} would refuse the
+     * same row as a foreign-key violation, but it never gets the chance: checking first keeps one honest
+     * answer instead of a 404 for some requests and a 500 for the ones that reach the insert.</p>
+     */
     private void validateCustomerExists(UUID id) {
+        if (id == null) {
+            return;
+        }
         if (!customerRepository.existsById(id)) {
             throw new CustomerNotFoundException(id);
         }

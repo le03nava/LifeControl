@@ -12,12 +12,7 @@ import { ProfileService } from '@features/user/profile/data/profile.service';
 import { CompanyStoreService } from '@features/companies/stores/data/company-store.service';
 import { NotificationService } from '@shared/data/notification';
 import { ConfigService } from '@app/services/config.service';
-import type {
-  SalesOrder,
-  SalesOrderItem,
-  CustomerOption,
-  Page,
-} from '../../models/sales-order.models';
+import type { SalesOrder, SalesOrderItem, CustomerOption } from '../../models/sales-order.models';
 import type { ProfileResponse } from '@features/user/profile/data/profile.models';
 
 const TEST_API = 'http://test/api';
@@ -75,6 +70,20 @@ const mockProfile: ProfileResponse = {
     companyStoreName: 'Store One',
   },
 };
+
+/**
+ * Answers the receiver read the page issues for the customer an existing order names.
+ *
+ * <p>The page used to GET a <b>fixed</b> customer id before the order existed, which is the fetch this slice
+ * deleted; what remains is one scoped read for the id the loaded order states, so a spec that loads an order
+ * has one request to answer.</p>
+ */
+function flushReceiver(readId = 'cust-1', name = 'Juan Pérez'): void {
+  const httpTesting = TestBed.inject(HttpTestingController);
+  httpTesting
+    .match((req) => req.url === `${TEST_API}/customers/${readId}`)
+    .forEach((req) => req.flush({ id: readId, name } satisfies CustomerOption));
+}
 
 function createActivatedRoute(params: { id?: string }) {
   return {
@@ -241,18 +250,33 @@ describe('SalesOrderEdit', () => {
       expect(router.navigate).toHaveBeenCalledWith(['/sales/orders', 'so-new']);
     });
 
-    it('should not save when form is invalid', () => {
-      // Form defaults are empty (required fields missing)
+    it('should not save when the store is missing', () => {
+      // The store is the one required control: an order with none has no tenant to allocate its number in.
+      const form = component.headerForm();
+      form.controls.companyStoreId.setValue('');
+      salesOrderService.create = vi.fn();
       component.onSave();
       expect(salesOrderService.create).not.toHaveBeenCalled();
     });
 
     it('should mark all fields as touched when form invalid', () => {
+      component.headerForm().controls.companyStoreId.setValue('');
+      salesOrderService.create = vi.fn();
       component.onSave();
       const form = component.headerForm();
       expect(form.controls.customerId.touched).toBe(true);
       expect(form.controls.companyStoreId.touched).toBe(true);
       expect(form.controls.shiftId.touched).toBe(true);
+    });
+
+    it('should allow saving a counter sale: the customer is not a required field', () => {
+      component.headerForm().controls.customerId.setValue('');
+
+      expect(
+        component.headerForm().valid,
+        'an empty receiver is a counter sale, not a missing required value (S2/S6)',
+      ).toBe(true);
+      expect(component.isCounterSale()).toBe(true);
     });
 
     it('should handle server error on create', () => {
@@ -301,183 +325,53 @@ describe('SalesOrderEdit', () => {
       expect(component.generalError()).toContain('Unexpected error');
     });
 
-    // ── Customer pre-selection (UUID-first + fallback) ──
+    // ── Receiver: a customer, or a counter sale with none ──
 
-    it('should call UUID endpoint first when loading default customer', () => {
+    it('should not fetch any customer before the order exists', () => {
       const httpTesting = TestBed.inject(HttpTestingController);
 
-      // UUID request should be pending after detectChanges
-      const uuidReq = httpTesting.expectOne(
-        (req) => req.url === `${TEST_API}/customers/00000000-0000-0000-0000-000000000001`,
-      );
-      expect(uuidReq.request.method).toBe('GET');
-
-      const customer: CustomerOption = {
-        id: '00000000-0000-0000-0000-000000000001',
-        name: 'PUBLICO EN GENERAL',
-      };
-      uuidReq.flush(customer);
-
-      expect(component.headerForm().controls.customerId.value).toBe(
-        '00000000-0000-0000-0000-000000000001',
-      );
-      expect(component.defaultCustomer()).toEqual(customer);
+      httpTesting.expectNone((req) => req.url.startsWith(`${TEST_API}/customers`));
+      expect(component.receiverId()).toBe('');
     });
 
-    it('should fall back to name search on 404 from UUID endpoint', () => {
-      const httpTesting = TestBed.inject(HttpTestingController);
+    it('should render the selector and state the empty receiver as a counter sale', () => {
+      const el: HTMLElement = fixture.nativeElement;
 
-      // UUID request fails with 404
-      const uuidReq = httpTesting.expectOne(
-        (req) => req.url === `${TEST_API}/customers/00000000-0000-0000-0000-000000000001`,
-      );
-      uuidReq.flush('Not Found', {
-        status: 404,
-        statusText: 'Not Found',
-      });
-
-      // Fallback search request should fire
-      const fallbackReq = httpTesting.expectOne(
-        (req) =>
-          req.url === `${TEST_API}/customers` && req.params.get('search') === 'PUBLICO EN GENERAL',
-      );
-      expect(fallbackReq.request.method).toBe('GET');
-
-      const customer: CustomerOption = {
-        id: 'fallback-id',
-        name: 'PUBLICO EN GENERAL',
-      };
-      fallbackReq.flush({
-        content: [customer],
-        totalElements: 1,
-        totalPages: 1,
-        size: 5,
-        number: 0,
-        first: true,
-        last: true,
-        empty: false,
-      } satisfies Page<CustomerOption>);
-
-      expect(component.headerForm().controls.customerId.value).toBe('fallback-id');
-      expect(component.defaultCustomer()).toEqual(customer);
+      expect(el.querySelector('app-customer-selector')).toBeTruthy();
+      const counterSale = el.querySelector('[data-testid="counter-sale"]');
+      expect(counterSale?.textContent?.trim()).toBe('Mostrador');
+      expect(component.isCounterSale()).toBe(true);
     });
 
-    it('should leave customer empty when both UUID and fallback fail', () => {
-      const httpTesting = TestBed.inject(HttpTestingController);
-
-      // UUID 404
-      const uuidReq = httpTesting.expectOne(
-        (req) => req.url === `${TEST_API}/customers/00000000-0000-0000-0000-000000000001`,
-      );
-      uuidReq.flush('Not Found', {
-        status: 404,
-        statusText: 'Not Found',
-      });
-
-      // Fallback also fails
-      const fallbackReq = httpTesting.expectOne(
-        (req) =>
-          req.url === `${TEST_API}/customers` && req.params.get('search') === 'PUBLICO EN GENERAL',
-      );
-      fallbackReq.flush('Server Error', {
-        status: 500,
-        statusText: 'Server Error',
-      });
-
-      expect(component.headerForm().controls.customerId.value).toBe('');
-      expect(component.defaultCustomer()).toBeNull();
-    });
-
-    it('should leave customer empty when fallback returns no match', () => {
-      const httpTesting = TestBed.inject(HttpTestingController);
-
-      // UUID 404
-      const uuidReq = httpTesting.expectOne(
-        (req) => req.url === `${TEST_API}/customers/00000000-0000-0000-0000-000000000001`,
-      );
-      uuidReq.flush('Not Found', {
-        status: 404,
-        statusText: 'Not Found',
-      });
-
-      // Fallback returns page with no matching customer
-      const fallbackReq = httpTesting.expectOne(
-        (req) =>
-          req.url === `${TEST_API}/customers` && req.params.get('search') === 'PUBLICO EN GENERAL',
-      );
-      fallbackReq.flush({
-        content: [{ id: 'other-id', name: 'Otro Cliente' }],
-        totalElements: 0,
-        totalPages: 0,
-        size: 5,
-        number: 0,
-        first: true,
-        last: true,
-        empty: true,
-      } satisfies Page<CustomerOption>);
-
-      expect(component.headerForm().controls.customerId.value).toBe('');
-      expect(component.defaultCustomer()).toBeNull();
-    });
-
-    // ── Auto-creation on init ──
-
-    it('should auto-create order when both store and customer are ready, then navigate to edit', async () => {
-      const httpTesting = TestBed.inject(HttpTestingController);
-
-      const uuidReq = httpTesting.expectOne(
-        (req) => req.url === `${TEST_API}/customers/00000000-0000-0000-0000-000000000001`,
-      );
-
-      const customer: CustomerOption = {
-        id: '00000000-0000-0000-0000-000000000001',
-        name: 'PUBLICO EN GENERAL',
-      };
-
-      expect(component.creating()).toBe(false);
-
-      // Flush UUID — triggers _customerReady(true), which fires the effect
-      uuidReq.flush(customer);
-
-      // Let zone stabilize so the effect microtask runs
+    it('should auto-create the order with no customer, then navigate to edit', async () => {
       await fixture.whenStable();
       fixture.detectChanges();
 
-      // Auto-creation completed (mock create returns of(mockOrder) synchronously)
-      expect(component.creating()).toBe(false);
+      expect(salesOrderService.create).toHaveBeenCalledWith({
+        customerId: undefined,
+        companyStoreId: 'store-1',
+        shiftId: undefined,
+      });
       expect(router.navigate).toHaveBeenCalledWith(['/sales/orders', 'so-1']);
     });
 
-    it('should keep creating=true while create request is in-flight', async () => {
+    it('should keep creating=true while the auto-create request is in-flight', async () => {
       const createSubject = new Subject<SalesOrder>();
       salesOrderService.create = vi.fn().mockReturnValue(createSubject.asObservable());
 
-      const httpTesting = TestBed.inject(HttpTestingController);
+      // A fresh component, because the auto-create fires as soon as the store is known — the mock has to be
+      // in place before it runs.
+      const inFlight = TestBed.createComponent(SalesOrderEdit);
+      inFlight.detectChanges();
 
-      const uuidReq = httpTesting.expectOne(
-        (req) => req.url === `${TEST_API}/customers/00000000-0000-0000-0000-000000000001`,
-      );
+      expect(inFlight.componentInstance.creating()).toBe(true);
 
-      const customer: CustomerOption = {
-        id: '00000000-0000-0000-0000-000000000001',
-        name: 'PUBLICO EN GENERAL',
-      };
-
-      uuidReq.flush(customer);
-
-      await fixture.whenStable();
-      fixture.detectChanges();
-
-      // Create is still in-flight (Subject hasn't emitted)
-      expect(component.creating()).toBe(true);
-
-      // Complete the creation
       const created: SalesOrder = { ...mockOrder, id: 'so-auto' };
       createSubject.next(created);
       createSubject.complete();
-      fixture.detectChanges();
+      inFlight.detectChanges();
 
-      expect(component.creating()).toBe(false);
+      expect(inFlight.componentInstance.creating()).toBe(false);
       expect(router.navigate).toHaveBeenCalledWith(['/sales/orders', 'so-auto']);
     });
 
@@ -497,24 +391,11 @@ describe('SalesOrderEdit', () => {
         ),
       );
 
-      const httpTesting = TestBed.inject(HttpTestingController);
+      const failing = TestBed.createComponent(SalesOrderEdit);
+      failing.detectChanges();
 
-      const uuidReq = httpTesting.expectOne(
-        (req) => req.url === `${TEST_API}/customers/00000000-0000-0000-0000-000000000001`,
-      );
-
-      const customer: CustomerOption = {
-        id: '00000000-0000-0000-0000-000000000001',
-        name: 'PUBLICO EN GENERAL',
-      };
-
-      uuidReq.flush(customer);
-
-      await fixture.whenStable();
-      fixture.detectChanges();
-
-      expect(component.creating()).toBe(false);
-      expect(component.generalError()).toBe('Validation failed');
+      expect(failing.componentInstance.creating()).toBe(false);
+      expect(failing.componentInstance.generalError()).toBe('Validation failed');
     });
 
     it('should set generalError and clear creating when auto-create fails with network error', async () => {
@@ -528,24 +409,32 @@ describe('SalesOrderEdit', () => {
         ),
       );
 
-      const httpTesting = TestBed.inject(HttpTestingController);
+      const offline = TestBed.createComponent(SalesOrderEdit);
+      offline.detectChanges();
 
-      const uuidReq = httpTesting.expectOne(
-        (req) => req.url === `${TEST_API}/customers/00000000-0000-0000-0000-000000000001`,
-      );
+      expect(offline.componentInstance.creating()).toBe(false);
+      expect(offline.componentInstance.generalError()).toContain('Unexpected error');
+    });
 
-      const customer: CustomerOption = {
-        id: '00000000-0000-0000-0000-000000000001',
-        name: 'PUBLICO EN GENERAL',
-      };
-
-      uuidReq.flush(customer);
-
+    it('should let the operator choose a receiver and send it with the sale', async () => {
       await fixture.whenStable();
       fixture.detectChanges();
 
-      expect(component.creating()).toBe(false);
-      expect(component.generalError()).toContain('Unexpected error');
+      const chosen: CustomerOption = { id: 'cust-9', name: 'Ana Gómez' };
+      component.onCustomerSelected(chosen);
+      fixture.detectChanges();
+
+      expect(component.headerForm().controls.customerId.value).toBe('cust-9');
+      expect(component.isCounterSale()).toBe(false);
+      expect(fixture.nativeElement.querySelector('[data-testid="counter-sale"]')).toBeNull();
+
+      component.onSave();
+
+      expect(salesOrderService.create).toHaveBeenLastCalledWith({
+        customerId: 'cust-9',
+        companyStoreId: 'store-1',
+        shiftId: undefined,
+      });
     });
 
     it('should show spinner element when creating is true', () => {
@@ -557,12 +446,12 @@ describe('SalesOrderEdit', () => {
       expect(spinner.textContent).toContain('Creating order...');
     });
 
-    it('should not auto-create in edit mode', () => {
-      // Edit mode tests use baseProviders('so-1') — _storeReady and _customerReady
-      // never become true, so auto-creation should NOT fire
-      expect(salesOrderService.create).not.toHaveBeenCalledWith(
-        expect.objectContaining({ companyStoreId: expect.any(String) }),
-      );
+    it('should auto-create exactly once, not once per change detection', async () => {
+      await fixture.whenStable();
+      fixture.detectChanges();
+      fixture.detectChanges();
+
+      expect(salesOrderService.create).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -584,6 +473,7 @@ describe('SalesOrderEdit', () => {
       vi.spyOn(router, 'navigate');
 
       fixture.detectChanges();
+      flushReceiver();
     });
 
     it('should be in edit mode (isEditMode = true)', () => {
@@ -601,6 +491,57 @@ describe('SalesOrderEdit', () => {
       expect(form.controls.customerId.value).toBe('cust-1');
       expect(form.controls.companyStoreId.value).toBe('store-1');
       expect(form.controls.shiftId.value).toBe('shift-1');
+    });
+
+    it('should not auto-create an order in edit mode', () => {
+      expect(salesOrderService.create).not.toHaveBeenCalled();
+    });
+
+    it('should show the receiver the order names and not call it a counter sale', () => {
+      expect(component.receiverId()).toBe('cust-1');
+      expect(component.selectedCustomer()).toEqual({ id: 'cust-1', name: 'Juan Pérez' });
+      expect(component.isCounterSale()).toBe(false);
+      expect(fixture.nativeElement.querySelector('[data-testid="counter-sale"]')).toBeNull();
+    });
+
+    it('should state a counter sale when the loaded order names no customer', () => {
+      salesOrderService.getSalesOrder = vi
+        .fn()
+        .mockReturnValue(of({ ...mockOrder, customerId: null }));
+
+      const counterSale = TestBed.createComponent(SalesOrderEdit);
+      counterSale.detectChanges();
+
+      expect(counterSale.componentInstance.receiverId()).toBe('');
+      expect(counterSale.componentInstance.isCounterSale()).toBe(true);
+      expect(
+        counterSale.nativeElement
+          .querySelector('[data-testid="counter-sale"]')
+          ?.textContent?.trim(),
+      ).toBe('Mostrador');
+      // No receiver, no read: the page invents neither a customer nor a request for one.
+      TestBed.inject(HttpTestingController).expectNone((req) =>
+        req.url.startsWith(`${TEST_API}/customers`),
+      );
+    });
+
+    it('should not fabricate a receiver when the customer read answers 404', () => {
+      // A fresh component, because the receiver read is issued as the order loads: this case has to answer
+      // it itself instead of inheriting the flush of the shared fixture.
+      const unanswered = TestBed.createComponent(SalesOrderEdit);
+      unanswered.detectChanges();
+
+      TestBed.inject(HttpTestingController)
+        .match((req) => req.url === `${TEST_API}/customers/cust-1`)
+        .forEach((req) => req.flush('Not Found', { status: 404, statusText: 'Not Found' }));
+
+      const subject = unanswered.componentInstance;
+      expect(subject.receiverId()).toBe('cust-1');
+      expect(subject.selectedCustomer()).toBeNull();
+      expect(
+        subject.isCounterSale(),
+        'the sale names a receiver we could not name; it is not a counter sale',
+      ).toBe(false);
     });
 
     it('should populate line items from loaded order', () => {
@@ -766,6 +707,8 @@ describe('SalesOrderEdit', () => {
       }).compileComponents();
 
       const f = TestBed.createComponent(SalesOrderEdit);
+      // Create mode auto-creates an order and navigates to it; the spy keeps that off the empty test router.
+      vi.spyOn(TestBed.inject(Router), 'navigate');
       f.detectChanges();
 
       const backBtn = f.nativeElement.querySelector('button[routerLink="/sales/orders"]');
@@ -1452,6 +1395,8 @@ describe('SalesOrderEdit', () => {
 
       const f = TestBed.createComponent(SalesOrderEdit);
       const comp = f.componentInstance;
+      // Create mode auto-creates an order and navigates to it; the spy keeps that off the empty test router.
+      vi.spyOn(TestBed.inject(Router), 'navigate');
       f.detectChanges();
 
       expect(comp.initialLoading()).toBe(false);

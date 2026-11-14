@@ -785,6 +785,30 @@ class SalesOrderServiceTest {
         }
 
         @Test
+        @DisplayName("a request that states no customer is a counter sale: no lookup, and a null on the row")
+        void createSalesOrder_WithoutACustomer_IsACounterSale() {
+            when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
+            when(documentSequenceAllocator.allocate(eq(companyId), eq(DocumentType.SALES_ORDER), anyString()))
+                    .thenReturn(1L);
+            var captor = ArgumentCaptor.forClass(SalesOrder.class);
+            when(salesOrderRepository.save(captor.capture())).thenAnswer(invocation -> {
+                var order = invocation.getArgument(0, SalesOrder.class);
+                order.setId(orderId);
+                return order;
+            });
+            when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId)).thenReturn(List.of());
+
+            var counterSale = new SalesOrderRequest(null, companyStoreId, null, "user123", null);
+            var result = salesOrderService.createSalesOrder(counterSale);
+
+            assertThat(captor.getValue().getCustomerId())
+                    .as("null is the sale's answer, not a missing value: nobody to invoice (S2)")
+                    .isNull();
+            assertThat(result.customerId()).isNull();
+            verifyNoInteractions(customerRepository);
+        }
+
+        @Test
         @DisplayName("should throw CustomerNotFoundException when customer FK invalid")
         void createSalesOrder_CustomerNotFound() {
             when(customerRepository.existsById(customerId)).thenReturn(false);

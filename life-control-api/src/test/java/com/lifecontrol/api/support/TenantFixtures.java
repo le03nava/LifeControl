@@ -6,6 +6,7 @@ import com.lifecontrol.api.company.model.Company;
 import com.lifecontrol.api.company.repository.CompanyRepository;
 import jakarta.persistence.EntityManager;
 import java.nio.charset.StandardCharsets;
+import java.sql.Connection;
 import java.sql.SQLException;
 import java.util.List;
 import java.util.UUID;
@@ -136,6 +137,28 @@ public final class TenantFixtures {
     /** The same insert for a database at head, where {@code V57} made the currency required. */
     private static final String INSERT_COMPANY_WITH_CURRENCY =
             "INSERT INTO companies (id, company_key, company_name, rfc, currency) VALUES (?, ?, ?, ?, ?)";
+
+    /**
+     * The customer insert a database that <b>predates</b> {@code V105} accepts: {@code customers} has no
+     * {@code company_id} and no policy yet, and the migration derives the company from the orders that name
+     * the customer (S3).
+     *
+     * <p>{@code sales_channel} is stated because the column is {@code NOT NULL} with no default; {@code STORE}
+     * is the value the suites already wrote and no case asserts it.</p>
+     */
+    private static final String INSERT_CUSTOMER =
+            "INSERT INTO customers (id, name, sales_channel) VALUES (?, ?, 'STORE')";
+
+    /**
+     * The same insert for a database <b>at head</b>, where {@code V105} made {@code company_id} required and
+     * armed the table.
+     *
+     * <p>The company is a bind parameter and not read inside the helper: the caller is the only one that knows
+     * which tenant the customer belongs to, and a helper that guessed would write a row into whichever
+     * company a fixture happened to leave on the thread.</p>
+     */
+    private static final String INSERT_CUSTOMER_WITH_COMPANY =
+            "INSERT INTO customers (id, company_id, name, sales_channel) VALUES (?, ?, ?, 'STORE')";
 
     private TenantFixtures() {}
 
@@ -589,6 +612,143 @@ public final class TenantFixtures {
             applyToTheNewCompany(id);
         });
         return id;
+    }
+
+    /**
+     * Creates one {@code customers} row for {@code companyId}, on a database <b>at head</b>
+     * ({@code V105} onwards).
+     *
+     * <p><b>The one way a suite creates a customer for a company.</b> Measured before this helper existed:
+     * nine suites wrote their own {@code INSERT INTO customers (id, name, sales_channel) …} — eight by raw
+     * SQL and one by building the entity — so the column {@code V105} adds would have had to be added in nine
+     * places, and a suite that forgot it would have failed with {@code null value in column "company_id"}
+     * somewhere unrelated to what it was testing.</p>
+     *
+     * <p><b>Which boundary owns the write.</b> A fixture called from an {@code @Transactional} suite whose
+     * transaction already states its tenant (the accounting suites, through
+     * {@link #stateTenantWithinTheOpenTransaction}) runs the statement on <b>that</b> connection: a
+     * {@code REQUIRES_NEW} wrapper there would install the scope in a different transaction and would commit
+     * the row past the rollback the suite relies on. A fixture with no boundary of its own goes through
+     * {@link #inTenant}, which is the same rule the company inserts follow.</p>
+     *
+     * @param jdbcTemplate a handle bound to the test context
+     * @param companyId the tenant the customer belongs to, never {@code null}
+     * @param id the id the row carries, so the caller can name it in a document
+     * @param name the customer's name, which the row requires
+     * @return {@code id}, unchanged, so a call site reads as one statement
+     */
+    public static UUID insertCustomer(JdbcTemplate jdbcTemplate, UUID companyId, UUID id, String name) {
+        if (companyId == null) {
+            throw new IllegalArgumentException("a customer fixture needs the company it belongs to, and got null");
+        }
+        Runnable insert = () -> jdbcTemplate.update(INSERT_CUSTOMER_WITH_COMPANY, id, companyId, name);
+        if (TransactionSynchronizationManager.isActualTransactionActive()) {
+            insert.run();
+        } else {
+            inTenant(companyId, insert);
+        }
+        return id;
+    }
+
+    /**
+     * The same fixture for the suites that run against a <b>scratch database</b> they migrate themselves, so
+     * it works on <b>both</b> sides of {@code V105}.
+     *
+     * <p>The migration suites seed a customer at a pre-unit head ({@code V63}, {@code V79}, {@code V85}, …),
+     * migrate to head, and some of them mirror a writer <b>after</b> it — so one call site legitimately sees
+     * both schemas. The helper therefore asks the catalog which one it is looking at (through
+     * {@code pg_attribute} and not {@code information_schema.columns}, which hides columns the connected role
+     * holds no privilege on) and writes the matching shape: the tenant column is stated by the caller when it
+     * exists, and derived by {@code V105}'s backfill from the orders that name the customer when it does not.</p>
+     *
+     * <p>The tenant is stated on <b>this</b> connection with the same {@code set_config} the application's
+     * boundary runs, because at head {@code customers} is armed: an insert with no scope is refused by the
+     * policy's {@code WITH CHECK}, which the caller would read as a fixture bug rather than as the missing
+     * tenant it is. The caller owns the transaction; this helper opens none.</p>
+     *
+     * @param connection the scratch database's connection, which must be the one the insert runs on
+     * @param companyId the tenant the customer belongs to; ignored before {@code V105}, where the column does
+     *     not exist yet and the migration derives it from the orders
+     * @param id the id the row carries
+     * @param name the customer's name
+     * @return {@code id}, unchanged
+     */
+    public static UUID insertCustomer(Connection connection, UUID companyId, UUID id, String name) throws SQLException {
+        if (hasCompanyColumn(connection)) {
+            if (companyId == null) {
+                throw new IllegalArgumentException(
+                        "a customer fixture at head needs the company it belongs to, and got null");
+            }
+            try (var statement = connection.prepareStatement("SELECT set_config('app.company_id', ?, false)")) {
+                statement.setString(1, companyId.toString());
+                statement.execute();
+            }
+            try (var statement = connection.prepareStatement(INSERT_CUSTOMER_WITH_COMPANY)) {
+                statement.setObject(1, id);
+                statement.setObject(2, companyId);
+                statement.setString(3, name);
+                statement.execute();
+            }
+        } else {
+            try (var statement = connection.prepareStatement(INSERT_CUSTOMER)) {
+                statement.setObject(1, id);
+                statement.setString(2, name);
+                statement.execute();
+            }
+        }
+        return id;
+    }
+
+    /**
+     * Whether this database's {@code customers} table carries {@code company_id}, i.e. whether {@code V105}
+     * has run.
+     *
+     * <p>{@code pg_attribute} and not {@code information_schema.columns}: the view hides a column the
+     * connected role holds no privilege on, and this question is about the schema and not about the caller.</p>
+     */
+    private static boolean hasCompanyColumn(Connection connection) throws SQLException {
+        try (var statement =
+                connection.prepareStatement("SELECT count(*) FROM pg_attribute WHERE attrelid = 'customers'::regclass"
+                        + " AND attname = 'company_id' AND NOT attisdropped")) {
+            try (var result = statement.executeQuery()) {
+                result.next();
+                return result.getInt(1) > 0;
+            }
+        }
+    }
+
+    /**
+     * The same fixture as {@link #insertCustomer(Connection, UUID, UUID, String)}, in the shape a suite that
+     * <b>builds a statement list</b> needs: a document and its tree have to arrive in one transaction, and the
+     * customer is one of the statements in it.
+     *
+     * <p>This exists so the two suites that seed a document that way still get the <b>one</b> definition of a
+     * customer row: the statement is the same {@code INSERT} the connection fixture runs, with its placeholders
+     * filled by the {@code id}, the company and the suite's own tag. The tag is fixture text — no case asserts
+     * it — so it is quoted as written; a name containing a quote is a suite bug, not an input.</p>
+     *
+     * @param connection the scratch database's connection, asked which schema it is looking at
+     * @return the statement the caller adds to its list, at the position the foreign keys require
+     */
+    public static String insertCustomerStatement(Connection connection, UUID companyId, UUID id, String name)
+            throws SQLException {
+        return hasCompanyColumn(connection)
+                ? withLiterals(INSERT_CUSTOMER_WITH_COMPANY, id, companyId, name)
+                : withLiterals(INSERT_CUSTOMER, id, name);
+    }
+
+    /**
+     * Fills the {@code ?} placeholders of one statement template with literals, in order.
+     *
+     * <p>Only used by {@link #insertCustomerStatement(Connection, UUID, UUID, String)} so the statement-list
+     * suites receive the <b>same</b> SQL the prepared-statement fixture runs instead of a second copy of it.</p>
+     */
+    private static String withLiterals(String statement, Object... values) {
+        var literal = statement;
+        for (var value : values) {
+            literal = literal.replaceFirst("\\?", java.util.regex.Matcher.quoteReplacement("'" + value + "'"));
+        }
+        return literal;
     }
 
     /**

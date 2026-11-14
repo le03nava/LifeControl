@@ -434,10 +434,13 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                     .getId();
         });
 
-        // Customer: find or create
-        var customer = customerRepository.findBySalesChannel("TEST").stream()
+        // Customer: find or create, inside this suite's company. `V105` made `customers.company_id`
+        // required and armed the table, so both halves name it: an unscoped lookup answers no row at all,
+        // and a customer with no tenant is refused by the schema.
+        var customer = customerRepository.findByCompanyIdAndSalesChannel(companyId, "TEST").stream()
                 .findFirst()
                 .orElseGet(() -> customerRepository.save(Customer.builder()
+                        .companyId(companyId)
                         .name("Test Customer")
                         .salesChannel("TEST")
                         .enabled(true)

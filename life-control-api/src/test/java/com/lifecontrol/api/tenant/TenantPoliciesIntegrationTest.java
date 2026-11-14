@@ -50,7 +50,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
  * predicate is built from.</p>
  */
 @SpringBootTest
-@DisplayName("The thirty-two armed tenant tables")
+@DisplayName("The thirty-three armed tenant tables")
 class TenantPoliciesIntegrationTest extends AbstractPostgresIntegrationTest {
 
     /** The role the pool connects as in delivery, and the only one a policy applies to (ADR decision 3). */
@@ -73,8 +73,8 @@ class TenantPoliciesIntegrationTest extends AbstractPostgresIntegrationTest {
     private static final String OWNER_ROLE = "lifecontrol_owner";
 
     /**
-     * The thirty-two rows {@code V53}, {@code V58}, {@code V60}, {@code V82}, {@code V83}, {@code V97} and
-     * {@code V99} write,
+     * The thirty-three rows {@code V53}, {@code V58}, {@code V60}, {@code V82}, {@code V83}, {@code V97},
+     * {@code V99} and {@code V105} write,
      * as the three facts a policy is built
      * from. Frozen literally: a table armed with the wrong kind or the wrong key column filters the wrong thing
      * in silence, and the {@code tenant_table} row is what the policy was generated from.
@@ -90,6 +90,7 @@ class TenantPoliciesIntegrationTest extends AbstractPostgresIntegrationTest {
             new ArmedTable("company_stores", "tenant", "company_id"),
             new ArmedTable("company_zones", "tenant", "company_id"),
             new ArmedTable("cost_center", "tenant", "company_id"),
+            new ArmedTable("customers", "tenant", "company_id"),
             new ArmedTable("departments", "tenant", "company_id"),
             new ArmedTable("employees", "tenant", "company_id"),
             new ArmedTable("product_attribute_profile_roots", "shared", "company_id"),
@@ -138,7 +139,7 @@ class TenantPoliciesIntegrationTest extends AbstractPostgresIntegrationTest {
     // ──────────────────────────────────────
 
     @Test
-    @DisplayName("all thirty-two tables carry one forced FOR ALL policy, of the kind and key the list names")
+    @DisplayName("all thirty-three tables carry one forced FOR ALL policy, of the kind and key the list names")
     void everyTenantTableIsArmedWithItsPolicy() {
         assertThat(ARMED_TABLES)
                 .as("the count is stated once, here: the fifteen tables S2 froze, plus `companies` — the "
@@ -148,8 +149,9 @@ class TenantPoliciesIntegrationTest extends AbstractPostgresIntegrationTest {
                         + "the migration that creates them (ADR-0001 migration step 2), plus the six tables of "
                         + "ADR-0008's accounting book, which V97 arms in the migration that creates them "
                         + "(derived-accounting task T1), plus `posting_rule_line`, which V99 arms in the "
-                        + "migration that creates it (derived-accounting L13)")
-                .hasSize(32);
+                        + "migration that creates it (derived-accounting L13), plus `customers`, which V105 "
+                        + "arms in the migration that adds its company_id")
+                .hasSize(33);
 
         var listed = listedTables();
 

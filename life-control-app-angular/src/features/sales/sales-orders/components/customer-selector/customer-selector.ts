@@ -37,7 +37,13 @@ export class CustomerSelector {
   private readonly http = inject(HttpClient);
   private readonly destroyRef = inject(DestroyRef);
 
-  /** Optional customer to pre-select on init (e.g. PUBLICO EN GENERAL). */
+  /**
+   * The customer to show as already chosen: the receiver the loaded order names.
+   *
+   * <p><b>Null means a counter sale, and nothing is substituted for it.</b> This input used to be seeded with a
+   * fixed {@code 'PUBLICO EN GENERAL'} customer the page fetched by id before the order existed; `V105` deleted
+   * that row and the page no longer invents a receiver (`S2`/`S6` of `odd/tasks/customer-tenant-isolation.md`).</p>
+   */
   readonly initialCustomer = input<CustomerOption | null>(null);
 
   /** Emits the selected customer when an option is chosen. */

@@ -13,6 +13,13 @@ public class Customer extends Auditable {
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
+    /**
+     * The tenant of this customer. Required by the schema since {@code V105}, which also arms the table, so
+     * a customer built without it is refused at the insert rather than stored for nobody.
+     */
+    @Column(name = "company_id", nullable = false)
+    private UUID companyId;
+
     @Column(name = "name", nullable = false)
     private String name;
 
@@ -37,6 +44,10 @@ public class Customer extends Auditable {
     // Getters
     public UUID getId() {
         return id;
+    }
+
+    public UUID getCompanyId() {
+        return companyId;
     }
 
     public String getName() {
@@ -66,6 +77,10 @@ public class Customer extends Auditable {
     // Setters
     public void setId(UUID id) {
         this.id = id;
+    }
+
+    public void setCompanyId(UUID companyId) {
+        this.companyId = companyId;
     }
 
     public void setName(String name) {
@@ -102,6 +117,11 @@ public class Customer extends Auditable {
 
         public Builder id(UUID id) {
             customer.id = id;
+            return this;
+        }
+
+        public Builder companyId(UUID companyId) {
+            customer.companyId = companyId;
             return this;
         }
 
