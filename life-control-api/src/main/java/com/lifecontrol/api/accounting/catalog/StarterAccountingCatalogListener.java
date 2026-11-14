@@ -48,10 +48,12 @@ public class StarterAccountingCatalogListener {
     public void onCompanyCreated(CompanyCreatedEvent event) {
         var inserted = applier.applyTo(event.getId());
         logger.info(
-                "Starter accounting catalog applied to company: id={}, rows inserted={}, accounts={}, postingRules={}",
+                "Starter accounting catalog applied to company: id={}, rows inserted={}, accounts={},"
+                        + " postingRules={}, postingRuleLines={}",
                 event.getId(),
                 inserted,
                 StarterAccountingCatalog.accounts().size(),
-                StarterAccountingCatalog.postingRules().size());
+                StarterAccountingCatalog.postingRules().size(),
+                StarterAccountingCatalog.postingRuleLineCount());
     }
 }

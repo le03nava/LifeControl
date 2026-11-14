@@ -8,8 +8,10 @@ import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -40,14 +42,24 @@ import org.springframework.stereotype.Component;
  * that creates the company ({@code StarterAccountingCatalogListener} runs the seed {@code BEFORE_COMMIT}, so a
  * failure rolls the creation back and "a company exists" implies "its book exists").</p>
  *
- * <p><b>The four clauses, all read from the catalog and from the code:</b></p>
+ * <p><b>The clauses, all read from the catalog and from the code:</b></p>
  *
  * <ol>
  *   <li>every anchor {@link PostingAnchor} declares has a rule in {@link StarterAccountingCatalog} with exactly
  *       that {@code sourceType} and that {@code posting} — an anchor wired to the wrong posting is an anchor no
  *       read path looks for, so it counts as unwired;</li>
- *   <li>every rule's debit and credit codes exist in the catalog's accounts <b>and differ</b> — a rule whose two
- *       sides are one account balances while moving nothing;</li>
+ *   <li>every line' account code exists in the catalog's accounts — a line that names an account the seed does
+ *       not create is a line the applier cannot insert and a posting that resolves to nothing;</li>
+ *   <li>no rule debits and credits one account — the pair of lines cancels, so the entry balances while moving
+ *       nothing and the trial balance sums to zero over a book that never recorded the fact;</li>
+ *   <li>the {@code REVENUE} rule carries exactly one {@code DEBIT TOTAL}, one {@code CREDIT REVENUE} and one
+ *       {@code CREDIT TAX} — S11 asks the entry to carry the three parts of the document, and L13 measured that
+ *       the tax had no rule at all while a rule was a debit/credit pair, so the liability of every sale went
+ *       unposted;</li>
+ *   <li>{@code COLLECTION} and {@code COST_OF_SALES} carry one debit and one credit on the <b>same</b> selector,
+ *       naming two different accounts — one amount moving from one account to another;</li>
+ *   <li>no rule carries a selector its posting cannot mean, from the closed map below — a cost rule reading
+ *       {@code TAX} would post the sale's IVA to inventory, which balances and is wrong;</li>
  *   <li>every anchor's table exists, as {@code to_regclass('public.<table>')} — a renamed or dropped anchor table
  *       leaves a rule that can never fire, because the posting looks for a source row in a table nothing
  *       writes;</li>
@@ -56,6 +68,13 @@ import org.springframework.stereotype.Component;
  *       for: a future migration adding a money-moving source type to the {@code CHECK} while the code stays
  *       silent would otherwise deploy green over a book that must come out short.</li>
  * </ol>
+ *
+ * <p><b>Why the line clauses live here and not in the poster.</b> Each one describes a defect that produces the
+ * right number in the wrong place, or no number at all, and none of them raises at read time: a revenue rule
+ * with no tax line leaves the liability out and the book still balances, and a selector no posting can compute
+ * posts nothing and reports nothing. The poster of the next slice will read {@code amount_selector} as a value,
+ * not as a question, so the question about which selectors exist has to be answered before the process accepts a
+ * request.</p>
  *
  * <p><b>Why {@link #afterPropertiesSet} orders after Flyway, and why that ordering is the whole requirement.</b>
  * This bean takes the JPA {@link EntityManagerFactory} as a constructor argument and never uses it: the
@@ -80,7 +99,7 @@ import org.springframework.stereotype.Component;
  *
  * <p><b>The refusal reports the set, never a count.</b> Every offending item is listed with the fix beside it,
  * because the exception is read at boot with no other context: the operator has the log and nothing else. The
- * four clauses are aggregated into <b>one</b> {@link IllegalStateException}, so a catalog with two defects names
+ * clauses are aggregated into <b>one</b> {@link IllegalStateException}, so a catalog with two defects names
  * both instead of sending the operator through two deploy cycles. That is also why each assertion below is
  * callable on its own with an input the caller supplies: a suite provokes a refusal by passing a reduced or
  * altered list, without reflection and without breaking the tree the other sixty suites boot on.</p>
@@ -91,16 +110,43 @@ public class AccountingCatalogStartupCheck implements InitializingBean {
     private static final Logger log = LoggerFactory.getLogger(AccountingCatalogStartupCheck.class);
 
     /**
+     * Which amounts each posting is allowed to move — the closed map L13(a) implies by giving one selector
+     * vocabulary to three anchors.
+     *
+     * <p>It is stated here and not as a second {@code CHECK} because the constraint is per row and this is a
+     * relation between the rule's {@code posting} and its lines' selectors, which a row cannot see. A rule whose
+     * posting is absent from this map is refused too, and {@code REVERSAL} is present with an empty set on
+     * purpose: a reversal mirrors the lines of the entry it names, so a selector of its own is a fact nothing
+     * reads.</p>
+     */
+    private static final Map<String, Set<String>> POSTING_SELECTORS = Map.of(
+            "REVENUE", Set.of("TOTAL", "REVENUE", "TAX"),
+            "COLLECTION", Set.of("SOURCE_AMOUNT"),
+            "COST_OF_SALES", Set.of("ALLOCATED_COST"),
+            "REVERSAL", Set.of());
+
+    /**
+     * The three parts S11 asks the revenue posting to carry, as the (side, selector) pairs that must appear
+     * exactly once each. Stated as a list of pairs rather than as a count because the difference between "three
+     * lines" and "the three parts" is the whole clause: two taxes and no revenue is three lines and posts the
+     * wrong amount twice.
+     */
+    private static final List<String> REVENUE_PARTS = List.of("DEBIT:TOTAL", "CREDIT:REVENUE", "CREDIT:TAX");
+
+    /** The two postings that move one amount from one account to another, with the selector each one reads. */
+    private static final List<String> PAIRED_POSTINGS = List.of("COLLECTION", "COST_OF_SALES");
+
+    /**
      * The precise question, and the reason it is a question about the catalog and not a call to the function: a
      * probe that calls what it is probing cannot tell "the function is absent" from "the function failed".
      */
     private static final String CATALOG_PROBE = "select to_regprocedure('pg_catalog.to_regclass(text)') is not null";
 
-    /** Clause 3's probe: {@code to_regclass} answers {@code null} for a name that resolves to no relation. */
+    /** Clause 7's probe: {@code to_regclass} answers {@code null} for a name that resolves to no relation. */
     private static final String ANCHOR_TABLE_PROBE = "select to_regclass(?)::text as anchor_table";
 
     /**
-     * Clause 4's read: the constraint's definition, scoped to the {@code CHECK} on {@code public.posting_rule}
+     * Clause 8's read: the constraint's definition, scoped to the {@code CHECK} on {@code public.posting_rule}
      * and not merely to its name — a constraint of that name on another table, or a primary key rather than a
      * {@code CHECK}, would answer a different question than the one S10 asks.
      */
@@ -141,7 +187,7 @@ public class AccountingCatalogStartupCheck implements InitializingBean {
         this.dataSource = Objects.requireNonNull(dataSource, "the pooled DataSource the assertion runs on");
     }
 
-    /** Runs the four clauses once, on a pooled connection, and ends the startup when one of them fails. */
+    /** Runs the clauses once, on a pooled connection, and ends the startup when one of them fails. */
     @Override
     public void afterPropertiesSet() {
         try (Connection connection = dataSource.getConnection()) {
@@ -156,9 +202,11 @@ public class AccountingCatalogStartupCheck implements InitializingBean {
                     StarterAccountingCatalog.accounts(),
                     StarterAccountingCatalog.postingRules());
             log.info(
-                    "S10: every declared money-moving anchor has its posting rule, every rule names two different "
-                            + "accounts of the chart, every anchor table resolves, and ck_posting_rule_source_type "
-                            + "admits exactly the {} declared anchors",
+                    "S10: every declared money-moving anchor has its posting rule, every line of every rule names"
+                            + " an account of the chart, no rule moves one account against itself, the revenue"
+                            + " rule carries its TOTAL/REVENUE/TAX parts, the paired rules carry one amount on one"
+                            + " selector, every anchor table resolves, and ck_posting_rule_source_type admits"
+                            + " exactly the {} declared anchors",
                     PostingAnchor.anchors().size());
         } catch (SQLException cannotAsk) {
             throw new IllegalStateException(
@@ -233,7 +281,7 @@ public class AccountingCatalogStartupCheck implements InitializingBean {
     }
 
     /**
-     * The four clauses over the inputs the caller supplies, aggregated into <b>one</b> refusal.
+     * The clauses over the inputs the caller supplies, aggregated into <b>one</b> refusal.
      *
      * <p>The aggregate is what makes the message usable: two independent defects are named together and one
      * deploy cycle finds both, instead of an operator fixing the first and meeting the second on the next boot.
@@ -242,8 +290,8 @@ public class AccountingCatalogStartupCheck implements InitializingBean {
      * caller, {@link #afterPropertiesSet}, passes the declared constants.</p>
      *
      * <p>The two catalog clauses run only where the PostgreSQL catalog exists: on H2 there is no {@code
-     * pg_constraint} and no {@code to_regclass}, so those questions are not asked at all. The two code clauses
-     * need no database and are answered from the lists.</p>
+     * pg_constraint} and no {@code to_regclass}, so those questions are not asked at all. The clauses about the
+     * rules need no database and are answered from the lists.</p>
      *
      * @throws IllegalStateException naming every offending item and the fix for it, once
      */
@@ -255,7 +303,11 @@ public class AccountingCatalogStartupCheck implements InitializingBean {
             throws SQLException {
         var problems = new ArrayList<String>();
         problems.addAll(anchorWithoutRuleProblems(anchors, rules));
-        problems.addAll(ruleNamingUndeclaredCodeProblems(accounts, rules));
+        problems.addAll(lineNamingUndeclaredCodeProblems(accounts, rules));
+        problems.addAll(selfCancellingRuleProblems(rules));
+        problems.addAll(revenueRulePartsProblems(rules));
+        problems.addAll(pairedRuleProblems(rules));
+        problems.addAll(selectorNotUnderstoodByPostingProblems(rules));
         if (appliesToThisDatabase(connection)) {
             problems.addAll(anchorTableMissingProblems(connection, anchors));
             problems.addAll(vocabularyMismatchProblems(connection, anchors));
@@ -279,16 +331,55 @@ public class AccountingCatalogStartupCheck implements InitializingBean {
     }
 
     /**
-     * Clause 2, on the two lists the caller supplies: every rule's debit and credit codes are declared by the
-     * chart, and the two differ.
+     * Clause 2, on the two lists the caller supplies: every line of every rule names an account the chart
+     * declares.
      *
-     * @throws IllegalStateException naming every undeclared code and every rule that moves one account against
-     *     itself
+     * @throws IllegalStateException naming every undeclared code, the rule and the line that names it
      */
-    public static void assertEveryRuleNamesTwoDeclaredAccounts(
+    public static void assertEveryLineNamesADeclaredAccount(
             List<StarterAccountingCatalog.AccountEntry> accounts,
             List<StarterAccountingCatalog.PostingRuleEntry> rules) {
-        refuseIfAny(ruleNamingUndeclaredCodeProblems(accounts, rules));
+        refuseIfAny(lineNamingUndeclaredCodeProblems(accounts, rules));
+    }
+
+    /**
+     * Clause 3, on the rules the caller supplies: no rule debits and credits one account.
+     *
+     * @throws IllegalStateException naming every rule whose two lines cancel, with the account they share
+     */
+    public static void assertNoRuleDebitsAndCreditsOneAccount(List<StarterAccountingCatalog.PostingRuleEntry> rules) {
+        refuseIfAny(selfCancellingRuleProblems(rules));
+    }
+
+    /**
+     * Clause 4, on the rules the caller supplies: the {@code REVENUE} rule carries exactly one {@code DEBIT
+     * TOTAL}, one {@code CREDIT REVENUE} and one {@code CREDIT TAX}, and nothing else.
+     *
+     * @throws IllegalStateException naming every missing part and every line the posting does not produce
+     */
+    public static void assertRevenueRuleCarriesItsThreeParts(List<StarterAccountingCatalog.PostingRuleEntry> rules) {
+        refuseIfAny(revenueRulePartsProblems(rules));
+    }
+
+    /**
+     * Clause 5, on the rules the caller supplies: {@code COLLECTION} and {@code COST_OF_SALES} each carry one
+     * debit and one credit on the same selector.
+     *
+     * @throws IllegalStateException naming every paired rule whose lines are not one amount moving one way
+     */
+    public static void assertPairedRulesCarryTwoAccountsOnOneSelector(
+            List<StarterAccountingCatalog.PostingRuleEntry> rules) {
+        refuseIfAny(pairedRuleProblems(rules));
+    }
+
+    /**
+     * Clause 6, on the rules the caller supplies: no rule carries a selector its posting cannot mean.
+     *
+     * @throws IllegalStateException naming every rule, the selector and the set its posting understands
+     */
+    public static void assertNoRuleCarriesASelectorItsPostingCannotMean(
+            List<StarterAccountingCatalog.PostingRuleEntry> rules) {
+        refuseIfAny(selectorNotUnderstoodByPostingProblems(rules));
     }
 
     /**
@@ -362,15 +453,15 @@ public class AccountingCatalogStartupCheck implements InitializingBean {
                     + " and has no posting rule for " + anchor.posting() + ": the fact keeps being written and"
                     + " nothing posts it, so the books come out short with no error at read time and no report"
                     + " that can tell that from a quiet period. Add a PostingRuleEntry(sourceType = \""
-                    + anchor.sourceType() + "\", posting = \"" + anchor.posting() + "\", debitCode = …, creditCode"
-                    + " = …) to StarterAccountingCatalog, and seed it in a new migration: V98 has already run on"
-                    + " every deployed database, so editing it reaches no tenant that exists.");
+                    + anchor.sourceType() + "\", posting = \"" + anchor.posting() + "\", lines = List.of(…))"
+                    + " to StarterAccountingCatalog, and seed it in a new migration: V98 and V99 have already run"
+                    + " on every deployed database, so editing them reaches no tenant that exists.");
         }
         return problems;
     }
 
-    /** Every rule side that names a code the chart does not declare, and every rule whose two sides are one. */
-    private static List<String> ruleNamingUndeclaredCodeProblems(
+    /** Clause 2: every line that names a code the chart does not declare. */
+    private static List<String> lineNamingUndeclaredCodeProblems(
             List<StarterAccountingCatalog.AccountEntry> accounts,
             List<StarterAccountingCatalog.PostingRuleEntry> rules) {
         var declaredCodes = accounts.stream()
@@ -380,28 +471,181 @@ public class AccountingCatalogStartupCheck implements InitializingBean {
         var problems = new ArrayList<String>();
         for (var rule : rules) {
             var anchor = rule.sourceType() + "/" + rule.posting();
-            if (!declaredCodes.contains(rule.debitCode())) {
-                problems.add("posting rule " + anchor + " debits account code " + rule.debitCode() + ", which the"
-                        + " chart of accounts in StarterAccountingCatalog does not declare: the applier cannot"
-                        + " insert that rule and the posting would resolve to no account. Declare the account in"
-                        + " StarterAccountingCatalog (and in a new migration) or point the rule at a code the"
-                        + " chart already has.");
-            }
-            if (!declaredCodes.contains(rule.creditCode())) {
-                problems.add("posting rule " + anchor + " credits account code " + rule.creditCode() + ", which the"
-                        + " chart of accounts in StarterAccountingCatalog does not declare: the applier cannot"
-                        + " insert that rule and the posting would resolve to no account. Declare the account in"
-                        + " StarterAccountingCatalog (and in a new migration) or point the rule at a code the"
-                        + " chart already has.");
-            }
-            if (rule.debitCode().equals(rule.creditCode())) {
-                problems.add("posting rule " + anchor + " debits and credits the same account code "
-                        + rule.debitCode() + ": both sides are one account, so the entry balances while moving"
-                        + " nothing and the trial balance sums to zero over a book that never recorded the fact."
-                        + " Give the rule two different accounts in StarterAccountingCatalog.");
+            for (var line : rule.lines()) {
+                if (declaredCodes.contains(line.accountCode())) {
+                    continue;
+                }
+                problems.add("posting rule " + anchor + " has a " + line.side() + " line on the "
+                        + line.amountSelector() + " selector that names account code " + line.accountCode()
+                        + ", which the chart of accounts in StarterAccountingCatalog does not declare: the"
+                        + " applier cannot insert that line and the posting would resolve to no account. Declare"
+                        + " the account in StarterAccountingCatalog (and in a new migration) or point the line at"
+                        + " a code the chart already has.");
             }
         }
         return problems;
+    }
+
+    /**
+     * Clause 3: every rule that debits and credits one account.
+     *
+     * <p>Stated over lines and not over a pair, because a rule can carry several of each now: the question is
+     * whether any debit line and any credit line of one rule name the same account, and if they do, that part of
+     * the entry cancels — the entry balances while moving nothing and the trial balance sums to zero over a book
+     * that never recorded the fact.</p>
+     */
+    private static List<String> selfCancellingRuleProblems(List<StarterAccountingCatalog.PostingRuleEntry> rules) {
+        var problems = new ArrayList<String>();
+        for (var rule : rules) {
+            var anchor = rule.sourceType() + "/" + rule.posting();
+            for (var debit : rule.lines()) {
+                if (!"DEBIT".equals(debit.side())) {
+                    continue;
+                }
+                for (var credit : rule.lines()) {
+                    if (!"CREDIT".equals(credit.side()) || !debit.accountCode().equals(credit.accountCode())) {
+                        continue;
+                    }
+                    problems.add("posting rule " + anchor + " debits and credits the same account code "
+                            + debit.accountCode() + " (" + debit.side() + " " + debit.amountSelector() + " and "
+                            + credit.side() + " " + credit.amountSelector() + "): those two lines cancel, so the"
+                            + " entry balances while moving nothing and the trial balance sums to zero over a book"
+                            + " that never recorded the fact. Give the rule two different accounts in"
+                            + " StarterAccountingCatalog.");
+                }
+            }
+        }
+        return problems;
+    }
+
+    /**
+     * Clause 4: what the {@code REVENUE} rule is missing, and what it carries that it should not.
+     *
+     * <p>S11 asks the entry to carry the revenue, the {@code IVA trasladado} and the receivable parts of the
+     * document, and L13 measured that this was unimplementable while a rule was a debit/credit pair:
+     * {@code 2101 IVA trasladado} sat in the chart named by no rule, so the tax of every sale had nowhere to
+     * post. A rule with two of the three parts posts the entry short and still balances, which is the failure
+     * shape this whole assertion exists for.</p>
+     */
+    private static List<String> revenueRulePartsProblems(List<StarterAccountingCatalog.PostingRuleEntry> rules) {
+        var problems = new ArrayList<String>();
+        for (var rule : rules) {
+            if (!"REVENUE".equals(rule.posting())) {
+                continue;
+            }
+            var anchor = rule.sourceType() + "/" + rule.posting();
+            for (var part : REVENUE_PARTS) {
+                var matching = rule.lines().stream()
+                        .filter(line -> part.equals(line.side() + ":" + line.amountSelector()))
+                        .count();
+                if (matching == 1) {
+                    continue;
+                }
+                problems.add("posting rule " + anchor + " carries " + matching + " line(s) for the " + part
+                        + " part of the document and must carry exactly one: S11 posts the receivable, the "
+                        + "revenue and the IVA trasladado of the sale separately — L13 measured that a rule of "
+                        + "one debit and one credit account could not say the tax at all, so 2101 IVA trasladado "
+                        + "sat in the chart named by no rule and the liability of every sale went unposted. "
+                        + "Declare the line in StarterAccountingCatalog and seed it in a new migration.");
+            }
+            for (var line : rule.lines()) {
+                if (REVENUE_PARTS.contains(line.side() + ":" + line.amountSelector())) {
+                    continue;
+                }
+                problems.add("posting rule " + anchor + " carries a " + line.side() + " line on the "
+                        + line.amountSelector() + " selector, which is not one of the three parts of a "
+                        + "document (" + String.join(", ", REVENUE_PARTS) + "): a revenue posting produces "
+                        + "exactly those three lines, so an extra one posts an amount nothing asked for. Remove "
+                        + "it from StarterAccountingCatalog.");
+            }
+        }
+        return problems;
+    }
+
+    /**
+     * Clause 5: the paired postings move one amount from one account to another, and nothing else.
+     *
+     * <p>A collection moves the payment's amount and a cost posts the allocation sum, so each rule is one debit
+     * and one credit reading the same selector. Two selectors would post a debit of one amount against a credit
+     * of another — the deferred balance trigger of S3 would refuse the resulting entry at commit, one layer too
+     * late and with a message about the entry rather than about the catalog that produced it.</p>
+     */
+    private static List<String> pairedRuleProblems(List<StarterAccountingCatalog.PostingRuleEntry> rules) {
+        var problems = new ArrayList<String>();
+        for (var rule : rules) {
+            if (!PAIRED_POSTINGS.contains(rule.posting())) {
+                continue;
+            }
+            var anchor = rule.sourceType() + "/" + rule.posting();
+            var debits = rule.lines().stream()
+                    .filter(line -> "DEBIT".equals(line.side()))
+                    .toList();
+            var credits = rule.lines().stream()
+                    .filter(line -> "CREDIT".equals(line.side()))
+                    .toList();
+            if (debits.size() != 1 || credits.size() != 1 || rule.lines().size() != 2) {
+                problems.add("posting rule " + anchor + " carries " + debits.size() + " debit line(s) and "
+                        + credits.size() + " credit line(s) and must carry exactly one of each: this posting "
+                        + "moves one amount from one account to another, so a second line on either side posts "
+                        + "an amount the source never stated. Declare the two lines in "
+                        + "StarterAccountingCatalog.");
+                continue;
+            }
+            if (!debits.get(0).amountSelector().equals(credits.get(0).amountSelector())) {
+                problems.add("posting rule " + anchor + " debits the "
+                        + debits.get(0).amountSelector()
+                        + " selector and credits the " + credits.get(0).amountSelector() + " one, and the two "
+                        + "sides of one posting must read the same amount: two selectors post a debit and a "
+                        + "credit of different sizes, and the balance trigger of S3 refuses the entry at commit "
+                        + "instead of here, with a message about the entry and not about the rule that caused "
+                        + "it.");
+            }
+        }
+        return problems;
+    }
+
+    /**
+     * Clause 6: every selector, against the closed map of the postings that can compute it.
+     *
+     * <p>The selector vocabulary is closed in the database (L13(a)) and that is not enough here: {@code TAX} is a
+     * value of the vocabulary and a cost rule reading it would post the sale's IVA to inventory — balanced,
+     * admissible, and wrong. A posting the map does not know is refused too, because a rule nothing posts from
+     * is a rule whose selectors nobody can evaluate.</p>
+     */
+    private static List<String> selectorNotUnderstoodByPostingProblems(
+            List<StarterAccountingCatalog.PostingRuleEntry> rules) {
+        var problems = new ArrayList<String>();
+        for (var rule : rules) {
+            var anchor = rule.sourceType() + "/" + rule.posting();
+            var understood = POSTING_SELECTORS.get(rule.posting());
+            if (understood == null) {
+                problems.add("posting rule " + anchor + " posts `" + rule.posting() + "`, which is not a posting"
+                        + " any selector set belongs to (" + String.join(", ", sorted(POSTING_SELECTORS.keySet()))
+                        + "): nothing can compute its amounts, so the rule would post nothing and raise nothing."
+                        + " Name one of the postings the book reads, or declare what the new one selects.");
+                continue;
+            }
+            for (var line : rule.lines()) {
+                if (understood.contains(line.amountSelector())) {
+                    continue;
+                }
+                problems.add("posting rule " + anchor + " carries a " + line.side() + " line on the "
+                        + line.amountSelector() + " selector, which a " + rule.posting() + " posting cannot mean "
+                        + (understood.isEmpty()
+                                ? "at all: a reversal mirrors the lines of the entry it names and needs no "
+                                        + "selector of its own (L13(c))"
+                                : "— it understands " + String.join("/", sorted(understood)))
+                        + ". One selector vocabulary serves three anchors (L13(a)), so the amount a rule reads "
+                        + "has to be one its own posting can compute; a cost rule reading TAX would post the "
+                        + "sale's IVA to inventory, which balances and is wrong. Fix the line in "
+                        + "StarterAccountingCatalog.");
+            }
+        }
+        return problems;
+    }
+
+    private static List<String> sorted(Set<String> values) {
+        return List.copyOf(new TreeSet<>(values));
     }
 
     /** Every anchor whose table {@code to_regclass('public.<table>')} cannot resolve. */
@@ -485,10 +729,11 @@ public class AccountingCatalogStartupCheck implements InitializingBean {
                 + problems.size() + " problem(s), each one a way for a fact to be recorded and never posted — the"
                 + " book comes out short and no read path reports it:"
                 + System.lineSeparator() + items + System.lineSeparator()
-                + "Fix every item above. The chart of accounts and the posting rules are StarterAccountingCatalog;"
-                + " the anchors, the tables they derive from and the posting each one feeds are PostingAnchor;"
-                + " the closed source_type vocabulary is ck_posting_rule_source_type in V98. Change the code and"
-                + " add a new migration — never edit V98, which has already run on every deployed database, so an"
+                + "Fix every item above. The chart of accounts and the posting rules — with the lines that say which"
+                + " side, which amount and which account — are StarterAccountingCatalog; the anchors, the tables they"
+                + " derive from and the posting each one feeds are PostingAnchor; the closed source_type vocabulary"
+                + " is ck_posting_rule_source_type in V98 and the selector vocabulary is ck_posting_rule_line_selector"
+                + " in V99. Change the code and add a new migration — never edit one that has already run, so an"
                 + " edit there reaches no existing tenant while the code changes for every tenant created"
                 + " afterwards. Nothing here is a warning: a missing posting produces no error at read time,"
                 + " which is why the application does not start on it.");
