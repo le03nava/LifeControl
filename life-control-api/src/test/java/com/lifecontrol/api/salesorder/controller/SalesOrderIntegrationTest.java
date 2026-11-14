@@ -11,6 +11,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.lifecontrol.api.accounting.catalog.StarterAccountingCatalogApplier;
 import com.lifecontrol.api.common.tenant.TenantScope;
 import com.lifecontrol.api.company.model.CompanyCountry;
 import com.lifecontrol.api.company.model.CompanyRegion;
@@ -107,6 +108,10 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
     /** The handle the shared ledger cleanup deletes the projections through (see the base class). */
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    /** The seed every company this suite creates receives, bound around each case. */
+    @Autowired
+    private StarterAccountingCatalogApplier starterCatalog;
 
     /** The production writer the split relocation goes through, so the fixture books what production books. */
     @Autowired
@@ -226,6 +231,12 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
 
     @BeforeEach
     void setUp() {
+        // The book of the company below, before the fixture writes it: since V100 a sale that reaches COMPLETED
+        // refuses to post without a chart of accounts and a revenue rule, and this suite charges documents. The
+        // company is created through `CompanyRepository` here, which — unlike `CompanyService.createCompany` —
+        // publishes no `CompanyCreatedEvent`, so nothing seeds it unless the fixture says so.
+        TenantFixtures.bindStarterCatalog(starterCatalog);
+
         // ADR-0003 made `sales_orders` a tenant table, so the cleanup below needs the scope the
         // application's filter installs per request. Without it every deleteAll() deletes NOTHING — RLS
         // answers zero rows and reports success — so the orders this suite places survive into the next
@@ -251,6 +262,9 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
 
     @AfterEach
     void tearDown() {
+        // First, so a teardown that fails half-way cannot leave the next class seeding its companies.
+        TenantFixtures.unbindStarterCatalog();
+
         // A charged order's payment rows go first: they are append-only and they reference the order, so
         // leaving them behind fails the next case's cleanup on fk_payment_order_same_company. The helper is
         // the base class's, because this suite is no longer the only one whose fixture charges a document.

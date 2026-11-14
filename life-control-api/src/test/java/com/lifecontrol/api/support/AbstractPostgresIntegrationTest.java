@@ -72,6 +72,27 @@ public abstract class AbstractPostgresIntegrationTest {
     private static final DataSource STOCK_LEDGER_CLEANUP = containerSuperuserPool();
 
     /**
+     * Hands that one pool to the fixtures, which delete a company's book on the container's own login.
+     *
+     * <p><b>Why here and not at the call site.</b> The two suites that delete a book do it from
+     * {@code @AfterEach}, so a pool built there is one pool per test method: measured on the full run, 26 of
+     * them (11 + 15) exhausted the container's {@code max_connections=300} — sized for one pool per cached
+     * Spring context — and 27 unrelated migration suites failed with {@code sorry, too many clients already}
+     * while passing alone (166 tests, 0 failures). Binding the instance this class already holds means the
+     * JVM has exactly one such pool, not one per call, and the fixtures' {@code deleteBook(UUID)} can no longer
+     * be handed a fresh one.</p>
+     *
+     * <p><b>Why a second static block, after the field.</b> Static initializers run in textual order, so this
+     * one only sees {@link #STOCK_LEDGER_CLEANUP} initialized because it is written below the field's
+     * declaration — the field itself is initialized after the {@code POSTGRES} block above it. Keeping it in
+     * the {@code POSTGRES} block would bind {@code null}. This block is the one-time fact; the {@code @BeforeEach}
+     * re-states it because {@code TenantFixturesTest} clears it, and both bind the <b>same</b> pool.</p>
+     */
+    static {
+        TenantFixtures.bindContainerSuperuser(STOCK_LEDGER_CLEANUP);
+    }
+
+    /**
      * The role the pool logs in as: the one ADR-0005's policies apply to, and the reason this base exists.
      *
      * <p><b>Why the pool and Flyway are two credentials</b> (record T6b). Until T6b both were
@@ -138,6 +159,12 @@ public abstract class AbstractPostgresIntegrationTest {
      *
      * <p>The password is the container's, not a second literal: it is the throwaway credential
      * {@code withPassword} sets, on a container that listens on a random loopback port for one JVM.</p>
+     *
+     * <p><b>This builds a pool, so hold it, never call it from a lifecycle method.</b> Each call is a new
+     * {@code HikariDataSource}, and a suite that calls it from {@code @BeforeEach} or {@code @AfterEach} leaks
+     * one pool per test method — 26 of them exhausted the shared container's 300 connections and failed 27
+     * unrelated migration suites. Store it in a {@code private static final} field, or use the one this class
+     * binds to {@link TenantFixtures#bindContainerSuperuser} for a book delete.</p>
      */
     protected static DataSource containerSuperuserPool() {
         var dataSource = new HikariDataSource();
@@ -173,6 +200,13 @@ public abstract class AbstractPostgresIntegrationTest {
      *
      * <p>A {@code @BeforeEach} on the base class runs before every subclass's own, which is exactly the order
      * a fixture in a subclass's {@code @BeforeEach} needs.</p>
+     *
+     * <p><b>The container login gets the same treatment, for the same reason.</b> It is bound once in the
+     * static block above, and a static block runs when the class is initialized — so a later class in the same
+     * JVM inherits nothing from it. {@code TenantFixturesTest} has to clear that binding to prove
+     * {@code deleteBook} refuses when no login is bound, which means the next suite to delete a book would
+     * refuse too, depending on execution order. Re-binding the pool this class already holds is one assignment
+     * and no new pool: the JVM still has exactly the one.</p>
      */
     @BeforeEach
     void bindTenantFixtureBoundary() {
@@ -182,6 +216,7 @@ public abstract class AbstractPostgresIntegrationTest {
         if (tenantFixtureBoundary != null) {
             TenantFixtures.bindTransactionManager(tenantFixtureBoundary);
         }
+        TenantFixtures.bindContainerSuperuser(STOCK_LEDGER_CLEANUP);
     }
 
     /**

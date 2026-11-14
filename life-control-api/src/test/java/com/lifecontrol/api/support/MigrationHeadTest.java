@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import org.flywaydb.core.api.MigrationVersion;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -115,6 +116,13 @@ class MigrationHeadTest {
         // tree ever ships no Java migration again, delete this test with the pattern it names — the fixture
         // test above keeps the parse and the ordering pinned either way.
         var javaHalf = AbstractPostgresIntegrationTest.latestMigrationVersion("classpath*:db/migration/V*__*.class");
-        assertThat(AbstractPostgresIntegrationTest.latestMigrationVersion()).isGreaterThanOrEqualTo(javaHalf);
+        // Compared as versions and never as strings, which is the same rule the helper itself follows. The
+        // comparison below used to be `isGreaterThanOrEqualTo(String)`, and it was a latent defect from the day
+        // it was written: `"100"` sorts <b>below</b> `"65"` lexicographically, so the tree's first three-digit
+        // migration (`V100`) is the one that exposed it. `MigrationVersion` is the type Flyway orders by, it
+        // reads `9`, `65`, `100` and `1.1` the way the chain does, and it needs no second parser here.
+        assertThat(MigrationVersion.fromVersion(AbstractPostgresIntegrationTest.latestMigrationVersion()))
+                .as("the real head, as a version against the newest .class migration's version")
+                .isGreaterThanOrEqualTo(MigrationVersion.fromVersion(javaHalf));
     }
 }

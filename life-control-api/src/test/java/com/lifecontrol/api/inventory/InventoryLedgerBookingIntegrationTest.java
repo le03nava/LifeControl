@@ -3,6 +3,7 @@ package com.lifecontrol.api.inventory;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.lifecontrol.api.accounting.catalog.StarterAccountingCatalogApplier;
 import com.lifecontrol.api.inventory.exception.InsufficientStockException;
 import com.lifecontrol.api.inventory.ledger.StockLedgerEngine;
 import com.lifecontrol.api.inventory.ledger.StockLedgerWriter;
@@ -94,6 +95,10 @@ class InventoryLedgerBookingIntegrationTest extends AbstractPostgresIntegrationT
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
+    /** The seed every company this suite creates receives, bound around each case. */
+    @Autowired
+    private StarterAccountingCatalogApplier starterCatalog;
+
     @Autowired
     private StockLedgerEngine stockLedgerEngine;
 
@@ -129,6 +134,9 @@ class InventoryLedgerBookingIntegrationTest extends AbstractPostgresIntegrationT
 
     @BeforeEach
     void insertTheTreeEveryCaseHangsFrom() {
+        // The booking engine allocates outbound movements, and since V100 the cost of one refuses to post
+        // without the tenant's cost rule. `insertCompany` seeds only when a suite asks, so this suite asks.
+        TenantFixtures.bindStarterCatalog(starterCatalog);
         var countryId = jdbcTemplate.queryForObject("SELECT id FROM countries WHERE country_code = 'MX'", UUID.class);
         companyId = TenantFixtures.insertCompany(
                 jdbcTemplate, COMPANY_KEY, "Ledger Booking Company", COMPANY_RFC, TenantFixtures.SEED_CURRENCY);
@@ -148,7 +156,14 @@ class InventoryLedgerBookingIntegrationTest extends AbstractPostgresIntegrationT
 
     @AfterEach
     void removeInsertedRows() {
+        // First, so a teardown that fails half-way cannot leave the next class seeding its companies.
+        TenantFixtures.unbindStarterCatalog();
         deleteTheLedger();
+        // The entries those bookings posted: `account_entry` is append-only and the application role holds no
+        // DELETE on it, so the book goes through the container's own login before the company below — on the one
+        // pool this JVM already bound (`TenantFixtures.bindContainerSuperuser`), never on a pool built here, which
+        // would leak one per test method.
+        TenantFixtures.deleteBook(companyId);
         deleteTheLegacyBalances();
         for (var row : insertedVariants) {
             deleteRow(row, "DELETE FROM product_variants WHERE id = ?");

@@ -91,12 +91,14 @@ class CompanyCurrencyCreateHttpIntegrationTest extends AbstractPostgresIntegrati
             // `CompanyService.createCompany` seeds the starter product catalog through
             // `CompanyCreatedEvent`, and `product_categories.company_id` is a foreign key.
             // The accounting starter catalog is seeded the same way on `CompanyCreatedEvent`, and both
-            // `posting_rule.company_id` and `account.company_id` are foreign keys to `companies` too.
+            // `posting_rule.company_id` and `account.company_id` are foreign keys to `companies` too. The
+            // rule's lines point at the rule and at an account, so they go before both.
             TenantFixtures.inTenant(id, () -> {
                 jdbcTemplate.update(
                         "DELETE FROM product_categories WHERE parent_category_id IS NOT NULL AND company_id = ?", id);
                 jdbcTemplate.update("UPDATE product_categories SET parent_category_id = NULL WHERE company_id = ?", id);
                 jdbcTemplate.update("DELETE FROM product_categories WHERE company_id = ?", id);
+                jdbcTemplate.update("DELETE FROM posting_rule_line WHERE company_id = ?", id);
                 jdbcTemplate.update("DELETE FROM posting_rule WHERE company_id = ?", id);
                 jdbcTemplate.update("DELETE FROM account WHERE company_id = ?", id);
                 jdbcTemplate.update("DELETE FROM companies WHERE id = ?", id);

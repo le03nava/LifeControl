@@ -2,6 +2,7 @@ package com.lifecontrol.api.inventory;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.lifecontrol.api.accounting.catalog.StarterAccountingCatalogApplier;
 import com.lifecontrol.api.company.model.CompanyCountry;
 import com.lifecontrol.api.company.model.CompanyRegion;
 import com.lifecontrol.api.company.model.CompanyZone;
@@ -124,6 +125,10 @@ class StockValuationAverageIntegrationTest extends AbstractPostgresIntegrationTe
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
+    /** The seed every company this suite creates receives, bound around each case. */
+    @Autowired
+    private StarterAccountingCatalogApplier starterCatalog;
+
     private UUID companyId;
     private UUID storeId;
     private UUID locationId;
@@ -132,6 +137,11 @@ class StockValuationAverageIntegrationTest extends AbstractPostgresIntegrationTe
 
     @BeforeEach
     void seedTheStoreAndItsVariant() {
+        // The company is created through `CompanyRepository` by `seedStoreHierarchy()`, which publishes no
+        // `CompanyCreatedEvent`, and every case here books a sale that consumes stock: since V100 the cost of
+        // that movement refuses to post without the revenue and cost rules, so the fixture states the book.
+        TenantFixtures.bindStarterCatalog(starterCatalog);
+
         seedStoreHierarchy();
 
         var product = TenantFixtures.inTenant(
@@ -181,6 +191,8 @@ class StockValuationAverageIntegrationTest extends AbstractPostgresIntegrationTe
 
     @AfterEach
     void removeTheLedgerAndTheFixture() {
+        // First, so a teardown that fails half-way cannot leave the next class seeding its companies.
+        TenantFixtures.unbindStarterCatalog();
         if (companyId == null) {
             return;
         }
