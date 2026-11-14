@@ -3,6 +3,7 @@ package com.lifecontrol.api.inventory;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.lifecontrol.api.accounting.catalog.StarterAccountingCatalogApplier;
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
 import com.lifecontrol.api.support.TenantFixtures;
 import java.math.BigDecimal;
@@ -78,6 +79,10 @@ class StockLedgerEngineIntegrationTest extends AbstractPostgresIntegrationTest {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
+    /** The seed every company this suite creates receives, bound around each case. */
+    @Autowired
+    private StarterAccountingCatalogApplier starterCatalog;
+
     private UUID companyId;
     private UUID countryId;
     private UUID companyCountryId;
@@ -110,6 +115,10 @@ class StockLedgerEngineIntegrationTest extends AbstractPostgresIntegrationTest {
 
     @BeforeEach
     void insertTheTreeEveryCaseHangsFrom() {
+        // `insertCompany` writes the row through `TenantFixtures.insertCompany`, so it seeds the book only when
+        // a suite asks — and this suite's cases allocate outbound movements, whose cost refuses to post without
+        // the tenant's cost rule (V100). The binding goes first: it has to be in place when the company is made.
+        TenantFixtures.bindStarterCatalog(starterCatalog);
         companyId = insertCompany();
         countryId = jdbcTemplate.queryForObject("SELECT id FROM countries WHERE country_code = 'MX'", UUID.class);
         companyCountryId = insertCompanyCountry();
@@ -127,7 +136,15 @@ class StockLedgerEngineIntegrationTest extends AbstractPostgresIntegrationTest {
 
     @AfterEach
     void removeInsertedRows() {
+        // First, so a teardown that fails half-way cannot leave the next class seeding its companies.
+        TenantFixtures.unbindStarterCatalog();
         deleteTheLedger();
+        // The book this suite's postings wrote: `account_entry` is append-only and the application role holds no
+        // DELETE on it, so it goes through the container's own login before the company below is removed —
+        // `account` and `posting_rule` name the company with no cascade. The login is the one pool this JVM
+        // already bound (`TenantFixtures.bindContainerSuperuser`), never one built here: a pool per test method
+        // is what exhausted the container's connections.
+        TenantFixtures.deleteBook(companyId);
         for (var row : insertedVariants) {
             deleteRow(row, "DELETE FROM product_variants WHERE id = ?");
         }

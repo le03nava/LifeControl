@@ -6,6 +6,7 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.lifecontrol.api.accounting.catalog.StarterAccountingCatalogApplier;
 import com.lifecontrol.api.company.model.CompanyCountry;
 import com.lifecontrol.api.company.model.CompanyRegion;
 import com.lifecontrol.api.company.model.CompanyZone;
@@ -98,6 +99,10 @@ class InventoryIntegrationTest extends AbstractPostgresIntegrationTest {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
+    /** The seed every company this suite creates receives, bound around each case. */
+    @Autowired
+    private StarterAccountingCatalogApplier starterCatalog;
+
     @Autowired
     private ObjectMapper objectMapper;
 
@@ -152,6 +157,11 @@ class InventoryIntegrationTest extends AbstractPostgresIntegrationTest {
 
     @BeforeEach
     void setUp() throws Exception {
+        // Since V100 a sale that reaches COMPLETED, a payment or an allocated outbound movement refuses to post
+        // without the tenant's chart and rules, and this suite charges documents. The company here is created
+        // through `CompanyRepository`, which publishes no `CompanyCreatedEvent`, so the fixture states the book.
+        TenantFixtures.bindStarterCatalog(starterCatalog);
+
         // The two legacy stock tables are not cleaned here any more: V74 dropped their `stock` columns and V75
         // dropped `inventory_movements`, so a receipt creates neither row and there is nothing to delete before
         // the children of the store tree go. The store row below is still written, and it references the
@@ -165,6 +175,8 @@ class InventoryIntegrationTest extends AbstractPostgresIntegrationTest {
 
     @AfterEach
     void tearDown() {
+        // First, so a teardown that fails half-way cannot leave the next class seeding its companies.
+        TenantFixtures.unbindStarterCatalog();
         productVariantStoreStockRepository.deleteAll();
         deleteTheStockLedger();
     }

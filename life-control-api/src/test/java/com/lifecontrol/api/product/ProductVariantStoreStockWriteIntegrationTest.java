@@ -7,6 +7,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.lifecontrol.api.accounting.catalog.StarterAccountingCatalogApplier;
 import com.lifecontrol.api.company.model.CompanyCountry;
 import com.lifecontrol.api.company.model.CompanyRegion;
 import com.lifecontrol.api.company.model.CompanyZone;
@@ -134,6 +135,10 @@ class ProductVariantStoreStockWriteIntegrationTest extends AbstractPostgresInteg
     @Autowired
     private StockLedgerWriter stockLedgerWriter;
 
+    /** The seed whose rules make an allocated outbound movement post its cost instead of refusing (V100). */
+    @Autowired
+    private StarterAccountingCatalogApplier starterCatalog;
+
     /**
      * The handle every balance is read through: {@code stock_position}, {@code stock_balance} and
      * {@code stock_movement} are the only numbers and the only record of a movement since T3c. The shared ledger
@@ -164,7 +169,15 @@ class ProductVariantStoreStockWriteIntegrationTest extends AbstractPostgresInteg
 
     @BeforeEach
     void setUp() {
+        // A decrease draws from the location holding the stock, which allocates an outbound movement, and since
+        // V100 the cost of one refuses to post without the tenant's `COST_OF_SALES` rule (S11–S15). This
+        // suite's company is a `findOrCreate`, so it is created once per JVM and reused by every case: binding
+        // lets the creation path seed it, and the explicit `applyTo` states the book again for the cases that
+        // find it already there — it is idempotent, and the teardown deletes the book, so "already there" is
+        // never assumed.
+        TenantFixtures.bindStarterCatalog(starterCatalog);
         seedStoreHierarchy();
+        starterCatalog.applyTo(companyId);
 
         // The company read and the armed INSERT share one stated tenant.
         var product = TenantFixtures.inTenant(
@@ -193,12 +206,21 @@ class ProductVariantStoreStockWriteIntegrationTest extends AbstractPostgresInteg
 
     @AfterEach
     void tearDown() {
+        // First, so a teardown that fails half-way cannot leave the next class seeding its companies.
+        TenantFixtures.unbindStarterCatalog();
+
         // The per-store stock editor books the stock ledger (W3-D14), so since T5a of
         // odd/tasks/inventory-ledger.md it also writes movements. Those rows reference the variants and
         // the locations with no cascade and the ledger is append-only, so they go first — otherwise the
         // variant deletes below fail on fk_movement_variant for a row the application role cannot remove.
         if (companyId != null) {
             deleteStockLedger(jdbcTemplate, companyId);
+        }
+
+        // The entries those bookings posted: `account_entry` is append-only in both halves `V97` copied from
+        // `V83`, so the book goes on the container's own login the base class bound, never on a pool built here.
+        if (companyId != null) {
+            TenantFixtures.deleteBook(companyId);
         }
 
         // Listings before the variants: `variant_listing` references the variant (C6) with no cascade, and
