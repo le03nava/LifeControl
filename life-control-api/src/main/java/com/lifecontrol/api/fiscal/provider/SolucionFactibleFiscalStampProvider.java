@@ -56,13 +56,16 @@ import org.xml.sax.SAXException;
  * operator's catalogue of things to fix. Both are {@link FiscalStampProviderDefectException}, never a
  * {@link FiscalStampResult.Rejected}, which is reserved for an answer that judged a document.</p>
  *
- * <p><b>Why two of the six facts are read from the document and not from the answer.</b> The operation returns
- * {@code uuid}, {@code fechaTimbrado}, {@code certificadoSAT} and {@code selloSAT}, and no
+ * <p><b>Why three of the six facts come from the document and not only two ({@code T7a}'s review).</b> The
+ * operation returns {@code uuid}, {@code fechaTimbrado}, {@code certificadoSAT} and {@code selloSAT}, and no
  * {@code RfcProvCertif} or {@code SelloCFD}: those two are attributes of the {@code TimbreFiscalDigital} inside
  * the {@code cfdiTimbrado} the provider returns. Reading them from the document it is handing over is not a
  * workaround but the correct order — the timbre is the authority's statement, and a field beside it would be a
  * second copy free to disagree ({@code L18}(c)). A returned document with no timbre, or whose timbre names
- * another UUID than the result, is refused instead of stored.</p>
+ * another UUID than the result, is refused instead of stored. And because the UUID pair only says the answer
+ * agrees with itself, the timbre's {@code SelloCFD} is compared with the {@code Sello} of the document that was
+ * sent ({@link #requireSameSeal}): an answer over somebody else's document is refused rather than kept as the
+ * artefact of this attempt ({@code S10}).</p>
  *
  * <p><b>What this adapter deliberately does not do.</b> It does not idempotency ({@code L12}(h): schema and
  * attempt), it does not seal ({@code T7b}), it does not retry, and it sends nothing derived from
@@ -101,6 +104,7 @@ public final class SolucionFactibleFiscalStampProvider implements FiscalStampPro
     private static final String UUID_ATTRIBUTE = "UUID";
     private static final String RFC_PROV_CERTIF = "RfcProvCertif";
     private static final String SELLO_CFD = "SelloCFD";
+    private static final String SELLO = "Sello";
 
     private final URI endpoint;
     private final String usuario;
@@ -134,15 +138,40 @@ public final class SolucionFactibleFiscalStampProvider implements FiscalStampPro
     @Override
     public FiscalStampResult stamp(FiscalStampRequest request) {
         Objects.requireNonNull(request, "a stamp carries the document to send");
+        var sello = selloOf(request.xml());
         var startedAt = System.nanoTime();
         var body = send(request, startedAt);
-        var answer = map(body);
+        var answer = map(body, sello);
         logger.info(
                 "Solución Factible stamp call: endpoint={}, elapsedMillis={}, answer={}",
                 endpoint,
                 elapsedMillis(startedAt),
                 answer.getClass().getSimpleName());
         return answer;
+    }
+
+    // ─── what is sent, read before it is sent ────────────────────────────────────────────────────────
+
+    /**
+     * The seal the document states, read from the request and refused when it states none.
+     *
+     * <p>Two rules meet here. A document with no {@code Comprobante/@Sello} is not one the authority accepts — the
+     * XSD requires the attribute — and it is also the one document this adapter could not check the answer
+     * against, so it is never sent: the refusal happens before the call and not after it. And the value read here
+     * is what {@link #requireSameSeal} compares the returned timbre with, which is what makes the artefact the
+     * document <b>this</b> process sealed rather than merely a document whose UUID pair agrees with itself
+     * ({@code S10}).</p>
+     */
+    private static String selloOf(String xml) {
+        var document = parse(xml, "the document to stamp");
+        var sello = attribute(document.getDocumentElement(), SELLO);
+        if (sello == null) {
+            throw FiscalStampProviderDefectException.unreadable("the document it was asked to stamp states no "
+                    + "cfdi:Comprobante/@" + SELLO + ", and a seal-less document has nothing for the returned "
+                    + "timbre's " + SELLO_CFD + " to be compared with: the seal is the only fact that ties the "
+                    + "artefact to what this process signed (S10, L18(d))");
+        }
+        return sello;
     }
 
     // ─── the call ────────────────────────────────────────────────────────────────────────────────────
@@ -217,7 +246,7 @@ public final class SolucionFactibleFiscalStampProvider implements FiscalStampPro
      * document, both codes travel — the operator needs the call's sentence to fix the account and the document's
      * to fix the request.</p>
      */
-    private FiscalStampResult map(String body) {
+    private FiscalStampResult map(String body, String sello) {
         var answer = returnOf(parse(body, "the SOAP answer"));
         var processStatus = statusOf(answer, "the answer");
         var processMessage = text(answer, MENSAJE);
@@ -235,10 +264,10 @@ public final class SolucionFactibleFiscalStampProvider implements FiscalStampPro
         if (results.isEmpty()) {
             throw FiscalStampProviderDefectException.successfulCallWithoutResult(processStatus, processMessage);
         }
-        return stampedOrRejected(results.get(0));
+        return stampedOrRejected(results.get(0), sello);
     }
 
-    private FiscalStampResult stampedOrRejected(Element result) {
+    private FiscalStampResult stampedOrRejected(Element result, String sello) {
         var status = statusOf(result, "the first result");
         var message = text(result, MENSAJE);
         if (status != STATUS_OK) {
@@ -251,6 +280,7 @@ public final class SolucionFactibleFiscalStampProvider implements FiscalStampPro
         var xml = decoded(text(result, "cfdiTimbrado"));
         var timbre = timbreOf(xml);
         requireSameUuid(timbre, uuid);
+        requireSameSeal(timbre, sello);
 
         return new FiscalStampResult.Stamped(
                 uuid,
@@ -298,6 +328,33 @@ public final class SolucionFactibleFiscalStampProvider implements FiscalStampPro
         var statedUuid = uuidOf(stated, "its timbre states no UUID");
         if (!statedUuid.equals(uuid)) {
             throw FiscalStampProviderDefectException.timbreDisagrees(stated, uuid);
+        }
+    }
+
+    /**
+     * The returned timbre must echo the seal the document we sent states, and a disagreement is a defect.
+     *
+     * <p><b>Why the UUID agreement above is not enough.</b> It proves the answer's two halves describe the same
+     * stamp; it says nothing about whose document that stamp is over. A provider — or a proxy in front of one —
+     * that answered a <b>different</b> document with a self-consistent UUID pair would otherwise be stored as the
+     * artefact of this attempt, and the artefact is what {@code S10} makes the authority's copy of our document:
+     * the timbre's {@code SelloCFD} <b>is</b> the seal of the document it stamped, so comparing it with the
+     * {@code Comprobante/@Sello} we sent either names the same bytes or names a substitution.</p>
+     *
+     * <p><b>What it deliberately does not compare.</b> A timbre that states no {@code SelloCFD} is left alone: the
+     * SAT's timbre 1.0 spells it {@code selloCFD}, the port already reports that spelling as a null
+     * {@code selloCfd} ({@code L18}(c)), and the vendor's own published example is such a timbre. Refusing it here
+     * would refuse the example this adapter is pinned against, and the case this rule exists for — a self-consistent
+     * answer over somebody else's document — states a {@code SelloCFD} and is refused.</p>
+     */
+    private static void requireSameSeal(Element timbre, String sello) {
+        var echoed = attribute(timbre, SELLO_CFD);
+        if (echoed != null && !echoed.equals(sello)) {
+            throw FiscalStampProviderDefectException.unreadable("the timbre of the document it returned states "
+                    + SELLO_CFD + " '" + echoed + "' while the document this adapter sent states " + SELLO + " '"
+                    + sello + "', so the document it returned is not the one that was stamped: the artefact has to "
+                    + "be the authority's copy of our document and not a different one whose UUID pair agrees with "
+                    + "itself (S10, L18(c))");
         }
     }
 

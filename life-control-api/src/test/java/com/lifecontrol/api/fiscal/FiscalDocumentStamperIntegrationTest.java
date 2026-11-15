@@ -13,18 +13,25 @@ import com.lifecontrol.api.fiscal.repository.FiscalDocumentLineRepository;
 import com.lifecontrol.api.fiscal.repository.FiscalDocumentRepository;
 import com.lifecontrol.api.fiscal.service.FiscalDocumentStamper;
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
+import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
+import org.springframework.context.annotation.Primary;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.transaction.annotation.Transactional;
@@ -70,6 +77,35 @@ class FiscalDocumentStamperIntegrationTest extends AbstractPostgresIntegrationTe
     /** A second, separately keyed attempt of the same sale, for the one-stamped-document rule. */
     private static final String SECOND_ATTEMPT = "stamp-2026-11-15-02";
 
+    /**
+     * The instant this suite's context hands the attempt, and the reason it advances one second per read.
+     *
+     * <p>{@code Fecha} has second precision, so a regression that read the clock twice <b>inside the same
+     * second</b> would pass every other case of this suite and still send a document whose {@code Fecha} is not
+     * the one the seal was computed over ({@code L18}(d)). A clock that moves between two reads turns that
+     * regression into a failed assertion instead of an argument, which is why the suite's context provides this
+     * one rather than the deployment's fixed offset.</p>
+     */
+    private static final AdvancingClock CLOCK =
+            new AdvancingClock(ZoneId.of("America/Mexico_City"), Instant.parse("2026-11-15T16:15:30Z"));
+
+    /**
+     * The clock bean of this suite's context, primary so it wins over the deployment's for the one stamp.
+     *
+     * <p>Declared as a nested {@code @TestConfiguration} rather than an {@code @Import}ed class so the double is
+     * one line away from the case that reads it, and with a bean name of its own so nothing is overridden by
+     * name: the attempt asks for a {@link Clock} and a {@code @Primary} one answers.</p>
+     */
+    @TestConfiguration
+    static class AdvancingClockConfig {
+
+        @Bean
+        @Primary
+        Clock advancingFiscalClock() {
+            return CLOCK;
+        }
+    }
+
     @Autowired
     private FiscalDocumentStamper stamper;
 
@@ -94,6 +130,7 @@ class FiscalDocumentStamperIntegrationTest extends AbstractPostgresIntegrationTe
     void seedACompletedSaleWithAFiscalProfile() {
         FiscalStampProviderTestConfiguration.PROVIDER.reset();
         FiscalStampProviderTestConfiguration.SEALER.reset();
+        CLOCK.reset();
         seed = new FiscalDocumentSeed(jdbc, accountingCatalog).aCompletedSaleWithAFiscalProfile();
     }
 
@@ -191,6 +228,32 @@ class FiscalDocumentStamperIntegrationTest extends AbstractPostgresIntegrationTe
         assertThat(XmlFingerprint.childrenOf(sealed.getDocumentElement()))
                 .as("and every child, attribute for attribute: the seal is the only difference")
                 .isEqualTo(XmlFingerprint.childrenOf(unsigned.getDocumentElement()));
+
+        settle();
+    }
+
+    // ──────────────────────────────────────
+    // L18(d) — one instant for the two renderings, made detectable
+    // ──────────────────────────────────────
+
+    @Test
+    @DisplayName("L18(d): the two renderings state one Fecha, because the attempt reads the instant once")
+    void theTwoRenderingsStateOneFechaBecauseTheAttemptReadsTheInstantOnce() {
+        stamper.stamp(seed.sale(), ATTEMPT);
+
+        var unsigned = XmlFingerprint.parse(FiscalStampProviderTestConfiguration.SEALER.lastUnsignedXml());
+        var sealed = XmlFingerprint.parse(
+                FiscalStampProviderTestConfiguration.PROVIDER.lastRequest().xml());
+
+        assertThat(sealed.getDocumentElement().getAttribute("Fecha"))
+                .as("the document that travels states the instant the signed one states: a second read of the "
+                        + "clock would move Fecha by the second this clock advances, and the seal would cover a "
+                        + "document the provider never received")
+                .isEqualTo(unsigned.getDocumentElement().getAttribute("Fecha"))
+                .isEqualTo("2026-11-15T10:15:30");
+        assertThat(CLOCK.reads())
+                .as("one attempt reads the instant once; the assertion above is what a second read breaks")
+                .isEqualTo(1);
 
         settle();
     }
@@ -352,5 +415,54 @@ class FiscalDocumentStamperIntegrationTest extends AbstractPostgresIntegrationTe
     /** Runs the deferred judgement a commit would run, so a stamped document is compared with its sale. */
     private void settle() {
         jdbc.execute("SET CONSTRAINTS ALL IMMEDIATE");
+    }
+
+    /**
+     * A clock that answers one second later on every read, sharing its counter with its zoned copies.
+     *
+     * <p>It is a {@link Clock} and not a stub of the stamper's own type because the seam is the JDK's: the
+     * attempt renders {@code Fecha} through {@code LocalDateTime.now(clock)}, so a clock that moves between two
+     * reads is the exact input that separates "one instant" from "one instant per rendering".</p>
+     */
+    static final class AdvancingClock extends Clock {
+
+        private final ZoneId zone;
+        private final Instant origin;
+        private final AtomicInteger reads;
+
+        AdvancingClock(ZoneId zone, Instant origin) {
+            this(zone, origin, new AtomicInteger());
+        }
+
+        private AdvancingClock(ZoneId zone, Instant origin, AtomicInteger reads) {
+            this.zone = zone;
+            this.origin = origin;
+            this.reads = reads;
+        }
+
+        @Override
+        public ZoneId getZone() {
+            return zone;
+        }
+
+        @Override
+        public Clock withZone(ZoneId otherZone) {
+            return new AdvancingClock(otherZone, origin, reads);
+        }
+
+        @Override
+        public Instant instant() {
+            return origin.plusSeconds(reads.getAndIncrement());
+        }
+
+        /** How many times anything asked this clock for an instant. */
+        int reads() {
+            return reads.get();
+        }
+
+        /** Starts the next case at the origin again, so one case's reads are not the previous case's. */
+        void reset() {
+            reads.set(0);
+        }
     }
 }

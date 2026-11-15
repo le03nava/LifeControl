@@ -5,16 +5,24 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.StringReader;
 import java.io.StringWriter;
+import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
+import java.util.LinkedHashSet;
 import java.util.Objects;
+import java.util.Set;
+import java.util.regex.Pattern;
+import javax.xml.XMLConstants;
 import javax.xml.transform.Templates;
 import javax.xml.transform.Transformer;
+import javax.xml.transform.TransformerConfigurationException;
 import javax.xml.transform.TransformerException;
 import javax.xml.transform.stream.StreamResult;
 import javax.xml.transform.stream.StreamSource;
 import net.sf.saxon.TransformerFactoryImpl;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * The SAT's official {@code cadena original} transform, compiled once from the stylesheet committed beside this
@@ -36,8 +44,28 @@ import net.sf.saxon.TransformerFactoryImpl;
  * by absolute URL under {@code www.sat.gob.mx}, and an {@code xsl:include} is resolved at <b>compile</b> time: a
  * missing one is not a warning but a transform that never runs. Committing them (verbatim, hashes in the README
  * beside the stylesheet) is what makes the chain offline, deterministic and buildable in a container with no
- * egress. {@link #include} refuses any URL outside that committed set by name, so the transform cannot silently
- * depend on the network in one environment and on a stale local file in another.</p>
+ * egress.</p>
+ *
+ * <p><b>The boundary is the <i>declared</i> set, stated on purpose ({@code T7b}'s review).</b> The first version of
+ * this class set a {@code URIResolver} and nothing else, so its protection was a side effect of that resolver
+ * answering by basename: an external entity, a parameter entity and an external {@code DOCTYPE} all reached the
+ * resolver, and a {@code DOCTYPE SYSTEM "file:///tmp/evil/utilerias.xslt"} was answered with the <b>committed</b>
+ * {@code utilerias.xslt} — nothing local was read, but a name collision substituted a file nobody named, and a
+ * substitution that succeeds is a failure nobody sees. So the resolver now accepts exactly two forms and refuses
+ * everything else by name: an {@code href} the committed stylesheet declares verbatim (which is what Saxon passes
+ * for a real {@code xsl:include}), and a bare name the stylesheet declares. An absolute URI, a {@code file:} URI, a
+ * path carrying a directory, and a name that exists in the committed directory without being declared are all
+ * refused with a message that states the boundary — see {@link #include(String)}.</p>
+ *
+ * <p><b>What the factory could be told, and what Saxon accepts.</b> The intent is stated where a reader looks for
+ * it: {@code FEATURE_SECURE_PROCESSING} is turned on and both JAXP external-access controls are applied. The
+ * engine's answers are recorded by {@link #restrictExternalAccess} rather than assumed, and they are the reason the
+ * resolver is the boundary instead of a second layer: <b>Saxon 12.10 refuses {@code ACCESS_EXTERNAL_DTD}</b> with
+ * {@code IllegalArgumentException: Unknown configuration property …accessExternalDTD}, and <b>accepts
+ * {@code ACCESS_EXTERNAL_STYLESHEET} while continuing to report it back as {@code all}</b>, so neither restriction
+ * is in force. Dropping the committed include resolution to keep them would be the wrong trade — the include set is
+ * what makes the chain exact — so both are attempted (an engine that honours JAXP must not run unhardened), the
+ * outcome is logged, and {@link #include(String)} is what actually closes the references.</p>
  *
  * <p><b>Why the resource's SHA-256 is checked here and not only in a test.</b> The hash is the pin: the test
  * asserts it so a substitution fails CI, and this constructor asserts it so a substitution fails the <b>boot</b>
@@ -55,12 +83,31 @@ public final class CadenaOriginal {
     /** The directory holding the stylesheet's own {@code xsl:include} targets. */
     private static final String INCLUDES = "fiscal/cadenaoriginal_4_0/includes/";
 
+    /**
+     * The sentence every refusal carries, because the rule is what has to be readable and the offending href is
+     * only its instance.
+     */
+    private static final String BOUNDARY = "resolves only the committed include set";
+
+    /**
+     * One {@code xsl:include} href of the committed stylesheet.
+     *
+     * <p>A regular expression and not a stylesheet parse, because the bytes it runs on are the ones {@link
+     * #readPinnedStylesheet} has just compared with a published SHA-256: the declaration form cannot change without
+     * the hash changing, so there is nothing left to be liberal about. A declaration this expression stops matching
+     * fails loudly — the include is then undeclared and refused — instead of narrowing the gate.</p>
+     */
+    private static final Pattern DECLARED_INCLUDE = Pattern.compile("<xsl:include\\b[^>]*\\bhref\\s*=\\s*\"([^\"]+)\"");
+
+    private static final Logger logger = LoggerFactory.getLogger(CadenaOriginal.class);
+
     /** Compiled once per sealer: a transformer is not thread-safe, but the compiled stylesheet is. */
     private final Templates templates;
 
     /** Compiles the committed stylesheet, refusing a resource whose bytes are not the pinned ones. */
     public CadenaOriginal() {
-        this.templates = compile();
+        var stylesheet = readPinnedStylesheet();
+        this.templates = compile(stylesheet, declaredIncludesOf(stylesheet));
     }
 
     /**
@@ -88,24 +135,31 @@ public final class CadenaOriginal {
     /**
      * One of the stylesheet's includes, resolved to the file committed for it.
      *
-     * <p>The authority's stylesheet names its includes by absolute URL and all 33 are distinct by basename, so the
-     * committed set is keyed by it. A name that is not committed — or a {@code href} that is not a plain file name
-     * — is refused here rather than left to a URL connection: the transform compiles offline or it does not
-     * compile at all.</p>
+     * <p>The authority's stylesheet names its 33 includes by absolute URL under {@code www.sat.gob.mx} and all of
+     * them are distinct by basename, so the committed set is keyed by it. But naming is not the boundary: a
+     * reference is resolved only when it is <b>declared</b>, in one of exactly two forms — the {@code href} the
+     * stylesheet names, byte for byte (which is what Saxon hands the resolver for a real {@code xsl:include}), or a
+     * bare name the stylesheet declares. A {@code DOCTYPE SYSTEM} or an external entity is neither, so it is
+     * refused here even when its basename happens to be a committed file: answering by basename alone, as a plain
+     * existence check does, is what substituted {@code utilerias.xslt} for a {@code file:} URI naming a file
+     * somewhere else.</p>
      *
-     * @param href the URL the stylesheet names in its {@code xsl:include}
+     * @param href the reference the engine asks this transform to resolve
      * @return an open stream over the committed file; the caller closes it
      */
     static InputStream include(String href) {
-        var name = href == null ? "" : href.substring(href.lastIndexOf('/') + 1);
-        var stream = isPlainFileName(name)
-                ? CadenaOriginal.class.getClassLoader().getResourceAsStream(INCLUDES + name)
-                : null;
+        return include(href, declaredIncludesOf(readPinnedStylesheet()));
+    }
+
+    private static InputStream include(String href, DeclaredIncludes declared) {
+        var name = declaredName(href, declared);
+        var stream = CadenaOriginal.class.getClassLoader().getResourceAsStream(INCLUDES + name);
         if (stream == null) {
-            throw new IllegalStateException("The SAT's cadena original stylesheet includes '" + href
-                    + "' and this tree has not committed it (" + INCLUDES + name + "). The transform is compiled "
-                    + "from committed files only: fetching it at compile time would make a stamp depend on the "
-                    + "network, and skipping it would change the cadena original a document is signed over.");
+            throw new IllegalStateException(
+                    "The cadena original transform " + BOUNDARY + ", and this build does not commit " + INCLUDES
+                            + name + " for the declaration '" + href
+                            + "'. A declared include that is not committed is a build defect: compiling without it "
+                            + "would change the chain a document is signed over, so nothing is transformed at all.");
         }
         return stream;
     }
@@ -117,8 +171,8 @@ public final class CadenaOriginal {
      * handle released before Saxon sees it: a compile that left 33 open descriptors behind would be a leak in the
      * one place a deployment runs at boot and never again.</p>
      */
-    private static ByteArrayInputStream readInclude(String href) {
-        try (InputStream include = include(href)) {
+    private static ByteArrayInputStream readInclude(String href, DeclaredIncludes declared) {
+        try (InputStream include = include(href, declared)) {
             return new ByteArrayInputStream(include.readAllBytes());
         } catch (IOException cannotRead) {
             throw new IllegalStateException("The committed include for '" + href + "' could not be read.", cannotRead);
@@ -126,13 +180,61 @@ public final class CadenaOriginal {
     }
 
     // ──────────────────────────────────────
+    // the declared set, and what is refused
+    // ──────────────────────────────────────
+
+    /** The two forms of a reference this transform resolves: the declared hrefs, and their bare names. */
+    private record DeclaredIncludes(Set<String> hrefs, Set<String> names) {}
+
+    /** The includes the committed stylesheet declares, in document order. */
+    private static DeclaredIncludes declaredIncludesOf(byte[] stylesheet) {
+        var text = new String(stylesheet, StandardCharsets.UTF_8);
+        var matcher = DECLARED_INCLUDE.matcher(text);
+        Set<String> hrefs = new LinkedHashSet<>();
+        while (matcher.find()) {
+            hrefs.add(matcher.group(1));
+        }
+        if (hrefs.isEmpty()) {
+            throw new IllegalStateException("The committed cadena original stylesheet declares no xsl:include at all, "
+                    + "and the authority's stylesheet includes 33. A stylesheet with none is not the file this class "
+                    + "was written against (SHA-256 " + SHA_256 + "), so no document can be transformed with it.");
+        }
+        Set<String> names = new LinkedHashSet<>();
+        for (var href : hrefs) {
+            names.add(basename(href));
+        }
+        return new DeclaredIncludes(Set.copyOf(hrefs), Set.copyOf(names));
+    }
+
+    /** The committed file one declared reference names, or a refusal stating the boundary. */
+    private static String declaredName(String href, DeclaredIncludes declared) {
+        if (href != null && declared.hrefs().contains(href)) {
+            return basename(href);
+        }
+        if (href != null && declared.names().contains(href)) {
+            return href;
+        }
+        throw new IllegalStateException("The cadena original transform " + BOUNDARY + ", and '" + href
+                + "' is not in it. The SAT's stylesheet declares "
+                + declared.hrefs().size()
+                + " xsl:include hrefs and this tree commits one file per declared name (" + INCLUDES
+                + "). A reference this transform answers has to be one of those declarations or the bare name of one "
+                + "of them; anything else — an absolute URI, a file: URI, a path with a directory in it, or a name "
+                + "the stylesheet does not declare even when a file of that name is committed — is a reference this "
+                + "transform must not follow. Following it would read a local file, fetch the network, or answer "
+                + "with a committed file the reference never named.");
+    }
+
+    private static String basename(String href) {
+        return href.substring(href.lastIndexOf('/') + 1);
+    }
+
+    // ──────────────────────────────────────
     // the compile, once
     // ──────────────────────────────────────
 
-    private static Templates compile() {
-        byte[] stylesheet = readPinnedStylesheet();
-        var factory = new TransformerFactoryImpl();
-        factory.setURIResolver((href, base) -> new StreamSource(readInclude(href), href));
+    private static Templates compile(byte[] stylesheet, DeclaredIncludes declared) {
+        var factory = hardenedFactory(declared);
         try {
             return factory.newTemplates(new StreamSource(new ByteArrayInputStream(stylesheet), RESOURCE));
         } catch (TransformerException cannotCompile) {
@@ -142,6 +244,64 @@ public final class CadenaOriginal {
                             + ") and Saxon-HE runs it as XSLT 2.0; a compile failure here means the resource or the "
                             + "engine is not what this class was written against.",
                     cannotCompile);
+        }
+    }
+
+    /**
+     * The engine this transform runs on, with the hardening it can be given and the resolver it is closed by.
+     *
+     * <p>Both halves are here and not in {@link #include(String)} alone, because the refusal a reader should find
+     * first is the intent: secure processing on, external access restricted, and a resolver that resolves the
+     * committed set. What the engine does with the restrictions is {@link #restrictExternalAccess}'s job to record
+     * — Saxon 12.10 refuses one and ignores the other — so this method never assumes they took effect.</p>
+     */
+    private static TransformerFactoryImpl hardenedFactory(DeclaredIncludes declared) {
+        var factory = new TransformerFactoryImpl();
+        try {
+            factory.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);
+        } catch (TransformerConfigurationException refusedSecureProcessing) {
+            throw new IllegalStateException(
+                    "Saxon refused " + XMLConstants.FEATURE_SECURE_PROCESSING
+                            + ", and a transform that cannot be told to run with secure processing is one this tree "
+                            + "does not run at all: the input is an unsigned document whose references this class "
+                            + "closes by hand, and running without the engine's own limits as well would leave the "
+                            + "closing to a single layer.",
+                    refusedSecureProcessing);
+        }
+        restrictExternalAccess(factory, XMLConstants.ACCESS_EXTERNAL_DTD);
+        restrictExternalAccess(factory, XMLConstants.ACCESS_EXTERNAL_STYLESHEET);
+        factory.setURIResolver((href, base) -> new StreamSource(readInclude(href, declared), href));
+        return factory;
+    }
+
+    /**
+     * One JAXP external-access restriction, and what the engine did with it.
+     *
+     * <p>The two controls are applied but neither is relied on. Measured on this tree's engine (Saxon-HE 12.10):
+     * {@code ACCESS_EXTERNAL_DTD} is <b>refused</b> — {@code IllegalArgumentException: Unknown configuration
+     * property …accessExternalDTD} — and {@code ACCESS_EXTERNAL_STYLESHEET} is <b>accepted and then ignored</b>,
+     * since the factory reports it back as {@code all}. Both outcomes are logged at the moment the pipeline is
+     * built, because a reader who expects the JAXP controls to be what closes {@code xsl:include} would otherwise
+     * believe the transform is protected by a setting that does nothing.</p>
+     */
+    private static void restrictExternalAccess(TransformerFactoryImpl factory, String attribute) {
+        try {
+            factory.setAttribute(attribute, "");
+            var effective = factory.getAttribute(attribute);
+            if (!"".equals(effective)) {
+                logger.info(
+                        "Saxon accepted JAXP control {} and still reports '{}', so it is not in force; the URIResolver "
+                                + "is what {}",
+                        attribute,
+                        effective,
+                        BOUNDARY);
+            }
+        } catch (IllegalArgumentException refusedBySaxon) {
+            logger.info(
+                    "Saxon refused JAXP control {} ({}), so it is not in force; the URIResolver is what {}",
+                    attribute,
+                    refusedBySaxon.getMessage(),
+                    BOUNDARY);
         }
     }
 
@@ -181,9 +341,5 @@ public final class CadenaOriginal {
             throw new IllegalStateException(
                     "SHA-256 is a mandatory MessageDigest algorithm of every Java platform.", cannotHash);
         }
-    }
-
-    private static boolean isPlainFileName(String name) {
-        return !name.isBlank() && name.indexOf('/') < 0 && name.indexOf('\\') < 0 && !name.contains("..");
     }
 }

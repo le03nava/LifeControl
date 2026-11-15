@@ -27,8 +27,8 @@ import com.lifecontrol.api.salesorder.model.SalesOrder;
 import com.lifecontrol.api.salesorder.repository.SalesOrderRepository;
 import com.lifecontrol.api.tax.repository.TaxCodeRepository;
 import jakarta.persistence.EntityManager;
+import java.time.Clock;
 import java.time.LocalDateTime;
-import java.time.ZoneId;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -77,9 +77,12 @@ import org.springframework.util.StringUtils;
  * (decision {@code L18}(d) of {@code odd/tasks/cfdi-fiscal-document.md)). So the attempt renders the row set
  * <b>without</b> a seal, hands those bytes to the sealer, and renders again with the seal the sealer answered —
  * both from <b>one</b> {@link LocalDateTime} captured before the first of them, so the two renderings differ in
- * {@code Sello} alone. The consequence for the signature is deliberate: a caller cannot know the bytes this class
- * just built, so a caller cannot supply the seal. The one thing a caller could still do — patch a seal into a
- * rendered string — would be a signature over bytes nobody kept.</p>
+ * {@code Sello} alone. That instant is read through the {@link Clock} bean and never through a fresh
+ * {@code now()} per rendering: {@code Fecha} has second precision, so a second read inside the same second would
+ * render the same string while signing a document the provider never received, and a clock the suite can advance is
+ * what makes the difference observable instead of argued. The consequence for the signature is deliberate: a caller
+ * cannot know the bytes this class just built, so a caller cannot supply the seal. The one thing a caller could
+ * still do — patch a seal into a rendered string — would be a signature over bytes nobody kept.</p>
  *
  * <p><b>Why the two catalog facts this class reads are read here and not by the builder.</b> The frozen row set
  * carries the tree's tax code and the document's currency, not the authority's {@code Impuesto} and not the
@@ -133,8 +136,17 @@ public class FiscalDocumentStamper {
      */
     private final ObjectProvider<CfdiSealer> cfdiSealer;
 
-    /** The zone the document's {@code Fecha} is rendered in ({@code L12}(c), {@code FiscalConfig}). */
-    private final ZoneId fiscalZoneId;
+    /**
+     * The clock the document's {@code Fecha} is rendered from ({@code L18}(d), {@code L12}(c), {@code FiscalConfig}).
+     *
+     * <p>It is a {@link Clock} and not a {@code ZoneId} read through {@code LocalDateTime.now(zone)} for the reason
+     * the instant is captured once at all: "the two renderings come from one instant" is a claim about one
+     * <b>read</b>, and a clock this class receives is the seam that makes a second read observable. {@code Fecha}
+     * has second precision, so two reads inside the same second would render the same string while still signing a
+     * document the provider never received — the kind of regression a test can only catch if it can move the
+     * clock.</p>
+     */
+    private final Clock fiscalClock;
 
     /**
      * Reads back the four header columns the schema states and this entity cannot write.
@@ -158,7 +170,7 @@ public class FiscalDocumentStamper {
             FiscalDocumentSnapshotWriter snapshotWriter,
             ObjectProvider<FiscalStampProvider> stampProvider,
             ObjectProvider<CfdiSealer> cfdiSealer,
-            ZoneId fiscalZoneId,
+            Clock fiscalClock,
             EntityManager entityManager) {
         this.salesOrderRepository = salesOrderRepository;
         this.fiscalDocumentRepository = fiscalDocumentRepository;
@@ -169,7 +181,7 @@ public class FiscalDocumentStamper {
         this.snapshotWriter = snapshotWriter;
         this.stampProvider = stampProvider;
         this.cfdiSealer = cfdiSealer;
-        this.fiscalZoneId = fiscalZoneId;
+        this.fiscalClock = fiscalClock;
         this.entityManager = entityManager;
     }
 
@@ -243,8 +255,9 @@ public class FiscalDocumentStamper {
         }
 
         // One instant for the two renderings, captured before the first of them: it is what makes "they differ in
-        // Sello alone" true instead of likely, because a clock read between them could move `Fecha` by a second.
-        var fecha = LocalDateTime.now(fiscalZoneId);
+        // Sello alone" true instead of likely, because a second read of the clock would move `Fecha` by a second
+        // and the seal would cover a document the provider never received (L18(d)).
+        var fecha = LocalDateTime.now(fiscalClock);
         var certificate = sealer.certificate();
         var builder = builderFor(document.getCurrency(), lines);
         var unsigned = builder.build(document, lines, certificate, fecha);
