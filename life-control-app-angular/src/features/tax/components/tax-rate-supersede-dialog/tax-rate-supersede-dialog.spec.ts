@@ -1,7 +1,7 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { HttpErrorResponse } from '@angular/common/http';
 import { MAT_DIALOG_DATA, MatDialogRef } from '@angular/material/dialog';
-import { of, throwError } from 'rxjs';
+import { of, Subject, throwError } from 'rxjs';
 import { TaxRate } from '../../data/tax-rate.models';
 import { TaxRateService } from '../../data/tax-rate.service';
 import { REGION_SCOPE_WARNING } from '../tax-rate-declare-dialog/tax-rate-declare-dialog';
@@ -23,6 +23,13 @@ function superseded(overrides: Partial<TaxRate> = {}): TaxRate {
   };
 }
 
+/** A button by the label the operator reads, because that is the only name the control has on screen. */
+function buttonByText(root: HTMLElement, label: string): HTMLButtonElement | undefined {
+  return Array.from(root.querySelectorAll('button')).find(
+    (button) => button.textContent?.trim() === label,
+  );
+}
+
 function successor(overrides: Partial<TaxRate> = {}): TaxRate {
   return {
     ...superseded(),
@@ -37,7 +44,7 @@ describe('TaxRateSupersedeDialog', () => {
   let fixture: ComponentFixture<TaxRateSupersedeDialog>;
   let component: TaxRateSupersedeDialog;
   let taxRateService: { supersedeTaxRate: ReturnType<typeof vi.fn> };
-  let dialogRef: { close: ReturnType<typeof vi.fn> };
+  let dialogRef: { close: ReturnType<typeof vi.fn>; disableClose: boolean };
   let data: { companyId: string; rate: TaxRate };
 
   /** Builds the dialog over one superseded row; the row is the only input the form is allowed to read. */
@@ -61,7 +68,7 @@ describe('TaxRateSupersedeDialog', () => {
 
   beforeEach(() => {
     taxRateService = { supersedeTaxRate: vi.fn(() => of(successor())) };
-    dialogRef = { close: vi.fn() };
+    dialogRef = { close: vi.fn(), disableClose: false };
   });
 
   it('presents the superseded code, scope, rate and day as read-only text, never as form controls', async () => {
@@ -199,5 +206,39 @@ describe('TaxRateSupersedeDialog', () => {
     component.cancel();
 
     expect(dialogRef.close).toHaveBeenCalledWith(null);
+  });
+
+  // S1. Material closes the ref itself on Esc and on a backdrop click, and that close answers
+  // `undefined`, which the page reads as "no write" — so a PUT that settles after one of them
+  // appended a row the list kept denying. `MatDialogRef`'s own ESC/backdrop subscription reads
+  // `disableClose` **on the ref**, so flipping it around the write is what refuses both.
+  it('refuses Esc, the backdrop and the close button while its write is in flight', async () => {
+    const write = new Subject<TaxRate>();
+    taxRateService.supersedeTaxRate.mockReturnValue(write.asObservable());
+    await build(superseded());
+    component.form().patchValue({ ratePercent: 20, effectiveFrom: '2027-01-01' });
+
+    component.onSave();
+    fixture.detectChanges();
+
+    expect(component.saving()).toBe(true);
+    expect(dialogRef.disableClose).toBe(true);
+    expect(buttonByText(fixture.nativeElement, 'Cancelar')?.disabled).toBe(true);
+  });
+
+  it('gives the block an exit: a refused write restores dismissal and names the refusal', async () => {
+    const write = new Subject<TaxRate>();
+    taxRateService.supersedeTaxRate.mockReturnValue(write.asObservable());
+    await build(superseded());
+    component.form().patchValue({ ratePercent: 20, effectiveFrom: '2027-01-01' });
+    component.onSave();
+    fixture.detectChanges();
+
+    write.error(new HttpErrorResponse({ status: 500, statusText: 'Server Error' }));
+    fixture.detectChanges();
+
+    expect(dialogRef.disableClose).toBe(false);
+    expect(buttonByText(fixture.nativeElement, 'Cancelar')?.disabled).toBe(false);
+    expect(fixture.nativeElement.querySelector('app-error-banner')).not.toBeNull();
   });
 });

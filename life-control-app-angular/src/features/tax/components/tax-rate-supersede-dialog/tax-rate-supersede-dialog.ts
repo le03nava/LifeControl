@@ -137,6 +137,12 @@ export class TaxRateSupersedeDialog {
     const value = form.getRawValue();
     this.saving.set(true);
     this.formError.set(null);
+    // Esc and a backdrop click are refused while the write is in flight. Material closes the ref itself on
+    // both, and that close answers `undefined` — which the page reads as "no write", while the successor it
+    // refused to wait for was appended. `MatDialogRef`'s own ESC/backdrop subscription reads `disableClose` on
+    // the ref, so flipping it here is what refuses them; the error branch restores it so the block always has
+    // an exit.
+    this.dialogRef.disableClose = true;
 
     this.taxRateService
       .supersedeTaxRate(this.data.companyId, this.data.rate.id, {
@@ -149,6 +155,7 @@ export class TaxRateSupersedeDialog {
       .subscribe({
         next: (created) => this.dialogRef.close(created),
         error: (error: unknown) => {
+          this.dialogRef.disableClose = false;
           this.saving.set(false);
           this.formError.set(this.writeErrorMessage(error));
         },

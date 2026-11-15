@@ -30,10 +30,14 @@
           <mat-option [value]="option.id">{{ option.label }}</mat-option>
         }
       </mat-select>
-      @if (regionsError(); as regionsError) {
-        <mat-hint class="regions-error">{{ regionsError }}</mat-hint>
-      }
     </mat-form-field>
+
+    @if (regionsError(); as regionsError) {
+      <div class="scope-read-failure">
+        <p class="regions-error">{{ regionsError }}</p>
+        <button mat-stroked-button type="button" (click)="loadScope()">Reintentar</button>
+      </div>
+    }
 
     @if (declaresRegionalRate()) {
       <p class="scope-warning">{{ regionScopeWarning }}</p>
@@ -78,8 +82,16 @@
 </mat-dialog-content>
 
 <mat-dialog-actions align="end">
-  <button mat-stroked-button type="button" (click)="cancel()">Cancelar</button>
-  <button mat-flat-button color="primary" type="button" [disabled]="saving()" (click)="onSave()">
+  <button mat-stroked-button type="button" [disabled]="saving()" (click)="cancel()">
+    Cancelar
+  </button>
+  <button
+    mat-flat-button
+    color="primary"
+    type="button"
+    [disabled]="!scopeReady() || saving()"
+    (click)="onSave()"
+  >
     Declarar tasa
   </button>
 </mat-dialog-actions>

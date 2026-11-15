@@ -9,6 +9,23 @@
   color: var(--mat-sys-error, #b3261e);
 }
 
+/*
+ * A failed scope read is a block and not a hint: it carries the retry that makes it actionable, and it says
+ * why the save is unavailable instead of leaving a disabled button with no explanation.
+ */
+.scope-read-failure {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.scope-read-failure .regions-error {
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.4;
+}
+
 /* The S7 commitment sits under the scope it is about, boxed so it reads as a condition and not as a hint. */
 .scope-warning {
   margin: 0;
