@@ -8,6 +8,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
+import java.util.Objects;
 import java.util.UUID;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
@@ -23,16 +24,18 @@ import org.hibernate.type.SqlTypes;
  * row set written once from a snapshot — the reason {@link #getReceptorZipCode()} and
  * {@link #getEmisorRegimen()}, which are copies of live catalog columns, exist at all.</p>
  *
- * <p><b>What is mapped writable and what is not.</b> Two writers share this row and the mapping states which
- * columns each one owns. {@code FiscalDocumentSnapshotWriter} states the identity, the two fiscal faces, the
- * place of issue, the money and the attempt key of a {@code DRAFT};
+ * <p><b>What is mapped writable and what is not.</b> Three writers share this row set, and the mapping states
+ * which columns each one owns. {@code FiscalDocumentSnapshotWriter} states the identity, the two fiscal faces,
+ * the place of issue, the money and the attempt key of a {@code DRAFT};
  * {@code com.lifecontrol.api.fiscal.service.FiscalDocumentStamper} states the one transition out of it —
  * {@link #setStatus(String)}, {@link #setUuidFiscal(java.util.UUID)} and {@link #setStampedAt} — which is why
  * those three have setters and the header does not: {@code tipo_comprobante}, {@code metodo_pago},
  * {@code forma_pago} and {@code exportacion} are {@code insertable = false, updatable = false} because the
- * schema's defaults write them ({@code V109}), and no code states them until {@code T9}. {@code status} is a
- * {@code String} and not an enum because the vocabulary lives in {@code ck_fiscal_document_status}
- * ({@code L9}(i)).</p>
+ * schema's defaults write them ({@code V109}), and no code states them until {@code T9};
+ * {@code com.lifecontrol.api.fiscal.service.FiscalDocumentCancellationService} <b>inserts</b> a second row
+ * through {@link #cancellationOf(FiscalDocument, FiscalCancellationMotive, java.util.UUID, String)} and never
+ * touches the stamped one ({@code S7}). {@code status} is a {@code String} and not an enum because the
+ * vocabulary lives in {@code ck_fiscal_document_status} ({@code L9}(i)).</p>
  *
  * <p><b>What the database refuses, and therefore what this mapping does not have to.</b> {@code V108} revokes
  * {@code DELETE} and guards {@code UPDATE} with a trigger, so a {@code STAMPED} or {@code CANCELLED} row
@@ -56,6 +59,15 @@ public class FiscalDocument {
      * constraint that enforces it.</p>
      */
     public static final String STATUS_STAMPED = "STAMPED";
+
+    /**
+     * The state of a cancellation row: a document the authority was asked to cancel and answered that it
+     * cancelled ({@code S7}, {@code ck_fiscal_document_status}).
+     *
+     * <p>Named here for the same reason as the other two: the factory below writes it, the service compares it, and
+     * a literal in a second class is a spelling free to drift from the constraint that enforces it.</p>
+     */
+    public static final String STATUS_CANCELLED = "CANCELLED";
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
@@ -209,6 +221,95 @@ public class FiscalDocument {
      * {@code UPDATE} is guarded by a trigger, so a setter cannot amend history.</p>
      */
     public FiscalDocument() {}
+
+    /**
+     * The cancellation of {@code cancelled}: a <b>new row</b> that names the document it cancels, and never an
+     * edit of it ({@code S7} of {@code odd/tasks/cfdi-fiscal-document.md}).
+     *
+     * <p><b>Why it copies every frozen fact instead of pointing at the cancelled row.</b> {@code V109} made the
+     * document's frozen header {@code NOT NULL} — the receiver's and the issuer's identity, the place of issue,
+     * the currency and the four money parts — so a thin pointer would be a row the schema refuses. Copying them is
+     * also what keeps {@code S9} true for the row a reader finds: the cancellation states the same receiver, the
+     * same issuer and the same money as the document it cancels, as they were frozen, and reads no live catalog to
+     * do it.</p>
+     *
+     * <p><b>Why it carries no {@code fiscal_document_line} rows.</b> The lines state <b>what was invoiced</b>; a
+     * cancellation states that the invoice stopped existing. Copying them would double the line count of a table
+     * that refuses {@code DELETE} ({@code V108}) to say the same thing twice, and the lines are reachable through
+     * {@code cancels_fiscal_document_id} when someone needs to read them. The row it writes therefore has none, and
+     * that absence is the rule rather than an omission.</p>
+     *
+     * <p><b>What it deliberately leaves {@code null}, and why the schema requires it.</b> {@code uuid_fiscal} and
+     * {@code stamped_at} belong to the document the authority stamped —
+     * {@code ck_fiscal_document_uuid_matches_status} and {@code ck_fiscal_document_stamped_at} are equalities, so a
+     * {@code CANCELLED} row that carried either would be a row claiming the authority witnessed <b>it</b>. The same
+     * equality is why a cancellation has no UUID of its own: the UUID the authority cancels is the cancelled row's.
+     * {@code serie} and {@code folio} stay null as well, because the local folio convention names a document that
+     * was issued and copying it would put one folio on two rows. {@code attempt_key} stays null because a
+     * cancellation is not an attempt at stamping ({@code V110}).</p>
+     *
+     * <p><b>What it keeps from the source.</b> The tenant, the source type and the source id, so the row set stays
+     * one sale's history ({@code S6}: a cancelled document and its replacement are two rows of one sale). The
+     * expression of that is below, field by field, so a column added to the snapshot is a decision taken here and
+     * not a value silently inherited.</p>
+     *
+     * @param cancelled the stamped document being cancelled; a row that is not {@code STAMPED} is refused, because
+     *     nothing else has a witnessed document to cancel and the schema does not couple the pointer to the state
+     * @param motive which of the authority's four motives the cancellation states
+     * @param replacesFiscalDocumentId the row id of the document that substitutes this one, or {@code null} when the
+     *     motive replaces nothing; it is an id and not a folio, because the column is a composite foreign key to
+     *     {@code fiscal_document (company_id, id)}
+     * @param issuedBy who asked for the cancellation, {@code issued_by}; not a fiscal fact and not the cancelled
+     *     document's actor, because cancelling is a new act by a person
+     * @return a new row: {@code CANCELLED}, naming its source, with the source's frozen facts and no lines
+     */
+    public static FiscalDocument cancellationOf(
+            FiscalDocument cancelled, FiscalCancellationMotive motive, UUID replacesFiscalDocumentId, String issuedBy) {
+        Objects.requireNonNull(cancelled, "a cancellation names the document it cancels");
+        Objects.requireNonNull(motive, "a cancellation states the authority's motive");
+        Objects.requireNonNull(issuedBy, "a cancellation states who asked for it");
+        if (!STATUS_STAMPED.equals(cancelled.getStatus())) {
+            throw new IllegalStateException("Fiscal document " + cancelled.getId() + " is " + cancelled.getStatus()
+                    + " and a cancellation names a STAMPED document: a draft was never witnessed by the authority "
+                    + "and nothing else has a document to cancel.");
+        }
+
+        var cancellation = new FiscalDocument();
+        cancellation.setCompanyId(cancelled.getCompanyId());
+        cancellation.setSourceType(cancelled.getSourceType());
+        cancellation.setSourceId(cancelled.getSourceId());
+        cancellation.setStatus(STATUS_CANCELLED);
+        cancellation.setIssuedBy(issuedBy);
+
+        // The pointers, and the three columns ck_fiscal_document_cancellation couples to them.
+        cancellation.cancelsFiscalDocumentId = cancelled.getId();
+        cancellation.cancellationMotive = motive.code();
+        cancellation.replacesFiscalDocumentId = replacesFiscalDocumentId;
+
+        // The two facts that belong to the stamped row and to nothing else (the schema states both as equalities).
+        cancellation.uuidFiscal = null;
+        cancellation.stampedAt = null;
+
+        // The receiver's and the issuer's frozen identities, as the cancelled row states them (S9).
+        cancellation.setReceptorRfc(cancelled.getReceptorRfc());
+        cancellation.setReceptorName(cancelled.getReceptorName());
+        cancellation.setReceptorRegimen(cancelled.getReceptorRegimen());
+        cancellation.setReceptorZipCode(cancelled.getReceptorZipCode());
+        cancellation.setReceptorUsoCfdi(cancelled.getReceptorUsoCfdi());
+        cancellation.setEmisorRfc(cancelled.getEmisorRfc());
+        cancellation.setEmisorName(cancelled.getEmisorName());
+        cancellation.setEmisorRegimen(cancelled.getEmisorRegimen());
+        cancellation.setLugarExpedicion(cancelled.getLugarExpedicion());
+
+        // The money, copied so ck_fiscal_document_total keeps holding on a row that states the same document.
+        cancellation.setCurrency(cancelled.getCurrency());
+        cancellation.setSubtotal(cancelled.getSubtotal());
+        cancellation.setDiscountTotal(cancelled.getDiscountTotal());
+        cancellation.setTaxTransferred(cancelled.getTaxTransferred());
+        cancellation.setTaxWithheld(cancelled.getTaxWithheld());
+        cancellation.setTotalAmount(cancelled.getTotalAmount());
+        return cancellation;
+    }
 
     public UUID getId() {
         return id;

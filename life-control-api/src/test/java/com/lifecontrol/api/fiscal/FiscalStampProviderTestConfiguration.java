@@ -105,15 +105,7 @@ public class FiscalStampProviderTestConfiguration {
      */
     public static final class InMemoryFiscalStampProvider implements FiscalStampProvider {
 
-        /** The timbre the double adds, so the answer's bytes are provably not the request's. */
-        private static final String TIMBRE = "<cfdi:Complemento><tfd:TimbreFiscalDigital"
-                + " xmlns:tfd=\"http://www.sat.gob.mx/TimbreFiscalDigital\" Version=\"1.1\""
-                + " UUID=\"11111111-2222-3333-4444-555555555555\""
-                + " FechaTimbrado=\"2026-11-15T10:15:30\" RfcProvCertif=\"AAA010101AAA\""
-                + " NoCertificadoSAT=\"30001000000400002434\" SelloCFD=\"c2VsbG8tY2Zk\""
-                + " SelloSAT=\"c2VsbG8tc2F0\"/></cfdi:Complemento>";
-
-        /** The authority's UUID every stamped answer states: fixed, so a case compares the row with a literal. */
+        /** The authority's UUID every stamped answer states by default: fixed, so a case compares a row with a literal. */
         public static final UUID STAMPED_UUID = UUID.fromString("11111111-2222-3333-4444-555555555555");
 
         /** The instant every stamped answer states: fixed, so a case compares the stored value with a literal. */
@@ -121,7 +113,9 @@ public class FiscalStampProviderTestConfiguration {
 
         private final AtomicInteger invocations = new AtomicInteger();
         private final List<FiscalStampRequest> requests = new ArrayList<>();
+        private final List<String> answers = new ArrayList<>();
         private List<FiscalStampResult.Issue> rejection = List.of();
+        private UUID stampedUuid = STAMPED_UUID;
 
         @Override
         public FiscalStampResult stamp(FiscalStampRequest request) {
@@ -130,15 +124,29 @@ public class FiscalStampProviderTestConfiguration {
             if (!rejection.isEmpty()) {
                 return new FiscalStampResult.Rejected(rejection);
             }
-            var xml = request.xml().replace("</cfdi:Comprobante>", TIMBRE + "</cfdi:Comprobante>");
+            var xml = answerTo(request);
+            answers.add(xml);
             return new FiscalStampResult.Stamped(
-                    STAMPED_UUID,
+                    stampedUuid,
                     STAMPED_AT,
                     "AAA010101AAA",
                     "30001000000400002434",
                     "c2VsbG8tY2Zk",
                     "c2VsbG8tc2F0",
                     xml);
+        }
+
+        /**
+         * Makes the next answers state this fiscal UUID instead of {@link #STAMPED_UUID}.
+         *
+         * <p>The authority issues a UUID per document and {@code uq_fiscal_document_uuid_fiscal} is unique across the
+         * table, so a suite that stamps <b>two</b> documents in one transaction — the substitution, which needs a
+         * second stamped document of the same company — has to give them two UUIDs. A suite that stamps one never
+         * calls this, which is why the fixed one stays the default and every earlier assertion still reads a
+         * literal.</p>
+         */
+        public void stampingUnder(UUID uuid) {
+            this.stampedUuid = uuid;
         }
 
         /** Makes the next answers a rejection with exactly these issues. */
@@ -150,7 +158,9 @@ public class FiscalStampProviderTestConfiguration {
         public void reset() {
             invocations.set(0);
             requests.clear();
+            answers.clear();
             rejection = List.of();
+            stampedUuid = STAMPED_UUID;
         }
 
         /** How many times the attempt called the authority. */
@@ -165,10 +175,20 @@ public class FiscalStampProviderTestConfiguration {
 
         /** The XML the last stamped answer carried, which is what the artefact must hold byte for byte. */
         public String lastAnswerXml() {
-            var request = lastRequest();
-            return request == null
-                    ? null
-                    : request.xml().replace("</cfdi:Comprobante>", TIMBRE + "</cfdi:Comprobante>");
+            return answers.isEmpty() ? null : answers.get(answers.size() - 1);
+        }
+
+        /** The timbre the double adds, so the answer's bytes are provably not the request's. */
+        private String answerTo(FiscalStampRequest request) {
+            return request.xml()
+                    .replace(
+                            "</cfdi:Comprobante>",
+                            "<cfdi:Complemento><tfd:TimbreFiscalDigital"
+                                    + " xmlns:tfd=\"http://www.sat.gob.mx/TimbreFiscalDigital\" Version=\"1.1\""
+                                    + " UUID=\"" + stampedUuid + "\""
+                                    + " FechaTimbrado=\"2026-11-15T10:15:30\" RfcProvCertif=\"AAA010101AAA\""
+                                    + " NoCertificadoSAT=\"30001000000400002434\" SelloCFD=\"c2VsbG8tY2Zk\""
+                                    + " SelloSAT=\"c2VsbG8tc2F0\"/></cfdi:Complemento></cfdi:Comprobante>");
         }
     }
 }

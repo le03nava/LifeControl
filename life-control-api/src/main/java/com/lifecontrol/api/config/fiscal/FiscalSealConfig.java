@@ -1,5 +1,7 @@
 package com.lifecontrol.api.config.fiscal;
 
+import com.lifecontrol.api.fiscal.cancellation.CfdiCancellationSealer;
+import com.lifecontrol.api.fiscal.cancellation.CsdCfdiCancellationSealer;
 import com.lifecontrol.api.fiscal.seal.CfdiSealer;
 import com.lifecontrol.api.fiscal.seal.CsdCfdiSealer;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -45,5 +47,30 @@ public class FiscalSealConfig {
     @Bean
     public CfdiSealer csdCfdiSealer(CsdProperties properties) {
         return new CsdCfdiSealer(properties);
+    }
+
+    /**
+     * The same CSD, behind the interface a cancellation asks for — a <b>second</b> capability from one certificate,
+     * and the reason it is a second bean rather than a second property is that the two sign different things.
+     *
+     * <p><b>Why this bean exists at all, stated as the defect it closes.</b> {@code T8b} wrote
+     * {@link CsdCfdiCancellationSealer} and {@code T8d} wrote the endpoint that asks for it, and until this method
+     * existed nothing registered it: with the provider switched on, a stamp worked and every cancellation answered
+     * the named {@code 503} the service's {@code ObjectProvider} produces. The refusal was correct and the
+     * deployment was still broken, which is the failure mode a {"cannot be missing"} bean is supposed to prevent —
+     * so the bean is added here, beside its sibling, and not behind a switch of its own (L22).</p>
+     *
+     * <p><b>Why one CSD serves both.</b> The seal over a CFDI and the XMLDSig over a cancellation request are both
+     * the issuer's signature; using two certificates for them would make the authority's record of the issuer
+     * inconsistent, and the SAT's own revocation code {@code 303} (“the CSD that signed the cancellation is not
+     * the issuer of the CFDI”) is what that would look like.</p>
+     *
+     * @param properties the bound {@code app.fiscal.csd.*} values, read on construction so a key that cannot be
+     *     opened stops the boot here rather than the first cancellation of the day
+     * @return the one implementation of {@link CfdiCancellationSealer} this context registers
+     */
+    @Bean
+    public CfdiCancellationSealer csdCfdiCancellationSealer(CsdProperties properties) {
+        return new CsdCfdiCancellationSealer(properties);
     }
 }

@@ -18,9 +18,9 @@ import org.springframework.stereotype.Repository;
  *
  * <p><b>What is deliberately not here.</b> No finder by id <b>alone</b> and none over a nullable
  * {@code source_id}: the document is addressed by the sale it derives from plus its attempt, which is the pair
- * {@code uq_fiscal_document_attempt} ({@code V110}) makes unique. A stamp transition and a cancellation are the
- * later slices' reads and will state their own; the reprint is {@link #findByCompanyIdAndId(UUID, UUID)}, whose
- * id came from a caller and therefore states the tenant as well.
+ * {@code uq_fiscal_document_attempt} ({@code V110}) makes unique. A stamp transition states its own read; the
+ * cancellation's two are below, and the reprint is {@link #findByCompanyIdAndId(UUID, UUID)}, whose id came from
+ * a caller and therefore states the tenant as well.
  */
 @Repository
 public interface FiscalDocumentRepository extends JpaRepository<FiscalDocument, UUID> {
@@ -52,4 +52,36 @@ public interface FiscalDocumentRepository extends JpaRepository<FiscalDocument, 
      */
     List<FiscalDocument> findByCompanyIdAndSourceTypeAndSourceIdOrderByCreatedAtAsc(
             UUID companyId, String sourceType, UUID sourceId);
+
+    /**
+     * The document the authority stamped under one fiscal UUID — how a substituting folio resolves to a row
+     * ({@code S7}, {@code L20}(f) of {@code odd/tasks/cfdi-fiscal-document.md)).
+     *
+     * <p><b>Why the folio is a UUID and not the string the request carries.</b>
+     * {@code fiscal_document.replaces_fiscal_document_id} is a composite foreign key to
+     * {@code fiscal_document (company_id, id)} ({@code V108}), so what a cancellation stores is a <b>row id</b> and
+     * not a folio. The authority spells the substituting document's folio as its fiscal UUID, and
+     * {@code uq_fiscal_document_uuid_fiscal} makes that unique, which is what lets one read turn the request's value
+     * into the pointer the column can hold.</p>
+     *
+     * <p><b>Why it names the company.</b> The same reason every finder here does — the policy already filters, and
+     * naming it states the fact in the query — and here it is also the rule: a folio of <b>another company</b> is
+     * not a document this company may substitute with, so it does not resolve, and the refusal is a 400 instead of a
+     * composite foreign key violation that names a constraint and no fact.</p>
+     */
+    Optional<FiscalDocument> findByCompanyIdAndUuidFiscal(UUID companyId, UUID uuidFiscal);
+
+    /**
+     * The cancellation of one document, if one was written — {@code S7}'s "a document is cancelled once".
+     *
+     * <p><b>Why it reads by the pointer and not by the state.</b> The pointer <b>is</b> the rule:
+     * {@code uq_fiscal_document_cancels} ({@code V108}) makes {@code cancels_fiscal_document_id} unique, so this
+     * answers at most one row and its presence <i>is</i> "already cancelled". Reading the cancelled row's own status
+     * instead would answer the same question today and stop answering it the day a document could be cancelled in
+     * more than one way.</p>
+     *
+     * <p><b>Why it names the company.</b> As every finder here does; the composite pointer it reads is
+     * {@code (company_id, cancels_fiscal_document_id)} in the schema, so the pair is the key the query states.</p>
+     */
+    Optional<FiscalDocument> findByCompanyIdAndCancelsFiscalDocumentId(UUID companyId, UUID cancelsFiscalDocumentId);
 }

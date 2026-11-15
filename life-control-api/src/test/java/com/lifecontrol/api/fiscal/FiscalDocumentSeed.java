@@ -88,9 +88,29 @@ final class FiscalDocumentSeed {
         company = newCompany();
         seedTree();
         customer = newCustomer();
-        sale = newSale();
+        sale = newSale(1L);
         authenticate();
         return this;
+    }
+
+    /**
+     * A second completed sale of the <b>same</b> company, for the cases that need two documents of one tenant —
+     * the substitution, whose {@code replaces_fiscal_document_id} points at another document of the company it
+     * cancels.
+     *
+     * <p><b>Why a second sale and not a second company.</b> A folio of another company is a refusal, so the only
+     * way to prove that a resolved folio is written is for the two documents to share a tenant. The sequence
+     * argument is what keeps the two {@code order_number}s distinct: the shared fixture derives the number from
+     * it plus the sale's own id prefix, and two sales with the same sequence would collide one time in sixty-five
+     * thousand runs.</p>
+     *
+     * <p>It reuses the company's store, product, variant and customer, and it does not touch {@link #sale()}:
+     * the caller keeps the first sale and asks this one for the id it needs.</p>
+     *
+     * @return the id of the second sale, already {@code COMPLETED} and with its own two lines
+     */
+    UUID anotherCompletedSale() {
+        return newSale(2L);
     }
 
     UUID company() {
@@ -223,12 +243,12 @@ final class FiscalDocumentSeed {
         return id;
     }
 
-    private UUID newSale() {
+    private UUID newSale(long sequence) {
         var id = UUID.randomUUID();
         var lineOne = UUID.randomUUID();
         var lineTwo = UUID.randomUUID();
         var tree = new SaleFixtures.Tree(company, store, variant);
-        for (var statement : fixtures.saleStatements(tree, id, lineOne, lineTwo, 1L)) {
+        for (var statement : fixtures.saleStatements(tree, id, lineOne, lineTwo, sequence)) {
             jdbc.update(statement);
         }
         firstLine = lineOne;
