@@ -72,10 +72,10 @@ public class Company extends Auditable {
      *
      * <p><b>Why the code string and not an {@code @Enumerated} constant.</b> The column is
      * {@code VARCHAR(3)} holding {@code '601'}, the same shape {@code currency} has, and the authority's code
-     * is a digit string no Java constant could equal. The vocabulary lives in {@link RegimenFiscal}, which the
-     * service resolves before the value reaches this field; the {@code CHECK} named
-     * {@code ck_companies_regimen_fiscal} is the same vocabulary stated to every writer that bypasses the
-     * API.</p>
+     * is a digit string no Java constant could equal. The vocabulary lives in
+     * {@link com.lifecontrol.api.fiscal.model.RegimenFiscal}, which the service resolves before the value
+     * reaches this field; the {@code CHECK} named {@code ck_companies_regimen_fiscal} is the same vocabulary
+     * stated to every writer that bypasses the API.</p>
      */
     @Column(name = "regimen_fiscal", length = 3)
     private String regimenFiscal;

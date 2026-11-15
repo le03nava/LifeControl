@@ -313,3 +313,11 @@ twenty-character mailing field whose shape nothing validates, and a fiscal fact 
 mailing address is one nobody can rely on afterwards. The values of the regime vocabulary are **not** written
 here, per decision 11: the enum and its mirrored `CHECK` live in code and in `V102`, so a catalog reissue lands
 as a migration and never as a silent acceptance.
+
+**2026-11-14, the same day and the receiver side of the same omission — `fiscal_zip_code` is `VARCHAR(5)`, not
+the `VARCHAR(10)` the schema block above gives `customers`.** The sketch was written before this tree had a
+single postal code to look at; the issuer's column landed as `VARCHAR(5)` for the reason above, and the
+receiver's cannot be wider without inviting a value that no stamp accepts — a code with a hyphen or a
+separator is a postal code in a mailing address, not a `DomicilioFiscalReceptor`. `V107` therefore declares it
+five characters wide with a named five-digit `CHECK`, and the only fact a stamp states of the receiver's
+domicile stays the one the authority actually consumes.

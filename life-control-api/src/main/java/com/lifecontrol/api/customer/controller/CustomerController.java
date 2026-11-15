@@ -64,7 +64,12 @@ public class CustomerController {
 
     @PostMapping
     @PreAuthorize("hasAnyRole('" + ADMIN + "','" + SALES + "')")
-    @Operation(summary = "Create a customer", description = "Creates a new customer")
+    @Operation(
+            summary = "Create a customer",
+            description = "Creates a new customer. The fiscal profile (legalName, regimenFiscal, fiscalZipCode and "
+                    + "defaultUsoCfdi) is all-or-nothing: a request that states any of those four must state all "
+                    + "four, and one that states none of them is a valid cash customer. rfc is validated for shape "
+                    + "when present.")
     @ApiResponses({
         @ApiResponse(responseCode = "201", description = "Customer created"),
         @ApiResponse(responseCode = "400", description = "Validation error")
@@ -76,9 +81,14 @@ public class CustomerController {
 
     @PutMapping("/{id}")
     @PreAuthorize("hasAnyRole('" + ADMIN + "','" + SALES + "')")
-    @Operation(summary = "Update a customer", description = "Updates an existing customer")
+    @Operation(
+            summary = "Update a customer",
+            description = "Updates an existing customer. Each fiscal profile field is replaced only when the "
+                    + "request states it, so an update that omits the profile keeps the one stored, and a request "
+                    + "that states any of the four required facts must state all four.")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Customer updated"),
+        @ApiResponse(responseCode = "400", description = "Validation error"),
         @ApiResponse(responseCode = "404", description = "Customer not found")
     })
     public ResponseEntity<CustomerResponse> updateCustomer(

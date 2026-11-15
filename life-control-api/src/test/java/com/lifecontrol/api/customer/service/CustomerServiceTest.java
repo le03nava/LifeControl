@@ -76,8 +76,20 @@ class CustomerServiceTest {
                 .updatedAt(now)
                 .build();
 
-        testCustomerRequest =
-                new CustomerRequest("Juan Pérez", "juan@example.com", "+525512345678", "PEGJ800101ABC", "TIENDA", true);
+        testCustomerRequest = new CustomerRequest(
+                "Juan Pérez",
+                "juan@example.com",
+                "+525512345678",
+                "PEGJ800101ABC",
+                "TIENDA",
+                true,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null);
     }
 
     @AfterEach
@@ -282,8 +294,20 @@ class CustomerServiceTest {
         @Test
         @DisplayName("should default enabled to true when not provided")
         void createCustomer_DefaultsEnabledToTrue() {
-            var requestWithoutEnabled =
-                    new CustomerRequest("María López", "maria@example.com", null, null, "ONLINE", null);
+            var requestWithoutEnabled = new CustomerRequest(
+                    "María López",
+                    "maria@example.com",
+                    null,
+                    null,
+                    "ONLINE",
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null);
             var savedCustomer = Customer.builder()
                     .id(UUID.randomUUID())
                     .companyId(COMPANY_ID)
@@ -317,7 +341,19 @@ class CustomerServiceTest {
         @DisplayName("should update customer fields and return response")
         void updateCustomer_Success() {
             var updateRequest = new CustomerRequest(
-                    "Juan Actualizado", "updated@example.com", "+525599999999", "RFC-UPDATED", "ONLINE", false);
+                    "Juan Actualizado",
+                    "updated@example.com",
+                    "+525599999999",
+                    "RFC-UPDATED",
+                    "ONLINE",
+                    false,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null);
 
             when(customerRepository.findByCompanyIdAndId(COMPANY_ID, testCustomerId))
                     .thenReturn(Optional.of(testCustomer));
