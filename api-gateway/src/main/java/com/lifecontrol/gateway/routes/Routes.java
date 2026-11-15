@@ -67,6 +67,7 @@ public class Routes {
         .route(RequestPredicates.path("/api/promotions/**"), HandlerFunctions.http())
         .route(RequestPredicates.path("/api/shifts/**"), HandlerFunctions.http())
         .route(RequestPredicates.path("/api/sales-orders/**"), HandlerFunctions.http())
+        .route(RequestPredicates.path("/api/fiscal-documents/**"), HandlerFunctions.http())
         .route(RequestPredicates.path("/api/product-variants/**"), HandlerFunctions.http())
         .route(RequestPredicates.path("/api/variants/**"), HandlerFunctions.http())
         .route(RequestPredicates.path("/api/profile/**"), HandlerFunctions.http())
