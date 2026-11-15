@@ -23,13 +23,16 @@ import org.hibernate.type.SqlTypes;
  * row set written once from a snapshot — the reason {@link #getReceptorZipCode()} and
  * {@link #getEmisorRegimen()}, which are copies of live catalog columns, exist at all.</p>
  *
- * <p><b>What is mapped writable and what is not.</b> The writer of this slice
- * ({@code FiscalDocumentSnapshotWriter}) states the identity, the two fiscal faces, the place of issue, the
- * money and the attempt key. Everything that belongs to the <b>later</b> slices is mapped read-only, and that
- * is a statement rather than a shortcut: {@code status} is a {@code String} because the enum arrives with
- * A3's builder (L9(i)); {@code tipo_comprobante}, {@code metodo_pago} and {@code exportacion} carry the
- * schema's defaults until a builder states them (S12, T9); the authority's UUID and stamp instant are written
- * by the transition out of {@code DRAFT}, which does not exist yet (L9(b)).</p>
+ * <p><b>What is mapped writable and what is not.</b> Two writers share this row and the mapping states which
+ * columns each one owns. {@code FiscalDocumentSnapshotWriter} states the identity, the two fiscal faces, the
+ * place of issue, the money and the attempt key of a {@code DRAFT};
+ * {@code com.lifecontrol.api.fiscal.service.FiscalDocumentStamper} states the one transition out of it —
+ * {@link #setStatus(String)}, {@link #setUuidFiscal(java.util.UUID)} and {@link #setStampedAt} — which is why
+ * those three have setters and the header does not: {@code tipo_comprobante}, {@code metodo_pago},
+ * {@code forma_pago} and {@code exportacion} are {@code insertable = false, updatable = false} because the
+ * schema's defaults write them ({@code V109}), and no code states them until {@code T9}. {@code status} is a
+ * {@code String} and not an enum because the vocabulary lives in {@code ck_fiscal_document_status}
+ * ({@code L9}(i)).</p>
  *
  * <p><b>What the database refuses, and therefore what this mapping does not have to.</b> {@code V108} revokes
  * {@code DELETE} and guards {@code UPDATE} with a trigger, so a {@code STAMPED} or {@code CANCELLED} row
@@ -43,6 +46,16 @@ public class FiscalDocument {
 
     /** The only state this slice writes: the draft a stamp attempt leaves behind, mutable and unstamped. */
     public static final String STATUS_DRAFT = "DRAFT";
+
+    /**
+     * The state the stamp writes: the authority witnessed this document, and nothing but a cancellation can
+     * follow it ({@code ck_fiscal_document_status}, {@code V108}).
+     *
+     * <p>Named here for the same reason {@link #STATUS_DRAFT} is: the transition out of {@code DRAFT} is one
+     * comparison, and a literal in a second class is a second place the spelling can drift from the
+     * constraint that enforces it.</p>
+     */
+    public static final String STATUS_STAMPED = "STAMPED";
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
@@ -217,6 +230,26 @@ public class FiscalDocument {
         return status;
     }
 
+    /** The optional local series, absent on a document that states none ({@code Serie} is optional per the schema). */
+    public String getSerie() {
+        return serie;
+    }
+
+    /** The optional local folio, absent on a document that states none ({@code Folio} is optional per the schema). */
+    public String getFolio() {
+        return folio;
+    }
+
+    /** The authority's UUID: non-null exactly on a stamped row, which {@code ck_fiscal_document_uuid_matches_status} enforces. */
+    public UUID getUuidFiscal() {
+        return uuidFiscal;
+    }
+
+    /** When the authority stamped it, non-null exactly on a stamped row. It is not {@link #getCreatedAt()}. */
+    public OffsetDateTime getStampedAt() {
+        return stampedAt;
+    }
+
     public String getAttemptKey() {
         return attemptKey;
     }
@@ -319,6 +352,26 @@ public class FiscalDocument {
 
     public void setStatus(String status) {
         this.status = status;
+    }
+
+    /**
+     * The authority's UUID, written by the transition out of {@code DRAFT} and by nothing else.
+     *
+     * <p><b>Why the mapping is writable even though the columns look read-only.</b> Neither {@code uuid_fiscal}
+     * nor {@code stamped_at} carries {@code insertable = false, updatable = false} — what was missing was the
+     * setter, because no code of the earlier slices could transition a document. The stamp is that writer, and
+     * the mapping only has to let one {@code UPDATE} through; what keeps a stamped row from being rewritten is
+     * not this class but {@code V108}: {@code DELETE} is revoked and {@code trg_fiscal_document_guard} raises on
+     * any {@code UPDATE} of a row that is already {@code STAMPED} or {@code CANCELLED}, so the privilege opens
+     * the transition and nothing else.</p>
+     */
+    public void setUuidFiscal(UUID uuidFiscal) {
+        this.uuidFiscal = uuidFiscal;
+    }
+
+    /** When the authority stamped it: written once, by the same transition, and never re-derived. */
+    public void setStampedAt(OffsetDateTime stampedAt) {
+        this.stampedAt = stampedAt;
     }
 
     public void setIssuedBy(String issuedBy) {
