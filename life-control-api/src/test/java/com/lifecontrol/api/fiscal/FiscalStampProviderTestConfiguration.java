@@ -1,0 +1,114 @@
+package com.lifecontrol.api.fiscal;
+
+import java.time.OffsetDateTime;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.Bean;
+
+/**
+ * The fiscal stamping port's double, and the bean definition that puts it behind it — the
+ * {@code InMemoryIdentityProvider} shape: a hand-written implementation of the port that keeps real state and
+ * counts real calls, so a case asserts on what the attempt did rather than on Mockito argument captures.
+ *
+ * <p><b>Why the port needs a double at all.</b> {@code T7} is the adapter with credentials, a sandbox and a
+ * vendor's catalogue; this slice has no provider by design, so the only honest way to prove "stamps once",
+ * "calls zero times on a replay" and "keeps the bytes the authority returned" is a provider this suite controls.
+ * The answer it gives is deliberately <b>additive</b> — the request's XML with a {@code TimbreFiscalDigital}
+ * appended — because the point of {@code S10} is that the artefact is the provider's rendering and not this
+ * tree's, and a double that returned the request unchanged could not tell the two apart.</p>
+ *
+ * <p><b>Why it is a {@code @TestConfiguration} bean and not a static field read directly.</b> The attempt asks
+ * the context for the port when it stamps ({@code ObjectProvider}), exactly as it will in delivery, so the
+ * double has to be a bean. The instance is a JVM-wide constant because Spring caches one context for the run and
+ * a fresh instance per test method would be a bean the context cannot provide; {@link #reset()} at each test's
+ * {@code @BeforeEach} is what makes the counters belong to the case that reads them.</p>
+ */
+@TestConfiguration
+public class FiscalStampProviderTestConfiguration {
+
+    /** The one double every context of this slice shares; reset by each test before it reads a counter. */
+    public static final InMemoryFiscalStampProvider PROVIDER = new InMemoryFiscalStampProvider();
+
+    @Bean
+    public FiscalStampProvider fakeFiscalStampProvider() {
+        return PROVIDER;
+    }
+
+    /**
+     * A stamping provider that answers what it is told to answer and records every call.
+     *
+     * <p>Not part of the port's contract: {@link #invocations()} and {@link #lastRequest()} are the evidence a
+     * case reads, exactly as {@code InMemoryIdentityProvider}'s helpers are.</p>
+     */
+    public static final class InMemoryFiscalStampProvider implements FiscalStampProvider {
+
+        /** The timbre the double adds, so the answer's bytes are provably not the request's. */
+        private static final String TIMBRE = "<cfdi:Complemento><tfd:TimbreFiscalDigital"
+                + " xmlns:tfd=\"http://www.sat.gob.mx/TimbreFiscalDigital\" Version=\"1.1\""
+                + " UUID=\"11111111-2222-3333-4444-555555555555\""
+                + " FechaTimbrado=\"2026-11-15T10:15:30\" RfcProvCertif=\"AAA010101AAA\""
+                + " NoCertificadoSAT=\"30001000000400002434\" SelloCFD=\"c2VsbG8tY2Zk\""
+                + " SelloSAT=\"c2VsbG8tc2F0\"/></cfdi:Complemento>";
+
+        /** The authority's UUID every stamped answer states: fixed, so a case compares the row with a literal. */
+        public static final UUID STAMPED_UUID = UUID.fromString("11111111-2222-3333-4444-555555555555");
+
+        /** The instant every stamped answer states: fixed, so a case compares the stored value with a literal. */
+        public static final OffsetDateTime STAMPED_AT = OffsetDateTime.parse("2026-11-15T10:15:30-06:00");
+
+        private final AtomicInteger invocations = new AtomicInteger();
+        private final List<FiscalStampRequest> requests = new ArrayList<>();
+        private List<FiscalStampResult.Issue> rejection = List.of();
+
+        @Override
+        public FiscalStampResult stamp(FiscalStampRequest request) {
+            invocations.incrementAndGet();
+            requests.add(request);
+            if (!rejection.isEmpty()) {
+                return new FiscalStampResult.Rejected(rejection);
+            }
+            var xml = request.xml().replace("</cfdi:Comprobante>", TIMBRE + "</cfdi:Comprobante>");
+            return new FiscalStampResult.Stamped(
+                    STAMPED_UUID,
+                    STAMPED_AT,
+                    "AAA010101AAA",
+                    "30001000000400002434",
+                    "c2VsbG8tY2Zk",
+                    "c2VsbG8tc2F0",
+                    xml);
+        }
+
+        /** Makes the next answers a rejection with exactly these issues. */
+        public void reject(FiscalStampResult.Issue... issues) {
+            rejection = List.of(issues);
+        }
+
+        /** Clears the counters and the mode, so one case's evidence is not the previous case's. */
+        public void reset() {
+            invocations.set(0);
+            requests.clear();
+            rejection = List.of();
+        }
+
+        /** How many times the attempt called the authority. */
+        public int invocations() {
+            return invocations.get();
+        }
+
+        /** The last request the attempt sent, or {@code null} when it never called. */
+        public FiscalStampRequest lastRequest() {
+            return requests.isEmpty() ? null : requests.get(requests.size() - 1);
+        }
+
+        /** The XML the last stamped answer carried, which is what the artefact must hold byte for byte. */
+        public String lastAnswerXml() {
+            var request = lastRequest();
+            return request == null
+                    ? null
+                    : request.xml().replace("</cfdi:Comprobante>", TIMBRE + "</cfdi:Comprobante>");
+        }
+    }
+}

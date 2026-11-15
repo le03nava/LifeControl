@@ -56,6 +56,27 @@ public class FiscalDocumentArtifact {
     /** Default constructor for JPA. */
     protected FiscalDocumentArtifact() {}
 
+    /**
+     * The artefact one stamp keeps: the document, its tenant and the bytes the authority returned.
+     *
+     * <p><b>Why a constructor and not setters.</b> This row is inserted once and never touched again
+     * ({@code V108} revokes {@code UPDATE} and a trigger refuses it for the owner as well), so the three values
+     * are stated together at the one moment the row exists. A setter would be a second write this table refuses
+     * at runtime and that a later reader would find in the entity's surface and try anyway.</p>
+     *
+     * <p>{@code created_at} is not a parameter: the schema's {@code now()} is when the artefact was kept, and an
+     * application clock would be a second authority for a fact the row already records.</p>
+     *
+     * @param fiscalDocumentId the document this artefact belongs to, which is also its primary key
+     * @param companyId the tenant
+     * @param xml the bytes the provider returned, kept byte for byte ({@code S10})
+     */
+    public FiscalDocumentArtifact(UUID fiscalDocumentId, UUID companyId, String xml) {
+        this.fiscalDocumentId = fiscalDocumentId;
+        this.companyId = companyId;
+        this.xml = xml;
+    }
+
     public UUID getFiscalDocumentId() {
         return fiscalDocumentId;
     }
