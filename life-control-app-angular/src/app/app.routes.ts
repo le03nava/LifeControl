@@ -1,6 +1,6 @@
 import { Routes } from '@angular/router';
 import { keycloakRoleGuard } from '@core/guards/auth-keycloak-guard';
-import { CLIENT_ID, LC_ADMIN } from '@core/security/roles';
+import { CLIENT_ID, LC_ADMIN, TAX_RATE_ROLES } from '@core/security/roles';
 import { Home } from '@features/home/home';
 
 export const routes: Routes = [
@@ -42,6 +42,16 @@ export const routes: Routes = [
       import('@features/users-admin/users-admin.routes').then((m) => m.usersAdminRoutes),
     canActivate: [keycloakRoleGuard],
     data: { roles: ['lc-admin'], clientId: 'life-control-client' },
+  },
+  {
+    // `Configuración` is one menu entry and one landing with a card per catalog (`S1`). The gate sits on the
+    // parent, so the landing, the tax-rate screen and every card a later slice adds are refused for the same
+    // pair without a second declaration that could disagree with this one.
+    path: 'configuration',
+    loadChildren: () =>
+      import('@features/configuration/configuration.routes').then((m) => m.configurationRoutes),
+    canActivate: [keycloakRoleGuard],
+    data: { roles: TAX_RATE_ROLES, clientId: CLIENT_ID },
   },
   {
     // The audit trail's read surface, admin-only like the endpoint itself
