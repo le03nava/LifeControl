@@ -2,7 +2,7 @@
 
 Every file in this directory is **the vendor's own published example**, committed unmodified so each suite is
 pinned against a real document and never against one this tree invented. They were fetched once, at authoring time;
-no test touches the network — the adapter's suite serves the two responses from a loopback
+no test touches the network — the adapters' suites serve the published responses from a loopback
 `com.sun.net.httpserver.HttpServer` on port `0`, and the request example is read from the classpath.
 
 ## The stamping answers
@@ -71,3 +71,47 @@ the override a documented exception instead of a habit.
 The file also states the two facts a renderer can get wrong silently: `Fecha="2021-12-22T09:04:06"` is local time
 with **no offset**, and every UUID is **upper case**, which is the form `CfdiCancellationRequestBuilder` writes even
 though `java.util.UUID#toString()` lower-cases.
+
+## The cancellation answers (`enviarSolicitudCancelacion`)
+
+The vendor publishes one correct and one error answer for the operation that cancels, and they are **not
+interchangeable** with the two stamping answers above: this operation has no `return` wrapper, its per-document
+results are serialized as `CFDIResultadoCancelacion` elements **directly** under the answer element rather than
+inside a `resultados` array, and `UUID` is spelled in capitals. Both were fetched at authoring time and committed
+unmodified, which is what makes `SolucionFactibleFiscalCancellationProviderTest` a test of the vendor's contract
+rather than of this tree's idea of it (`odd/tasks/cfdi-fiscal-document.md`, `L20`(h)).
+
+| File | Fetched from | Bytes | SHA-256 |
+| --- | --- | --- | --- |
+| `response_Timbrado.enviarSolicitudCancelacion.xml` | `https://solucionfactible.com/sfic/resources/files/response_soap_correcto_Timbrado.enviarSolicitudCancelacion.zip` | `873` | `86f697566ae0d58523d76df5e1e697e22e03009ae959e8ba1a3f0cb559986f2f` |
+| `response_error_Timbrado.enviarSolicitudCancelacion.xml` | `https://solucionfactible.com/sfic/resources/files/response_soap_error_Timbrado.enviarSolicitudCancelacion.zip` | `354` | `e884e63d426e61333669a1aabb2c0ecfb7b5f700dab2e727985bea3dbc0e6ab8` |
+
+Fetched on **2026-11-15**, both `HTTP 200`. The archives are `9c57db2bdb1dcb4103ee8d565a6552c9` and
+`32b41b9c7f8c08d34bd38cbe34cc5aa1` (MD5), `6982ec120f6ffb9a830dc45551b1a17ae28e7beb2a71db12a26e3c1a2602f8a2`
+and `25bd84e4d8d8d8093150daf2b9a9653c6256beca675fd081bcd3db2931fa4848` (SHA-256). Each zip carries a single
+member, extracted with no edit. As with the stamping pair, the member name differs from the archive the vendor
+publishes it in — the *correct* answer lives in the `response_soap_correcto_…` archive under
+`response_Timbrado…` — and the member's name is kept here so a reader who downloads the archive again finds the
+same file.
+
+### What the correct answer proves, and why it is the reason the mapper has three levels
+
+Its process `status` is `200`, its `CFDIResultadoCancelacion/status` is `200`, and its **`statusUUID` is `205`** —
+*«El SAT no ha procesado la recepción de este comprobante … por favor espere al menos 24 horas»*. So a mapper that
+stopped at the result's `200` would record a cancellation the authority explicitly did not make: only `201` and
+`202` mean cancelled, `211` means submitted and undecided, and every other `statusUUID` is carried as a rejection
+with its code (`L20`(c) and `L20`(d)). The suite asserts exactly that reading of this file.
+
+### What the error answer proves
+
+Its process `status` is `1802` — *«La firma de la solicitud de cancelación no ha pasado la validación
+criptográfica»* — and its `CFDIResultadoCancelacion` states an **empty** `status` and an empty `mensaje`, with no
+`statusUUID` at all. A mapper that read the result first would therefore find nothing to report; the process level
+is the only one that carries a code here, and the rejection has to be written from it.
+
+### The form both files share: no SOAP envelope
+
+Neither body is wrapped in a `soapenv:Envelope`. That is the shape the vendor publishes for this operation, and it
+is why the adapter is pinned against the bare answer as well as against the enveloped one: the parser finds the
+answer element by local name, accepts it bare or inside a `soapenv:Body`, and reads its children by local name —
+neither file declares a namespace, so a parser that insisted on the WSDL's would refuse the vendor's own examples.
