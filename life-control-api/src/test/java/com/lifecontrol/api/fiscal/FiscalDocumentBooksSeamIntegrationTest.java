@@ -3,7 +3,6 @@ package com.lifecontrol.api.fiscal;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.lifecontrol.api.accounting.catalog.StarterAccountingCatalogApplier;
-import com.lifecontrol.api.fiscal.model.IssuerSeal;
 import com.lifecontrol.api.fiscal.service.FiscalDocumentStamper;
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
 import java.util.List;
@@ -51,9 +50,6 @@ class FiscalDocumentBooksSeamIntegrationTest extends AbstractPostgresIntegration
     /** The attempt the stamped case states, so its document is the one its attempt wrote. */
     private static final String ATTEMPT = "books-seam-2026-11-15-01";
 
-    /** {@code T7}'s to produce; nothing in this slice depends on its contents. */
-    private static final IssuerSeal SEAL = new IssuerSeal("30001000000400002434", "MIIBc2VhbA==", "c2VsbG8tY2Zk");
-
     @Autowired
     private JdbcTemplate jdbc;
 
@@ -68,6 +64,7 @@ class FiscalDocumentBooksSeamIntegrationTest extends AbstractPostgresIntegration
     @BeforeEach
     void resetTheDouble() {
         FiscalStampProviderTestConfiguration.PROVIDER.reset();
+        FiscalStampProviderTestConfiguration.SEALER.reset();
     }
 
     @AfterEach
@@ -87,7 +84,7 @@ class FiscalDocumentBooksSeamIntegrationTest extends AbstractPostgresIntegration
                 .as("the projection posted the sale's revenue before any document existed")
                 .isNotEmpty();
 
-        var stamp = stamper.stamp(seed.sale(), ATTEMPT, SEAL);
+        var stamp = stamper.stamp(seed.sale(), ATTEMPT);
         settle();
 
         assertThat(stamp.status()).isEqualTo("STAMPED");

@@ -13,18 +13,25 @@ import com.lifecontrol.api.fiscal.repository.FiscalDocumentLineRepository;
 import com.lifecontrol.api.fiscal.repository.FiscalDocumentRepository;
 import com.lifecontrol.api.fiscal.service.FiscalDocumentStamper;
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
+import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
+import org.springframework.context.annotation.Primary;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.transaction.annotation.Transactional;
@@ -47,6 +54,13 @@ import org.springframework.transaction.annotation.Transactional;
  * is <b>its own</b> rendering — the request's XML with a timbre appended — so "the artefact is the bytes the
  * authority returned" is a fact the suite can distinguish from "the artefact is what the builder rendered".</p>
  *
+ * <p><b>The sealer is a double too, and it is what makes the seal a function of the bytes ({@code T7b}).</b>
+ * {@link FiscalStampProviderTestConfiguration.InMemoryCfdiSealer} records the document it was asked to sign, so
+ * "the sealer signs the seal-less rendering" and "the bytes that travel differ from it in {@code Sello} alone"
+ * are two assertions about this suite's own evidence rather than about a signature nobody here can produce. The
+ * signature itself is proven where it can be — {@code FiscalCsdSealerTest}, against a key pair generated at run
+ * time.</p>
+ *
  * <p><b>Why the cases read the table and not only the returned record.</b> The returned record is what the
  * attempt means to have done; the row set is the fiscal evidence a reprint and an auditor read. Every case below
  * therefore asserts both, and the row is read with the same pooled role the application uses.</p>
@@ -54,7 +68,7 @@ import org.springframework.transaction.annotation.Transactional;
 @SpringBootTest
 @Transactional
 @Import(FiscalStampProviderTestConfiguration.class)
-@DisplayName("Fiscal stamp attempt (S10, S11)")
+@DisplayName("Fiscal stamp attempt (S10, S11, T7b)")
 class FiscalDocumentStamperIntegrationTest extends AbstractPostgresIntegrationTest {
 
     /** The attempt every case stamps under. */
@@ -63,8 +77,34 @@ class FiscalDocumentStamperIntegrationTest extends AbstractPostgresIntegrationTe
     /** A second, separately keyed attempt of the same sale, for the one-stamped-document rule. */
     private static final String SECOND_ATTEMPT = "stamp-2026-11-15-02";
 
-    /** {@code T7}'s to produce; this slice only writes the three attributes it carries. */
-    private static final IssuerSeal SEAL = new IssuerSeal("30001000000400002434", "MIIBc2VhbA==", "c2VsbG8tY2Zk");
+    /**
+     * The instant this suite's context hands the attempt, and the reason it advances one second per read.
+     *
+     * <p>{@code Fecha} has second precision, so a regression that read the clock twice <b>inside the same
+     * second</b> would pass every other case of this suite and still send a document whose {@code Fecha} is not
+     * the one the seal was computed over ({@code L18}(d)). A clock that moves between two reads turns that
+     * regression into a failed assertion instead of an argument, which is why the suite's context provides this
+     * one rather than the deployment's fixed offset.</p>
+     */
+    private static final AdvancingClock CLOCK =
+            new AdvancingClock(ZoneId.of("America/Mexico_City"), Instant.parse("2026-11-15T16:15:30Z"));
+
+    /**
+     * The clock bean of this suite's context, primary so it wins over the deployment's for the one stamp.
+     *
+     * <p>Declared as a nested {@code @TestConfiguration} rather than an {@code @Import}ed class so the double is
+     * one line away from the case that reads it, and with a bean name of its own so nothing is overridden by
+     * name: the attempt asks for a {@link Clock} and a {@code @Primary} one answers.</p>
+     */
+    @TestConfiguration
+    static class AdvancingClockConfig {
+
+        @Bean
+        @Primary
+        Clock advancingFiscalClock() {
+            return CLOCK;
+        }
+    }
 
     @Autowired
     private FiscalDocumentStamper stamper;
@@ -89,6 +129,8 @@ class FiscalDocumentStamperIntegrationTest extends AbstractPostgresIntegrationTe
     @BeforeEach
     void seedACompletedSaleWithAFiscalProfile() {
         FiscalStampProviderTestConfiguration.PROVIDER.reset();
+        FiscalStampProviderTestConfiguration.SEALER.reset();
+        CLOCK.reset();
         seed = new FiscalDocumentSeed(jdbc, accountingCatalog).aCompletedSaleWithAFiscalProfile();
     }
 
@@ -105,7 +147,7 @@ class FiscalDocumentStamperIntegrationTest extends AbstractPostgresIntegrationTe
     @DisplayName("S10/S11: the attempt stamps once, keeps exactly the XML the provider returned, and moves the "
             + "document out of DRAFT with the authority's UUID and instant")
     void theAttemptStampsOnceAndKeepsTheBytesTheProviderReturned() {
-        var stamp = stamper.stamp(seed.sale(), ATTEMPT, SEAL);
+        var stamp = stamper.stamp(seed.sale(), ATTEMPT);
 
         assertThat(stamp.stampedByThisAttempt())
                 .as("this call is the one that stamped")
@@ -147,6 +189,76 @@ class FiscalDocumentStamperIntegrationTest extends AbstractPostgresIntegrationTe
     }
 
     // ──────────────────────────────────────
+    // T7b — the seal is a function of the bytes this attempt just built
+    // ──────────────────────────────────────
+
+    @Test
+    @DisplayName("T7b/L18(d): the sealer signs the seal-less rendering and the document that is sent differs "
+            + "from it in Sello alone")
+    void theSealerSignsTheSealLessRenderingAndTheSentDocumentDiffersFromItInSelloAlone() {
+        stamper.stamp(seed.sale(), ATTEMPT);
+
+        var sealer = FiscalStampProviderTestConfiguration.SEALER;
+        var provider = FiscalStampProviderTestConfiguration.PROVIDER;
+        assertThat(sealer.invocations()).as("a stamp asks for exactly one seal").isEqualTo(1);
+        assertThat(sealer.lastUnsignedXml())
+                .as("a Sello cannot be computed from a document that already states it, so what is signed is "
+                        + "the rendering without one")
+                .isNotNull()
+                .doesNotContain("Sello=");
+        assertThat(provider.lastRequest().xml())
+                .as("the bytes that travel are the sealed rendering, not the one that was signed")
+                .isNotEqualTo(sealer.lastUnsignedXml());
+
+        var unsigned = XmlFingerprint.parse(sealer.lastUnsignedXml());
+        var sealed = XmlFingerprint.parse(provider.lastRequest().xml());
+
+        assertThat(sealed.getDocumentElement().getAttribute("Sello"))
+                .as("and the seal it states is the one the sealer answered")
+                .isEqualTo(FiscalStampProviderTestConfiguration.InMemoryCfdiSealer.SELLO);
+        assertThat(unsigned.getDocumentElement().hasAttribute("Sello"))
+                .as("the rendering a signature can be computed from states no seal at all")
+                .isFalse();
+        var unsignedAttributes = XmlFingerprint.attributesExceptSello(unsigned.getDocumentElement());
+        assertThat(XmlFingerprint.attributesExceptSello(sealed.getDocumentElement()))
+                .as("every other attribute of the root is identical, Fecha included: the two renderings come "
+                        + "from one instant captured before the first of them")
+                .isEqualTo(unsignedAttributes)
+                .containsKey("Fecha");
+        assertThat(XmlFingerprint.childrenOf(sealed.getDocumentElement()))
+                .as("and every child, attribute for attribute: the seal is the only difference")
+                .isEqualTo(XmlFingerprint.childrenOf(unsigned.getDocumentElement()));
+
+        settle();
+    }
+
+    // ──────────────────────────────────────
+    // L18(d) — one instant for the two renderings, made detectable
+    // ──────────────────────────────────────
+
+    @Test
+    @DisplayName("L18(d): the two renderings state one Fecha, because the attempt reads the instant once")
+    void theTwoRenderingsStateOneFechaBecauseTheAttemptReadsTheInstantOnce() {
+        stamper.stamp(seed.sale(), ATTEMPT);
+
+        var unsigned = XmlFingerprint.parse(FiscalStampProviderTestConfiguration.SEALER.lastUnsignedXml());
+        var sealed = XmlFingerprint.parse(
+                FiscalStampProviderTestConfiguration.PROVIDER.lastRequest().xml());
+
+        assertThat(sealed.getDocumentElement().getAttribute("Fecha"))
+                .as("the document that travels states the instant the signed one states: a second read of the "
+                        + "clock would move Fecha by the second this clock advances, and the seal would cover a "
+                        + "document the provider never received")
+                .isEqualTo(unsigned.getDocumentElement().getAttribute("Fecha"))
+                .isEqualTo("2026-11-15T10:15:30");
+        assertThat(CLOCK.reads())
+                .as("one attempt reads the instant once; the assertion above is what a second read breaks")
+                .isEqualTo(1);
+
+        settle();
+    }
+
+    // ──────────────────────────────────────
     // S11 — idempotency
     // ──────────────────────────────────────
 
@@ -154,14 +266,14 @@ class FiscalDocumentStamperIntegrationTest extends AbstractPostgresIntegrationTe
     @DisplayName("S11/L12(h): a replay of the same attempt returns the stamp, calls the provider zero times and "
             + "writes no second artefact")
     void aReplayOfTheSameAttemptCallsTheProviderZeroTimes() {
-        var first = stamper.stamp(seed.sale(), ATTEMPT, SEAL);
+        var first = stamper.stamp(seed.sale(), ATTEMPT);
         var provider = FiscalStampProviderTestConfiguration.PROVIDER;
 
-        var replay = stamper.stamp(seed.sale(), ATTEMPT, new IssuerSeal("999", "b3Ryby1zZWxsby0=", "b3Ryby1zZWxsbw=="));
+        var replay = stamper.stamp(seed.sale(), ATTEMPT);
 
         // The same attempt with the padding the writer trims before it writes: the replay reads the written key,
         // so a padded one has to answer the same document instead of looking like a second attempt.
-        var padded = stamper.stamp(seed.sale(), "  " + ATTEMPT + "  ", SEAL);
+        var padded = stamper.stamp(seed.sale(), "  " + ATTEMPT + "  ");
 
         assertThat(padded.documentId()).isEqualTo(first.documentId());
         assertThat(provider.invocations())
@@ -180,10 +292,10 @@ class FiscalDocumentStamperIntegrationTest extends AbstractPostgresIntegrationTe
     @DisplayName("S6/S11: a second, differently keyed attempt of an already stamped sale is refused before the "
             + "authority is called, so nothing is stamped twice")
     void aSecondAttemptOnAnAlreadyStampedSaleNeverReachesTheProvider() {
-        var first = stamper.stamp(seed.sale(), ATTEMPT, SEAL);
+        var first = stamper.stamp(seed.sale(), ATTEMPT);
         var provider = FiscalStampProviderTestConfiguration.PROVIDER;
 
-        assertThatThrownBy(() -> stamper.stamp(seed.sale(), SECOND_ATTEMPT, SEAL))
+        assertThatThrownBy(() -> stamper.stamp(seed.sale(), SECOND_ATTEMPT))
                 .isInstanceOf(FiscalSaleAlreadyStampedException.class)
                 .hasMessageContaining(first.documentId().toString());
 
@@ -209,7 +321,7 @@ class FiscalDocumentStamperIntegrationTest extends AbstractPostgresIntegrationTe
                 new FiscalStampResult.Issue("CFDI40125", "El nombre del receptor no coincide"));
         FiscalStampProviderTestConfiguration.PROVIDER.reject(issues.toArray(FiscalStampResult.Issue[]::new));
 
-        assertThatThrownBy(() -> stamper.stamp(seed.sale(), ATTEMPT, SEAL))
+        assertThatThrownBy(() -> stamper.stamp(seed.sale(), ATTEMPT))
                 .isInstanceOfSatisfying(
                         FiscalStampRejectedException.class,
                         rejected -> assertThat(rejected.issues())
@@ -235,7 +347,7 @@ class FiscalDocumentStamperIntegrationTest extends AbstractPostgresIntegrationTe
     @Test
     @DisplayName("S9/S10: after the stamp, changing the catalog does not move the document that was stamped")
     void theFrozenRowWinsOverAChangedCatalog() {
-        var stamp = stamper.stamp(seed.sale(), ATTEMPT, SEAL);
+        var stamp = stamper.stamp(seed.sale(), ATTEMPT);
         var artefactBefore = artifactOf(stamp.documentId());
 
         jdbc.update("UPDATE products SET sat_code = '02020202' WHERE id = ?", seed.product());
@@ -243,7 +355,14 @@ class FiscalDocumentStamperIntegrationTest extends AbstractPostgresIntegrationTe
         var document = documentRepository.findById(stamp.documentId()).orElseThrow();
         var lines = new ArrayList<>(lineRepository.findByFiscalDocumentIdOrderByCreatedAtAsc(stamp.documentId()));
         var rebuilt = new CfdiXmlBuilder(2, Map.of("IVA", "002"))
-                .build(document, lines, SEAL, LocalDateTime.of(2026, 11, 15, 10, 15, 30));
+                .build(
+                        document,
+                        lines,
+                        new IssuerSeal(
+                                FiscalStampProviderTestConfiguration.InMemoryCfdiSealer.CERTIFICATE.noCertificado(),
+                                FiscalStampProviderTestConfiguration.InMemoryCfdiSealer.CERTIFICATE.certificado(),
+                                FiscalStampProviderTestConfiguration.InMemoryCfdiSealer.SELLO),
+                        LocalDateTime.of(2026, 11, 15, 10, 15, 30));
 
         assertThat(lines).hasSize(2);
         assertThat(lines.get(0).getClaveProdServ())
@@ -296,5 +415,54 @@ class FiscalDocumentStamperIntegrationTest extends AbstractPostgresIntegrationTe
     /** Runs the deferred judgement a commit would run, so a stamped document is compared with its sale. */
     private void settle() {
         jdbc.execute("SET CONSTRAINTS ALL IMMEDIATE");
+    }
+
+    /**
+     * A clock that answers one second later on every read, sharing its counter with its zoned copies.
+     *
+     * <p>It is a {@link Clock} and not a stub of the stamper's own type because the seam is the JDK's: the
+     * attempt renders {@code Fecha} through {@code LocalDateTime.now(clock)}, so a clock that moves between two
+     * reads is the exact input that separates "one instant" from "one instant per rendering".</p>
+     */
+    static final class AdvancingClock extends Clock {
+
+        private final ZoneId zone;
+        private final Instant origin;
+        private final AtomicInteger reads;
+
+        AdvancingClock(ZoneId zone, Instant origin) {
+            this(zone, origin, new AtomicInteger());
+        }
+
+        private AdvancingClock(ZoneId zone, Instant origin, AtomicInteger reads) {
+            this.zone = zone;
+            this.origin = origin;
+            this.reads = reads;
+        }
+
+        @Override
+        public ZoneId getZone() {
+            return zone;
+        }
+
+        @Override
+        public Clock withZone(ZoneId otherZone) {
+            return new AdvancingClock(otherZone, origin, reads);
+        }
+
+        @Override
+        public Instant instant() {
+            return origin.plusSeconds(reads.getAndIncrement());
+        }
+
+        /** How many times anything asked this clock for an instant. */
+        int reads() {
+            return reads.get();
+        }
+
+        /** Starts the next case at the origin again, so one case's reads are not the previous case's. */
+        void reset() {
+            reads.set(0);
+        }
     }
 }

@@ -3,6 +3,7 @@ package com.lifecontrol.api.fiscal;
 import com.lifecontrol.api.fiscal.exception.FiscalTaxMappingMissingException;
 import com.lifecontrol.api.fiscal.model.FiscalDocument;
 import com.lifecontrol.api.fiscal.model.FiscalDocumentLine;
+import com.lifecontrol.api.fiscal.model.IssuerCertificate;
 import com.lifecontrol.api.fiscal.model.IssuerSeal;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -54,6 +55,15 @@ import org.springframework.util.StringUtils;
  * {@code cfdi:TimbreFiscalDigital}: this is the document <b>sent</b> for stamping, and the timbre is what the
  * provider adds and returns in its own XML ({@code FiscalStampResult.Stamped#xml()}), which is the bytes the
  * artefact keeps ({@code S10}).</p>
+ *
+ * <p><b>Why there are two entry points, and why one of them states no {@code Sello}.</b> The CFDI's seal is a
+ * signature <b>over</b> the document, so it cannot be computed from a document that already states it: the bytes
+ * a signature covers carry {@code NoCertificado} and {@code Certificado} and no {@code Sello} at all
+ * (decision {@code L18}(d) of {@code odd/tasks/cfdi-fiscal-document.md)). The pipeline is therefore two
+ * renderings of one row set — one without a seal, which the SAT's stylesheet turns into the {@code cadena
+ * original}, and one with the signature that chain produced — and this class writes {@code Sello} only when it is
+ * given a non-blank value. The alternative, patching a seal into a rendered string, would be a signature over
+ * bytes nobody kept.</p>
  */
 public final class CfdiXmlBuilder {
 
@@ -113,7 +123,29 @@ public final class CfdiXmlBuilder {
     }
 
     /**
-     * Renders the document.
+     * Renders the document <b>without a seal</b>: the bytes a signature is computed from.
+     *
+     * <p>It states the certificate and not the signature, which is not an incomplete document but the only one a
+     * signature can be computed from ({@code L18}(d)). The instant is the caller's and must be the same one the
+     * sealed rendering receives, so the two differ in {@code Sello} alone.</p>
+     *
+     * @param document the frozen header, as the snapshot writer left it
+     * @param lines its concepts, in the order the document states them
+     * @param certificate the serial and the certificate {@code T7} reads from the CSD
+     * @param fecha the attempt's instant, already rendered in the configured zone and carrying no offset
+     * @return the CFDI 4.0 to transform into the {@code cadena original}, with no {@code Sello} and no timbre
+     */
+    public String build(
+            FiscalDocument document,
+            List<FiscalDocumentLine> lines,
+            IssuerCertificate certificate,
+            LocalDateTime fecha) {
+        Objects.requireNonNull(certificate, "a CFDI states the certificate that signs it");
+        return render(document, lines, certificate, null, fecha);
+    }
+
+    /**
+     * Renders the document with its seal: the bytes that are sent to the authority.
      *
      * @param document the frozen header, as the snapshot writer left it
      * @param lines its concepts, in the order the document states them
@@ -122,9 +154,20 @@ public final class CfdiXmlBuilder {
      * @return the CFDI 4.0 to send, with no {@code TimbreFiscalDigital}
      */
     public String build(FiscalDocument document, List<FiscalDocumentLine> lines, IssuerSeal seal, LocalDateTime fecha) {
+        Objects.requireNonNull(seal, "a sealed CFDI states the certificate and the seal that stamp it");
+        return render(
+                document, lines, new IssuerCertificate(seal.noCertificado(), seal.certificado()), seal.sello(), fecha);
+    }
+
+    /** One renderer for the two entry points, so the seal is the only attribute they can disagree on. */
+    private String render(
+            FiscalDocument document,
+            List<FiscalDocumentLine> lines,
+            IssuerCertificate certificate,
+            String sello,
+            LocalDateTime fecha) {
         Objects.requireNonNull(document, "a document is what is rendered");
         Objects.requireNonNull(lines, "a document states its concepts");
-        Objects.requireNonNull(seal, "a CFDI states the certificate and the seal that stamp it");
         Objects.requireNonNull(fecha, "a CFDI states its date of issue");
 
         var xml = new StringBuilder(8192);
@@ -158,9 +201,13 @@ public final class CfdiXmlBuilder {
             attribute(xml, "Descuento", documentAmount(document.getDiscountTotal()));
         }
         attribute(xml, "Total", documentAmount(document.getTotalAmount()));
-        attribute(xml, "NoCertificado", seal.noCertificado());
-        attribute(xml, "Certificado", seal.certificado());
-        attribute(xml, "Sello", seal.sello());
+        attribute(xml, "NoCertificado", certificate.noCertificado());
+        attribute(xml, "Certificado", certificate.certificado());
+        // Sello is written only when there is one: the seal-less rendering is the document a signature is
+        // computed from, and an empty attribute would be a stated value the authority reads as a seal.
+        if (StringUtils.hasText(sello)) {
+            attribute(xml, "Sello", sello);
+        }
         xml.append(">\n");
 
         xml.append("  <cfdi:Emisor");

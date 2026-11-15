@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.lifecontrol.api.accounting.catalog.StarterAccountingCatalogApplier;
 import com.lifecontrol.api.fiscal.model.FiscalDocument;
 import com.lifecontrol.api.fiscal.model.FiscalDocumentLine;
+import com.lifecontrol.api.fiscal.model.IssuerCertificate;
 import com.lifecontrol.api.fiscal.model.IssuerSeal;
 import com.lifecontrol.api.fiscal.repository.FiscalDocumentLineRepository;
 import com.lifecontrol.api.fiscal.repository.FiscalDocumentRepository;
@@ -183,6 +184,38 @@ class FiscalCfdiXmlBuilderIntegrationTest extends AbstractPostgresIntegrationTes
     }
 
     // ──────────────────────────────────────
+    // the seal, and the rendering that has none (T7b)
+    // ──────────────────────────────────────
+
+    @Test
+    @DisplayName("T7b/L18(d): the seal-less rendering states the certificate and no Sello, and the sealed one "
+            + "differs from it in Sello alone")
+    void theSealLessRenderingStatesTheCertificateAndNoSello() {
+        var rows = frozenRowsOf(newDraft());
+        var certificate = new IssuerCertificate(SEAL.noCertificado(), SEAL.certificado());
+
+        var unsigned = parse(builder().build(rows.document(), rows.lines(), certificate, FECHA));
+        var sealed = parse(builder().build(rows.document(), rows.lines(), SEAL, FECHA));
+
+        assertThat(attribute(unsigned.getDocumentElement(), "NoCertificado"))
+                .as("the document a signature is computed from still states the certificate that signs it")
+                .isEqualTo(SEAL.noCertificado());
+        assertThat(attribute(unsigned.getDocumentElement(), "Certificado")).isEqualTo(SEAL.certificado());
+        assertThat(unsigned.getDocumentElement().hasAttribute("Sello"))
+                .as("a Sello cannot be computed from a document that already states it, so the rendering "
+                        + "without one is a legitimate document and not a broken one")
+                .isFalse();
+
+        assertThat(attribute(sealed.getDocumentElement(), "Sello")).isEqualTo(SEAL.sello());
+        assertThat(XmlFingerprint.attributesExceptSello(sealed.getDocumentElement()))
+                .as("every other attribute of the root is identical, Fecha included")
+                .isEqualTo(XmlFingerprint.attributesExceptSello(unsigned.getDocumentElement()));
+        assertThat(XmlFingerprint.childrenOf(sealed.getDocumentElement()))
+                .as("and every child, attribute for attribute: one seal is the whole difference")
+                .isEqualTo(XmlFingerprint.childrenOf(unsigned.getDocumentElement()));
+    }
+
+    // ──────────────────────────────────────
     // the concepts
     // ──────────────────────────────────────
 
@@ -352,14 +385,26 @@ class FiscalCfdiXmlBuilderIntegrationTest extends AbstractPostgresIntegrationTes
      * else exists.</p>
      */
     private String renderDraft(UUID documentId) {
+        var rows = frozenRowsOf(documentId);
+        return builder().build(rows.document(), rows.lines(), SEAL, FECHA);
+    }
+
+    /** The frozen row set one draft holds, read back the way the attempt reads it. */
+    private FrozenRows frozenRowsOf(UUID documentId) {
         FiscalDocument document = documentRepository.findById(documentId).orElseThrow();
         documentRepository.flush();
         entityManager.refresh(document);
         List<FiscalDocumentLine> lines =
                 new ArrayList<>(lineRepository.findByFiscalDocumentIdOrderByCreatedAtAsc(documentId));
-        var builder = new CfdiXmlBuilder(2, Map.of("IVA", "002", "TASA_0", "002", "EXENTO", "002"));
-        return builder.build(document, lines, SEAL, FECHA);
+        return new FrozenRows(document, lines);
     }
+
+    private static CfdiXmlBuilder builder() {
+        return new CfdiXmlBuilder(2, Map.of("IVA", "002", "TASA_0", "002", "EXENTO", "002"));
+    }
+
+    /** One draft's header and concepts, as the builder receives them. */
+    private record FrozenRows(FiscalDocument document, List<FiscalDocumentLine> lines) {}
 
     /** Zeroes the sale's tax so an exempt or not-subject draft carries none, which is when the node is absent. */
     private void noTransferredTax() {

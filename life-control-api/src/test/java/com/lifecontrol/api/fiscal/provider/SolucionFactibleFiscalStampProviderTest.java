@@ -366,6 +366,36 @@ class SolucionFactibleFiscalStampProviderTest {
         }
 
         @Test
+        @DisplayName("refuses a returned document whose timbre echoes another seal than the one we sent")
+        void refusesATimbreThatEchoesAnotherSeal() {
+            var anotherSeal = "YW5vdGhlci1kb2N1bWVudC1zLXNlYWw=";
+            authority.answer(soapAnswer(stampedReturnFor(STAMPED_CFDI.replace(SELLO_CFD, anotherSeal))));
+
+            assertThatThrownBy(() -> provider.stamp(request()))
+                    .as("the UUID pair can be self-consistent while the document is somebody else's, so the seal "
+                            + "the timbre echoes is the only fact that ties the artefact to the document we sent (S10)")
+                    .isInstanceOf(FiscalStampProviderDefectException.class)
+                    .hasMessageContaining(anotherSeal)
+                    .hasMessageContaining(SELLO_CFD);
+        }
+
+        @Test
+        @DisplayName("refuses to send a document that states no Sello, because a seal-less document is never stamped")
+        void refusesARequestThatStatesNoSello() {
+            authority.answer(soapAnswer(stampedReturn()));
+            var unsigned = REQUEST_XML.replace(" Sello=\"" + SELLO_CFD + "\"", "");
+
+            assertThatThrownBy(() -> provider.stamp(new FiscalStampRequest(unsigned, "SFE0807172W8")))
+                    .as("a document with no seal is one the authority would refuse, and a stamp over it could not "
+                            + "be compared with the timbre that came back")
+                    .isInstanceOf(FiscalStampProviderDefectException.class)
+                    .hasMessageContaining("Sello");
+            assertThat(authority.lastRequest())
+                    .as("the refusal happens before the call: nothing of the document left the process")
+                    .isNull();
+        }
+
+        @Test
         @DisplayName("raises a transport failure, not a rejection, when the authority answers HTTP 500")
         void raisesATransportFailureOnHttp500() {
             authority.answer(500, "the vendor is having a bad day");
