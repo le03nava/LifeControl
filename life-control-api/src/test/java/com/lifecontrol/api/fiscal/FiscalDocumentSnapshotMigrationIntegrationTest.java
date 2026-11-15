@@ -371,8 +371,12 @@ class FiscalDocumentSnapshotMigrationIntegrationTest extends AbstractPostgresInt
         assertThat(names("SELECT string_agg(conname, ',' ORDER BY conname) FROM pg_constraint"
                         + " WHERE conrelid = 'fiscal_document_line'::regclass AND contype = 'c'"))
                 .as("and the line's: tax_object is absent for the same reason exportacion is, so the two "
-                        + "catalog-shaped columns the authority names are the two this file leaves open")
-                .isEqualTo("ck_fiscal_document_line_tipo_factor");
+                        + "catalog-shaped columns the authority names are the two this file leaves open. The "
+                        + "coupling constraint V110 adds is not a vocabulary — it is what keeps a not-subject "
+                        + "line from borrowing a factor the authority never states — and it appears here for "
+                        + "the same reason the vocabularies do: a constraint that changes the shape of a line "
+                        + "has to be a deliberate entry in this list")
+                .isEqualTo("ck_fiscal_document_line_factor_matches_object," + "ck_fiscal_document_line_tipo_factor");
 
         assertThat(names("SELECT string_agg(m[1], ',' ORDER BY m[1]) FROM pg_constraint k,"
                         + " regexp_matches(pg_get_constraintdef(k.oid), '''([A-Za-z_]+)''', 'g') AS m"
