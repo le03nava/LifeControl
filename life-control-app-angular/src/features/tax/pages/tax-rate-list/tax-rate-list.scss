@@ -23,6 +23,11 @@ table {
   width: 100%;
 }
 
+.row-actions {
+  white-space: nowrap;
+  text-align: end;
+}
+
 .resolves-today {
   display: inline-flex;
   align-items: center;

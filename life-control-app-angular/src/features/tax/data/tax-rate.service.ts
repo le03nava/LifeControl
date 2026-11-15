@@ -5,6 +5,7 @@ import { catchError } from 'rxjs/operators';
 import { ConfigService } from '@app/services/config.service';
 import { TaxRate } from './tax-rate.models';
 import { DeclareTaxRateRequest } from './tax-rate.models';
+import { SupersedeTaxRateRequest } from './tax-rate.models';
 
 /**
  * A company's tax-rate book (`/api/companies/{companyId}/tax-rates`, issue #858).
@@ -74,5 +75,51 @@ export class TaxRateService {
         return throwError(() => err);
       }),
     );
+  }
+
+  /**
+   * Appends the successor of the named row: `PUT …/{id}` (`S5`).
+   *
+   * The row named in the path is **not edited and not disabled** — it stays the answer for every document
+   * dated between its own day and the successor's. That is why this is not `updateTaxRate`: the caller can
+   * only state a later day, and the code and scope the successor inherits are the server's to copy. A day
+   * that is not strictly after the superseded one is a 400 from the server, surfaced to the dialog.
+   */
+  supersedeTaxRate(
+    companyId: string,
+    id: string,
+    request: SupersedeTaxRateRequest,
+  ): Observable<TaxRate> {
+    this._error.set(null);
+    return this.http.put<TaxRate>(`${this.apiUrl}/${companyId}/tax-rates/${id}`, request).pipe(
+      catchError((err) => {
+        this._error.set('No se pudo suceder la tasa de impuesto');
+        return throwError(() => err);
+      }),
+    );
+  }
+
+  /**
+   * Retires or reinstates the row: `PATCH …/{id}/enable` (`S6`).
+   *
+   * Retiring is the opposite of deleting and the flag is always stated: the row keeps its day and its scope
+   * so every document dated before another rate answers it, and the server refuses a stated `null` rather
+   * than invent the direction. The message names the direction that failed, because "no se pudo cambiar"
+   * would leave the operator without knowing whether the row is still answering.
+   */
+  setTaxRateEnabled(companyId: string, id: string, enabled: boolean): Observable<TaxRate> {
+    this._error.set(null);
+    return this.http
+      .patch<TaxRate>(`${this.apiUrl}/${companyId}/tax-rates/${id}/enable`, { enabled })
+      .pipe(
+        catchError((err) => {
+          this._error.set(
+            enabled
+              ? 'No se pudo reincorporar la tasa de impuesto'
+              : 'No se pudo retirar la tasa de impuesto',
+          );
+          return throwError(() => err);
+        }),
+      );
   }
 }
