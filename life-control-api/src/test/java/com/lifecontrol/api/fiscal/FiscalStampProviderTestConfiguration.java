@@ -1,5 +1,7 @@
 package com.lifecontrol.api.fiscal;
 
+import com.lifecontrol.api.fiscal.model.IssuerCertificate;
+import com.lifecontrol.api.fiscal.seal.CfdiSealer;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -25,6 +27,14 @@ import org.springframework.context.annotation.Bean;
  * double has to be a bean. The instance is a JVM-wide constant because Spring caches one context for the run and
  * a fresh instance per test method would be a bean the context cannot provide; {@link #reset()} at each test's
  * {@code @BeforeEach} is what makes the counters belong to the case that reads them.</p>
+ *
+ * <p><b>Why the sealer is a double of this suite's own ({@code T7b}).</b> The stamp asks for the seal of the
+ * bytes it just built, so the port is no longer the only collaborator a stamp needs. The real sealer is a
+ * certificate and a private key; this suite has neither, and the two facts it does need to observe are that the
+ * sealer was asked to sign the <b>seal-less</b> rendering and that the seal it answered is what travels in
+ * {@code Sello}. {@link InMemoryCfdiSealer} records both, and it answers a fixed seal rather than a real
+ * signature — the signature is proven where it can be, in {@code FiscalCsdSealerTest}, against a generated
+ * key pair.</p>
  */
 @TestConfiguration
 public class FiscalStampProviderTestConfiguration {
@@ -32,9 +42,59 @@ public class FiscalStampProviderTestConfiguration {
     /** The one double every context of this slice shares; reset by each test before it reads a counter. */
     public static final InMemoryFiscalStampProvider PROVIDER = new InMemoryFiscalStampProvider();
 
+    /** The sealing double beside it, reset by each test's {@code @BeforeEach} like the provider. */
+    public static final InMemoryCfdiSealer SEALER = new InMemoryCfdiSealer();
+
     @Bean
     public FiscalStampProvider fakeFiscalStampProvider() {
         return PROVIDER;
+    }
+
+    @Bean
+    public CfdiSealer fakeCfdiSealer() {
+        return SEALER;
+    }
+
+    /**
+     * The seal a stamp states, as the double produces it: fixed, so a case can compare the document with a
+     * literal instead of with a second signature.
+     */
+    public static final class InMemoryCfdiSealer implements CfdiSealer {
+
+        /** The certificate facts every stamp of this slice writes; nothing depends on their contents. */
+        public static final IssuerCertificate CERTIFICATE =
+                new IssuerCertificate("30001000000400002434", "MIIBc2VhbA==");
+
+        /** The seal the double answers, which is what {@code Sello} must carry. */
+        public static final String SELLO = "c2VsbG8tY2Zk";
+
+        private final List<String> unsignedDocuments = new ArrayList<>();
+
+        @Override
+        public IssuerCertificate certificate() {
+            return CERTIFICATE;
+        }
+
+        @Override
+        public String seal(String unsignedXml) {
+            unsignedDocuments.add(unsignedXml);
+            return SELLO;
+        }
+
+        /** Clears what the last case recorded, so one case's evidence is not the previous case's. */
+        public void reset() {
+            unsignedDocuments.clear();
+        }
+
+        /** How many times the stamp asked for a seal. */
+        public int invocations() {
+            return unsignedDocuments.size();
+        }
+
+        /** The seal-less rendering the stamp asked to have signed, or {@code null} when it never asked. */
+        public String lastUnsignedXml() {
+            return unsignedDocuments.isEmpty() ? null : unsignedDocuments.get(unsignedDocuments.size() - 1);
+        }
     }
 
     /**

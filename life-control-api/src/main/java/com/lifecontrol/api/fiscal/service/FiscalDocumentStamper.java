@@ -10,16 +10,19 @@ import com.lifecontrol.api.fiscal.dto.FiscalDocumentDraft;
 import com.lifecontrol.api.fiscal.dto.FiscalDocumentStamp;
 import com.lifecontrol.api.fiscal.exception.FiscalSaleAlreadyStampedException;
 import com.lifecontrol.api.fiscal.exception.FiscalSaleNotFoundException;
+import com.lifecontrol.api.fiscal.exception.FiscalSealNotConfiguredException;
 import com.lifecontrol.api.fiscal.exception.FiscalStampProviderNotConfiguredException;
 import com.lifecontrol.api.fiscal.exception.FiscalStampRejectedException;
 import com.lifecontrol.api.fiscal.exception.FiscalTaxMappingMissingException;
 import com.lifecontrol.api.fiscal.model.FiscalDocument;
 import com.lifecontrol.api.fiscal.model.FiscalDocumentArtifact;
 import com.lifecontrol.api.fiscal.model.FiscalDocumentLine;
+import com.lifecontrol.api.fiscal.model.IssuerCertificate;
 import com.lifecontrol.api.fiscal.model.IssuerSeal;
 import com.lifecontrol.api.fiscal.repository.FiscalDocumentArtifactRepository;
 import com.lifecontrol.api.fiscal.repository.FiscalDocumentLineRepository;
 import com.lifecontrol.api.fiscal.repository.FiscalDocumentRepository;
+import com.lifecontrol.api.fiscal.seal.CfdiSealer;
 import com.lifecontrol.api.salesorder.model.SalesOrder;
 import com.lifecontrol.api.salesorder.repository.SalesOrderRepository;
 import com.lifecontrol.api.tax.repository.TaxCodeRepository;
@@ -29,7 +32,6 @@ import java.time.ZoneId;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -68,6 +70,16 @@ import org.springframework.util.StringUtils;
  *       {@link FiscalStampRejectedException} carrying the provider's codes and leaves the draft — the only
  *       mutable state ({@code L9}(b)) — exactly as it was.</li>
  * </ol>
+ *
+ * <p><b>Why this class renders twice, and why it takes no seal from its caller ({@code T7b}).</b> The CFDI's
+ * {@code Sello} is a signature <b>over</b> the document, so it cannot be computed from a document that already
+ * states it: the bytes the signature covers state {@code NoCertificado} and {@code Certificado} and no seal at all
+ * (decision {@code L18}(d) of {@code odd/tasks/cfdi-fiscal-document.md)). So the attempt renders the row set
+ * <b>without</b> a seal, hands those bytes to the sealer, and renders again with the seal the sealer answered —
+ * both from <b>one</b> {@link LocalDateTime} captured before the first of them, so the two renderings differ in
+ * {@code Sello} alone. The consequence for the signature is deliberate: a caller cannot know the bytes this class
+ * just built, so a caller cannot supply the seal. The one thing a caller could still do — patch a seal into a
+ * rendered string — would be a signature over bytes nobody kept.</p>
  *
  * <p><b>Why the two catalog facts this class reads are read here and not by the builder.</b> The frozen row set
  * carries the tree's tax code and the document's currency, not the authority's {@code Impuesto} and not the
@@ -110,6 +122,17 @@ public class FiscalDocumentStamper {
      */
     private final ObjectProvider<FiscalStampProvider> stampProvider;
 
+    /**
+     * The sealer, asked for at call time exactly as the provider is.
+     *
+     * <p>Same reason, one class of failure further in: a required bean would stop the API from starting for a
+     * capability a deployment may not have configured, so the absence becomes one named refusal
+     * ({@link FiscalSealNotConfiguredException}) instead of an undeployable service. Both halves of one capability
+     * are resolved together, right before the network call, because a document that cannot be sealed is never
+     * sent.</p>
+     */
+    private final ObjectProvider<CfdiSealer> cfdiSealer;
+
     /** The zone the document's {@code Fecha} is rendered in ({@code L12}(c), {@code FiscalConfig}). */
     private final ZoneId fiscalZoneId;
 
@@ -134,6 +157,7 @@ public class FiscalDocumentStamper {
             TaxCodeRepository taxCodeRepository,
             FiscalDocumentSnapshotWriter snapshotWriter,
             ObjectProvider<FiscalStampProvider> stampProvider,
+            ObjectProvider<CfdiSealer> cfdiSealer,
             ZoneId fiscalZoneId,
             EntityManager entityManager) {
         this.salesOrderRepository = salesOrderRepository;
@@ -144,6 +168,7 @@ public class FiscalDocumentStamper {
         this.taxCodeRepository = taxCodeRepository;
         this.snapshotWriter = snapshotWriter;
         this.stampProvider = stampProvider;
+        this.cfdiSealer = cfdiSealer;
         this.fiscalZoneId = fiscalZoneId;
         this.entityManager = entityManager;
     }
@@ -155,7 +180,6 @@ public class FiscalDocumentStamper {
      *     under the caller's tenant and is refused exactly like a sale that does not exist
      * @param attemptKey which stamp attempt this is; the same key for the same sale is the same attempt and never
      *     calls the authority twice
-     * @param seal the certificate serial, the certificate and the seal {@code T7} produces
      * @return the stamped document and the bytes the provider returned
      * @throws com.lifecontrol.api.fiscal.exception.FiscalAttemptKeyRequiredException when the key is blank
      * @throws FiscalSaleNotFoundException when the sale does not exist or belongs to another company
@@ -163,12 +187,11 @@ public class FiscalDocumentStamper {
      *     attempt key, raised before the provider is called
      * @throws FiscalStampRejectedException when the authority refused the document, leaving it {@code DRAFT}
      * @throws FiscalStampProviderNotConfiguredException when nothing implements the port in this deployment
+     * @throws FiscalSealNotConfiguredException when nothing seals documents in this deployment
      * @throws FiscalTaxMappingMissingException when a subject concept's tax code has no authority mapping
      */
     @Transactional
-    public FiscalDocumentStamp stamp(UUID salesOrderId, String attemptKey, IssuerSeal seal) {
-        Objects.requireNonNull(seal, "a stamp states the certificate and the seal that sign it");
-
+    public FiscalDocumentStamp stamp(UUID salesOrderId, String attemptKey) {
         var sale = salesOrderRepository
                 .findById(salesOrderId)
                 .orElseThrow(() -> new FiscalSaleNotFoundException(salesOrderId));
@@ -190,12 +213,12 @@ public class FiscalDocumentStamper {
         // answers with the draft it wrote before, so this call is where S11's "the same attempt never stamps
         // twice" is enforced one state before the stamp itself.
         var draft = snapshotWriter.createDraft(salesOrderId, key);
-        return stampDraft(sale, draft, seal);
+        return stampDraft(sale, draft);
     }
 
     // ─── the stamp ─────────────────────────────────────────────────────────────────────────────────────
 
-    private FiscalDocumentStamp stampDraft(SalesOrder sale, FiscalDocumentDraft draft, IssuerSeal seal) {
+    private FiscalDocumentStamp stampDraft(SalesOrder sale, FiscalDocumentDraft draft) {
         var document = fiscalDocumentRepository
                 .findById(draft.id())
                 .orElseThrow(() -> new IllegalStateException("Attempt " + draft.attemptKey() + " of sale "
@@ -212,10 +235,22 @@ public class FiscalDocumentStamper {
         if (provider == null) {
             throw new FiscalStampProviderNotConfiguredException(document.getId());
         }
+        // The other half of the same capability, resolved here for the same reason: a document nothing can seal is
+        // never sent (L18(d)).
+        var sealer = cfdiSealer.getIfAvailable();
+        if (sealer == null) {
+            throw new FiscalSealNotConfiguredException(document.getId());
+        }
 
-        var xml =
-                builderFor(document.getCurrency(), lines).build(document, lines, seal, LocalDateTime.now(fiscalZoneId));
-        var answer = provider.stamp(new FiscalStampRequest(xml, document.getEmisorRfc()));
+        // One instant for the two renderings, captured before the first of them: it is what makes "they differ in
+        // Sello alone" true instead of likely, because a clock read between them could move `Fecha` by a second.
+        var fecha = LocalDateTime.now(fiscalZoneId);
+        var certificate = sealer.certificate();
+        var builder = builderFor(document.getCurrency(), lines);
+        var unsigned = builder.build(document, lines, certificate, fecha);
+        var sealedXml = builder.build(document, lines, issuerSealOf(certificate, sealer.seal(unsigned)), fecha);
+
+        var answer = provider.stamp(new FiscalStampRequest(sealedXml, document.getEmisorRfc()));
         if (answer instanceof FiscalStampResult.Rejected rejected) {
             // Nothing was written: the artefact and the transition below are the only writes of this transaction,
             // so a rejection leaves the draft exactly as the attempt found it (S11).
@@ -237,6 +272,11 @@ public class FiscalDocumentStamper {
                 draft.attemptKey(),
                 stamped.uuid());
         return describe(document, stamped.xml(), true);
+    }
+
+    /** The three attributes a sealed document states, from the certificate the sealer holds and the seal it made. */
+    private static IssuerSeal issuerSealOf(IssuerCertificate certificate, String sello) {
+        return new IssuerSeal(certificate.noCertificado(), certificate.certificado(), sello);
     }
 
     /** Reads the four schema-stated header columns back onto the instance, which the insert could not set. */

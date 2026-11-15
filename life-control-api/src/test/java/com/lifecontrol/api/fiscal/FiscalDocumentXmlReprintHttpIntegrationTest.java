@@ -12,7 +12,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.lifecontrol.api.accounting.catalog.StarterAccountingCatalogApplier;
 import com.lifecontrol.api.fiscal.FiscalStampProviderTestConfiguration.InMemoryFiscalStampProvider;
 import com.lifecontrol.api.fiscal.exception.FiscalStampRejectedException;
-import com.lifecontrol.api.fiscal.model.IssuerSeal;
 import com.lifecontrol.api.fiscal.repository.FiscalDocumentArtifactRepository;
 import com.lifecontrol.api.fiscal.service.FiscalDocumentSnapshotWriter;
 import com.lifecontrol.api.fiscal.service.FiscalDocumentStamper;
@@ -70,9 +69,6 @@ class FiscalDocumentXmlReprintHttpIntegrationTest extends AbstractPostgresIntegr
     /** A second attempt key, for the sale that already carries a draft. */
     private static final String SECOND_ATTEMPT = "reprint-2026-11-15-02";
 
-    /** {@code T7}'s to produce; the reprint never touches it, and stating it keeps the stamp honest. */
-    private static final IssuerSeal SEAL = new IssuerSeal("30001000000400002434", "MIIBc2VhbA==", "c2VsbG8tY2Zk");
-
     private static final String BASE_URL = "/api/fiscal-documents/";
 
     @Autowired
@@ -98,6 +94,7 @@ class FiscalDocumentXmlReprintHttpIntegrationTest extends AbstractPostgresIntegr
     @BeforeEach
     void seedACompletedSaleWithAFiscalProfile() {
         FiscalStampProviderTestConfiguration.PROVIDER.reset();
+        FiscalStampProviderTestConfiguration.SEALER.reset();
         seed = new FiscalDocumentSeed(jdbc, accountingCatalog).aCompletedSaleWithAFiscalProfile();
     }
 
@@ -114,7 +111,7 @@ class FiscalDocumentXmlReprintHttpIntegrationTest extends AbstractPostgresIntegr
     @DisplayName("S10/L15(a)-(b): a stamped document reprints the very bytes the provider returned, as an XML "
             + "attachment named after the document's id when it states no folio")
     void aStampedDocumentReprintsTheProviderBytes() throws Exception {
-        var stamp = stamper.stamp(seed.sale(), ATTEMPT, SEAL);
+        var stamp = stamper.stamp(seed.sale(), ATTEMPT);
         var expected =
                 FiscalStampProviderTestConfiguration.PROVIDER.lastAnswerXml().getBytes(StandardCharsets.UTF_8);
 
@@ -152,7 +149,7 @@ class FiscalDocumentXmlReprintHttpIntegrationTest extends AbstractPostgresIntegr
         // yet, so the case states it the way the slice that prints it will: on the draft, before the stamp,
         // because V108 refuses every UPDATE of a stamped row.
         jdbc.update("UPDATE fiscal_document SET folio = ? WHERE id = ?", "F-0007", draft.id());
-        var stamp = stamper.stamp(seed.sale(), ATTEMPT, SEAL);
+        var stamp = stamper.stamp(seed.sale(), ATTEMPT);
 
         mockMvc.perform(get(BASE_URL + stamp.documentId() + "/xml").with(token(seed.company())))
                 .andExpect(status().isOk())
@@ -196,8 +193,7 @@ class FiscalDocumentXmlReprintHttpIntegrationTest extends AbstractPostgresIntegr
     void aRefusedAttemptReprintsAs404() throws Exception {
         FiscalStampProviderTestConfiguration.PROVIDER.reject(new FiscalStampResult.Issue("CFDI40102", "RFC invalido"));
 
-        assertThatThrownBy(() -> stamper.stamp(seed.sale(), ATTEMPT, SEAL))
-                .isInstanceOf(FiscalStampRejectedException.class);
+        assertThatThrownBy(() -> stamper.stamp(seed.sale(), ATTEMPT)).isInstanceOf(FiscalStampRejectedException.class);
 
         var document = jdbc.queryForObject(
                 "SELECT id FROM fiscal_document WHERE company_id = ? AND attempt_key = ?",
@@ -220,7 +216,7 @@ class FiscalDocumentXmlReprintHttpIntegrationTest extends AbstractPostgresIntegr
             + "the row instead of admitting that it exists")
     void anotherCompanysDocumentIs404() throws Exception {
         var other = new FiscalDocumentSeed(jdbc, accountingCatalog).aCompletedSaleWithAFiscalProfile();
-        var foreign = stamper.stamp(other.sale(), ATTEMPT, SEAL);
+        var foreign = stamper.stamp(other.sale(), ATTEMPT);
 
         // The scenario: the document exists, is stamped, and carries its artefact. Only the tenant differs.
         assertThat(artifactRepository.findByCompanyIdAndFiscalDocumentId(other.company(), foreign.documentId()))
@@ -236,7 +232,7 @@ class FiscalDocumentXmlReprintHttpIntegrationTest extends AbstractPostgresIntegr
     @Test
     @DisplayName("S10: the reprint is gated to lc-admin and lc-sales, so a caller with neither is refused")
     void aCallerWithoutEitherRoleIsRefused() throws Exception {
-        var stamp = stamper.stamp(seed.sale(), ATTEMPT, SEAL);
+        var stamp = stamper.stamp(seed.sale(), ATTEMPT);
 
         mockMvc.perform(get(BASE_URL + stamp.documentId() + "/xml")
                         .with(jwt().jwt(builder -> builder.subject("suite:no-role")

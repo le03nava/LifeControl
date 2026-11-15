@@ -77,6 +77,12 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-data-redis'
     implementation 'org.springframework.boot:spring-boot-starter-security-oauth2-resource-server'
     implementation 'org.keycloak:keycloak-admin-client:26.0.12'
+    // The SAT's `cadenaoriginal_4_0.xslt` declares version="2.0". The JDK's built-in transformer is XSLT 1.0
+    // only, and it does not refuse a 2.0 stylesheet: it runs it with 1.0 semantics and answers a different
+    // `cadena original`, which signs into a document the authority rejects while looking correct. Saxon-HE is
+    // Mozilla Public License 2.0 — file-level copyleft, no obligation on this tree's own sources — and carries
+    // `org.xmlresolver:xmlresolver` transitively.
+    implementation 'net.sf.saxon:Saxon-HE:12.10'
     runtimeOnly 'io.micrometer:micrometer-registry-prometheus'
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
     testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
