@@ -16,13 +16,24 @@ import org.springframework.stereotype.Repository;
  * document of another company is simply not there, which is the answer a caller reads as a refusal instead of
  * a row whose absence depends on which pooled connection served it.</p>
  *
- * <p><b>What is deliberately not here.</b> No finder by id alone and none over a nullable {@code source_id}:
- * the document is addressed by the sale it derives from plus its attempt, which is the pair
- * {@code uq_fiscal_document_attempt} ({@code V110}) makes unique. A stamp transition, a cancellation and a
- * reprint are the later slices' reads and will state their own.</p>
+ * <p><b>What is deliberately not here.</b> No finder by id <b>alone</b> and none over a nullable
+ * {@code source_id}: the document is addressed by the sale it derives from plus its attempt, which is the pair
+ * {@code uq_fiscal_document_attempt} ({@code V110}) makes unique. A stamp transition and a cancellation are the
+ * later slices' reads and will state their own; the reprint is {@link #findByCompanyIdAndId(UUID, UUID)}, whose
+ * id came from a caller and therefore states the tenant as well.
  */
 @Repository
 public interface FiscalDocumentRepository extends JpaRepository<FiscalDocument, UUID> {
+
+    /**
+     * One document of one company, by the id the caller named — the reprint's first read ({@code S10},
+     * {@code L15}(c)).
+     *
+     * <p>It names the company for the reason every finder here does, and here it is also the whole negative
+     * answer: a document of another company is simply not found, which is the 404 {@code L15}(c) asks for
+     * instead of a 403 that would admit the row exists.</p>
+     */
+    Optional<FiscalDocument> findByCompanyIdAndId(UUID companyId, UUID id);
 
     /**
      * The document one attempt of one sale wrote, if it wrote one.

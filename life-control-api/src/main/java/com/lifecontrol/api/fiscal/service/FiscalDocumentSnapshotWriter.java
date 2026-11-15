@@ -5,6 +5,7 @@ import com.lifecontrol.api.company.model.Company;
 import com.lifecontrol.api.company.repository.CompanyRepository;
 import com.lifecontrol.api.customer.model.Customer;
 import com.lifecontrol.api.customer.repository.CustomerRepository;
+import com.lifecontrol.api.fiscal.FiscalPaymentMethod;
 import com.lifecontrol.api.fiscal.dto.FiscalDocumentDraft;
 import com.lifecontrol.api.fiscal.exception.FiscalAttemptConflictException;
 import com.lifecontrol.api.fiscal.exception.FiscalAttemptKeyRequiredException;
@@ -84,7 +85,8 @@ import org.springframework.util.StringUtils;
  * {@code ck_fiscal_document_total} refuse every sale that carries a rounding adjustment.</p>
  *
  * <p><b>The refusals, each by name and none of them a database error.</b> A sale that is not there (or is
- * another company's, which the policy makes the same answer), a sale that is not {@code COMPLETED}, a receiver
+ * another company's, which the policy makes the same answer), a sale that is not {@code COMPLETED}, a sale whose
+ * document would be issued with the deferred payment method ({@code S13}), a receiver
  * that states no customer or an incomplete profile, an issuer that has not declared its regime, its place of
  * issue or its legal name, a product or unit with no authority key, a tax code with no mapping, a tax code
  * mapped to a quota, and a blank attempt key. Every one
@@ -205,6 +207,7 @@ public class FiscalDocumentSnapshotWriter {
                 .orElseThrow(() -> new FiscalSaleNotFoundException(salesOrderId));
 
         requireCompleted(sale);
+        requirePaidWhenItHappens(sale);
 
         // The replay is answered after the two facts the sale owns and before every catalog is read: a document
         // that exists already states the catalogs as they stood, and re-reading them to answer a replay would be
@@ -251,6 +254,42 @@ public class FiscalDocumentSnapshotWriter {
         if (sale.getStatus() != SalesOrderState.COMPLETED) {
             throw new FiscalSaleNotCompletedException(sale.getId(), String.valueOf(sale.getStatus()));
         }
+    }
+
+    /**
+     * Refuses a sale whose document would be issued with the deferred payment method ({@code S13}).
+     *
+     * <p><b>Why here, and why before the replay.</b> This is the one place a sale becomes a document, so a rule
+     * stated here cannot be skipped by a caller of the stamp, of a replay or of a future endpoint — the reason
+     * {@code L15}(d) rejected the stamper (its refusal would run after the draft existed, in a table that
+     * refuses {@code DELETE}) and the endpoint (which would leave the rule to whoever remembers to call it). It
+     * is stated beside {@link #requireCompleted} because both are facts about the <b>sale</b> and not about the
+     * attempt: a replay answers a document that already exists, and a sale that cannot be invoiced at all
+     * cannot be invoiced twice either.</p>
+     *
+     * <p><b>What the method is read from, and why not from the sale.</b> {@code V109} declares
+     * {@code metodo_pago VARCHAR(3) NOT NULL DEFAULT 'PUE'} and no code sets it, so what the document would
+     * state is the schema's own default — there is no column of a sale to read it from, because {@code V87}
+     * dropped {@code sales_orders.payment_method_id} and the charge refuses anything but an exact payment
+     * ({@code SalesOrderService}). {@link #metodoPagoOf} is the one place that fact is stated, so the day a sale
+     * can declare a deferred method the resolver changes and the refusal is already in the path — instead of a
+     * rule that has to be added at the same time as the capability.</p>
+     */
+    private static void requirePaidWhenItHappens(SalesOrder sale) {
+        FiscalPaymentMethod.requirePaidWhenItHappens(sale.getId(), metodoPagoOf(sale));
+    }
+
+    /**
+     * The method the document of this sale would be issued with.
+     *
+     * <p>It is {@code PUE} for every sale that can reach this method, and that is a measured fact rather than a
+     * default chosen here: the column carries the schema's default ({@code V109}), nothing in this tree writes
+     * it, and a charge that deferred the money is refused before a sale can reach {@code COMPLETED}. The sale is
+     * a parameter and not a constant's replacement because it is the <b>subject</b> of the rule — the day a sale
+     * states its own method, this body reads it and no caller changes.</p>
+     */
+    private static String metodoPagoOf(SalesOrder sale) {
+        return FiscalPaymentMethod.PUE;
     }
 
     private Company requireCompany(UUID companyId) {
