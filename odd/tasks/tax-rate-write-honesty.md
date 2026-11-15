@@ -3,8 +3,9 @@
 **Status**: implemented — the unit makes the tax-rate write path say what it did: a write cannot land where the
 operator saw a dismissal, the save is not reachable before the scope options exist, and the primary `POST` has
 its own service-level test. Issue **#922**. Base `origin/main` @ `9e7c03e5`, branch
-`fix/tax-rate-write-honesty`. **Risk**: none — Angular only: no endpoint, no field, no migration, and every rule
-carries a test that fails on the previous tree.
+`fix/tax-rate-write-honesty`. **Risk**: none — Angular only: no endpoint, no field, no migration. Two of the
+three rules carry a test that fails on the previous tree; the third is the missing assertion `L3` names, and
+its test passes on the old tree on purpose.
 
 ## Specs
 
@@ -40,7 +41,7 @@ acceptance criteria are the issue's own words.
 | T1 | S1 | parent | `fix(config): refuse to dismiss a tax-rate dialog while its write is in flight` — `disableClose` flipped around the write in both dialogs, Cancel disabled while `saving()`, the error path restoring dismissal, and one test per dialog |
 | T2 | S2 | parent | `fix(config): the declare dialog will not save before its scope options exist` — a `scopeReady` gate over the cascade, per-country failures named instead of swallowed, a retry that makes the block actionable, and the tests |
 | T3 | S3 | parent | `test(config): pin the declare POST at the service level` — URL, method, exact body with the converted fraction, and the readable error message |
-| T4 | S1–S3 | parent | `npm run lint`, the focused tax suite, `npm run test:coverage:check`, and the native review of the candidate |
+| T4 | S1–S3 | parent | `22b9531e` — `npm run lint` clean, the focused tax suite 68/68, `test:coverage:check` inside all four thresholds, and the native review of the candidate approved and burned (`L4`) |
 
 ## Log
 
@@ -66,3 +67,30 @@ the previous tree counted 58. The other two rules do carry RED witnesses, measur
 still `false` with a write in flight in both dialogs, the save reachable with a failed region read, with a
 pending one, and with a failed catalog, and `regionsError` `null` after a swallowed per-country failure — which
 is also the proof that no `Reintentar` could have existed.
+
+**L4 (2026-11-15) — `T4` ran, the native review approved and burned, and the unit is one commit of 585 lines.**
+Evidence, in the order it ran: `npm run lint` → *All files pass linting*; the focused suite
+(`ng test --include src/features/tax/**/*.spec.ts`) → 5 files, **68 tests, 0 failures**, the same count `L3`
+measured; `npm run test:coverage:check` → statements 86.96 %, branches 86.53 %, functions 81.32 %, lines
+89.89 %, all four inside their threshold. The native review of the candidate (`review-842c0d700f68c768`, medium
+tier, lenses resilience/readability/reliability, 9 paths including this record) **approved, and its
+acknowledgement burned**: the committed tree `caa56572` is byte-identical to the reviewed candidate tree, so the
+receipt and the commit describe the same bytes. Delivered as **one** commit, `22b9531e`, of 585 authored lines —
+past the ~400-line slice budget, and said here rather than split: the three rules are one write path (a
+dismissal that hides a write, a save over a scope the operator never saw, and the assertion for the write
+itself), they were reviewed as one candidate, and splitting them after the receipt would have shipped bytes it
+does not cover.
+
+**L5 (2026-11-15) — the review approved with eight non-blocking findings, recorded instead of applied.** The
+receipt is terminal and this candidate is not reviewed again, so these are follow-ups, not corrections.
+`R3-001`: a `regionId` chosen from a partial cascade survives a `Reintentar` whose clean walk no longer offers
+it, and `scopeReady` then lets that stale id be saved. `R3-002`/`R3-003`: the error branch assigns
+`dialogRef.disableClose = false` instead of restoring the value it found, so a dialog opened with `disableClose:
+true` becomes dismissible after a failed write. `R4-001`: `Reintentar` re-walks the scope but not the tax-code
+catalog, so a double failure leaves the save disabled behind a retry button that cannot fix it. `R4-002`: the
+region error is written only when the aggregate emits, so a country whose read never settles keeps the save
+disabled with nothing on screen. Three are readability notes: `R2-001`, the header sentence claiming every rule
+fails on the previous tree contradicted `L3` and **was corrected in this record** — documentation only, the one
+edit made after the receipt; `R2-002`, `regionsError` now also carries a country-list failure its name no longer
+describes; `R2-003`, `scopeReady` also gates on the tax-code catalog. The two behaviour findings that also have
+the smallest fix (`R3-002`/`R3-003`) are the ones to pick up first.
