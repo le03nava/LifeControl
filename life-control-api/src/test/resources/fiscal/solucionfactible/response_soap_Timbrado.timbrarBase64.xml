@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/">
+  <soapenv:Body>
+    <ns:timbrarBase64Response xmlns:ns="http://timbrado.ws.cfdi.solucionfactible.com">
+      <ns:return xmlns:ax216="http://timbrado.ws.cfdi.solucionfactible.com/xsd" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:type="ax216:CFDICertificacion">
+        <ax216:mensaje>[Servidor de pruebas] OK - Autenticación correcta, verifique los resultados por comprobante</ax216:mensaje>
+        <ax216:status>200</ax216:status>
+        <ax216:resultados xsi:type="ax216:CFDIResultadoCertificacion">
+          <ax216:cadenaOriginal xsi:nil="true"/>
+          <ax216:certificadoSAT xsi:nil="true"/>
+          <ax216:cfdiTimbrado xsi:nil="true"/>
+          <ax216:fechaTimbrado xsi:nil="true"/>
+          <ax216:mensaje>La fecha del comprobante está fuera del rango de timbrado permitido. Han pasado más de 72 horas desde la fecha de generación del comprobante. Fecha de emisión: 2012-02-20T14:11:45 Fecha de intento de timbrado: 2012-08-14T09:57:33</ax216:mensaje>
+          <ax216:qrCode xsi:nil="true"/>
+          <ax216:selloSAT xsi:nil="true"/>
+          <ax216:status>401</ax216:status>
+          <ax216:uuid xsi:nil="true"/>
+          <ax216:versionTFD xsi:nil="true"/>
+        </ax216:resultados>
+      </ns:return>
+    </ns:timbrarBase64Response>
+  </soapenv:Body>
+</soapenv:Envelope>
