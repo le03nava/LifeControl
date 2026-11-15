@@ -3,6 +3,7 @@ package com.lifecontrol.api.fiscal;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
+import com.lifecontrol.api.support.SaleFixtures;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
@@ -34,13 +35,20 @@ import org.junit.jupiter.api.Test;
  * bypassed there, so the only refusal a statement can get is the constraint or the trigger under test, and not
  * the policy refusing a write for having no tenant scope.</p>
  *
- * <p><b>What this suite cannot build, and why that is the record's decision.</b> {@code
+ * <p><b>What this suite builds now that {@code V109} is the head, and what it still does not.</b> {@code
  * fiscal_document_line} requires a real {@code sales_order_item}, and building one means reproducing the whole
- * fixture chain (company, store, customer, order, item). T5 is the slice that builds real sale fixtures,
- * because it is the slice that compares the document's lines with the sale's; so here the line's append-only
- * half is pinned structurally — trigger present, enabled, on the right function — plus the privilege refusal,
- * which needs no row at all. The artefact's half <b>is</b> exercised with a real row, because an artefact
- * needs only a document and a company.</p>
+ * fixture chain (company, store, product, variant, order, item) — which is {@link SaleFixtures}, shared with
+ * {@code FiscalDocumentSnapshotMigrationIntegrationTest} because both slices need it and one copy of a chain
+ * that has to satisfy two schemas is the copy that can be right. Two facts moved the sale chain into this
+ * suite: {@code V109} made the document's frozen identity, its place of issue, its currency and its money
+ * parts {@code NOT NULL}, so every row below states them; and it added a constraint trigger that judges a
+ * {@code STAMPED} row at commit against the sale its {@code source_id} names, so a stamped fixture naming a
+ * random id would be refused for a reason that has nothing to do with the rule its case pins. The line's own
+ * append-only half is still pinned structurally — trigger present, enabled, on the right function — plus the
+ * privilege refusal, which needs no row at all, because no case here needs a {@code fiscal_document_line}:
+ * {@code V109}'s judgement walks the document's own lines, so a stamped document without lines still exercises
+ * the document's half of it, and the lines' comparison is the sibling suite's subject. The artefact's half
+ * <b>is</b> exercised with a real row, because an artefact needs only a document and a company.</p>
  *
  * <p>No Spring context: this suite is JDBC against a scratch database, like the sibling schema suites.</p>
  */
@@ -63,7 +71,15 @@ class FiscalDocumentSchemaMigrationIntegrationTest extends AbstractPostgresInteg
     private static final String[] TABLES = {"fiscal_document", "fiscal_document_line", "fiscal_document_artifact"};
 
     private String databaseName;
+
     private String jdbcUrl;
+
+    /**
+     * The one sale fixture, shared with {@code FiscalDocumentSnapshotMigrationIntegrationTest}: since
+     * {@code V109} a {@code STAMPED} row is judged at commit against the sale its {@code source_id} names, so a
+     * case that needs a stamped row needs a real sale and not an id.
+     */
+    private SaleFixtures fixtures;
 
     @BeforeEach
     void createScratchDatabase() throws Exception {
@@ -74,6 +90,7 @@ class FiscalDocumentSchemaMigrationIntegrationTest extends AbstractPostgresInteg
             statement.execute("CREATE DATABASE " + databaseName + " OWNER " + OWNER);
         }
         jdbcUrl = jdbcUrlFor(databaseName);
+        fixtures = new SaleFixtures(this::executeInOneTransaction, this::read);
     }
 
     @AfterEach
@@ -156,28 +173,27 @@ class FiscalDocumentSchemaMigrationIntegrationTest extends AbstractPostgresInteg
         migrateTo(PRE_UNIT_HEAD);
         migrateToHead();
 
-        var company = insertCompany("V108-F1");
-        var sale = UUID.randomUUID();
-        var stamped = insertDocument(company, sale, "STAMPED");
+        var sale = fixtures.seedSale("V108-F1");
+        var stamped = insertStamped(sale);
 
-        assertThat(refusalOf(documentInsert(company, sale, "STAMPED")))
+        assertThat(refusalOf(stampedRow(UUID.randomUUID(), sale)))
                 .as("F1: at most one live stamped document per sale. A second stamp is the document that must "
                         + "not exist — the authority would hold two UUIDs for one sale and neither would be "
                         + "the original")
                 .contains("uq_fiscal_document_one_stamped");
 
-        var firstDraft = insertDocument(company, sale, "DRAFT");
-        var secondDraft = insertDocument(company, sale, "DRAFT");
-        assertThat(read("SELECT count(*) FROM fiscal_document WHERE source_id = '" + sale + "' AND status = "
+        var firstDraft = insertDraft(sale.company(), sale.sale());
+        var secondDraft = insertDraft(sale.company(), sale.sale());
+        assertThat(read("SELECT count(*) FROM fiscal_document WHERE source_id = '" + sale.sale() + "' AND status = "
                         + "'DRAFT'"))
                 .as("the index is partial, so a retry is a draft: " + firstDraft + " and " + secondDraft
                         + " coexist and neither competes with the stamped row")
                 .isEqualTo("2");
 
-        assertThat(refusalOf(cancellationInsert(company, stamped, "01")))
+        assertThat(refusalOf(cancellationRow(sale.company(), stamped, "'01'")))
                 .as("the cancellation row itself is accepted")
                 .isEmpty();
-        assertThat(read("SELECT count(*) FROM fiscal_document WHERE source_id = '" + sale + "'"))
+        assertThat(read("SELECT count(*) FROM fiscal_document WHERE source_id = '" + sale.sale() + "'"))
                 .as("S6: a cancelled document and its original are two rows and the pair is legal — a full "
                         + "unique key instead of the partial index would have refused exactly this")
                 .isEqualTo("3");
@@ -192,26 +208,31 @@ class FiscalDocumentSchemaMigrationIntegrationTest extends AbstractPostgresInteg
         migrateTo(PRE_UNIT_HEAD);
         migrateToHead();
 
-        var company = insertCompany("V108-F3");
-        var sale = UUID.randomUUID();
+        var sale = fixtures.seedSale("V108-F3");
 
-        assertThat(refusalOf("INSERT INTO fiscal_document (company_id, source_type, source_id, status, "
-                        + "stamped_at, issued_by) VALUES ('" + company + "', 'SALES_ORDER', '" + sale
-                        + "', 'STAMPED', now(), 'V108')"))
+        assertThat(refusalOf(documentRow(
+                        UUID.randomUUID(), sale.company(), sale.sale(), "STAMPED", "NULL", "now()", "NULL", "NULL")))
                 .as("F3: a stamped document states the UUID the authority gave it, and the CHECK is an equality "
                         + "in both directions so the absent half is refused too")
                 .contains("ck_fiscal_document_uuid_matches_status");
 
-        assertThat(refusalOf("INSERT INTO fiscal_document (company_id, source_type, source_id, status, "
-                        + "uuid_fiscal, issued_by) VALUES ('" + company + "', 'SALES_ORDER', '" + sale
-                        + "', 'DRAFT', '" + UUID.randomUUID() + "', 'V108')"))
+        assertThat(refusalOf(documentRow(
+                        UUID.randomUUID(),
+                        sale.company(),
+                        sale.sale(),
+                        "DRAFT",
+                        "'" + UUID.randomUUID() + "'",
+                        "NULL",
+                        "NULL",
+                        "NULL")))
                 .as("a draft carrying a UUID is a stamp that did not happen: the provider answered and the "
                         + "state did not move, which is the shape a partial failure leaves behind")
                 .contains("ck_fiscal_document_uuid_matches_status");
 
         var uuidFiscal = UUID.randomUUID();
-        insertStampedWith(company, UUID.randomUUID(), uuidFiscal);
-        assertThat(refusalOf(stampedWithInsert(company, UUID.randomUUID(), uuidFiscal)))
+        insertStamped(sale, uuidFiscal);
+        var otherSale = fixtures.seedSale("V108-F3-OTHER");
+        assertThat(refusalOf(stampedRow(UUID.randomUUID(), otherSale, uuidFiscal)))
                 .as("F3, second half: the UUID is the authority's global identity, so two rows cannot hold it — "
                         + "a different sale is not a different document")
                 .contains("uq_fiscal_document_uuid_fiscal");
@@ -226,9 +247,9 @@ class FiscalDocumentSchemaMigrationIntegrationTest extends AbstractPostgresInteg
         migrateTo(PRE_UNIT_HEAD);
         migrateToHead();
 
-        var company = insertCompany("V108-F2");
-        var stamped = insertDocument(company, UUID.randomUUID(), "STAMPED");
-        var draft = insertDocument(company, UUID.randomUUID(), "DRAFT");
+        var sale = fixtures.seedSale("V108-F2");
+        var stamped = insertStamped(sale);
+        var draft = insertDraft(sale.company(), UUID.randomUUID());
 
         assertThat(refusalOf("UPDATE fiscal_document SET serie = 'A' WHERE id = '" + stamped + "'"))
                 .as("F2: a stamped document's facts cannot be updated — the trigger is the half that refuses "
@@ -252,7 +273,7 @@ class FiscalDocumentSchemaMigrationIntegrationTest extends AbstractPostgresInteg
                 .isEqualTo("A");
 
         execute("INSERT INTO fiscal_document_artifact (fiscal_document_id, company_id, xml) VALUES ('" + stamped
-                + "', '" + company + "', '<cfdi/>')");
+                + "', '" + sale.company() + "', '<cfdi/>')");
         assertThat(refusalOf("UPDATE fiscal_document_artifact SET xml = '<other/>' WHERE fiscal_document_id = '"
                         + stamped + "'"))
                 .as("F8: the artefact is the bytes that were stamped, so a reprint returns the original and "
@@ -293,8 +314,8 @@ class FiscalDocumentSchemaMigrationIntegrationTest extends AbstractPostgresInteg
         migrateTo(PRE_UNIT_HEAD);
         migrateToHead();
 
-        var company = insertCompany("V108-GRANT");
-        var draft = insertDocument(company, UUID.randomUUID(), "DRAFT");
+        var company = fixtures.seedCompany("V108-GRANT");
+        var draft = insertDraft(company, UUID.randomUUID());
 
         assertThat(refusalAsApp("UPDATE fiscal_document_line SET company_id = company_id"))
                 .as("V52:187 grants all four privileges on every new table, so the restrictive half has to be "
@@ -322,29 +343,36 @@ class FiscalDocumentSchemaMigrationIntegrationTest extends AbstractPostgresInteg
         migrateTo(PRE_UNIT_HEAD);
         migrateToHead();
 
-        var company = insertCompany("V108-F4");
-        var other = insertCompany("V108-F4-OTHER");
-        var stamped = insertDocument(company, UUID.randomUUID(), "STAMPED");
+        var sale = fixtures.seedSale("V108-F4");
+        var otherSale = fixtures.seedSale("V108-F4-OTHER");
+        var company = sale.company();
+        var stamped = insertStamped(sale);
 
-        assertThat(refusalOf("INSERT INTO fiscal_document (company_id, source_type, source_id, status, "
-                        + "cancels_fiscal_document_id, issued_by) VALUES ('" + company + "', 'SALES_ORDER', '"
-                        + UUID.randomUUID() + "', 'CANCELLED', '" + stamped + "', 'V108')"))
+        assertThat(refusalOf(documentRow(
+                        UUID.randomUUID(),
+                        company,
+                        UUID.randomUUID(),
+                        "CANCELLED",
+                        "NULL",
+                        "NULL",
+                        "'" + stamped + "'",
+                        "NULL")))
                 .as("F4: a cancellation names why. A cancelled document with no motive is a row that says a "
                         + "document stopped existing and refuses to say what the authority was told")
                 .contains("ck_fiscal_document_cancellation");
 
-        assertThat(refusalOf(cancellationInsert(company, stamped, "01")))
+        assertThat(refusalOf(cancellationRow(company, stamped, "'01'")))
                 .as("motive '01' is the authority's code for a cancellation with no substitution, and the "
                         + "vocabulary of motives is the catalog's, so the schema accepts any two characters")
                 .isEmpty();
 
-        assertThat(refusalOf(cancellationInsert(company, stamped, "02")))
+        assertThat(refusalOf(cancellationRow(company, stamped, "'02'")))
                 .as("and a document is cancelled once: two cancellation rows would be two contradictory "
                         + "statements about one UUID")
                 .contains("uq_fiscal_document_cancels");
 
-        var foreign = insertDocument(other, UUID.randomUUID(), "STAMPED");
-        assertThat(refusalOf(cancellationInsert(company, foreign, "01")))
+        var foreign = insertStamped(otherSale);
+        assertThat(refusalOf(cancellationRow(company, foreign, "'01'")))
                 .as("the pointer is composite over (company_id, id) because a referential check bypasses row "
                         + "security: an id-only key would let one tenant cancel another tenant's document and "
                         + "no policy could see it")
@@ -357,9 +385,9 @@ class FiscalDocumentSchemaMigrationIntegrationTest extends AbstractPostgresInteg
         migrateTo(PRE_UNIT_HEAD);
         migrateToHead();
 
-        var company = insertCompany("V108-IDENTITY");
-        var other = insertCompany("V108-IDENTITY-OTHER");
-        var draft = insertDocument(company, UUID.randomUUID(), "DRAFT");
+        var company = fixtures.seedCompany("V108-IDENTITY");
+        var other = fixtures.seedCompany("V108-IDENTITY-OTHER");
+        var draft = insertDraft(company, UUID.randomUUID());
 
         assertThat(refusalOf("UPDATE fiscal_document SET company_id = '" + other + "' WHERE id = '" + draft + "'"))
                 .as("a draft is mutable, its identity is not: moving a document to another tenant is not a "
@@ -427,51 +455,103 @@ class FiscalDocumentSchemaMigrationIntegrationTest extends AbstractPostgresInteg
 
     // --- fixtures: written as the superuser, so the only refusal is the constraint under test ---
 
-    private UUID insertCompany(String companyKey) throws SQLException {
-        var id = UUID.randomUUID();
-        // `currency` is NOT NULL since V57 and this scratch database is already past it.
-        execute("INSERT INTO companies (id, company_key, company_name, rfc, currency) VALUES ('" + id + "', '"
-                + companyKey + "', '" + companyKey + "', '" + rfcOf(id) + "', 'MXN')");
-        return id;
+    /**
+     * Every column of a {@code fiscal_document} row this suite states: {@code V108}'s identity and state, and
+     * the frozen facts, place of issue, currency and money parts {@code V109} made required.
+     */
+    private static final String DOCUMENT_COLUMNS = "id, company_id, source_type, source_id, status, uuid_fiscal,"
+            + " stamped_at, issued_by, cancels_fiscal_document_id, cancellation_motive,"
+            + " replaces_fiscal_document_id, receptor_rfc, receptor_name, receptor_regimen, receptor_zip_code,"
+            + " receptor_uso_cfdi, emisor_rfc, emisor_name, emisor_regimen, tipo_comprobante, metodo_pago,"
+            + " forma_pago, exportacion, lugar_expedicion, currency, subtotal, discount_total, tax_transferred,"
+            + " tax_withheld, total_amount";
+
+    /**
+     * One {@code fiscal_document} row with every column {@code V108} and {@code V109} make required.
+     *
+     * <p><b>The frozen identity is a literal of the fixture.</b> No rule in this suite reads the receiver or the
+     * issuer: {@code V109} made those eight columns, the place of issue and the currency {@code NOT NULL} so
+     * that a document cannot state nothing about the parties it names, and a row that omitted any of them would
+     * make every case below fail on the same {@code NOT NULL} instead of on the rule it pins.</p>
+     *
+     * <p><b>The money is the fixture sale's on a stamped row and zero elsewhere, and that is not a shortcut.</b>
+     * A {@code STAMPED} row is judged at commit against the sale its {@code source_id} names
+     * ({@code trg_fiscal_document_snapshot_matches_sale}, {@code V109}), so a stamped fixture stating numbers no
+     * sale agrees with would be refused for a reason that has nothing to do with the rule under test. A
+     * {@code DRAFT}, a {@code CANCELLED} row and the rows refused for their shape never reach that judgement —
+     * the trigger's {@code WHEN} names the stamped status — and zero is a state {@code ck_fiscal_document_total}
+     * accepts, which is what a draft that states nothing yet is.</p>
+     */
+    private String documentRow(
+            UUID document,
+            UUID company,
+            UUID sourceId,
+            String status,
+            String uuidFiscal,
+            String stampedAt,
+            String cancels,
+            String motive) {
+        var money = "STAMPED".equals(status)
+                ? SaleFixtures.SALE_SUBTOTAL + ", " + SaleFixtures.SALE_DISCOUNT + ", " + SaleFixtures.SALE_TAX_TOTAL
+                        + ", 0.0000, " + SaleFixtures.SALE_TOTAL
+                : "0.0000, 0.0000, 0.0000, 0.0000, 0.0000";
+        return "INSERT INTO fiscal_document (" + DOCUMENT_COLUMNS + ") VALUES ('" + document + "', '" + company
+                + "', 'SALES_ORDER', '" + sourceId + "', '" + status + "', " + uuidFiscal + ", " + stampedAt
+                + ", 'V108', " + cancels + ", " + motive + ", NULL, 'REC010101AB1', 'V108 Receiver SA de CV',"
+                + " '601', '06700', 'G03', 'V108010101AB1', 'V108 Issuer SA de CV', '601', 'I', 'PUE', '03',"
+                + " '01', '06700', '" + SaleFixtures.CURRENCY + "', " + money + ")";
     }
 
-    private String rfcOf(UUID id) {
-        return "RFC" + id.toString().replace("-", "").substring(0, 10).toUpperCase();
+    /** A stamped row for a real sale, stating the sale's numbers and a fresh UUID of its own. */
+    private String stampedRow(UUID document, SaleFixtures.Sale sale) {
+        return stampedRow(document, sale, UUID.randomUUID());
     }
 
-    /** A document in the state asked for, with the UUID and the stamp moment a stamped row requires. */
-    private UUID insertDocument(UUID company, UUID sourceId, String status) throws SQLException {
-        var id = UUID.randomUUID();
-        execute("INSERT INTO fiscal_document (id, company_id, source_type, source_id, status, uuid_fiscal, "
-                + "stamped_at, issued_by) VALUES ('" + id + "', '" + company + "', 'SALES_ORDER', '" + sourceId
-                + "', '" + status + "', "
-                + ("STAMPED".equals(status) ? "'" + UUID.randomUUID() + "'" : "NULL") + ", "
-                + ("STAMPED".equals(status) ? "now()" : "NULL") + ", 'V108')");
-        return id;
+    /** A stamped row whose {@code uuid_fiscal} the caller chooses, which is what the F3 case moves. */
+    private String stampedRow(UUID document, SaleFixtures.Sale sale, UUID uuidFiscal) {
+        return documentRow(
+                document, sale.company(), sale.sale(), "STAMPED", "'" + uuidFiscal + "'", "now()", "NULL", "NULL");
     }
 
-    private void insertStampedWith(UUID company, UUID sourceId, UUID uuidFiscal) throws SQLException {
-        execute(stampedWithInsert(company, sourceId, uuidFiscal));
+    /**
+     * A draft, whose {@code source_id} may name no sale at all: the judgement reads only a stamped row, and a
+     * draft naming a sale nobody wrote is a state the trigger deliberately does not look at.
+     */
+    private String draftRow(UUID document, UUID company, UUID sourceId) {
+        return documentRow(document, company, sourceId, "DRAFT", "NULL", "NULL", "NULL", "NULL");
     }
 
-    private String stampedWithInsert(UUID company, UUID sourceId, UUID uuidFiscal) {
-        return "INSERT INTO fiscal_document (company_id, source_type, source_id, status, uuid_fiscal, stamped_at, "
-                + "issued_by) VALUES ('" + company + "', 'SALES_ORDER', '" + sourceId + "', 'STAMPED', '"
-                + uuidFiscal + "', now(), 'V108')";
+    /**
+     * A cancellation row: a new document naming the one it cancels, the motive, and no UUID of its own — the
+     * UUID the authority cancels belongs to the cancelled row (F4).
+     */
+    private String cancellationRow(UUID company, UUID cancels, String motive) {
+        return documentRow(
+                UUID.randomUUID(),
+                company,
+                UUID.randomUUID(),
+                "CANCELLED",
+                "NULL",
+                "NULL",
+                "'" + cancels + "'",
+                motive);
     }
 
-    private String documentInsert(UUID company, UUID sourceId, String status) {
-        return "INSERT INTO fiscal_document (company_id, source_type, source_id, status, uuid_fiscal, stamped_at, "
-                + "issued_by) VALUES ('" + company + "', 'SALES_ORDER', '" + sourceId + "', '" + status + "', "
-                + ("STAMPED".equals(status) ? "'" + UUID.randomUUID() + "'" : "NULL") + ", "
-                + ("STAMPED".equals(status) ? "now()" : "NULL") + ", 'V108')";
+    /** Inserts a stamped row for a real sale and returns its id: a refusal is the case's own assertion. */
+    private UUID insertStamped(SaleFixtures.Sale sale) throws SQLException {
+        return insertStamped(sale, UUID.randomUUID());
     }
 
-    private String cancellationInsert(UUID company, UUID cancels, String motive) {
-        return "INSERT INTO fiscal_document (company_id, source_type, source_id, status, "
-                + "cancels_fiscal_document_id, cancellation_motive, issued_by) VALUES ('" + company + "', "
-                + "'SALES_ORDER', '" + UUID.randomUUID() + "', 'CANCELLED', '" + cancels + "', '" + motive
-                + "', 'V108')";
+    private UUID insertStamped(SaleFixtures.Sale sale, UUID uuidFiscal) throws SQLException {
+        var document = UUID.randomUUID();
+        execute(stampedRow(document, sale, uuidFiscal));
+        return document;
+    }
+
+    private UUID insertDraft(UUID company, UUID sourceId) throws SQLException {
+        var document = UUID.randomUUID();
+        execute(draftRow(document, company, sourceId));
+        return document;
     }
 
     // --- the scratch database's own administration ---
@@ -494,6 +574,25 @@ class FiscalDocumentSchemaMigrationIntegrationTest extends AbstractPostgresInteg
                         DriverManager.getConnection(jdbcUrl, POSTGRES.getUsername(), POSTGRES.getPassword());
                 Statement statement = connection.createStatement()) {
             statement.execute(sql);
+        }
+    }
+
+    /**
+     * Runs the statements as <b>one</b> transaction, which is what the sale fixture needs: {@code V68}'s
+     * {@code assert_document_transition_recorded} is {@code DEFERRABLE INITIALLY DEFERRED}, so a sale written in
+     * autocommit and its creation row written after it is a commit refused for a reason that has nothing to do
+     * with the case.
+     */
+    private void executeInOneTransaction(String... statements) throws SQLException {
+        try (Connection connection =
+                DriverManager.getConnection(jdbcUrl, POSTGRES.getUsername(), POSTGRES.getPassword())) {
+            connection.setAutoCommit(false);
+            try (Statement statement = connection.createStatement()) {
+                for (var sql : statements) {
+                    statement.execute(sql);
+                }
+            }
+            connection.commit();
         }
     }
 
