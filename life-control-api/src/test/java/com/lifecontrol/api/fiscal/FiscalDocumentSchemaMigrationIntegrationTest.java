@@ -362,9 +362,19 @@ class FiscalDocumentSchemaMigrationIntegrationTest extends AbstractPostgresInteg
                 .contains("ck_fiscal_document_cancellation");
 
         assertThat(refusalOf(cancellationRow(company, stamped, "'01'")))
-                .as("motive '01' is the authority's code for a cancellation with no substitution, and the "
-                        + "vocabulary of motives is the catalog's, so the schema accepts any two characters")
+                .as("motive '01' is the authority's code for a cancellation that is replaced by another folio, "
+                        + "and V112 closes the vocabulary: every code the SAT's cancelación.xsd enumerates is "
+                        + "accepted")
                 .isEmpty();
+
+        var motiveSale = fixtures.seedSale("V108-F4-MOTIVE");
+        var unsupported = insertStamped(motiveSale);
+        assertThat(refusalOf(cancellationRow(motiveSale.company(), unsupported, "'05'")))
+                .as("V112: a fifth motive is refused. Neither the SAT's cancelación.xsd (a required `Motivo` over "
+                        + "`01`–`04`) nor the vendor's catalogue declares one, so accepting it here would be a "
+                        + "code this tree invented — and a wrong closed vocabulary refuses a legal cancellation "
+                        + "while admitting an illegal one")
+                .contains("ck_fiscal_document_cancellation_motive");
 
         assertThat(refusalOf(cancellationRow(company, stamped, "'02'")))
                 .as("and a document is cancelled once: two cancellation rows would be two contradictory "

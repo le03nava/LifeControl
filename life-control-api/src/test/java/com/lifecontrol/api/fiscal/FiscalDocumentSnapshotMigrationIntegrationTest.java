@@ -9,6 +9,7 @@ import static com.lifecontrol.api.support.SaleFixtures.SALE_TOTAL;
 import static com.lifecontrol.api.support.SaleFixtures.SECOND_LINE_TAX;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.lifecontrol.api.fiscal.model.FiscalCancellationMotive;
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
 import com.lifecontrol.api.support.SaleFixtures;
 import java.sql.Connection;
@@ -357,17 +358,29 @@ class FiscalDocumentSnapshotMigrationIntegrationTest extends AbstractPostgresInt
 
         assertThat(names("SELECT string_agg(conname, ',' ORDER BY conname) FROM pg_constraint"
                         + " WHERE conrelid = 'fiscal_document'::regclass AND contype = 'c'"))
-                .as("the closed set of the document's value checks. exportacion has none and "
-                        + "cancellation_motive has only the null-coupling that V108 wrote, because the "
-                        + "authority's c_Exportacion and c_MotivoCancelacion value sets are stated nowhere in "
-                        + "this tree: decision 11 refuses to pin a catalog from memory, and a plausible-looking "
-                        + "code here would be exactly that. A vocabulary added later has to appear in this "
-                        + "list, which is what keeps the omission deliberate instead of quiet")
-                .isEqualTo("ck_fiscal_document_cancellation,ck_fiscal_document_metodo_pago,"
+                .as("the closed set of the document's value checks. exportacion still has none, because the "
+                        + "authority's c_Exportacion value set is stated nowhere in this tree: decision 11 "
+                        + "refuses to pin a catalog from memory. cancellation_motive is the one that changed "
+                        + "hands — V112 pins it, because c_MotivoCancelacion was read from the SAT's "
+                        + "cancelación.xsd and from the vendor's catalogue before it was written (L20(e)) — and "
+                        + "it appears in this list for exactly that reason: a vocabulary that arrives has to be "
+                        + "a deliberate entry here, and so does one that leaves")
+                .isEqualTo("ck_fiscal_document_cancellation,ck_fiscal_document_cancellation_motive,"
+                        + "ck_fiscal_document_metodo_pago,"
                         + "ck_fiscal_document_parts_not_negative,ck_fiscal_document_source_type,"
                         + "ck_fiscal_document_stamped_at,ck_fiscal_document_status,"
                         + "ck_fiscal_document_tipo_comprobante,ck_fiscal_document_total,"
                         + "ck_fiscal_document_uuid_matches_status");
+        assertThat(read("SELECT string_agg(m[1], ',' ORDER BY ord)"
+                        + " FROM pg_constraint c, LATERAL regexp_matches(pg_get_constraintdef(c.oid),"
+                        + " '''([0-9]{2})''', 'g') WITH ORDINALITY AS r(m, ord)"
+                        + " WHERE c.conrelid = 'fiscal_document'::regclass"
+                        + " AND c.conname = 'ck_fiscal_document_cancellation_motive'"))
+                .as("and the two copies of that catalog agree: the seven-line enum in "
+                        + "FiscalCancellationMotive and the CHECK that every writer bypassing the API is judged "
+                        + "by. Two mirrors free to drift is the failure this pair exists to make impossible, and "
+                        + "it is the same coupling ck_companies_regimen_fiscal and its enum carry")
+                .isEqualTo(String.join(",", FiscalCancellationMotive.codes()));
         assertThat(names("SELECT string_agg(conname, ',' ORDER BY conname) FROM pg_constraint"
                         + " WHERE conrelid = 'fiscal_document_line'::regclass AND contype = 'c'"))
                 .as("and the line's: tax_object is absent for the same reason exportacion is, so the two "
