@@ -105,8 +105,9 @@ public class FiscalStampProviderDefectException extends FiscalStampProviderExcep
     public static FiscalStampProviderDefectException unreadable(String detail, Throwable cause) {
         return new FiscalStampProviderDefectException(
                 "Solución Factible's answer cannot be read as the contract the WSDL states: " + detail
-                        + ". Nothing was stamped and nothing was refused, because an answer this tree cannot parse "
-                        + "is a provider defect and never the authority's verdict on a document (L18).",
+                        + ". Nothing was stamped or cancelled and nothing was refused, because an answer this "
+                        + "tree cannot parse is a provider defect and never the authority's verdict on a "
+                        + "document (L18).",
                 cause);
     }
 

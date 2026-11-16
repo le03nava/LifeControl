@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<EnviarSolicitudCancelacionResponse>
+  <status>200</status>
+  <mensaje>[Servidor de pruebas] OK - Autenticación correcta, verifique los resultados por comprobante</mensaje>
+  <CFDIResultadoCancelacion>
+    <status>200</status>
+    <mensaje>El SAT no ha procesado la recepción de este comprobante por lo cual no puede ser cancelado, por favor espere al menos 24 horas después de la generación del mismo y vuelva a intentar cancelarlo. - Acuse: Kw3RSgj6Us8w5yqgxHtM15oVsyw0l7mnheJ1J0YyppGrv4z2bukZz43V4Dng8G3eyANJ+XZVIug1xeO5VBCA3Q==; Digest: AO9Pp6sR870uO7143JGcQJM1fa3ztTnDHnBxbnJ4E0vN531wr/C/JiTBzB8KWUZjea2IBbr65nRUbtkLr9hYpg==; Certificado: 00001088888800000093</mensaje>
+    <statusUUID>205</statusUUID>
+    <UUID>6DB5A9A0-8A41-4481-AEA4-FBFFADBC96DA</UUID>
+  </CFDIResultadoCancelacion>
+</EnviarSolicitudCancelacionResponse>

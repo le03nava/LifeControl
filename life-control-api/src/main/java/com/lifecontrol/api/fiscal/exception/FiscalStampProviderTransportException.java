@@ -36,9 +36,10 @@ public class FiscalStampProviderTransportException extends FiscalStampProviderEx
     public static FiscalStampProviderTransportException answeredWithStatus(
             String endpoint, Duration timeout, long elapsedMillis, int status) {
         return new FiscalStampProviderTransportException(
-                "Solución Factible's stamping endpoint " + endpoint + " answered HTTP " + status + " after "
-                        + elapsedMillis + " ms, so nothing was stamped and the document was not refused: an HTTP "
-                        + "status is a transport answer, never the authority's verdict on a document (L18). "
+                "Solución Factible's Timbrado endpoint " + endpoint + " answered HTTP " + status + " after "
+                        + elapsedMillis + " ms, so nothing was stamped or cancelled and the document was not "
+                        + "refused: an HTTP status is a transport answer, never the authority's verdict on a "
+                        + "document (L18). "
                         + boundedBy(timeout),
                 null);
     }
@@ -55,9 +56,9 @@ public class FiscalStampProviderTransportException extends FiscalStampProviderEx
     public static FiscalStampProviderTransportException unreachable(
             String endpoint, Duration timeout, long elapsedMillis, Exception failure) {
         return new FiscalStampProviderTransportException(
-                "Solución Factible's stamping endpoint " + endpoint + " could not be reached after " + elapsedMillis
-                        + " ms (" + failure + "), so nothing was stamped and the document was not refused: a "
-                        + "transport that failed is not the authority's verdict on a document (L18). "
+                "Solución Factible's Timbrado endpoint " + endpoint + " could not be reached after " + elapsedMillis
+                        + " ms (" + failure + "), so nothing was stamped or cancelled and the document was not "
+                        + "refused: a transport that failed is not the authority's verdict on a document (L18). "
                         + boundedBy(timeout),
                 failure);
     }

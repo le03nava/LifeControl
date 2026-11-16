@@ -532,7 +532,7 @@ public class FiscalDocumentSnapshotWriter {
         document.setSourceId(sale.getId());
         document.setStatus(FiscalDocument.STATUS_DRAFT);
         document.setAttemptKey(attemptKey);
-        document.setIssuedBy(requireActor());
+        document.setIssuedBy(requireActor(currentUserContext));
         document.setReceptorRfc(customer.getRfc());
         document.setReceptorName(customer.getLegalName());
         document.setReceptorRegimen(customer.getRegimenFiscal());
@@ -620,8 +620,13 @@ public class FiscalDocumentSnapshotWriter {
      * the company's. A caller with no identity is refused here instead of writing a placeholder — the same
      * answer {@code StatusTransitionRecorder} gives for the same column shape, and for the same reason: an
      * actor nobody can stand behind is not an actor.</p>
+     *
+     * <p><b>Why it is shared with {@code FiscalDocumentCancellationService}.</b> A cancellation row states
+     * {@code issued_by} for the same column and the same reason — cancelling is an act by a person and not a fact
+     * about the company — so the rule lives in one place. Two copies would be two answers to "who asked for this"
+     * the day one of them starts reading a different claim.</p>
      */
-    private String requireActor() {
+    static String requireActor(CurrentUserContext currentUserContext) {
         if (StringUtils.hasText(currentUserContext.getUserId())) {
             return currentUserContext.getUserId();
         }

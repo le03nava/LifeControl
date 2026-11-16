@@ -1,6 +1,8 @@
 package com.lifecontrol.api.config.fiscal;
 
 import com.lifecontrol.api.fiscal.FiscalStampProvider;
+import com.lifecontrol.api.fiscal.cancellation.FiscalCancellationProvider;
+import com.lifecontrol.api.fiscal.cancellation.SolucionFactibleFiscalCancellationProvider;
 import com.lifecontrol.api.fiscal.provider.SolucionFactibleFiscalStampProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -29,6 +31,14 @@ import org.springframework.context.annotation.Configuration;
  * ({@code T7a}) from the sealing pipeline ({@code T7b}) because they are testable separately: this class
  * registers the first, and {@code T7b} is what will make the seal a function of the bytes the builder produced
  * rather than an argument a caller supplies.</p>
+ *
+ * <p><b>Why cancelling is a second bean behind the same switch and not a second configuration.</b> The vendor that
+ * stamps a document is the one that cancels it, through the same service URL and the same account, so the
+ * cancelling half binds {@link SolucionFactibleProperties} rather than a copy of it — two records over one vendor
+ * would be two secrets and two endpoints free to disagree about which environment is being called ({@code T8c}).
+ * The switch stays single for the same reason: an installation that does not invoice neither stamps nor cancels,
+ * and an installation that does gets both, which is what keeps {@code FiscalDocumentStamper}'s and the cancelling
+ * service's refusals describing one configuration.</p>
  */
 @Configuration
 @ConditionalOnProperty(prefix = "app.fiscal.provider", name = "enabled", havingValue = "true")
@@ -45,5 +55,22 @@ public class FiscalProviderConfig {
     @Bean
     public FiscalStampProvider solucionFactibleFiscalStampProvider(SolucionFactibleProperties properties) {
         return new SolucionFactibleFiscalStampProvider(properties);
+    }
+
+    /**
+     * The vendor's cancelling operation, behind its own port and the same credentials.
+     *
+     * <p>Registered under the same condition as the stamping bean, because the two are two capabilities of one
+     * account: {@code enviarSolicitudCancelacion} takes {@code usuario} and {@code password} exactly as
+     * {@code timbrarBase64} does, and the document it cancels is the one stamped through here.</p>
+     *
+     * @param properties the same bound {@code app.fiscal.provider.solucion-factible} values, validated again by
+     *     the adapter's constructor
+     * @return the one implementation of {@link FiscalCancellationProvider} this context registers
+     */
+    @Bean
+    public FiscalCancellationProvider solucionFactibleFiscalCancellationProvider(
+            SolucionFactibleProperties properties) {
+        return new SolucionFactibleFiscalCancellationProvider(properties);
     }
 }

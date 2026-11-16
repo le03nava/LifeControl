@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<EnviarSolicitudCancelacionResponse>
+  <status>1802</status>
+  <mensaje>[Servidor de pruebas] La firma de la solicitud de cancelación no ha pasado la validación criptográfica.</mensaje>
+  <CFDIResultadoCancelacion>
+    <status/>
+    <mensaje/>
+  </CFDIResultadoCancelacion>
+</EnviarSolicitudCancelacionResponse>
