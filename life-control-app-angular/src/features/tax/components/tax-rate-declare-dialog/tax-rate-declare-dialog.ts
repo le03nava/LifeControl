@@ -1,4 +1,11 @@
-import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  DestroyRef,
+  inject,
+  signal,
+} from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import { HttpErrorResponse } from '@angular/common/http';
@@ -27,6 +34,23 @@ export interface TaxRateDeclareDialogData {
 export interface ScopeOption {
   id: string;
   label: string;
+}
+
+/** What one walk of the cascade answered: the options it could read, and the countries it could not. */
+interface ScopeCascade {
+  regions: ScopeOption[];
+  failedCountries: string[];
+}
+
+/**
+ * The sentence a failed scope read states: what is missing, and why the save is waiting on it.
+ *
+ * It does not offer the company-wide rate as an escape the way the old copy did. A select showing only
+ * `Toda la compañía` reads as a complete list, so the escape it offered was the defect: the operator saved
+ * the empty scope having never seen the regions it might belong to (`S2`).
+ */
+function scopeReadFailure(missing: string): string {
+  return `No se pudieron leer ${missing}: el alcance quedaría incompleto, así que no se puede guardar hasta reintentar.`;
 }
 
 interface TaxRateDeclareControl {
@@ -94,6 +118,7 @@ export class TaxRateDeclareDialog {
   private readonly taxCodeService = inject(TaxCodeService);
   private readonly countryService = inject(CompanyCountryService);
   private readonly regionService = inject(CompanyRegionService);
+  private readonly destroyRef = inject(DestroyRef);
 
   readonly data = inject<TaxRateDeclareDialogData>(MAT_DIALOG_DATA);
 
@@ -126,70 +151,122 @@ export class TaxRateDeclareDialog {
   readonly formError = signal<string | null>(null);
   readonly taxCodes = signal<{ code: string; label: string }[]>([]);
   readonly taxCodesLoading = signal(true);
+  /** The catalog answered: the code half of the form has something to offer. */
+  private readonly taxCodesReady = signal(false);
   /** `''` is the company-wide rate; every other entry is one region of the company. */
   readonly scopeOptions = signal<ScopeOption[]>([{ id: '', label: COMPANY_WIDE_SCOPE }]);
   readonly regionsLoading = signal(true);
   readonly regionsError = signal<string | null>(null);
+  /** The cascade finished at least once, whether or not it finished cleanly. */
+  private readonly scopeSettled = signal(false);
+
+  /**
+   * Whether the save may be offered.
+   *
+   * The scope is not a hint beside the form: a company-wide rate and a regional one are different keys, and
+   * the regional one becomes authoritative for the code (`S7`). So the save waits until both reads that decide
+   * what it could write have **settled**, and refuses while any of them failed — a select holding only
+   * `Toda la compañía` because a country's regions never arrived is not a complete list (`S2`).
+   */
+  readonly scopeReady = computed(
+    () => this.taxCodesReady() && this.scopeSettled() && this.regionsError() === null,
+  );
 
   constructor() {
     this.taxCodeService
       .getTaxCodes()
-      .pipe(
-        takeUntilDestroyed(),
-        catchError(() => {
+      .pipe(takeUntilDestroyed())
+      .subscribe({
+        next: (codes) => {
+          this.taxCodes.set(
+            codes
+              .filter((code) => code.enabled)
+              .map((code) => ({ code: code.code, label: code.label })),
+          );
+          this.taxCodesLoading.set(false);
+          this.taxCodesReady.set(true);
+        },
+        // A failed catalog leaves `taxCodesReady` false on purpose: recovering the error into an empty
+        // list made "the read failed" and "the company has no codes" the same state, and only one of
+        // them may be saved from.
+        error: () => {
+          this.taxCodesLoading.set(false);
           this.formError.set('No se pudo cargar el catálogo de códigos de impuesto');
-          return of([]);
-        }),
-      )
-      .subscribe((codes) => {
-        this.taxCodes.set(
-          codes
-            .filter((code) => code.enabled)
-            .map((code) => ({ code: code.code, label: code.label })),
-        );
-        this.taxCodesLoading.set(false);
+        },
       });
 
-    // Regions are keyed by the company's country, so the scope select is a cascade it has to walk: countries,
-    // then each country's regions. It is flattened into one list because a rate names a region and the country
-    // only exists to reach it — with more than one country the label carries the name so two "Norte" are not
-    // the same option.
+    this.loadScope();
+  }
+
+  /**
+   * Reads the scope cascade: the company's countries, then each country's regions, flattened into the one list
+   * the scope select offers.
+   *
+   * It is a method and not constructor body because the block needs a way out: it runs from the constructor and
+   * again from `Reintentar`, which is only offered when the previous walk failed. Each country's failure is
+   * **counted, not swallowed** — the options that did load are kept, the countries that did not are named, and
+   * `scopeReady` stays false until a walk is clean, because a region quietly missing from the select is the
+   * shape that let a company-wide rate be declared by an operator who never saw it.
+   */
+  loadScope(): void {
+    this.regionsLoading.set(true);
+    this.regionsError.set(null);
+    this.scopeSettled.set(false);
+    this.scopeOptions.set([{ id: '', label: COMPANY_WIDE_SCOPE }]);
+
     this.countryService
       .getCountries(this.data.companyId)
       .pipe(
-        takeUntilDestroyed(),
+        takeUntilDestroyed(this.destroyRef),
         switchMap((countries) =>
           countries.length === 0
-            ? of([] as ScopeOption[])
+            ? of<ScopeCascade>({ regions: [], failedCountries: [] })
             : forkJoin(
                 countries.map((country) =>
                   this.regionService.getRegions(this.data.companyId, country.id).pipe(
-                    catchError(() => of([])),
-                    map((regions) =>
-                      regions
-                        .filter((region) => region.enabled)
-                        .map((region) => ({
-                          id: region.id,
-                          label:
-                            countries.length > 1
-                              ? `${region.regionName} (${country.countryName})`
-                              : region.regionName,
-                        })),
-                    ),
+                    map((regions) => ({ country, regions, failed: false })),
+                    catchError(() => of({ country, regions: [], failed: true })),
                   ),
                 ),
-              ).pipe(map((perCountry) => perCountry.flat())),
+              ).pipe(
+                map((perCountry) => ({
+                  regions: perCountry.flatMap(({ country, regions }) =>
+                    regions
+                      .filter((region) => region.enabled)
+                      .map((region) => ({
+                        id: region.id,
+                        // With more than one country the label carries the name, so two "Norte" are not
+                        // the same option.
+                        label:
+                          countries.length > 1
+                            ? `${region.regionName} (${country.countryName})`
+                            : region.regionName,
+                      })),
+                  ),
+                  failedCountries: perCountry
+                    .filter((perCountryResult) => perCountryResult.failed)
+                    .map((perCountryResult) => perCountryResult.country.countryName),
+                })),
+              ),
         ),
-        catchError(() => {
-          this.regionsError.set(
-            'No se pudieron cargar las regiones de la empresa: sólo podés declarar la tasa de toda la compañía',
-          );
-          return of([] as ScopeOption[]);
-        }),
+        catchError(() => of<ScopeCascade | null>(null)),
       )
-      .subscribe((regions) => {
-        this.scopeOptions.set([{ id: '', label: COMPANY_WIDE_SCOPE }, ...regions]);
+      .subscribe((cascade) => {
         this.regionsLoading.set(false);
+        this.scopeSettled.set(true);
+
+        // The country list itself is missing, so nothing was read: there is no partial list to keep.
+        if (cascade === null) {
+          this.regionsError.set(scopeReadFailure('los países y las regiones de la empresa'));
+          return;
+        }
+
+        this.scopeOptions.set([{ id: '', label: COMPANY_WIDE_SCOPE }, ...cascade.regions]);
+        if (cascade.failedCountries.length > 0) {
+          this.regionsError.set(
+            scopeReadFailure(`las regiones de ${cascade.failedCountries.join(', ')}`),
+          );
+        }
       });
   }
 
@@ -209,9 +286,21 @@ export class TaxRateDeclareDialog {
       return;
     }
 
+    // The button states this too, and this covers every other caller (`ngSubmit`, a future one): a rate
+    // declared before the scope options exist is a rate whose scope the operator never saw (`S2`).
+    if (!this.scopeReady()) {
+      return;
+    }
+
     const value = form.getRawValue();
     this.saving.set(true);
     this.formError.set(null);
+    // Esc and a backdrop click are refused while the write is in flight. Material closes the ref itself on
+    // both, and that close answers `undefined` — which the page reads as "no write", while the row it refused
+    // to wait for was appended. `MatDialogRef`'s own ESC/backdrop subscription reads `disableClose` on the
+    // ref, so flipping it here is what refuses them; the error branch restores it so the block always has an
+    // exit.
+    this.dialogRef.disableClose = true;
 
     this.taxRateService
       .declareTaxRate(this.data.companyId, {
@@ -225,6 +314,7 @@ export class TaxRateDeclareDialog {
       .subscribe({
         next: (created) => this.dialogRef.close(created),
         error: (error: unknown) => {
+          this.dialogRef.disableClose = false;
           this.saving.set(false);
           this.formError.set(this.writeErrorMessage(error));
         },
