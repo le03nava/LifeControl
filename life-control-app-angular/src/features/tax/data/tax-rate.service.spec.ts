@@ -78,6 +78,60 @@ describe('TaxRateService', () => {
     expect(service.error()).toBe('Error al cargar las tasas de impuesto');
   });
 
+  it('declares through a POST on the company book, sending the fraction and stating the empty scope', async () => {
+    const written = firstValueFrom(
+      service.declareTaxRate(COMPANY_ID, {
+        taxCode: 'IVA',
+        regionId: null,
+        rate: 0.16,
+        effectiveFrom: '2026-11-10',
+        enabled: true,
+      }),
+    );
+
+    const request = httpMock.expectOne(
+      (candidate) =>
+        candidate.url === `${service.apiUrl}/${COMPANY_ID}/tax-rates` &&
+        candidate.method === 'POST',
+    );
+    // `toEqual` on the whole body, not on its fields: `rate` is the **fraction** the column holds
+    // (`0.16`, never the `16` the operator types) and `regionId: null` is the company-wide scope —
+    // the half of the key the server resolves precedence from. A body that carried the percentage, or
+    // that dropped the scope, would declare a different rate than the one on screen, and this write
+    // had no service-level assertion anywhere: the dialog tests mock this call away.
+    expect(request.request.body).toEqual({
+      taxCode: 'IVA',
+      regionId: null,
+      rate: 0.16,
+      effectiveFrom: '2026-11-10',
+      enabled: true,
+    });
+
+    const created = taxRate();
+    request.flush(created);
+
+    await expect(written).resolves.toEqual(created);
+  });
+
+  it('keeps a readable message beside a refused declare', async () => {
+    const written = firstValueFrom(
+      service.declareTaxRate(COMPANY_ID, {
+        taxCode: 'IVA',
+        regionId: null,
+        rate: 0.16,
+        effectiveFrom: '2026-11-10',
+        enabled: true,
+      }),
+    );
+
+    httpMock
+      .expectOne((candidate) => candidate.method === 'POST')
+      .flush({ message: 'duplicate' }, { status: 409, statusText: 'Conflict' });
+
+    await expect(written).rejects.toBeTruthy();
+    expect(service.error()).toBe('No se pudo declarar la tasa de impuesto');
+  });
+
   it('supersedes through a PUT on the named row, sending only what the server cannot inherit', async () => {
     const written = firstValueFrom(
       service.supersedeTaxRate(COMPANY_ID, 'rate-1', {

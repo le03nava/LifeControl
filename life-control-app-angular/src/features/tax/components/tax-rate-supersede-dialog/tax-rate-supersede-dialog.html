@@ -83,7 +83,9 @@
 </mat-dialog-content>
 
 <mat-dialog-actions align="end">
-  <button mat-stroked-button type="button" (click)="cancel()">Cancelar</button>
+  <button mat-stroked-button type="button" [disabled]="saving()" (click)="cancel()">
+    Cancelar
+  </button>
   <button mat-flat-button color="primary" type="button" [disabled]="saving()" (click)="onSave()">
     Suceder tasa
   </button>
