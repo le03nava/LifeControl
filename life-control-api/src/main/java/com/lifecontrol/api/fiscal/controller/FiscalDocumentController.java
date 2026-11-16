@@ -6,11 +6,16 @@ import static com.lifecontrol.api.common.security.Roles.SALES;
 import com.lifecontrol.api.exception.GlobalExceptionHandler;
 import com.lifecontrol.api.fiscal.dto.FiscalDocumentCancellation;
 import com.lifecontrol.api.fiscal.dto.FiscalDocumentCancellationRequest;
+import com.lifecontrol.api.fiscal.dto.FiscalDocumentIssueRequest;
+import com.lifecontrol.api.fiscal.dto.FiscalDocumentStamp;
 import com.lifecontrol.api.fiscal.exception.FiscalCancellationMotiveUnknownException;
 import com.lifecontrol.api.fiscal.exception.FiscalCancellationNotConfiguredException;
+import com.lifecontrol.api.fiscal.exception.FiscalSealNotConfiguredException;
+import com.lifecontrol.api.fiscal.exception.FiscalStampProviderNotConfiguredException;
 import com.lifecontrol.api.fiscal.model.FiscalCancellationMotive;
 import com.lifecontrol.api.fiscal.service.FiscalDocumentCancellationService;
 import com.lifecontrol.api.fiscal.service.FiscalDocumentReprintService;
+import com.lifecontrol.api.fiscal.service.FiscalDocumentStamper;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
@@ -39,9 +44,9 @@ import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
 /**
- * The fiscal document's two operations: the reprint of one stamped document ({@code S10}) and the cancellation that
- * ends it ({@code S7}), both of {@code odd/tasks/cfdi-fiscal-document.md} and its decisions {@code L15}(a)–(c) and
- * {@code L20}(a)–(g).
+ * The fiscal document's three operations: issuing one from a completed sale ({@code #927}), the reprint of one
+ * stamped document ({@code S10}) and the cancellation that ends it ({@code S7}), both of
+ * {@code odd/tasks/cfdi-fiscal-document.md} and its decisions {@code L15}(a)–(c) and {@code L20}(a)–(g).
  *
  * <p><b>Why the reprint is a read and the cancellation a write, with nothing else beside them.</b> {@code S10} is
  * one rule — the artefact returns the bytes that were stamped — and {@code S7} is one act — a cancellation is a new
@@ -74,11 +79,76 @@ public class FiscalDocumentController {
 
     private final FiscalDocumentReprintService reprintService;
     private final FiscalDocumentCancellationService cancellationService;
+    private final FiscalDocumentStamper stamper;
 
     public FiscalDocumentController(
-            FiscalDocumentReprintService reprintService, FiscalDocumentCancellationService cancellationService) {
+            FiscalDocumentReprintService reprintService,
+            FiscalDocumentCancellationService cancellationService,
+            FiscalDocumentStamper stamper) {
         this.reprintService = reprintService;
         this.cancellationService = cancellationService;
+        this.stamper = stamper;
+    }
+
+    /**
+     * Issues one completed sale's fiscal document: the draft, the seal and the authority's stamp, in one call.
+     *
+     * <p><b>Why this endpoint exists at all, stated as the defect it closes.</b> {@code FiscalDocumentStamper} has
+     * been the only way a document becomes {@code STAMPED} since {@code T6}, and nothing in {@code src/main} called
+     * it: the reprint and the cancellation could both only answer 404 in a deployed system, because no stamped row
+     * could ever exist. A capability whose services exist and whose suites are green is still unreachable until
+     * something calls it — the same lesson {@code L17} recorded for the gateway route and the audit process, one
+     * layer up.</p>
+     *
+     * <p><b>Why the two success statuses differ.</b> A first stamp <b>created</b> a row and is {@code 201 Created}.
+     * A replay under the same attempt key created nothing, called nobody and answered the document that already
+     * existed, which is {@code 200 OK} and not a second creation. The body says which happened
+     * ({@code stampedByThisAttempt}), so a caller never has to infer it from the status — the same pair
+     * {@code FiscalDocumentDraft.written()} and {@code FiscalDocumentCancellation.wrote()} already state one state
+     * earlier.</p>
+     *
+     * <p><b>What the answer carries and why the XML is in it.</b> {@link FiscalDocumentStamp} is the record
+     * {@code T6} designed as "what a stamp attempt answers": the identity, the authority's UUID, when it was
+     * stamped, and the bytes the provider returned. The bytes travel here for the reason that record states — the
+     * attempt already holds the provider's answer at the moment it keeps it — and a caller that wants them
+     * independently of this response still has {@code GET /{id}/xml}, which reads the stored artefact. Neither is a
+     * second source of truth: the table is insert-only, so both return the same bytes.</p>
+     *
+     * @param request the sale to invoice and the attempt key that names the stamp
+     * @return {@code 201} with the document this call stamped, or {@code 200} with the one its attempt already had
+     */
+    @PostMapping
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + SALES + "')")
+    @Operation(
+            summary = "Issue a completed sale's fiscal document",
+            description = "Creates the document from the sale's frozen snapshot, seals it, asks the authority to "
+                    + "stamp it and keeps the XML it returns. The call is idempotent by attempt key: replaying a key "
+                    + "that already stamped answers the same document with 200 and calls nobody, while a first stamp "
+                    + "answers 201. A sale that is not completed, a sale of another company and an absent sale are "
+                    + "each refused by name; a sale that already has a live stamped document under another attempt is "
+                    + "a 409, because the authority cannot hold two UUIDs for one sale and neither would be the "
+                    + "original. An absent or blank attempt key is a 400 naming the field, and a deployment without a "
+                    + "provider or without a sealer is a 503.")
+    @ApiResponses({
+        @ApiResponse(responseCode = "201", description = "This call stamped the document and kept the artefact"),
+        @ApiResponse(
+                responseCode = "200",
+                description = "The attempt already had a stamped document; nobody was called"),
+        @ApiResponse(responseCode = "400", description = "The attempt key is absent or blank"),
+        @ApiResponse(responseCode = "403", description = "The caller holds neither lc-admin nor lc-sales"),
+        @ApiResponse(responseCode = "404", description = "No such sale in this company"),
+        @ApiResponse(
+                responseCode = "409",
+                description = "The sale is not completed, already has a live stamped document under another "
+                        + "attempt, or a profile or tax mapping it needs is incomplete or missing"),
+        @ApiResponse(responseCode = "503", description = "No stamping provider or no sealer is configured")
+    })
+    public ResponseEntity<FiscalDocumentStamp> issue(@Valid @RequestBody FiscalDocumentIssueRequest request) {
+        var stamp = stamper.stamp(request.salesOrderId(), request.attemptKey());
+
+        return stamp.stampedByThisAttempt()
+                ? ResponseEntity.status(HttpStatus.CREATED).body(stamp)
+                : ResponseEntity.ok(stamp);
     }
 
     /**
@@ -187,7 +257,13 @@ public class FiscalDocumentController {
     }
 
     /**
-     * Answers a deployment that cannot cancel with <b>503</b> instead of the 500 the advice's fallback would give.
+     * Answers a deployment that cannot stamp or cancel with <b>503</b> instead of the 500 the advice's fallback
+     * would give.
+     *
+     * <p><b>Why the three refusals share one handler.</b> They are one fact at three capabilities — this deployment
+     * has no provider, no sealer, or no cancellation provider — and all three extend {@link IllegalStateException},
+     * which the shared advice answers with a 500 because "misconfigured" and "broken" are not the same answer to an
+     * operator. Listing them together keeps the 503 in one place instead of three methods that would drift.</p>
      *
      * <p><b>Why the mapping is here and not in {@code GlobalExceptionHandler}.</b> That advice is shared by every
      * controller and belongs to the slice that owns it, and it ends with a handler for {@link Exception} — which
@@ -195,10 +271,13 @@ public class FiscalDocumentController {
      * would map to nothing and answer 500. A handler on this controller is the smallest surface that states this
      * endpoint's one configuration answer, and it serves the tree's own envelope rather than a second shape.</p>
      */
-    @ExceptionHandler(FiscalCancellationNotConfiguredException.class)
-    public ResponseEntity<GlobalExceptionHandler.ErrorResponse> handleNotConfigured(
-            FiscalCancellationNotConfiguredException refusal) {
-        logger.error("Fiscal cancellation refused: this deployment is not configured", refusal);
+    @ExceptionHandler({
+        FiscalStampProviderNotConfiguredException.class,
+        FiscalSealNotConfiguredException.class,
+        FiscalCancellationNotConfiguredException.class
+    })
+    public ResponseEntity<GlobalExceptionHandler.ErrorResponse> handleNotConfigured(RuntimeException refusal) {
+        logger.error("Fiscal capability refused: this deployment is not configured", refusal);
         return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
                 .body(new GlobalExceptionHandler.ErrorResponse(
                         HttpStatus.SERVICE_UNAVAILABLE.value(),
