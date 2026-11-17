@@ -343,6 +343,12 @@ done
 if [ "$WORKFLOW_COUNT" -eq 0 ]; then
 	fail "no *.yml workflow matched $WORKFLOWS, so nothing was checked"
 fi
+# The five known files are the floor, not the ceiling: a sixth workflow is welcome and gets the same
+# three checks, but fewer than five means the glob or the directory moved and the run would report
+# green over a smaller tree.
+if [ "$WORKFLOW_COUNT" -lt 5 ]; then
+	fail "only $WORKFLOW_COUNT workflow(s) were checked, fewer than the five this repository ships: the glob or the directory moved"
+fi
 if [ "$USES_COUNT" -eq 0 ]; then
 	fail "no uses: line matched in $WORKFLOW_COUNT workflow(s), so the pin reader is not reading them"
 fi

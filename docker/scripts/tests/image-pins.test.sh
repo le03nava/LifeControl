@@ -485,6 +485,31 @@ else
 fi
 
 # ------------------------------------------
+# 11. The web app's `:latest` is the one floating tag this stack keeps, and it is only safe because
+#     the image is built from this tree by the `build:` block beside it: a tag with a build context is
+#     a local name, a tag without one is something compose would pull. So the exception is asserted at
+#     the place that claims it instead of being trusted there -- the sentence in docker-compose.yml
+#     said the suite checked this before this section existed, which is the drift a comment makes when
+#     nothing reads it.
+# ------------------------------------------
+for compose in "$DOCKER_DIR"/docker-compose.yml "$DOCKER_DIR"/docker-compose.prod.yml; do
+	[ -f "$compose" ] || continue
+	block="$(service_block "$compose" web-app)"
+	if [ -z "$block" ]; then
+		fail "$(basename "$compose") has no web-app service, so the WEB_APP_IMAGE exception cannot be judged"
+		continue
+	fi
+	case "$block" in
+	*build:*)
+		pass "$(basename "$compose") web-app builds the image it tags (the floating tag is a local name, not a pull)"
+		;;
+	*)
+		fail "$(basename "$compose") web-app tags WEB_APP_IMAGE but declares no build: block, so that tag would be pulled from a registry"
+		;;
+	esac
+done
+
+# ------------------------------------------
 # Summary
 # ------------------------------------------
 echo "------------------------------------------"
