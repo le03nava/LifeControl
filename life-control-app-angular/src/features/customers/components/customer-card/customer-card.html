@@ -1,0 +1,40 @@
+@let c = customer();
+
+<mat-card class="customer-card" appearance="outlined">
+  <mat-card-header>
+    <mat-card-title>
+      <div class="card-title-row">
+        <span>{{ c.name }}</span>
+        <span class="badge status" [class.active]="c.enabled" [class.inactive]="!c.enabled">
+          {{ statusLabel() }}
+        </span>
+      </div>
+    </mat-card-title>
+    @if (c.rfc) {
+      <mat-card-subtitle>
+        <span class="badge rfc-badge">
+          <mat-icon fontIcon="badge" class="badge-icon" /> RFC: {{ c.rfc }}
+        </span>
+      </mat-card-subtitle>
+    }
+  </mat-card-header>
+  <mat-card-content>
+    @if (c.email) {
+      <div class="card-field">
+        <mat-icon fontIcon="mail" class="field-icon" /><span class="field-label">Email:</span
+        ><span class="field-value">{{ c.email }}</span>
+      </div>
+    }
+    @if (c.phone) {
+      <div class="card-field">
+        <mat-icon fontIcon="phone" class="field-icon" /><span class="field-label">Teléfono:</span
+        ><span class="field-value">{{ c.phone }}</span>
+      </div>
+    }
+    <div class="card-field">
+      <mat-icon fontIcon="storefront" class="field-icon" /><span class="field-label"
+        >Canal de venta:</span
+      ><span class="field-value">{{ c.salesChannel }}</span>
+    </div>
+  </mat-card-content>
+</mat-card>
