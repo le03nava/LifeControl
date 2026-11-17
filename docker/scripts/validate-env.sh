@@ -266,25 +266,30 @@ check_smtp_credential() {
 check_fiscal_configuration() {
 	SECRETS_DIR="$DOCKER_DIR/secrets"
 
+	local endpoint usuario
+	endpoint="$(get_env_var FISCAL_SF_ENDPOINT)"
+	usuario="$(get_env_var FISCAL_SF_USUARIO)"
+
+	# The host is judged before the switch is read at all, because the rule is about this environment
+	# file and not about what is switched on today: whoever flips the switch later inherits a file that
+	# was already clean, instead of a green deploy that turns out to be pointed at the sandbox. `dev` is
+	# the first case so an empty or unknown environment falls through to the refusal rather than being
+	# read as dev -- the same fail-closed order keycloak-setup.sh gives SMTP_HOST.
+	case "$ENV:$endpoint" in
+	dev:*) ;;
+	*testing.solucionfactible.com*)
+		print_error "FISCAL_SF_ENDPOINT is the public testing host ($endpoint) in $ENV"
+		print_status "Documents stamped there cannot be invoiced. Set the production endpoint in $ENV_FILE, or leave FISCAL_SF_ENDPOINT empty until this environment invoices"
+		ERRORS=$((ERRORS + 1))
+		;;
+	esac
+
 	if [ "$(get_env_var FISCAL_PROVIDER_ENABLED)" != "true" ]; then
 		print_success "Fiscal provider off: no CSD and no vendor settings are required"
 		return 0
 	fi
 
 	print_status "Checking the fiscal provider (FISCAL_PROVIDER_ENABLED=true)..."
-
-	local endpoint usuario
-	endpoint="$(get_env_var FISCAL_SF_ENDPOINT)"
-	usuario="$(get_env_var FISCAL_SF_USUARIO)"
-
-	case "$ENV:$endpoint" in
-	dev:*) ;;
-	*testing.solucionfactible.com*)
-		print_error "FISCAL_SF_ENDPOINT is the public testing host ($endpoint) in $ENV"
-		print_status "Documents stamped there cannot be invoiced. Set the production endpoint, or set FISCAL_PROVIDER_ENABLED=false in $ENV_FILE"
-		ERRORS=$((ERRORS + 1))
-		;;
-	esac
 
 	if [ -z "$endpoint" ] || [ -z "$usuario" ]; then
 		print_error "FISCAL_SF_ENDPOINT and FISCAL_SF_USUARIO must both be set while the fiscal provider is on"

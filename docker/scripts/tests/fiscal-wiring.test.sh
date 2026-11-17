@@ -398,7 +398,7 @@ DOCKER_DIR="$3"
 ERRORS=0
 OUT=""
 print_error() { OUT="$OUT|error:$1"; }
-print_status() { :; }
+print_status() { OUT="$OUT|status:$1"; }
 print_success() { OUT="$OUT|success:$1"; }
 get_env_var() { sed -n "s/^$1=//p" "$ENV_FILE" | tail -1; }
 HARNESS
@@ -422,6 +422,12 @@ assert_contains "with the provider off the check passes" "$OUT" "ERRORS=0"
 assert_contains "and it says so instead of staying silent about a whole capability" "$OUT" "Fiscal provider off"
 OUT="$(run_fiscal_check prod '')"
 assert_contains "an env file without the key is off as well" "$OUT" "ERRORS=0"
+assert_absent "prod with the provider off and no endpoint is not asked for one" "$OUT" "must both be set"
+# Dev's exemption from the host rule has to survive the reordering below: it belongs to the environment
+# name, not to the switch.
+OUT="$(run_fiscal_check dev 'FISCAL_PROVIDER_ENABLED=false
+FISCAL_SF_ENDPOINT=https://testing.solucionfactible.com/ws/services/Timbrado')"
+assert_contains "dev with the provider off and the testing host still passes with zero errors" "$OUT" "ERRORS=0"
 
 # On, complete, in dev: nothing to refuse.
 printf 'csd\n' >"$VALIDATE_ENV_DIR/secrets/fiscal_csd_certificado"
@@ -439,7 +445,34 @@ FISCAL_SF_USUARIO=someone')"
 assert_contains "the testing host is refused outside dev" "$OUT" "error:FISCAL_SF_ENDPOINT is the public testing host"
 assert_contains "and the refusal counts as a validation error" "$OUT" "ERRORS=1"
 
-# The switch on with the vendor's settings still empty.
+# S5 is written about the environment file, not about one environment: staging is refused too, and so is
+# an environment name that never resolved -- fail closed rather than being read as dev.
+OUT="$(run_fiscal_check staging 'FISCAL_PROVIDER_ENABLED=true
+FISCAL_SF_ENDPOINT=https://testing.solucionfactible.com/ws/services/Timbrado
+FISCAL_SF_USUARIO=someone')"
+assert_contains "staging refuses the testing host as well, not only prod" "$OUT" "error:FISCAL_SF_ENDPOINT is the public testing host"
+assert_contains "and the refusal names the environment it was judged in" "$OUT" "in staging"
+assert_contains "and staging counts it as an error" "$OUT" "ERRORS=1"
+
+OUT="$(run_fiscal_check '' 'FISCAL_PROVIDER_ENABLED=true
+FISCAL_SF_ENDPOINT=https://testing.solucionfactible.com/ws/services/Timbrado
+FISCAL_SF_USUARIO=someone')"
+assert_contains "an environment name that never resolved is refused, not exempted as dev" "$OUT" "error:FISCAL_SF_ENDPOINT is the public testing host"
+assert_contains "and it is counted as an error rather than a report" "$OUT" "ERRORS=1"
+
+# The finding an independent verification left behind, and the reason the host is judged before the switch
+# is read: with the provider off the old early return made a production env file pointing at the sandbox
+# pass, and no stamp could expose it until somebody flipped the switch and inherited the endpoint.
+OUT="$(run_fiscal_check prod 'FISCAL_PROVIDER_ENABLED=false
+FISCAL_SF_ENDPOINT=https://testing.solucionfactible.com/ws/services/Timbrado')"
+assert_contains "prod with the provider off and the testing host is refused: the file is judged, not the switch" "$OUT" "error:FISCAL_SF_ENDPOINT is the public testing host"
+assert_contains "and the switch being off does not exempt the file" "$OUT" "ERRORS=1"
+assert_contains "while the off line still prints, so the report keeps its report-only shape" "$OUT" "Fiscal provider off"
+assert_absent "the refusal no longer offers the switch as a way out, because turning it off is what left the file dirty" "$OUT" "set FISCAL_PROVIDER_ENABLED=false in"
+assert_contains "the remedy is about the endpoint instead" "$OUT" "Set the production endpoint in"
+
+# The switch on with the vendor's settings still empty, which stays this function's business only while
+# the switch is on: both are legitimately empty otherwise.
 OUT="$(run_fiscal_check prod 'FISCAL_PROVIDER_ENABLED=true
 FISCAL_SF_TIMEOUT_SECONDS=30')"
 assert_contains "an enabled provider with no endpoint is refused" "$OUT" "error:FISCAL_SF_ENDPOINT and FISCAL_SF_USUARIO must both be set"
