@@ -25,6 +25,10 @@ import {
 import { ProductVariantSelector } from '../../components/product-variant-selector/product-variant-selector';
 import { SalesOrderChargePanel } from '../../components/sales-order-charge-panel/sales-order-charge-panel';
 import { CustomerSelector } from '../../components/customer-selector/customer-selector';
+import {
+  FISCAL_ISSUABLE_STATUS,
+  FiscalDocumentPanel,
+} from '@features/fiscal/components/fiscal-document-panel/fiscal-document-panel';
 import type {
   SalesOrder,
   SalesOrderRequest,
@@ -58,6 +62,7 @@ import { ErrorBanner } from '@shared/ui';
     ProductVariantSelector,
     SalesOrderChargePanel,
     CustomerSelector,
+    FiscalDocumentPanel,
     MatButtonModule,
     MatIconModule,
     MatTooltipModule,
@@ -179,6 +184,22 @@ export class SalesOrderEdit implements OnInit {
     if (!order) return false;
     return order.statusName === 'Pending';
   });
+
+  /** The sale's status name, or `''` before an order is loaded (create mode). */
+  readonly saleStatus = computed(() => this.loadedOrder()?.statusName ?? '');
+
+  /** The receiver the sale states, or `null` — a counter sale, which the fiscal panel reports as a gap. */
+  readonly saleCustomerId = computed(() => this.loadedOrder()?.customerId ?? null);
+
+  /**
+   * Whether the sale is closed — the one status its fiscal document may be issued for (`S1` of
+   * `odd/tasks/fiscal-document-screens.md`).
+   *
+   * The name comes from the fiscal panel's constant, which reads it from `status-config.ts`: the page states
+   * which sale is chargeable and the panel states which one is invoiceable, so neither keeps a second copy of
+   * the vocabulary.
+   */
+  readonly isCompleted = computed(() => this.saleStatus() === FISCAL_ISSUABLE_STATUS);
 
   // ─── Receiver ──────────────────────────────────────────
   //
