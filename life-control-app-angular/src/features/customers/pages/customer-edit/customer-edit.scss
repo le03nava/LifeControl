@@ -1,0 +1,6 @@
+// customer-edit.scss
+// Page wrapper — ocupa 100% del ancho del flex container (.main-content)
+:host {
+  display: block;
+  width: 100%;
+}

@@ -1,0 +1,11 @@
+@if (generalError(); as errorMessage) {
+  <app-error-banner [message]="errorMessage" />
+}
+
+<app-customer-form
+  [formGroup]="form"
+  [countries]="countries()"
+  [serverErrors]="serverErrors()"
+  (saveCustomer)="onSaveCustomer($event)"
+  (cancelForm)="cancelForm()"
+/>
