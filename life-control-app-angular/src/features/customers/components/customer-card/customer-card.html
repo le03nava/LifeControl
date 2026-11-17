@@ -37,4 +37,9 @@
       ><span class="field-value">{{ c.salesChannel }}</span>
     </div>
   </mat-card-content>
+  <mat-card-actions align="end">
+    <button mat-button type="button" (click)="onEditCustomer($event)">
+      <mat-icon fontIcon="edit" /> Editar
+    </button>
+  </mat-card-actions>
 </mat-card>

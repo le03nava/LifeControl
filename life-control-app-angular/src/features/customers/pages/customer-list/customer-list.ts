@@ -8,6 +8,7 @@ import {
   untracked,
 } from '@angular/core';
 import { rxResource } from '@angular/core/rxjs-interop';
+import { Router, RouterLink } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
@@ -26,14 +27,15 @@ import { Customer, Page } from '../../models/customer.models';
  * Modelled on `companies/pages/company-list/company-list.ts`, which is the closer sibling of the two
  * list precedents (`L3(b)` of `odd/tasks/customers-screen.md` chose cards over a table, once): the same
  * `rxResource` over page/size/search, the same 300ms debounce, the same paginator gated on
- * `totalPages > 1`. What it does **not** carry is the other half of that page: no edit navigation, no
- * delete dialog, no create button, because this unit adds no write path (`S5`) and a control that
- * navigates nowhere is not built.
+ * `totalPages > 1`. What it does **not** carry is the other half of that page: no delete dialog. The edit
+ * navigation and the header's create action are here because the screen they lead to exists
+ * (`odd/tasks/customers-fiscal-form.md`): a control that navigates nowhere is not built.
  */
 @Component({
   selector: 'app-customer-list',
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
+    RouterLink,
     PageHeader,
     CustomerCard,
     MatButtonModule,
@@ -47,6 +49,7 @@ import { Customer, Page } from '../../models/customer.models';
 })
 export class CustomerList {
   private readonly customerService = inject(CustomerService);
+  private readonly router = inject(Router);
 
   // Paginación
   readonly pageSize = signal(12);
@@ -111,6 +114,16 @@ export class CustomerList {
 
   clearSearch(): void {
     this.searchQuery.set('');
+  }
+
+  /**
+   * Opens the row the card names.
+   *
+   * `/customers/edit/:id` is a child of the same gated parent the list hangs from, so the operator's roles
+   * decide both screens with one declaration.
+   */
+  onEditCustomer(id: string): void {
+    this.router.navigate(['/customers/edit', id]);
   }
 
   onPageChange(event: { pageIndex: number; pageSize: number }): void {

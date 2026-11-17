@@ -1,5 +1,5 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { provideRouter } from '@angular/router';
+import { provideRouter, Router } from '@angular/router';
 import { MatIconModule } from '@angular/material/icon';
 import { MatPaginatorModule } from '@angular/material/paginator';
 import { HttpErrorResponse } from '@angular/common/http';
@@ -14,10 +14,11 @@ interface CustomerServiceMock {
 
 /**
  * `T3` of `odd/tasks/customers-screen.md`: the resource call with its page/size/search, the debounce, the
- * paginator gating, and the empty and error states.
+ * paginator gating, and the empty and error states — plus, since `odd/tasks/customers-fiscal-form.md`, the two
+ * actions that now lead somewhere: the card's edit action and the header's create action.
  *
- * The cards carry no action in this unit (`S5`), so nothing here asserts a click: the edit page is the
- * sibling unit's, and a control that navigates nowhere is not built and must not be asserted.
+ * `L2` of that second record named the assertion below as one of the two that had to be **inverted, not
+ * deleted**: this list used to have nowhere to send the operator.
  */
 describe('CustomerList', () => {
   let customerService: CustomerServiceMock;
@@ -174,13 +175,41 @@ describe('CustomerList', () => {
     expect(cards[1].textContent).toContain('MAYOREO');
   });
 
-  it('should render no action on the cards, because the edit page is the sibling unit`s', async () => {
+  it('should render the edit action on every card, and open that row`s edit page', async () => {
     const fixture = await render(pageOf(mockCustomers));
     const el: HTMLElement = fixture.nativeElement;
+    // `L2` de `odd/tasks/customers-fiscal-form.md`: esta aserción decía lo contrario («cards carry no
+    // action») y se **invierte, no se borra** — el botón existe porque la pantalla de edición existe.
+    const navigate = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
 
-    expect(el.querySelectorAll('.card-wrapper')).toHaveLength(2);
-    expect(el.querySelectorAll('.card-wrapper button')).toHaveLength(0);
-    expect(el.querySelectorAll('mat-card-actions')).toHaveLength(0);
+    const actions = el.querySelectorAll('.card-wrapper mat-card-actions button');
+    expect(actions).toHaveLength(2);
+
+    (actions[1] as HTMLButtonElement).click();
+    fixture.detectChanges();
+
+    // La segunda tarjeta, no la primera: la acción lleva el id de su propia fila.
+    expect(navigate).toHaveBeenCalledWith(['/customers/edit', 'c-2']);
+  });
+
+  it('should offer the create action in the page header', async () => {
+    const fixture = await render(pageOf(mockCustomers));
+    const header = (fixture.nativeElement as HTMLElement).querySelector(
+      'app-page-header',
+    ) as HTMLElement;
+
+    const navigateByUrl = vi.spyOn(TestBed.inject(Router), 'navigateByUrl').mockResolvedValue(true);
+
+    const action = header.querySelector('button') as HTMLButtonElement;
+    expect(action).toBeTruthy();
+    expect(action.textContent).toContain('Nuevo cliente');
+
+    action.click();
+    fixture.detectChanges();
+
+    // `RouterLink` hands the router a `UrlTree`, so the destination is read back from it.
+    expect(navigateByUrl).toHaveBeenCalledTimes(1);
+    expect(String(navigateByUrl.mock.calls[0][0])).toBe('/customers/create');
   });
 
   // ─── the three states ───────────────────────────────────────────

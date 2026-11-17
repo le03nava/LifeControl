@@ -18,17 +18,19 @@ import { CLIENT_ID, LC_ADMIN, LC_SALES } from '@core/security/roles';
 export const CUSTOMER_ROLES = [LC_ADMIN, LC_SALES];
 
 /**
- * Lazy routes for the customers feature.
+ * Lazy routes for the customers feature: the list, the create page and the edit page.
  *
- * One screen in this unit: the read-only list (`S5`). The create and edit pages — and with them the
- * receiver's fiscal profile — are the sibling unit (`odd/tasks/customers-fiscal-form.md`), and they hang
- * off this same parent when they land.
+ * One component serves both write modes (`pages/customer-edit`), so the two routes differ only in the
+ * presence of `:id` — which is what the page branches on.
  *
- * The gate sits on the parent **and** on the list child, the way `companies.routes.ts:22-33` declares it:
- * the parent covers everything the subtree grows, and the child states the pair its own screen needs. A
- * screen that hides its menu entry but answers a direct URL is a screen a user cannot use; one that gates
- * the route but shows the entry is one they can see and cannot open. `header.ts` decides visibility with
- * the same two roles, and this file decides access.
+ * The gate sits on the parent **and** on each child, the way `companies.routes.ts:22-33` declares it: the
+ * parent covers everything the subtree grows, and each child states the pair its own screen needs. A screen
+ * that hides its menu entry but answers a direct URL is a screen a user cannot use; one that gates the route
+ * but shows the entry is one they can see and cannot open. `header.ts` decides visibility with the same two
+ * roles, and this file decides access.
+ *
+ * The list's `pathMatch: 'full'` is load-bearing: without it the empty path is a prefix route beside two
+ * siblings, and `create`/`edit/:id` would be matched by it first.
  */
 export const customerRoutes: Routes = [
   {
@@ -37,7 +39,22 @@ export const customerRoutes: Routes = [
     data: { roles: CUSTOMER_ROLES, clientId: CLIENT_ID },
     children: [
       {
+        path: 'create',
+        canActivate: [keycloakRoleGuard],
+        data: { roles: CUSTOMER_ROLES, clientId: CLIENT_ID },
+        loadComponent: () =>
+          import('./pages/customer-edit/customer-edit').then((m) => m.CustomerEdit),
+      },
+      {
+        path: 'edit/:id',
+        canActivate: [keycloakRoleGuard],
+        data: { roles: CUSTOMER_ROLES, clientId: CLIENT_ID },
+        loadComponent: () =>
+          import('./pages/customer-edit/customer-edit').then((m) => m.CustomerEdit),
+      },
+      {
         path: '',
+        pathMatch: 'full',
         canActivate: [keycloakRoleGuard],
         data: { roles: CUSTOMER_ROLES, clientId: CLIENT_ID },
         loadComponent: () =>
