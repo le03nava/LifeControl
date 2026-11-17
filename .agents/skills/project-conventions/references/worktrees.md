@@ -81,6 +81,21 @@ in the anchor — they take what nobody asked them to take.
 `origin/main` is the base for a new unit, not `main`: in a shared clone the local `main` is what another
 session has already moved, and branching from it silently changes the base of the work in flight.
 
+## Sync the branch with `main`
+
+One rule, two moments, and the difference between them is whether the history was published:
+
+| Moment | Command | Why |
+| --- | --- | --- |
+| **Unpublished** — the branch exists only in this clone | `git rebase origin/main` | The commits are still the unit's own, so rewriting them costs nobody. This is the only window in which a rebase is allowed. |
+| **Published** — a pull request exists for it | `git merge origin/main` | Someone has read those commit ids and a rebase rewrites them. **Never a rebase** — the same rule `CONTRIBUTING.md` applies to the branch-protection refusal, stated here because it holds whether or not the provider is watching. |
+
+**The consequence, and why the window closes where it does.** A record's evidence entry names commits, and
+a rewrite *after* that entry is written leaves the record naming commits that are no longer in `main` —
+which still resolve as objects, so they read as evidence and are not. So the entry is written **after the
+last history rewrite**, and nothing rewrites after it. The half of the rule that belongs to the record is
+in `references/feature-records.md`; this is the half that belongs to the branch.
+
 ## What the anchor may run
 
 The anchor runs **reads and fast-forwards**. That is the whole list.

@@ -41,7 +41,7 @@ acceptance criteria are the issue's own words.
 | T1 | S1 | parent | `fix(config): refuse to dismiss a tax-rate dialog while its write is in flight` — `disableClose` flipped around the write in both dialogs, Cancel disabled while `saving()`, the error path restoring dismissal, and one test per dialog |
 | T2 | S2 | parent | `fix(config): the declare dialog will not save before its scope options exist` — a `scopeReady` gate over the cascade, per-country failures named instead of swallowed, a retry that makes the block actionable, and the tests |
 | T3 | S3 | parent | `test(config): pin the declare POST at the service level` — URL, method, exact body with the converted fraction, and the readable error message |
-| T4 | S1–S3 | parent | `22b9531e` — `npm run lint` clean, the focused tax suite 68/68, `test:coverage:check` inside all four thresholds, and the native review of the candidate approved and burned (`L4`) |
+| T4 | S1–S3 | parent | `73be3998` — `npm run lint` clean, the focused tax suite 68/68, `test:coverage:check` inside all four thresholds, and the native review of the candidate approved and burned (`L4`) |
 
 ## Log
 
@@ -75,7 +75,7 @@ measured; `npm run test:coverage:check` → statements 86.96 %, branches 86.53 %
 89.89 %, all four inside their threshold. The native review of the candidate (`review-842c0d700f68c768`, medium
 tier, lenses resilience/readability/reliability, 9 paths including this record) **approved, and its
 acknowledgement burned**: the committed tree `caa56572` is byte-identical to the reviewed candidate tree, so the
-receipt and the commit describe the same bytes. Delivered as **one** commit, `22b9531e`, of 585 authored lines —
+receipt and the commit describe the same bytes. Delivered as **one** commit, `73be3998`, of 585 authored lines —
 past the ~400-line slice budget, and said here rather than split: the three rules are one write path (a
 dismissal that hides a write, a save over a scope the operator never saw, and the assertion for the write
 itself), they were reviewed as one candidate, and splitting them after the receipt would have shipped bytes it
@@ -94,3 +94,13 @@ fails on the previous tree contradicted `L3` and **was corrected in this record*
 edit made after the receipt; `R2-002`, `regionsError` now also carries a country-list failure its name no longer
 describes; `R2-003`, `scopeReady` also gates on the tax-code catalog. The two behaviour findings that also have
 the smallest fix (`R3-002`/`R3-003`) are the ones to pick up first.
+
+**L6 (2026-11-17) — the two citations above were corrected, and the correction is recorded rather than
+hidden.** `T4` and `L4` cited `22b9531e`, the commit as it existed before this branch was rebased twice. It
+still resolves as an object, which is exactly why it read as evidence while naming nothing that is in `main`.
+The commits that are in `main` are `73be3998` (the fix) and `1920276d` (this record), and both citations now
+name the fix one. Nothing else in this record changed: rule 5 of `references/feature-records.md` repairs a
+claim that is false *now* and records the repair, so the paragraph that made it stays the narrative it always
+was. The superseded commit is named here on purpose instead of being dropped — it is the evidence of the
+defect, not the claim. The repair arrived with `.github/scripts/tests/odd-citations.test.sh`, the guard that
+fails on the next citation of a commit that is no longer in `main` (`odd/tasks/odd-citation-provenance.md`).
