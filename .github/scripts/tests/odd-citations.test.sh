@@ -186,7 +186,7 @@ cited_by() {
 audit() {
 	local root="$1" register="$2" git_root="$3"
 	local dir="$root/odd/tasks" file rel sha problems=0 records=0 cited=0 absorbed=0 ancestors=0
-	local entries=0 main_sha ancestry="skipped"
+	local entries=0 unverifiable=0 main_sha ancestry="skipped"
 
 	main_sha="$(origin_main "$git_root")"
 	if [ -n "$main_sha" ]; then
@@ -237,8 +237,17 @@ audit() {
 				problems=$((problems + 1))
 				continue
 			fi
+			if ! git -C "$git_root" cat-file -e "$sha" 2>/dev/null; then
+				# An orphaned commit hangs off no branch, so `git fetch` never brings it: a CI checkout has
+				# main's history and the pull request's, and nothing else. Failing here would make the suite
+				# red on every CI run for a fact about the clone rather than about the records, so the entry
+				# is counted as unverifiable and the count is printed. A typo is still caught where the
+				# objects exist, which is every clone that ever fetched the branch the commit came from.
+				unverifiable=$((unverifiable + 1))
+				continue
+			fi
 			if ! is_commit "$git_root" "$sha"; then
-				printf 'PROBLEM: %s: the frozen list carries %s and it does not resolve as a commit; an entry that stops resolving is a finding, not a pass\n' \
+				printf 'PROBLEM: %s: the frozen list carries %s and it resolves as an object that is not a commit; an entry that stops resolving is a finding, not a pass\n' \
 					"$rel" "'$sha'"
 				problems=$((problems + 1))
 				continue
@@ -255,6 +264,11 @@ audit() {
 	printf 'CITED %d\n' "$cited"
 	printf 'ABSORBED %d\n' "$absorbed"
 	printf 'REGISTER %d\n' "$entries"
+	printf 'UNVERIFIABLE %d\n' "$unverifiable"
+	if [ "$unverifiable" -gt 0 ]; then
+		printf 'NOTE: %d frozen entries could not be checked, because their commits hang off no branch and this clone never fetched them.\n' \
+			"$unverifiable"
+	fi
 	if [ "$ancestry" = ran ]; then
 		printf 'ANCESTORS %d\n' "$ancestors"
 		printf 'ancestry: ran (origin/main @ %s)\n' "$(printf '%s' "$main_sha" | cut -c1-7)"
@@ -361,6 +375,7 @@ REAL_RECORDS="$(printf '%s\n' "$REAL_OUT" | awk '$1 == "READ" { print $2 }')"
 REAL_CITED="$(printf '%s\n' "$REAL_OUT" | awk '$1 == "CITED" { print $2 }')"
 REAL_ABSORBED="$(printf '%s\n' "$REAL_OUT" | awk '$1 == "ABSORBED" { print $2 }')"
 REAL_ANCESTORS="$(printf '%s\n' "$REAL_OUT" | awk '$1 == "ANCESTORS" { print $2 }')"
+REAL_UNVERIFIABLE="$(printf '%s\n' "$REAL_OUT" | awk '$1 == "UNVERIFIABLE" { print $2 }')"
 REAL_ANCESTRY="$(printf '%s\n' "$REAL_OUT" | awk '$1 == "ancestry:" { print $2 }')"
 
 if [ "$REAL_CODE" -eq 0 ]; then
@@ -448,11 +463,22 @@ run_audit_capture "$S7" "$TMP/register-empty" "$S7"
 expect_audit "and the same record passes with no entry at all" "$S7" "$TMP/register-empty" "$S7" pass
 
 echo
-echo "== an entry that stops resolving as a commit fails =="
-printf '0123456789012345678901234567890123456789|odd/tasks/delivered.md\n' >"$TMP/register-unresolvable"
-run_audit_capture "$S7" "$TMP/register-unresolvable" "$S7"
-expect_mentions "an entry that does not resolve as a commit is a finding" "does not resolve as a commit" "$OUT"
-expect_audit "an unresolvable entry fails" "$S7" "$TMP/register-unresolvable" "$S7" fail
+echo "== an entry that resolves as something other than a commit fails =="
+# A real tree object of the fixture repository, not a made-up hex string: a fabricated sha is absent, and an
+# absent object is the unverifiable case, so it would prove the wrong thing.
+printf '%s|odd/tasks/delivered.md\n' "$(git -C "$S7" rev-parse 'HEAD^{tree}')" >"$TMP/register-tree"
+run_audit_capture "$S7" "$TMP/register-tree" "$S7"
+expect_mentions "a tree object registered as a commit is a finding" "resolves as an object that is not a commit" "$OUT"
+expect_audit "an entry that is not a commit fails" "$S7" "$TMP/register-tree" "$S7" fail
+
+echo
+echo "== an entry whose object this clone never fetched is announced, not failed =="
+# The CI shape: an orphaned commit hangs off no branch, so `git fetch` never brings it. The entry cannot be
+# checked there, and saying so is the honest answer -- failing would be a finding about the clone.
+printf '0123456789012345678901234567890123456789|odd/tasks/delivered.md\n' >"$TMP/register-absent"
+run_audit_capture "$S7" "$TMP/register-absent" "$S7"
+expect_mentions "an absent object is counted rather than reported as a defect" "UNVERIFIABLE 1" "$OUT"
+expect_audit "and the run still passes" "$S7" "$TMP/register-absent" "$S7" pass
 
 echo
 echo "== an entry the named record no longer cites fails =="
@@ -507,6 +533,12 @@ expect_audit "and citing it is a failure" "$DIV" "$TMP/register-empty" "$DIV" fa
 
 printf '\nchecked %s record(s), %s citation(s): %s in main, %s absorbed by the frozen list; ancestry: %s\n' \
 	"$REAL_RECORDS" "$REAL_CITED" "$REAL_ANCESTORS" "$REAL_ABSORBED" "$REAL_ANCESTRY"
+# A green run has to say what it did not check. Thirty-three entries are unverifiable in a clone that never
+# fetched the orphaned commits, and printing that only on failure would make the CI run look complete.
+if [ "${REAL_UNVERIFIABLE:-0}" -gt 0 ]; then
+	printf 'NOTE: %s frozen entries were NOT checked: their commits hang off no branch, so this clone never fetched them.\n' \
+		"$REAL_UNVERIFIABLE"
+fi
 printf '%d fixture(s) asserted\n' "$(find "$TMP/fixtures" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')"
 printf '%d passed, %d failed\n' "$PASS_COUNT" "$FAIL_COUNT"
 [ "$FAIL_COUNT" -eq 0 ]

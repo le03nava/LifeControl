@@ -127,8 +127,28 @@ that the rung would have hidden — a local `main` carrying a commit that never 
 still a failure. Fetching `origin/<base>` from the pull request's own base was the same mistake in the
 workflow, so it went as well.
 
+**L7** — CI found the second, deeper surprise, and it is a property of the data rather than a bug: **the 33
+frozen commits do not exist in a CI clone.** An orphaned commit hangs off no branch, so no `git fetch`
+brings it; `actions/checkout` has `main`'s history and the pull request's and nothing else. The audit
+resolved the base correctly (1440 citations, all in `main`) and then failed 33 times with "the frozen list
+carries X and it does not resolve as a commit" — a finding about the clone, not about the records.
+
+So the register's resolvability check is now conditional on the object being there at all: an entry whose
+object is absent is counted as **unverifiable**, an entry that resolves as something other than a commit is
+still a finding, and a green run prints how many entries it could not check. That last part is the point —
+a run that verifies 33 fewer things than the previous one must not look identical. Locally, where the
+objects were fetched when their branches were alive, all 33 are still checked.
+
+What this costs, said plainly: a typo'd entry is no longer caught in CI, only in a clone that has the
+object. What it does not cost: the citation half still does its job in CI, because a commit a record newly
+cites is reachable from the pull request and is caught if it is not in `main`.
+
+Verified in two faithful states: the worktree, where all 33 resolve and the run checks them, and a clone
+holding only `main` and this branch, where the same run prints `NOTE: 33 frozen entries were NOT checked`
+and passes. Both 29 passed, 0 failed.
+
 ## Evidence log
 
 | Date | Evidence |
 | --- | --- |
-| 2026-11-17 | Written and verified on the branch. `bash .github/scripts/tests/odd-citations.test.sh` exits 0 with 25 passed and 0 failed, twice with identical output, and the `checked` line it prints carries totals that move with `main` and are therefore not copied here; on the run that wrote this entry it printed 173 records, 1473 citations, 1440 in `main` and 33 absorbed, and 1440 + 33 = 1473 is the partition the suite asserts. All thirteen sibling suites exit 0, including `odd-status-headers.test.sh` (78 assertions) and `worktree-anchor.test.sh` (38), which read `AGENTS.md`, `feature-records.md` and `worktrees.md` — files this slice edits. `shellcheck --severity=warning` is clean through the pinned image, since the binary is not installed in this clone. The suite is wired by existing: the `guard` job in `.github/workflows/pr-label-guard.yml` runs `.github/scripts/tests/*.test.sh` by glob and keeps no `paths:` filter, so a records-only pull request is audited like any other — and that job now takes `fetch-depth: 0` and fetches the base ref, because without it the ancestry half resolves nothing and the guard verifies no citation at all. Verified in the three states L5 names: with a base, with a freshly fetched base ref, and with none, all three green at 27 passed and 0 failed. |
+| 2026-11-17 | Written and verified on the branch. `bash .github/scripts/tests/odd-citations.test.sh` exits 0 with 25 passed and 0 failed, twice with identical output, and the `checked` line it prints carries totals that move with `main` and are therefore not copied here; on the run that wrote this entry it printed 173 records, 1473 citations, 1440 in `main` and 33 absorbed, and 1440 + 33 = 1473 is the partition the suite asserts. All thirteen sibling suites exit 0, including `odd-status-headers.test.sh` (78 assertions) and `worktree-anchor.test.sh` (38), which read `AGENTS.md`, `feature-records.md` and `worktrees.md` — files this slice edits. `shellcheck --severity=warning` is clean through the pinned image, since the binary is not installed in this clone. The same run against a clone holding only `main` and this branch reports `NOTE: 33 frozen entries were NOT checked` and passes, which is what CI will do. The suite is wired by existing: the `guard` job in `.github/workflows/pr-label-guard.yml` runs `.github/scripts/tests/*.test.sh` by glob and keeps no `paths:` filter, so a records-only pull request is audited like any other — and that job now takes `fetch-depth: 0` and fetches the base ref, because without it the ancestry half resolves nothing and the guard verifies no citation at all. Verified in the three states L5 names: with a base, with a freshly fetched base ref, and with none, all three green at 27 passed and 0 failed. |
