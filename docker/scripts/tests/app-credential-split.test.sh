@@ -209,11 +209,16 @@ assert_contains "the Java launch command is the image's" "$LAST_ENV" "-jar /app/
 # makes therefore has to come from a file read, and the fake values above must appear nowhere in it.
 assert_file_absent "the wrapper carries no secret content" "$ENTRYPOINT" "$OWNER_SECRET"
 assert_file_absent "the wrapper carries no secret content" "$ENTRYPOINT" "$APP_SECRET"
-exported_passwords="$(grep -cE '^export [A-Z_]*PASSWORD=' "$ENTRYPOINT")"
-check_equal "the wrapper exports exactly the two database credentials" "2" "$exported_passwords"
+exported_passwords="$(grep -cE '^[[:space:]]*export [A-Z_]*PASSWORD=' "$ENTRYPOINT")"
+# Four, not two: the database pair this file is about, plus the PAC's password and the CSD key's password,
+# which the fiscal provider's own suite drives (fiscal-wiring.test.sh). The count is asserted here, where
+# the "from a file" loop below lives, so that a fifth credential cannot be added without a reviewer seeing
+# this line change. The leading whitespace is allowed because the fiscal two are exported inside the block
+# that the provider switch gates, and indentation is how that gating stays readable.
+check_equal "the wrapper exports exactly the four credentials, none of them a literal" "4" "$exported_passwords"
 while IFS= read -r export_line; do
 	assert_contains "every credential the wrapper exports is read from a file" "$export_line" '$(cat '
-done < <(grep -E '^export [A-Z_]*PASSWORD=' "$ENTRYPOINT")
+done < <(grep -E '^[[:space:]]*export [A-Z_]*PASSWORD=' "$ENTRYPOINT")
 assert_file_contains "the owner secret path defaults to the mount the compose files declare" \
 	"$ENTRYPOINT" 'LIFECONTROL_OWNER_PASSWORD_FILE:-/run/secrets/lifecontrol_postgres_password'
 assert_file_contains "the app secret path defaults to the mount the compose files declare" \

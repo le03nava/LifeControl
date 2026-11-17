@@ -429,6 +429,13 @@ services:
       # The pool's credential: the only role the application's own connections use.
       - ./secrets/lifecontrol_app_password:/run/secrets/lifecontrol_app_password:ro
       - ./secrets/keycloak_admin_client_secret:/run/secrets/keycloak_admin_client_secret:ro
+      # The fiscal credentials, the same four files the base file mounts: a production install that
+      # invoices is the one that needs them most, and the switch that makes them required is inherited
+      # from the base file's environment block.
+      - ./secrets/fiscal_csd_certificado:/run/secrets/fiscal_csd_certificado:ro
+      - ./secrets/fiscal_csd_llave:/run/secrets/fiscal_csd_llave:ro
+      - ./secrets/fiscal_csd_password:/run/secrets/fiscal_csd_password:ro
+      - ./secrets/fiscal_sf_password:/run/secrets/fiscal_sf_password:ro
     restart: always
 
 # ============================================

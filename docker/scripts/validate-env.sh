@@ -244,6 +244,83 @@ check_smtp_credential() {
 	ERRORS=$((ERRORS + 1))
 }
 
+# The fiscal provider is the second capability whose credentials have no `.template`, and the reason is the
+# same one that makes it worth a gate of its own: the CSD is material that must never be in this
+# repository, so nothing materializes it and its absence is legal until somebody switches the provider on.
+# That makes the requirements conditional rather than structural -- the shape check_smtp_credential() gives
+# SMTP_AUTH, and the switch is off in every environment by default, so an untouched installation must pass
+# this check with a sentence and no refusal.
+#
+# What it refuses, and why each one is worth a refusal rather than a later container failure:
+#   * a switch turned on with a credential missing. The entrypoint wrapper aborts on that too, but its
+#     message is about a file path; this one is about the switch that made the file required.
+#   * a switch turned on while the vendor's endpoint or user is still empty. CsdProperties and
+#     SolucionFactibleProperties fail their own boot there (both are @NotBlank), which is the correct
+#     outcome and the reason neither has a working default: a defaulted endpoint points a production
+#     install at the testing host.
+#   * the vendor's public testing host outside dev -- the fail-closed shape keycloak-setup.sh already
+#     applies to SMTP_HOST and frontendUrl. A document stamped there returns a UUID the SAT never saw, so
+#     a green deploy over it is worse than a refused one.
+# A credential that exists but is empty, still holds CHANGEME or has the wrong mode is already refused by
+# check_secret_files, which walks every entry of the directory; only the absent case is this function's.
+check_fiscal_configuration() {
+	SECRETS_DIR="$DOCKER_DIR/secrets"
+
+	local endpoint usuario endpoint_host
+	endpoint="$(get_env_var FISCAL_SF_ENDPOINT)"
+	usuario="$(get_env_var FISCAL_SF_USUARIO)"
+	# A hostname is case-insensitive, so the verdict is made on a lowered copy: `TESTING.SOLUCIONFACTIBLE.COM`
+	# resolves to the same public sandbox as the lowercase spelling, and a glob that only knows the lowercase
+	# one would call that file clean.
+	endpoint_host="$(printf '%s' "$endpoint" | tr '[:upper:]' '[:lower:]')"
+
+	# The host is judged before the switch is read at all, because the rule is about this environment
+	# file and not about what is switched on today: whoever flips the switch later inherits a file that
+	# was already clean, instead of a green deploy that turns out to be pointed at the sandbox. `dev` is
+	# the first case so an empty or unknown environment falls through to the refusal rather than being
+	# read as dev -- the same fail-closed order keycloak-setup.sh gives SMTP_HOST.
+	case "$ENV:$endpoint_host" in
+	dev:*) ;;
+	*testing.solucionfactible.com*)
+		print_error "FISCAL_SF_ENDPOINT is the public testing host ($endpoint) in $ENV"
+		print_status "Documents stamped there cannot be invoiced. Set the production endpoint in $ENV_FILE, or leave FISCAL_SF_ENDPOINT empty until this environment invoices"
+		ERRORS=$((ERRORS + 1))
+		;;
+	esac
+
+	if [ "$(get_env_var FISCAL_PROVIDER_ENABLED)" != "true" ]; then
+		print_success "Fiscal provider off: no CSD and no vendor settings are required"
+		return 0
+	fi
+
+	print_status "Checking the fiscal provider (FISCAL_PROVIDER_ENABLED=true)..."
+
+	if [ -z "$endpoint" ] || [ -z "$usuario" ]; then
+		print_error "FISCAL_SF_ENDPOINT and FISCAL_SF_USUARIO must both be set while the fiscal provider is on"
+		print_status "Neither has a working default, on purpose. Set them in $ENV_FILE, or set FISCAL_PROVIDER_ENABLED=false there"
+		ERRORS=$((ERRORS + 1))
+	fi
+
+	local credential
+	for credential in fiscal_csd_certificado fiscal_csd_llave fiscal_sf_password; do
+		if [ -f "$SECRETS_DIR/$credential" ] && [ -s "$SECRETS_DIR/$credential" ]; then
+			print_success "$credential set"
+		else
+			print_error "$credential is required because FISCAL_PROVIDER_ENABLED=true, and no .template declares it"
+			print_status "Create it by hand from the issuer's CSD material, or set FISCAL_PROVIDER_ENABLED=false in $ENV_FILE"
+			ERRORS=$((ERRORS + 1))
+		fi
+	done
+
+	# The fourth file is the password that protects the private key, and it is the one that may be absent:
+	# CsdProperties documents that a blank password and an absent one both mean "this key is not protected".
+	# Leaving it out is therefore the honest way to say it, and an empty file is not -- check_secret_files
+	# refuses an empty secret, so the absence is the only shape that says "none" without failing the gate.
+	if [ ! -e "$SECRETS_DIR/fiscal_csd_password" ]; then
+		print_success "fiscal_csd_password absent: the private key is read as unprotected (create it only if the CSD's key has a password)"
+	fi
+}
+
 check_volume_dirs() {
 	print_status "Checking volume directories for $ENV environment..."
 
@@ -280,6 +357,7 @@ main() {
 	check_secret_files
 	check_declared_secrets_materialized
 	check_smtp_credential
+	check_fiscal_configuration
 	check_volume_dirs
 
 	echo ""

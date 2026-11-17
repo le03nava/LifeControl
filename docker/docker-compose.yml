@@ -553,6 +553,19 @@ services:
       # abandoned; it must stay above the worst real tick, or the worker could steal its own
       # live row and execute it twice.
       - WORKER_STALENESS_THRESHOLD_SECONDS=${WORKER_STALENESS_THRESHOLD_SECONDS:-900}
+      # Fiscal provider (CFDI stamping): OFF in every environment by default, like the worker above but
+      # for a plainer reason -- a stamp is irreversible and every stamp is a call to somebody else's
+      # system. Switching it on is a per-environment operator decision made here, without rebuilding an
+      # image. The four credentials it then requires are deliberately NOT in this list: they arrive as
+      # mounted files below and the wrapper exports them (odd/tasks/fiscal-deploy-wiring.md). These five
+      # are the settings that are not secrets, and the vendor's two have no working default in
+      # application.properties -- a defaulted endpoint would point a production install at the testing
+      # host, so an enabled deployment that leaves them empty fails its own boot instead.
+      - FISCAL_PROVIDER_ENABLED=${FISCAL_PROVIDER_ENABLED:-false}
+      - FISCAL_TIMEZONE=${FISCAL_TIMEZONE:-America/Mexico_City}
+      - FISCAL_SF_ENDPOINT=${FISCAL_SF_ENDPOINT:-}
+      - FISCAL_SF_USUARIO=${FISCAL_SF_USUARIO:-}
+      - FISCAL_SF_TIMEOUT_SECONDS=${FISCAL_SF_TIMEOUT_SECONDS:-30}
       - REDIS_HOST=${REDIS_HOST:-redis}
       - REDIS_PORT=${REDIS_INTERNAL_PORT:-6379}
     volumes:
@@ -563,6 +576,15 @@ services:
       - ./secrets/lifecontrol_postgres_password:/run/secrets/lifecontrol_postgres_password:ro
       - ./secrets/lifecontrol_app_password:/run/secrets/lifecontrol_app_password:ro
       - ./secrets/keycloak_admin_client_secret:/run/secrets/keycloak_admin_client_secret:ro
+      # The fiscal credentials, mounted and never valued. No .template declares any of them, exactly like
+      # smtp_password: they are created by hand from material that must not live in this repository, and
+      # the wrapper reads them only while the provider is on, so an installation that does not invoice
+      # requires none of them. Docker leaves an empty directory where a bind source is missing, which is
+      # what the wrapper refuses to read and what validate-env.sh reports.
+      - ./secrets/fiscal_csd_certificado:/run/secrets/fiscal_csd_certificado:ro
+      - ./secrets/fiscal_csd_llave:/run/secrets/fiscal_csd_llave:ro
+      - ./secrets/fiscal_csd_password:/run/secrets/fiscal_csd_password:ro
+      - ./secrets/fiscal_sf_password:/run/secrets/fiscal_sf_password:ro
     networks:
       - default
     depends_on:
