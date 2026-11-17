@@ -191,7 +191,10 @@ function receiverReadOf(customer: Customer): FiscalProfileRead {
   selector: 'app-fiscal-document-panel',
   changeDetection: ChangeDetectionStrategy.OnPush,
   // `MatDialogModule` is here for its provider, not for a directive: `MatDialog` is not `providedIn: 'root'`,
-  // so a panel that opens a dialog has to import the module that provides it.
+  // so a panel that opens a dialog has to import the module that provides it. A consequence worth knowing
+  // before writing a test: an imported module's providers land in this component's own injector, so a
+  // `TestBed`-level `{ provide: MatDialog, useValue }` is shadowed by them — the spec spies on the instance
+  // this component injects instead (`fixture.debugElement.injector.get(MatDialog)`).
   imports: [ErrorBanner, MatButtonModule, MatDialogModule, MatIconModule, MatProgressBarModule],
   templateUrl: './fiscal-document-panel.html',
   styleUrl: './fiscal-document-panel.scss',
