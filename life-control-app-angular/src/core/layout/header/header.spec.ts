@@ -139,7 +139,7 @@ describe('Header', () => {
       expect(companiesItem).toBeDefined();
       expect(companiesItem?.textLink).toBe('Companies');
       expect(items.some((i) => i.routeLink === '/users-admin')).toBe(true);
-      expect(items.length).toBe(10); // Companies + Sales + Products + Stock by store + Purchases + Users Admin + Calendario y citas + Recursos Humanos + Reportes + Configuración
+      expect(items.length).toBe(11); // Companies + Sales + Products + Stock by store + Purchases + Users Admin + Calendario y citas + Recursos Humanos + Reportes + Configuración + Clientes
     });
 
     it('should NOT show Companies menu when user has no company client roles', () => {
@@ -227,7 +227,7 @@ describe('Header', () => {
       expect(component.isCompanyRole()).toBe(true);
       const items = component.items();
       expect(items.some((i) => i.routeLink === '/users-admin')).toBe(true);
-      expect(items.length).toBe(10); // Companies + Sales + Products + Stock by store + Purchases + Users Admin + Calendario y citas + Recursos Humanos + Reportes + Configuración
+      expect(items.length).toBe(11); // Companies + Sales + Products + Stock by store + Purchases + Users Admin + Calendario y citas + Recursos Humanos + Reportes + Configuración + Clientes
     });
 
     it('should NOT show Users Admin for lc-company role', () => {
@@ -504,7 +504,7 @@ describe('Header', () => {
       const items = component.items();
       const salesItem = items.find((i) => i.routeLink === '/sales');
       expect(salesItem).toBeDefined();
-      expect(items.length).toBe(2); // Sales + Stock by store
+      expect(items.length).toBe(3); // Sales + Stock by store + Clientes
     });
 
     it('should NOT show Sales menu when user has no lc-sales role', () => {
@@ -534,7 +534,7 @@ describe('Header', () => {
       const items = component.items();
       const salesItem = items.find((i) => i.routeLink === '/sales');
       expect(salesItem).toBeDefined();
-      expect(items.length).toBe(10); // Companies + Sales + Products + Stock by store + Purchases + Users Admin + Calendario y citas + Recursos Humanos + Reportes + Configuración
+      expect(items.length).toBe(11); // Companies + Sales + Products + Stock by store + Purchases + Users Admin + Calendario y citas + Recursos Humanos + Reportes + Configuración + Clientes
     });
 
     it('should reset isSalesRole on AuthLogout event', () => {
@@ -896,7 +896,19 @@ describe('Header', () => {
       const { component } = setup(['lc-admin']);
       const items = component.items();
 
-      expect(items.map((i) => i.id)).toEqual(['2', '6', '3', '7', '4', '5', '8', '9', '10', '11']);
+      expect(items.map((i) => i.id)).toEqual([
+        '2',
+        '6',
+        '3',
+        '7',
+        '4',
+        '5',
+        '8',
+        '9',
+        '10',
+        '11',
+        '12',
+      ]);
       expect(items.map((i) => i.routeLink)).toEqual([
         '/companies',
         '/sales',
@@ -908,6 +920,7 @@ describe('Header', () => {
         '/hr',
         '/reports',
         '/configuration',
+        '/customers',
       ]);
     });
   });
@@ -938,6 +951,102 @@ describe('Header', () => {
       const link = findNavItem(fixture, 'Configuración')?.querySelector('a');
 
       expect(link?.getAttribute('href')).toBe('/configuration');
+    });
+  });
+
+  // ─── Clientes menu entry (lc-admin / lc-sales, the CustomerController pair) ───
+
+  describe('customers menu entry', () => {
+    it('should offer Clientes to lc-admin, the first of the two roles the customer endpoints name', () => {
+      const { component } = setup(['lc-admin']);
+      const entry = component.items().find((i) => i.routeLink === '/customers');
+
+      expect(entry).toBeDefined();
+      expect(entry?.textLink).toBe('Clientes');
+      // `contacts` is not the icon of any neighbouring entry: `badge` belongs to Recursos
+      // Humanos, `business` to Companies and `storefront` to Stock por tienda.
+      expect(entry?.icon).toBe('contacts');
+    });
+
+    it('should offer Clientes to lc-sales, the other role `@PreAuthorize` admits', () => {
+      // `CustomerController` gates all six methods on `hasAnyRole('lc-admin','lc-sales')`, so a
+      // sales-only user reaches the endpoint and must therefore reach its screen (S3).
+      const { component } = setup(['lc-sales']);
+
+      expect(component.isSalesRole()).toBe(true);
+      expect(component.items().some((i) => i.routeLink === '/customers')).toBe(true);
+    });
+
+    it('should NOT offer Clientes to a company role, which the endpoint refuses', () => {
+      const { component } = setup(['lc-company']);
+
+      expect(component.items().some((i) => i.routeLink === '/customers')).toBe(false);
+    });
+
+    it('should NOT offer Clientes to an unauthenticated user', () => {
+      const { component } = setup([]);
+
+      expect(component.items().some((i) => i.routeLink === '/customers')).toBe(false);
+    });
+
+    it('should render the Clientes label as a link to /customers, with no caret and no panel', () => {
+      const { fixture } = setup(['lc-sales']);
+      const entry = findNavItem(fixture, 'Clientes');
+
+      expect(entry).toBeDefined();
+      expect(entry?.querySelector('a')?.getAttribute('href')).toBe('/customers');
+      expect(entry?.querySelector('.submenu-trigger')).toBeNull();
+      expect(entry?.querySelector('mat-menu')).toBeNull();
+    });
+
+    it('should keep the Sales entry reachable for a sales user, beside Clientes', () => {
+      // PRESERVE: the pair that already shared this gate keeps its entry and its order.
+      const { component } = setup(['lc-sales']);
+      const routes = component.items().map((i) => i.routeLink);
+
+      expect(routes).toContain('/sales');
+      expect(routes).toContain('/customers');
+      expect(routes.indexOf('/sales')).toBeLessThan(routes.indexOf('/customers'));
+    });
+
+    it('should drop Clientes on AuthLogout, like the other role-gated entries', () => {
+      const keycloakEventSignal = signal({
+        type: KeycloakEventType.Ready,
+        token: null,
+      });
+
+      TestBed.configureTestingModule({
+        providers: [
+          provideRouter([]),
+          provideLocationMocks(),
+          provideHttpClient(withXhr()),
+          {
+            provide: Keycloak,
+            useValue: {
+              login: vi.fn(),
+              logout: vi.fn(),
+              accountManagement: vi.fn(),
+              hasRealmRole: vi.fn().mockReturnValue(false),
+              tokenParsed: {
+                resource_access: { 'life-control-client': { roles: ['lc-sales'] } },
+              },
+              authenticated: true,
+            } as Partial<Keycloak>,
+          },
+          { provide: KEYCLOAK_EVENT_SIGNAL, useValue: keycloakEventSignal },
+        ],
+      });
+
+      const fixture = TestBed.createComponent(Header);
+      const component = fixture.componentInstance;
+      fixture.detectChanges();
+
+      expect(component.items().some((i) => i.routeLink === '/customers')).toBe(true);
+
+      keycloakEventSignal.set({ type: KeycloakEventType.AuthLogout, token: null });
+      fixture.detectChanges();
+
+      expect(component.items().some((i) => i.routeLink === '/customers')).toBe(false);
     });
   });
 

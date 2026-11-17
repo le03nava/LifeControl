@@ -208,6 +208,22 @@ export class Header implements OnInit {
       });
     }
 
+    // Clientes es la pantalla del receptor: el listado de lectura sobre `GET /api/customers`, que está
+    // gateado en `hasAnyRole('lc-admin','lc-sales')` en sus seis métodos. Los dos únicos roles que el
+    // endpoint autoriza son los que ofrece la entrada, resueltas con los signals que ya existen
+    // (`isAdmin()` / `isSalesRole()`, el mismo par que usa «Stock por tienda») — no se agrega un signal que
+    // duplique uno. `contacts` no lo usa ningún vecino: `badge` es de Recursos Humanos, `business` de
+    // Companies y `storefront` de Stock por tienda. Se agrega al final para no mover ninguna entrada
+    // existente, con el siguiente id libre después de Configuración.
+    if (this.isAdmin() || this.isSalesRole()) {
+      menuItems.push({
+        id: '12',
+        routeLink: '/customers',
+        textLink: 'Clientes',
+        icon: 'contacts',
+      });
+    }
+
     return menuItems;
   });
 
