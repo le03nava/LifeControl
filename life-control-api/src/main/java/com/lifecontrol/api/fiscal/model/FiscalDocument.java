@@ -439,6 +439,21 @@ public class FiscalDocument {
         return createdAt;
     }
 
+    /**
+     * The authority's motive a cancellation row carries, and {@code null} on every row that is not one.
+     *
+     * <p><b>Why this getter exists and no setter beside it.</b> The write path is
+     * {@link #cancellationOf(FiscalDocument, FiscalCancellationMotive, UUID, String)}, which states the motive when
+     * it builds the row; a setter would be a second way to write a column the schema couples to
+     * {@code status = 'CANCELLED'} and to the pointer it names ({@code ck_fiscal_document_cancellation}). What was
+     * missing was a <b>reader</b>: the sale's read reports the motive of the cancellation that ended its document
+     * ({@code S1} of {@code odd/tasks/fiscal-document-read.md}), and the value as stored is the authority's own code
+     * — the wire vocabulary, which is what a caller quotes back.</p>
+     */
+    public String getCancellationMotive() {
+        return cancellationMotive;
+    }
+
     public void setCompanyId(UUID companyId) {
         this.companyId = companyId;
     }
