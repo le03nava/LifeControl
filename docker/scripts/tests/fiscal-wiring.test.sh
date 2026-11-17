@@ -460,6 +460,18 @@ FISCAL_SF_USUARIO=someone')"
 assert_contains "an environment name that never resolved is refused, not exempted as dev" "$OUT" "error:FISCAL_SF_ENDPOINT is the public testing host"
 assert_contains "and it is counted as an error rather than a report" "$OUT" "ERRORS=1"
 
+# The native review's finding: a hostname is case-insensitive, so the refusal cannot be a lowercase glob.
+# The mixed-case spelling resolves to the same public sandbox, and a file that names it that way is the
+# same mistake as the lowercase one.
+OUT="$(run_fiscal_check prod 'FISCAL_PROVIDER_ENABLED=true
+FISCAL_SF_ENDPOINT=https://TESTING.SOLUCIONFACTIBLE.COM/ws/services/Timbrado
+FISCAL_SF_USUARIO=someone')"
+assert_contains "the testing host is refused whatever its case" "$OUT" "error:FISCAL_SF_ENDPOINT is the public testing host"
+OUT="$(run_fiscal_check dev 'FISCAL_PROVIDER_ENABLED=true
+FISCAL_SF_ENDPOINT=https://TESTING.SOLUCIONFACTIBLE.COM/ws/services/Timbrado
+FISCAL_SF_USUARIO=someone')"
+assert_contains "and dev is still exempt, whatever the case" "$OUT" "ERRORS=0"
+
 # The finding an independent verification left behind, and the reason the host is judged before the switch
 # is read: with the provider off the old early return made a production env file pointing at the sandbox
 # pass, and no stamp could expose it until somebody flipped the switch and inherited the endpoint.

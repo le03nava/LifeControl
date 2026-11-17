@@ -266,16 +266,20 @@ check_smtp_credential() {
 check_fiscal_configuration() {
 	SECRETS_DIR="$DOCKER_DIR/secrets"
 
-	local endpoint usuario
+	local endpoint usuario endpoint_host
 	endpoint="$(get_env_var FISCAL_SF_ENDPOINT)"
 	usuario="$(get_env_var FISCAL_SF_USUARIO)"
+	# A hostname is case-insensitive, so the verdict is made on a lowered copy: `TESTING.SOLUCIONFACTIBLE.COM`
+	# resolves to the same public sandbox as the lowercase spelling, and a glob that only knows the lowercase
+	# one would call that file clean.
+	endpoint_host="$(printf '%s' "$endpoint" | tr '[:upper:]' '[:lower:]')"
 
 	# The host is judged before the switch is read at all, because the rule is about this environment
 	# file and not about what is switched on today: whoever flips the switch later inherits a file that
 	# was already clean, instead of a green deploy that turns out to be pointed at the sandbox. `dev` is
 	# the first case so an empty or unknown environment falls through to the refusal rather than being
 	# read as dev -- the same fail-closed order keycloak-setup.sh gives SMTP_HOST.
-	case "$ENV:$endpoint" in
+	case "$ENV:$endpoint_host" in
 	dev:*) ;;
 	*testing.solucionfactible.com*)
 		print_error "FISCAL_SF_ENDPOINT is the public testing host ($endpoint) in $ENV"
