@@ -2,7 +2,7 @@ import { TestBed } from '@angular/core/testing';
 import { HttpClientTestingModule, HttpTestingController } from '@angular/common/http/testing';
 import { firstValueFrom } from 'rxjs';
 import { CustomerService } from './customer.service';
-import { Customer, Page } from '../models/customer.models';
+import { Customer, CustomerRequest, Page } from '../models/customer.models';
 
 /**
  * The list reads one endpoint and nothing else (`S5`), so this spec pins the two halves of that read:
@@ -137,6 +137,79 @@ describe('CustomerService', () => {
       const page = await pagePromise;
       expect(page.number).toBe(2);
       expect(page.size).toBe(24);
+    });
+  });
+
+  // ─── the write half (`T2` of `odd/tasks/customers-fiscal-form.md`) ──────────
+
+  describe('getCustomerById', () => {
+    it('should read one customer by id, fiscal profile included', async () => {
+      const promise = firstValueFrom(service.getCustomerById('c-1'));
+
+      const req = httpMock.expectOne(`${service.apiUrl}/c-1`);
+      expect(req.request.method).toBe('GET');
+      req.flush(mockCustomer);
+
+      expect(await promise).toEqual(mockCustomer);
+    });
+  });
+
+  describe('createCustomer', () => {
+    it('should POST the request body to the collection and hand back the created row', async () => {
+      const request: CustomerRequest = {
+        name: 'Cliente Dos',
+        email: 'dos@test.com',
+        phone: null,
+        rfc: null,
+        salesChannel: 'TODOS',
+        enabled: true,
+        legalName: null,
+        regimenFiscal: null,
+        fiscalStreet: null,
+        fiscalZipCode: null,
+        fiscalState: null,
+        fiscalCountryId: null,
+        defaultUsoCfdi: null,
+      };
+      const promise = firstValueFrom(service.createCustomer(request));
+
+      const req = httpMock.expectOne(service.apiUrl);
+      expect(req.request.method).toBe('POST');
+      // The body is the request DTO verbatim: no `id`, no `createdAt`, no `updatedAt`. A spread of the
+      // response model would put all three on the wire, and the API refuses an undeclared key before it
+      // validates any field.
+      expect(req.request.body).toStrictEqual(request);
+      req.flush({ ...mockCustomer, name: 'Cliente Dos' });
+
+      expect((await promise).name).toBe('Cliente Dos');
+    });
+  });
+
+  describe('updateCustomer', () => {
+    it('should PUT the request body to the addressed row', async () => {
+      const request: CustomerRequest = {
+        name: 'Cliente Uno',
+        email: 'uno@test.com',
+        phone: '5551234567',
+        rfc: 'RFC010101AB1',
+        salesChannel: 'TODOS',
+        enabled: true,
+        legalName: 'Cliente Uno SA de CV',
+        regimenFiscal: '601',
+        fiscalStreet: 'Av. Reforma 100',
+        fiscalZipCode: '06600',
+        fiscalState: 'Ciudad de México',
+        fiscalCountryId: 'country-1',
+        defaultUsoCfdi: 'G03',
+      };
+      const promise = firstValueFrom(service.updateCustomer('c-1', request));
+
+      const req = httpMock.expectOne(`${service.apiUrl}/c-1`);
+      expect(req.request.method).toBe('PUT');
+      expect(req.request.body).toStrictEqual(request);
+      req.flush(mockCustomer);
+
+      expect(await promise).toEqual(mockCustomer);
     });
   });
 });
