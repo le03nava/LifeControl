@@ -67,6 +67,16 @@ Quoted verbatim from issue #945's acceptance criteria.
 - **Only backticked tokens are read**, the scoping D3 of `odd-status-headers-guard.md` measured with its
   own fixtures: the directory legitimately backticks patch-ids and tree objects that no repository can
   resolve as commits.
+- **The workflow is edited, against this issue's own criterion — and that criterion was wrong.** It said
+  the suite is picked up by the glob "with no workflow edit", inherited from S4 of #937. The *wiring* needs
+  none: the `guard` job already runs `.github/scripts/tests/*.test.sh`. The **ancestry** does: the job's
+  checkout is shallow and materialises the pull request's ref, never the base branch, so every citation
+  was unresolvable in CI and the run announced a skip while reporting green — a guard that verified
+  nothing, which is the exact failure this unit exists to remove. Discovered by the pull request's own
+  check failing, not by reading. The job now takes `fetch-depth: 0` and fetches the base ref explicitly.
+- **A skip is announced, never fatal.** The sibling suite states that rule and this one follows it: with no
+  base resolvable the run says so on stdout and does not fail, because a suite that goes red on a state it
+  cannot control gets switched off, while one that turns it into a silent pass verifies nothing.
 - **The ancestry resolution is copied, not shared.** `odd-status-headers.test.sh` keeps its own inline
   resolution untouched, because widening that suite is its own non-goal. The copy is 22 lines and this
   suite asserts its own skip-and-announce behaviour, so a divergence is a red run here.
@@ -97,8 +107,28 @@ would validate it was rejected as missing or stale by `gentle_review_capture` on
 with the branch base exactly equal to `origin/main` at the time of each attempt. That is a tooling
 defect, and it is what S9 asks to be reported instead of papered over with an unreviewed delivery.
 
+**L5** — the CI defect, found by the pull request rather than by reasoning, and what it cost. The first run
+of the check failed with `checked 174 record(s), 0 citation(s) ... ancestry: skipped` and
+`24 passed, 1 failed`: `actions/checkout` is shallow and checks out the pull request's ref, so
+`refs/remotes/origin/main` never exists and the audit had nothing to resolve against. One earlier review
+lineage had flagged the same shape as a non-blocking finding and it was not acted on; that miss is why the
+suite shipped with an assertion that made a state the repository documents as normal into a failure. The
+fix is three things and only together: the skip stopped being fatal, the partition assertion stopped being
+evaluated with no base to partition against, and the job now fetches the base it needs. Verified in three
+states — a worktree with `origin/main`, a clone that has just fetched the base ref the way the job does,
+and a clone with no base at all — all three green, which is the point: the first two verify, the third
+announces and does not lie.
+
+**L6** — the review of that fix found the fix half wrong, and it was right. Making the audit resolve a
+local `refs/heads/main` let an unpushed local commit count as an ancestor, and the rule is ancestry of
+`origin/main`, not of whatever this clone has checked out. The rung is gone: the audit resolves
+`origin/main` and nothing else, the workflow fetches exactly that ref, and a fixture now proves the shape
+that the rung would have hidden — a local `main` carrying a commit that never reached `origin/main` is
+still a failure. Fetching `origin/<base>` from the pull request's own base was the same mistake in the
+workflow, so it went as well.
+
 ## Evidence log
 
 | Date | Evidence |
 | --- | --- |
-| 2026-11-17 | Written and verified on the branch. `bash .github/scripts/tests/odd-citations.test.sh` exits 0 with 25 passed and 0 failed, twice with identical output, and the `checked` line it prints carries totals that move with `main` and are therefore not copied here; on the run that wrote this entry it printed 173 records, 1473 citations, 1440 in `main` and 33 absorbed, and 1440 + 33 = 1473 is the partition the suite asserts. All thirteen sibling suites exit 0, including `odd-status-headers.test.sh` (78 assertions) and `worktree-anchor.test.sh` (38), which read `AGENTS.md`, `feature-records.md` and `worktrees.md` — files this slice edits. `shellcheck --severity=warning` is clean through the pinned image, since the binary is not installed in this clone. The suite is wired by existing: the `guard` job in `.github/workflows/pr-label-guard.yml` runs `.github/scripts/tests/*.test.sh` by glob and keeps no `paths:` filter, so a records-only pull request is audited like any other. |
+| 2026-11-17 | Written and verified on the branch. `bash .github/scripts/tests/odd-citations.test.sh` exits 0 with 25 passed and 0 failed, twice with identical output, and the `checked` line it prints carries totals that move with `main` and are therefore not copied here; on the run that wrote this entry it printed 173 records, 1473 citations, 1440 in `main` and 33 absorbed, and 1440 + 33 = 1473 is the partition the suite asserts. All thirteen sibling suites exit 0, including `odd-status-headers.test.sh` (78 assertions) and `worktree-anchor.test.sh` (38), which read `AGENTS.md`, `feature-records.md` and `worktrees.md` — files this slice edits. `shellcheck --severity=warning` is clean through the pinned image, since the binary is not installed in this clone. The suite is wired by existing: the `guard` job in `.github/workflows/pr-label-guard.yml` runs `.github/scripts/tests/*.test.sh` by glob and keeps no `paths:` filter, so a records-only pull request is audited like any other — and that job now takes `fetch-depth: 0` and fetches the base ref, because without it the ancestry half resolves nothing and the guard verifies no citation at all. Verified in the three states L5 names: with a base, with a freshly fetched base ref, and with none, all three green at 27 passed and 0 failed. |

@@ -126,7 +126,13 @@ EOF
 }
 
 # origin_main <git-root>
-# Prints the resolved `origin/main` commit, or nothing when the ref does not exist.
+# Prints the commit the citations have to be in, or nothing when it cannot be resolved.
+#
+# ONE rung, and it is `refs/remotes/origin/main` only. A local `refs/heads/main` was tried and removed: it
+# let an unpushed local commit count as an ancestor, and the rule the suite enforces is ancestry of
+# `origin/main`, not of whatever this clone happens to have checked out. When the ref does not resolve the
+# audit says so out loud instead of reporting a green it did not earn, and the workflow is what guarantees
+# it resolves in CI -- by fetching that exact ref before the suites run.
 origin_main() {
 	git -C "$1" rev-parse --verify --quiet refs/remotes/origin/main 2>/dev/null
 }
@@ -371,15 +377,23 @@ else
 	fail "the audit read $REAL_RECORDS of $EXPECTED_RECORDS record(s)"
 fi
 
+# A skip is announced, never fatal. This is the sibling suite's rule and the reason the workflow now asks
+# for full history: with a shallow checkout nothing resolves, and a suite that turns that into a red run
+# gets switched off, while a suite that turns it into a silent pass verifies nothing.
 if [ "$REAL_ANCESTRY" = ran ]; then
-	pass "the ancestry half ran against this clone's origin/main"
+	pass "the ancestry half ran, so every citation was resolved against a base"
 else
-	fail "the ancestry half was skipped: origin/main does not resolve in $ROOT"
+	pass "the ancestry half announced a skip instead of claiming a green it did not earn"
+	printf 'NOTE: no base resolved, so this run verified no citation at all. A shallow checkout cannot verify anything.\n'
 fi
 
 # Derived from the run, never pinned: the three numbers partition the citations, whatever they are
 # today, so this holds as the list shrinks and as `main` adopts commits that were once orphans.
-if [ $((REAL_ABSORBED + REAL_ANCESTORS)) -eq "$REAL_CITED" ]; then
+# The partition only means something when a base resolved: with a skip there is no ancestor count to add,
+# and asserting arithmetic over missing terms would fail on a state the suite just announced as legal.
+if [ "$REAL_ANCESTRY" != ran ]; then
+	pass "the partition is not asserted, because no base resolved to partition against"
+elif [ $((REAL_ABSORBED + REAL_ANCESTORS)) -eq "$REAL_CITED" ]; then
 	pass "every citation is either in main ($REAL_ANCESTORS) or absorbed by the list ($REAL_ABSORBED)"
 else
 	fail "the counts do not partition: $REAL_ABSORBED absorbed + $REAL_ANCESTORS ancestors != $REAL_CITED cited"
@@ -462,15 +476,34 @@ mkdir -p "$NODIR"
 expect_audit "a tree with no record directory fails" "$NODIR" "$TMP/register-empty" "$NODIR" fail
 
 echo
-echo "== without origin/main the ancestry half announces the skip instead of passing silently =="
+ echo "== without origin/main the ancestry half announces the skip instead of passing silently =="
 NOORIGIN="$TMP/fixtures/no-origin"
 mkdir -p "$NOORIGIN/odd/tasks"
-git -C "$NOORIGIN" init -q -b main
+# Not `main`, and not a merge commit: this fixture has to defeat every rung of the resolution order,
+# which is exactly the state a shallow or unusual checkout is in.
+git -C "$NOORIGIN" init -q -b trunk
 git -C "$NOORIGIN" -c user.email=fixture@example.invalid -c user.name=fixture commit -q --allow-empty -m 'no remote here'
 printf '**Status**: implemented — a fixture citing `%s`.\n' "$(git -C "$NOORIGIN" rev-parse HEAD)" >"$NOORIGIN/odd/tasks/citing.md"
 run_audit_capture "$NOORIGIN" "$TMP/register-empty" "$NOORIGIN"
 expect_audit "a tree whose origin/main does not resolve still passes its own cases" "$NOORIGIN" "$TMP/register-empty" "$NOORIGIN" pass
 expect_mentions "and says so on stdout rather than reporting a green ancestry check" "ancestry: skipped" "$OUT"
+
+echo
+echo "== a local branch that diverged from origin/main is not the authority =="
+# The rung that was tried and removed. A commit on a local `main` and not on `origin/main` is exactly a
+# citation the rule forbids, so an audit that accepted the local branch would be green on it.
+DIV="$TMP/fixtures/diverged"
+mkdir -p "$DIV/odd/tasks"
+git -C "$DIV" init -q -b main
+git -C "$DIV" -c user.email=fixture@example.invalid -c user.name=fixture \
+	commit -q --allow-empty -m 'the delivered base'
+git -C "$DIV" update-ref refs/remotes/origin/main "$(git -C "$DIV" rev-parse HEAD)"
+git -C "$DIV" -c user.email=fixture@example.invalid -c user.name=fixture \
+	commit -q --allow-empty -m 'a local commit that never reached origin/main'
+printf '**Status**: implemented — a fixture citing `%s`.\n' "$(git -C "$DIV" rev-parse HEAD)" >"$DIV/odd/tasks/local.md"
+run_audit_capture "$DIV" "$TMP/register-empty" "$DIV"
+expect_mentions "a local commit outside origin/main is not treated as an ancestor" "local.md" "$OUT"
+expect_audit "and citing it is a failure" "$DIV" "$TMP/register-empty" "$DIV" fail
 
 printf '\nchecked %s record(s), %s citation(s): %s in main, %s absorbed by the frozen list; ancestry: %s\n' \
 	"$REAL_RECORDS" "$REAL_CITED" "$REAL_ANCESTORS" "$REAL_ABSORBED" "$REAL_ANCESTRY"
