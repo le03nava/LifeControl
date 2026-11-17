@@ -45,7 +45,7 @@ Non-goals, also the issue's own words:
 | ID | Specs | Route | Commit |
 | --- | --- | --- | --- |
 | T0 | the dependency | external — issue **#947** | its own branch, `feat/fiscal-document-read` |
-| T1 | S1-S6 (the contract) | inline | `feat(fiscal): model and serve the fiscal document's three endpoints` — **done, uncommitted on the branch**: the motive vocabulary, the models and one root service over the four endpoints, with their two specs. Evidence in `L11` |
+| T1 | S1-S6 (the contract) | inline | `feat(fiscal): model and serve the fiscal document's three endpoints` — **done**: the motive vocabulary, the models and one root service over the four endpoints, with their two specs. Evidence in `L11` |
 | T2 | S1, S2 | inline | `feat(fiscal): issue a completed sale's document, attempt key and all` |
 | T3 | S3 | inline | `feat(fiscal): download the stamped XML as the API serves it` |
 | T4 | S4, S5, S6 | inline | `feat(fiscal): cancel with a motive, and say submitted is not cancelled` |
