@@ -112,6 +112,71 @@ gh api repos/{owner}/{repo} --jq .delete_branch_on_merge
 The variant that removes the failure mode entirely: merge every PR in the chain without deleting
 branches, then delete them once the chain is complete.
 
+## History inside a chain
+
+A chain rewrites history at the one moment a single branch never does: while other pull requests are
+based on it. The rule that decides every case here is already written once, in
+`references/worktrees.md` (*Sync the branch with `main`*): a branch is rewritten only while it is
+**unpublished**. What a chain adds is not a second rule but a second ref — *unpublished* then has to be
+true of every branch the operation would move, not only of the one that is checked out. This section is
+that application, and it restates nothing else.
+
+### Rewriting a parent
+
+Rebasing the parent of a chain obliges rebasing every child onto the new parent tip. The named mechanism
+is `git rebase --update-refs <new-base>`, **and it is legal only while every branch it would move is
+unpublished.** The command moves any ref whose commits fall inside the rewritten range, silently and
+without asking, and it moves the **local** ref only: nothing is pushed for you. A published descendant
+inside that range is therefore a rewrite of published history, which the rule above forbids outright, and
+it changes the diff under reviewers who already approved it. Measured available here: `git version
+2.51.0` (`--[no-]update-refs` since 2.38).
+
+When any descendant is published, the parent **is not rebased**: the chain goes by merge. Turning the
+behaviour on by default (`rebase.updateRefs`) is machine configuration, not repository policy, and the
+precondition above — not the default — is what makes the command safe.
+
+### Bringing a child up to date
+
+A child of a chain has two bases and one rule, and the rule is `references/worktrees.md`'s: against
+`main`, a child is brought up to date exactly as any other branch is, which is why this file does not
+repeat the mapping between published and unpublished — it reads it there.
+
+Against its **parent** the child uses the sequence `## Order of operations` already prescribes, and no
+other: the parent is merged **without deleting its branch**, then the child is retargeted to `main`
+(`gh pr edit <child> --base main`), and only then merged. Rebasing a child is a pre-publication move only,
+for the same reason as above: a published child's commit ids are what a reviewer read, and a rewrite
+changes the diff it approved.
+
+### Where the chain's evidence is committed
+
+The record's evidence entry has two requirements in a chain, and satisfying one does not satisfy the
+other:
+
+| Requirement | Value | Consequence when it is missed |
+| --- | --- | --- |
+| **Carrier** | the chain's trailing tracker pull request — the last of the chain to land, and the one carrying no code of its own | the entry rides a code slice that a later rebase rewrites, so the record cites commits that left the chain |
+| **Timing** | committed **after the penultimate pull request merged** | a record written while earlier slices were still open does not know their merge commits, so it describes a state of `main` that never existed |
+
+The two are independent: the tracker branch may be opened on an empty commit **before the first slice
+lands**, so its pull request exists early and still carries no code — what it cannot do is carry the entry
+before the chain's last rewrite. Both shapes are measured in this repository rather than asserted:
+`odd/tasks/employee-access-provisioning.md:697` (the record landed as PR #307, after slice S7),
+`odd/tasks/hr-org-structure.md:391` (tracker #318, after eight code slices) and
+`odd/tasks/angular-22-upgrade.md:220` (the tracker branch opened on the empty commit `e0571d5`).
+
+Because nothing follows the tracker, its commits are final when it lands. That is what makes the rule of
+`references/worktrees.md` stateable for a whole chain: the evidence entry is written after the **last**
+history rewrite of the chain, and nothing rewrites after it.
+
+### What is not a gate
+
+No suite is added here. The evidence half is already enforced by
+`.github/scripts/tests/odd-citations.test.sh`: it reads every record in `odd/tasks/` and fails a citation
+that does not resolve as an ancestor of `origin/main`, so a record citing a parent commit rebased
+afterwards fails CI without this section contributing anything. The history half — the unpublished
+precondition — is a **review-time convention**, the same class as the one-worktree-one-unit rule, and the
+gap it leaves is stated in `## Gaps`.
+
 ## Anti-patterns
 
 | Anti-pattern | Consequence |
@@ -121,6 +186,8 @@ branches, then delete them once the chain is complete.
 | Enabling automatic head-branch deletion during a chain | The deletion fires without the guard being consulted |
 | Deleting a base branch by hand | Identical outcome to the command-line merge path |
 | Merging a chain out of order | Each child's diff keeps carrying its parent's work, so the reviewer reads more than the slice |
+| Rebasing a parent while a descendant is published | `--update-refs` moves that ref silently, so the branch is rewritten under reviewers who already approved it and the unpublished window was never open for it |
+| Writing the record's evidence entry into a mid-chain slice | The entry cites merge commits the later slices do not have yet, and any rebase of that slice orphans the citation — the failure `odd/tasks/tax-rate-write-honesty.md` already froze once |
 
 ## Gaps
 
@@ -130,3 +197,7 @@ branches, then delete them once the chain is complete.
   it with the command above.
 - Whether the provider retargets dependents on branch deletion is provider behavior, not repository
   policy, so it can change without a commit here.
+- Nothing detects that a child is based on a **stale parent tip**. `gh pr list --state open --base
+  <branch>` reads dependents, not whether a child's base still contains the parent's commits, and there
+  is no local record of the tip a child was cut at. So a parent rebased while a descendant was published
+  is caught by a reviewer reading commit ids, not by a gate; stated as a limit, never as covered.

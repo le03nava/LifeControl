@@ -96,6 +96,12 @@ which still resolve as objects, so they read as evidence and are not. So the ent
 last history rewrite**, and nothing rewrites after it. The half of the rule that belongs to the record is
 in `references/feature-records.md`; this is the half that belongs to the branch.
 
+**When the branch is one of a chain.** A chain adds a second ref and a second pull request, not a second
+rule, so the line above still declares it: what changes is who it applies to. Its application — which refs
+must be unpublished for a rewrite, how a child is brought up to date with its parent, and which pull
+request carries the record's evidence — is in `references/pr-chains.md` (*History inside a chain*). This
+file stays the only place the sync rule is stated.
+
 ## What the anchor may run
 
 The anchor runs **reads and fast-forwards**. That is the whole list.
