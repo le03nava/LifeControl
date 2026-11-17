@@ -7,6 +7,7 @@ import com.lifecontrol.api.exception.GlobalExceptionHandler;
 import com.lifecontrol.api.fiscal.dto.FiscalDocumentCancellation;
 import com.lifecontrol.api.fiscal.dto.FiscalDocumentCancellationRequest;
 import com.lifecontrol.api.fiscal.dto.FiscalDocumentIssueRequest;
+import com.lifecontrol.api.fiscal.dto.FiscalDocumentRead;
 import com.lifecontrol.api.fiscal.dto.FiscalDocumentStamp;
 import com.lifecontrol.api.fiscal.exception.FiscalCancellationMotiveUnknownException;
 import com.lifecontrol.api.fiscal.exception.FiscalCancellationNotConfiguredException;
@@ -14,6 +15,7 @@ import com.lifecontrol.api.fiscal.exception.FiscalSealNotConfiguredException;
 import com.lifecontrol.api.fiscal.exception.FiscalStampProviderNotConfiguredException;
 import com.lifecontrol.api.fiscal.model.FiscalCancellationMotive;
 import com.lifecontrol.api.fiscal.service.FiscalDocumentCancellationService;
+import com.lifecontrol.api.fiscal.service.FiscalDocumentReadService;
 import com.lifecontrol.api.fiscal.service.FiscalDocumentReprintService;
 import com.lifecontrol.api.fiscal.service.FiscalDocumentStamper;
 import io.swagger.v3.oas.annotations.Operation;
@@ -44,15 +46,18 @@ import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
 /**
- * The fiscal document's three operations: issuing one from a completed sale ({@code #927}), the reprint of one
- * stamped document ({@code S10}) and the cancellation that ends it ({@code S7}), both of
- * {@code odd/tasks/cfdi-fiscal-document.md} and its decisions {@code L15}(a)–(c) and {@code L20}(a)–(g).
+ * The fiscal document's four operations: issuing one from a completed sale ({@code #927}), reading the one a sale
+ * produced ({@code #947}), the reprint of one stamped document ({@code S10}) and the cancellation that ends it
+ * ({@code S7}), the last two of {@code odd/tasks/cfdi-fiscal-document.md} and its decisions {@code L15}(a)–(c) and
+ * {@code L20}(a)–(g).
  *
- * <p><b>Why the reprint is a read and the cancellation a write, with nothing else beside them.</b> {@code S10} is
- * one rule — the artefact returns the bytes that were stamped — and {@code S7} is one act — a cancellation is a new
- * row naming the cancelled document and its motive. There is deliberately no list, no detail view and no re-issue
- * here: those are screens and slices of their own, and a read that built a document instead of returning it would be
- * the failure {@code L15}(a) names.</p>
+ * <p><b>Why two reads and a write, with nothing else beside them.</b> {@code S10} is one rule — the artefact returns
+ * the bytes that were stamped — and {@code S7} is one act — a cancellation is a new row naming the cancelled
+ * document and its motive. The read by sale is what makes both reachable: a document's id was answered only to the
+ * caller who issued it, so a caller who never issued it could name neither the reprint nor the cancellation
+ * ({@code odd/tasks/fiscal-document-read.md}). What that adds is exactly one read by sale, and there is still no list
+ * across sales, no substitution, no re-issue and no drafting surface here: those are screens and slices of their own,
+ * and a read that built a document instead of returning it would be the failure {@code L15}(a) names.</p>
  *
  * <p><b>Why the paths name no company.</b> The document's id is its identity, so the resource is addressed the way
  * {@code /api/customers} is: {@code TenantScopeFilter} states the caller's single {@code company_id} claim as the
@@ -72,21 +77,25 @@ import org.springframework.web.context.request.ServletRequestAttributes;
 @RequestMapping("/api/fiscal-documents")
 @Tag(
         name = "Fiscal Documents",
-        description = "The stamped fiscal documents of a sale: their XML, byte for byte, and " + "their cancellation")
+        description = "The stamped fiscal documents of a sale: the one a sale produced, their XML, byte for byte, "
+                + "and their cancellation")
 public class FiscalDocumentController {
 
     private static final Logger logger = LoggerFactory.getLogger(FiscalDocumentController.class);
 
     private final FiscalDocumentReprintService reprintService;
     private final FiscalDocumentCancellationService cancellationService;
+    private final FiscalDocumentReadService readService;
     private final FiscalDocumentStamper stamper;
 
     public FiscalDocumentController(
             FiscalDocumentReprintService reprintService,
             FiscalDocumentCancellationService cancellationService,
+            FiscalDocumentReadService readService,
             FiscalDocumentStamper stamper) {
         this.reprintService = reprintService;
         this.cancellationService = cancellationService;
+        this.readService = readService;
         this.stamper = stamper;
     }
 
@@ -149,6 +158,70 @@ public class FiscalDocumentController {
         return stamp.stampedByThisAttempt()
                 ? ResponseEntity.status(HttpStatus.CREATED).body(stamp)
                 : ResponseEntity.ok(stamp);
+    }
+
+    /**
+     * Reads the fiscal document a sale produced, by the sale alone.
+     *
+     * <p><b>Why this endpoint exists, stated as the defect it closes.</b> {@code POST /api/fiscal-documents} answers
+     * the {@code documentId} to the caller who issued it, {@code SalesOrderResponse} carries no fiscal pointer, and
+     * {@code FiscalDocumentDraft} is returned by no read — so a document could be issued and then lost, while the
+     * reprint and the cancellation waited for an id nobody could produce. The sale is the one id every caller
+     * already holds, which is why it is the address.</p>
+     *
+     * <p><b>Why {@code 200}, {@code 204} and {@code 404} are three different answers.</b> {@code 200} states the
+     * document the sale produced. {@code 204} states that no document was <b>stamped</b> — a sale nothing was ever
+     * attempted on, one with only drafts, or one whose only attempts were refused — because "not yet invoiced" is a
+     * state a client renders and not a failure ({@code S2}): the app toasts every failed request, so a {@code 404}
+     * here would raise a red banner over a normal sale. {@code 404} is the sale itself: it does not exist, or it
+     * belongs to another company, and the two are the same answer so a foreign id cannot be told from an absent one
+     * ({@code S5}).</p>
+     *
+     * <p><b>Why a cancelled document is a {@code 200}.</b> {@code V108}'s append-only trigger never updates the
+     * stamped row — a cancellation <b>inserts</b> a copy naming it ({@code S3}) — so the sale still has its document
+     * and the copy is reported in the cancellation block. {@code 204} here would contradict the authority.</p>
+     *
+     * <p><b>Why the XML is not in the answer.</b> {@code S4}: {@code GET /{id}/xml} remains the only carrier of the
+     * stamped bytes, and a read that carried them would be a second carrier of the one artefact the tree promises is
+     * byte-for-byte the authority's.</p>
+     *
+     * <p><b>Why the path names no company.</b> As the other two do: {@code TenantScopeFilter} states the caller's
+     * single {@code company_id} claim as the operation's tenant before this method runs, and the service reads that
+     * scope. A path carrying a company the sale does not belong to would be a second statement of a fact the policy
+     * already owns.</p>
+     *
+     * @param salesOrderId the sale whose document is read, which every caller already holds
+     * @return {@code 200} with the document the sale produced, or {@code 204} with no body when nothing was stamped
+     */
+    @GetMapping("/by-sale/{salesOrderId}")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + SALES + "')")
+    @Operation(
+            summary = "Read the fiscal document a sale produced",
+            description = "Returns the stamped document of this sale — its identity, the authority's UUID, when it "
+                    + "was stamped and the folio it states — plus the cancellation block when one names it. A sale "
+                    + "with no stamped document answers 204 with no body: never invoiced is a state, and a draft or a "
+                    + "refused attempt is not a document. A cancelled document still answers 200 with its stamped "
+                    + "row, because the cancellation is a row beside it and never an edit of it. An absent sale and "
+                    + "another company's sale both answer 404, the same answer. The XML is not part of this response: "
+                    + "the reprint is its only carrier.")
+    @ApiResponses({
+        @ApiResponse(
+                responseCode = "200",
+                description = "The document the sale produced, and its cancellation when one exists"),
+        @ApiResponse(
+                responseCode = "204",
+                description = "This sale has no stamped document: not yet invoiced is a state, not a failure"),
+        @ApiResponse(responseCode = "400", description = "The sale id in the path is not a UUID"),
+        @ApiResponse(responseCode = "403", description = "The caller holds neither lc-admin nor lc-sales"),
+        @ApiResponse(
+                responseCode = "404",
+                description = "No such sale: an absent id and another company's sale are the same answer")
+    })
+    public ResponseEntity<FiscalDocumentRead> readBySale(@PathVariable UUID salesOrderId) {
+        return readService
+                .readBySale(salesOrderId)
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.<FiscalDocumentRead>noContent().build());
     }
 
     /**
