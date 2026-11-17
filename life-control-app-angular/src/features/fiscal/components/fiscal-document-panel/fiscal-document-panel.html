@@ -1,0 +1,87 @@
+<section class="fiscal-panel" data-testid="fiscal-document-panel">
+  <header class="panel-header">
+    <span class="panel-label">Factura fiscal</span>
+  </header>
+
+  @if (loadFailure(); as message) {
+    <app-error-banner [message]="message" />
+    <button mat-stroked-button type="button" (click)="loadDocument()">Reintentar</button>
+  }
+
+  @if (loading()) {
+    <mat-progress-bar mode="indeterminate" />
+  }
+
+  @if (identity(); as document) {
+    <dl class="document-identity" data-testid="fiscal-document-identity">
+      <div class="identity-row">
+        <dt>Documento</dt>
+        <dd>{{ document.documentId }}</dd>
+      </div>
+      <div class="identity-row">
+        <dt>UUID fiscal</dt>
+        <dd>{{ document.uuidFiscal }}</dd>
+      </div>
+      <div class="identity-row">
+        <dt>Timbre</dt>
+        <dd>{{ document.stampedAt }}</dd>
+      </div>
+      @if (folioLabel(); as folio) {
+        <div class="identity-row">
+          <dt>Folio</dt>
+          <dd>{{ folio }}</dd>
+        </div>
+      }
+    </dl>
+
+    @if (issueReport(); as line) {
+      <p class="issue-report" data-testid="fiscal-issue-report">{{ line }}</p>
+    }
+  } @else if (!loading() && loadFailure() === null) {
+    @if (!saleCompleted()) {
+      <!-- The sale page renders this panel only for a completed sale; the panel still refuses the action
+           on its own, because S1's gate is the sale's status and not the page's layout. -->
+      <p class="panel-note" data-testid="fiscal-sale-open">
+        La venta todavía no está cerrada: el documento se timbra sobre una venta cobrada.
+      </p>
+    } @else {
+      @if (profilesReading()) {
+        <mat-progress-bar mode="indeterminate" />
+      }
+
+      @for (gap of profileGaps(); track gap.side) {
+        <div class="profile-gap" [attr.data-testid]="'fiscal-profile-gap-' + gap.side">
+          <p class="gap-headline">{{ gap.headline }}</p>
+          <ul class="gap-facts">
+            @for (fact of gap.facts; track fact) {
+              <li>{{ fact }}</li>
+            }
+          </ul>
+        </div>
+      }
+
+      @if (issuingFailure(); as message) {
+        <app-error-banner [message]="message" />
+      }
+
+      @if (offersIssue()) {
+        <div class="issue-actions">
+          <button
+            mat-flat-button
+            color="primary"
+            type="button"
+            data-testid="fiscal-issue"
+            [disabled]="!canIssue()"
+            (click)="issue()"
+          >
+            <mat-icon fontIcon="receipt_long" />
+            Timbrar
+          </button>
+          <span class="issue-warning">
+            El timbre no se deshace: el documento se emite ante el SAT y queda guardado.
+          </span>
+        </div>
+      }
+    }
+  }
+</section>
