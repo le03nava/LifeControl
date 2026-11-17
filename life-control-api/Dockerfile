@@ -10,7 +10,14 @@
 # ETAPA ÚNICA: Ejecución (RUN)
 # El JAR se buildea LOCALMENTE para evitar depender de internet
 # dentro del contenedor Docker (problemas comunes de DNS/proxy)
-FROM eclipse-temurin:21-jre-alpine
+#
+# La imagen base no se escribe acá. `JAVA_BASE_IMAGE` es una key de `docker/.env.template`, el compose
+# la pasa como build arg y `docker/scripts/tests/image-pins.test.sh` falla si esta línea, la key y el
+# default del compose divergen. Un Dockerfile que nombra su propia imagen base es un pin que ningún
+# chequeo mira: así `eclipse-temurin:21-jre-alpine` podía cambiar de generación sin un commit acá.
+# El default del ARG mantiene `docker build .` funcionando fuera de compose, con el mismo valor.
+ARG JAVA_BASE_IMAGE=eclipse-temurin:21-jre-alpine
+FROM ${JAVA_BASE_IMAGE}
 
 ARG APP_USER=appuser
 ARG APP_GROUP=appgroup

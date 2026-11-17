@@ -38,6 +38,7 @@ Angular `nginx:alpine` base is a `FROM` line, so S5 covers it and S4's "the two"
 | T6 | S1–S5 | The documented pin policy (`AGENTS.md`, `.env.template` comments) stops contradicting the tree | inline | |
 | T7 | S6 | `deploy.sh dev start` and `dev health` on the changed compose config | inline | |
 | T8 | all | Independent verification of the four suites plus the closed drift assertions | verify | |
+| T9 | S5 (Gradle half) | A suite that fails when a wrapper `distributionUrl` or a Gradle plugin version literal drifts from the frozen table, green on today's tree and silent about the patches #894 owns aligning | writer | |
 
 ## Log
 
@@ -63,6 +64,24 @@ Angular `nginx:alpine` base is a `FROM` line, so S5 covers it and S4's "the two"
   `odd/tasks/docker-infra-image-refresh.md:64-71` recorded. S4 requires **writing** that file, so the
   image half is blocked on an authorization only the human can give, and no bash workaround was used
   to route around the guard.
+- **L7** — the human authorized the image half by applying the three keys to `docker/.env.template`
+  (`JAVA_BASE_IMAGE`, `NODE_BASE_IMAGE`, `NGINX_BASE_IMAGE`) in this worktree, which is the only
+  way they could be written: every file tool in this session is refused that path by the harness
+  safety policy. Re-measured after the edit: `image-pins` went from 81 passed / 4 failed — the three
+  missing keys plus the `.nvmrc` comparison that cannot run on an empty value — to **85 passed / 0
+  failed**, and the 28 suites of `docker/scripts/tests/` and the 16 of `.github/scripts/tests/` are
+  all green. `docker compose config` renders the three build args identically in dev and in prod.
+- **L8** — **delivery**: three commits, ~1.2k authored lines, and the largest single file in the diff is
+  new suite code (360 and 464 lines) rather than production logic. The slices are the CI half (token
+  scopes, action SHAs, the shellcheck pin, `workflow-pins.test.sh`), the Gradle pin suite, and the
+  image half (base images, k8s sweep, sections 9 and 10 of `image-pins.test.sh`, docs). The `Commit`
+  column above stays empty on purpose: citing a branch commit here fails `odd-citations.test.sh`,
+  which resolves every citation as an ancestor of `origin/main`. The delivery detail belongs to the
+  dated evidence entry written after the merge, not to a header this branch cannot verify.
+- **L9** — **S6 is not satisfied yet**, and it is the only acceptance criterion that is neither met nor
+  disproved: `deploy.sh dev start` from this worktree shares `COMPOSE_PROJECT_NAME` with the dev stack
+  the anchor is running, so running it here rebuilds the containers of an environment this unit does
+  not own. It waits on the human's disposition, not on more code.
 - **L4** — the five action SHAs resolved from the published tags on 2026-11-14, annotated tags dereferenced
   to commits: `actions/checkout` v7 `3d3c42e5aac5ba805825da76410c181273ba90b1`,
   `actions/setup-java` v6 `d1374f8ac74474200d16ef8ecee22c7ae7a51880`, `actions/setup-node` v7

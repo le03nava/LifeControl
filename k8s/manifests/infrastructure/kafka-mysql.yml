@@ -14,7 +14,7 @@ spec:
     spec:
       containers:
         - name: keycloak-mysql
-          image: mysql:8
+          image: mysql:8.3.0
           ports:
             - containerPort: 3306
           env:

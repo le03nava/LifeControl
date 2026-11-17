@@ -3,8 +3,16 @@
 # Multi-stage: node build -> nginx runtime (non-root)
 # ============================================
 
+# ---------- Imágenes base ----------
+# Las dos son keys de `docker/.env.template`, el compose las pasa como build arg y
+# `docker/scripts/tests/image-pins.test.sh` falla si un FROM, la key y el default del compose
+# divergen. Un ARG declarado antes del primer FROM queda fuera de todo stage, que es justo lo que lo
+# hace valer también para el segundo; el default mantiene `docker build .` funcionando fuera de compose.
+ARG NODE_BASE_IMAGE=node:24.15-alpine
+ARG NGINX_BASE_IMAGE=nginx:alpine
+
 # ---------- Stage 1: Build ----------
-FROM node:24.15-alpine AS build
+FROM ${NODE_BASE_IMAGE} AS build
 
 WORKDIR /app
 
@@ -17,7 +25,7 @@ COPY . .
 RUN npm run build
 
 # ---------- Stage 2: Runtime ----------
-FROM nginx:alpine
+FROM ${NGINX_BASE_IMAGE}
 
 # ARG es por stage: debe declararse en el stage de runtime (stage 2) para que
 # la revisión git quede en la imagen final y no en el stage de build descartado.

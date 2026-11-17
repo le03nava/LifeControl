@@ -419,6 +419,7 @@ services:
         BUILD_PROFILE: ${SPRING_PROFILES_ACTIVE:-dev}
         APP_VERSION: ${APP_VERSION:-0.0.1-SNAPSHOT}
         GIT_COMMIT: ${GIT_COMMIT:-unknown}
+        JAVA_BASE_IMAGE: ${JAVA_BASE_IMAGE:-eclipse-temurin:21-jre-alpine}
     ports:
       - "${API_GATEWAY_PORT:-9000}:${API_GATEWAY_SERVER_PORT:-9000}"
       - "${API_GATEWAY_MANAGEMENT_PORT:-9001}:${API_GATEWAY_MANAGEMENT_PORT:-9001}"
@@ -509,6 +510,7 @@ services:
         BUILD_PROFILE: ${SPRING_PROFILES_ACTIVE:-dev}
         APP_VERSION: ${APP_VERSION:-0.0.1-SNAPSHOT}
         GIT_COMMIT: ${GIT_COMMIT:-unknown}
+        JAVA_BASE_IMAGE: ${JAVA_BASE_IMAGE:-eclipse-temurin:21-jre-alpine}
     container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-lifecontrol-api
     entrypoint: ["/usr/local/bin/lc-app-entrypoint.sh"]
     ports:
@@ -617,6 +619,12 @@ services:
       dockerfile: Dockerfile
       args:
         GIT_COMMIT: ${GIT_COMMIT:-unknown}
+        NODE_BASE_IMAGE: ${NODE_BASE_IMAGE:-node:24.15-alpine}
+        NGINX_BASE_IMAGE: ${NGINX_BASE_IMAGE:-nginx:alpine}
+    # The one floating tag this repository keeps, and not a supply-chain pin: this image is built
+    # from this very tree by the `build:` block above and never pulled, so `:latest` names a local
+    # build rather than a registry pointer someone else can move. The suite asserts the exception
+    # instead of trusting this comment: drop the `build:` block and it fails.
     image: ${WEB_APP_IMAGE:-life-control-app-angular:latest}
     ports:
       - "${WEB_APP_PORT:-4200}:3000"
