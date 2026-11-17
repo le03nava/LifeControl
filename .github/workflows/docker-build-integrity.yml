@@ -19,6 +19,11 @@ on:
       - 'life-control-api/build.gradle'
       - '.github/workflows/docker-build-integrity.yml'
 
+# Read-only, declared instead of inherited: this job reads the checkout and runs containers from it,
+# and writes nothing back to the repository.
+permissions:
+  contents: read
+
 concurrency:
   group: docker-build-integrity-${{ github.ref }}
   cancel-in-progress: true
@@ -29,16 +34,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: ShellCheck
         shell: bash
         run: |
           mapfile -t scripts < <(find docker/scripts -type f -name '*.sh' | sort)
           printf 'Checking %d script(s)\n' "${#scripts[@]}"
-          # Pinned container image so the verdict does not drift with the runner
-          # image, and so it matches the version used locally.
-          docker run --rm -v "$PWD:/mnt" -w /mnt koalaman/shellcheck:stable \
+          # Pinned container image so the verdict does not drift with the runner image, and so it
+          # matches the version used locally. It used to be `koalaman/shellcheck:stable`, which is a
+          # floating alias: the linter that gates this repository could change without a commit.
+          # .github/scripts/tests/workflow-pins.test.sh freezes the tag below.
+          docker run --rm -v "$PWD:/mnt" -w /mnt koalaman/shellcheck:v0.11.0 \
             --severity=warning "${scripts[@]}"
 
       # Every suite, by glob. This used to name five of them explicitly, so a suite added to the

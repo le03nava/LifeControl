@@ -56,7 +56,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           # Full history, because `odd-citations.test.sh` resolves every commit a record cites and needs a
           # base to resolve them against. A shallow checkout has neither the objects nor the ref, so its
@@ -84,9 +84,11 @@ jobs:
           # this step still covers that path.
           mapfile -t scripts < <({ find .github/scripts -type f -name '*.sh'; find .githooks -type f; } | sort)
           printf 'Checking %d script(s)\n' "${#scripts[@]}"
-          # Same pinned image as docker-build-integrity.yml, so the verdict does not
-          # drift with the runner image.
-          docker run --rm -v "$PWD:/mnt" -w /mnt koalaman/shellcheck:stable \
+          # Same pinned image as docker-build-integrity.yml, so the verdict does not drift
+          # with the runner image. The tag is frozen in tests/workflow-pins.test.sh: it used to be a
+          # floating `stable` alias, which let the linter that gates this repository change without a
+          # commit.
+          docker run --rm -v "$PWD:/mnt" -w /mnt koalaman/shellcheck:v0.11.0 \
             --severity=warning "${scripts[@]}"
 
       - name: Self-tests
@@ -130,7 +132,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Reference an open, approved issue
         env:

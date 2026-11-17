@@ -11,6 +11,14 @@ on:
       - 'life-control-api/**'
       - '.github/workflows/api-ci.yml'
 
+# Read-only, declared instead of inherited. Without a `permissions:` block a workflow gets the
+# repository default token, which is write-capable, and every third-party action in the job runs
+# with it. Nothing here writes: both jobs read the checkout and at most upload an artifact, and
+# artifact transfer authenticates with the run's own runtime token rather than a GITHUB_TOKEN
+# scope. A job that ever needs more says why, beside its own scope.
+permissions:
+  contents: read
+
 concurrency:
   group: api-ci-${{ github.ref }}
   cancel-in-progress: true
@@ -19,6 +27,10 @@ concurrency:
 # until static analysis has finished, so the two gates cannot overlap and the run costs the sum of
 # both. As separate jobs they start together, so the run costs the slower gate. Each job repeats
 # Checkout and Setup Java because a job cannot read another job's workspace or JDK.
+#
+# Every `uses:` is pinned to a commit SHA with the released tag in a trailing comment: a major tag
+# is a pointer its publisher can retag, and these actions run with this repository's token.
+# .github/scripts/tests/workflow-pins.test.sh fails when one goes back to a mutable ref.
 jobs:
   static-analysis:
     name: Static analysis
@@ -28,10 +40,10 @@ jobs:
         working-directory: life-control-api
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Setup Java
-        uses: actions/setup-java@v6
+        uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6
         with:
           java-version: 21
           distribution: temurin
@@ -48,10 +60,10 @@ jobs:
         working-directory: life-control-api
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Setup Java
-        uses: actions/setup-java@v6
+        uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6
         with:
           java-version: 21
           distribution: temurin
@@ -62,7 +74,7 @@ jobs:
 
       - name: Upload test report
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: api-test-results
           path: life-control-api/build/reports/tests/test

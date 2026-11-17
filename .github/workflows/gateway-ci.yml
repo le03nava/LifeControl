@@ -15,6 +15,12 @@ on:
       - 'life-control-api/src/main/java/**/controller/**'
       - '.github/workflows/gateway-ci.yml'
 
+# Read-only, declared instead of inherited: nothing in this workflow writes, and an inherited
+# default token would be a write-capable credential handed to every action in the job. The artifact
+# upload authenticates with the run's runtime token, not with a GITHUB_TOKEN scope.
+permissions:
+  contents: read
+
 concurrency:
   group: gateway-ci-${{ github.ref }}
   cancel-in-progress: true
@@ -28,10 +34,10 @@ jobs:
         working-directory: api-gateway
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Setup Java
-        uses: actions/setup-java@v6
+        uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6
         with:
           java-version: 21
           distribution: temurin
@@ -42,7 +48,7 @@ jobs:
 
       - name: Upload test report
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: gateway-test-results
           path: api-gateway/build/reports/tests/test
