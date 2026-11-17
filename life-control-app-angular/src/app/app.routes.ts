@@ -28,6 +28,15 @@ export const routes: Routes = [
     loadChildren: () => import('@features/sales/sales.routes').then((m) => m.salesRoutes),
   },
   {
+    // Los clientes: la primera pantalla que tiene el receptor en el producto (`#940`). Es de lectura
+    // solamente por ahora; las páginas de alta y edición llegan con el perfil fiscal, en la unidad hermana.
+    // El gate del par `lc-admin`/`lc-sales` vive en la ruta hija y en su padre, porque son los dos únicos
+    // roles que `CustomerController` autoriza.
+    path: 'customers',
+    loadChildren: () =>
+      import('@features/customers/customers.routes').then((m) => m.customerRoutes),
+  },
+  {
     path: 'scheduling',
     loadChildren: () =>
       import('@features/scheduling/scheduling.routes').then((m) => m.schedulingRoutes),

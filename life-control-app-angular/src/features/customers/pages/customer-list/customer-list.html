@@ -1,0 +1,110 @@
+<div class="customer-list-page">
+  <!--
+    `showActions` es false a propósito: esta unidad no agrega ninguna ruta de escritura (`S5`), así que el
+    encabezado no tiene ningún botón que ofrecer. «Agregar Cliente» llega con el formulario, en la unidad
+    hermana.
+  -->
+  <app-page-header title="Clientes" subtitle="Clientes de la empresa" [showActions]="false" />
+
+  <!-- Filtro de búsqueda -->
+  <div class="filters-section">
+    <mat-form-field appearance="outline" class="search-field" subscriptSizing="dynamic">
+      <mat-icon matPrefix>search</mat-icon>
+      <input
+        matInput
+        type="text"
+        [value]="searchQuery()"
+        (input)="searchQuery.set($any($event.target).value)"
+        placeholder="Buscar por nombre o email..."
+      />
+      @if (searchQuery()) {
+        <button
+          matSuffix
+          mat-icon-button
+          aria-label="Limpiar búsqueda"
+          (click)="clearSearch()"
+          type="button"
+        >
+          <mat-icon>close</mat-icon>
+        </button>
+      }
+      <!--
+        La pista dice lo que la query realmente matchea: `CustomerRepository.java:44-52` busca en `name` y
+        en `email` y en nada más. El RFC no se promete, porque no se busca (`S4`, `L3(d)`).
+      -->
+      <mat-hint>Busca por nombre o email. El RFC no está incluido en la búsqueda.</mat-hint>
+    </mat-form-field>
+  </div>
+
+  <!-- Grilla de clientes -->
+  <div class="customers-grid">
+    @if (loading()) {
+      <div class="loading-skeleton">
+        @for (_ of [1, 2, 3, 4]; track $index) {
+          <div class="skeleton-card" [style.--i]="$index">
+            <div class="skeleton-header">
+              <div class="skeleton-title"></div>
+              <div class="skeleton-badge"></div>
+            </div>
+            <div class="skeleton-rfc"></div>
+            <div class="skeleton-lines">
+              <div class="skeleton-line"></div>
+              <div class="skeleton-line short"></div>
+              <div class="skeleton-line medium"></div>
+            </div>
+          </div>
+        }
+      </div>
+    } @else if (error(); as err) {
+      <div class="error-state">
+        <mat-icon fontIcon="error" />
+        <p>{{ httpErrorMessage(err) }}</p>
+        <button mat-stroked-button type="button" (click)="customersResource.reload()">
+          Reintentar
+        </button>
+      </div>
+    } @else {
+      @let page = customers();
+      @if (page && page.content.length > 0) {
+        @for (customer of page.content; track customer.id; let i = $index) {
+          <div class="card-wrapper" [style.--i]="i">
+            <app-customer-card [customer]="customer" />
+          </div>
+        }
+      } @else {
+        <div class="empty-state">
+          <mat-icon fontIcon="contacts" class="empty-state-icon" />
+          <h3 class="empty-title">
+            @if (searchQuery()) {
+              No se encontraron clientes
+            } @else {
+              No hay clientes registrados
+            }
+          </h3>
+          @if (searchQuery()) {
+            <p class="empty-subtitle">Intentá con otro término de búsqueda</p>
+          } @else {
+            <p class="empty-subtitle">Los clientes de la empresa aparecerán acá</p>
+          }
+        </div>
+      }
+    }
+  </div>
+
+  <!-- Paginador: sólo cuando hay más de una página -->
+  @let page = customers();
+  @if (page && page.totalPages > 1) {
+    <div class="pagination-section">
+      <mat-paginator
+        [length]="page.totalElements"
+        [pageSize]="pageSize()"
+        [pageIndex]="pageIndex()"
+        [pageSizeOptions]="pageSizeOptions()"
+        (page)="onPageChange($event)"
+        [showFirstLastButtons]="!isMobile()"
+        aria-label="Paginación de clientes"
+      >
+      </mat-paginator>
+    </div>
+  }
+</div>

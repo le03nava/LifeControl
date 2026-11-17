@@ -1,0 +1,19 @@
+@use '../../../../shared/styles/entity-list-page' as list;
+
+@include list.entity-list-page($page: '.customer-list-page', $grid: '.customers-grid');
+
+/* La ilustración del estado vacío: el mixin aporta el layout, el ícono lo pone la página. */
+.empty-state-icon {
+  font-size: 48px;
+  width: 48px;
+  height: 48px;
+  margin-bottom: var(--space-md);
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.filters-section {
+  .search-field {
+    width: 100%;
+    max-width: 480px;
+  }
+}
