@@ -7,6 +7,7 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { SalesOrderEdit } from './sales-order-edit';
 import { ProductVariantSelector } from '../../components/product-variant-selector/product-variant-selector';
 import { SalesOrderItemTable } from '../../components/sales-order-item-table/sales-order-item-table';
+import { FiscalDocumentPanel } from '@features/fiscal/components/fiscal-document-panel/fiscal-document-panel';
 import { SalesOrderService } from '../../data/sales-order.service';
 import { ProfileService } from '@features/user/profile/data/profile.service';
 import { CompanyStoreService } from '@features/companies/stores/data/company-store.service';
@@ -1614,6 +1615,109 @@ describe('SalesOrderEdit', () => {
       expect(salesOrderService.chargeSalesOrder).toHaveBeenCalledWith('so-1', [
         { paymentMethodId: 'pm-2', amount: 500 },
       ]);
+    });
+  });
+
+  // ══════════════════════════════════════════════════════════
+  // FISCAL DOCUMENT PANEL
+  // ══════════════════════════════════════════════════════════
+
+  /**
+   * The sale screen's only door to a fiscal document (`sales-order-edit.html`, `S1` of
+   * `odd/tasks/fiscal-document-screens.md`).
+   *
+   * <p>The panel has its own spec, so nothing here repeats what the panel renders. What is pinned here is the
+   * <b>wiring</b>, which no other file covers: which sale the page mounts it for, and what it hands it. Without
+   * these cases the whole feature would be unreachable and every case in the panel's own spec would still be
+   * green — a suite can be complete and the route to it dead.</p>
+   */
+  describe('fiscal document panel wiring', () => {
+    /** Renders the page as the route does: an id is an existing order, `null` is the create route. */
+    async function renderPage(routeId: string | null): Promise<ComponentFixture<SalesOrderEdit>> {
+      await TestBed.configureTestingModule({
+        imports: [SalesOrderEdit, HttpClientTestingModule],
+        providers: baseProviders(routeId),
+      }).compileComponents();
+
+      const page = TestBed.createComponent(SalesOrderEdit);
+      // The create route auto-creates the sale and navigates to its edit route, which this module does not
+      // declare: the navigation is stubbed for the same reason every other describe stubs it.
+      vi.spyOn(TestBed.inject(Router), 'navigate');
+      page.detectChanges();
+      return page;
+    }
+
+    /** The mounted panel, or `null` when the page did not mount one. */
+    function panelOf(page: ComponentFixture<SalesOrderEdit>): FiscalDocumentPanel | null {
+      const mounted = page.debugElement.query(By.directive(FiscalDocumentPanel));
+      return mounted ? (mounted.componentInstance as FiscalDocumentPanel) : null;
+    }
+
+    it('renders the panel for a completed sale in edit mode, and hands it the sale it must invoice', async () => {
+      const page = await renderPage('so-1');
+      page.componentInstance.loadedOrder.set({ ...mockOrder, statusName: 'Completed' });
+      page.detectChanges();
+
+      const panel = panelOf(page);
+      expect(
+        panel,
+        'a completed sale is the one status a document can be issued for',
+      ).not.toBeNull();
+      expect(
+        page.nativeElement.querySelector('[data-testid="fiscal-document-panel"]'),
+      ).toBeTruthy();
+
+      // The three facts the panel cannot read for itself: which sale, in which status, for which receiver.
+      expect(panel!.saleId()).toBe('so-1');
+      expect(panel!.saleStatus()).toBe('Completed');
+      expect(panel!.customerId()).toBe('cust-1');
+
+      // And the wiring is real and not merely a rendered tag: the panel asks the API for that sale.
+      TestBed.inject(HttpTestingController)
+        .expectOne((req) => req.url === `${TEST_API}/fiscal-documents/by-sale/so-1`)
+        .flush(null, { status: 204, statusText: 'No Content' });
+      expect(panel!.loading()).toBe(false);
+    });
+
+    it('does not render the panel for a sale in any other status', async () => {
+      const page = await renderPage('so-1');
+
+      for (const statusName of ['Draft', 'Active', 'Pending', 'Cancelled']) {
+        page.componentInstance.loadedOrder.set({ ...mockOrder, statusName });
+        page.detectChanges();
+
+        expect(panelOf(page), `a ${statusName} sale has no document to invoice`).toBeNull();
+      }
+
+      // Nothing was even asked: an unmounted panel reads nothing.
+      TestBed.inject(HttpTestingController).expectNone((req) =>
+        req.url.includes('/fiscal-documents'),
+      );
+    });
+
+    it('stops rendering the panel once the sale leaves the completed status', async () => {
+      const page = await renderPage('so-1');
+      page.componentInstance.loadedOrder.set({ ...mockOrder, statusName: 'Completed' });
+      page.detectChanges();
+      expect(panelOf(page)).not.toBeNull();
+
+      page.componentInstance.loadedOrder.set({ ...mockOrder, statusName: 'Cancelled' });
+      page.detectChanges();
+
+      expect(
+        panelOf(page),
+        'the gate is re-read on every change, not decided once when the page loaded',
+      ).toBeNull();
+    });
+
+    it('does not render the panel outside edit mode', async () => {
+      const page = await renderPage(null);
+
+      expect(page.componentInstance.isEditMode()).toBe(false);
+      expect(panelOf(page)).toBeNull();
+      TestBed.inject(HttpTestingController).expectNone((req) =>
+        req.url.includes('/fiscal-documents'),
+      );
     });
   });
 });

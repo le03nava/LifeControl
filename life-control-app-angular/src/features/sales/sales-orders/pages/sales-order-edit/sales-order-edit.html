@@ -120,6 +120,18 @@
           (charge)="onCharge($event)"
         />
       }
+
+      <!-- Factura fiscal (sólo una venta cerrada tiene documento que timbrar, `S1`). El panel no timbra por su
+           cuenta: su único camino al timbre es el clic del operador. -->
+      @if (isEditMode() && isCompleted()) {
+        @if (orderId(); as id) {
+          <app-fiscal-document-panel
+            [saleId]="id"
+            [saleStatus]="saleStatus()"
+            [customerId]="saleCustomerId()"
+          />
+        }
+      }
     </form>
   }
 </div>

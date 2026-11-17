@@ -1,0 +1,144 @@
+.fiscal-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-top: 1rem;
+  padding: 1rem;
+  border: 1px solid var(--mat-sys-outline-variant, #ccc);
+  border-radius: 8px;
+}
+
+.panel-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.panel-label {
+  font-weight: 600;
+}
+
+/* The identity is a definition list because every line is a name and its value, never a sentence. */
+.document-identity {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin: 0;
+}
+
+.identity-row {
+  display: flex;
+  gap: 0.75rem;
+  align-items: baseline;
+  flex-wrap: wrap;
+}
+
+.identity-row dt {
+  min-width: 7rem;
+  font-size: 0.8125rem;
+  color: var(--mat-sys-on-surface-variant, #49454f);
+}
+
+.identity-row dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+  word-break: break-all;
+}
+
+.issue-report {
+  margin: 0;
+  padding: 0.625rem 0.75rem;
+  border-left: 3px solid var(--mat-sys-primary, #1976d2);
+  background: var(--mat-sys-surface-variant, #f3edf7);
+  border-radius: 4px;
+  font-size: 0.8125rem;
+  line-height: 1.4;
+}
+
+.panel-note {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--mat-sys-on-surface-variant, #49454f);
+}
+
+/* A gap is a block and not a hint: it says which side cannot be stated and why, and it carries no fix. */
+.profile-gap {
+  padding: 0.625rem 0.75rem;
+  border-left: 3px solid var(--mat-sys-error, #b3261e);
+  background: var(--mat-sys-error-container, #f9dedc);
+  border-radius: 4px;
+}
+
+.profile-gap .gap-headline {
+  margin: 0 0 0.25rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.profile-gap .gap-facts {
+  margin: 0;
+  padding-left: 1.125rem;
+  font-size: 0.8125rem;
+  line-height: 1.4;
+}
+
+.issue-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.issue-warning {
+  font-size: 0.8125rem;
+  color: var(--mat-sys-on-surface-variant, #49454f);
+}
+
+.document-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+/* The cancelled state is a statement about the document, and its motive and date are what the read stores. */
+.cancellation-state {
+  padding: 0.625rem 0.75rem;
+  border-left: 3px solid var(--mat-sys-tertiary, #006a6a);
+  background: var(--mat-sys-surface-variant, #f3edf7);
+  border-radius: 4px;
+}
+
+.cancellation-state .cancellation-headline {
+  margin: 0 0 0.25rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.cancellation-state .cancellation-detail {
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.4;
+}
+
+/* A submitted cancellation is not a cancelled one: it says the document is still valid, in the form's own copy. */
+.submitted-state {
+  padding: 0.625rem 0.75rem;
+  border-left: 3px solid var(--mat-sys-secondary, #625b71);
+  background: var(--mat-sys-surface-container-high, #ece6f0);
+  border-radius: 4px;
+}
+
+.submitted-state .submitted-headline {
+  margin: 0 0 0.25rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.submitted-state .submitted-detail {
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.4;
+}
