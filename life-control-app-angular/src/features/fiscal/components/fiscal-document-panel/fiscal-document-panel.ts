@@ -11,10 +11,9 @@ import {
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { of, switchMap } from 'rxjs';
 import { MatButtonModule } from '@angular/material/button';
+import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { MatIconModule } from '@angular/material/icon';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
-import { httpErrorMessage, unwrapHttpError } from '@shared/data';
-import type { ApiError } from '@shared/models';
 import { ErrorBanner } from '@shared/ui';
 import { CompanyService } from '@features/companies/companies/data/company.service';
 import type { Company } from '@features/companies/companies/models/company.models';
@@ -25,12 +24,23 @@ import {
   fiscalProfileViolations,
 } from '@features/customers/validation/fiscal-profile-complete';
 import { SO_STATUS_LABELS } from '@features/sales/sales-orders/data/status-config';
+import {
+  cancellationOutcomeCopy,
+  motiveLabel,
+  type CancellationOutcome,
+} from '../../data/fiscal-cancellation-copy';
+import { fiscalApiMessage } from '../../data/fiscal-api-message';
 import { FiscalDocumentService } from '../../data/fiscal-document.service';
 import type {
+  FiscalCancellationResult,
   FiscalDocument,
   FiscalDocumentIssueResult,
   StampedFiscalDocument,
 } from '../../data/fiscal-document.models';
+import {
+  FiscalDocumentCancelDialog,
+  type FiscalDocumentCancelDialogData,
+} from '../fiscal-document-cancel-dialog/fiscal-document-cancel-dialog';
 
 /**
  * The one status a sale must reach before it can be invoiced (`S1`), read from the sale's own vocabulary.
@@ -87,20 +97,12 @@ function issueReportOf(answer: FiscalDocumentIssueResult): string {
 }
 
 /**
- * The API's own sentence for a refusal, which is what `S1`'s screen shows instead of a banner of its own.
+ * The API's own sentence for a refusal, which is what the panel shows instead of a banner of its own.
  *
- * `ApiError.message` is the server's words — the one sentence that names the fact it refused — and it is
- * preferred over any mapping this screen could make. The shared map is the fallback for an answer that carries
- * no such body (a transport failure, a proxy's HTML), which is the only case where there is no server sentence
- * to show; that is not the "generic banner" the record refuses, it is the absence of anything better.
+ * The wording lives in `data/fiscal-api-message.ts` because the cancel dialog states the same preference: the
+ * server's sentence is the one that names the fact, and the shared map is only the fallback for an answer
+ * that carries none.
  */
-function apiMessage(error: unknown): string {
-  const body = unwrapHttpError(error)?.error as Partial<ApiError> | null | undefined;
-  const message = body?.message;
-
-  return typeof message === 'string' && message.trim() !== '' ? message : httpErrorMessage(error);
-}
-
 /** Whether a profile states a fact: blank is not a declaration, the same reading `CustomerRequest` normalizes. */
 function states(value: string | null | undefined): boolean {
   return typeof value === 'string' && value.trim() !== '';
@@ -156,28 +158,44 @@ function receiverReadOf(customer: Customer): FiscalProfileRead {
 }
 
 /**
- * One sale's fiscal document, and the one action that creates it (`S1`, `S2` of `odd/tasks/fiscal-document-screens.md`).
+ * One sale's fiscal document, and the three actions an operator has on it (`S1`–`S6` of
+ * `odd/tasks/fiscal-document-screens.md`).
  *
- * **Two reads, one command, and nothing irreversible on its own.** The panel reads the sale's document
+ * **Two reads, three commands, and nothing irreversible on its own.** The panel reads the sale's document
  * (`GET /api/fiscal-documents/by-sale/{id}`, whose `204` is the "not invoiced" state and not a failure) and the
  * two fiscal profiles a stamp consumes, and it offers the issue action only when the sale is completed and both
- * profiles are complete, naming the side that is not. **It never issues by itself**: a stamp is irreversible, so
- * the only path to it is the operator's click.
+ * profiles are complete, naming the side that is not. **It never acts by itself**: a stamp is irreversible and a
+ * cancellation is the authority's to decide, so both happen on an operator's click.
  *
  * **The attempt key is the operator's intent, kept across failures.** It is minted on the first click and reused
  * on every retry of that intent, so a retry after a timeout replays the attempt the API already recorded instead
  * of stamping a second document (`S2`); it is cleared only when an attempt answered, because the next click is a
  * new intent. A failure never regenerates it silently — that is the one thing that would break the replay.
  *
+ * **The reprint is a download and never a rendering (`S3`).** The bytes come from
+ * `GET /api/fiscal-documents/{id}/xml`, are handed to the browser as an object URL and a synthetic `<a download>`
+ * named as the API states, and are revoked afterwards. Nothing of the XML reaches the template.
+ *
+ * **The cancellation is the dialog's, and its two answers are the API's.** The panel opens it only for a document
+ * the read reported with no cancellation, then re-reads after a *granted* one so the "cancelled" state — motive
+ * and date — comes from the API; a *submitted* one wrote nothing, so the panel keeps the authority's answer and
+ * the `202`'s own word (`S5`) instead of reading a document nothing changed.
+ *
  * **What it does not do.** It does not capture or fix a fiscal profile (`N1`): a gap is named and the panel stops
  * there. It does not re-derive the issuer's company from a context the app does not have — `CurrentUser` exposes
- * only `sub`, so the company comes from the claim-scoped selector read, two calls deep — and it does not claim
- * anything the read does not carry: no authority code, no XML, no folio a stamp answer never stated.
+ * only `sub`, so the company comes from the claim-scoped selector read, two calls deep — and it does not invent
+ * what the read never carries: a reload states the cancellation's motive and date but not the authority's code or
+ * sentence, because neither is stored (`L9`).
  */
 @Component({
   selector: 'app-fiscal-document-panel',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [ErrorBanner, MatButtonModule, MatIconModule, MatProgressBarModule],
+  // `MatDialogModule` is here for its provider, not for a directive: `MatDialog` is not `providedIn: 'root'`,
+  // so a panel that opens a dialog has to import the module that provides it. A consequence worth knowing
+  // before writing a test: an imported module's providers land in this component's own injector, so a
+  // `TestBed`-level `{ provide: MatDialog, useValue }` is shadowed by them — the spec spies on the instance
+  // this component injects instead (`fixture.debugElement.injector.get(MatDialog)`).
+  imports: [ErrorBanner, MatButtonModule, MatDialogModule, MatIconModule, MatProgressBarModule],
   templateUrl: './fiscal-document-panel.html',
   styleUrl: './fiscal-document-panel.scss',
 })
@@ -185,6 +203,7 @@ export class FiscalDocumentPanel implements OnInit {
   private readonly fiscalDocumentService = inject(FiscalDocumentService);
   private readonly companyService = inject(CompanyService);
   private readonly customerService = inject(CustomerService);
+  private readonly dialog = inject(MatDialog);
   private readonly destroyRef = inject(DestroyRef);
 
   /** The sale whose document is being read and issued. */
@@ -217,6 +236,19 @@ export class FiscalDocumentPanel implements OnInit {
 
   private readonly _issuing = signal(false);
   private readonly _issuingFailure = signal<string | null>(null);
+
+  private readonly _downloading = signal(false);
+  private readonly _downloadFailure = signal<string | null>(null);
+
+  /**
+   * The `202` the last cancellation answered, kept after the dialog closes.
+   *
+   * A submitted cancellation writes nothing, so the read cannot state it and a reload loses it (`L9`). Keeping
+   * the answer on screen is the difference between "the SAT was asked and has not decided" and "nothing
+   * happened yet" (`S5`), and it is a report of an answer — never a document state the API does not have
+   * (`N3`).
+   */
+  private readonly _submitted = signal<CancellationOutcome | null>(null);
 
   /**
    * The attempt key of the operator's current intent, or `null` when there is nothing to replay.
@@ -281,6 +313,43 @@ export class FiscalDocumentPanel implements OnInit {
   /** The API's own sentence for the last refused attempt, or `null`. */
   readonly issuingFailure = this._issuingFailure.asReadonly();
 
+  /** The sentence of a failed reprint, or `null`. */
+  readonly downloadFailure = this._downloadFailure.asReadonly();
+
+  /**
+   * The cancellation the read states, worded from the vocabulary — the API stores no code and no message.
+   *
+   * This is what survives a reload: motive and date, and nothing else. `S5`'s authority code is not here
+   * because it is not stored (`L9`).
+   */
+  readonly cancellation = computed<{ motiveLabel: string; cancelledAt: string } | null>(() => {
+    const cancellation = this.documentRead()?.cancellation ?? null;
+    return cancellation
+      ? { motiveLabel: motiveLabel(cancellation.motive), cancelledAt: cancellation.cancelledAt }
+      : null;
+  });
+
+  /** The `202` the panel is keeping, or `null` (`S5`). */
+  readonly submitted = this._submitted.asReadonly();
+
+  /**
+   * `S3`: a reprint is offered for a document the panel knows, and enabled only once the **read** answered.
+   *
+   * A stamp's answer names the document but not its folio, and a read that failed leaves the identity on
+   * screen with its `Reintentar`: the button stays visible and disabled so the action never disappears for a
+   * document the operator can see.
+   */
+  readonly canDownload = computed(() => this.documentRead() !== null && !this._downloading());
+
+  /**
+   * `S4`: the cancel action is offered only for a document the **read** reported and that no cancellation
+   * names, and not again after a submission the authority has not decided.
+   */
+  readonly offersCancel = computed(() => {
+    const read = this.documentRead();
+    return read !== null && read.cancellation === null && this._submitted() === null;
+  });
+
   /** Whether both profile reads have answered, in either direction. */
   readonly profilesReading = computed(
     () => this.issuer().state === 'reading' || this.receiver().state === 'reading',
@@ -342,7 +411,7 @@ export class FiscalDocumentPanel implements OnInit {
         },
         error: (error: unknown) => {
           this._reading.set(false);
-          this._readError.set(apiMessage(error));
+          this._readError.set(fiscalApiMessage(error));
         },
       });
   }
@@ -386,14 +455,119 @@ export class FiscalDocumentPanel implements OnInit {
           this._issuing.set(false);
           // The key stays: the operator's intent has not answered, and regenerating it here is what would
           // let a retry stamp a second document.
-          this._issuingFailure.set(apiMessage(error));
+          this._issuingFailure.set(fiscalApiMessage(error));
         },
       });
   }
 
   /**
-   * Reads the issuer's half: the company the JWT's `company_id` claim resolves to.
+   * Downloads the stamped XML exactly as the API serves it (`S3`).
    *
+   * **The bytes never touch the page.** They arrive as a `Blob`, are handed to the browser through a
+   * temporary object URL and a synthetic `<a download>` named as the `Content-Disposition` states, and the URL
+   * is revoked afterwards. Rendering the XML inline — a `<pre>`, a textarea, an iframe, a preview — is the
+   * thing this method exists to avoid: the document an operator files and the document the SAT stamped have to
+   * be the same bytes, and a page that re-renders them cannot promise that.
+   */
+  downloadXml(): void {
+    const read = this.documentRead();
+    if (!read || this._downloading()) {
+      return;
+    }
+
+    this._downloading.set(true);
+    this._downloadFailure.set(null);
+
+    this.fiscalDocumentService
+      .reprintXml(read.documentId)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: ({ blob, fileName }) => {
+          this._downloading.set(false);
+          this.handOff(blob, fileName);
+        },
+        error: (error: unknown) => {
+          this._downloading.set(false);
+          this._downloadFailure.set(fiscalApiMessage(error));
+        },
+      });
+  }
+
+  /**
+   * Opens the cancel dialog for the document the read reported (`S4`), or does nothing when it may not.
+   *
+   * The dialog writes and this panel only reacts: a **granted** cancellation wrote a row, so the document is
+   * read again and the "cancelled" state — motive and date — comes from the API instead of the dialog's
+   * memory. A **submitted** one wrote nothing, so the read is not repeated (there is nothing new) and the
+   * answer is kept on screen instead.
+   */
+  cancel(): void {
+    const read = this.documentRead();
+    if (!read || !this.offersCancel()) {
+      return;
+    }
+
+    this.dialog
+      .open<
+        FiscalDocumentCancelDialog,
+        FiscalDocumentCancelDialogData,
+        FiscalCancellationResult | null
+      >(FiscalDocumentCancelDialog, { data: { documentId: read.documentId }, width: '560px' })
+      .afterClosed()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((answer) => {
+        // `null` is the dialog's explicit "no request", and `undefined` is every other way out — ESC, a
+        // backdrop click. Neither asked the authority for anything.
+        if (!answer) {
+          return;
+        }
+
+        if (answer.kind === 'granted') {
+          this._submitted.set(null);
+          this.loadDocument();
+          return;
+        }
+
+        // Nothing was written, so there is nothing to re-read; the answer itself is the state (`S5`).
+        this._submitted.set(cancellationOutcomeCopy(answer));
+      });
+  }
+
+  /**
+   * Hands a downloaded file to the browser: one object URL, one anchor, and the revoke in `finally`.
+   *
+   * The revoke is in `finally` **and after the click**, because an object URL is a handle the page owns until
+   * it gives it back: a hand-off that threw halfway would otherwise leak the whole document for the life of the
+   * tab. A URL that was never created is not revoked — there is nothing to revoke, and this is the one branch
+   * where the failure is the API's and the bytes never arrived.
+   */
+  private handOff(blob: Blob, fileName: string): void {
+    let objectUrl: string | null = null;
+
+    try {
+      objectUrl = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = objectUrl;
+      anchor.download = fileName;
+      anchor.rel = 'noopener';
+      // In the document only for the click: an anchor off the tree is ignored by some browsers, and one left
+      // in the tree is a link nobody asked for.
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+    } catch {
+      this._downloadFailure.set(
+        'No se pudo entregar el archivo al navegador. Volvé a intentar la descarga.',
+      );
+    } finally {
+      if (objectUrl !== null) {
+        URL.revokeObjectURL(objectUrl);
+      }
+    }
+  }
+
+  /**
+   * Reads the issuer's half: the company the JWT's `company_id` claim resolves to.
    * Two calls and no company context, because there is none to read: `CurrentUser` exposes only `sub`, so the
    * claim-scoped selector read is the only door to the row — and it carries no role gate, which is what lets a
    * seller's screen see the issuer's profile at all. The selector answers the caller's own company; the first
@@ -427,7 +601,7 @@ export class FiscalDocumentPanel implements OnInit {
         // A read that failed is not a profile that is empty: the difference is the difference between "fix the
         // company" and "reload the screen", so the failure keeps its own state.
         error: (error: unknown) =>
-          this.issuer.set({ state: 'unreadable', message: apiMessage(error) }),
+          this.issuer.set({ state: 'unreadable', message: fiscalApiMessage(error) }),
       });
   }
 
@@ -456,7 +630,7 @@ export class FiscalDocumentPanel implements OnInit {
       .subscribe({
         next: (customer) => this.receiver.set(receiverReadOf(customer)),
         error: (error: unknown) =>
-          this.receiver.set({ state: 'unreadable', message: apiMessage(error) }),
+          this.receiver.set({ state: 'unreadable', message: fiscalApiMessage(error) }),
       });
   }
 }

@@ -34,6 +34,50 @@
       }
     </dl>
 
+    @if (cancellation(); as cancelled) {
+      <!-- What survives a reload: the read stores the motive and the date, and nothing else (`L9`). -->
+      <div class="cancellation-state" data-testid="fiscal-cancelled">
+        <p class="cancellation-headline">El documento está cancelado.</p>
+        <p class="cancellation-detail">
+          Motivo {{ cancelled.motiveLabel }} · cancelado el {{ cancelled.cancelledAt }}
+        </p>
+      </div>
+    }
+
+    @if (submitted(); as answer) {
+      <!-- A 202 wrote nothing, so the read cannot state it: the answer itself says the document is still
+           valid, and a reload loses it. It is a report of an answer, never a state the API does not have. -->
+      <div class="submitted-state" data-testid="fiscal-cancel-submitted">
+        <p class="submitted-headline">{{ answer.headline }}</p>
+        <p class="submitted-detail">{{ answer.detail }}</p>
+      </div>
+    }
+
+    <div class="document-actions">
+      <!-- `S3`: a download, never a rendering. The bytes never enter the template. -->
+      <button
+        mat-stroked-button
+        type="button"
+        data-testid="fiscal-reprint"
+        [disabled]="!canDownload()"
+        (click)="downloadXml()"
+      >
+        <mat-icon fontIcon="download" />
+        Descargar XML
+      </button>
+
+      @if (offersCancel()) {
+        <button mat-stroked-button type="button" data-testid="fiscal-cancel" (click)="cancel()">
+          <mat-icon fontIcon="cancel" />
+          Cancelar documento
+        </button>
+      }
+    </div>
+
+    @if (downloadFailure(); as message) {
+      <app-error-banner [message]="message" />
+    }
+
     @if (issueReport(); as line) {
       <p class="issue-report" data-testid="fiscal-issue-report">{{ line }}</p>
     }

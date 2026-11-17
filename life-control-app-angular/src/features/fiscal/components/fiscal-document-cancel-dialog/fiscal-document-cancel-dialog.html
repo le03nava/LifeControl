@@ -1,0 +1,101 @@
+<h2 mat-dialog-title>Cancelar el documento fiscal</h2>
+
+<mat-dialog-content>
+  @if (outcome(); as answer) {
+    <!-- The two kinds are rendered as what they are: only a granted cancellation says the document is
+         cancelled, and a submitted one says the document is still valid (`S5`). -->
+    <div
+      class="cancellation-outcome"
+      [class.outcome-granted]="answer.kind === 'granted'"
+      [attr.data-testid]="'fiscal-cancel-outcome-' + answer.kind"
+    >
+      <p class="outcome-headline">{{ answer.headline }}</p>
+      <p class="outcome-detail">{{ answer.detail }}</p>
+    </div>
+  } @else {
+    @if (refusal(); as refusal) {
+      <!-- A refusal names its own cause instead of a generic banner: the deployment cannot cancel (`503`), the
+           document is not stamped here (`404`), or it was already cancelled / the authority refused (`409`). -->
+      <div
+        class="cancellation-refusal"
+        [attr.data-testid]="'fiscal-cancel-refusal-' + refusal.cause"
+      >
+        @if (refusal.headline; as headline) {
+          <p class="refusal-headline">{{ headline }}</p>
+        }
+        <p class="refusal-message">{{ refusal.message }}</p>
+      </div>
+    }
+
+    @if (saving()) {
+      <mat-progress-bar mode="indeterminate" />
+    }
+
+    <form class="cancellation-form" [formGroup]="form" (ngSubmit)="submit()">
+      <mat-form-field appearance="outline" subscriptSizing="dynamic">
+        <mat-label>Motivo de cancelación</mat-label>
+        <mat-select formControlName="motive" data-testid="fiscal-cancel-motive">
+          @for (option of motiveOptions; track option.code) {
+            <mat-option [value]="option.code">{{ option.code }} — {{ option.label }}</mat-option>
+          }
+        </mat-select>
+        @if (form.controls.motive.hasError('required')) {
+          <mat-error>Elegí el motivo que el SAT acepta</mat-error>
+        }
+        <mat-hint>El motivo es del SAT: el 01 es el único que sustituye al documento.</mat-hint>
+      </mat-form-field>
+
+      @if (requiresFolio()) {
+        <mat-form-field
+          appearance="outline"
+          subscriptSizing="dynamic"
+          data-testid="fiscal-cancel-folio"
+        >
+          <mat-label>Folio sustitutorio</mat-label>
+          <input matInput formControlName="substitutingFolio" autocomplete="off" />
+          @if (form.controls.substitutingFolio.invalid) {
+            <mat-error
+              >El motivo 01 exige el UUID fiscal del documento que sustituye al cancelado</mat-error
+            >
+          }
+          <mat-hint>
+            UUID fiscal del documento que sustituye al cancelado. Sólo se pide con el motivo 01.
+          </mat-hint>
+        </mat-form-field>
+      }
+
+      <p class="cancellation-warning">
+        La cancelación la decide el SAT: hasta que la acepte, el documento sigue vigente. Una
+        respuesta «enviada» no es una cancelación.
+      </p>
+    </form>
+  }
+</mat-dialog-content>
+
+<mat-dialog-actions align="end">
+  @if (outcome()) {
+    <button
+      mat-flat-button
+      color="primary"
+      type="button"
+      data-testid="fiscal-cancel-close"
+      (click)="close()"
+    >
+      Cerrar
+    </button>
+  } @else {
+    <button mat-stroked-button type="button" [disabled]="saving()" (click)="cancel()">
+      Volver
+    </button>
+    <button
+      mat-flat-button
+      color="primary"
+      type="button"
+      data-testid="fiscal-cancel-submit"
+      [disabled]="saving()"
+      (click)="submit()"
+    >
+      Cancelar documento
+    </button>
+  }
+</mat-dialog-actions>
