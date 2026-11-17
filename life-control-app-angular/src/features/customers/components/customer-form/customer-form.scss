@@ -1,0 +1,36 @@
+// customer-form.scss — formulario de cliente, responsivo con CSS Grid + Material Design
+//
+// Estilos base inyectados desde _form-layout.scss (shared):
+// - .form-card (card, container sizing, grid, h2)
+// - .form-actions, .full-width
+// - Touch targets WCAG
+@use '../../../../shared/styles/form-layout' as *;
+
+// The fiscal block is a section of its own: it is optional as a whole, and it says so above the fields.
+.fiscal-heading {
+  grid-column: 1 / -1;
+  margin: var(--space-sm) 0 0 0;
+  padding-bottom: var(--space-xs);
+  border-bottom: 1px solid var(--mat-sys-outline-variant);
+
+  h3 {
+    margin: 0 0 var(--space-xs) 0;
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--mat-sys-on-surface-variant);
+  }
+
+  p {
+    margin: 0;
+    font-size: 0.875rem;
+    color: var(--mat-sys-on-surface-variant);
+  }
+}
+
+// Toggle container — places the mat-slide-toggle in the form grid
+.toggle-container {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  padding-block: var(--space-sm);
+}

@@ -1,0 +1,183 @@
+<div class="form-card">
+  <h2>
+    @if (isEditMode()) {
+      Editar Cliente
+    } @else {
+      Nuevo Cliente
+    }
+  </h2>
+
+  <form [formGroup]="formGroup()" (ngSubmit)="onSave()">
+    <mat-form-field appearance="outline">
+      <mat-label>Nombre</mat-label>
+      <input
+        matInput
+        formControlName="name"
+        placeholder="Nombre con el que se reconoce al cliente"
+      />
+      @if (getErrorMessage(formGroup().controls.name); as msg) {
+        <mat-error>{{ msg }}</mat-error>
+      }
+    </mat-form-field>
+
+    <mat-form-field appearance="outline">
+      <mat-label>Correo Electrónico</mat-label>
+      <mat-icon matPrefix>mail</mat-icon>
+      <input matInput type="email" formControlName="email" placeholder="correo@ejemplo.com" />
+      @if (getErrorMessage(formGroup().controls.email); as msg) {
+        <mat-error>{{ msg }}</mat-error>
+      }
+    </mat-form-field>
+
+    <mat-form-field appearance="outline">
+      <mat-label>Teléfono</mat-label>
+      <mat-icon matPrefix>phone</mat-icon>
+      <input matInput formControlName="phone" placeholder="10 dígitos" />
+      @if (getErrorMessage(formGroup().controls.phone); as msg) {
+        <mat-error>{{ msg }}</mat-error>
+      }
+    </mat-form-field>
+
+    <mat-form-field appearance="outline">
+      <mat-label>RFC</mat-label>
+      <input matInput formControlName="rfc" placeholder="RFC (12-13 caracteres)" />
+      <mat-hint>Se valida la forma; la condición fiscal la confirma el SAT.</mat-hint>
+      @if (getErrorMessage(formGroup().controls.rfc, rfcErrorMessages); as msg) {
+        <mat-error>{{ msg }}</mat-error>
+      }
+    </mat-form-field>
+
+    <!-- Canal de venta: obligatorio, texto libre y sin default — el operador lo declara. -->
+    <mat-form-field appearance="outline">
+      <mat-label>Canal de venta</mat-label>
+      <input matInput formControlName="salesChannel" placeholder="TODOS" />
+      <mat-hint>
+        Obligatorio. El único valor que el sistema siembra es TODOS: escribí el canal que
+        corresponda.
+      </mat-hint>
+      @if (getErrorMessage(formGroup().controls.salesChannel); as msg) {
+        <mat-error>{{ msg }}</mat-error>
+      }
+    </mat-form-field>
+
+    <div class="toggle-container">
+      <mat-slide-toggle formControlName="enabled">Activo</mat-slide-toggle>
+    </div>
+
+    <!--
+      Perfil fiscal del receptor: opcional para vender, requerido para emitir. Los cuatro hechos que consume
+      un CFDI se declaran juntos o no se declara ninguno, y la negativa nombra cada uno al lado de su campo.
+    -->
+    <div class="fiscal-heading">
+      <h3>Perfil fiscal del receptor</h3>
+      <p>
+        Opcional para vender, obligatorio para emitir. Si declarás alguno de estos cuatro datos, el
+        perfil se declara completo: razón social, régimen fiscal, código postal fiscal y uso de CFDI
+        por defecto.
+      </p>
+    </div>
+
+    <ng-container formGroupName="fiscal">
+      <mat-form-field appearance="outline">
+        <mat-label>Razón social fiscal</mat-label>
+        <input
+          matInput
+          formControlName="legalName"
+          maxlength="255"
+          placeholder="Como la nombra el CFDI"
+        />
+        @if (fiscalError('legalName'); as msg) {
+          <mat-error>{{ msg }}</mat-error>
+        }
+      </mat-form-field>
+
+      <mat-form-field appearance="outline">
+        <mat-label>Régimen fiscal</mat-label>
+        <mat-select formControlName="regimenFiscal">
+          @if (!formGroup().controls.fiscal.controls.regimenFiscal.value) {
+            <mat-option value="">— No declarado —</mat-option>
+          }
+          @for (regimen of regimenFiscalOptions; track regimen.code) {
+            <mat-option [value]="regimen.code">{{ regimen.code }} — {{ regimen.label }}</mat-option>
+          }
+        </mat-select>
+        @if (fiscalError('regimenFiscal'); as msg) {
+          <mat-error>{{ msg }}</mat-error>
+        }
+      </mat-form-field>
+
+      <mat-form-field appearance="outline">
+        <mat-label>Código postal fiscal</mat-label>
+        <input
+          matInput
+          formControlName="fiscalZipCode"
+          maxlength="5"
+          inputmode="numeric"
+          placeholder="06600"
+        />
+        <mat-hint>El domicilio fiscal del receptor, no el de la dirección de envío.</mat-hint>
+        @if (fiscalError('fiscalZipCode'); as msg) {
+          <mat-error>{{ msg }}</mat-error>
+        }
+      </mat-form-field>
+
+      <mat-form-field appearance="outline">
+        <mat-label>Uso de CFDI por defecto</mat-label>
+        <mat-select formControlName="defaultUsoCfdi">
+          @if (!formGroup().controls.fiscal.controls.defaultUsoCfdi.value) {
+            <mat-option value="">— No declarado —</mat-option>
+          }
+          @for (uso of usoCfdiOptions; track uso.code) {
+            <mat-option [value]="uso.code">{{ uso.code }} — {{ uso.label }}</mat-option>
+          }
+        </mat-select>
+        @if (fiscalError('defaultUsoCfdi'); as msg) {
+          <mat-error>{{ msg }}</mat-error>
+        }
+      </mat-form-field>
+
+      <mat-form-field appearance="outline">
+        <mat-label>Calle y número fiscales</mat-label>
+        <input
+          matInput
+          formControlName="fiscalStreet"
+          maxlength="255"
+          placeholder="Av. Reforma 100"
+        />
+      </mat-form-field>
+
+      <mat-form-field appearance="outline">
+        <mat-label>Estado o provincia fiscal</mat-label>
+        <input
+          matInput
+          formControlName="fiscalState"
+          maxlength="120"
+          placeholder="Ciudad de México"
+        />
+      </mat-form-field>
+
+      <mat-form-field appearance="outline">
+        <mat-label>País fiscal</mat-label>
+        <mat-select formControlName="fiscalCountryId">
+          @if (!formGroup().controls.fiscal.controls.fiscalCountryId.value) {
+            <mat-option value="">— No declarado —</mat-option>
+          }
+          @for (country of countries(); track country.id) {
+            <mat-option [value]="country.id">{{ country.countryName }}</mat-option>
+          }
+        </mat-select>
+      </mat-form-field>
+    </ng-container>
+
+    <div class="form-actions">
+      <button mat-button type="button" (click)="onCancel()">Cancelar</button>
+      <button mat-flat-button type="submit">
+        @if (!isEditMode()) {
+          Guardar
+        } @else {
+          Actualizar
+        }
+      </button>
+    </div>
+  </form>
+</div>

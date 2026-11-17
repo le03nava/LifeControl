@@ -1,10 +1,13 @@
 <div class="customer-list-page">
   <!--
-    `showActions` es false a propósito: esta unidad no agrega ninguna ruta de escritura (`S5`), así que el
-    encabezado no tiene ningún botón que ofrecer. «Agregar Cliente» llega con el formulario, en la unidad
-    hermana.
+    La acción del encabezado lleva a `/customers/create`, que es hija del mismo padre con gate que esta lista:
+    los dos roles que abren la lista abren también el alta (`odd/tasks/customers-fiscal-form.md`).
   -->
-  <app-page-header title="Clientes" subtitle="Clientes de la empresa" [showActions]="false" />
+  <app-page-header title="Clientes" subtitle="Clientes de la empresa">
+    <button mat-flat-button color="primary" routerLink="/customers/create">
+      <mat-icon fontIcon="add" /> Nuevo cliente
+    </button>
+  </app-page-header>
 
   <!-- Filtro de búsqueda -->
   <div class="filters-section">
@@ -68,7 +71,7 @@
       @if (page && page.content.length > 0) {
         @for (customer of page.content; track customer.id; let i = $index) {
           <div class="card-wrapper" [style.--i]="i">
-            <app-customer-card [customer]="customer" />
+            <app-customer-card [customer]="customer" (editCustomer)="onEditCustomer($event)" />
           </div>
         }
       } @else {

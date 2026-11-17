@@ -13,7 +13,8 @@ import { CUSTOMER_ROLES, customerRoutes } from './customers.routes';
  */
 describe('customerRoutes', () => {
   const [parent] = customerRoutes;
-  const [listChild] = parent.children ?? [];
+  const children = parent.children ?? [];
+  const childByPath = (path: string) => children.find((route) => route.path === path);
 
   it('gates the parent with the two roles the API states', () => {
     expect(parent.canActivate).toContain(keycloakRoleGuard);
@@ -22,25 +23,47 @@ describe('customerRoutes', () => {
   });
 
   it('gates the list child as well, so a direct URL is not a way around the menu', () => {
+    const listChild = childByPath('');
+
     expect(listChild).toBeDefined();
-    expect(listChild.canActivate).toContain(keycloakRoleGuard);
-    expect(listChild.data?.['roles']).toEqual(CUSTOMER_ROLES);
+    expect(listChild?.canActivate).toContain(keycloakRoleGuard);
+    expect(listChild?.data?.['roles']).toEqual(CUSTOMER_ROLES);
   });
 
   it('names the client the guard reads the roles from', () => {
-    // The guard resolves `resource_access[clientId].roles`; without this the entry would gate nothing.
+    // The guard resolves `resource_access[clientId].roles`; without this entry the route would gate nothing.
     expect(parent.data?.['clientId']).toBe(CLIENT_ID);
-    expect(listChild.data?.['clientId']).toBe(CLIENT_ID);
+    expect(childByPath('')?.data?.['clientId']).toBe(CLIENT_ID);
   });
 
   it('serves the list at /customers, not /customers/list', () => {
+    const listChild = childByPath('');
+
     expect(parent.path).toBe('');
-    expect(listChild.path).toBe('');
-    expect(listChild.loadComponent).toBeDefined();
+    expect(listChild?.loadComponent).toBeDefined();
+    // `pathMatch: 'full'` is what keeps the empty path from swallowing the sibling routes below it.
+    expect(listChild?.pathMatch).toBe('full');
   });
 
-  it('declares no create or edit route in this unit', () => {
-    // S5: this unit adds no write path. A route that lands early would point at nothing.
-    expect((parent.children ?? []).map((route) => route.path)).toEqual(['']);
+  // `L2` of `odd/tasks/customers-fiscal-form.md`: this assertion used to say the opposite, and it is
+  // **inverted, not deleted** — its being false is the proof this unit did its job.
+  it('declares the create and edit routes this unit delivers, beside the list', () => {
+    const paths = children.map((route) => route.path);
+
+    expect(paths).toEqual(expect.arrayContaining(['', 'create', 'edit/:id']));
+    expect(childByPath('create')?.loadComponent).toBeDefined();
+    expect(childByPath('edit/:id')?.loadComponent).toBeDefined();
+  });
+
+  it('covers the two new screens with the same gate the list carries', () => {
+    for (const path of ['create', 'edit/:id']) {
+      const route = childByPath(path);
+
+      // They are children of the gated parent, and they state the pair themselves: a screen that answers a
+      // direct URL is a screen the menu's visibility cannot protect.
+      expect(route?.canActivate).toContain(keycloakRoleGuard);
+      expect(route?.data?.['roles']).toEqual(CUSTOMER_ROLES);
+      expect(route?.data?.['clientId']).toBe(CLIENT_ID);
+    }
   });
 });
