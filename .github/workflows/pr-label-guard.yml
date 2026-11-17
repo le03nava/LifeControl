@@ -57,6 +57,22 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          # Full history, because `odd-citations.test.sh` resolves every commit a record cites and needs a
+          # base to resolve them against. A shallow checkout has neither the objects nor the ref, so its
+          # ancestry half would announce a skip and check nothing while reporting green -- the false pass
+          # this suite exists to remove. The other suites read files only and do not care.
+          fetch-depth: 0
+
+      # `actions/checkout` materialises the pull request's ref and not the base branch, so the citation
+      # audit would have no base to resolve against and would announce a skip while reporting green. The
+      # audit's authority is `origin/main` and nothing else, so this fetches exactly that ref: fetching
+      # `origin/<base>` would leave a pull request against another base resolving nothing at all.
+      - name: Fetch the base the citation audit resolves against
+        shell: bash
+        run: |
+          git fetch --no-tags origin '+refs/heads/main:refs/remotes/origin/main'
+          git rev-parse --verify refs/remotes/origin/main
 
       - name: ShellCheck
         shell: bash
