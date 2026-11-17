@@ -40,6 +40,16 @@ export interface Company {
    * dropping a value it had already received.
    */
   currency: string;
+  /**
+   * SAT régime code the company declares as the issuer of its fiscal documents (`V102`).
+   *
+   * Nullable by design: the profile is required to issue, never to sell, so a company that declares
+   * nothing is a complete row. The vocabulary is the shared `REGIMEN_FISCAL_OPTIONS` const
+   * (`src/shared/fiscal/regimen-fiscal.ts`).
+   */
+  regimenFiscal?: string;
+  /** The place of issue the CFDI states (`companies.fiscal_zip_code`, five digits) — not the mailing zip. */
+  fiscalZipCode?: string;
   address?: AddressValue;
   enabled: boolean;
   createdAt: string;
@@ -59,6 +69,13 @@ export interface CompanyRequest {
   emailDomain?: string;
   /** Required by `CompanyRequest` with no default: the operator states it, the API refuses a blank. */
   currency: string;
+  /**
+   * Optional, like the API DTO. Sent as `''` when blank, which the API normalizes to `null`: the column is
+   * written only when the request carries a non-null value, so `null` on a PUT means "leave what is stored".
+   */
+  regimenFiscal?: string;
+  /** Optional and five digits when stated; `''` follows the same rule as {@link regimenFiscal}. */
+  fiscalZipCode?: string;
   enabled: boolean;
   address?: AddressRequest;
 }
@@ -88,6 +105,8 @@ export interface CompanyControl {
   emailDomain: FormControl<string>;
   phone: FormControl<string>;
   currency: FormControl<string>;
+  regimenFiscal: FormControl<string>;
+  fiscalZipCode: FormControl<string>;
   address: FormGroup<AddressControl>;
   enabled: FormControl<boolean>;
 }

@@ -38,6 +38,13 @@ import { ErrorBanner } from '@shared/ui';
 const EMAIL_DOMAIN_PATTERN =
   /^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)+$/;
 
+/**
+ * The place of issue the CFDI states: exactly five digits, the shape `CompanyRequest.fiscalZipCode`
+ * declares with `@Pattern("\\d{5}")`. Blank stays valid — the profile is optional — because Angular's
+ * pattern validator skips an empty value.
+ */
+const FISCAL_ZIP_CODE_PATTERN = /^\d{5}$/;
+
 @Component({
   selector: 'app-company-edit',
   imports: [ReactiveFormsModule, ErrorBanner, CompaniesForm],
@@ -113,6 +120,13 @@ export class CompanyEdit implements OnInit {
               ]),
               phone: this.fb.control(company.phone, Validators.pattern(/^(\+52\d{10}|\d{10})$/)),
               currency: this.fb.control(company.currency, Validators.required),
+              // Both fiscal fields are optional and hydrated from the read: omitting one here is what
+              // leaves it empty after load while looking correct on create (a second builder exists).
+              regimenFiscal: this.fb.control(company.regimenFiscal ?? ''),
+              fiscalZipCode: this.fb.control(
+                company.fiscalZipCode ?? '',
+                Validators.pattern(FISCAL_ZIP_CODE_PATTERN),
+              ),
               address: new FormGroup<AddressControl>({
                 street: new FormControl<string | null>(company.address?.street ?? null, {
                   nonNullable: false,
@@ -169,6 +183,10 @@ export class CompanyEdit implements OnInit {
       // D1: starts empty. Pre-selecting `MXN` would restore, one layer up, exactly the default
       // ADR-0002 decision 2 (D-c) refuses on the server.
       currency: this.fb.control('', Validators.required),
+      // Nothing is preselected here for the same reason the currency above starts empty: a régime the
+      // operator never chose would be a default written one layer up. Optional, so no `required` validator.
+      regimenFiscal: this.fb.control(''),
+      fiscalZipCode: this.fb.control('', Validators.pattern(FISCAL_ZIP_CODE_PATTERN)),
       address: new FormGroup<AddressControl>({
         street: new FormControl<string | null>(null, { nonNullable: false }),
         streetNumber: new FormControl<string | null>(null, { nonNullable: false }),
@@ -242,6 +260,10 @@ export class CompanyEdit implements OnInit {
       // Always present: the API normalizes `''` to `null`, and a PUT is a full replacement.
       emailDomain: company.emailDomain ?? '',
       currency: company.currency,
+      // Always present, like `emailDomain`: the API normalizes `''` to `null`, and `null` on a PUT means
+      // "leave what is stored" — which is the only way this request DTO can say "nothing declared".
+      regimenFiscal: company.regimenFiscal ?? '',
+      fiscalZipCode: company.fiscalZipCode ?? '',
       enabled: company.enabled,
       ...(hasAddress ? { address } : {}),
     };

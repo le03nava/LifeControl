@@ -53,6 +53,11 @@ describe('CompaniesForm', () => {
         validators: [Validators.pattern(/^\+?\d{10,13}$/)],
       }),
       currency: new FormControl('', { nonNullable: true, validators: Validators.required }),
+      regimenFiscal: new FormControl('', { nonNullable: true }),
+      fiscalZipCode: new FormControl('', {
+        nonNullable: true,
+        validators: [Validators.pattern(/^\d{5}$/)],
+      }),
       address: createAddressGroup(),
       enabled: new FormControl<boolean>(true, { nonNullable: true }),
     });
@@ -384,6 +389,140 @@ describe('CompaniesForm', () => {
 
       expect(emitted).toBeDefined();
       expect(emitted!.emailDomain).toBe('acme.com');
+    });
+  });
+
+  /**
+   * The issuer's fiscal profile — the régimen (`V102`, `RegimenFiscal`) and the place of issue
+   * (`companies.fiscal_zip_code`, five digits).
+   *
+   * Both are optional: required to issue a fiscal document and never to sell, so a company that declares
+   * neither stays complete and keeps saving exactly as before. The empty option of the régimen is offered
+   * **only while nothing is declared**, because the API writes the column only when the request carries it
+   * (`CompanyService:281-285`): a `null` is read as "leave what is stored", so a select that offered
+   * "vacío" over a declared code would show an empty screen while the server keeps `601`.
+   */
+  describe('issuer fiscal profile', () => {
+    function openRegimenSelect(): MatSelect {
+      const select = fixture.debugElement.query(
+        By.css('mat-select[formControlName="regimenFiscal"]'),
+      ).componentInstance as MatSelect;
+      select.open();
+      fixture.detectChanges();
+      return select;
+    }
+
+    function optionLabels(): string[] {
+      return Array.from(document.querySelectorAll('mat-option') as NodeListOf<Element>).map(
+        (option) => option.textContent?.trim() ?? '',
+      );
+    }
+
+    function fiscalFormField(controlName: string): HTMLElement | null {
+      return fixture.nativeElement
+        .querySelector(`[formControlName="${controlName}"]`)
+        ?.closest('mat-form-field');
+    }
+
+    it('should render the regime as a select over the vocabulary the API declares', () => {
+      expect(
+        fiscalFormField('regimenFiscal')?.querySelector('mat-label')?.textContent?.trim(),
+      ).toBe('Régimen fiscal');
+
+      const select = openRegimenSelect();
+      const labels = optionLabels();
+
+      expect(labels).toHaveLength(20);
+      expect(labels[0]).toBe('— No declarado —');
+      // Two samples instead of the whole list: the vocabulary spec pins every code and every label
+      // against `RegimenFiscal.java`, and this one pins that the template renders code and description.
+      expect(labels).toContain(
+        '612 — Personas Físicas con Actividades Empresariales y Profesionales',
+      );
+      expect(labels).toContain('626 — Régimen Simplificado de Confianza (RESICO)');
+
+      select.close();
+      fixture.detectChanges();
+    });
+
+    it('should stop offering the empty option once a regime is declared', () => {
+      component.formGroup().get('regimenFiscal')!.setValue('612');
+      fixture.detectChanges();
+
+      const select = openRegimenSelect();
+      const labels = optionLabels();
+
+      expect(labels).toHaveLength(19);
+      expect(labels).not.toContain('— No declarado —');
+
+      select.close();
+      fixture.detectChanges();
+    });
+
+    it('should render the place of issue as a five-digit input', () => {
+      const input = fixture.nativeElement.querySelector('input[formControlName="fiscalZipCode"]');
+
+      expect(input).not.toBeNull();
+      expect(input?.getAttribute('maxlength')).toBe('5');
+      expect(
+        fiscalFormField('fiscalZipCode')?.querySelector('mat-label')?.textContent?.trim(),
+      ).toBe('Código postal fiscal');
+    });
+
+    it('should emit the declared regime and place of issue', () => {
+      fillRequiredFields();
+      component.formGroup().get('regimenFiscal')!.setValue('612');
+      component.formGroup().get('fiscalZipCode')!.setValue('06600');
+
+      let emitted: CompanyFormValue | undefined;
+      component.saveCompany.subscribe((value: CompanyFormValue) => {
+        emitted = value;
+      });
+
+      component.onSave();
+
+      expect(emitted).toBeDefined();
+      expect(emitted!.regimenFiscal).toBe('612');
+      expect(emitted!.fiscalZipCode).toBe('06600');
+    });
+
+    it('should refuse a place of issue that is not five digits, and emit nothing', () => {
+      fillRequiredFields();
+      const zip = component.formGroup().get('fiscalZipCode')!;
+      zip.setValue('6600');
+      zip.markAsTouched();
+      fixture.detectChanges();
+
+      expect(zip.hasError('pattern')).toBe(true);
+      expect(
+        fiscalFormField('fiscalZipCode')?.querySelector('mat-error')?.textContent?.trim(),
+      ).toBe('El código postal fiscal debe tener cinco dígitos.');
+
+      let emitted: CompanyFormValue | undefined;
+      component.saveCompany.subscribe((value: CompanyFormValue) => {
+        emitted = value;
+      });
+
+      component.onSave();
+
+      expect(emitted).toBeUndefined();
+    });
+
+    it('should keep the fiscal profile optional', () => {
+      fillRequiredFields();
+
+      let emitted: CompanyFormValue | undefined;
+      component.saveCompany.subscribe((value: CompanyFormValue) => {
+        emitted = value;
+      });
+
+      component.onSave();
+
+      expect(emitted).toBeDefined();
+      // Empty, not absent: the API normalizes `''` to `null`, which is the honest way to say "this company
+      // has not declared its fiscal identity" — and `null` on a PUT leaves what is stored untouched.
+      expect(emitted!.regimenFiscal).toBe('');
+      expect(emitted!.fiscalZipCode).toBe('');
     });
   });
 });
