@@ -1,4 +1,12 @@
-import { ChangeDetectionStrategy, Component, computed, effect, input, output } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  effect,
+  input,
+  output,
+  signal,
+} from '@angular/core';
 import { AbstractControl, FormGroup, ReactiveFormsModule } from '@angular/forms';
 import { Subscription } from 'rxjs';
 import { CompanyControl, CompanyFormValue } from '../../models/company.models';
@@ -11,6 +19,7 @@ import { MatIconModule } from '@angular/material/icon';
 import { AddressFormComponent } from '@shared/ui/address-form';
 import { Country } from '@features/companies/countries/models/country.models';
 import { Currency } from '../../data/currency.models';
+import { REGIMEN_FISCAL_OPTIONS } from '@shared/fiscal/regimen-fiscal';
 
 @Component({
   selector: 'app-companies-form',
@@ -43,6 +52,28 @@ export class CompaniesForm {
     { value: 2, label: 'Persona Moral' },
   ];
 
+  /**
+   * The issuer's régime vocabulary, from the shared catalog so the receiver's screen reads the same one.
+   * The labels are the enum's own descriptions; `regimen-fiscal.spec.ts` keeps them in step with the API.
+   */
+  readonly regimenFiscalOptions = REGIMEN_FISCAL_OPTIONS;
+
+  /**
+   * Whether the loaded company already declares a régime.
+   *
+   * The empty option is offered **only** while nothing is declared: the API writes the column only when the
+   * request carries it (`CompanyService`), and the request DTO normalizes `''` to `null`, which on a PUT
+   * means "leave what is stored". Offering "no declarado" over a declared code would show an empty screen
+   * while the server keeps the old value.
+   *
+   * It reads {@link regimenFiscalValue} rather than the control directly: a form control's `value` is not a
+   * signal, so a `computed` that read it would be cached once through the `formGroup()` input and would
+   * never update when the operator picks a code.
+   */
+  readonly hasDeclaredRegimen = computed(() => !!this.regimenFiscalValue());
+
+  private readonly regimenFiscalValue = signal('');
+
   protected readonly rfcErrorMessages: Record<string, (error: unknown) => string> = {
     pattern: () => 'El RFC debe tener 12-13 caracteres alfanuméricos.',
   };
@@ -58,6 +89,11 @@ export class CompaniesForm {
 
   protected readonly phoneErrorMessages: Record<string, (error: unknown) => string> = {
     pattern: () => 'Ingrese un número de teléfono válido.',
+  };
+
+  /** The same five-digit shape the API declares with `@Pattern("\\d{5}")` on `fiscalZipCode`. */
+  protected readonly fiscalZipCodeErrorMessages: Record<string, (error: unknown) => string> = {
+    pattern: () => 'El código postal fiscal debe tener cinco dígitos.',
   };
 
   private readonly defaultErrorMessages: Record<string, (error: unknown) => string> = {
@@ -93,6 +129,15 @@ export class CompaniesForm {
   readonly isEditMode = computed(() => !!this.formGroup()?.controls.id.value);
 
   constructor() {
+    // The régime control's value, mirrored into a signal so `hasDeclaredRegimen` follows it, and
+    // re-subscribed whenever the input form group is replaced (the edit page rebuilds it after loading).
+    effect((onCleanup) => {
+      const control = this.formGroup().controls.regimenFiscal;
+      this.regimenFiscalValue.set(control.value);
+      const sub = control.valueChanges.subscribe((value) => this.regimenFiscalValue.set(value));
+      onCleanup(() => sub.unsubscribe());
+    });
+
     effect((onCleanup) => {
       const serverErrors = this.serverErrors();
       const fg = this.formGroup();
@@ -152,6 +197,9 @@ export class CompaniesForm {
         emailDomain: raw.emailDomain ?? '',
         phone: raw.phone,
         currency: raw.currency,
+        // Empty, not absent: the API normalizes `''` to `null`, and `null` on a PUT leaves what is stored.
+        regimenFiscal: raw.regimenFiscal ?? '',
+        fiscalZipCode: raw.fiscalZipCode ?? '',
         enabled: raw.enabled,
         ...(hasAddress ? { address: raw.address } : {}),
       };

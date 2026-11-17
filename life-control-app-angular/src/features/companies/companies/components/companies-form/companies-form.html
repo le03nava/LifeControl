@@ -99,6 +99,40 @@
       }
     </mat-form-field>
 
+    <!-- Identidad fiscal del emisor: opcional para vender, requerida para emitir -->
+    <mat-form-field appearance="outline">
+      <mat-label>Régimen fiscal</mat-label>
+      <mat-select formControlName="regimenFiscal">
+        @if (!hasDeclaredRegimen()) {
+          <mat-option value="">— No declarado —</mat-option>
+        }
+        @for (regimen of regimenFiscalOptions; track regimen.code) {
+          <mat-option [value]="regimen.code">{{ regimen.code }} — {{ regimen.label }}</mat-option>
+        }
+      </mat-select>
+      @if (getErrorMessage(formGroup().controls.regimenFiscal); as msg) {
+        <mat-error>{{ msg }}</mat-error>
+      }
+    </mat-form-field>
+
+    <mat-form-field appearance="outline">
+      <mat-label>Código postal fiscal</mat-label>
+      <input
+        matInput
+        formControlName="fiscalZipCode"
+        maxlength="5"
+        inputmode="numeric"
+        placeholder="06600"
+      />
+      <mat-hint>Lugar de expedición del CFDI, no el código postal de la dirección.</mat-hint>
+      @if (
+        getErrorMessage(formGroup().controls.fiscalZipCode, fiscalZipCodeErrorMessages);
+        as msg
+      ) {
+        <mat-error>{{ msg }}</mat-error>
+      }
+    </mat-form-field>
+
     <!-- Address section (delegated to shared AddressFormComponent) -->
     <app-address-form
       [addressFormGroup]="formGroup().controls.address"

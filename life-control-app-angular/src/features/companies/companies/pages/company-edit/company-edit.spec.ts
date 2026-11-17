@@ -385,6 +385,8 @@ describe('CompanyEdit', () => {
       email: 'corp@test.com',
       emailDomain: 'test.com',
       currency: 'USD',
+      regimenFiscal: '',
+      fiscalZipCode: '',
       enabled: true,
     };
 
@@ -468,6 +470,8 @@ describe('CompanyEdit', () => {
         email: 'test@test.com',
         emailDomain: 'test.com',
         currency: 'MXN',
+        regimenFiscal: '',
+        fiscalZipCode: '',
         enabled: true,
       });
     });
