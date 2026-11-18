@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
 
 /**
- * Atom: Basic button component following modern Angular 20 patterns
+ * Atom: Basic button component following modern Angular 22 patterns
  * Features:
  * - Signal-based inputs and outputs
  * - Host object for better performance

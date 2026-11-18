@@ -5,9 +5,9 @@ import { LoadingIndicator } from '@shared/ui/loading-indicator';
 import { NotificationToast } from '@shared/ui/notification-toast/notification-toast';
 import { LayoutModule } from '@angular/cdk/layout';
 /**
- * Main application component using modern Angular 20 architecture
+ * Main application component using modern Angular 22 architecture
  * Features:
- * - Standalone component (default in Angular 20)
+ * - Standalone component (default in Angular 22)
  * - Signal-based reactive programming
  * - Zoneless change detection
  * - Modern template syntax with control flow

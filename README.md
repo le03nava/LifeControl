@@ -55,8 +55,7 @@ El proyecto consolidó toda la lógica de negocio en el monolito modular `life-c
 |---------------------|-------------------------|----------------------------------|----------------------------|
 | LifeControl API     | `life-control-api/`     | Spring Boot 4.1 + PostgreSQL     | **Módulo central** — compañías, países, regiones, zonas, usuarios, roles, productos, ventas, compras, auditoría |
 | API Gateway         | `api-gateway/`          | Spring Cloud Gateway             | Proxy, enrutamiento        |
-| Angular App         | `life-control-app-angular/` | Angular 20.3, SPA, Material | Frontend de gestión        |
-| Backstage           | `backstage/`            | Backstage framework              | Developer portal           |
+| Angular App         | `life-control-app-angular/` | Angular 22.2.3, SPA, Material | Frontend de gestión        |
 
 ---
 
@@ -82,7 +81,7 @@ LifeControl/
 │   ├── sdd/                            # SDD artifacts
 │   └── build.gradle
 │
-├── life-control-app-angular/           # Angular 20 (SSR + Material)
+├── life-control-app-angular/           # Angular 22 (SPA + Material)
 │
 ├── api-gateway/                        # Spring Cloud Gateway
 │
@@ -96,8 +95,6 @@ LifeControl/
 │       └── cleanup.sh
 │
 ├── k8s/                                # Kubernetes manifests (opcional)
-│
-└── backstage/                          # Developer portal
 ```
 
 ---
@@ -107,7 +104,7 @@ LifeControl/
 ### Prerrequisitos
 
 - Java 21+
-- Node.js 20+
+- Node.js 24.15+
 - Docker + Docker Compose
 - Angular CLI (`npm i -g @angular/cli`)
 

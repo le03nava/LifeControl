@@ -624,7 +624,7 @@ describe('ProductEdit', () => {
 
     it('should report true after a user edit', () => {
       setup();
-      // `setValue` alone does not mark a reactive control dirty in Angular 20;
+      // `setValue` alone does not mark a reactive control dirty;
       // a real user edit both changes the value and marks the control dirty.
       const sku = component.productForm().get('sku');
       sku?.setValue('X');
