@@ -74,9 +74,14 @@ fail() {
 EXPECTED_SHELLCHECK_TAG="v0.11.0"
 
 # The frozen lint surfaces. Each root must be named by the `find` of at least one workflow's
-# shellcheck step, whichever one: `.github/scripts` and `.githooks` are linted by the guard's step
-# and `docker/scripts` by the integrity job's. `k8s` was named by neither until #955, and the cost
-# was two scripts with no interpreter to run them under and no suite that could see it.
+# lint step, whichever one: `.github/scripts` and `.githooks` are named by the guard's step and
+# `docker/scripts` by the integrity job's. `k8s` was named by neither until #955, and the cost was two
+# scripts with no interpreter to run them under and no suite that could see it.
+#
+# Spelled as `lint step` on purpose: a comment line whose first token is `shellcheck` is a directive,
+# not prose, and ShellCheck fails the run with SC1073/SC1072 on a malformed one. The first version of
+# this comment opened that way and broke the very step the glob belongs to -- no suite sees it, because
+# suites do not lint themselves.
 EXPECTED_LINT_SURFACES=".github/scripts .githooks docker/scripts k8s"
 
 # ------------------------------------------
