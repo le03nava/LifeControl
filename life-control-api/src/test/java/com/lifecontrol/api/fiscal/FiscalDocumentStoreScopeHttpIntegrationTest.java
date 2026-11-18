@@ -178,6 +178,13 @@ class FiscalDocumentStoreScopeHttpIntegrationTest extends AbstractPostgresIntegr
                         .with(tokenAt(seed.anotherStore())))
                 .andExpect(status().isNoContent())
                 .andExpect(content().string(""));
+
+        // And the same sale answers the store that does not own it with the refusal, not with the 204: whether a
+        // sale of another store was invoiced is not a state this caller may read (L10).
+        mockMvc.perform(get(BASE_URL + "/by-sale/{id}", otherStoreSaleWithoutDocument)
+                        .with(tokenAt(seed.store())))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.status").value(403));
     }
 
     // ──────────────────────────────────────
@@ -265,6 +272,55 @@ class FiscalDocumentStoreScopeHttpIntegrationTest extends AbstractPostgresIntegr
         mockMvc.perform(get(BASE_URL + "/by-sale/{id}", saleOf(otherDocument)).with(adminToken()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.uuidFiscal").value(otherUuidFiscal));
+    }
+
+    @Test
+    @DisplayName("S7/L7: a broader role keeps its wider scope, so an lc-company-region caller reads either store's "
+            + "document without a store claim")
+    void aBroaderRoleIsNotNarrowedToTheStore() throws Exception {
+        // The guard asks for the broadest scope the caller holds, so a principal that also holds a company-region
+        // role is verified up to the region and never down to the store. This is the second shape S7/L7 promises and
+        // the one a deployment with mixed grants depends on.
+        mockMvc.perform(get(BASE_URL + "/by-sale/{id}", saleOf(otherDocument))
+                        .with(jwt().authorities(
+                                        new SimpleGrantedAuthority("ROLE_lc-sales"),
+                                        new SimpleGrantedAuthority("ROLE_lc-company-region"))
+                                .jwt(builder -> builder.subject(SUBJECT)
+                                        .claim("company_id", seed.company().toString())
+                                        .claim(
+                                                "company_country_id",
+                                                seed.companyCountry().toString())
+                                        .claim(
+                                                "company_region_id",
+                                                seed.region().toString()))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.uuidFiscal").value(otherUuidFiscal));
+    }
+
+    // ──────────────────────────────────────
+    // S3 — the refusal precedes the state the document already has
+    // ──────────────────────────────────────
+
+    @Test
+    @DisplayName("S3/S5: an already-cancelled document of another store answers 403 and never 409, because the store "
+            + "is decided before the cancellation is looked for")
+    void alreadyCancelledForeignDocumentIsForbiddenAndNotAConflict() throws Exception {
+        // The owner cancels it first, so the row this caller must not learn about is the cancellation copy.
+        mockMvc.perform(post(BASE_URL + "/{id}/cancellation", otherDocument)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"motive\":\"02\"}")
+                        .with(tokenAt(seed.anotherStore())))
+                .andExpect(status().isCreated());
+
+        // Pre-fix this answered 409 — "already cancelled" — which told a caller of another store both that the
+        // document exists and what state it is in. The guard runs before that read, so the answer is the same 403 a
+        // stamped document of that store receives.
+        mockMvc.perform(post(BASE_URL + "/{id}/cancellation", otherDocument)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"motive\":\"02\"}")
+                        .with(tokenAt(seed.store())))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.status").value(403));
     }
 
     // ──────────────────────────────────────

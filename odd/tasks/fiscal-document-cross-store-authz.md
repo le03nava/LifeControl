@@ -33,12 +33,13 @@ Quoted from issue #967 (`### Acceptance criteria`), verbatim. `S7`–`S8` come f
 
 | ID | Spec | Route | What | Commit |
 |----|------|-------|------|--------|
-| T1 | S1–S8 | inline | The seed states the caller's real company → country → region → zone → store chain, so every existing fiscal suite keeps passing through a real guard instead of a short-circuit | `95ed5f3c` |
-| T2 | S1, S4, S8 | inline | `FiscalDocumentStoreScope`: the one collaborator that resolves a sale's store and hands its chain to `verifyCompanyStoreAccess` | `d9c43d70` |
-| T3 | S1, S5 | inline | Guard in `FiscalDocumentReadService#readBySale`, on the sale it already loaded, before any document is read | `d9c43d70` |
-| T4 | S2, S5 | inline | Guard in `FiscalDocumentReprintService#reprintXml`, after the document is resolved and before the artefact is read | `d9c43d70` |
-| T5 | S3, S5, S8 | inline | Guard in `FiscalDocumentCancellationService#cancel`, before the authority is called and before the already-cancelled check answers, plus on the substituting document | `d9c43d70` |
+| T1 | S1–S8 | inline | The seed states the caller's real company → country → region → zone → store chain, so every existing fiscal suite keeps passing through a real guard instead of a short-circuit | patch-id:110a474c44095bf0d69156c8a8e0c6b02186f321 |
+| T2 | S1, S4, S8 | inline | `FiscalDocumentStoreScope`: the one collaborator that resolves a sale's store and hands its chain to `verifyCompanyStoreAccess` | patch-id:f3c8a6e61c67164ff1aafcd69f084579e7f12781 |
+| T3 | S1, S5 | inline | Guard in `FiscalDocumentReadService#readBySale`, on the sale it already loaded, before any document is read | patch-id:f3c8a6e61c67164ff1aafcd69f084579e7f12781 |
+| T4 | S2, S5 | inline | Guard in `FiscalDocumentReprintService#reprintXml`, after the document is resolved and before the artefact is read | patch-id:f3c8a6e61c67164ff1aafcd69f084579e7f12781 |
+| T5 | S3, S5, S8 | inline | Guard in `FiscalDocumentCancellationService#cancel`, before the authority is called and before the already-cancelled check answers, plus on the substituting document | patch-id:f3c8a6e61c67164ff1aafcd69f084579e7f12781 |
 | T6 | S1–S8 | inline | `FiscalDocumentStoreScopeHttpIntegrationTest`: the four refusals over HTTP against real PostgreSQL, each paired with the state a write would have moved, plus the two open directions and the `lc-admin` short-circuit | the commit that adds this record |
+| T7 | S3, S5, S7 | inline | The two claims the verification found unproven: an already-cancelled document of another store answers 403 and never 409 (the guard precedes the cancellation lookup), and a caller that also holds `lc-company-region` is verified up to the region, never narrowed to the store | the commit that adds this row |
 
 Route is `inline` for all six: one behaviour, one component, one test class — the Writer rule has no trigger.
 
@@ -78,3 +79,24 @@ Route is `inline` for all six: one behaviour, one component, one test class — 
   `company_*` claims, `AGENTS.md` &rarr; *Claims de tenancy*). A caller holding a broader role (`lc-company` down to
   `lc-company-zone`) keeps its own scope, because `verifyCompanyStoreAccess` verifies only up to the broadest scope
   granted. `lc-admin` keeps everything (`S7`).
+- **L8** — what the answer is when the row is not a stamped document that kept an artefact, decided and recorded rather
+  than left to reading: the two id-addressed paths refuse a document by its **state before** they reach the
+  store, so a store-B `DRAFT`, a store-B row already cancelled and a stamped row that kept no artefact answer **404**
+  to a store-A caller — not 403. That is what they answered before this change as well, so it is not a regression, and
+  it leaks strictly less than a 403 would: "there is nothing here by that id" says neither that the document exists
+  nor which store it belongs to. Steelmanning the other way: S2/S3 promise 403 for "a store-B document", and a draft
+  is not one — the authority never witnessed it. Moving the guard above the state filters would buy a 403 nobody can
+  act on and would pay for it by letting the store decide before the caller's own company-level filters. `L6` and this
+  entry are the two places where the spec's wording is deliberately narrower than its sentence.
+- **L9** — `FiscalDocumentStoreScope#verifyAccessOfDocument` refuses a document whose `source_type` is not
+  `SALES_ORDER` with the same fail-closed **403**, where both endpoints document a **404** for "not a sale's
+  document". Unreachable today: `V108` closes the vocabulary with `CHECK (source_type IN ('SALES_ORDER'))`. The
+  substituting-folio lookup is the one path **without** a source filter, so the day a second source kind lands it is
+  the first place that flips a success into a 403 — and that is the point: a new source kind has to state its own
+  rule instead of inheriting this one by accident.
+- **L10** — two caller-visible refinements the fix makes on purpose, named here because a reviewer has to be able to
+  see them instead of inferring them: a store-B sale with **no** document was a `204` to a store-A caller and is now a
+  `403` (the store is decided before "not yet invoiced", and the state of a sale the caller may not see is not the
+  caller's business), and an **already-cancelled** store-B document was a `409` and is now a `403` (a `409` told a
+  foreign caller both that the document exists and what state it reached). Both are asserted by
+  `FiscalDocumentStoreScopeHttpIntegrationTest`.
