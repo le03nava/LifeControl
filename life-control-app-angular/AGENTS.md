@@ -806,6 +806,18 @@ npm run test:coverage   # Con coverage
 npm run test:coverage:check  # Tests + enforcement de umbrales (local)
 ```
 
+### Entorno DOM (jsdom) — riesgo registrado
+
+El DOM en el que corre la suite unitaria es **jsdom**, y hoy va dos líneas mayores por detrás de la
+última publicada (`jsdom ^26.1.0`). Es un riesgo de **verde falso**, no de comodidad: un bug de jsdom es
+indistinguible de un componente sano, porque el test no puede separar "el componente está mal" de "el DOM
+de mentira no implementa lo que el componente usa". El árbol ya paga ese precio en varios specs, que
+stubean `matchMedia`, `scrollIntoView` y la object-URL API (`src/test-setup.ts:29,37`).
+
+Subir de línea **no** entra en esta unidad: cambia el DOM de toda la suite, así que se mide con la suite
+entera en la mano y no como un bump de versión. Queda registrado acá para que la próxima persona lo
+encuentre antes de escribir el primer stub nuevo.
+
 ### Timeouts
 
 `src/test-timeouts.ts` define los budgets por encima de los defaults de Vitest y `src/test-setup.ts` los
@@ -835,7 +847,14 @@ carga antes que del código: ver `odd/tasks/test-timeout-headroom.md`.
 
 ### Umbrales de Cobertura
 
-`@angular/build:unit-test` en Angular 20 **no soporta `codeCoverageThresholds`** (schema con `additionalProperties: false`; `coverageThresholds` llegó en versiones posteriores de Angular). El enforcement se hace vía `scripts/check-coverage.mjs`, que lee `coverage/coverage-summary.json` (reporter `json-summary` en `angular.json`).
+`@angular/build:unit-test` expone `coverageThresholds` en su schema en la línea que este repo corre
+(`@angular/build` 22.2.3), así que el umbral **podría** vivir en `angular.json`. El enforcement se hace
+igual vía `scripts/check-coverage.mjs`, que lee `coverage/coverage-summary.json` (reporter `json-summary`
+en `angular.json`), porque es el único punto que cubre los dos caminos: los dos shards de CI que corren
+`ng test --coverage` y el job de `Coverage`, que recombina los reportes blob con
+`test:coverage:merge:check` — y ese segundo camino corre `vitest --merge-reports` directo, sin builder que
+aplique el umbral. Mover el umbral al builder es una unidad aparte, no una migración que este documento
+pueda dar por hecha.
 
 | Métrica | Actual | Umbral (floor) |
 |---------|--------|----------------|
@@ -1343,7 +1362,7 @@ El código de `src/**` lo formatea prettier (por `lint-staged` en el pre-commit)
 
 ## Referencias
 
-- [Angular 20 Documentation](https://angular.dev)
+- [Angular 22 Documentation](https://angular.dev)
 - [Angular Signals Guide](https://angular.dev/guide/signals)
 - [Angular rxResource](https://angular.dev/guide/rx-resource)
 - [Keycloak Angular](https://www.npmjs.com/package/keycloak-angular)

@@ -8,7 +8,8 @@
  * stylesheet fails here instead of silently reverting the migration. Companion to
  * `src/build-environment.spec.ts`, which pins the coverage path the same way.
  *
- * Spec: odd/tasks/angular-22-upgrade.md, T8/T9 (S1), T10/T15 (S2, S3).
+ * Spec: odd/tasks/angular-22-upgrade.md, T8/T9 (S1), T10/T15 (S2, S3); and
+ * `odd/tasks/dependency-runtime-parity.md`, T1 (S2) and T2 (S1) — the pin policy and the Node line.
  */
 const fs = process.getBuiltinModule('fs');
 const path = process.getBuiltinModule('path');
@@ -45,21 +46,16 @@ describe('Angular 22 migration invariants', () => {
     };
     const all = { ...pkg.dependencies, ...pkg.devDependencies };
 
-    for (const name of [
-      '@angular/common',
-      '@angular/compiler',
-      '@angular/compiler-cli',
-      '@angular/core',
-      '@angular/forms',
-      '@angular/platform-browser',
-      '@angular/router',
-      '@angular/build',
-      '@angular/cli',
-    ]) {
-      expect(all[name], name).toMatch(/^\^22\.2\.3$/);
+    // One policy for every `@angular/*` package, not two: `@angular/material` requires
+    // `@angular/cdk` exactly `22.2.3` and `@angular/compiler-cli` requires `@angular/compiler`
+    // exactly `22.2.3`, so a caret on any of them can reach a version its peers forbid — and a
+    // caret is exactly what lets `npm install` move one of them alone (issue #895, S2). Reading
+    // the keys instead of listing them is what makes a package added later inherit the policy.
+    const angularPackages = Object.keys(all).filter((name) => name.startsWith('@angular/'));
+    expect(angularPackages).not.toHaveLength(0);
+    for (const name of angularPackages) {
+      expect(all[name], name).toBe('22.2.3');
     }
-    expect(all['@angular/cdk']).toBe('22.2.3');
-    expect(all['@angular/material']).toBe('22.2.3');
     expect(all['typescript']).toBe('~6.0.3');
     expect(all['angular-eslint']).toBe('22.6.0');
     expect(all['typescript-eslint']).toMatch(/^\^8\.71\.2$/);
@@ -69,6 +65,28 @@ describe('Angular 22 migration invariants', () => {
     // and `platform-browser-dynamic` existed solely for the hand-rolled TestBed init.
     expect(all['@angular/animations']).toBeUndefined();
     expect(all['@angular/platform-browser-dynamic']).toBeUndefined();
+  });
+
+  it('types the app against the Node line it runs on', () => {
+    // The defect this guards: the tree ran Node 24 through `.nvmrc`, the image and CI while
+    // `@types/node` still typed the app against 20, so a Node 24-only API was a type error and a
+    // signature that changed between the two majors compiled against the wrong one (issue #895,
+    // S1). Three majors can drift apart here, so all three are read: the runtime the developer
+    // uses, the runtime the image and CI install, and the types.
+    const pkg = readJson('package.json') as unknown as {
+      engines: { node: string };
+      devDependencies: Record<string, string>;
+    };
+
+    const majorOf = (spec: string): string | undefined => /\d+/.exec(spec)?.[0];
+
+    const nvmrc = read('.nvmrc').trim();
+    const engines = majorOf(pkg.engines.node);
+    const types = majorOf(pkg.devDependencies['@types/node'] ?? '');
+
+    expect(engines, 'engines.node').toBeDefined();
+    expect(nvmrc.split('.')[0]).toBe(engines);
+    expect(types, '@types/node').toBe(engines);
   });
 
   it('resolves the path aliases without the deprecated baseUrl', () => {

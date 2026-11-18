@@ -1,6 +1,6 @@
 # LifeControl — Angular App
 
-Aplicación Angular 20 con Signals, Zoneless, Standalone components y Angular Material 3, parte del ecosistema LifeControl de microservicios.
+Aplicación Angular 22 con Signals, Zoneless, Standalone components y Angular Material 3, parte del ecosistema LifeControl de microservicios.
 
 ## Stack
 
@@ -10,7 +10,7 @@ Aplicación Angular 20 con Signals, Zoneless, Standalone components y Angular Ma
 | Change Detection  | Zoneless (`provideZonelessChangeDetection`) |
 | Componentes       | 100% Standalone + OnPush                   |
 | State Management  | Angular Signals + `rxResource`             |
-| UI                | Angular Material 20 (M3 theme)             |
+| UI                | Angular Material 22 (M3 theme)             |
 | Autenticación     | Keycloak v26 (`keycloak-angular`)          |
 | Testing           | Vitest via `@angular/build:unit-test`      |
 | Build             | esbuild (`@angular/build`)                 |
@@ -18,7 +18,7 @@ Aplicación Angular 20 con Signals, Zoneless, Standalone components y Angular Ma
 
 ## Requisitos
 
-- Node.js 20+
+- Node.js 24.15+
 - Docker (para el ecosistema completo)
 
 ## Desarrollo

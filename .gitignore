@@ -94,10 +94,6 @@ package-lock.json
 yarn.lock
 bun.lock
 
-### Yarn binary ###
-backstage/.yarn/releases/
-backstage/.yarn/cache/
-
 ### DATA ###
 /data/
 /volume-data/

@@ -20,7 +20,7 @@ Los skills propios del repo viven en `.agents/skills/` y se versionan. Pi y Open
 ### Generic Skills (provistos por gentle-ai, NO versionados acá)
 | Skill | Description |
 |-------|-------------|
-| `angular-21` | Angular 18+ patterns (signals, standalone, control flow) |
+| `angular-21` | Angular patterns (signals, standalone, control flow) |
 | `spring-boot-3` | Spring Boot 3 patterns (DI, config, web services) |
 | `sdd-init` | Spec-Driven Development initialization |
 | `skill-creator` | Create new AI agent skills |
@@ -178,7 +178,6 @@ LifeControl es un sistema de gestión consolidado en un monolito modular `life-c
 | API Gateway | `api-gateway/` | Spring Boot | Activo |
 | Life Control API | `life-control-api/` | Spring Boot, Java 21, PostgreSQL | **Activo** — núcleo del sistema |
 | Angular App | `life-control-app-angular/` | Angular 22.2.3, Material, Vitest + Playwright, ESLint/Prettier | Activo |
-| Backstage | `backstage/` | Backstage framework | Activo |
 
 ---
 

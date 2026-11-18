@@ -1,6 +1,6 @@
 import type { Page, Route } from '@playwright/test';
 
-const API_BASE = process.env.E2E_API_URL || 'http://localhost:9000';
+const API_BASE = process.env['E2E_API_URL'] || 'http://localhost:9000';
 
 const corsHeaders = (origin: string | undefined): Record<string, string> =>
   origin
