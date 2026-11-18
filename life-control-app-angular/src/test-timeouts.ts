@@ -35,6 +35,42 @@ export const TEST_TIMEOUT_MS = 20_000;
 export const HOOK_TIMEOUT_MS = 20_000;
 
 /**
+ * How many runner processes the suite may use at once, at any core count.
+ *
+ * The budgets above are not what fails under load. Issue #971 measured that: the same
+ * commit, the same host, 20 000ms budgets in every run, and the verdict flipped on load
+ * alone -- `Test timed out in 20000ms`, `Hook timed out in 20000ms`, zero assertion
+ * failures, and the same six files passing 448/448 when re-run alone. What changed was
+ * how many runners were competing for the host, so that is what this constant bounds.
+ *
+ * Why the runner's own default is the defect: Vitest sizes the pool from the CPU count
+ * (`resolveMaxWorkers` in `vitest/dist/chunks/cli-api`: `availableParallelism() - 1`), so
+ * on this 8-core host it runs **7** forks. Each one is a whole Node process holding the
+ * compiled Angular test bundle, a jsdom document and the coverage instrumentation --
+ * measured at roughly 280MB resident per fork here. Seven of those do not fit beside the
+ * rest of a development host, and the runner does not notice: it has no memory budget, so
+ * the oversubscription shows up as swap, and a starved timer fires far past its 20s (the
+ * reproduction suite logged single tests at 90s, 405s and one *file* at 522s). Raising the
+ * budget cannot fix that -- a timer that cannot be scheduled does not honour a larger
+ * number either -- which is why `odd/tasks/test-timeout-headroom.md` raised it and this
+ * unit does not.
+ *
+ * 2 is the value a loaded host left green: measured in issue #971 with the full coverage
+ * gate on a tree that was red at the default pool size, at a load average between 3.3x and
+ * 4.6x `nproc`, 215 files and 4407 tests, every coverage threshold OK. It is a *fixed*
+ * number rather than a fraction of the core count on purpose -- a fraction is the bug: more
+ * cores would mean more forks, and the resource that runs out first is memory, not cores.
+ *
+ * The cost is stated rather than hidden: fewer workers means a longer wall clock on a host
+ * that has the resources for more, and the measured idle pair is in the record
+ * (`odd/tasks/unit-test-load-independence.md`). The guard is `src/test-timeouts.spec.ts`,
+ * which fails if this number is raised past the measured ceiling, if the wiring disappears,
+ * or if a `retry` ever appears here -- a retry would make a loaded host green by hiding the
+ * failure it exists to report.
+ */
+export const MAX_WORKERS = 2;
+
+/**
  * The same budgets, exposed as the Vitest configuration object that `angular.json`
  * hands to the runner through `runnerConfig`, plus the per-file isolation the suite
  * needs under Vitest 4.
@@ -66,6 +102,13 @@ export const HOOK_TIMEOUT_MS = 20_000;
  * `scripts/check-coverage.mjs` and the CI artifact path both read `coverage/`. The
  * failure is invisible on a machine that still holds the previous run's file there,
  * and fatal on a clean checkout. `src/build-environment.spec.ts` guards the hand-off.
+ *
+ * `maxWorkers` is the pool cap, and it belongs in this object for the same reason the
+ * budgets do: the builder merges this `test` object into the Vitest project
+ * (`@angular/build/src/builders/unit-test/runners/vitest/plugins.js`:
+ * `mergeConfig(projectDefaults, { test: testConfig })`) and overrides nothing about the
+ * pool, so a cap declared here is what the pool sizes itself from. Its value, and the
+ * measurement that chose it, are documented on `MAX_WORKERS`.
  */
 
 /**
@@ -102,6 +145,7 @@ export default {
     name: 'life-control-app-angular',
     testTimeout: TEST_TIMEOUT_MS,
     hookTimeout: HOOK_TIMEOUT_MS,
+    maxWorkers: MAX_WORKERS,
     isolate: true,
     coverage: {
       reportsDirectory: 'coverage',
