@@ -181,13 +181,16 @@ Order matters. Closing the workspace after removing the worktree leaves a worksp
 ```bash
 herdr workspace close <workspace_id>            # 1. close the Herdr workspace
 git worktree remove <path>                      # 2. remove the git worktree
-git worktree prune                              # 3. clear orphaned metadata
+# 3. verify, then prune -- and never prune a remove that failed. See the bullets.
+ls -la <path>
 ```
 
-- **`herdr workspace close` does not remove the worktree, so steps 2 and 3 are not optional.** Measured on `herdr` 0.9.1 (2026-09-25): a probe worktree survived the close with its directory, its `git worktree list` entry, its local branch and its `.git/worktrees/<slug>/` metadata intact — only the workspace entry disappeared from `session.json`. A closed workspace is not a clean checkout.
-- `git worktree remove` rejects modified and untracked files. It **ignores ignored files**, so it succeeds despite `.env`, `secrets/`, or other ignored content. Verify ignored content is regenerable before removing; `git status` will not warn you.
+- **`herdr workspace close` does not remove the worktree, so step 2 is not optional.** Measured on `herdr` 0.9.1 (2026-09-25): a probe worktree survived the close with its directory, its `git worktree list` entry, its local branch and its `.git/worktrees/<slug>/` metadata intact — only the workspace entry disappeared from `session.json`. A closed workspace is not a clean checkout.
+- `git worktree remove` rejects modified and untracked files. It **ignores ignored files** in that safety check — it does not refuse over `.env`, `secrets/` or `node_modules` — but the deletion it then performs is a recursive remove, so it **cannot delete what another user owns**. Measured on 2026-11-18 on a worktree that had started the stack: `remove` failed with `Directory not empty`, because `docker/volumes-dev` (501 MB) and `node_modules` (375 MB) are ignored, present, and owned by root (postgres, prometheus, tempo) and by uid `10001` (loki).
+- **A `remove` that failed leaves the directory, and the trap is the step after it.** `git worktree prune` in that state drops the registration while the bytes stay: `git worktree list` then reports a clean set and the full checkout is still on disk, owned by nobody git knows. So **never `prune` to clean up after a failed `remove`**.
+- **Verify with `ls` on the path, not with `git worktree list`.** The listing answers what git knows; the question is what the disk holds.
+- **The ignored state is the operator's to delete, and the agent does not guess at it.** What survives the removal is root- and `10001`-owned, so the step that ends it is a `sudo rm -rf <path>` a human runs. It removes nothing tracked and nothing committed — the postgres data directory, the Node modules and the Docker volumes come back from `setup-env.sh` and `npm install`. Once the directory is gone, `git worktree prune` is safe and clears `.git/worktrees/<slug>/`.
 - `--force` discards uncommitted work. Use it only after confirming there is none.
-- Deleting the directory by hand leaves metadata in `.git/worktrees/`. Always finish with `git worktree prune`.
 
 **`herdr workspace close --group` closes the primary workspace and every linked worktree workspace.** Never add it to bypass a close error.
 
@@ -257,8 +260,10 @@ realign the anchor:
 
 ```bash
 herdr workspace close <workspace_id>
-git worktree remove <path>
-git worktree prune
+git worktree remove <path>          # stops on another user's files; see the cleanup order above
+ls -la <path>                       # ask the disk, not `git worktree list`
+sudo rm -rf <path>                  # the ignored state, run by the operator
+git worktree prune                  # only once the directory is gone
 git branch -d <branch>
 git push origin --delete <branch>
 git merge --ff-only origin/main
