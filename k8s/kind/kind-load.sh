@@ -1,3 +1,4 @@
+#!/usr/bin/env bash
 docker pull mysql:8.3.0
 docker pull quay.io/keycloak/keycloak:24.0.1
 docker pull grafana/loki:3.7.8
