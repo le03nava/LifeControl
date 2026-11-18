@@ -9,7 +9,6 @@
     "noImplicitReturns": true,
     "noFallthroughCasesInSwitch": true,
     "skipLibCheck": true,
-    "types": ["vitest/globals", "node"],
     "isolatedModules": true,
     "esModuleInterop": true,
     "sourceMap": true,
