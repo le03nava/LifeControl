@@ -2,6 +2,7 @@ package com.lifecontrol.api.salesorder.repository;
 
 import com.lifecontrol.api.salesorder.model.SalesOrder;
 import jakarta.persistence.LockModeType;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -51,6 +52,36 @@ public interface SalesOrderRepository extends JpaRepository<SalesOrder, UUID> {
         ORDER BY so.createdAt DESC
         """)
     Page<SalesOrder> findBySearchTerm(@Param("search") String search, Pageable pageable);
+
+    /**
+     * The same page as {@link #findByEnabledTrueOrderByCreatedAtDesc}, narrowed to the stores the caller may read.
+     *
+     * <p><b>Why the predicate is on the column and not on an association.</b> {@code SalesOrder} maps
+     * {@code company_store_id} as an id ({@code SalesOrder.java:58-59}) — the document states its place, it does not
+     * carry it — so the narrowing is a plain {@code IN} with no join: the unscoped query one predicate longer.</p>
+     *
+     * <p><b>Why it lives here and not in the service.</b> Filtering the page in memory would answer the caller a
+     * page of the size it asked for minus whatever it was not allowed to see, and the tenant policy is already the
+     * only thing that made the unscoped query safe. The database states which rows exist for this caller.</p>
+     */
+    Page<SalesOrder> findByEnabledTrueAndCompanyStoreIdInOrderByCreatedAtDesc(
+            Collection<UUID> companyStoreIds, Pageable pageable);
+
+    /**
+     * The search page narrowed to the caller's stores — both constraints, not one instead of the other.
+     *
+     * <p>The {@code enabled} predicate and the ordering are the unscoped query's, deliberately: this finder exists so
+     * that a scoped caller sees <em>less</em> than an unscoped one, never something different.</p>
+     */
+    @Query("""
+        SELECT so FROM SalesOrder so
+        WHERE so.enabled = true
+          AND so.companyStoreId IN :storeIds
+          AND LOWER(so.orderNumber) LIKE LOWER(CONCAT('%', :search, '%'))
+        ORDER BY so.createdAt DESC
+        """)
+    Page<SalesOrder> findByCompanyStoreIdInAndSearchTerm(
+            @Param("storeIds") Collection<UUID> storeIds, @Param("search") String search, Pageable pageable);
 
     /**
      * How many decimals the document's own currency is rounded to (ADR-0002 decision 1: the currency decides
