@@ -80,6 +80,16 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      # `npm run build` type-checks the APPLICATION program only: `tsconfig.app.json` includes
+      # `src/**/*.ts` and excludes `*.spec.ts`, and neither `e2e/**` nor `playwright.config.ts` is in
+      # that program at all. The root `tsconfig.json` program — 575 files, the specs and the e2e mocks
+      # included — was compiled by nothing, which is how 46 `TS2591` errors sat in the tree until #895
+      # fixed them. A rule with no check rots: `workflow-typecheck.test.sh` fails if this step goes
+      # away, and it also fails if the job above it stops installing dependencies, because then the
+      # binary this step needs would not exist.
+      - name: Type check
+        run: npx tsc --noEmit
+
       - name: Build
         run: npm run build
 
