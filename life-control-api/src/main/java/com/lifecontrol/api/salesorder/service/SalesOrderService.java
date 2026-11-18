@@ -51,6 +51,7 @@ import com.lifecontrol.api.store.exception.CompanyStoreNotFoundException;
 import com.lifecontrol.api.store.model.CompanyStore;
 import com.lifecontrol.api.store.repository.CompanyStoreRepository;
 import com.lifecontrol.api.store.service.CompanyStoreOwnerResolver;
+import com.lifecontrol.api.store.service.CompanyStoreScopeResolver;
 import com.lifecontrol.api.tax.service.TaxCodeService;
 import com.lifecontrol.api.tax.service.TaxRateService;
 import jakarta.persistence.EntityManager;
@@ -108,6 +109,15 @@ public class SalesOrderService {
     private final StatusRepository statusRepository;
     private final PaymentMethodRepository paymentMethodRepository;
     private final CurrentUserContext currentUserContext;
+
+    /**
+     * The stores a flat list may return, which the id-addressed paths answer for themselves.
+     *
+     * <p>Injected and not derived here because the rule is the same one {@code GoodsReceiptService} uses, and a
+     * second copy of "how far down the hierarchy may this caller read" is a second answer to the same question.</p>
+     */
+    private final CompanyStoreScopeResolver storeScopeResolver;
+
     private final DocumentSequenceAllocator documentSequenceAllocator;
     private final StatusTransitionRecorder statusTransitionRecorder;
     private final SalesOrderStatusCatalog statusCatalog;
@@ -133,6 +143,7 @@ public class SalesOrderService {
             StatusRepository statusRepository,
             PaymentMethodRepository paymentMethodRepository,
             CurrentUserContext currentUserContext,
+            CompanyStoreScopeResolver storeScopeResolver,
             DocumentSequenceAllocator documentSequenceAllocator,
             StatusTransitionRecorder statusTransitionRecorder,
             SalesOrderStatusCatalog statusCatalog,
@@ -150,6 +161,7 @@ public class SalesOrderService {
         this.statusRepository = statusRepository;
         this.paymentMethodRepository = paymentMethodRepository;
         this.currentUserContext = currentUserContext;
+        this.storeScopeResolver = storeScopeResolver;
         this.documentSequenceAllocator = documentSequenceAllocator;
         this.statusTransitionRecorder = statusTransitionRecorder;
         this.statusCatalog = statusCatalog;
@@ -160,12 +172,27 @@ public class SalesOrderService {
 
     @Transactional(readOnly = true)
     public Page<SalesOrderResponse> getAllSalesOrders(Pageable pageable, String search) {
+        var scope = storeScopeResolver.scopeForCurrentUser();
+
+        // An empty scope is "nothing", never "everything": the four-argument `IN ()` is not typeable, and the reading
+        // that a missing claim means no restriction is the leak this method exists to close. The empty page is the
+        // honest answer, and it is the same one `GoodsReceiptService` gives for the same reason.
+        if (!scope.unscoped() && scope.storeIds().isEmpty()) {
+            return Page.empty(pageable);
+        }
+
         Page<SalesOrder> orders;
 
         if (StringUtils.hasText(search)) {
-            orders = salesOrderRepository.findBySearchTerm(search.trim(), pageable);
+            var term = search.trim();
+            orders = scope.unscoped()
+                    ? salesOrderRepository.findBySearchTerm(term, pageable)
+                    : salesOrderRepository.findByCompanyStoreIdInAndSearchTerm(scope.storeIds(), term, pageable);
         } else {
-            orders = salesOrderRepository.findByEnabledTrueOrderByCreatedAtDesc(pageable);
+            orders = scope.unscoped()
+                    ? salesOrderRepository.findByEnabledTrueOrderByCreatedAtDesc(pageable)
+                    : salesOrderRepository.findByEnabledTrueAndCompanyStoreIdInOrderByCreatedAtDesc(
+                            scope.storeIds(), pageable);
         }
 
         return orders.map(this::toResponse);
@@ -174,6 +201,9 @@ public class SalesOrderService {
     @Transactional(readOnly = true)
     public SalesOrderResponse getSalesOrderById(UUID id) {
         var so = salesOrderRepository.findById(id).orElseThrow(() -> new SalesOrderNotFoundException(id));
+        // Addressing an order by id is addressing its store: the company-wide policy the row passed is not what
+        // decides whether THIS caller may read the document.
+        verifyStoreAccessOf(so);
         return toResponse(so);
     }
 
@@ -279,6 +309,11 @@ public class SalesOrderService {
         logger.info("Updating sales order: id={}", id);
 
         var so = salesOrderRepository.findByIdForUpdate(id).orElseThrow(() -> new SalesOrderNotFoundException(id));
+
+        // The store the order ALREADY belongs to is authorized before the request's own store is even resolved:
+        // a caller scoped to another store must not be able to reach the document by naming a store it does hold,
+        // which is what checking only `request.companyStoreId()` allowed.
+        verifyStoreAccessOf(so);
 
         validateCustomerExists(request.customerId());
         // The store is kept, not just checked: it is the order's place, and since `V95` the place is part of the
@@ -411,6 +446,10 @@ public class SalesOrderService {
         // before a payment row exists. Loading without the lock and locking later would leave the read that
         // decides stale, which is exactly the state the second charge needs in order to slip through.
         var so = salesOrderRepository.findByIdForUpdate(id).orElseThrow(() -> new SalesOrderNotFoundException(id));
+
+        // First, before the auto-promotion below: that promotion is a write, and a refused charge has to leave the
+        // document in the state it found it in.
+        verifyStoreAccessOf(so);
 
         // Ensure order is Pending (auto-promotes Active → Pending)
         ensureOrderIsPending(so);
@@ -638,6 +677,10 @@ public class SalesOrderService {
         // machine refuses the move and the answer is the 409 it always should have been.
         var so = salesOrderRepository.findByIdForUpdate(id).orElseThrow(() -> new SalesOrderNotFoundException(id));
 
+        // Before the catalog is read and before the transition is judged: authorization answers first, so a foreign
+        // store sees the same 403 whatever state its order happens to be in.
+        verifyStoreAccessOf(so);
+
         // The request names a catalog row; the machine only reads its code (ADR-0004 decision 7). This is
         // also where a status of another family, an uncoded row or a code the enum lacks is refused.
         var newState = statusCatalog.requireOrderState(request.statusId());
@@ -663,6 +706,10 @@ public class SalesOrderService {
         // take the same two rows in the opposite order and deadlock with it (40P01, surfaced as a 500). This path
         // reverses stock since T6b, which is what makes the order of the two locks its business.
         var so = salesOrderRepository.findByIdForUpdate(id).orElseThrow(() -> new SalesOrderNotFoundException(id));
+
+        // First: the reversal below writes stock through the ledger, so a foreign store has to be refused before
+        // anything is restored, not after.
+        verifyStoreAccessOf(so);
 
         // A reversal exists only for an order whose charge booked something, and only a COMPLETED document
         // ever got that far (ADR-0002 decision 7): everything before it holds no stock, and CANCELLED never
@@ -690,6 +737,8 @@ public class SalesOrderService {
 
         var so = salesOrderRepository.findById(id).orElseThrow(() -> new SalesOrderNotFoundException(id));
 
+        verifyStoreAccessOf(so);
+
         so.setEnabled(true);
         var saved = salesOrderRepository.save(so);
         return toResponse(saved);
@@ -699,7 +748,10 @@ public class SalesOrderService {
 
     @Transactional(readOnly = true)
     public java.util.List<SalesOrderItemResponse> getSalesOrderItems(UUID salesOrderId) {
-        salesOrderRepository.findById(salesOrderId).orElseThrow(() -> new SalesOrderNotFoundException(salesOrderId));
+        var so = salesOrderRepository
+                .findById(salesOrderId)
+                .orElseThrow(() -> new SalesOrderNotFoundException(salesOrderId));
+        verifyStoreAccessOf(so);
 
         return itemRepository.findBySalesOrderIdAndEnabledTrue(salesOrderId).stream()
                 .map(this::toItemResponse)
@@ -837,6 +889,7 @@ public class SalesOrderService {
         var so = salesOrderRepository
                 .findByIdForUpdate(salesOrderId)
                 .orElseThrow(() -> new SalesOrderNotFoundException(salesOrderId));
+        verifyStoreAccessOf(so);
 
         var item = itemRepository.findById(itemId).orElseThrow(() -> new SalesOrderItemNotFoundException(itemId));
 
@@ -878,6 +931,10 @@ public class SalesOrderService {
      */
     private SalesOrder loadAndValidateModifiableSO(UUID id) {
         var so = salesOrderRepository.findByIdForUpdate(id).orElseThrow(() -> new SalesOrderNotFoundException(id));
+
+        // Authorization, then the document's own state: every line write enters through here, so this single call
+        // covers adding, editing and removing a line without any of them having to remember it.
+        verifyStoreAccessOf(so);
 
         requireOrderNotTerminal(so);
         return so;
@@ -985,6 +1042,32 @@ public class SalesOrderService {
                 region.getId(),
                 zone.getId(),
                 store.getId());
+    }
+
+    /**
+     * Authorizes the caller for the store an <em>existing</em> order belongs to.
+     *
+     * <p><b>Why the store is resolved instead of read off the order.</b> {@code sales_orders.company_store_id} is a
+     * plain column, not an association ({@code SalesOrder.java:58-59}), so the company &rarr; country &rarr; region
+     * &rarr; zone &rarr; store chain the guard needs is not on the order. {@link #validateCompanyStoreExists} already
+     * performs exactly the two steps this needs — resolve the store row, then hand its chain to
+     * {@link #verifyStoreAccess} — so the id-addressed guard is that same call, and there is one rule for both the
+     * create path and every path that addresses an order that already exists. The cost is one extra select per such
+     * request, which is the price of the chain having a single source.</p>
+     *
+     * <p><b>Why it runs before anything else in the method.</b> Several of these paths write before they write the
+     * thing the caller asked for — the charge auto-promotes an {@code Active} order to {@code Pending}, the delete
+     * restores stock — so a guard placed after them would be a refusal that already changed the document. Every
+     * caller of this method calls it first, and {@code S2}/{@code S3} of
+     * {@code odd/tasks/sales-order-cross-store-authz.md} assert the stored state as the evidence.</p>
+     *
+     * @throws com.lifecontrol.api.store.exception.CompanyStoreNotFoundException when the order names a store that
+     *     no longer exists (unreachable behind the foreign key, and refused rather than assumed)
+     * @throws AccessDeniedException when the caller holds no grant for the store's scope, which the handler states
+     *     as a 403
+     */
+    private void verifyStoreAccessOf(SalesOrder so) {
+        validateCompanyStoreExists(so.getCompanyStoreId());
     }
 
     private void validateShiftExists(UUID id) {

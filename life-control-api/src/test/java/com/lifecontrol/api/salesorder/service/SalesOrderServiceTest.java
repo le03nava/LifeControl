@@ -73,6 +73,7 @@ import com.lifecontrol.api.store.exception.CompanyStoreNotFoundException;
 import com.lifecontrol.api.store.model.CompanyStore;
 import com.lifecontrol.api.store.repository.CompanyStoreRepository;
 import com.lifecontrol.api.store.service.CompanyStoreOwnerResolver;
+import com.lifecontrol.api.store.service.CompanyStoreScopeResolver;
 import com.lifecontrol.api.support.TenantFixtures;
 import com.lifecontrol.api.tax.service.TaxRateResolution;
 import com.lifecontrol.api.tax.service.TaxRateService;
@@ -84,6 +85,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -149,6 +151,9 @@ class SalesOrderServiceTest {
 
     @Mock
     private CurrentUserContext currentUserContext;
+
+    @Mock
+    private CompanyStoreScopeResolver storeScopeResolver;
 
     @Mock
     private DocumentSequenceAllocator documentSequenceAllocator;
@@ -447,10 +452,23 @@ class SalesOrderServiceTest {
                 statusRepository,
                 paymentMethodRepository,
                 currentUserContext,
+                storeScopeResolver,
                 documentSequenceAllocator,
                 statusTransitionRecorder,
                 statusCatalog,
                 entityManager);
+
+        // Every path that addresses an existing order authorizes the caller for THAT order's store, and the order
+        // maps its store as an id rather than an association, so the guard resolves the store row on each of those
+        // requests. The fixture answers it once here; lenient because the create-only cases never ask for it.
+        lenient().when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
+
+        // A flat list is narrowed by the caller's store scope, which the real resolver answers from the claims. The
+        // fixture defaults to an administrator — the unscoped list — because that is the shape the pre-existing cases
+        // were written in; each case about scoping states its own answer.
+        lenient()
+                .when(storeScopeResolver.scopeForCurrentUser())
+                .thenReturn(new CompanyStoreScopeResolver.StoreScope(true, Set.of()));
 
         testItem = SalesOrderItem.builder()
                 .id(itemId)
@@ -633,6 +651,85 @@ class SalesOrderServiceTest {
             assertThat(result.getContent()).hasSize(1);
             assertThat(result.getContent().get(0).orderNumber()).isEqualTo("SO-20260610-00001");
             verify(salesOrderRepository).findBySearchTerm(searchTerm, pageable);
+        }
+
+        /**
+         * S4: the flat list answers the stores the caller holds, and nothing else.
+         *
+         * <p><b>Why the unscoped finder is stubbed leniently.</b> It is stubbed to answer BOTH orders, which is what
+         * the previous tree does, and the assertion below refuses that answer. Once the narrowing exists this query
+         * must not be reached at all, and a lenient stub stays out of the way of that claim instead of becoming the
+         * "unnecessary stubbing" that would hide it.</p>
+         */
+        @Test
+        @DisplayName("a store-scoped caller receives only the orders of the stores it holds")
+        void getAllSalesOrders_StoreScoped_IsNarrowedToTheStoresTheCallerHolds() {
+            var pageable = PageRequest.of(0, 12);
+            var scoped = Set.of(companyStoreId);
+            var otherStoreOrder = SalesOrder.builder()
+                    .id(UUID.randomUUID())
+                    .orderNumber("SO-20260610-00002")
+                    .companyId(companyId)
+                    .customerId(customerId)
+                    .companyStoreId(UUID.randomUUID())
+                    .userId("seller")
+                    .orderDate(testOrder.getOrderDate())
+                    .status(SalesOrderState.DRAFT)
+                    .totalAmount(BigDecimal.ZERO)
+                    .enabled(true)
+                    .createdAt(testOrder.getCreatedAt())
+                    .build();
+
+            when(storeScopeResolver.scopeForCurrentUser())
+                    .thenReturn(new CompanyStoreScopeResolver.StoreScope(false, scoped));
+            when(salesOrderRepository.findByEnabledTrueAndCompanyStoreIdInOrderByCreatedAtDesc(scoped, pageable))
+                    .thenReturn(new PageImpl<>(List.of(testOrder), pageable, 1));
+            lenient()
+                    .when(salesOrderRepository.findByEnabledTrueOrderByCreatedAtDesc(pageable))
+                    .thenReturn(new PageImpl<>(List.of(testOrder, otherStoreOrder), pageable, 2));
+            when(itemRepository.findBySalesOrderIdAndEnabledTrue(any())).thenReturn(List.of());
+
+            Page<SalesOrderResponse> result = salesOrderService.getAllSalesOrders(pageable, null);
+
+            assertThat(result.getContent())
+                    .extracting(SalesOrderResponse::id)
+                    .as("another store's order is not this caller's business")
+                    .containsExactly(orderId);
+            verify(salesOrderRepository).findByEnabledTrueAndCompanyStoreIdInOrderByCreatedAtDesc(scoped, pageable);
+        }
+
+        @Test
+        @DisplayName("the search term narrows inside the caller's stores, not instead of them")
+        void getAllSalesOrders_StoreScopedWithSearch_KeepsBothConstraints() {
+            var pageable = PageRequest.of(0, 12);
+            var scoped = Set.of(companyStoreId);
+            var term = "SO-20260610";
+
+            when(storeScopeResolver.scopeForCurrentUser())
+                    .thenReturn(new CompanyStoreScopeResolver.StoreScope(false, scoped));
+            when(salesOrderRepository.findByCompanyStoreIdInAndSearchTerm(scoped, term, pageable))
+                    .thenReturn(new PageImpl<>(List.of(testOrder), pageable, 1));
+            lenient()
+                    .when(salesOrderRepository.findBySearchTerm(term, pageable))
+                    .thenReturn(new PageImpl<>(List.of(testOrder), pageable, 1));
+            when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId)).thenReturn(List.of());
+
+            Page<SalesOrderResponse> result = salesOrderService.getAllSalesOrders(pageable, term);
+
+            assertThat(result.getContent()).hasSize(1);
+            verify(salesOrderRepository).findByCompanyStoreIdInAndSearchTerm(scoped, term, pageable);
+        }
+
+        @Test
+        @DisplayName("a caller with no store in scope gets an empty page, never the company's list")
+        void getAllSalesOrders_EmptyScopeIsEmptyPage() {
+            when(storeScopeResolver.scopeForCurrentUser())
+                    .thenReturn(new CompanyStoreScopeResolver.StoreScope(false, Set.of()));
+
+            Page<SalesOrderResponse> result = salesOrderService.getAllSalesOrders(PageRequest.of(0, 12), null);
+
+            assertThat(result.getContent()).isEmpty();
+            verifyNoInteractions(salesOrderRepository);
         }
 
         @Test
@@ -911,7 +1008,9 @@ class SalesOrderServiceTest {
         @DisplayName("should throw AccessDeniedException when the caller holds no grant for the store")
         void updateSalesOrder_StoreOutsideCallerScope_Throws403() {
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
-            when(customerRepository.existsById(customerId)).thenReturn(true);
+            // Lenient: the store guard now runs before the customer is validated, so this stub is unreachable here
+            // — which is the point of the refusal, not a leftover.
+            lenient().when(customerRepository.existsById(customerId)).thenReturn(true);
             when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
             doThrow(new AccessDeniedException("Access denied"))
                     .when(currentUserContext)
@@ -4336,6 +4435,178 @@ class SalesOrderServiceTest {
             when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
             when(productVariantRepository.existsByIdAndCompanyIdAndEnabledTrue(variantId, companyId))
                     .thenReturn(true);
+        }
+    }
+
+    // ─────────────────────────────────────────────
+    // store scope over the paths that address an existing order
+    // ─────────────────────────────────────────────
+
+    /**
+     * S1–S3, S5 and S7: every path that addresses an **existing** order by id asks the caller's claims about
+     * <em>that order's</em> store before it writes anything.
+     *
+     * <p><b>What these cases can and cannot prove.</b> {@code CurrentUserContext} is a mock here, so what is
+     * proved is the call and its order: the guard runs, the refusal is the {@link AccessDeniedException} the
+     * handler renders as a 403, and nothing below it ran. That the guard refuses the <em>right</em> store is
+     * proved twice elsewhere — {@code SalesOrderScopeAgreementTest} with a real context and a real resolver, and
+     * {@code SalesOrderIntegrationTest} over HTTP. What cannot be proved here is the row's bytes: a mock
+     * repository has no row. The "nothing was written" assertions therefore name the writes this method would
+     * otherwise perform, which is the part a unit test can see.</p>
+     */
+    @Nested
+    @DisplayName("a principal scoped to another store")
+    class StoreScopeOnExistingOrdersTests {
+
+        /**
+         * The two stubs every refusal shares: the order's store resolves (the order references it by id, never by
+         * association), and the claims refuse the whole five-level chain.
+         *
+         * <p>The customer stub is lenient because the order-level {@code PUT} validates the customer before it
+         * reaches the read this class is about; a case that never gets there has still proved its point.</p>
+         */
+        private void refuseTheOrdersStore() {
+            when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
+            lenient().when(customerRepository.existsById(customerId)).thenReturn(true);
+            doThrow(new AccessDeniedException("Access denied to company-store: " + companyStoreId))
+                    .when(currentUserContext)
+                    .verifyCompanyStoreAccess(any(), any(), any(), any(), any());
+        }
+
+        @Test
+        @DisplayName("cannot read the order")
+        void readIsRefused() {
+            when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
+            refuseTheOrdersStore();
+
+            assertThatThrownBy(() -> salesOrderService.getSalesOrderById(orderId))
+                    .isInstanceOf(AccessDeniedException.class);
+
+            verify(itemRepository, never()).findBySalesOrderIdAndEnabledTrue(any());
+        }
+
+        @Test
+        @DisplayName("cannot edit the order, and its store is not moved by the refusal")
+        void updateIsRefused() {
+            when(salesOrderRepository.findByIdForUpdate(orderId)).thenReturn(Optional.of(testOrder));
+            refuseTheOrdersStore();
+
+            assertThatThrownBy(() -> salesOrderService.updateSalesOrder(orderId, testOrderRequest))
+                    .isInstanceOf(AccessDeniedException.class);
+
+            assertThat(testOrder.getCompanyStoreId())
+                    .as("a request that names its own store cannot move another store's document")
+                    .isEqualTo(companyStoreId);
+            verify(salesOrderRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("cannot charge it: no payment row and no total moves")
+        void chargeIsRefused() {
+            when(salesOrderRepository.findByIdForUpdate(orderId)).thenReturn(Optional.of(testOrder));
+            refuseTheOrdersStore();
+            var request = new ChargeSalesOrderRequest(
+                    List.of(new SalePaymentRequest(UUID.randomUUID(), new BigDecimal("100.00"), null, null)));
+
+            assertThatThrownBy(() -> salesOrderService.chargeSalesOrder(orderId, request))
+                    .isInstanceOf(AccessDeniedException.class);
+
+            verify(salePaymentRepository, never()).save(any());
+            assertThat(testOrder.getStatus())
+                    .as("the auto-promotion to Pending is a write, and it happens below the guard")
+                    .isEqualTo(SalesOrderState.DRAFT);
+            assertThat(testOrder.getTotalAmount()).isEqualByComparingTo(BigDecimal.ZERO);
+        }
+
+        @Test
+        @DisplayName("cannot move its status, and the stored state is the one it had")
+        void statusChangeIsRefused() {
+            when(salesOrderRepository.findByIdForUpdate(orderId)).thenReturn(Optional.of(testOrder));
+            refuseTheOrdersStore();
+
+            assertThatThrownBy(() -> salesOrderService.updateSalesOrderStatus(
+                            orderId, new UpdateSalesOrderStatusRequest(canceladaStatus.getId())))
+                    .isInstanceOf(AccessDeniedException.class);
+
+            assertThat(testOrder.getStatus()).isEqualTo(SalesOrderState.DRAFT);
+            verify(salesOrderRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("cannot delete it, so no line is soft-deleted either")
+        void deleteIsRefused() {
+            when(salesOrderRepository.findByIdForUpdate(orderId)).thenReturn(Optional.of(testOrder));
+            refuseTheOrdersStore();
+
+            assertThatThrownBy(() -> salesOrderService.deleteSalesOrder(orderId))
+                    .isInstanceOf(AccessDeniedException.class);
+
+            verify(salesOrderRepository, never()).save(any());
+            verify(itemRepository, never()).findBySalesOrderId(any());
+        }
+
+        @Test
+        @DisplayName("cannot re-enable it")
+        void enableIsRefused() {
+            when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
+            refuseTheOrdersStore();
+
+            assertThatThrownBy(() -> salesOrderService.enableSalesOrder(orderId))
+                    .isInstanceOf(AccessDeniedException.class);
+
+            verify(salesOrderRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("cannot read its lines")
+        void linesCannotBeRead() {
+            when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
+            refuseTheOrdersStore();
+
+            assertThatThrownBy(() -> salesOrderService.getSalesOrderItems(orderId))
+                    .isInstanceOf(AccessDeniedException.class);
+
+            verify(itemRepository, never()).findBySalesOrderIdAndEnabledTrue(any());
+        }
+
+        @Test
+        @DisplayName("cannot add a line to it")
+        void aLineCannotBeAdded() {
+            when(salesOrderRepository.findByIdForUpdate(orderId)).thenReturn(Optional.of(testOrder));
+            refuseTheOrdersStore();
+            var request = new SalesOrderItemRequest(
+                    null, variantId, new BigDecimal("1.00"), new BigDecimal("10.00"), BigDecimal.ZERO, null);
+
+            assertThatThrownBy(() -> salesOrderService.addSalesOrderItem(orderId, request))
+                    .isInstanceOf(AccessDeniedException.class);
+
+            verify(itemRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("cannot move a line's status")
+        void aLineStatusCannotBeMoved() {
+            when(salesOrderRepository.findByIdForUpdate(orderId)).thenReturn(Optional.of(testOrder));
+            refuseTheOrdersStore();
+
+            assertThatThrownBy(() -> salesOrderService.updateSalesOrderItemStatus(
+                            orderId, itemId, new UpdateSalesOrderStatusRequest(canceladoItemStatus.getId())))
+                    .isInstanceOf(AccessDeniedException.class);
+
+            verify(itemRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("the store the caller IS scoped to still works: the guard closes nothing legitimate")
+        void theLegitimateStoreStillWorks() {
+            when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
+            when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
+            when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId)).thenReturn(List.of());
+
+            var response = salesOrderService.getSalesOrderById(orderId);
+
+            assertThat(response.id()).isEqualTo(orderId);
+            verify(currentUserContext).verifyCompanyStoreAccess(any(), any(), any(), any(), any());
         }
     }
 }
