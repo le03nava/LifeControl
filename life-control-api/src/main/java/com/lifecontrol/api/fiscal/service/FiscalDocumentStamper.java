@@ -160,6 +160,8 @@ public class FiscalDocumentStamper {
      */
     private final EntityManager entityManager;
 
+    private final FiscalDocumentStoreScope storeScope;
+
     public FiscalDocumentStamper(
             SalesOrderRepository salesOrderRepository,
             FiscalDocumentRepository fiscalDocumentRepository,
@@ -171,7 +173,8 @@ public class FiscalDocumentStamper {
             ObjectProvider<FiscalStampProvider> stampProvider,
             ObjectProvider<CfdiSealer> cfdiSealer,
             Clock fiscalClock,
-            EntityManager entityManager) {
+            EntityManager entityManager,
+            FiscalDocumentStoreScope storeScope) {
         this.salesOrderRepository = salesOrderRepository;
         this.fiscalDocumentRepository = fiscalDocumentRepository;
         this.fiscalDocumentLineRepository = fiscalDocumentLineRepository;
@@ -183,6 +186,7 @@ public class FiscalDocumentStamper {
         this.cfdiSealer = cfdiSealer;
         this.fiscalClock = fiscalClock;
         this.entityManager = entityManager;
+        this.storeScope = storeScope;
     }
 
     /**
@@ -207,6 +211,11 @@ public class FiscalDocumentStamper {
         var sale = salesOrderRepository
                 .findById(salesOrderId)
                 .orElseThrow(() -> new FiscalSaleNotFoundException(salesOrderId));
+
+        // The store the sale belongs to decides, before the replay read: a caller of store A receives a 403 for
+        // store B's sale and learns neither that a document exists nor which attempt stamped it, and nothing is
+        // written or sent to the authority on that path (S4 of odd/tasks/fiscal-document-cross-store-authz.md).
+        storeScope.verifyAccessOfSale(sale);
 
         // Normalized the same way the snapshot writer normalizes it before writing, because the replay is a read
         // of that written value: a padded key that the writer trimmed would otherwise look like a second attempt
