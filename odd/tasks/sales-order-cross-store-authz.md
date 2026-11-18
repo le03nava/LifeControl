@@ -8,7 +8,9 @@ rule `GoodsReceiptService` already applies to receipts. Issue #889. Branch `fix/
 store-scoped cashier charging, voiding, deleting and reading another store's orders. Item 3 does not: no endpoint, path,
 payload or status code changes for a caller that was already allowed, and the only new answer is a 403 that today is a 200.
 Item 1 does not: the guard runs **before** the first write, so a refused call leaves the row, its lines and its payments
-exactly as they were, which S1–S3 assert as an effect and not as an intention. Item 6 does not: every rule below has a test
+exactly as they were, which S1–S3 assert as an effect and not as an intention. The answers that change are two, not one:
+the 403 on the id-addressed paths, and the empty page S4 gives a caller with no resolvable store scope where the company
+list used to be. Item 6 does not: every rule below has a test
 that fails on the previous tree.
 
 ## Problem
@@ -65,6 +67,26 @@ from the store instead of duplicated on the order.
 auto-promotes an `Active` order to `Pending` (`ensureOrderIsPending`) and `deleteSalesOrder` reverses stock; both are
 writes that happen before the money moves. S2 and S3 assert the stored state did not move, so the guard's position is
 part of the contract and not an implementation detail.
+
+## Independent verification
+
+`gentle-ai-verify` read `git diff origin/main...HEAD` (read-only, no module suite) and answered per `S#`: **S1–S5 and S7
+upheld, no blockers.** It enumerated the twelve id-addressed public paths from the source rather than from the commit
+message, checked the guard's statement order against the charge's auto-promotion and the delete's reversal, and confirmed
+that no path authorizes against a store taken from the request. Four advisories came out of it:
+
+1. **No case paired a `COMPLETED` order with a foreign-store `DELETE`**, so a guard moved below the reversal stayed
+   green. Closed, and the closing is the interesting part: an HTTP case was written for it and **does not bite** — with
+   the guard moved below `restoreAllLines` the store position is identical, because the reversal of a fully charged order
+   credits nothing back in that fixture, so the case passed under the mutation. The position is pinned instead by
+   `SalesOrderServiceTest.StoreScopeOnExistingOrdersTests#deleteIsRefusedBeforeTheReversal`, where the ledger is a mock:
+   it **fails** under that mutation (`verifyNoInteractions(stockLedgerEngine)` sees the reversal) and passes on this
+   tree. The HTTP case stays, with its javadoc stating what it does *not* prove.
+2. A javadoc in the new unit suite cited a `SalesOrderScopeAgreementTest` that does not exist. Corrected: the pairing the
+   mock cannot prove is proved by `SalesOrderIntegrationTest.StoreScopingTests`.
+3. `GET /api/fiscal-documents/by-sale/{salesOrderId}` reads a sale by id with a company check and **no** store check —
+   the same class of gap, outside S7's letter. Not fixed here: it is a follow-up unit of its own.
+4. The header's "the only new answer is a 403" omitted S4's empty page. Corrected.
 
 ## Evidence
 

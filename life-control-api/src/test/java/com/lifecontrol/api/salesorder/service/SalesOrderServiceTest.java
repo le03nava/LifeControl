@@ -4449,10 +4449,10 @@ class SalesOrderServiceTest {
      * <p><b>What these cases can and cannot prove.</b> {@code CurrentUserContext} is a mock here, so what is
      * proved is the call and its order: the guard runs, the refusal is the {@link AccessDeniedException} the
      * handler renders as a 403, and nothing below it ran. That the guard refuses the <em>right</em> store is
-     * proved twice elsewhere — {@code SalesOrderScopeAgreementTest} with a real context and a real resolver, and
-     * {@code SalesOrderIntegrationTest} over HTTP. What cannot be proved here is the row's bytes: a mock
-     * repository has no row. The "nothing was written" assertions therefore name the writes this method would
-     * otherwise perform, which is the part a unit test can see.</p>
+     * proved once elsewhere — {@code SalesOrderIntegrationTest}'s {@code StoreScopingTests}, over HTTP against real
+     * claims and a real database, which also reads the row back after each refusal. What cannot be proved here is the
+     * row's bytes: a mock repository has no row. The "nothing was written" assertions therefore name the writes this
+     * method would otherwise perform, which is the part a unit test can see.</p>
      */
     @Nested
     @DisplayName("a principal scoped to another store")
@@ -4543,6 +4543,49 @@ class SalesOrderServiceTest {
 
             verify(salesOrderRepository, never()).save(any());
             verify(itemRepository, never()).findBySalesOrderId(any());
+        }
+
+        /**
+         * S1, and the half of the guard's <em>position</em> no other case can see: on a {@code COMPLETED} order the
+         * delete reverses stock through the ledger, so the guard has to run before that reversal, not merely before
+         * the save.
+         *
+         * <p><b>Why a completed order and a mocked engine.</b> Every other delete case uses a draft order, where the
+         * reversal branch is unreachable — a guard moved one statement down leaves them all green. The HTTP suite
+         * cannot see the difference either: measured, the reversal of a fully charged order credits nothing back in
+         * that fixture, so the store position is identical either way. Here the engine is a mock, so "the reversal ran"
+         * is an interaction, which is exactly what the position decides.</p>
+         *
+         * <p>The item read is stubbed leniently because on the correct tree the reversal below the guard is never
+         * evaluated; under the mutation it is, and the engine interaction is what fails.</p>
+         */
+        @Test
+        @DisplayName("cannot delete it before the reversal runs: the ledger is never touched")
+        void deleteIsRefusedBeforeTheReversal() {
+            var completed = SalesOrder.builder()
+                    .id(orderId)
+                    .orderNumber(testOrder.getOrderNumber())
+                    .companyId(companyId)
+                    .customerId(customerId)
+                    .companyStoreId(companyStoreId)
+                    .shiftId(shiftId)
+                    .userId("user123")
+                    .orderDate(testOrder.getOrderDate())
+                    .status(SalesOrderState.COMPLETED)
+                    .totalAmount(new BigDecimal("200.00"))
+                    .enabled(true)
+                    .build();
+            when(salesOrderRepository.findByIdForUpdate(orderId)).thenReturn(Optional.of(completed));
+            lenient()
+                    .when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId))
+                    .thenReturn(List.of(testItem));
+            refuseTheOrdersStore();
+
+            assertThatThrownBy(() -> salesOrderService.deleteSalesOrder(orderId))
+                    .isInstanceOf(AccessDeniedException.class);
+
+            verifyNoInteractions(stockLedgerEngine);
+            verify(salesOrderRepository, never()).save(any());
         }
 
         @Test

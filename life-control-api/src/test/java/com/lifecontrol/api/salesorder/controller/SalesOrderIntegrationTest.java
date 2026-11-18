@@ -5392,6 +5392,48 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
          * both, and every refusal of this class is made by the store-A-only caller. The shift is this class's — a
          * shift is only read for being open, and the document records it as the operator's.</p>
          */
+        /**
+         * The delete of another store's <em>charged</em> order is refused and the row stays enabled.
+         *
+         * <p><b>What this case does not prove, measured.</b> It was written to pin the guard's <em>position</em> — above
+         * the reversal — and it cannot: with the guard moved below {@code restoreAllLines} it still passes, because the
+         * reversal of a fully charged order credits nothing back in this fixture, so the store position is the same
+         * either way. The position is pinned instead by
+         * {@code SalesOrderServiceTest.StoreScopeOnExistingOrdersTests#deleteIsRefusedBeforeTheReversal}, where the
+         * ledger is a mock and "the reversal ran" is an interaction the assertion can see.</p>
+         */
+        @Test
+        @DisplayName("should refuse the delete of another store's charged order and restore no stock")
+        void deleteOfAnotherStoresChargedOrder_RestoresNoStock() throws Exception {
+            var variant = createTestVariant(new BigDecimal("100.00"));
+            var other = otherStore();
+            seedStockIn(other, variant.getId(), "10.00");
+            var orderId = placeOrderIn(other, line(null, variant.getId(), "2.00"));
+            var storeBCaller = salesJwtForStores(List.of(other.storeId()));
+
+            transitionTo(orderId, activeStatusId, storeBCaller);
+            mockMvc.perform(patch("/api/sales-orders/{id}/charge", orderId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(
+                                    objectMapper.writeValueAsString(chargeForItsTotal(orderId, savedPaymentMethodId())))
+                            .with(storeBCaller))
+                    .andExpect(status().isOk());
+
+            assertThat(storedHeader(orderId).status())
+                    .as("only a COMPLETED document reverses stock on delete, so the case is vacuous unless the "
+                            + "charge actually finished")
+                    .isEqualTo(SalesOrderState.COMPLETED);
+            var chargedPosition = stockPositionIn(other.storeId(), variant.getId());
+
+            mockMvc.perform(delete("/api/sales-orders/{id}", orderId).with(scopedSalesJwt()))
+                    .andExpect(status().isForbidden());
+
+            assertThat(stockPositionIn(other.storeId(), variant.getId()))
+                    .as("no units came back to the foreign store on a refused delete")
+                    .isEqualByComparingTo(chargedPosition);
+            assertThat(storedHeader(orderId).enabled()).isTrue();
+        }
+
         private UUID placeOrderIn(OtherStore other, SalesOrderItemRequest... items) throws Exception {
             var request = new SalesOrderRequest(customerId, other.storeId(), shiftId, "user123", List.of(items));
             var result = mockMvc.perform(post("/api/sales-orders")
