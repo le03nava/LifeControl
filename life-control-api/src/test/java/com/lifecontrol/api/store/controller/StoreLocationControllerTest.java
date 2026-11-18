@@ -210,68 +210,6 @@ class StoreLocationControllerTest {
     }
 
     @Nested
-    @DisplayName("GET " + BASE_URL + "/{storeLocationId}")
-    class GetLocationByIdTests {
-
-        @Test
-        @DisplayName("should return 200 with the location")
-        void getLocationById_Success() throws Exception {
-            when(storeLocationService.getLocationById(
-                            testCompanyId,
-                            testCompanyCountryId,
-                            testRegionId,
-                            testZoneId,
-                            testStoreId,
-                            testAreaId,
-                            testStoreZoneId,
-                            testStoreLocationId))
-                    .thenReturn(testStoreLocationResponse);
-
-            mockMvc.perform(get(
-                            BASE_URL + "/{storeLocationId}",
-                            testCompanyId,
-                            testCompanyCountryId,
-                            testRegionId,
-                            testZoneId,
-                            testStoreId,
-                            testAreaId,
-                            testStoreZoneId,
-                            testStoreLocationId))
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.id").value(testStoreLocationId.toString()))
-                    .andExpect(jsonPath("$.locationCode").value("L01"));
-        }
-
-        @Test
-        @DisplayName("should return 404 when the location does not exist")
-        void getLocationById_NotFound() throws Exception {
-            when(storeLocationService.getLocationById(
-                            testCompanyId,
-                            testCompanyCountryId,
-                            testRegionId,
-                            testZoneId,
-                            testStoreId,
-                            testAreaId,
-                            testStoreZoneId,
-                            testStoreLocationId))
-                    .thenThrow(new StoreLocationNotFoundException(testStoreLocationId));
-
-            mockMvc.perform(get(
-                            BASE_URL + "/{storeLocationId}",
-                            testCompanyId,
-                            testCompanyCountryId,
-                            testRegionId,
-                            testZoneId,
-                            testStoreId,
-                            testAreaId,
-                            testStoreZoneId,
-                            testStoreLocationId))
-                    .andExpect(status().isNotFound())
-                    .andExpect(jsonPath("$.message").value("Store location not found with id: " + testStoreLocationId));
-        }
-    }
-
-    @Nested
     @DisplayName("POST " + BASE_URL)
     class CreateLocationTests {
 

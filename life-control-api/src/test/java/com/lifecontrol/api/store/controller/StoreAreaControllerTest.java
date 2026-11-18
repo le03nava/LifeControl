@@ -140,50 +140,6 @@ class StoreAreaControllerTest {
     }
 
     @Nested
-    @DisplayName("GET " + BASE_URL + "/{areaId}")
-    class GetAreaByIdTests {
-
-        @Test
-        @DisplayName("should return 200 with the area")
-        void getAreaById_Success() throws Exception {
-            when(storeAreaService.getAreaById(
-                            testCompanyId, testCompanyCountryId, testRegionId, testZoneId, testStoreId, testAreaId))
-                    .thenReturn(testAreaResponse);
-
-            mockMvc.perform(get(
-                            BASE_URL + "/{areaId}",
-                            testCompanyId,
-                            testCompanyCountryId,
-                            testRegionId,
-                            testZoneId,
-                            testStoreId,
-                            testAreaId))
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.id").value(testAreaId.toString()))
-                    .andExpect(jsonPath("$.areaCode").value("A01"));
-        }
-
-        @Test
-        @DisplayName("should return 404 when the area does not exist")
-        void getAreaById_NotFound() throws Exception {
-            when(storeAreaService.getAreaById(
-                            testCompanyId, testCompanyCountryId, testRegionId, testZoneId, testStoreId, testAreaId))
-                    .thenThrow(new StoreAreaNotFoundException(testAreaId));
-
-            mockMvc.perform(get(
-                            BASE_URL + "/{areaId}",
-                            testCompanyId,
-                            testCompanyCountryId,
-                            testRegionId,
-                            testZoneId,
-                            testStoreId,
-                            testAreaId))
-                    .andExpect(status().isNotFound())
-                    .andExpect(jsonPath("$.message").value("Store area not found with id: " + testAreaId));
-        }
-    }
-
-    @Nested
     @DisplayName("POST " + BASE_URL)
     class CreateAreaTests {
 

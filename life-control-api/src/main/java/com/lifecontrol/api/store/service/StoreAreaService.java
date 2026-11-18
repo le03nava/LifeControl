@@ -142,19 +142,6 @@ public class StoreAreaService {
         return areas.stream().map(area -> toResponse(area, chain)).toList();
     }
 
-    @Transactional(readOnly = true)
-    public StoreAreaResponse getAreaById(
-            UUID companyId, UUID companyCountryId, UUID regionId, UUID zoneId, UUID storeId, UUID areaId) {
-        var store = resolveStore(companyId, companyCountryId, regionId, zoneId, storeId);
-        var chain = chainOf(store);
-
-        var area = storeAreaRepository
-                .findByIdAndCompanyStoreId(areaId, store.getId())
-                .orElseThrow(() -> new StoreAreaNotFoundException(areaId));
-
-        return toResponse(area, chain);
-    }
-
     /**
      * Resolves a single area by its id without a nested path, then authorizes it against the chain
      * navigated from the area's own store association.

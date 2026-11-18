@@ -90,6 +90,9 @@ class StoreZoneIntegrationTest extends AbstractPostgresIntegrationTest {
 
     private static final String ZONE_BASE_URL = AREA_BASE_URL + "/{areaId}/store-zones";
 
+    /** The canonical id-addressed read: the nested single read was removed (#898, S3). */
+    private static final String FLAT_URL = "/api/store-zones";
+
     private static final String STORE_BASE_URL =
             "/api/companies/{companyId}/countries/{companyCountryId}/regions/{regionId}/zones/{zoneId}/stores";
 
@@ -468,16 +471,7 @@ class StoreZoneIntegrationTest extends AbstractPostgresIntegrationTest {
             createZone(areaId, "Z01", "Pasillo", 1);
             var storeZoneId = zoneIdOf(areaId, "Z01");
 
-            mockMvc.perform(get(
-                                    ZONE_BASE_URL + "/{storeZoneId}",
-                                    companyId,
-                                    companyCountryId,
-                                    regionId,
-                                    zoneId,
-                                    storeId,
-                                    areaId,
-                                    storeZoneId)
-                            .with(jwt().authorities(ROLE_LC_ADMIN)))
+            mockMvc.perform(get(FLAT_URL + "/{storeZoneId}", storeZoneId).with(flatAdmin()))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.id").value(storeZoneId.toString()))
                     .andExpect(jsonPath("$.zoneCode").value("Z01"));
@@ -489,16 +483,7 @@ class StoreZoneIntegrationTest extends AbstractPostgresIntegrationTest {
             var areaId = createArea("A01", "Bodega");
             var unknownId = UUID.randomUUID();
 
-            mockMvc.perform(get(
-                                    ZONE_BASE_URL + "/{storeZoneId}",
-                                    companyId,
-                                    companyCountryId,
-                                    regionId,
-                                    zoneId,
-                                    storeId,
-                                    areaId,
-                                    unknownId)
-                            .with(jwt().authorities(ROLE_LC_ADMIN)))
+            mockMvc.perform(get(FLAT_URL + "/{storeZoneId}", unknownId).with(flatAdmin()))
                     .andExpect(status().isNotFound())
                     .andExpect(jsonPath("$.message").value("Store zone not found with id: " + unknownId));
         }
@@ -563,8 +548,6 @@ class StoreZoneIntegrationTest extends AbstractPostgresIntegrationTest {
     @Nested
     @DisplayName("flat lookup")
     class FlatLookupTests {
-
-        private static final String FLAT_URL = "/api/store-zones";
 
         @Test
         @DisplayName("should resolve the persisted chain from a flat zone lookup")
