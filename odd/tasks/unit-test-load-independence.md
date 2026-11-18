@@ -132,3 +132,10 @@ gets.
 `npx tsc --noEmit` → clean, no output; every suite in `.github/scripts/tests/` → **18 suites, 0 failed**.
 `odd-status-headers.test.sh` and `odd-citations.test.sh` were also run on their own while this record was
 being written, because this record is the first thing they judge.
+
+**L9** — CI on the pull request that carries this unit, which is the one cost the local measurement cannot
+show: **6 of 6 checks green** — `A linked, approved issue`, `Exactly one type:* label`, `Lint & Build` 57s,
+`Unit tests (1)` **2m54s**, `Unit tests (2)` **2m28s**, `Coverage` 37s. The cap did not inflate the shards past
+their historical range: a GitHub runner has 4 vCPUs, so its default pool was 3 and the cap removes one, against
+the 7 removed locally.
+
