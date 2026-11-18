@@ -516,8 +516,8 @@ verify_artifact_freshness() {
 	# JAR and must stay out of the mtime scan; Gradle writes bookkeeping such as
 	# .gradle/<version>/gc.properties after producing the JAR, so a whole-module
 	# scan would always report a freshly built artifact as stale; and build inputs
-	# outside src/ (gradle/, buildSrc/, root Gradle files) must stay covered so a
-	# silent miss cannot let a stale JAR through.
+	# outside src/ (gradle/, buildSrc/, the module's Gradle files) must stay
+	# covered so a silent miss cannot let a stale JAR through.
 	local build_inputs=()
 	local main_src=""
 	if [ -d "$module_abs/src/main" ]; then
@@ -546,12 +546,31 @@ verify_artifact_freshness() {
 		return 0
 	fi
 
+	# Build inputs that live OUTSIDE the module, stated relative to the repository
+	# root. Both Java builds are independent builds that share one version catalog
+	# (`gradle/libs.versions.toml`, one level above either module) by declaring it
+	# in `settings.gradle`, so a version bumped there changes what the JAR contains
+	# while touching nothing under the module: without this entry a catalog-only
+	# bump reused a stale jar silently (issue #894, S8). The entry is added only
+	# when the file exists, so a repository without the shared catalog — every
+	# fixture tree and every other checkout — is not read as having one.
+	local shared_inputs=()
+	if [ -f "$root/gradle/libs.versions.toml" ]; then
+		shared_inputs+=("gradle/libs.versions.toml")
+	fi
+
 	# find roots are absolute; git pathspec entries are repository-relative. Both
-	# are derived from build_inputs, the single source of truth.
+	# are derived from build_inputs and shared_inputs, the single source of truth,
+	# and the module-relative list is prefixed with the module while the shared one
+	# is already root-relative.
 	local scan_roots=() pathspec=() build_input
 	for build_input in "${build_inputs[@]}"; do
 		scan_roots+=("$module_abs/$build_input")
 		pathspec+=("$module/$build_input")
+	done
+	for build_input in "${shared_inputs[@]}"; do
+		scan_roots+=("$root/$build_input")
+		pathspec+=("$build_input")
 	done
 
 	# 1) No real build input may be newer than the artifact.

@@ -177,6 +177,14 @@ expect_verdict() {
 	fi
 }
 
+# paths_include <file> <trigger> <path>: true when that trigger's paths list names <path>
+# verbatim. The surrounding quotes a YAML list entry carries are stripped first, and the
+# comparison is exact (`-Fx`) rather than a substring match: `gradle/libs.versions.toml` and
+# `gradle/libs.versions.toml.bak` are different files to GitHub's filter.
+paths_include() {
+	extract_paths "$1" "$2" | tr -d "'\"" | grep -Fxq -- "$3"
+}
+
 echo "== the four component workflows filter the same paths on both triggers =="
 for workflow in angular-ci.yml api-ci.yml docker-build-integrity.yml gateway-ci.yml; do
 	file="$WORKFLOWS/$workflow"
@@ -354,6 +362,46 @@ if printf '%s\n' 'Every workflow also runs on `push` to `main`.' | claim_matcher
 	pass "the push-claim matcher reads an unwrapped sentence"
 else
 	fail "the push-claim matcher reads an unwrapped sentence"
+fi
+
+echo "== the shared Gradle version catalog triggers every build it changes =="
+# The shared catalog (issue #894) lives at the repository root, so it matches no module path
+# filter: a catalog-only version bump would trigger none of the three workflows that build the
+# modules, which is the silent state the `paths:` lists exist to avoid. It is asserted in BOTH
+# triggers of each workflow, because the parity case above compares the two lists to each other:
+# a path missing from both lists would still read green.
+SHARED_CATALOG_PATH='gradle/libs.versions.toml'
+for workflow in api-ci.yml gateway-ci.yml docker-build-integrity.yml; do
+	file="$WORKFLOWS/$workflow"
+	for trigger in push pull_request; do
+		if paths_include "$file" "$trigger" "$SHARED_CATALOG_PATH"; then
+			pass "$workflow lists $SHARED_CATALOG_PATH under $trigger"
+		else
+			fail "$workflow does not list $SHARED_CATALOG_PATH under $trigger, so a catalog-only version change triggers no build of the modules"
+		fi
+	done
+done
+
+# The matcher is proven on both answers, so a green line above cannot come from a function that
+# never matches (the fixtures further up prove `extract_paths` itself).
+cat >"$TMP/catalog-listed.yml" <<'YAML'
+on:
+  push:
+    paths:
+      - 'gradle/libs.versions.toml'
+  pull_request:
+    paths:
+      - 'gradle/libs.versions.toml'
+YAML
+if paths_include "$TMP/catalog-listed.yml" push "$SHARED_CATALOG_PATH"; then
+	pass "the catalog matcher finds a listed path"
+else
+	fail "the catalog matcher does not find a listed path"
+fi
+if paths_include "$TMP/catalog-listed.yml" pull_request 'gradle/libs.versions.toml.bak'; then
+	fail "the catalog matcher accepts a path that is not listed (a substring match would)"
+else
+	pass "the catalog matcher rejects a path that is not listed"
 fi
 
 printf '\n%d passed, %d failed\n' "$PASS_COUNT" "$FAIL_COUNT"
