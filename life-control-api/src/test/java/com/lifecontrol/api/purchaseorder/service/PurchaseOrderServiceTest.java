@@ -95,6 +95,8 @@ import org.springframework.security.access.AccessDeniedException;
 @DisplayName("PurchaseOrderService Tests")
 class PurchaseOrderServiceTest {
 
+    private static final PurchaseOrderFilter UNFILTERED = new PurchaseOrderFilter(null, null, null, null, null);
+
     @Mock
     private PurchaseOrderRepository purchaseOrderRepository;
 
@@ -424,7 +426,7 @@ class PurchaseOrderServiceTest {
             when(purchaseOrderRepository.findByFilters(null, null, null, null, null, null, pageable))
                     .thenReturn(page);
 
-            var result = service.getAllPurchaseOrders(pageable, null, PurchaseOrderFilter.NONE);
+            var result = service.getAllPurchaseOrders(pageable, null, UNFILTERED);
 
             assertThat(result).isNotNull();
             assertThat(result.getContent()).hasSize(1);
@@ -440,7 +442,7 @@ class PurchaseOrderServiceTest {
             when(purchaseOrderRepository.findByFilters("Test", null, null, null, null, null, pageable))
                     .thenReturn(page);
 
-            var result = service.getAllPurchaseOrders(pageable, "  Test  ", PurchaseOrderFilter.NONE);
+            var result = service.getAllPurchaseOrders(pageable, "  Test  ", UNFILTERED);
 
             assertThat(result.getContent()).hasSize(1);
             verify(purchaseOrderRepository).findByFilters("Test", null, null, null, null, null, pageable);
@@ -454,7 +456,7 @@ class PurchaseOrderServiceTest {
             when(purchaseOrderRepository.findByFilters(null, null, null, null, null, null, pageable))
                     .thenReturn(page);
 
-            service.getAllPurchaseOrders(pageable, "   ", PurchaseOrderFilter.NONE);
+            service.getAllPurchaseOrders(pageable, "   ", UNFILTERED);
 
             verify(purchaseOrderRepository).findByFilters(null, null, null, null, null, null, pageable);
         }
