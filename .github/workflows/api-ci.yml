@@ -1,14 +1,20 @@
 name: API CI
 
+# Both Java builds resolve from the shared version catalog at the repository root
+# (`gradle/libs.versions.toml`, issue #894). It matches no module path, so it is listed in both
+# triggers: a catalog-only version bump changes what both modules build, and without this entry
+# it would start no run at all.
 on:
   push:
     branches: [main]
     paths:
       - 'life-control-api/**'
+      - 'gradle/libs.versions.toml'
       - '.github/workflows/api-ci.yml'
   pull_request:
     paths:
       - 'life-control-api/**'
+      - 'gradle/libs.versions.toml'
       - '.github/workflows/api-ci.yml'
 
 # Read-only, declared instead of inherited. Without a `permissions:` block a workflow gets the

@@ -27,14 +27,13 @@ public class MultiIssuerSecurityConfig {
 
     @Bean
     public JwtDecoder keycloakJwtDecoder() {
-        NimbusJwtDecoder decoder = NimbusJwtDecoder
-            .withJwkSetUri(props.keycloakInternalUri() + "/protocol/openid-connect/certs")
-            .build();
+        NimbusJwtDecoder decoder = NimbusJwtDecoder.withJwkSetUri(
+                        props.keycloakInternalUri() + "/protocol/openid-connect/certs")
+                .build();
 
         // createDefault() aporta la validación de exp/nbf (con 60s de leeway).
         OAuth2TokenValidator<Jwt> validator = new DelegatingOAuth2TokenValidator<>(
-            JwtValidators.createDefault(),
-            new JwtIssuerAllowlistValidator(props.allowedIssuers()));
+                JwtValidators.createDefault(), new JwtIssuerAllowlistValidator(props.allowedIssuers()));
         decoder.setJwtValidator(validator);
 
         return decoder;

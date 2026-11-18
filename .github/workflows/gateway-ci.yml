@@ -1,15 +1,21 @@
 name: Gateway CI
 
+# Both Java builds resolve from the shared version catalog at the repository root
+# (`gradle/libs.versions.toml`, issue #894). It matches no module path, so it is listed in both
+# triggers: a catalog-only version bump changes what both modules build, and without this entry
+# it would start no run at all.
 on:
   push:
     branches: [main]
     paths:
       - 'api-gateway/**'
+      - 'gradle/libs.versions.toml'
       - 'life-control-api/src/main/java/**/controller/**'
       - '.github/workflows/gateway-ci.yml'
   pull_request:
     paths:
       - 'api-gateway/**'
+      - 'gradle/libs.versions.toml'
       # The guard reads API @RequestMapping prefixes, so a new API
       # prefix must re-run this workflow even if the gateway is untouched.
       - 'life-control-api/src/main/java/**/controller/**'
@@ -42,6 +48,16 @@ jobs:
           java-version: 21
           distribution: temurin
           cache: gradle
+
+      # The same gate `api-ci.yml` runs for `life-control-api`, in the same shape: the step name, the
+      # command and the `--no-daemon` flag. It is a step of this job rather than the second job
+      # `api-ci.yml` uses, because this workflow's job names are a documented contract: `CONTRIBUTING.md`
+      # §6 quotes them and §7 names required checks by exactly those strings, and
+      # `.github/scripts/tests/contributing-job-names.test.sh` fails on any name §6 does not carry. A
+      # split into `Static analysis` + `Test` is a separate change that edits both, so this job keeps
+      # its name and runs the gate before the tests.
+      - name: Static analysis
+        run: ./gradlew spotlessCheck spotbugsMain --no-daemon
 
       - name: Run tests
         run: ./gradlew test --no-daemon
