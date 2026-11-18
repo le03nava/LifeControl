@@ -1,6 +1,7 @@
 **Status**: implemented — the four workflow scopes, the five SHA-pinned actions, the floating-tag sweep, the
-two Dockerfile base images in the pin source and the suite that fails on drift are this branch's content.
-Nothing is deferred.
+two Dockerfile base images in the pin source, and the two suites that fail on drift (workflow and image pins,
+and the Gradle half) are this branch's content. All six acceptance criteria are met, `S6` last: the deploy and
+the health probe ran from a clean tree, and `L11` records what they printed. Nothing is deferred.
 **Created**: 2026-11-14 · **Risk**: high — item 5 (CI and deploy configuration: a wrong pin or a narrowed
 token decides what runs in every job) and item 6 (the whole point is that no test caught this drift).
 **Issue**: #896 · **Branch**: `chore/pin-enforcement` · **Spec**: this file, `## Specs`.
@@ -88,3 +89,28 @@ Angular `nginx:alpine` base is a `FROM` line, so S5 covers it and S4's "the two"
   `949feb2413d6458794dcd2491c4babbbce0c15c1`, `actions/upload-artifact` v7
   `cf430e030ddbb5b0abf93d22962f4752f3646cd9`, `actions/download-artifact` v7
   `37930b1c2abaa49bbe596cd826c3c89aef350131`.
+- **L10** — **`S6` was blocked by the environment, and `L9`'s premise is corrected by measurement.** The dev
+  stack `L9` assumed belonged to the anchor was not running from the anchor at all: `docker inspect` showed
+  every container of project `lifecontrol` mounting
+  `.../LifeControl-worktrees/chore-pin-enforcement/docker/**`, so the environment a deploy from this worktree
+  touches was already this worktree's, and the anchor's own state directory (1.7 GB, dated 2026-11-01) was
+  never read or written by this unit. Two defects, both independent of the branch, kept the stack red:
+  `lifecontrol-api` crash-looped on `FATAL: password authentication failed for user "lifecontrol_owner"`
+  because the secret clean-up left `docker/secrets/lifecontrol_app_password` holding `CHANGEME` — which made
+  `db-roles.sh dev` refuse to converge, by design and not by accident — and Loki crash-looped on
+  `mkdir /loki/chunks: permission denied`, because its bind mount was owned by the host user at mode `755`
+  while the 3.7.8 image runs as uid `10001`. The human materialized both passwords and the roles converged
+  (`Database roles applied`), and the Loki mount was chowned to `10001:10001`. The repair, not this branch, is
+  what made `S6` runnable, so neither finding is scope this unit claims.
+- **L11** — **`S6` met, from a tree that is clean.** The first `deploy.sh dev start` went green but stamped
+  every application image with the dirty suffix, and the flag came from this unit's own untracked helper for
+  the environment repair, not from the branch; the helper was deleted, `git status --short` came back empty,
+  and the run was repeated at the branch tip. That second run: `deploy.sh dev start` closed with *All services
+  healthy!* — the probe waits on container health, on every Prometheus target being `up`, and on a readable
+  Tempo trace, with Tempo's empty probe window treated as a notice — and `deploy.sh dev version` reports
+  `match` for `api-gateway`, `lifecontrol-api` and `web-app` while exiting 0. The exit code is the assertion:
+  `version` is non-zero on every other verdict.
+- **L12** — the fourth commit, `test: assert the two exceptions the verification found unproven`, postdates
+  `L8`'s count of three: the independent verification of `T8` found two closed-drift assertions that were
+  stated but never exercised, and they were added rather than leaving the suite claiming coverage it did not
+  have. No commit ids are cited in this entry on purpose — `L8` records why.
