@@ -108,9 +108,18 @@ class FiscalDocumentIssueNotConfiguredIntegrationTest extends AbstractPostgresIn
                 .isZero();
     }
 
+    /**
+     * The caller's token: the tenant, the store chain of the sale it names, and the role. The chain is the seed's
+     * because issuing authorizes the caller for the sale's store before it resolves the capability the deployment
+     * is missing, so a company-only token is refused with a 403 instead of reaching the 503 this suite is about.
+     */
     private RequestPostProcessor token(UUID company) {
         return jwt().authorities(new SimpleGrantedAuthority("ROLE_lc-sales"))
-                .jwt(builder ->
-                        builder.subject("suite:fiscal-issue-unconfigured").claim("company_id", company.toString()));
+                .jwt(builder -> builder.subject("suite:fiscal-issue-unconfigured")
+                        .claim("company_id", company.toString())
+                        .claim("company_country_id", seed.companyCountry().toString())
+                        .claim("company_region_id", seed.region().toString())
+                        .claim("company_zone_id", seed.zone().toString())
+                        .claim("company_store_id", seed.store().toString()));
     }
 }

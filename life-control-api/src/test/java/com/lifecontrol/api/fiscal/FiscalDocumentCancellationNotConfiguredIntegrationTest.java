@@ -94,7 +94,18 @@ class FiscalDocumentCancellationNotConfiguredIntegrationTest extends AbstractPos
                         .content("{\"motive\":\"02\"}")
                         .with(jwt().authorities(new SimpleGrantedAuthority("ROLE_lc-sales"))
                                 .jwt(builder -> builder.subject("suite:fiscal-cancellation")
-                                        .claim("company_id", seed.company().toString()))))
+                                        .claim("company_id", seed.company().toString())
+                                        // The store chain too: cancelling authorizes the caller for the store the
+                                        // document came from before it resolves the capability, so a company-only
+                                        // token is refused with a 403 instead of reaching the 503 of this case.
+                                        .claim(
+                                                "company_country_id",
+                                                seed.companyCountry().toString())
+                                        .claim(
+                                                "company_region_id",
+                                                seed.region().toString())
+                                        .claim("company_zone_id", seed.zone().toString())
+                                        .claim("company_store_id", seed.store().toString()))))
                 .andExpect(status().is(HttpStatus.SERVICE_UNAVAILABLE.value()))
                 .andExpect(jsonPath("$.status").value(HttpStatus.SERVICE_UNAVAILABLE.value()))
                 .andReturn()

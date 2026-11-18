@@ -234,11 +234,21 @@ class FiscalDocumentIssueHttpIntegrationTest extends AbstractPostgresIntegration
     }
 
     /**
-     * The caller's token: the tenant in the one claim a company-less path reads, and the narrower of the two roles
-     * the endpoint admits, so the case proves {@code lc-sales} is enough on its own.
+     * The caller's token: the tenant in the one claim a company-less path reads, the store chain the sale belongs
+     * to, and the narrower of the two roles the endpoint admits, so the case proves {@code lc-sales} is enough on
+     * its own.
+     *
+     * <p><b>Why the chain and not only the company.</b> Issuing authorizes the caller for the store of the sale it
+     * names, walking company &rarr; country &rarr; region &rarr; zone &rarr; store, so a token that states only the
+     * company never says which store it may stamp in and is refused before anything is written.</p>
      */
     private RequestPostProcessor token(UUID company) {
         return jwt().authorities(new SimpleGrantedAuthority("ROLE_lc-sales"))
-                .jwt(builder -> builder.subject("suite:fiscal-issue").claim("company_id", company.toString()));
+                .jwt(builder -> builder.subject("suite:fiscal-issue")
+                        .claim("company_id", company.toString())
+                        .claim("company_country_id", seed.companyCountry().toString())
+                        .claim("company_region_id", seed.region().toString())
+                        .claim("company_zone_id", seed.zone().toString())
+                        .claim("company_store_id", seed.store().toString()));
     }
 }
