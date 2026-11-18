@@ -18,6 +18,11 @@
 #      was pinned "so the verdict does not drift" — the linter that gates this repository could
 #      change, and refuse different code, without a commit here.
 #
+#   4. **The lint surface.** `k8s/kind/*.sh` is executed — `create-kind-cluster.sh` runs
+#      `./kind-load.sh` — and neither glob named `k8s/`, so two of its three scripts carried no
+#      shebang and nothing reported it (#955). Which glob covers a root is not the contract; that
+#      some glob covers it is, and that is what the freeze below holds.
+#
 # The three checkers below run against the tree **and** against fixtures that must be rejected:
 # `uses: actions/checkout@v7`, a SHA with no version comment, a workflow with no `permissions:`, a
 # `contents: write` scope, and a `:latest` container. Without those cases a reader that matched
@@ -67,6 +72,12 @@ fail() {
 # The frozen shellcheck pin. Bumping it is editing this line and the two workflows together, in the
 # same commit, so the version the linter gate runs is always a reviewed change.
 EXPECTED_SHELLCHECK_TAG="v0.11.0"
+
+# The frozen lint surfaces. Each root must be named by the `find` of at least one workflow's
+# shellcheck step, whichever one: `.github/scripts` and `.githooks` are linted by the guard's step
+# and `docker/scripts` by the integrity job's. `k8s` was named by neither until #955, and the cost
+# was two scripts with no interpreter to run them under and no suite that could see it.
+EXPECTED_LINT_SURFACES=".github/scripts .githooks docker/scripts k8s"
 
 # ------------------------------------------
 # Checkers. Each prints one line per finding and nothing when the file is clean, so the same code
@@ -180,6 +191,31 @@ linter_pins() {
 	sed 's/#.*//' "$1" 2>/dev/null | grep -oE 'koalaman/shellcheck:[A-Za-z0-9._-]+' | sort -u
 }
 
+# lint_surfaces <file>: the roots one workflow feeds to the linter, one per line. Only the
+# `mapfile -t scripts` line counts, because it is the one the `docker run` consumes: a root named in
+# a comment does not read as linted.
+lint_surfaces() {
+	local file="$1"
+	[ -f "$file" ] || return 0
+	grep -E '^[[:space:]]*mapfile -t scripts' "$file" 2>/dev/null |
+		grep -oE 'find[[:space:]]+[^[:space:];}]+' |
+		awk '{ print $2 }' | sort -u
+}
+
+# lint_coverage_findings <file>...: one line per frozen lint surface that no file covers.
+lint_coverage_findings() {
+	local covered="" file surface
+	for file in "$@"; do
+		covered="$covered$(lint_surfaces "$file")
+"
+	done
+	for surface in $EXPECTED_LINT_SURFACES; do
+		if ! printf '%s\n' "$covered" | grep -qxF "$surface"; then
+			printf 'no shellcheck glob covers %s, so a shell file under it runs unlinted\n' "$surface"
+		fi
+	done
+}
+
 # findings <file>: the three checks against one workflow file, findings only.
 findings() {
 	permissions_verdict "$1"
@@ -272,6 +308,38 @@ jobs:
       - run: docker run --rm koalaman/shellcheck:stable --version
 YAML
 
+# Two more fixtures for the lint-surface reader: one that names every frozen root, and the guard's
+# step as it stood before #955, which is the exact shape the freeze exists to reject.
+cat > "$TMP/fixtures/clean-lint-surface.yml" <<'YAML'
+name: Clean lint surface
+on:
+  pull_request
+permissions:
+  contents: read
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          mapfile -t scripts < <({ find .github/scripts -type f -name '*.sh'; find .githooks -type f; find docker/scripts -type f -name '*.sh'; find k8s -type f -name '*.sh'; } | sort)
+          docker run --rm koalaman/shellcheck:v0.11.0 --severity=warning "${scripts[@]}"
+YAML
+
+cat > "$TMP/fixtures/narrow-glob.yml" <<'YAML'
+name: Narrow glob
+on:
+  pull_request
+permissions:
+  contents: read
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          mapfile -t scripts < <({ find .github/scripts -type f -name '*.sh'; find .githooks -type f; } | sort)
+          docker run --rm koalaman/shellcheck:v0.11.0 --severity=warning "${scripts[@]}"
+YAML
+
 # A clean fixture proves the checkers can pass, and each broken one proves they are not passing by
 # returning nothing. Quoted, so a fixture that fails to write is a case failure and not an error.
 check_fixture_clean() {
@@ -300,6 +368,29 @@ check_fixture_rejected "$TMP/fixtures/no-version-comment.yml"
 check_fixture_rejected "$TMP/fixtures/no-permissions.yml"
 check_fixture_rejected "$TMP/fixtures/write-scope.yml"
 check_fixture_rejected "$TMP/fixtures/floating-image.yml"
+
+check_lint_fixture_clean() {
+	local result
+	result="$(lint_coverage_findings "$TMP/fixtures/clean-lint-surface.yml")"
+	if [ -z "$result" ]; then
+		pass "fixture clean-lint-surface.yml is accepted"
+	else
+		fail "fixture clean-lint-surface.yml should be clean but was rejected: $result"
+	fi
+}
+
+check_lint_fixture_rejected() {
+	local result
+	result="$(lint_coverage_findings "$TMP/fixtures/narrow-glob.yml")"
+	if [ -n "$result" ]; then
+		pass "fixture narrow-glob.yml is rejected ($(printf '%s' "$result" | head -1))"
+	else
+		fail "fixture narrow-glob.yml was accepted, so the reader that should reject it is not reading the file"
+	fi
+}
+
+check_lint_fixture_clean
+check_lint_fixture_rejected
 
 # ------------------------------------------
 # 2. Every workflow on the tree declares a read-only scope, pins every third-party action to a
@@ -351,6 +442,18 @@ if [ "$WORKFLOW_COUNT" -lt 5 ]; then
 fi
 if [ "$USES_COUNT" -eq 0 ]; then
 	fail "no uses: line matched in $WORKFLOW_COUNT workflow(s), so the pin reader is not reading them"
+fi
+
+# The lint surface, against the tree. A glob that quietly drops a root leaves its files unlinted
+# while every line above still reports green, which is what #955 measured on `k8s/`.
+LINT_COVERAGE="$(lint_coverage_findings "$WORKFLOWS"/*.yml)"
+if [ -z "$LINT_COVERAGE" ]; then
+	pass "every frozen lint surface is named by a shellcheck glob ($EXPECTED_LINT_SURFACES)"
+else
+	while IFS= read -r line; do
+		[ -n "$line" ] || continue
+		fail "$line"
+	done <<< "$LINT_COVERAGE"
 fi
 printf 'NOTE: %s workflow(s), %s uses: line(s), %s shellcheck reference(s) checked\n' \
 	"$WORKFLOW_COUNT" "$USES_COUNT" "$(printf '%s' "$SHELLCHECK_PINS" | sed '/^$/d' | wc -l | tr -d ' ')"
