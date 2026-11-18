@@ -44,6 +44,13 @@ HELP.md
 !life-control-api/gradle/
 !life-control-api/gradle/wrapper/gradle-wrapper.jar
 
+# The version catalog both modules resolve from lives in the repository-root
+# `gradle/` directory, which `/**/gradle/` above would swallow (issue #894).
+# Same two-step shape as the wrappers: the directory first, then the file, because
+# git cannot re-include a file whose parent directory is excluded.
+!/gradle/
+!/gradle/libs.versions.toml
+
 build/
 
 ### STS ###

@@ -1,1 +1,13 @@
 rootProject.name = 'api-gateway'
+
+// The version catalog both Java builds share lives at the repository root (issue #894): a catalog
+// is visible to the projects of ONE build and a composite build shares no configuration at all,
+// so this declaration is the whole sharing mechanism. `life-control-api/settings.gradle` carries
+// the same one, and `.github/scripts/tests/version-catalog.test.sh` fails if either stops.
+dependencyResolutionManagement {
+	versionCatalogs {
+		libs {
+			from(files("../gradle/libs.versions.toml"))
+		}
+	}
+}
