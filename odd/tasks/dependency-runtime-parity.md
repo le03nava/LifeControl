@@ -41,8 +41,7 @@ that one is published.
 | T4 | S4 | `backstage/` removed from the tree together with the three live references and the two ignore rules that would dangle | inline | slice 2 |
 | T5 | S5 | Every committed document and user-visible copy that named Angular 20 or Node 20 corrected | inline | slice 2 |
 | T5b | S2, S1 | The existing guard at `src/toolchain-migration.spec.ts` rewritten: it encoded the mixed policy it should have forbidden, and a new guard makes the `@types/node` major unable to drift from `engines.node` again | inline | slice 1 |
-| T5c | S5 | `src/version-claims.spec.ts`: the guard that makes S5 durable, deriving the major from `@angular/core` instead of hardcoding it | inline | slice 3 |
-| T6 | non-goal | The `jsdom` risk recorded in the component guide, with no upgrade | inline | slice 2 |
+| T5c | S5 | `src/version-claims.spec.ts`: the guard that makes S5 durable, deriving the major from `@angular/core` instead of hardcoding it | inline | slice 3 || T6 | non-goal | The `jsdom` risk recorded in the component guide, with no upgrade | inline | slice 2 |
 | T7 | S3 | `npm run lint` and `npm run test:coverage:check` green on the changed dependency set | inline | slice 2 |
 | T8 | S1–S5 | Independent verification of the five criteria | verify | pending |
 
@@ -117,12 +116,16 @@ that one is published.
   said `setValue` does not mark a control dirty "in Angular 20"; re-stamping the number would have asserted
   a behaviour nobody measured on 22, so the version qualifier was dropped and the behaviour claim kept.
 - **L14** — slice boundary, recorded because the harness flags the slice as past the ~400-line budget:
-  **two commits, not three.** slice 1 holds T1, T2, T3 and T5b (the dependency and type-check contract,
-  80 authored lines); slice 2 holds T4, T5, T6 and T7 (the tree's self-description and the dead scaffold,
-  148 authored lines). A three-way split was designed and rejected: `README.md:58` and `:59` are adjacent
-  lines, so the version correction and the Backstage row land in the same git hunk and cannot be staged
-  apart without hand-editing a patch — the split would have cost more than it bought. The 1890 deleted lines
-  are a scaffold nothing built, so they are not review surface in the sense the budget measures.
+  **three commits**, named by subject rather than by SHA because an amend rewrites a SHA and this record
+  would then cite a commit that does not exist (the rule `AGENTS.md` states for citations).
+  `chore(app): pin every @angular package exactly and type against Node 24` holds T1, T2, T3 and T5b —
+  the dependency and type-check contract. `chore: drop the unused backstage scaffold and name the versions
+  the tree resolves` holds T4, T5, T6 and T7 — the tree's self-description and the dead scaffold.
+  `test(app): guard the Angular version claims the documents make` holds T5c, the guard the independent
+  verification proved S5 was missing. A split that put the document corrections apart from the scaffold
+  removal was designed and rejected: `README.md:58` and `:59` are adjacent lines, so the two changes land
+  in the same git hunk and cannot be staged apart without hand-editing a patch. The 1890 deleted lines are
+  a scaffold nothing built, so they are not review surface in the sense the budget measures.
 - **L15** — the base moved while this unit ran: `origin/main` went from `484bf454` to `4d08e7d2` (PR #963,
   `docs/instruction-defects`), which touches `AGENTS.md` and therefore overlaps this unit's edits. The branch
   was rebased onto it with no conflict, so the record cites its slices by position rather than by SHA, and
