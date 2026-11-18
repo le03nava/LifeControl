@@ -1,0 +1,56 @@
+# Shared version catalog for the two Java builds (issue #894).
+#
+# There is no root Gradle build. `api-gateway` and `life-control-api` are two independent builds,
+# each with its own wrapper, and a version catalog is visible to the projects of ONE build — a
+# composite build shares no configuration at all. Each module's `settings.gradle` therefore
+# declares this file explicitly:
+#
+#     dependencyResolutionManagement {
+#         versionCatalogs {
+#             libs { from(files("../gradle/libs.versions.toml")) }
+#         }
+#     }
+#
+# That declaration is the whole sharing mechanism, which is why
+# `.github/scripts/tests/version-catalog.test.sh` asserts both halves of it: a version written back
+# into a build file, and a module that stopped declaring this catalog.
+#
+# Only coordinates whose version this repository decides live here. A Boot-managed starter
+# (`spring-boot-starter-webmvc`, …) takes its version from the Spring Boot BOM and stays a plain
+# `group:artifact` string in the module that uses it: a catalog entry with no version would be a
+# second, emptier place to look for the version of a library.
+
+[versions]
+spring-boot = "4.1.2"
+spring-dependency-management = "1.1.7"
+spring-cloud = "2025.1.3"
+springdoc = "3.1.1"
+asciidoctor = "4.0.5"
+spotless = "8.11.0"
+spotbugs = "6.5.13"
+spotbugs-tool = "4.9.8"
+palantir-java-format = "2.98.0"
+loki-logback-appender = "1.6.0"
+bucket4j = "8.10.1"
+logbook = "4.2.0"
+keycloak-admin-client = "26.0.12"
+saxon-he = "12.10"
+spring-restdocs = "4.0.1"
+
+[libraries]
+springdoc-openapi-starter-webmvc-ui = { module = "org.springdoc:springdoc-openapi-starter-webmvc-ui", version.ref = "springdoc" }
+springdoc-openapi-starter-webmvc-api = { module = "org.springdoc:springdoc-openapi-starter-webmvc-api", version.ref = "springdoc" }
+spring-cloud-dependencies = { module = "org.springframework.cloud:spring-cloud-dependencies", version.ref = "spring-cloud" }
+loki-logback-appender = { module = "com.github.loki4j:loki-logback-appender", version.ref = "loki-logback-appender" }
+bucket4j-core = { module = "com.bucket4j:bucket4j-core", version.ref = "bucket4j" }
+logbook-spring-boot-starter = { module = "org.zalando:logbook-spring-boot-starter", version.ref = "logbook" }
+keycloak-admin-client = { module = "org.keycloak:keycloak-admin-client", version.ref = "keycloak-admin-client" }
+saxon-he = { module = "net.sf.saxon:Saxon-HE", version.ref = "saxon-he" }
+spring-restdocs-mockmvc = { module = "org.springframework.restdocs:spring-restdocs-mockmvc", version.ref = "spring-restdocs" }
+
+[plugins]
+spring-boot = { id = "org.springframework.boot", version.ref = "spring-boot" }
+spring-dependency-management = { id = "io.spring.dependency-management", version.ref = "spring-dependency-management" }
+asciidoctor-jvm-convert = { id = "org.asciidoctor.jvm.convert", version.ref = "asciidoctor" }
+spotless = { id = "com.diffplug.spotless", version.ref = "spotless" }
+spotbugs = { id = "com.github.spotbugs", version.ref = "spotbugs" }

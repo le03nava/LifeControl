@@ -13,12 +13,11 @@ import org.springframework.test.web.servlet.MockMvc;
 @AutoConfigureMockMvc
 class SecurityConfigTests {
 
-  @Autowired
-  private MockMvc mockMvc;
+    @Autowired
+    private MockMvc mockMvc;
 
-  @Test
-  void rejectsApiRequestWithoutToken() throws Exception {
-    mockMvc.perform(get("/api/countries"))
-        .andExpect(status().isUnauthorized());
-  }
+    @Test
+    void rejectsApiRequestWithoutToken() throws Exception {
+        mockMvc.perform(get("/api/countries")).andExpect(status().isUnauthorized());
+    }
 }
