@@ -83,6 +83,21 @@ jobs:
       - name: Build
         run: npm run build
 
+      # `npm run build` type-checks the APPLICATION program only: `tsconfig.app.json` includes
+      # `src/**/*.ts` and excludes `*.spec.ts`, and neither `e2e/**` nor `playwright.config.ts` is in
+      # that program at all. The root `tsconfig.json` program — 575 files, the specs and the e2e mocks
+      # included — was compiled by nothing, which is how 46 `TS2591` errors sat in the tree until #895
+      # fixed them. A rule with no check rots: `workflow-typecheck.test.sh` fails if this step goes
+      # away, and it also fails if the job above it stops installing dependencies, because then the
+      # binary this step needs would not exist.
+      #
+      # After `Build`, not before it, and the order is deliberate. GitHub Actions stops a job at its
+      # first failing step, so a type-check placed earlier would leave `Build` *skipped* — and the one
+      # thing worth seeing on a red run is that the build passed on the same tree, which is the whole
+      # claim of this step. The cost is reporting a type error after the build instead of before.
+      - name: Type check
+        run: npx tsc --noEmit
+
   test:
     name: Unit tests
     runs-on: ubuntu-latest
