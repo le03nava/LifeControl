@@ -3,7 +3,7 @@
 **Repository**: LifeControl — root `settings.gradle`/`build.gradle` (deleted), `gradle/libs.versions.toml` (new), `api-gateway/` + `life-control-api/` (`settings.gradle`, `build.gradle`, `gradle/wrapper/`), `.github/workflows/`, `.github/scripts/tests/gradle-pins.test.sh`, `docker/scripts/_common.sh`, `.gitignore`, `AGENTS.md` + the two module `AGENTS.md`
 **Branch**: `chore/gradle-version-catalog` · **Worktree**: `~/workspace/LifeControl-worktrees/chore-gradle-version-catalog`
 **Issue**: #894 — `chore: the root build never runs, so nothing notices the two modules drifting apart`
-**Status**: implemented — slice A of #894 is the branch's content: one catalog reached by declaration, Spring Boot and loki converged on the newer value, one Gradle wrapper, the dead root build deleted, the two silences a shared catalog creates closed with guards, and every document that stated a contradicted version corrected. Slice B (Spotless + SpotBugs in `api-gateway`, S6) is deliberately **not** in this branch: its diff is a whole-module reformat, so it ships as the chained last slice that carries the `Closes`. Nothing else is deferred.
+**Status**: implemented — both slices are the branch's content. Slice A: one catalog reached by declaration, Spring Boot and loki converged on the newer value, one Gradle wrapper, the dead root build deleted, and the two silences a shared catalog creates closed with guards. Slice B: the gateway now runs the API's Spotless + SpotBugs gate, which reformatted the module and fixed four real aliasing findings. One decision is recorded instead of taken — the CI gate is a step of the existing `Check` job, not a job of its own, because job names are a contract `CONTRIBUTING.md` §6/§7 own; that split is the only thing left, and it belongs to whoever changes that contract.
 **Created**: 2026-11-18
 **Risk**: item 5 — this unit changes how both modules resolve every dependency, which wrapper they run, and what a CI `paths:` filter triggers. Nothing here is data (not item 1), no privilege boundary moves (not item 2), no public contract changes (not item 3), and the guards in T6/T7 are what keep it from being item 6: a version that leaves the catalog, a catalog change that does not rebuild the jar, and a catalog-only edit that triggers no workflow each get a check that fails.
 
@@ -55,6 +55,9 @@ Measured on `main` at `0b733e54` (after #896 and #898), every claim above still 
 | T6 | S1, S8, S9 | The guards: a suite that fails when a literal version appears outside the catalog, a case proving a catalog-only edit joins the freshness inputs, and the `paths:` parity case | pid `e4190c0b1ba6` |
 | T7 | S5 | The documents: `AGENTS.md` Angular version, `life-control-app-angular/AGENTS.md` twice, `life-control-api/AGENTS.md` Spring Boot — each stating what its manifest resolves — plus the two `README.md` claims the slice's first pass left standing, and the recorded `keycloak-admin-client` skew | this record |
 | T8 | S7 | `./gradlew test` in both modules, plus the offline suites the change touches | this record |
+| T9 | S6 | `spotless` in `api-gateway/build.gradle`, with the configuration `life-control-api/build.gradle:33-60` already uses and its **plugin version from the catalog** (a literal would fail slice A's own guard), then the whole module reformatted by running it | pid `04ebf80ccd0c` |
+| T10 | S6 | `spotbugs` likewise — the plugin, its config block and the `spotbugsMain` step in `gateway-ci.yml` — plus the triage: every finding either fixed or excluded with its reason written beside the exclusion | pid `be4ebfaf330d` |
+| T11 | S6, S5 | `AGENTS.md` stops saying the gateway has no gate, and this record gains slice B's evidence and its final header | pid `04ebf80ccd0c` |
 
 ## Log
 
@@ -105,5 +108,24 @@ Provenance by **content**, per rule 8:
 | the dead root build deleted | `b857af66df754caf647f3041f44ae29f1e546fcb` |
 | the two silences closed, with their guards | `e4190c0b1ba6565bb0657f8d924a0450e38799f2` |
 | the documents, the record's header and this log | this record (full id in the pull request) |
+| slice B: the aliasing fix and its four tests | `be4ebfaf330d2839e37561238ff73fd87d529f13` |
+| slice B: the gate, the reformat and its workflow step | `04ebf80ccd0cc369c33e006d821edf4ee7909637` |
 
 **What these checks do not prove.** Nothing here ran a container build: S8 is proven by the freshness *decision* (the helper's own suite), not by building an image and watching it go stale. The `api-gateway` gate is the one thing slice A does not touch, so the mismatch it was written to end still exists until slice B lands — that is stated in `AGENTS.md` rather than papered over.
+
+## Evidence log — slice B
+
+Measured on 2026-11-18 in `~/workspace/LifeControl-worktrees/chore-gateway-static-analysis`, branched from slice A.
+
+| # | Spec | Measurement | Result |
+| --- | --- | --- | --- |
+| E11 | S6 | `cd api-gateway && ./gradlew spotlessCheck` before applying | **RED**, rc 1: violations in **13 of 13** Java files — the whole module, which is the measurement that makes «the gateway had no formatting gate» concrete rather than rhetorical |
+| E12 | S6 | `./gradlew spotbugsMain` before the fix | **RED**, rc 1, **4 `BugInstance`s**: `EI_EXPOSE_REP` twice (the two accessors) and `EI_EXPOSE_REP2` twice (the constructor) — the same aliasing defect from both ends |
+| E13 | S6 | the four new `GatewayPropertiesTests` against the unfixed class | **RED**: 3 of 4 fail on the mutable view; the null-preserving case passed and stayed |
+| E14 | S6 | after the fix, `spotlessCheck spotbugsMain` | **GREEN**, rc 0, report `total_bugs="0"`, and the baseline `api-gateway/config/spotbugs/exclude.xml` ships with **zero `<Match>`**: nothing was excluded, all four were fixed |
+| E15 | S6, S7 | `cd api-gateway && ./gradlew cleanTest test` | **GREEN**: 21 tests, 0 failures, 0 errors, 0 skipped — the 17 that existed plus the 4 that pin the fix |
+| E16 | S1, S3, S9 | `version-catalog` 32/0 · `gradle-pins` 21/0 · `workflow-trigger-parity` 36/0 · `contributing-job-names` 21/0 · `workflow-pins` 13/0 | all rc 0, run because the gateway now declares two more plugins and its workflow changed |
+
+**The one decision this slice recorded instead of taking.** `gateway-ci.yml` runs `spotlessCheck spotbugsMain` as a step of its existing `Check` job, not as a second job named `Static analysis` the way `api-ci.yml` splits it. Job names are a documented contract — `CONTRIBUTING.md` §6 names each workflow's jobs and §7's branch-protection runbook quotes them — and `contributing-job-names.test.sh` fails on a name §6 does not carry; that was **proven**, not assumed, on a scratch copy where the second job made the suite report 20 passed / 1 failed («a workflow job name and §6 disagree»). Editing that contract and naming a required check is a branch-protection decision, so the split is left described here with its reason and its cost: the two gates serialize inside one job, which for this module is milliseconds.
+
+**What slice B does not prove.** The gate is proven on this module's own suite and the analyzer's report; no CI run of the new step exists until the pull request runs it, so the workflow edit is verified by `workflow-trigger-parity`, `contributing-job-names` and `workflow-pins` rather than by a green CI job.
