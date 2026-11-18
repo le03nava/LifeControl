@@ -622,6 +622,49 @@ for label in build-gateway build-api; do
 done
 
 # ------------------------------------------
+# The re-inclusion is scoped to the catalog (issue #960)
+# ------------------------------------------
+# A catalog declared outside a build root has to be carved out of `/**/gradle/`, and the carve-out
+# is a directory exception, which un-ignores everything under it. Without a third line the whole
+# root `gradle/` becomes visible again, so a stray `gradle/wrapper/` sits one `git add -A` away
+# from being committed — measured on a checkout that had carried one, hidden, for a year.
+# The verdicts, in a throwaway repository seeded with the real `.gitignore`: the wrapper stays
+# ignored, the catalog does not, and the modules' own wrapper carve-outs still work.
+GITIGNORE_PROBE="$TMP/gitignore-probe"
+if mkdir -p "$GITIGNORE_PROBE/gradle/wrapper" \
+	"$GITIGNORE_PROBE/api-gateway/gradle/wrapper" \
+	"$GITIGNORE_PROBE/life-control-api/gradle/wrapper" \
+	&& cp "$REPO_ROOT/.gitignore" "$GITIGNORE_PROBE/.gitignore" \
+	&& : >"$GITIGNORE_PROBE/gradle/libs.versions.toml" \
+	&& : >"$GITIGNORE_PROBE/gradle/wrapper/stray.txt" \
+	&& : >"$GITIGNORE_PROBE/api-gateway/gradle/wrapper/gradle-wrapper.jar" \
+	&& : >"$GITIGNORE_PROBE/life-control-api/gradle/wrapper/gradle-wrapper.jar" \
+	&& git -C "$GITIGNORE_PROBE" init -q 2>/dev/null; then
+	# `core.excludesFile=/dev/null` is not decoration: without it `check-ignore` answers from the
+	# machine's global excludes, so a `*.jar` rule there made this case pass with the pattern wide
+	# open — measured, and the reason the probe file carries a neutral extension too.
+	if git -C "$GITIGNORE_PROBE" -c core.excludesFile=/dev/null check-ignore -q gradle/wrapper/stray.txt; then
+		pass "a stray file under the root gradle/wrapper/ is still ignored"
+	else
+		fail "a file under the root gradle/wrapper/ is not ignored: the catalog carve-out un-ignores the whole directory"
+	fi
+
+	if git -C "$GITIGNORE_PROBE" -c core.excludesFile=/dev/null check-ignore -q gradle/libs.versions.toml; then
+		fail "the catalog is ignored at the repository root: no clone would ever carry it"
+	else
+		pass "the catalog at the repository root is not ignored"
+	fi
+
+	if git -C "$GITIGNORE_PROBE" -c core.excludesFile=/dev/null check-ignore -q api-gateway/gradle/wrapper/gradle-wrapper.jar; then
+		fail "the api-gateway wrapper is ignored: the module carve-out stopped working while the root one was scoped"
+	else
+		pass "the module wrappers are still carved out while the root one is scoped"
+	fi
+else
+	fail "cannot build the .gitignore probe repository: the three verdicts below are unmeasured"
+fi
+
+# ------------------------------------------
 # Summary
 # ------------------------------------------
 echo "------------------------------------------"
