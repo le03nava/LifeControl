@@ -33,7 +33,7 @@ palantir-java-format = "2.98.0"
 loki-logback-appender = "1.6.0"
 bucket4j = "8.10.1"
 logbook = "4.2.0"
-keycloak-admin-client = "26.0.12"
+keycloak-admin-client = "26.0.13"
 saxon-he = "12.10"
 spring-restdocs = "4.0.1"
 
