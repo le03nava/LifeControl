@@ -311,6 +311,47 @@ record "case 13: newer gradle/libs.versions.toml returns 1" 1 "$GUARD_RC" "$GUAR
 assert_contains "case 13: reports the stale artifact" "Stale artifact" "$GUARD_OUT"
 
 # ------------------------------------------
+# Case 14 (S8 of #894): the SHARED version catalog at the repository root is a
+# dependency-catalog build input too. Both modules declare it by
+# `from(files("../gradle/libs.versions.toml"))`, so a version bumped there
+# changes what the JAR contains while touching nothing under the module. Case
+# 13 covers a module-scoped catalog; this one is the repository-root file the
+# pathspec used to miss, where a catalog-only bump silently reused a stale jar.
+# ------------------------------------------
+root="$(new_root)"
+git_init "$root"
+mkdir -p "$root/svc/src/main/java" "$root/svc/build/libs"
+printf 'class A {}\n' >"$root/svc/src/main/java/A.java"
+touch -d '3 days ago' "$root/svc/src/main/java/A.java"
+git -C "$root" add -f svc
+GIT_COMMITTER_DATE="$(date -d '3 days ago' '+%Y-%m-%dT%H:%M:%S%z')" \
+	git -C "$root" commit -qm "add svc module"
+printf 'fake jar' >"$root/$JAR_REL"
+touch -d '1 hour ago' "$root/$JAR_REL"
+mkdir -p "$root/gradle"
+printf '[versions]\n' >"$root/gradle/libs.versions.toml"
+run_guard "svc" "$JAR_REL" "$root"
+record "case 14: newer repository-root gradle/libs.versions.toml returns 1" 1 "$GUARD_RC" "$GUARD_OUT"
+assert_contains "case 14: names the shared catalog as the newest input" \
+	"gradle/libs.versions.toml" "$GUARD_OUT"
+
+# The negative half of case 14: the shared input must not be invented. A repository
+# with no root catalog (the shape before #894, and every tree that is not this
+# repository) still passes, so the new pathspec entry cannot mark every jar stale.
+root="$(new_root)"
+git_init "$root"
+mkdir -p "$root/svc/src/main/java" "$root/svc/build/libs"
+printf 'class A {}\n' >"$root/svc/src/main/java/A.java"
+touch -d '3 days ago' "$root/svc/src/main/java/A.java"
+git -C "$root" add -f svc
+GIT_COMMITTER_DATE="$(date -d '3 days ago' '+%Y-%m-%dT%H:%M:%S%z')" \
+	git -C "$root" commit -qm "add svc module"
+printf 'fake jar' >"$root/$JAR_REL"
+touch -d '1 hour ago' "$root/$JAR_REL"
+run_guard "svc" "$JAR_REL" "$root"
+record "case 14b: a repository with no root catalog still returns 0" 0 "$GUARD_RC" "$GUARD_OUT"
+
+# ------------------------------------------
 # Summary
 # ------------------------------------------
 echo "------------------------------------------"

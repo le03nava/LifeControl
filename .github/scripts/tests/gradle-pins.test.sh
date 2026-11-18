@@ -6,33 +6,37 @@
 # repository builds with drift without a commit here?
 #
 # The failure it exists for is silent, not loud. A `distributionUrl` decides which Gradle
-# downloads for a module, and a `plugins { }` block decides which Spring Boot, spotless, spotbugs
-# and asciidoctor run. Both are versions written in the tree, read by `./gradlew` and by nothing
-# else: a patch bump in either is a one-line diff with no failing test, no reviewer prompt and no
-# record. That is exactly how this tree ended up with two modules on different Spring Boot patches
-# (4.1.1 vs 4.1.2) and different wrappers (gradle-9.8.1 vs gradle-9.9.0) — measured, frozen below,
-# and **deliberately not aligned here**: issue #894 owns that, and a suite that quietly fixed the
-# drift while freezing it would be the second place two versions are decided.
+# downloads for a module, and a catalog `[plugins]` entry decides which Spring Boot, spotless,
+# spotbugs and asciidoctor run. Both are versions written in the tree, read by `./gradlew` and by
+# nothing else: a patch bump in either is a one-line diff with no failing test, no reviewer prompt
+# and no record. That is exactly how this tree ended up with two modules on different Spring Boot
+# patches (4.1.1 vs 4.1.2) and different wrappers (gradle-9.8.1 vs gradle-9.9.0) in the first
+# place — issue #894 aligned both, and this suite is what keeps them aligned.
 #
 # What is frozen, and how
-#   * the `distributionUrl` of BOTH wrappers, exactly as it is today;
-#   * every `id '<plugin>' version '<v>'` literal in the root `build.gradle`,
-#     `api-gateway/build.gradle` and `life-control-api/build.gradle`.
-# The check runs in BOTH directions: a version on the tree that the table does not carry fails,
-# and a table entry the tree no longer declares fails. One direction alone would let a plugin be
-# added with an unpinned version and still read green.
+#   * the `distributionUrl` of BOTH wrappers, exactly as it is today, and the two files are also
+#     asserted to state the SAME line, so one module cannot quietly move off the other;
+#   * every plugin version of the shared catalog `gradle/libs.versions.toml` — the single file both
+#     modules resolve from since #894. There is no root build: it is gone, and nothing here reads
+#     it.
+# The check runs in BOTH directions: a version in the tree that the table does not carry fails, and
+# a table entry the tree no longer declares fails. One direction alone would let a plugin be added
+# with an unpinned version and still read green.
 #
-# A plugin declared with no `version` is a finding unless it is a Gradle core plugin. The list of
-# core plugins is stated below (java, application, idea, eclipse): they ship inside the
-# distribution, so their version IS the wrapper's version and repeating it is not possible. Every
-# other plugin resolves to whatever the wrapper's default offers — the "unpinned" state Gradle
-# itself warns about — and the table above cannot see it, because a versionless plugin has no
-# version literal to compare.
+# A plugin version inside a `plugins { }` block is a finding, whatever it says. Since #894 a module
+# declares `alias(libs.plugins.<alias>)` and the version lives in the catalog, so a literal in a
+# build file is the second place a version was written — the shape this repository is trying to
+# stop having. A plugin declared with NO version is a finding unless it is a Gradle core plugin:
+# the four below ship inside the distribution, so their version IS the wrapper's version. Every
+# other versionless plugin resolves to whatever the wrapper's default offers, which the table
+# cannot see.
 #
 # The readers below run against the tree AND against fixtures in a scratch directory: a different
-# `distributionUrl`, a plugin version the table does not carry, a plugin the table requires and
-# the file no longer declares, and a non-core plugin with no version at all. Without those cases a
-# reader that matched nothing would print the same green line as one that read the files.
+# `distributionUrl`, a catalog plugin at a version the table does not carry, a catalog plugin the
+# table requires and the file no longer declares, a catalog entry whose `version.ref` resolves to
+# nothing, a plugin version written back into a build file, and a non-core plugin with no version
+# at all. Without those cases a reader that matched nothing would print the same green line as one
+# that read the files.
 #
 # Each file can be pointed somewhere else through `GRADLE_PINS_<LABEL>_FILE` (see `resolve_file`),
 # which is how the fixture cases are proven and how a broken tree can be demonstrated without
@@ -76,30 +80,28 @@ fail() {
 # spotbugs this repository builds with.
 # ------------------------------------------
 
-# label|repository-relative path — the five files this suite reads.
+# label|repository-relative path — the five files this suite reads. The root `build.gradle` is not
+# here any more: #894 deleted it, so a suite that read it would be claiming a build that does not
+# exist.
 FROZEN_FILES='wrapper-api|life-control-api/gradle/wrapper/gradle-wrapper.properties
 wrapper-gateway|api-gateway/gradle/wrapper/gradle-wrapper.properties
-build-root|build.gradle
+catalog|gradle/libs.versions.toml
 build-gateway|api-gateway/build.gradle
 build-api|life-control-api/build.gradle'
 
-# label|distributionUrl — the wrapper each module downloads. The two differ today, and both are
-# frozen as they are: `gradle-9.9.0` for the API, `gradle-9.8.1` for the gateway.
+# label|distributionUrl — the wrapper each module downloads. Both modules state the same line since
+# #894; the case at the end of this file is what makes that a rule instead of an observation.
 FROZEN_WRAPPERS='wrapper-api|https://services.gradle.org/distributions/gradle-9.9.0-bin.zip
-wrapper-gateway|https://services.gradle.org/distributions/gradle-9.8.1-bin.zip'
+wrapper-gateway|https://services.gradle.org/distributions/gradle-9.9.0-bin.zip'
 
-# label|plugin id|version — every versioned `id` literal, per file. The root and the gateway
-# declare the same two; the API declares five, including `org.springframework.boot` at a different
-# patch than the other two. That difference is a fact frozen here, not something to fix here.
-FROZEN_PLUGINS='build-root|org.springframework.boot|4.1.1
-build-root|io.spring.dependency-management|1.1.7
-build-gateway|org.springframework.boot|4.1.1
-build-gateway|io.spring.dependency-management|1.1.7
-build-api|org.springframework.boot|4.1.2
-build-api|io.spring.dependency-management|1.1.7
-build-api|org.asciidoctor.jvm.convert|4.0.5
-build-api|com.diffplug.spotless|8.11.0
-build-api|com.github.spotbugs|6.5.13'
+# plugin id|version — every `[plugins]` entry of the shared catalog, resolved through its
+# `version.ref`. One table, not one per module: both builds read the same file, which is the point
+# of the catalog.
+FROZEN_PLUGINS='org.springframework.boot|4.1.2
+io.spring.dependency-management|1.1.7
+org.asciidoctor.jvm.convert|4.0.5
+com.diffplug.spotless|8.11.0
+com.github.spotbugs|6.5.13'
 
 # The Gradle core plugins. They are shipped inside the distribution the wrapper downloads, so they
 # cannot declare a version; a versionless `id` of any OTHER plugin is a finding.
@@ -117,16 +119,6 @@ frozen_path() {
 # frozen_wrapper_url <label>: the distributionUrl frozen for a wrapper label.
 frozen_wrapper_url() {
 	printf '%s\n' "$FROZEN_WRAPPERS" | awk -F'|' -v l="$1" '$1 == l { print $2; exit }'
-}
-
-# frozen_plugins <label>: the frozen `plugin|version` entries of one build file.
-frozen_plugins() {
-	printf '%s\n' "$FROZEN_PLUGINS" | awk -F'|' -v l="$1" '$1 == l { print $2 "|" $3 }'
-}
-
-# frozen_plugin_version <label> <plugin>: one frozen version, empty when the table has none.
-frozen_plugin_version() {
-	printf '%s\n' "$FROZEN_PLUGINS" | awk -F'|' -v l="$1" -v p="$2" '$1 == l && $2 == p { print $3; exit }'
 }
 
 # resolve_file <label> <repository-relative path>
@@ -171,10 +163,99 @@ wrapper_findings() {
 	fi
 }
 
+# catalog_versions <catalog>: `<key>TAB<version>` for every entry of the `[versions]` table.
+catalog_versions() {
+	awk '
+		BEGIN { in_versions = 0 }
+		/^[[:space:]]*\[/ { in_versions = ($0 ~ /^[[:space:]]*\[versions\][[:space:]]*$/); next }
+		!in_versions { next }
+		/^[[:space:]]*#/ { next }
+		/^[[:space:]]*$/ { next }
+		{
+			line = $0
+			sub(/^[[:space:]]*/, "", line)
+			key = line
+			sub(/[[:space:]]*=.*$/, "", key)
+			value = line
+			sub(/^[^=]*=[[:space:]]*"/, "", value)
+			sub(/".*$/, "", value)
+			printf "%s\t%s\n", key, value
+		}
+	' "$1" 2>/dev/null
+}
+
+# catalog_version <catalog> <key>: the version a `[versions]` key resolves to, empty when absent.
+catalog_version() {
+	catalog_versions "$1" | awk -F'\t' -v k="$2" '$1 == k { print $2; exit }'
+}
+
+# catalog_plugin_entries <catalog>: `<line number>TAB<declaration>` for every entry of the
+# `[plugins]` table. The count is the denominator the pair reader is checked against.
+catalog_plugin_entries() {
+	awk '
+		BEGIN { in_plugins = 0 }
+		/^[[:space:]]*\[/ { in_plugins = ($0 ~ /^[[:space:]]*\[plugins\][[:space:]]*$/); next }
+		!in_plugins { next }
+		/^[[:space:]]*#/ { next }
+		/^[[:space:]]*$/ { next }
+		{ print NR "\t" $0 }
+	' "$1" 2>/dev/null
+}
+
+# catalog_plugin_findings <file> <expected-pairs>: drift in both directions, plus every entry whose
+# version cannot be resolved or is missing.
+catalog_plugin_findings() {
+	local file="$1" expected="$2" actual="" entry id ref version lineno
+
+	if [ ! -r "$file" ]; then
+		printf 'is unreadable (%s)\n' "$file"
+		return
+	fi
+
+	while IFS=$'\t' read -r lineno entry; do
+		[ -n "${entry:-}" ] || continue
+		id="$(sed -nE 's/.*id[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' <<<"$entry")"
+		[ -n "$id" ] || continue
+		version="$(sed -nE 's/.*version[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' <<<"$entry")"
+		if [ -z "$version" ]; then
+			ref="$(sed -nE 's/.*version\.ref[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' <<<"$entry")"
+			if [ -z "$ref" ]; then
+				printf 'line %s declares %s with no version and no version.ref\n' "$lineno" "$id"
+				continue
+			fi
+			version="$(catalog_version "$file" "$ref")"
+			if [ -z "$version" ]; then
+				printf 'line %s declares %s with version.ref "%s", which the [versions] table does not define\n' \
+					"$lineno" "$id" "$ref"
+				continue
+			fi
+		fi
+		actual="${actual}${id}|${version}"$'\n'
+	done <<<"$(catalog_plugin_entries "$file")"
+
+	# A version on the tree that the table does not carry.
+	while IFS= read -r pair; do
+		[ -n "${pair:-}" ] || continue
+		if ! printf '%s\n' "$expected" | grep -Fxq -- "$pair"; then
+			printf 'declares %s at version %s, which the frozen table does not carry\n' "${pair%%|*}" "${pair#*|}"
+		fi
+	done <<<"$actual"
+
+	# A table entry the tree no longer declares.
+	while IFS= read -r pair; do
+		[ -n "${pair:-}" ] || continue
+		if ! printf '%s\n' "$actual" | grep -Fxq -- "$pair"; then
+			printf 'no longer declares %s at version %s, which the frozen table still requires\n' "${pair%%|*}" "${pair#*|}"
+		fi
+	done <<<"$expected"
+}
+
 # plugin_lines <file>: `<line number>TAB<declaration>` for every `id`/`type` entry inside the
 # file's `plugins { }` block(s), comments removed. Only that block is read: a `plugins` block is
 # where a version can be declared, and an `id` inside a `buildscript { }` block is a different
-# mechanism this suite does not claim to check.
+# mechanism this suite does not claim to check. An `alias(libs.plugins.…)` line does not start with
+# `id`, so it is invisible here by design — its version is the catalog's, and the catalog is what
+# the table above freezes.
 plugin_lines() {
 	awk '
 		BEGIN { in_plugins = 0 }
@@ -234,7 +315,8 @@ is_core_plugin() {
 }
 
 # build_findings <file> <expected-pairs>: drift in both directions, plus every versionless plugin
-# that is not a core one.
+# that is not a core one. Called with an empty expected set on the real build files, where every
+# version belongs to the catalog.
 build_findings() {
 	local file="$1" expected="$2" actual pair lineno id
 
@@ -249,7 +331,7 @@ build_findings() {
 	while IFS= read -r pair; do
 		[ -n "${pair:-}" ] || continue
 		if ! printf '%s\n' "$expected" | grep -Fxq -- "$pair"; then
-			printf 'declares %s at version %s, which the frozen table does not carry\n' "${pair%%|*}" "${pair#*|}"
+			printf 'declares %s at version %s inline, and a plugin version belongs to the catalog\n' "${pair%%|*}" "${pair#*|}"
 		fi
 	done <<<"$actual"
 
@@ -267,6 +349,12 @@ build_findings() {
 		is_core_plugin "$id" && continue
 		printf 'line %s declares %s with no version, so it resolves to whatever the wrapper default offers\n' "$lineno" "$id"
 	done <<<"$(versionless_entries "$file")"
+}
+
+# declared_plugin_count <file>: how many `id`/`type` declarations the `plugins { }` block carries.
+# A reader that parsed an empty block would report every build file clean.
+declared_plugin_count() {
+	plugin_lines "$1" | sed '/^$/d' | wc -l | tr -d ' '
 }
 
 # ------------------------------------------
@@ -295,37 +383,79 @@ distributionPath=wrapper/dists
 networkTimeout=10000
 PROPERTIES
 
+cat >"$TMP/fixtures/clean.catalog.toml" <<'TOML'
+[versions]
+spring-boot = "4.1.2"
+spotless = "8.11.0"
+
+[plugins]
+spring-boot = { id = "org.springframework.boot", version.ref = "spring-boot" }
+spotless = { id = "com.diffplug.spotless", version.ref = "spotless" }
+TOML
+
+# One version bumped: the table does not carry it.
+cat >"$TMP/fixtures/unknown-version.catalog.toml" <<'TOML'
+[versions]
+spring-boot = "4.1.3"
+spotless = "8.11.0"
+
+[plugins]
+spring-boot = { id = "org.springframework.boot", version.ref = "spring-boot" }
+spotless = { id = "com.diffplug.spotless", version.ref = "spotless" }
+TOML
+
+# One plugin dropped: the table still requires it.
+cat >"$TMP/fixtures/missing-version.catalog.toml" <<'TOML'
+[versions]
+spotless = "8.11.0"
+
+[plugins]
+spotless = { id = "com.diffplug.spotless", version.ref = "spotless" }
+TOML
+
+# A `version.ref` that no `[versions]` key defines: the entry looks versioned and resolves to
+# nothing, which is neither "drift" nor "clean" unless the reader says so out loud.
+cat >"$TMP/fixtures/unresolved-ref.catalog.toml" <<'TOML'
+[versions]
+spotless = "8.11.0"
+
+[plugins]
+spring-boot = { id = "org.springframework.boot", version.ref = "a-key-nobody-declares" }
+spotless = { id = "com.diffplug.spotless", version.ref = "spotless" }
+TOML
+
 cat >"$TMP/fixtures/clean.build.gradle" <<'GRADLE'
 plugins {
 	id 'java'
-	id 'org.springframework.boot' version '4.1.1'
+	alias(libs.plugins.spring.boot)
 }
 GRADLE
 
-cat >"$TMP/fixtures/unknown-version.build.gradle" <<'GRADLE'
+cat >"$TMP/fixtures/inline-version.build.gradle" <<'GRADLE'
 plugins {
 	id 'java'
-	id 'org.springframework.boot' version '4.1.3'
+	id 'org.springframework.boot' version '4.1.2'
 }
 GRADLE
 
 cat >"$TMP/fixtures/versionless.build.gradle" <<'GRADLE'
 plugins {
 	id 'java'
-	id 'org.springframework.boot' version '4.1.1'
+	alias(libs.plugins.spring.boot)
 	id 'com.diffplug.spotless'
 }
 GRADLE
 
-cat >"$TMP/fixtures/missing-version.build.gradle" <<'GRADLE'
+cat >"$TMP/fixtures/empty.build.gradle" <<'GRADLE'
 plugins {
 	id 'java'
 }
 GRADLE
 
-# The expectations the fixture build files are read against. One plugin is enough for the clean
-# case: a reader that matches nothing is caught by the versionless and missing cases below.
-FIXTURE_EXPECTED='org.springframework.boot|4.1.1'
+# The expectations the fixture files are read against. Two entries, so a fixture that drops one is
+# rejected for the missing half and not for a table that was empty.
+FIXTURE_EXPECTED='org.springframework.boot|4.1.2
+com.diffplug.spotless|8.11.0'
 
 check_wrapper_clean() {
 	local fixture="$1" expected="$2" result
@@ -375,17 +505,54 @@ check_build_rejected() {
 	pass "fixture $(basename "$fixture") is rejected ($(printf '%s' "$result" | head -1))"
 }
 
+check_catalog_clean() {
+	local fixture="$1" expected="$2" result
+	result="$(catalog_plugin_findings "$fixture" "$expected")"
+	if [ -z "$result" ]; then
+		pass "fixture $(basename "$fixture") is accepted"
+	else
+		fail "fixture $(basename "$fixture") should be clean but was rejected: $result"
+	fi
+}
+
+check_catalog_rejected() {
+	local fixture="$1" expected="$2" needle="${3:-}" result
+	result="$(catalog_plugin_findings "$fixture" "$expected")"
+	if [ -z "$result" ]; then
+		fail "fixture $(basename "$fixture") was accepted, so the catalog reader is not reading the file"
+		return
+	fi
+	if [ -n "$needle" ] && ! printf '%s' "$result" | grep -Fq -- "$needle"; then
+		fail "fixture $(basename "$fixture") was rejected, but not for $needle: $result"
+		return
+	fi
+	pass "fixture $(basename "$fixture") is rejected ($(printf '%s' "$result" | head -1))"
+}
+
 check_wrapper_clean "$TMP/fixtures/clean-wrapper.properties" "https://services.gradle.org/distributions/gradle-9.9.0-bin.zip"
 check_wrapper_rejected "$TMP/fixtures/drifted-wrapper.properties" "https://services.gradle.org/distributions/gradle-9.9.0-bin.zip"
 check_wrapper_rejected "$TMP/fixtures/no-url-wrapper.properties" "https://services.gradle.org/distributions/gradle-9.9.0-bin.zip"
 
-check_build_clean "$TMP/fixtures/clean.build.gradle" "$FIXTURE_EXPECTED"
-check_build_rejected "$TMP/fixtures/unknown-version.build.gradle" "$FIXTURE_EXPECTED" "which the frozen table does not carry"
-check_build_rejected "$TMP/fixtures/versionless.build.gradle" "$FIXTURE_EXPECTED" "with no version"
-check_build_rejected "$TMP/fixtures/missing-version.build.gradle" "$FIXTURE_EXPECTED" "which the frozen table still requires"
+check_catalog_clean "$TMP/fixtures/clean.catalog.toml" "$FIXTURE_EXPECTED"
+check_catalog_rejected "$TMP/fixtures/unknown-version.catalog.toml" "$FIXTURE_EXPECTED" "which the frozen table does not carry"
+check_catalog_rejected "$TMP/fixtures/missing-version.catalog.toml" "$FIXTURE_EXPECTED" "org.springframework.boot"
+check_catalog_rejected "$TMP/fixtures/unresolved-ref.catalog.toml" "$FIXTURE_EXPECTED" "which the [versions] table does not define"
+
+check_build_clean "$TMP/fixtures/clean.build.gradle" ""
+check_build_rejected "$TMP/fixtures/inline-version.build.gradle" "" "belongs to the catalog"
+check_build_rejected "$TMP/fixtures/versionless.build.gradle" "" "with no version"
+check_build_clean "$TMP/fixtures/empty.build.gradle" ""
+
+# The count of declarations is what a clean verdict cannot answer: a reader that parsed no plugin
+# at all reports the same empty result as one that read a correct block.
+if [ "$(declared_plugin_count "$TMP/fixtures/clean.build.gradle")" -eq 1 ]; then
+	pass "the plugin counter reads the core \`id\` declaration of the clean fixture"
+else
+	fail "the plugin counter reads $(declared_plugin_count "$TMP/fixtures/clean.build.gradle") declaration(s) of the clean fixture instead of 1"
+fi
 
 # ------------------------------------------
-# 2. Both wrappers on the tree download the frozen distribution.
+# 2. Both wrappers on the tree download the frozen distribution — and the same one.
 # ------------------------------------------
 echo "== the wrapper each module downloads is frozen =="
 MEASURED_WRAPPER_API="$(wrapper_url "$(resolve_file wrapper-api "$(frozen_path wrapper-api)")")"
@@ -405,21 +572,54 @@ for label in wrapper-api wrapper-gateway; do
 	fi
 done
 
-# ------------------------------------------
-# 3. Every plugin version on the tree is in the frozen table, and the table is not carrying
-#    entries the tree dropped.
-# ------------------------------------------
-echo "== every plugin version in the three build files is frozen =="
-VERSIONED_ON_TREE=0
-MEASURED_BOOT_GATEWAY="$(frozen_plugin_version build-gateway org.springframework.boot)"
-MEASURED_BOOT_API="$(frozen_plugin_version build-api org.springframework.boot)"
+# S3 of #894, stated as its own case: `grep -h distributionUrl */gradle/wrapper/…` prints one line,
+# twice. Two wrappers frozen to the same value above would still pass if the table were the only
+# thing read, so the two measured lines are compared to each other here.
+if [ -n "$MEASURED_WRAPPER_API" ] && [ "$MEASURED_WRAPPER_API" = "$MEASURED_WRAPPER_GATEWAY" ]; then
+	pass "both modules print the same distributionUrl ($MEASURED_WRAPPER_API)"
+else
+	fail "the two modules print different distributionUrls (api: ${MEASURED_WRAPPER_API:-none}, gateway: ${MEASURED_WRAPPER_GATEWAY:-none})"
+fi
 
-for label in build-root build-gateway build-api; do
+# ------------------------------------------
+# 3. Every plugin version of the shared catalog is in the frozen table, and the table is not
+#    carrying entries the catalog dropped.
+# ------------------------------------------
+echo "== every plugin version of the shared catalog is frozen =="
+CATALOG_LABEL=catalog
+CATALOG_FILE="$(resolve_file "$CATALOG_LABEL" "$(frozen_path "$CATALOG_LABEL")")"
+CATALOG_FINDINGS="$(catalog_plugin_findings "$CATALOG_FILE" "$FROZEN_PLUGINS")"
+if [ -z "$CATALOG_FINDINGS" ]; then
+	pass "$CATALOG_LABEL declares exactly the plugin versions the frozen table carries"
+else
+	while IFS= read -r line; do
+		[ -n "$line" ] || continue
+		fail "$CATALOG_LABEL $line"
+	done <<<"$CATALOG_FINDINGS"
+fi
+
+# A catalog reader that resolved nothing, or a table edited to carry a different count, would
+# report green over a set that was never compared: the counts are the cheap proof that both sides
+# were read.
+CATALOG_ENTRIES="$(catalog_plugin_entries "$CATALOG_FILE" | sed '/^$/d' | wc -l | tr -d ' ')"
+FROZEN_TOTAL="$(printf '%s\n' "$FROZEN_PLUGINS" | sed '/^$/d' | wc -l | tr -d ' ')"
+if [ "${CATALOG_ENTRIES:-0}" -eq 0 ]; then
+	fail "no [plugins] entry was read from the shared catalog, so the plugin reader is not reading it"
+elif [ "$CATALOG_ENTRIES" -eq "$FROZEN_TOTAL" ]; then
+	pass "the shared catalog declares $CATALOG_ENTRIES plugin(s), the same number the frozen table carries"
+else
+	fail "the shared catalog declares $CATALOG_ENTRIES plugin(s) but the frozen table carries $FROZEN_TOTAL"
+fi
+
+# ------------------------------------------
+# 4. Neither module build file writes a plugin version of its own.
+# ------------------------------------------
+echo "== no module build file declares a plugin version inline =="
+for label in build-gateway build-api; do
 	file="$(resolve_file "$label" "$(frozen_path "$label")")"
-	expected="$(frozen_plugins "$label")"
-	result="$(build_findings "$file" "$expected")"
+	result="$(build_findings "$file" "")"
 	if [ -z "$result" ]; then
-		pass "$label declares exactly the plugin versions the frozen table carries"
+		pass "$label declares no plugin version of its own and no unpinned third-party plugin"
 	else
 		while IFS= read -r line; do
 			[ -n "$line" ] || continue
@@ -427,31 +627,17 @@ for label in build-root build-gateway build-api; do
 		done <<<"$result"
 	fi
 
-	VERSIONED_ON_TREE=$((VERSIONED_ON_TREE + $(versioned_pairs "$file" | sed '/^$/d' | wc -l | tr -d ' ')))
-
-	case "$label" in
-	build-gateway) MEASURED_BOOT_GATEWAY="$(versioned_pairs "$file" | sed -n 's/^org\.springframework\.boot|//p')" ;;
-	build-api) MEASURED_BOOT_API="$(versioned_pairs "$file" | sed -n 's/^org\.springframework\.boot|//p')" ;;
-	esac
+	# An empty plugins block would pass the check above for the wrong reason.
+	declared="$(declared_plugin_count "$file")"
+	if [ "${declared:-0}" -ge 1 ]; then
+		pass "$label declares $declared plugin(s), so the plugins block was read"
+	else
+		fail "$label declares no plugin the reader can see, so the plugins block was never read"
+	fi
 done
 
-# A reader that parsed no version at all, or a table edited to carry a different count, would
-# report green over a set that was never compared: the count is the cheap proof that both sides
-# were read.
-FROZEN_TOTAL="$(printf '%s\n' "$FROZEN_PLUGINS" | sed '/^$/d' | wc -l | tr -d ' ')"
-if [ "$VERSIONED_ON_TREE" -eq 0 ]; then
-	fail "no versioned plugin was read from the three build files, so the plugin reader is not reading them"
-elif [ "$VERSIONED_ON_TREE" -eq "$FROZEN_TOTAL" ]; then
-	pass "the three build files declare $VERSIONED_ON_TREE versioned plugin(s), the same number the frozen table carries"
-else
-	fail "the three build files declare $VERSIONED_ON_TREE versioned plugin(s) but the frozen table carries $FROZEN_TOTAL"
-fi
-
-# Stated, not asserted: the two modules disagree on both axes, this suite freezes each value as it
-# is, and closing the gap is a different unit's decision. Printing it keeps the disagreement
-# visible to whoever reads a green run, which is the whole reason it went unnoticed.
-printf 'NOTE: the gateway declares Spring Boot %s and wrapper %s, the API declares Spring Boot %s and wrapper %s: this suite freezes both as they are, and aligning them is issue #894'"'"'s job\n' \
-	"$MEASURED_BOOT_GATEWAY" "${MEASURED_WRAPPER_GATEWAY##*/}" "$MEASURED_BOOT_API" "${MEASURED_WRAPPER_API##*/}"
+printf 'NOTE: the wrapper is frozen at %s for both modules and every plugin version is frozen in %s; a bump is a one-line diff in one of those two places, and this suite is what makes it a reviewed one\n' \
+	"$MEASURED_WRAPPER_API" "$(frozen_path "$CATALOG_LABEL")"
 
 # ------------------------------------------
 # Summary

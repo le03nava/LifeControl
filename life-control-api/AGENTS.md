@@ -4,13 +4,27 @@
 
 | Component        | Technology                              |
 |------------------|-----------------------------------------|
-| Framework        | Spring Boot 4.1.1                      |
+| Framework        | Spring Boot 4.1.2                      |
 | Language         | Java 21                                 |
 | Build Tool       | Gradle 9.x+                             |
 | Database         | PostgreSQL                              |
 | Cache            | Redis (default; in-memory or none via `spring.cache.type`) |
 | Port             | 8082 (configurable via `SERVER_PORT`)   |
 | Package          | `com.lifecontrol.api`                   |
+
+> **Dependency versions are not written here.** They live in the shared catalog
+> `gradle/libs.versions.toml` at the repository root (issue #894), which this module declares in its
+> own `settings.gradle`: `./gradlew` in this module and in `api-gateway` resolve from that one file,
+> so the Spring Boot patch above and every other managed version has exactly one home.
+> `.github/scripts/tests/version-catalog.test.sh` fails when a version managed there is written back
+> into a `build.gradle` or a `plugins` block.
+>
+> **Recorded skew, deliberately out of scope**: `keycloak-admin-client` resolves `26.0.12`, while
+> `docker/docker-compose.yml` runs the Keycloak server `26.8.1` and both k8s trees declare `24.0.1`.
+> The three numbers are stated here so nobody has to re-measure them, and they are **not** aligned
+> by the catalog: the server images belong to the image pinning unit (#896), and the client's own
+> version is "what the version is" for this line, which that unit's non-goals exclude. A change to
+> either is a separate, reviewed decision.
 
 ---
 

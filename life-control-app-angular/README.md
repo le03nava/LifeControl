@@ -6,7 +6,7 @@ Aplicación Angular 20 con Signals, Zoneless, Standalone components y Angular Ma
 
 | Capa              | Tecnología                                 |
 |-------------------|--------------------------------------------|
-| Framework         | Angular 20.3.0                             |
+| Framework         | Angular 22.2.3                             |
 | Change Detection  | Zoneless (`provideZonelessChangeDetection`) |
 | Componentes       | 100% Standalone + OnPush                   |
 | State Management  | Angular Signals + `rxResource`             |

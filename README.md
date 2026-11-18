@@ -38,7 +38,7 @@ El proyecto consolidó toda la lógica de negocio en el monolito modular `life-c
 
 | Capa                | Tecnología                                           |
 |---------------------|------------------------------------------------------|
-| **Frontend**        | Angular 20.3.0 (SPA), Angular Material, Keycloak Angular |
+| **Frontend**        | Angular 22.2.3 (SPA), Angular Material, Keycloak Angular |
 | **Backend**         | Spring Boot 4.1.1 (Java 21)                         |
 | **Base de datos**   | PostgreSQL (principal), Redis (caching)              |
 | **Auth**            | Keycloak 26 (OIDC/OAuth2)                            |

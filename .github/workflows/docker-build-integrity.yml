@@ -1,5 +1,9 @@
 name: Docker Build Integrity
 
+# Both Java builds resolve from the shared version catalog at the repository root
+# (`gradle/libs.versions.toml`, issue #894). It matches no module path, so it is listed in both
+# triggers: a catalog-only version bump changes what both modules build, and without this entry
+# it would start no run at all.
 on:
   push:
     branches: [main]
@@ -9,6 +13,7 @@ on:
       - 'api-gateway/build.gradle'
       - 'life-control-api/Dockerfile'
       - 'life-control-api/build.gradle'
+      - 'gradle/libs.versions.toml'
       - '.github/workflows/docker-build-integrity.yml'
   pull_request:
     paths:
@@ -17,6 +22,7 @@ on:
       - 'api-gateway/build.gradle'
       - 'life-control-api/Dockerfile'
       - 'life-control-api/build.gradle'
+      - 'gradle/libs.versions.toml'
       - '.github/workflows/docker-build-integrity.yml'
 
 # Read-only, declared instead of inherited: this job reads the checkout and runs containers from it,

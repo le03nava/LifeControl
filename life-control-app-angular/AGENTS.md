@@ -2,7 +2,7 @@
 
 ## Descripción
 
-Aplicación Angular principal del proyecto LifeControl (v20.3.0), construida con patrones modernos: **Signals, Zoneless, Standalone**, y **Angular Material 3** con soporte de tema oscuro.
+Aplicación Angular principal del proyecto LifeControl (v22.2.3, la versión que `package-lock.json` resuelve), construida con patrones modernos: **Signals, Zoneless, Standalone**, y **Angular Material 3** con soporte de tema oscuro.
 
 ---
 
@@ -10,12 +10,12 @@ Aplicación Angular principal del proyecto LifeControl (v20.3.0), construida con
 
 | Componente              | Tecnología                                        |
 |------------------------|---------------------------------------------------|
-| Framework              | Angular 20.3.0                                    |
+| Framework              | Angular 22.2.3                                    |
 | State Management       | Angular Signals                                   |
 | Change Detection       | Zoneless (`provideZonelessChangeDetection()`)     |
 | Componentes            | 100% Standalone                                   |
 | Autenticación          | Keycloak v26 (`keycloak-angular`, `keycloak-js`) |
-| UI Library             | Angular Material 20 (M3 theme)                   |
+| UI Library             | Angular Material 22 (M3 theme)                   |
 | Testing                | Vitest via `@angular/build:unit-test`            |
 | Build System           | esbuild (`@angular/build`)                       |
 | Layout Utilities       | `@angular/cdk/layout` (BreakpointObserver)        |

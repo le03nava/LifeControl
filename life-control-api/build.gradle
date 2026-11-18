@@ -1,10 +1,10 @@
 plugins {
     id 'java'
-    id 'org.springframework.boot' version '4.1.2'
-    id 'io.spring.dependency-management' version '1.1.7'
-    id 'org.asciidoctor.jvm.convert' version '4.0.5'
-    id 'com.diffplug.spotless' version '8.11.0'
-    id 'com.github.spotbugs' version '6.5.13'
+    alias(libs.plugins.spring.boot)
+    alias(libs.plugins.spring.dependency.management)
+    alias(libs.plugins.asciidoctor.jvm.convert)
+    alias(libs.plugins.spotless)
+    alias(libs.plugins.spotbugs)
 }
 
 group = 'com.lifecontrol'
@@ -32,7 +32,7 @@ ext {
 
 spotless {
     java {
-        palantirJavaFormat('2.98.0')
+        palantirJavaFormat(libs.versions.palantir.java.format.get())
         removeUnusedImports()
         trimTrailingWhitespace()
         endWithNewline()
@@ -40,7 +40,7 @@ spotless {
 }
 
 spotbugs {
-    toolVersion = '4.9.8'
+    toolVersion = libs.versions.spotbugs.tool.get()
     effort.set(com.github.spotbugs.snom.Effort.MAX)
     reportLevel.set(com.github.spotbugs.snom.Confidence.valueOf('MEDIUM'))
     ignoreFailures = false
@@ -67,22 +67,22 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-webmvc'
     implementation 'org.springframework.boot:spring-boot-starter-validation'
     runtimeOnly 'org.postgresql:postgresql'
-    implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:3.1.1'
+    implementation libs.springdoc.openapi.starter.webmvc.ui
     implementation 'org.springframework.boot:spring-boot-starter-actuator'
-    implementation 'com.github.loki4j:loki-logback-appender:1.6.0'
+    implementation libs.loki.logback.appender
     implementation 'org.springframework.boot:spring-boot-starter-opentelemetry'
     implementation 'org.springframework.boot:spring-boot-starter-aspectj'
-    implementation 'com.bucket4j:bucket4j-core:8.10.1'
-    implementation 'org.zalando:logbook-spring-boot-starter:4.2.0'
+    implementation libs.bucket4j.core
+    implementation libs.logbook.spring.boot.starter
     implementation 'org.springframework.boot:spring-boot-starter-data-redis'
     implementation 'org.springframework.boot:spring-boot-starter-security-oauth2-resource-server'
-    implementation 'org.keycloak:keycloak-admin-client:26.0.12'
+    implementation libs.keycloak.admin.client
     // The SAT's `cadenaoriginal_4_0.xslt` declares version="2.0". The JDK's built-in transformer is XSLT 1.0
     // only, and it does not refuse a 2.0 stylesheet: it runs it with 1.0 semantics and answers a different
     // `cadena original`, which signs into a document the authority rejects while looking correct. Saxon-HE is
     // Mozilla Public License 2.0 — file-level copyleft, no obligation on this tree's own sources — and carries
     // `org.xmlresolver:xmlresolver` transitively.
-    implementation 'net.sf.saxon:Saxon-HE:12.10'
+    implementation libs.saxon.he
     runtimeOnly 'io.micrometer:micrometer-registry-prometheus'
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
     testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
@@ -91,8 +91,8 @@ dependencies {
     testImplementation 'org.testcontainers:testcontainers-junit-jupiter'
     testImplementation 'org.testcontainers:testcontainers-postgresql'
     testImplementation 'com.h2database:h2'
-    testImplementation 'org.springdoc:springdoc-openapi-starter-webmvc-api:3.1.1'
-    testImplementation 'org.springframework.restdocs:spring-restdocs-mockmvc:4.0.1'
+    testImplementation libs.springdoc.openapi.starter.webmvc.api
+    testImplementation libs.spring.restdocs.mockmvc
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 
