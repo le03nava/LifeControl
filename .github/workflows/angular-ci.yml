@@ -11,6 +11,13 @@ on:
       - 'life-control-app-angular/**'
       - '.github/workflows/angular-ci.yml'
 
+# Read-only, declared instead of inherited. Nothing here writes to the repository, and an inherited
+# default token is write-capable. Artifact upload and download authenticate with the run's own
+# runtime token, not with a GITHUB_TOKEN scope, so `contents: read` is enough for all three jobs;
+# a job that ever needs more states why beside its own scope.
+permissions:
+  contents: read
+
 concurrency:
   group: angular-ci-${{ github.ref }}
   cancel-in-progress: true
@@ -35,6 +42,9 @@ concurrency:
 #   * `src/test-timeouts.ts` carries `test.name` for the merge command alone. Without it the merge
 #     exits 1 with `No test files found` / 0 tests while still writing a correct-looking union
 #     `coverage/coverage-summary.json`.
+#
+# Every `uses:` is pinned to a commit SHA with the released tag in a trailing comment, and
+# .github/scripts/tests/workflow-pins.test.sh fails when one goes back to a mutable ref.
 
 jobs:
   lint-build:
@@ -45,10 +55,10 @@ jobs:
         working-directory: life-control-app-angular
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Setup Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version-file: life-control-app-angular/.nvmrc
           cache: npm
@@ -90,10 +100,10 @@ jobs:
         working-directory: life-control-app-angular
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Setup Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version-file: life-control-app-angular/.nvmrc
           cache: npm
@@ -108,7 +118,7 @@ jobs:
         run: npx ng test --no-watch --reporters=blob --reporters=default
 
       - name: Upload shard report
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: vitest-reports-${{ matrix.shard }}
           path: life-control-app-angular/.vitest-reports/
@@ -131,10 +141,10 @@ jobs:
         working-directory: life-control-app-angular
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Setup Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version-file: life-control-app-angular/.nvmrc
           cache: npm
@@ -144,7 +154,7 @@ jobs:
         run: npm ci
 
       - name: Download every shard report
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           pattern: vitest-reports-*
           path: life-control-app-angular/.vitest-reports
@@ -155,7 +165,7 @@ jobs:
 
       - name: Upload coverage artifact
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: coverage-lcov
           path: life-control-app-angular/coverage/lcov.info

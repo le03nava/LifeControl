@@ -303,6 +303,213 @@ for key in GF_AUTH_ANONYMOUS_ENABLED GF_AUTH_ANONYMOUS_ORG_ROLE GF_AUTH_DISABLE_
 done
 
 # ------------------------------------------
+# 9. The Dockerfile base images are pins too. They were the ones no suite read: the template and the
+#    compose files agreed with each other while `eclipse-temurin:21-jre-alpine`, `node:24.15-alpine`
+#    and `nginx:alpine` lived only inside a `FROM` line, so changing the image a build starts from was
+#    a one-word edit nobody reviewed and no check compared against anything.
+#
+#    Three things have to agree, in this order: the template declares the key, the compose files
+#    forward it as a build arg with the same default, and the Dockerfile consumes the ARG in its
+#    `FROM` instead of naming an image. The last one is asserted as "no literal in a FROM" and not as
+#    "the literal equals the template": a Dockerfile that writes the same value by hand still passes
+#    a comparison, and still drifts the day one of the two is bumped.
+# ------------------------------------------
+EXPECTED_BASE_IMAGES="JAVA_BASE_IMAGE=eclipse-temurin:21-jre-alpine
+NODE_BASE_IMAGE=node:24.15-alpine
+NGINX_BASE_IMAGE=nginx:alpine"
+
+JAVA_DOCKERFILES="$REPO_ROOT/api-gateway/Dockerfile $REPO_ROOT/life-control-api/Dockerfile"
+ALL_DOCKERFILES="$JAVA_DOCKERFILES $REPO_ROOT/life-control-app-angular/Dockerfile"
+PIN_SOURCE_LABEL="$(basename "$ENV_TEMPLATE")"
+
+# dockerfile_from_refs <file>: the image token of every FROM line, with any "AS <stage>" removed.
+dockerfile_from_refs() {
+	sed -nE 's/^FROM[[:space:]]+([^[:space:]]+).*/\1/p' "$1" 2>/dev/null
+}
+
+# dockerfile_arg_default <file> <arg>: the default of "ARG <arg>=<value>", or nothing.
+dockerfile_arg_default() {
+	sed -nE "s/^ARG[[:space:]]+$2=(.*)$/\1/p" "$1" 2>/dev/null | tail -1
+}
+
+while IFS='=' read -r name expected; do
+	[ -n "$name" ] || continue
+	check_equal "$PIN_SOURCE_LABEL $name" "$expected" "$(read_env_var "$ENV_TEMPLATE" "$name")"
+
+	defaults="$(compose_defaults_for "$name")"
+	count="$(printf '%s\n' "$defaults" | sed '/^$/d' | wc -l | tr -d ' ')"
+	if [ "$count" -eq 0 ]; then
+		fail "no compose build arg found for $name (expected at least one, so the image the stack builds is the pinned one)"
+	else
+		index=0
+		while IFS= read -r value; do
+			[ -n "$value" ] || continue
+			index=$((index + 1))
+			check_equal "compose build arg #$index for $name" "$expected" "$value"
+		done <<< "$defaults"
+	fi
+
+	refs=0
+	for dockerfile in $ALL_DOCKERFILES; do
+		[ -f "$dockerfile" ] || continue
+		label="$(basename "$(dirname "$dockerfile")")/Dockerfile"
+		arg_default="$(dockerfile_arg_default "$dockerfile" "$name")"
+		if [ -n "$arg_default" ]; then
+			check_equal "$label ARG $name default" "$expected" "$arg_default"
+		fi
+		while IFS= read -r ref; do
+			[ -n "$ref" ] || continue
+			if [ "$ref" = "\${$name}" ]; then
+				refs=$((refs + 1))
+			fi
+		done <<< "$(dockerfile_from_refs "$dockerfile")"
+	done
+	if [ "$refs" -eq 0 ]; then
+		fail "no Dockerfile has a FROM \${$name}, so the pinned base image is declared somewhere nothing reads"
+	else
+		pass "$refs Dockerfile FROM line(s) consume \${$name}"
+	fi
+done <<< "$EXPECTED_BASE_IMAGES"
+
+# A FROM that names an image instead of an ARG is the pin this section exists to remove, so it fails
+# even when the literal happens to equal the template today.
+for dockerfile in $ALL_DOCKERFILES; do
+	if [ ! -f "$dockerfile" ]; then
+		fail "missing $(basename "$(dirname "$dockerfile")")/Dockerfile"
+		continue
+	fi
+	label="$(basename "$(dirname "$dockerfile")")/Dockerfile"
+	while IFS= read -r ref; do
+		[ -n "$ref" ] || continue
+		case "$ref" in
+		'${'*'_BASE_IMAGE}')
+			pass "$label FROM names a template-managed base image ($ref)"
+			;;
+		*)
+			fail "$label FROM writes its own base image ($ref): declare it in the docker env template and reference the ARG"
+			;;
+		esac
+	done <<< "$(dockerfile_from_refs "$dockerfile")"
+done
+
+# The Node base image and .nvmrc name the same line of the same runtime: two sources that can
+# disagree are two sources, and this makes them one.
+NVMRC_FILE="$REPO_ROOT/life-control-app-angular/.nvmrc"
+if [ -f "$NVMRC_FILE" ]; then
+	nvmrc="$(tr -d '[:space:]' < "$NVMRC_FILE")"
+	node_pin="$(read_env_var "$ENV_TEMPLATE" NODE_BASE_IMAGE)"
+	nvmrc_line="$(printf '%s' "$nvmrc" | cut -d. -f1,2)"
+	case "$node_pin" in
+	"node:$nvmrc_line"-*)
+		pass "NODE_BASE_IMAGE agrees with .nvmrc ($nvmrc)"
+		;;
+	*)
+		fail "NODE_BASE_IMAGE is '$node_pin' but .nvmrc pins $nvmrc: two sources for the Node line the app is typed for"
+		;;
+	esac
+else
+	fail "missing life-control-app-angular/.nvmrc, so NODE_BASE_IMAGE has nothing to agree with"
+fi
+
+# ------------------------------------------
+# 10. Every image reference under k8s/ is a pin or a declared exception.
+#     k8s/ is a local playground: nothing in this repository builds, pushes or deploys it, and the
+#     kind scripts only pull the same references into a local cluster. That is why it cannot read the
+#     docker pin source -- it runs MySQL, Kafka and an external gateway image the stack never runs --
+#     and why the frozen table below is its pin source instead. The exception is named, with its
+#     reason, rather than filtered out by a pattern: an image with a single published tag cannot be
+#     materialized, and hiding it in a regex is how the next floating tag goes unnoticed too.
+# ------------------------------------------
+EXPECTED_K8S_IMAGES="grafana/grafana:10.1.0
+grafana/loki:3.7.8
+grafana/tempo:2.2.2
+mysql:8.3.0
+prom/prometheus:v2.46.0
+quay.io/keycloak/keycloak:24.0.1
+saiupadhyayula007/new-api-gateway:latest"
+
+# The one documented exception: a third-party image this repository does not build, published under a
+# single tag (Docker Hub, last updated 2024-08-03), inside a tutorial manifest tree that no deploy here
+# reads.
+K8S_DOCUMENTED_EXCEPTION="saiupadhyayula007/new-api-gateway:latest"
+
+k8s_image_refs() {
+	{
+		grep -rhoE 'image:[[:space:]]+[^[:space:]]+' "$REPO_ROOT/k8s" 2>/dev/null | sed -E 's/.*image:[[:space:]]+//'
+		grep -rhoE 'docker pull[[:space:]]+[^[:space:]]+|kind load docker-image -n [A-Za-z0-9_-]+[[:space:]]+[^[:space:]]+' "$REPO_ROOT/k8s" 2>/dev/null | awk '{print $NF}'
+	} | sed '/^$/d' | sort -u
+}
+
+actual_k8s="$(k8s_image_refs)"
+if [ -z "$actual_k8s" ]; then
+	fail "no image reference matched under k8s/, so the reader is not reading the manifests"
+else
+	while IFS= read -r ref; do
+		[ -n "$ref" ] || continue
+		if printf '%s\n' "$EXPECTED_K8S_IMAGES" | grep -qxF "$ref"; then
+			pass "k8s/ reference $ref is the frozen pin"
+		else
+			fail "k8s/ reference $ref is not in the frozen k8s table: add it here deliberately, with the version"
+		fi
+		case "$ref" in
+		"$K8S_DOCUMENTED_EXCEPTION")
+			pass "k8s/ reference $ref is the documented dev-only exception"
+			continue
+			;;
+		esac
+		case "$ref" in
+		*:latest | *:stable | *:main)
+			fail "k8s/ reference $ref floats on a movable tag"
+			;;
+		*)
+			tag="${ref##*:}"
+			case "$tag" in
+			*.*) : ;;
+			*) fail "k8s/ reference $ref uses a bare-major tag, which floats" ;;
+			esac
+			;;
+		esac
+	done <<< "$actual_k8s"
+
+	missing_k8s=0
+	while IFS= read -r ref; do
+		[ -n "$ref" ] || continue
+		if ! printf '%s\n' "$actual_k8s" | grep -qxF "$ref"; then
+			missing_k8s=$((missing_k8s + 1))
+			fail "the frozen k8s table names $ref but no manifest uses it any more: remove it from the table"
+		fi
+	done <<< "$EXPECTED_K8S_IMAGES"
+	if [ "$missing_k8s" -eq 0 ]; then
+		pass "every reference in the frozen k8s table is still used by the tree"
+	fi
+fi
+
+# ------------------------------------------
+# 11. The web app's `:latest` is the one floating tag this stack keeps, and it is only safe because
+#     the image is built from this tree by the `build:` block beside it: a tag with a build context is
+#     a local name, a tag without one is something compose would pull. So the exception is asserted at
+#     the place that claims it instead of being trusted there -- the sentence in docker-compose.yml
+#     said the suite checked this before this section existed, which is the drift a comment makes when
+#     nothing reads it.
+# ------------------------------------------
+for compose in "$DOCKER_DIR"/docker-compose.yml "$DOCKER_DIR"/docker-compose.prod.yml; do
+	[ -f "$compose" ] || continue
+	block="$(service_block "$compose" web-app)"
+	if [ -z "$block" ]; then
+		fail "$(basename "$compose") has no web-app service, so the WEB_APP_IMAGE exception cannot be judged"
+		continue
+	fi
+	case "$block" in
+	*build:*)
+		pass "$(basename "$compose") web-app builds the image it tags (the floating tag is a local name, not a pull)"
+		;;
+	*)
+		fail "$(basename "$compose") web-app tags WEB_APP_IMAGE but declares no build: block, so that tag would be pulled from a registry"
+		;;
+	esac
+done
+
+# ------------------------------------------
 # Summary
 # ------------------------------------------
 echo "------------------------------------------"
