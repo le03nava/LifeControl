@@ -3,12 +3,18 @@ package com.lifecontrol.api.fiscal;
 import com.lifecontrol.api.accounting.catalog.StarterAccountingCatalogApplier;
 import com.lifecontrol.api.support.SaleFixtures;
 import com.lifecontrol.api.support.TenantFixtures;
+import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 
 /**
  * One completed sale with the fiscal profile a document needs, for the two suites of {@code T6}'s second pull
@@ -63,7 +69,11 @@ final class FiscalDocumentSeed {
     private final SaleFixtures fixtures;
 
     private UUID company;
+    private UUID companyCountry;
+    private UUID region;
+    private UUID zone;
     private UUID store;
+    private UUID otherStore;
     private UUID variant;
     private UUID product;
     private UUID customer;
@@ -88,7 +98,7 @@ final class FiscalDocumentSeed {
         company = newCompany();
         seedTree();
         customer = newCustomer();
-        sale = newSale(1L);
+        sale = newSale(store, 1L);
         authenticate();
         return this;
     }
@@ -110,11 +120,64 @@ final class FiscalDocumentSeed {
      * @return the id of the second sale, already {@code COMPLETED} and with its own two lines
      */
     UUID anotherCompletedSale() {
-        return newSale(2L);
+        return newSale(store, 2L);
     }
+
+    /**
+     * A second store of the <b>same</b> company, so a store refusal and a tenant refusal cannot be confused: the row
+     * level security admits both stores to both callers, and only the store guard can refuse a request between them.
+     *
+     * <p>It lives in the same zone on purpose. The guard verifies the whole company &rarr; country &rarr; region
+     * &rarr; zone &rarr; store claim path, so a caller scoped to either store states the same four parents and the
+     * two tokens differ in exactly one claim — the one the case is about.</p>
+     *
+     * @return the id of the second store, created once per seed
+     */
+    UUID anotherStore() {
+        if (otherStore == null) {
+            otherStore = UUID.randomUUID();
+            jdbc.update(
+                    "INSERT INTO company_stores (id, company_id, company_zone_id, store_name, enabled)"
+                            + " VALUES (?, ?, ?, ?, true)",
+                    otherStore,
+                    company,
+                    zone,
+                    "Fiscal Stamp Other Store");
+        }
+        return otherStore;
+    }
+
+    /**
+     * A completed sale of the second store, for the cases where the document belongs to a store the caller does not
+     * hold.
+     *
+     * <p><b>Why it does not touch {@link #sale()}.</b> The first sale's lines are the ones the sibling suites keep
+     * asking for, and a fixture that answered "the sale" with whichever store it seeded last would make every case
+     * depend on the order the cases ran in. This one returns its id and leaves the fields alone.</p>
+     *
+     * @return the id of a completed sale whose store is {@link #anotherStore()}
+     */
+    UUID aSaleInAnotherStore() {
+        return newSale(anotherStore(), 3L + otherSales++);
+    }
+
+    /** How many sales the second store has been asked for, so their {@code order_number}s never collide. */
+    private int otherSales;
 
     UUID company() {
         return company;
+    }
+
+    UUID companyCountry() {
+        return companyCountry;
+    }
+
+    UUID region() {
+        return region;
+    }
+
+    UUID zone() {
+        return zone;
     }
 
     UUID store() {
@@ -173,9 +236,9 @@ final class FiscalDocumentSeed {
     private void seedTree() {
         var suffix = company.toString().replace("-", "").substring(0, 8);
         var country = jdbc.queryForObject("SELECT id FROM countries WHERE country_code = 'MX'", UUID.class);
-        var companyCountry = UUID.randomUUID();
-        var region = UUID.randomUUID();
-        var zone = UUID.randomUUID();
+        companyCountry = UUID.randomUUID();
+        region = UUID.randomUUID();
+        zone = UUID.randomUUID();
         store = UUID.randomUUID();
         jdbc.update(
                 "INSERT INTO company_countries (id, company_id, country_id) VALUES (?, ?, ?)",
@@ -243,11 +306,11 @@ final class FiscalDocumentSeed {
         return id;
     }
 
-    private UUID newSale(long sequence) {
+    private UUID newSale(UUID atStore, long sequence) {
         var id = UUID.randomUUID();
         var lineOne = UUID.randomUUID();
         var lineTwo = UUID.randomUUID();
-        var tree = new SaleFixtures.Tree(company, store, variant);
+        var tree = new SaleFixtures.Tree(company, atStore, variant);
         for (var statement : fixtures.saleStatements(tree, id, lineOne, lineTwo, sequence)) {
             jdbc.update(statement);
         }
@@ -265,11 +328,52 @@ final class FiscalDocumentSeed {
     }
 
     private void authenticate() {
+        authenticateAs(store);
+    }
+
+    /**
+     * States the tenant and a caller scoped to one or more stores as the current identity.
+     *
+     * <p><b>Why the identity carries the whole chain and a role.</b> A fiscal document is reachable only through the
+     * sale's store, and the services resolve that store through {@code CurrentUserContext#verifyCompanyStoreAccess},
+     * which asks the token for the company &rarr; country &rarr; region &rarr; zone &rarr; store path and refuses a
+     * caller whose token states none of it. A company-only identity — which this seed used to set — is therefore not
+     * "a caller with no store scope": it is a token that does not say which store it may touch, and the honest
+     * fixture states the one it seeded. {@code ROLE_lc-sales} is the role the two endpoints require, and it is the
+     * store-scoped one, so the guard receives a real scope instead of short-circuiting on {@code lc-admin}.</p>
+     *
+     * <p><b>Why it takes a list.</b> {@code CurrentUserContext} is request scoped and caches the claim path of the
+     * scope it resolved in, so a case that stamped one store and then another by switching identities twice would
+     * be read as the first one. A fixture that needs to act on two stores therefore states <b>one</b> caller holding
+     * both, which is what the claim accepts (a comma-separated list) and what a real multi-store operator receives.</p>
+     *
+     * <p><b>Why it also opens a request scope.</b> The cache above lives on the bean instance the scope resolves, and
+     * a case runs inside exactly one such scope (the test framework binds one request per method), so stating a new
+     * identity without stating a new scope leaves the previous caller's claims cached. The cases that need two
+     * <em>companies</em> in one method — the ones that stamp a document of another company and then go back to the
+     * caller — would be refused by the store guard with the first caller's company for a reason that belongs to the
+     * fixture, not to the code under test. Opening the scope here makes "this is the caller" true for the next
+     * resolution; the framework's own teardown still owns the last word at the end of the method.</p>
+     *
+     * @param scopedTo the stores the caller may act on; the direct-service suites pass the one they seeded
+     */
+    void authenticateAs(UUID... scopedTo) {
+        var stores = Arrays.stream(scopedTo).map(UUID::toString).collect(Collectors.joining(","));
         var jwt = Jwt.withTokenValue("fiscal-stamp")
                 .header("alg", "RS256")
                 .subject(ACTOR)
                 .claim("company_id", company.toString())
+                .claim("company_country_id", companyCountry.toString())
+                .claim("company_region_id", region.toString())
+                .claim("company_zone_id", zone.toString())
+                .claim("company_store_id", stores)
                 .build();
-        SecurityContextHolder.getContext().setAuthentication(new JwtAuthenticationToken(jwt, List.of()));
+        SecurityContextHolder.getContext()
+                .setAuthentication(
+                        new JwtAuthenticationToken(jwt, List.of(new SimpleGrantedAuthority("ROLE_lc-sales"))));
+        // A new caller is also a new request: the claims above are read by a request-scoped bean that caches them
+        // for as long as its scope lives, so an identity stated without a scope of its own would be read through
+        // the previous one's claims.
+        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(new MockHttpServletRequest()));
     }
 }

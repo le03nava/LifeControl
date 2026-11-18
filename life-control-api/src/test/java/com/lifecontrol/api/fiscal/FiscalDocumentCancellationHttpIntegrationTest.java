@@ -227,11 +227,23 @@ class FiscalDocumentCancellationHttpIntegrationTest extends AbstractPostgresInte
     }
 
     /**
-     * The caller's token: the tenant in the one claim a company-less path reads, and the role the sale screens
-     * already use. {@code lc-sales} and not {@code lc-admin} so the case proves the narrower of the two.
+     * The caller's token: the tenant in the one claim a company-less path reads, the store chain the document's
+     * sale belongs to, and the role the sale screens already use. {@code lc-sales} and not {@code lc-admin} so the
+     * case proves the narrower of the two.
+     *
+     * <p><b>Why the chain and not only the company.</b> Cancelling authorizes the caller for the store the document
+     * came from, walking company &rarr; country &rarr; region &rarr; zone &rarr; store, so a token that states only
+     * the company is refused before the authority is called — which would turn every case here into the same 403.
+     * The foreign-document case keeps the caller's own chain with the caller's own company: the policy hides the
+     * row, so it answers a 404 before any store is verified.</p>
      */
     private RequestPostProcessor token(UUID company) {
         return jwt().authorities(new SimpleGrantedAuthority("ROLE_lc-sales"))
-                .jwt(builder -> builder.subject("suite:fiscal-cancellation").claim("company_id", company.toString()));
+                .jwt(builder -> builder.subject("suite:fiscal-cancellation")
+                        .claim("company_id", company.toString())
+                        .claim("company_country_id", seed.companyCountry().toString())
+                        .claim("company_region_id", seed.region().toString())
+                        .claim("company_zone_id", seed.zone().toString())
+                        .claim("company_store_id", seed.store().toString()));
     }
 }

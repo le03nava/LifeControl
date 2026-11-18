@@ -271,8 +271,24 @@ class FiscalDocumentReadHttpIntegrationTest extends AbstractPostgresIntegrationT
     // helpers
     // ──────────────────────────────────────
 
-    private static RequestPostProcessor token(UUID claimedCompany) {
+    /**
+     * The caller's token: the tenant in the one claim a company-less path reads, the store chain the sale behind
+     * the document belongs to, and the role the sale screens already use. {@code lc-sales} and not
+     * {@code lc-admin} so the case proves the narrower of the two.
+     *
+     * <p><b>Why the chain is the seed's even when the company claim is another company's.</b> The store guard walks
+     * company &rarr; country &rarr; region &rarr; zone &rarr; store, so a token that states only the company is a
+     * caller who never says which store it may touch, and the guard refuses it. The cases that pass a foreign
+     * company do it to prove what the policy answers, and they never reach the guard: the row is hidden, so the
+     * path answers 404 first.</p>
+     */
+    private RequestPostProcessor token(UUID claimedCompany) {
         return jwt().authorities(new SimpleGrantedAuthority("ROLE_lc-sales"))
-                .jwt(builder -> builder.subject(SUBJECT).claim("company_id", claimedCompany.toString()));
+                .jwt(builder -> builder.subject(SUBJECT)
+                        .claim("company_id", claimedCompany.toString())
+                        .claim("company_country_id", seed.companyCountry().toString())
+                        .claim("company_region_id", seed.region().toString())
+                        .claim("company_zone_id", seed.zone().toString())
+                        .claim("company_store_id", seed.store().toString()));
     }
 }
