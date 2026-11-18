@@ -2,6 +2,8 @@ plugins {
 	id 'java'
 	alias(libs.plugins.spring.boot)
 	alias(libs.plugins.spring.dependency.management)
+	alias(libs.plugins.spotless)
+	alias(libs.plugins.spotbugs)
 }
 
 group = 'com.lifecontrol'
@@ -15,6 +17,39 @@ java {
 
 repositories {
 	mavenCentral()
+}
+
+// The same formatting gate as `life-control-api` (issue #894, S6), with the same formatter and the
+// same shape: the default target is every Java source of the module, so a file added tomorrow is
+// formatted rather than silently skipped, and no source set is excluded.
+spotless {
+	java {
+		palantirJavaFormat(libs.versions.palantir.java.format.get())
+		removeUnusedImports()
+		trimTrailingWhitespace()
+		endWithNewline()
+	}
+}
+
+spotbugs {
+	toolVersion = libs.versions.spotbugs.tool.get()
+	effort.set(com.github.spotbugs.snom.Effort.MAX)
+	reportLevel.set(com.github.spotbugs.snom.Confidence.valueOf('MEDIUM'))
+	ignoreFailures = false
+	excludeFilter = file('config/spotbugs/exclude.xml')
+}
+
+tasks.withType(com.github.spotbugs.snom.SpotBugsTask).configureEach {
+	reports {
+		xml.required = true
+		html.required = true
+	}
+}
+
+// Static analysis is scoped to production code: test sources are intentionally noisy
+// (dead stores, unread fields, format strings) and out of this baseline's scope.
+tasks.named('spotbugsTest') {
+	enabled = false
 }
 
 dependencies {

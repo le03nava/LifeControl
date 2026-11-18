@@ -37,140 +37,135 @@ import org.junit.jupiter.api.Test;
  */
 class GatewayRouteCoverageTests {
 
-  /** A class-level {@code @RequestMapping("/api/...")} on an API controller. */
-  private static final Pattern API_MAPPING = Pattern.compile("@RequestMapping\\(\"(/api/[^\"]*)\"\\)");
+    /** A class-level {@code @RequestMapping("/api/...")} on an API controller. */
+    private static final Pattern API_MAPPING = Pattern.compile("@RequestMapping\\(\"(/api/[^\"]*)\"\\)");
 
-  /** A {@code RequestPredicates.path("/api/...")} predicate inside {@link Routes}. */
-  private static final Pattern GATEWAY_ROUTE = Pattern.compile("RequestPredicates\\.path\\(\"(/api/[^\"]*)\"\\)");
+    /** A {@code RequestPredicates.path("/api/...")} predicate inside {@link Routes}. */
+    private static final Pattern GATEWAY_ROUTE = Pattern.compile("RequestPredicates\\.path\\(\"(/api/[^\"]*)\"\\)");
 
-  // Positive controls: if the regexes or the source layout drift, these fail instead of vacuously passing.
-  private static final int MIN_EXPECTED_API_PREFIXES = 15;
-  private static final int MIN_EXPECTED_GATEWAY_PREFIXES = 15;
+    // Positive controls: if the regexes or the source layout drift, these fail instead of vacuously passing.
+    private static final int MIN_EXPECTED_API_PREFIXES = 15;
+    private static final int MIN_EXPECTED_GATEWAY_PREFIXES = 15;
 
-  @Test
-  void everyApiPrefixIsReachableThroughTheGateway() throws IOException {
-    Path repository = repositoryRoot();
-    Set<String> apiPrefixes = prefixesIn(apiControllerSources(repository), API_MAPPING);
-    Set<String> proxiedPrefixes = prefixesIn(Set.of(routesSource(repository)), GATEWAY_ROUTE);
+    @Test
+    void everyApiPrefixIsReachableThroughTheGateway() throws IOException {
+        Path repository = repositoryRoot();
+        Set<String> apiPrefixes = prefixesIn(apiControllerSources(repository), API_MAPPING);
+        Set<String> proxiedPrefixes = prefixesIn(Set.of(routesSource(repository)), GATEWAY_ROUTE);
 
-    assertTrue(
-        apiPrefixes.size() >= MIN_EXPECTED_API_PREFIXES,
-        "Expected at least "
-            + MIN_EXPECTED_API_PREFIXES
-            + " API /api prefixes but discovered "
-            + apiPrefixes.size()
-            + ": "
-            + apiPrefixes
-            + ". Are the controllers still under life-control-api/src/main/java?");
+        assertTrue(
+                apiPrefixes.size() >= MIN_EXPECTED_API_PREFIXES,
+                "Expected at least "
+                        + MIN_EXPECTED_API_PREFIXES
+                        + " API /api prefixes but discovered "
+                        + apiPrefixes.size()
+                        + ": "
+                        + apiPrefixes
+                        + ". Are the controllers still under life-control-api/src/main/java?");
 
-    assertTrue(
-        proxiedPrefixes.size() >= MIN_EXPECTED_GATEWAY_PREFIXES,
-        "Expected at least "
-            + MIN_EXPECTED_GATEWAY_PREFIXES
-            + " gateway /api routes but discovered "
-            + proxiedPrefixes.size()
-            + ": "
-            + proxiedPrefixes
-            + ". Did Routes.java stop declaring literal RequestPredicates.path(\"/api/<segment>/**\")?");
+        assertTrue(
+                proxiedPrefixes.size() >= MIN_EXPECTED_GATEWAY_PREFIXES,
+                "Expected at least "
+                        + MIN_EXPECTED_GATEWAY_PREFIXES
+                        + " gateway /api routes but discovered "
+                        + proxiedPrefixes.size()
+                        + ": "
+                        + proxiedPrefixes
+                        + ". Did Routes.java stop declaring literal RequestPredicates.path(\"/api/<segment>/**\")?");
 
-    Set<String> unreachable = new TreeSet<>(apiPrefixes);
-    unreachable.removeAll(proxiedPrefixes);
+        Set<String> unreachable = new TreeSet<>(apiPrefixes);
+        unreachable.removeAll(proxiedPrefixes);
 
-    assertTrue(
-        unreachable.isEmpty(),
-        "These /api prefixes are exposed by life-control-api but not proxied by api-gateway, so every"
-            + " request to them returns a gateway 404: "
-            + unreachable
-            + System.lineSeparator()
-            + "Add one route per prefix to"
-            + " api-gateway/src/main/java/com/lifecontrol/gateway/routes/Routes.java:"
-            + System.lineSeparator()
-            + unreachable.stream()
-                .map(
-                    prefix ->
-                        "  .route(RequestPredicates.path(\"/api/"
-                            + prefix
-                            + "/**\"), HandlerFunctions.http())"
-                            + System.lineSeparator()
-                            + "  .before(BeforeFilterFunctions.uri(props.lifeControlApiUri()))")
-                .collect(Collectors.joining(System.lineSeparator())));
-  }
-
-  /**
-   * The product catalog moved under {@code /api/companies/{companyId}/products}, so {@code
-   * /api/products/**} no longer has a controller to serve it.
-   *
-   * <p>A dead proxy route is not harmless the day a client still points at it: it resolves, forwards,
-   * and answers the API's 404 as if the API had been asked — which is what made the stale client look
-   * like a backend bug instead of a moved contract. This pins the removal so a copy-paste that
-   * reintroduces {@code /api/products} fails here rather than in a topology. {@code /api/companies/**}
-   * already reaches the same service, and the variant prefixes have their own routes.</p>
-   */
-  @Test
-  void doesNotProxyTheRemovedProductsPrefix() throws IOException {
-    String routes = Files.readString(routesSource(repositoryRoot()));
-
-    assertTrue(
-        !routes.contains("/api/products/**"),
-        "api-gateway still declares a /api/products/** route, but life-control-api serves the product"
-            + " catalog under /api/companies/{companyId}/products and no controller maps"
-            + " /api/products. Remove the dead route (or, if the prefix came back, add the controller"
-            + " before the proxy).");
-  }
-
-  private static Set<String> prefixesIn(Set<Path> sources, Pattern pattern) throws IOException {
-    Set<String> prefixes = new TreeSet<>();
-    for (Path source : sources) {
-      Matcher matcher = pattern.matcher(Files.readString(source));
-      while (matcher.find()) {
-        prefixes.add(firstSegment(matcher.group(1)));
-      }
+        assertTrue(
+                unreachable.isEmpty(),
+                "These /api prefixes are exposed by life-control-api but not proxied by api-gateway, so every"
+                        + " request to them returns a gateway 404: "
+                        + unreachable
+                        + System.lineSeparator()
+                        + "Add one route per prefix to"
+                        + " api-gateway/src/main/java/com/lifecontrol/gateway/routes/Routes.java:"
+                        + System.lineSeparator()
+                        + unreachable.stream()
+                                .map(prefix -> "  .route(RequestPredicates.path(\"/api/"
+                                        + prefix
+                                        + "/**\"), HandlerFunctions.http())"
+                                        + System.lineSeparator()
+                                        + "  .before(BeforeFilterFunctions.uri(props.lifeControlApiUri()))")
+                                .collect(Collectors.joining(System.lineSeparator())));
     }
-    return prefixes;
-  }
 
-  /** {@code /api/users-admin/roles} -> {@code users-admin}; {@code /api/countries} -> {@code countries}. */
-  private static String firstSegment(String apiPath) {
-    String remainder = apiPath.substring("/api/".length());
-    int slash = remainder.indexOf('/');
-    return slash < 0 ? remainder : remainder.substring(0, slash);
-  }
+    /**
+     * The product catalog moved under {@code /api/companies/{companyId}/products}, so {@code
+     * /api/products/**} no longer has a controller to serve it.
+     *
+     * <p>A dead proxy route is not harmless the day a client still points at it: it resolves, forwards,
+     * and answers the API's 404 as if the API had been asked — which is what made the stale client look
+     * like a backend bug instead of a moved contract. This pins the removal so a copy-paste that
+     * reintroduces {@code /api/products} fails here rather than in a topology. {@code /api/companies/**}
+     * already reaches the same service, and the variant prefixes have their own routes.</p>
+     */
+    @Test
+    void doesNotProxyTheRemovedProductsPrefix() throws IOException {
+        String routes = Files.readString(routesSource(repositoryRoot()));
 
-  private static Set<Path> apiControllerSources(Path repository) throws IOException {
-    Path controllers = repository.resolve("life-control-api/src/main/java");
-    assertTrue(
-        Files.isDirectory(controllers), "API controller source directory not found at " + controllers);
-    try (Stream<Path> files = Files.walk(controllers)) {
-      return files
-          .filter(Files::isRegularFile)
-          .filter(path -> path.getFileName().toString().endsWith("Controller.java"))
-          .collect(Collectors.toCollection(TreeSet::new));
+        assertTrue(
+                !routes.contains("/api/products/**"),
+                "api-gateway still declares a /api/products/** route, but life-control-api serves the product"
+                        + " catalog under /api/companies/{companyId}/products and no controller maps"
+                        + " /api/products. Remove the dead route (or, if the prefix came back, add the controller"
+                        + " before the proxy).");
     }
-  }
 
-  private static Path routesSource(Path repository) {
-    Path routes =
-        repository.resolve("api-gateway/src/main/java/com/lifecontrol/gateway/routes/Routes.java");
-    assertTrue(Files.isRegularFile(routes), "Routes.java not found at " + routes);
-    return routes;
-  }
-
-  /**
-   * Walks up from the working directory to the checkout root, identified by holding both modules.
-   *
-   * <p>Works whether Gradle runs this module's tests from {@code api-gateway/} or from the root.
-   */
-  private static Path repositoryRoot() {
-    Path start = Path.of("").toAbsolutePath().normalize();
-    for (Path candidate = start; candidate != null; candidate = candidate.getParent()) {
-      if (Files.isDirectory(candidate.resolve("api-gateway/src/main/java"))
-          && Files.isDirectory(candidate.resolve("life-control-api/src/main/java"))) {
-        return candidate;
-      }
+    private static Set<String> prefixesIn(Set<Path> sources, Pattern pattern) throws IOException {
+        Set<String> prefixes = new TreeSet<>();
+        for (Path source : sources) {
+            Matcher matcher = pattern.matcher(Files.readString(source));
+            while (matcher.find()) {
+                prefixes.add(firstSegment(matcher.group(1)));
+            }
+        }
+        return prefixes;
     }
-    throw new IllegalStateException(
-        "Could not locate the repository root (a directory holding both api-gateway/ and"
-            + " life-control-api/) by walking up from "
-            + start);
-  }
+
+    /** {@code /api/users-admin/roles} -> {@code users-admin}; {@code /api/countries} -> {@code countries}. */
+    private static String firstSegment(String apiPath) {
+        String remainder = apiPath.substring("/api/".length());
+        int slash = remainder.indexOf('/');
+        return slash < 0 ? remainder : remainder.substring(0, slash);
+    }
+
+    private static Set<Path> apiControllerSources(Path repository) throws IOException {
+        Path controllers = repository.resolve("life-control-api/src/main/java");
+        assertTrue(Files.isDirectory(controllers), "API controller source directory not found at " + controllers);
+        try (Stream<Path> files = Files.walk(controllers)) {
+            return files.filter(Files::isRegularFile)
+                    .filter(path -> path.getFileName().toString().endsWith("Controller.java"))
+                    .collect(Collectors.toCollection(TreeSet::new));
+        }
+    }
+
+    private static Path routesSource(Path repository) {
+        Path routes = repository.resolve("api-gateway/src/main/java/com/lifecontrol/gateway/routes/Routes.java");
+        assertTrue(Files.isRegularFile(routes), "Routes.java not found at " + routes);
+        return routes;
+    }
+
+    /**
+     * Walks up from the working directory to the checkout root, identified by holding both modules.
+     *
+     * <p>Works whether Gradle runs this module's tests from {@code api-gateway/} or from the root.
+     */
+    private static Path repositoryRoot() {
+        Path start = Path.of("").toAbsolutePath().normalize();
+        for (Path candidate = start; candidate != null; candidate = candidate.getParent()) {
+            if (Files.isDirectory(candidate.resolve("api-gateway/src/main/java"))
+                    && Files.isDirectory(candidate.resolve("life-control-api/src/main/java"))) {
+                return candidate;
+            }
+        }
+        throw new IllegalStateException(
+                "Could not locate the repository root (a directory holding both api-gateway/ and"
+                        + " life-control-api/) by walking up from "
+                        + start);
+    }
 }

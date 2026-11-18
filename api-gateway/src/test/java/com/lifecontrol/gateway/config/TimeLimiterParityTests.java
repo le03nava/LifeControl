@@ -39,86 +39,82 @@ import org.springframework.boot.convert.DurationStyle;
  */
 class TimeLimiterParityTests {
 
-  /** The tracked value compose feeds the process from a materialised {@code .env.<env>}. */
-  private static final Pattern ENV_TEMPLATE = Pattern.compile("^TIMEOUT_DURATION=(.+)$", Pattern.MULTILINE);
+    /** The tracked value compose feeds the process from a materialised {@code .env.<env>}. */
+    private static final Pattern ENV_TEMPLATE = Pattern.compile("^TIMEOUT_DURATION=(.+)$", Pattern.MULTILINE);
 
-  /** The literal prod override, which ignores the env var and states its own value. */
-  private static final Pattern PROD_COMPOSE =
-      Pattern.compile("TIMEOUT_DURATION=([0-9]+[a-zA-Z]+)", Pattern.MULTILINE);
+    /** The literal prod override, which ignores the env var and states its own value. */
+    private static final Pattern PROD_COMPOSE =
+            Pattern.compile("TIMEOUT_DURATION=([0-9]+[a-zA-Z]+)", Pattern.MULTILINE);
 
-  /** The profile properties file, which applies only when the process runs without compose. */
-  private static final Pattern DEV_PROPERTIES = Pattern.compile("^TIMEOUT_DURATION=(.+)$", Pattern.MULTILINE);
+    /** The profile properties file, which applies only when the process runs without compose. */
+    private static final Pattern DEV_PROPERTIES = Pattern.compile("^TIMEOUT_DURATION=(.+)$", Pattern.MULTILINE);
 
-  private static final Duration MEASURED_COMPANY_CREATION = Duration.ofMillis(2963);
+    private static final Duration MEASURED_COMPANY_CREATION = Duration.ofMillis(2963);
 
-  @Test
-  void devIsNotStricterThanProd() throws IOException {
-    Path repository = repositoryRoot();
-    Duration dev = parse(repository.resolve("docker/.env.template"), ENV_TEMPLATE, "docker/.env.template");
-    Duration prod =
-        parse(
-            repository.resolve("docker/docker-compose.prod.yml"),
-            PROD_COMPOSE,
-            "docker/docker-compose.prod.yml");
+    @Test
+    void devIsNotStricterThanProd() throws IOException {
+        Path repository = repositoryRoot();
+        Duration dev = parse(repository.resolve("docker/.env.template"), ENV_TEMPLATE, "docker/.env.template");
+        Duration prod = parse(
+                repository.resolve("docker/docker-compose.prod.yml"), PROD_COMPOSE, "docker/docker-compose.prod.yml");
 
-    assertTrue(
-        dev.compareTo(prod) >= 0,
-        "docker/.env.template declares TIMEOUT_DURATION="
-            + dev.toMillis()
-            + "ms, shorter than prod's "
-            + prod.toMillis()
-            + "ms. A warm company creation measured "
-            + MEASURED_COMPANY_CREATION.toMillis()
-            + "ms, so every such write in dev is cancelled at the edge while the API still commits it:"
-            + " raise dev's limiter, or lower prod's with the measurement that justifies it.");
-  }
-
-  @Test
-  void theTwoDevDeclarationsAgree() throws IOException {
-    Path repository = repositoryRoot();
-    Duration fromEnvironment =
-        parse(repository.resolve("docker/.env.template"), ENV_TEMPLATE, "docker/.env.template");
-    Duration fromProfile =
-        parse(
-            repository.resolve("api-gateway/src/main/resources/application-dev.properties"),
-            DEV_PROPERTIES,
-            "application-dev.properties");
-
-    assertEquals(
-        fromEnvironment,
-        fromProfile,
-        "docker/.env.template declares TIMEOUT_DURATION="
-            + fromEnvironment.toMillis()
-            + "ms and application-dev.properties declares "
-            + fromProfile.toMillis()
-            + "ms. The environment variable wins in a container, so editing the properties file alone looks"
-            + " like a fix and changes nothing: keep the two equal, or drop the redundant declaration.");
-  }
-
-  private static Duration parse(Path file, Pattern pattern, String label) throws IOException {
-    String content = Files.readString(file);
-    Matcher matcher = pattern.matcher(content);
-    assertTrue(matcher.find(), "No TIMEOUT_DURATION declared in " + label + " (" + file + ")");
-    Duration parsed = DurationStyle.detectAndParse(matcher.group(1).trim());
-    assertNotNull(parsed, "TIMEOUT_DURATION in " + label + " did not parse: " + matcher.group(1));
-    return parsed;
-  }
-
-  /**
-   * Walks up from the working directory to the checkout root, identified by holding both modules, so
-   * the test behaves the same whether Gradle runs it from {@code api-gateway/} or from the root.
-   */
-  private static Path repositoryRoot() {
-    Path start = Path.of("").toAbsolutePath().normalize();
-    for (Path candidate = start; candidate != null; candidate = candidate.getParent()) {
-      if (Files.isDirectory(candidate.resolve("api-gateway/src/main/java"))
-          && Files.isDirectory(candidate.resolve("life-control-api/src/main/java"))) {
-        return candidate;
-      }
+        assertTrue(
+                dev.compareTo(prod) >= 0,
+                "docker/.env.template declares TIMEOUT_DURATION="
+                        + dev.toMillis()
+                        + "ms, shorter than prod's "
+                        + prod.toMillis()
+                        + "ms. A warm company creation measured "
+                        + MEASURED_COMPANY_CREATION.toMillis()
+                        + "ms, so every such write in dev is cancelled at the edge while the API still commits it:"
+                        + " raise dev's limiter, or lower prod's with the measurement that justifies it.");
     }
-    throw new IllegalStateException(
-        "Could not locate the repository root (a directory holding both api-gateway/ and"
-            + " life-control-api/) by walking up from "
-            + start);
-  }
+
+    @Test
+    void theTwoDevDeclarationsAgree() throws IOException {
+        Path repository = repositoryRoot();
+        Duration fromEnvironment =
+                parse(repository.resolve("docker/.env.template"), ENV_TEMPLATE, "docker/.env.template");
+        Duration fromProfile = parse(
+                repository.resolve("api-gateway/src/main/resources/application-dev.properties"),
+                DEV_PROPERTIES,
+                "application-dev.properties");
+
+        assertEquals(
+                fromEnvironment,
+                fromProfile,
+                "docker/.env.template declares TIMEOUT_DURATION="
+                        + fromEnvironment.toMillis()
+                        + "ms and application-dev.properties declares "
+                        + fromProfile.toMillis()
+                        + "ms. The environment variable wins in a container, so editing the properties file alone looks"
+                        + " like a fix and changes nothing: keep the two equal, or drop the redundant declaration.");
+    }
+
+    private static Duration parse(Path file, Pattern pattern, String label) throws IOException {
+        String content = Files.readString(file);
+        Matcher matcher = pattern.matcher(content);
+        assertTrue(matcher.find(), "No TIMEOUT_DURATION declared in " + label + " (" + file + ")");
+        Duration parsed = DurationStyle.detectAndParse(matcher.group(1).trim());
+        assertNotNull(parsed, "TIMEOUT_DURATION in " + label + " did not parse: " + matcher.group(1));
+        return parsed;
+    }
+
+    /**
+     * Walks up from the working directory to the checkout root, identified by holding both modules, so
+     * the test behaves the same whether Gradle runs it from {@code api-gateway/} or from the root.
+     */
+    private static Path repositoryRoot() {
+        Path start = Path.of("").toAbsolutePath().normalize();
+        for (Path candidate = start; candidate != null; candidate = candidate.getParent()) {
+            if (Files.isDirectory(candidate.resolve("api-gateway/src/main/java"))
+                    && Files.isDirectory(candidate.resolve("life-control-api/src/main/java"))) {
+                return candidate;
+            }
+        }
+        throw new IllegalStateException(
+                "Could not locate the repository root (a directory holding both api-gateway/ and"
+                        + " life-control-api/) by walking up from "
+                        + start);
+    }
 }
