@@ -33,26 +33,26 @@ import org.springframework.web.servlet.function.ServerResponse;
  */
 class FallbackRouteTests {
 
-  /** The fallback handler reads no property, so the routes can be built without configuration. */
-  private final Routes routes = new Routes(null);
+    /** The fallback handler reads no property, so the routes can be built without configuration. */
+    private final Routes routes = new Routes(null);
 
-  @ParameterizedTest
-  @ValueSource(strings = {"GET", "POST", "PUT", "PATCH", "DELETE"})
-  void theFallbackAnswersServiceUnavailableToEveryMethod(String method) throws Exception {
-    ServerRequest request =
-        ServerRequest.create(new MockHttpServletRequest(method, "/fallbackRoute"), List.of());
+    @ParameterizedTest
+    @ValueSource(strings = {"GET", "POST", "PUT", "PATCH", "DELETE"})
+    void theFallbackAnswersServiceUnavailableToEveryMethod(String method) throws Exception {
+        ServerRequest request = ServerRequest.create(new MockHttpServletRequest(method, "/fallbackRoute"), List.of());
 
-    Optional<HandlerFunction<ServerResponse>> handler = routes.fallbackRoute().route(request);
+        Optional<HandlerFunction<ServerResponse>> handler =
+                routes.fallbackRoute().route(request);
 
-    assertTrue(
-        handler.isPresent(),
-        method
-            + " /fallbackRoute is not matched by the fallback route, so a tripped "
-            + method
-            + " circuit breaker answers 404 from the static resource handler instead of 503");
-    assertEquals(
-        HttpStatus.SERVICE_UNAVAILABLE,
-        handler.get().handle(request).statusCode(),
-        method + " /fallbackRoute answered a status other than 503");
-  }
+        assertTrue(
+                handler.isPresent(),
+                method
+                        + " /fallbackRoute is not matched by the fallback route, so a tripped "
+                        + method
+                        + " circuit breaker answers 404 from the static resource handler instead of 503");
+        assertEquals(
+                HttpStatus.SERVICE_UNAVAILABLE,
+                handler.get().handle(request).statusCode(),
+                method + " /fallbackRoute answered a status other than 503");
+    }
 }

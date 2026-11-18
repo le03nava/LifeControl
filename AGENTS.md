@@ -77,7 +77,7 @@ con call paths y blast radius resueltos. Es la única vista del repo que cruza `
 | Cómo se mantiene fresco | **No se auto-sincroniza**: el watcher sólo vive dentro de `codegraph serve --mcp` y el daemon no queda corriendo tras `init` (`codegraph daemon` → *No CodeGraph daemons running*). Antes de una tanda de consultas: `codegraph sync`, incremental y ~1 s con cero cambios. El lock `writer.pid` admite **un solo writer por proyecto** |
 | Antes de editar código compartido | `codegraph impact <símbolo>` enumera qué se afecta, con `archivo:línea` y los tests que lo verifican. Es la forma barata de detectar que tocaste algo que otros consumen, en vez de juzgarlo por el tamaño del diff |
 | Para elegir tests | `codegraph affected <archivo>`. Con un símbolo **hoja** devuelve 3–15 archivos y ahorra de verdad; con un **hub** (`CurrentUserContext`: 226 callers, **206 tests** afectados) devuelve "casi todo el API", y ese resultado *es* la respuesta: el cambio es de riesgo alto y va con suite completa, no con un subconjunto |
-| Qué **no** reemplaza | Nada del flujo de verificación: las suites de `.github/scripts/tests/`, `./gradlew test` en cada módulo Java, `npm run test:coverage:check` y el `PR Label Guard` siguen siendo los gates. El grafo dice **por dónde empezar**, nunca **qué alcanza** |
+| Qué **no** reemplaza | Nada del flujo de verificación: las suites de `.github/scripts/tests/`, `./gradlew spotlessCheck spotbugsMain` y `./gradlew test` en cada módulo Java, `npm run test:coverage:check` y el `PR Label Guard` siguen siendo los gates. El grafo dice **por dónde empezar**, nunca **qué alcanza** |
 | Cómo se consulta desde Pi | La tool `codegraph` (`init` / `query` / `explore`), sin ruta: siempre el workspace actual. El subagente `gentle-ai-explore` la tiene en su lista de tools y la usa **antes** de buscar en el filesystem |
 | Entorno y privacidad | La telemetría anónima viene **encendida** por defecto: `codegraph telemetry off`. La instalación tampoco cablea Pi (`codegraph install` no lo lista como agente); el adapter lo aporta gentle-pi con esa tool, y `~/.pi/agent/mcp.json` aporta `codegraph serve --mcp` |
 | Lo que no se hace | Versionar `.codegraph/` (la exclusión va por `git rev-parse --git-path info/exclude`, nunca por un `.gitignore` trackeado: eso sí sería una decisión de PR); cablearlo en CI (necesitaría el índice por job); o sincronizarlo desde un hook (llega tarde: sincroniza después del commit, cuando ya consultaste un grafo viejo) |
@@ -684,8 +684,33 @@ cd life-control-api      # o cd api-gateway
 ./gradlew build
 ./gradlew bootRun
 ./gradlew test
+./gradlew spotlessCheck spotbugsMain   # el gate: formato + análisis estático
+./gradlew spotlessApply                # aplica el formato en vez de sólo verificarlo
 ./gradlew bootJar
 ```
+
+> **Los dos módulos corren el mismo gate** desde el slice B del issue #894. `api-gateway` declaraba
+> `test` y nada más, así que su código pasaba CI sin formateo ni análisis estático; hoy los dos
+> `build.gradle` declaran `spotless` y `spotbugs` con la **misma** configuración —Palantir Java
+> Format, `effort MAX`, `reportLevel MEDIUM`, `ignoreFailures = false`— y las dos versiones de
+> herramienta salen del catálogo compartido, nunca escritas en un `build.gradle`. El formateo alcanza
+> **todo** el módulo por defecto (cuando el gate entró reformateó los 13 archivos Java que el módulo
+> tenía entonces), así que un archivo nuevo queda alcanzado por existir y no hace falta listar un `target`.
+>
+> **El análisis estático ignora los tests por decisión, no por olvido**: `spotbugsTest` está
+> deshabilitado en los dos módulos (los tests son ruidosos a propósito: dead stores, campos no leídos,
+> format strings) y lo que se analiza es el código de producción. Cada módulo tiene su baseline en
+> `config/spotbugs/exclude.xml`, y **cada exclusión lleva su razón escrita al lado**: una exclusión sin
+> razón es el modo de falla que el archivo existe para evitar. El baseline de `api-gateway` está vacío a
+> propósito: los cuatro hallazgos que la primera corrida reportó —`EI_EXPOSE_REP` / `EI_EXPOSE_REP2`
+> sobre las dos `List` de `GatewayProperties`— se arreglaron en el código (copias inmutables en el
+> constructor compacto del record, con `GatewayPropertiesTests` fijándolo), no se excluyeron.
+>
+> **En CI**, `api-ci.yml` corre `./gradlew spotlessCheck spotbugsMain --no-daemon` y `gateway-ci.yml`
+> corre el mismo comando en el paso `Static analysis` de su job `Check`. El nombre del job no se parte en
+> dos como en `api-ci.yml` porque los nombres de job son un contrato documentado en `CONTRIBUTING.md` §6
+> y §7 (el runbook de branch protection nombra los checks por ese string), y
+> `.github/scripts/tests/contributing-job-names.test.sh` falla ante cualquier nombre que §6 no declare.
 
 El catálogo de versiones es uno sólo y vive en la raíz: `gradle/libs.versions.toml`. Cada módulo
 lo declara en su `settings.gradle` (`dependencyResolutionManagement { versionCatalogs { libs {

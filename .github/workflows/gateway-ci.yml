@@ -49,6 +49,16 @@ jobs:
           distribution: temurin
           cache: gradle
 
+      # The same gate `api-ci.yml` runs for `life-control-api`, in the same shape: the step name, the
+      # command and the `--no-daemon` flag. It is a step of this job rather than the second job
+      # `api-ci.yml` uses, because this workflow's job names are a documented contract: `CONTRIBUTING.md`
+      # §6 quotes them and §7 names required checks by exactly those strings, and
+      # `.github/scripts/tests/contributing-job-names.test.sh` fails on any name §6 does not carry. A
+      # split into `Static analysis` + `Test` is a separate change that edits both, so this job keeps
+      # its name and runs the gate before the tests.
+      - name: Static analysis
+        run: ./gradlew spotlessCheck spotbugsMain --no-daemon
+
       - name: Run tests
         run: ./gradlew test --no-daemon
 

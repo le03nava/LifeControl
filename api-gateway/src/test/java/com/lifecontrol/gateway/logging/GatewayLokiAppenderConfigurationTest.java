@@ -12,7 +12,6 @@ import org.junit.jupiter.api.Test;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 import org.w3c.dom.Node;
-import org.w3c.dom.NodeList;
 
 /**
  * Pins that the gateway ships a logback configuration that actually pushes to Loki.
@@ -98,7 +97,8 @@ class GatewayLokiAppenderConfigurationTest {
                         + "'api-gateway' instead of a hardcoded string")
                 .isEqualTo("spring.application.name");
 
-        assertThat(resolveLogbackVariables(document, textOf(child(child(lokiAppender, "format"), "message"), "pattern")))
+        assertThat(resolveLogbackVariables(
+                        document, textOf(child(child(lokiAppender, "format"), "message"), "pattern")))
                 .as("a Loki line without the trace ids cannot be joined to its trace in Tempo")
                 .contains("%X{traceId", "%X{spanId");
     }
