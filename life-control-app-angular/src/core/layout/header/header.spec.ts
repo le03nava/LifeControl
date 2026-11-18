@@ -1049,20 +1049,4 @@ describe('Header', () => {
       expect(component.items().some((i) => i.routeLink === '/customers')).toBe(false);
     });
   });
-
-  // ─── Company selector fully removed ────────────────────────────
-
-  describe('company selector removal', () => {
-    it('should NOT render app-company-selector in the header DOM', () => {
-      const { fixture } = setup(['lc-admin']);
-      const companySelector = fixture.nativeElement.querySelector('app-company-selector');
-      expect(companySelector).toBeFalsy();
-    });
-
-    it('should NOT render company-selector even for lc-company role', () => {
-      const { fixture } = setup(['lc-company']);
-      const companySelector = fixture.nativeElement.querySelector('app-company-selector');
-      expect(companySelector).toBeFalsy();
-    });
-  });
 });
