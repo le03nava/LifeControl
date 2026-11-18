@@ -72,6 +72,7 @@ import org.springframework.data.domain.Pageable;
 class GoodsReceiptServiceReadTest {
 
     private static final UUID COMPANY_ID = UUID.fromString("00000000-0000-0000-0000-0000000000a1");
+    private static final GoodsReceiptFilter UNFILTERED = new GoodsReceiptFilter(null, null, null, null, null);
     private static final UUID COMPANY_COUNTRY_ID = UUID.fromString("00000000-0000-0000-0000-0000000000a2");
     private static final UUID REGION_ID = UUID.fromString("00000000-0000-0000-0000-0000000000a3");
     private static final UUID ZONE_ID = UUID.fromString("00000000-0000-0000-0000-0000000000a4");
@@ -220,7 +221,7 @@ class GoodsReceiptServiceReadTest {
             when(goodsReceiptRepository.findByEnabledTrueOrderByReceivedAtDesc(pageable))
                     .thenReturn(pageOf(receipt));
 
-            var response = service.getAllReceipts(pageable, null, GoodsReceiptFilter.NONE);
+            var response = service.getAllReceipts(pageable, null, UNFILTERED);
 
             assertThat(response.getContent()).hasSize(1);
             assertThat(response.getContent().getFirst().id()).isEqualTo(RECEIPT_ID);
@@ -237,7 +238,7 @@ class GoodsReceiptServiceReadTest {
             when(storeScopeResolver.scopeForCurrentUser()).thenReturn(new StoreScope(true, Set.of()));
             when(goodsReceiptRepository.findBySearchTerm("PO-2026", pageable)).thenReturn(pageOf(receipt));
 
-            service.getAllReceipts(pageable, "PO-2026", GoodsReceiptFilter.NONE);
+            service.getAllReceipts(pageable, "PO-2026", UNFILTERED);
 
             verify(goodsReceiptRepository).findBySearchTerm("PO-2026", pageable);
             verify(goodsReceiptRepository, never()).findByCompanyStoreIdInAndSearchTerm(any(), any(), any());
@@ -254,7 +255,7 @@ class GoodsReceiptServiceReadTest {
                             Set.of(STORE_ID, OTHER_STORE_ID), pageable))
                     .thenReturn(pageOf(receipt));
 
-            var response = service.getAllReceipts(pageable, null, GoodsReceiptFilter.NONE);
+            var response = service.getAllReceipts(pageable, null, UNFILTERED);
 
             assertThat(response.getContent()).hasSize(1);
             verify(goodsReceiptRepository)
@@ -274,7 +275,7 @@ class GoodsReceiptServiceReadTest {
             when(goodsReceiptRepository.findByCompanyStoreIdInAndSearchTerm(Set.of(STORE_ID), "PO-2026", pageable))
                     .thenReturn(pageOf(receipt));
 
-            service.getAllReceipts(pageable, "PO-2026", GoodsReceiptFilter.NONE);
+            service.getAllReceipts(pageable, "PO-2026", UNFILTERED);
 
             verify(goodsReceiptRepository).findByCompanyStoreIdInAndSearchTerm(Set.of(STORE_ID), "PO-2026", pageable);
             verify(goodsReceiptRepository, never())
@@ -287,7 +288,7 @@ class GoodsReceiptServiceReadTest {
         void emptyStoreSetYieldsEmptyPageWithoutUnscopedQuery() {
             when(storeScopeResolver.scopeForCurrentUser()).thenReturn(new StoreScope(false, Set.of()));
 
-            var response = service.getAllReceipts(pageable, null, GoodsReceiptFilter.NONE);
+            var response = service.getAllReceipts(pageable, null, UNFILTERED);
 
             assertThat(response.getContent()).isEmpty();
             assertThat(response.getTotalElements()).isZero();
@@ -304,7 +305,7 @@ class GoodsReceiptServiceReadTest {
         void emptyStoreSetWithSearchNeverCallsUnscopedSearch() {
             when(storeScopeResolver.scopeForCurrentUser()).thenReturn(new StoreScope(false, Set.of()));
 
-            var response = service.getAllReceipts(pageable, "PO-2026", GoodsReceiptFilter.NONE);
+            var response = service.getAllReceipts(pageable, "PO-2026", UNFILTERED);
 
             assertThat(response.getContent()).isEmpty();
             verifyNoInteractions(goodsReceiptRepository);
@@ -397,7 +398,7 @@ class GoodsReceiptServiceReadTest {
             when(goodsReceiptRepository.findByEnabledTrueOrderByReceivedAtDesc(pageable))
                     .thenReturn(pageOf(receipt));
 
-            var response = service.getAllReceipts(pageable, null, GoodsReceiptFilter.NONE);
+            var response = service.getAllReceipts(pageable, null, UNFILTERED);
 
             assertThat(response.getContent()).hasSize(1);
             verifyNoInteractions(storeFilterResolver);

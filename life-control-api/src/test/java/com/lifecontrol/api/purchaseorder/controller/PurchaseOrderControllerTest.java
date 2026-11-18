@@ -51,6 +51,8 @@ import tools.jackson.databind.json.JsonMapper;
 @DisplayName("PurchaseOrderController Tests")
 class PurchaseOrderControllerTest {
 
+    private static final PurchaseOrderFilter UNFILTERED = new PurchaseOrderFilter(null, null, null, null, null);
+
     private MockMvc mockMvc;
     private ObjectMapper objectMapper;
 
@@ -139,7 +141,7 @@ class PurchaseOrderControllerTest {
         @DisplayName("should return 200 with paginated results")
         void returns200WithPage() throws Exception {
             var page = new PageImpl<>(List.of(poResponse), PageRequest.of(0, 10), 1);
-            when(purchaseOrderService.getAllPurchaseOrders(any(), eq(null), eq(PurchaseOrderFilter.NONE)))
+            when(purchaseOrderService.getAllPurchaseOrders(any(), eq(null), eq(UNFILTERED)))
                     .thenReturn(page);
 
             mockMvc.perform(get("/api/purchase-orders"))
@@ -152,7 +154,7 @@ class PurchaseOrderControllerTest {
         @DisplayName("should support search parameter")
         void supportsSearch() throws Exception {
             var page = new PageImpl<>(List.of(poResponse), PageRequest.of(0, 10), 1);
-            when(purchaseOrderService.getAllPurchaseOrders(any(), eq("test"), eq(PurchaseOrderFilter.NONE)))
+            when(purchaseOrderService.getAllPurchaseOrders(any(), eq("test"), eq(UNFILTERED)))
                     .thenReturn(page);
 
             mockMvc.perform(get("/api/purchase-orders").param("search", "test"))

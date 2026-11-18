@@ -79,6 +79,7 @@ import org.springframework.security.oauth2.server.resource.authentication.JwtAut
 class GoodsReceiptScopeAgreementTest {
 
     private static final UUID COMPANY = UUID.fromString("00000000-0000-0000-0000-0000000000d1");
+    private static final GoodsReceiptFilter UNFILTERED = new GoodsReceiptFilter(null, null, null, null, null);
     private static final UUID FOREIGN_COMPANY = UUID.fromString("00000000-0000-0000-0000-0000000000d2");
     private static final UUID COUNTRY = UUID.fromString("00000000-0000-0000-0000-0000000000d3");
     private static final UUID REGION = UUID.fromString("00000000-0000-0000-0000-0000000000d4");
@@ -237,8 +238,7 @@ class GoodsReceiptScopeAgreementTest {
     void companyHolderAgrees() {
         token(List.of("lc-company"), "company_id", COMPANY.toString());
 
-        assertThat(service.getAllReceipts(pageable, null, GoodsReceiptFilter.NONE)
-                        .getContent())
+        assertThat(service.getAllReceipts(pageable, null, UNFILTERED).getContent())
                 .extracting(response -> response.id())
                 .containsExactly(RECEIPT);
         assertThat(service.getReceipt(RECEIPT).id()).isEqualTo(RECEIPT);
@@ -254,8 +254,7 @@ class GoodsReceiptScopeAgreementTest {
                 "company_country_id",
                 COUNTRY.toString());
 
-        assertThat(service.getAllReceipts(pageable, null, GoodsReceiptFilter.NONE)
-                        .getContent())
+        assertThat(service.getAllReceipts(pageable, null, UNFILTERED).getContent())
                 .isEmpty();
         assertThatThrownBy(() -> service.getReceipt(RECEIPT)).isInstanceOf(AccessDeniedException.class);
         // The query runs, but constrained by the ancestor claim the detail would deny on.
@@ -267,8 +266,7 @@ class GoodsReceiptScopeAgreementTest {
     void regionReaderWithoutAncestorClaims() {
         token(List.of("lc-company-region-read"), "company_region_id", REGION.toString());
 
-        assertThat(service.getAllReceipts(pageable, null, GoodsReceiptFilter.NONE)
-                        .getContent())
+        assertThat(service.getAllReceipts(pageable, null, UNFILTERED).getContent())
                 .isEmpty();
         assertThatThrownBy(() -> service.getReceipt(RECEIPT)).isInstanceOf(AccessDeniedException.class);
         verifyNoInteractions(companyStoreRepository);
@@ -284,8 +282,7 @@ class GoodsReceiptScopeAgreementTest {
                 "company_country_id",
                 COUNTRY.toString());
 
-        assertThat(service.getAllReceipts(pageable, null, GoodsReceiptFilter.NONE)
-                        .getContent())
+        assertThat(service.getAllReceipts(pageable, null, UNFILTERED).getContent())
                 .hasSize(1);
         assertThat(service.getReceipt(RECEIPT).id()).isEqualTo(RECEIPT);
     }
@@ -306,8 +303,7 @@ class GoodsReceiptScopeAgreementTest {
                 "company_store_id",
                 STORE.toString());
 
-        assertThat(service.getAllReceipts(pageable, null, GoodsReceiptFilter.NONE)
-                        .getContent())
+        assertThat(service.getAllReceipts(pageable, null, UNFILTERED).getContent())
                 .hasSize(1);
         assertThat(service.getReceipt(RECEIPT).id()).isEqualTo(RECEIPT);
     }
@@ -317,7 +313,7 @@ class GoodsReceiptScopeAgreementTest {
     void emptyScopeNeverFallsThrough() {
         token(List.of("lc-company-region-read"), "company_region_id", "");
 
-        var page = service.getAllReceipts(pageable, null, GoodsReceiptFilter.NONE);
+        var page = service.getAllReceipts(pageable, null, UNFILTERED);
 
         assertThat(page.getContent()).isEmpty();
         verifyNoInteractions(goodsReceiptRepository);
@@ -329,8 +325,7 @@ class GoodsReceiptScopeAgreementTest {
     void adminStaysUnscoped() {
         token(List.of("lc-admin"));
 
-        assertThat(service.getAllReceipts(pageable, null, GoodsReceiptFilter.NONE)
-                        .getContent())
+        assertThat(service.getAllReceipts(pageable, null, UNFILTERED).getContent())
                 .hasSize(1);
         verify(goodsReceiptRepository).findByEnabledTrueOrderByReceivedAtDesc(pageable);
         verifyNoInteractions(companyStoreRepository);

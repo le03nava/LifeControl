@@ -88,6 +88,9 @@ class StoreAreaIntegrationTest extends AbstractPostgresIntegrationTest {
     private static final String BASE_URL =
             "/api/companies/{companyId}/countries/{companyCountryId}/regions/{regionId}/zones/{zoneId}/stores/{storeId}/areas";
 
+    /** The canonical id-addressed read: the nested single read was removed (#898, S3). */
+    private static final String FLAT_URL = "/api/store-areas";
+
     private UUID companyId;
     private UUID companyCountryId;
     private UUID regionId;
@@ -398,8 +401,7 @@ class StoreAreaIntegrationTest extends AbstractPostgresIntegrationTest {
                     .orElseThrow()
                     .getId();
 
-            mockMvc.perform(get(BASE_URL + "/{areaId}", companyId, companyCountryId, regionId, zoneId, storeId, areaId)
-                            .with(jwt().authorities(ROLE_LC_ADMIN)))
+            mockMvc.perform(get(FLAT_URL + "/{areaId}", areaId).with(flatAdmin()))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.id").value(areaId.toString()))
                     .andExpect(jsonPath("$.areaCode").value("A01"));
@@ -410,15 +412,7 @@ class StoreAreaIntegrationTest extends AbstractPostgresIntegrationTest {
         void getById_UnknownAreaReturns404() throws Exception {
             var unknownId = UUID.randomUUID();
 
-            mockMvc.perform(get(
-                                    BASE_URL + "/{areaId}",
-                                    companyId,
-                                    companyCountryId,
-                                    regionId,
-                                    zoneId,
-                                    storeId,
-                                    unknownId)
-                            .with(jwt().authorities(ROLE_LC_ADMIN)))
+            mockMvc.perform(get(FLAT_URL + "/{areaId}", unknownId).with(flatAdmin()))
                     .andExpect(status().isNotFound())
                     .andExpect(jsonPath("$.message").value("Store area not found with id: " + unknownId));
         }
@@ -479,8 +473,6 @@ class StoreAreaIntegrationTest extends AbstractPostgresIntegrationTest {
     @Nested
     @DisplayName("flat lookup")
     class FlatLookupTests {
-
-        private static final String FLAT_URL = "/api/store-areas";
 
         @Test
         @DisplayName("should resolve the persisted chain from a flat area lookup")

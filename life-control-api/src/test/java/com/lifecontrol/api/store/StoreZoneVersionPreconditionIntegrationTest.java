@@ -67,6 +67,9 @@ class StoreZoneVersionPreconditionIntegrationTest extends AbstractPostgresIntegr
     private static final String ZONE_URL = BASE_URL + "/{storeZoneId}";
     private static final String ENABLE_URL = ZONE_URL + "/enable";
 
+    /** The canonical id-addressed read: the nested single read was removed (#898, S3). */
+    private static final String FLAT_ZONE_URL = "/api/store-zones/{storeZoneId}";
+
     @Autowired
     private MockMvc mockMvc;
 
@@ -200,9 +203,11 @@ class StoreZoneVersionPreconditionIntegrationTest extends AbstractPostgresIntegr
     }
 
     private ResultActions getZone() throws Exception {
-        return mockMvc.perform(
-                get(ZONE_URL, companyId, companyCountryId, regionId, zoneId, storeId, areaId, storeZoneId)
-                        .with(jwt().authorities(ROLE_LC_ADMIN)));
+        // The flat path names no company, so the tenant of the read comes from the token's claim
+        // instead of from the URL: without it no scope is installed and every row is invisible.
+        return mockMvc.perform(get(FLAT_ZONE_URL, storeZoneId)
+                .with(jwt().authorities(ROLE_LC_ADMIN)
+                        .jwt(builder -> builder.claim("company_id", companyId.toString()))));
     }
 
     @Test

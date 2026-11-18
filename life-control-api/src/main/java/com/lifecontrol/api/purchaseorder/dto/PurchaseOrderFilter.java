@@ -14,8 +14,4 @@ import java.util.UUID;
  * is a previous, out-of-scope decision (S6).</p>
  */
 public record PurchaseOrderFilter(
-        UUID companyId, UUID companyCountryId, UUID regionId, UUID zoneId, UUID companyStoreId) {
-
-    /** The unfiltered list: every level absent, which leaves the page exactly as it was before. */
-    public static final PurchaseOrderFilter NONE = new PurchaseOrderFilter(null, null, null, null, null);
-}
+        UUID companyId, UUID companyCountryId, UUID regionId, UUID zoneId, UUID companyStoreId) {}

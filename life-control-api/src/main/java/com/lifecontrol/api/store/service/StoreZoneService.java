@@ -190,34 +190,6 @@ public class StoreZoneService {
     }
 
     /**
-     * Reads a single zone inside an area addressed by the full nested path.
-     *
-     * @throws org.springframework.security.access.AccessDeniedException when the current user
-     *     cannot access the requested scope
-     * @throws CompanyStoreNotFoundException when the store does not belong to the zone
-     * @throws StoreAreaNotFoundException when the area does not belong to the store
-     * @throws StoreZoneNotFoundException when the zone does not belong to the area
-     */
-    @Transactional(readOnly = true)
-    public StoreZoneResponse getZoneById(
-            UUID companyId,
-            UUID companyCountryId,
-            UUID regionId,
-            UUID zoneId,
-            UUID storeId,
-            UUID areaId,
-            UUID storeZoneId) {
-        var area = resolveArea(companyId, companyCountryId, regionId, zoneId, storeId, areaId);
-        var chain = chainOf(area.getCompanyStore());
-
-        var zone = storeZoneRepository
-                .findByIdAndStoreAreaId(storeZoneId, area.getId())
-                .orElseThrow(() -> new StoreZoneNotFoundException(storeZoneId));
-
-        return toResponse(zone, area, chain);
-    }
-
-    /**
      * Resolves a single zone by its id without a nested path, then authorizes it against the chain
      * navigated from the zone's own area and store associations.
      *

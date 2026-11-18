@@ -631,17 +631,8 @@ class StoreLocationIntegrationTest extends AbstractPostgresIntegrationTest {
             var storeZoneId = createZone(areaId, "Z01", "Pasillo", 1);
             var storeLocationId = createLocation(areaId, storeZoneId, "L01", "Estante", 1);
 
-            mockMvc.perform(get(
-                                    LOCATION_BASE_URL + "/{storeLocationId}",
-                                    companyId,
-                                    companyCountryId,
-                                    regionId,
-                                    zoneId,
-                                    storeId,
-                                    areaId,
-                                    storeZoneId,
-                                    storeLocationId)
-                            .with(jwt().authorities(ROLE_LC_ADMIN)))
+            mockMvc.perform(get(FLAT_URL + "/{storeLocationId}", storeLocationId)
+                            .with(flatAdmin()))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.id").value(storeLocationId.toString()))
                     .andExpect(jsonPath("$.storeZoneId").value(storeZoneId.toString()))
@@ -661,17 +652,7 @@ class StoreLocationIntegrationTest extends AbstractPostgresIntegrationTest {
             var storeZoneId = createZone(areaId, "Z01", "Pasillo", 1);
             var unknownId = UUID.randomUUID();
 
-            mockMvc.perform(get(
-                                    LOCATION_BASE_URL + "/{storeLocationId}",
-                                    companyId,
-                                    companyCountryId,
-                                    regionId,
-                                    zoneId,
-                                    storeId,
-                                    areaId,
-                                    storeZoneId,
-                                    unknownId)
-                            .with(jwt().authorities(ROLE_LC_ADMIN)))
+            mockMvc.perform(get(FLAT_URL + "/{storeLocationId}", unknownId).with(flatAdmin()))
                     .andExpect(status().isNotFound())
                     .andExpect(jsonPath("$.message").value("Store location not found with id: " + unknownId));
         }

@@ -23,7 +23,6 @@ import com.lifecontrol.api.country.model.Country;
 import com.lifecontrol.api.store.dto.CreateStoreZoneRequest;
 import com.lifecontrol.api.store.dto.StoreZoneResponse;
 import com.lifecontrol.api.store.dto.UpdateStoreZoneRequest;
-import com.lifecontrol.api.store.exception.CompanyStoreNotFoundException;
 import com.lifecontrol.api.store.exception.DisabledParentException;
 import com.lifecontrol.api.store.exception.DuplicateStoreZoneException;
 import com.lifecontrol.api.store.exception.StoreAreaNotFoundException;
@@ -283,55 +282,6 @@ class StoreZoneServiceTest {
 
             verify(storeZoneRepository, never())
                     .findByStoreAreaIdAndEnabledTrueOrderByDisplayOrderAscZoneCodeAsc(any());
-        }
-    }
-
-    @Nested
-    @DisplayName("getZoneById (nested)")
-    class GetZoneByIdTests {
-
-        @Test
-        @DisplayName("should return the zone when found inside the area")
-        void getZoneById_Success() {
-            mockAreaResolution();
-            when(storeZoneRepository.findByIdAndStoreAreaId(storeZoneId, areaId))
-                    .thenReturn(Optional.of(testStoreZone));
-
-            var result = storeZoneService.getZoneById(
-                    companyId, companyCountryId, regionId, zoneId, storeId, areaId, storeZoneId);
-
-            assertThat(result.id()).isEqualTo(storeZoneId);
-            assertThat(result.zoneCode()).isEqualTo("Z01");
-            assertThat(result.zoneName()).isEqualTo("Pasillo");
-            assertThat(result.description()).isEqualTo("Zona de pasillo");
-            assertThat(result.displayOrder()).isEqualTo(1);
-            assertThat(result.enabled()).isTrue();
-        }
-
-        @Test
-        @DisplayName("should throw StoreZoneNotFoundException when the zone does not exist")
-        void getZoneById_NotFound() {
-            mockAreaResolution();
-            when(storeZoneRepository.findByIdAndStoreAreaId(storeZoneId, areaId))
-                    .thenReturn(Optional.empty());
-
-            assertThatThrownBy(() -> storeZoneService.getZoneById(
-                            companyId, companyCountryId, regionId, zoneId, storeId, areaId, storeZoneId))
-                    .isInstanceOf(StoreZoneNotFoundException.class)
-                    .hasMessage("Store zone not found with id: " + storeZoneId);
-        }
-
-        @Test
-        @DisplayName("should propagate CompanyStoreNotFoundException from the store resolution")
-        void getZoneById_StoreNotFound() {
-            mockStoreResolution();
-            when(companyStoreRepository.findByIdAndCompanyZoneId(storeId, zoneId))
-                    .thenReturn(Optional.empty());
-
-            assertThatThrownBy(() -> storeZoneService.getZoneById(
-                            companyId, companyCountryId, regionId, zoneId, storeId, areaId, storeZoneId))
-                    .isInstanceOf(CompanyStoreNotFoundException.class)
-                    .hasMessage("Store not found with id: " + storeId);
         }
     }
 

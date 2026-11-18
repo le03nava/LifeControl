@@ -198,64 +198,6 @@ class StoreZoneControllerTest {
     }
 
     @Nested
-    @DisplayName("GET " + BASE_URL + "/{storeZoneId}")
-    class GetZoneByIdTests {
-
-        @Test
-        @DisplayName("should return 200 with the zone")
-        void getZoneById_Success() throws Exception {
-            when(storeZoneService.getZoneById(
-                            testCompanyId,
-                            testCompanyCountryId,
-                            testRegionId,
-                            testZoneId,
-                            testStoreId,
-                            testAreaId,
-                            testStoreZoneId))
-                    .thenReturn(testStoreZoneResponse);
-
-            mockMvc.perform(get(
-                            BASE_URL + "/{storeZoneId}",
-                            testCompanyId,
-                            testCompanyCountryId,
-                            testRegionId,
-                            testZoneId,
-                            testStoreId,
-                            testAreaId,
-                            testStoreZoneId))
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.id").value(testStoreZoneId.toString()))
-                    .andExpect(jsonPath("$.zoneCode").value("Z01"));
-        }
-
-        @Test
-        @DisplayName("should return 404 when the zone does not exist")
-        void getZoneById_NotFound() throws Exception {
-            when(storeZoneService.getZoneById(
-                            testCompanyId,
-                            testCompanyCountryId,
-                            testRegionId,
-                            testZoneId,
-                            testStoreId,
-                            testAreaId,
-                            testStoreZoneId))
-                    .thenThrow(new StoreZoneNotFoundException(testStoreZoneId));
-
-            mockMvc.perform(get(
-                            BASE_URL + "/{storeZoneId}",
-                            testCompanyId,
-                            testCompanyCountryId,
-                            testRegionId,
-                            testZoneId,
-                            testStoreId,
-                            testAreaId,
-                            testStoreZoneId))
-                    .andExpect(status().isNotFound())
-                    .andExpect(jsonPath("$.message").value("Store zone not found with id: " + testStoreZoneId));
-        }
-    }
-
-    @Nested
     @DisplayName("POST " + BASE_URL)
     class CreateZoneTests {
 

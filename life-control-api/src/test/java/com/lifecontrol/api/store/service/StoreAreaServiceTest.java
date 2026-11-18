@@ -267,39 +267,6 @@ class StoreAreaServiceTest {
     }
 
     @Nested
-    @DisplayName("getAreaById")
-    class GetAreaByIdTests {
-
-        @Test
-        @DisplayName("should return the area when found inside the store")
-        void getAreaById_Success() {
-            mockStoreResolution();
-            when(storeAreaRepository.findByIdAndCompanyStoreId(areaId, storeId)).thenReturn(Optional.of(testArea));
-
-            var result = storeAreaService.getAreaById(companyId, companyCountryId, regionId, zoneId, storeId, areaId);
-
-            assertThat(result.id()).isEqualTo(areaId);
-            assertThat(result.areaCode()).isEqualTo("A01");
-            assertThat(result.areaName()).isEqualTo("Bodega");
-            assertThat(result.description()).isEqualTo("Área de almacenamiento");
-            assertThat(result.displayOrder()).isEqualTo(1);
-            assertThat(result.enabled()).isTrue();
-        }
-
-        @Test
-        @DisplayName("should throw StoreAreaNotFoundException when the area does not exist")
-        void getAreaById_NotFound() {
-            mockStoreResolution();
-            when(storeAreaRepository.findByIdAndCompanyStoreId(areaId, storeId)).thenReturn(Optional.empty());
-
-            assertThatThrownBy(() -> storeAreaService.getAreaById(
-                            companyId, companyCountryId, regionId, zoneId, storeId, areaId))
-                    .isInstanceOf(StoreAreaNotFoundException.class)
-                    .hasMessage("Store area not found with id: " + areaId);
-        }
-    }
-
-    @Nested
     @DisplayName("getAreaById (flat)")
     class GetAreaByIdFlatTests {
 

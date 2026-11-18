@@ -21,9 +21,6 @@ import java.util.UUID;
 public record GoodsReceiptFilter(
         UUID companyId, UUID companyCountryId, UUID regionId, UUID zoneId, UUID companyStoreId) {
 
-    /** The unfiltered list: every level absent, which leaves the page exactly as it was before. */
-    public static final GoodsReceiptFilter NONE = new GoodsReceiptFilter(null, null, null, null, null);
-
     /** Whether no level was chosen, which is what makes the filter skip the hierarchy lookup. */
     public boolean isEmpty() {
         return companyId == null

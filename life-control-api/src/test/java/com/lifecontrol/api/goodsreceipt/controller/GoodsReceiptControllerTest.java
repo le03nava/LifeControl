@@ -43,6 +43,7 @@ import tools.jackson.databind.json.JsonMapper;
 class GoodsReceiptControllerTest {
 
     private static final String BASE_URL = "/api/goods-receipts";
+    private static final GoodsReceiptFilter UNFILTERED = new GoodsReceiptFilter(null, null, null, null, null);
 
     private MockMvc mockMvc;
     private ObjectMapper objectMapper;
@@ -174,7 +175,7 @@ class GoodsReceiptControllerTest {
         @DisplayName("should return 200 with the paged response shape")
         void returns200WithPage() throws Exception {
             var page = new PageImpl<>(List.of(receiptResponse), PageRequest.of(0, 12), 1);
-            when(goodsReceiptService.getAllReceipts(any(), eq(null), eq(GoodsReceiptFilter.NONE)))
+            when(goodsReceiptService.getAllReceipts(any(), eq(null), eq(UNFILTERED)))
                     .thenReturn(page);
 
             mockMvc.perform(get(BASE_URL))
@@ -190,7 +191,7 @@ class GoodsReceiptControllerTest {
         @DisplayName("should forward the search parameter")
         void forwardsSearch() throws Exception {
             var page = new PageImpl<>(List.of(receiptResponse), PageRequest.of(0, 12), 1);
-            when(goodsReceiptService.getAllReceipts(any(), eq("PO-2026"), eq(GoodsReceiptFilter.NONE)))
+            when(goodsReceiptService.getAllReceipts(any(), eq("PO-2026"), eq(UNFILTERED)))
                     .thenReturn(page);
 
             mockMvc.perform(get(BASE_URL).param("search", "PO-2026"))
