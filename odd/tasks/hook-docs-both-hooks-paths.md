@@ -19,12 +19,14 @@ Non-goals carried from the issue verbatim: not changing behavior (`core.hooksPat
 
 ## Tasks
 
-| ID | Spec | Route | Commit |
-|----|------|-------|--------|
-| T1 | S1, S3 | inline — one row added to the worktree table in `AGENTS.md` | `959991c4` |
-| T2 | S1, S3 | inline — one paragraph after the worktree commands in `CONTRIBUTING.md`, the `git config core.hooksPath .githooks` line left as written for S4 | `959991c4` |
-| T3 | S2 | inline — the `.husky/pre-commit` bullet in `references/angular.md` rewritten to the delegation it performs today | `959991c4` |
-| T4 | S1–S5 | inline — the two suites run green and the three greps re-read against the diff | `959991c4` |
+| ID | Spec | Route | Delivered in |
+|----|------|-------|--------------|
+| T1 | S1, S3 | inline — one row added to the worktree table in `AGENTS.md` | PR #974 |
+| T2 | S1, S3 | inline — one paragraph after the worktree commands in `CONTRIBUTING.md`, the `git config core.hooksPath .githooks` line left as written for S4 | PR #974 |
+| T3 | S2 | inline — the `.husky/pre-commit` bullet in `references/angular.md` rewritten to the delegation it performs today | PR #974 |
+| T4 | S1–S5 | inline — the two suites run green and the three greps re-read against the diff | PR #974 |
+
+The commit that holds each task is derived, not stored: `git log -- odd/tasks/hook-docs-both-hooks-paths.md` names this record's own commit, and the branch carried one commit per slice. No branch SHA is cited here on purpose — `odd-citations.test.sh` reads a backticked hex token that resolves as a commit, and a branch SHA resolves, so it would read as evidence of an arrival that has not happened.
 
 ## Log
 
@@ -36,4 +38,6 @@ Non-goals carried from the issue verbatim: not changing behavior (`core.hooksPat
 
 **L4** — `CONTRIBUTING.md:15` records that `status:approved` is a human decision and not a label the author applies to its own request; #964 carried no labels when this branch was cut, and this record does not claim otherwise. The approval belongs to the maintainer and it gates the pull request, not this branch.
 
-**L5** — 2026-11-18: the maintainer approved #964 on their instruction in session, and the label was recorded then (the issue's [approval comment](https://github.com/le03nava/LifeControl/issues/964#issuecomment-6996443890) says so in those words). Delivered as pull request **#974**, `type:docs`, closing #964; the branch carries `959991c4` (the three documents) and `dccc06e5` (this record).
+**L5** — 2026-11-18: the maintainer approved #964 on their instruction in session, and the label was recorded then (the issue's [approval comment](https://github.com/le03nava/LifeControl/issues/964#issuecomment-6996443890) says so in those words). Delivered as pull request **#974**, `type:docs`, closing #964.
+
+**L6** — the first CI run of #974 failed `odd-citations.test.sh` with 2 failures, and it was right: the Tasks table and this log cited the three branch commits as backticked hex, and none of them is an ancestor of `origin/main`. A branch SHA still resolves as an object, so it reads as provenance while proving nothing — which is why `references/feature-records.md` accepts content (`patch-id`, `tree:`) or the merge commit instead. Repaired by removing the citations rather than freezing them: the table names the pull request, and the commit that holds each task is derived with `git log -- odd/tasks/hook-docs-both-hooks-paths.md`. The bound of this record's proof is stated rather than implied: the arrival evidence is the merge commit, and it is not named because this record travels in the pull request that has not merged yet.
