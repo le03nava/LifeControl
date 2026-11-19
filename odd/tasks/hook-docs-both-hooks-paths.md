@@ -34,4 +34,6 @@ Non-goals carried from the issue verbatim: not changing behavior (`core.hooksPat
 
 **L3** — `bash .github/scripts/tests/worktree-anchor.test.sh` → **38 passed, 0 failed**; `bash .github/scripts/tests/angular-formatting-gate.test.sh` → **14 passed, 0 failed**. Neither suite was edited, so S4 and S5 hold on the pre-fix suites.
 
-**L4** — `CONTRIBUTING.md:15` records that `status:approved` is a human decision and not a label the author applies to its own request; #964 carries no labels at this point, and this record does not claim otherwise. The approval belongs to the maintainer and it gates the pull request, not this branch.
+**L4** — `CONTRIBUTING.md:15` records that `status:approved` is a human decision and not a label the author applies to its own request; #964 carried no labels when this branch was cut, and this record does not claim otherwise. The approval belongs to the maintainer and it gates the pull request, not this branch.
+
+**L5** — 2026-11-18: the maintainer approved #964 on their instruction in session, and the label was recorded then (the issue's [approval comment](https://github.com/le03nava/LifeControl/issues/964#issuecomment-6996443890) says so in those words). Delivered as pull request **#974**, `type:docs`, closing #964; the branch carries `959991c4` (the three documents) and `dccc06e5` (this record).
