@@ -43,6 +43,24 @@ public class FiscalCancellationNotConfiguredException extends IllegalStateExcept
     }
 
     /**
+     * Nothing implements the reconciling port in this context, so a submitted cancellation cannot be resolved.
+     *
+     * <p>A second factory rather than {@link #providerAbsent} because the two absences are two interfaces: an
+     * installation can cancel synchronously and still hold no asynchronous adapter, and a message that named the wrong
+     * one would send an operator looking for a bean that is already registered.</p>
+     *
+     * @param fiscalDocumentId the document whose reconciliation was refused
+     * @return the refusal, naming the interface a deployment has to register
+     */
+    public static FiscalCancellationNotConfiguredException reconcilerAbsent(UUID fiscalDocumentId) {
+        return new FiscalCancellationNotConfiguredException("Fiscal document " + fiscalDocumentId
+                + " cannot be reconciled: no FiscalCancellationReconciliationPort is registered, so there is no "
+                + "authority to ask about the submitted cancellation. The vendor's asynchronous adapter is registered "
+                + "behind the same switch as the cancelling one (app.fiscal.provider.enabled), and until one is present "
+                + "the row is left exactly as the submission wrote it.");
+    }
+
+    /**
      * Something cancels but nothing can seal the request, which the authority would refuse unsigned.
      *
      * @param fiscalDocumentId the document whose cancellation was refused

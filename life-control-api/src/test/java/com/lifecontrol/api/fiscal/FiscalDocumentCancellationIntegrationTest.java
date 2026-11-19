@@ -31,6 +31,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.transaction.annotation.Transactional;
@@ -56,6 +57,13 @@ import org.springframework.transaction.annotation.Transactional;
  * <p><b>Why the row is read with {@code JdbcTemplate}.</b> The row set is the fiscal evidence an auditor and a reprint
  * read, and the entity is what the service means to have written; every case asserts both, and the row is read under
  * the same pooled role and the same tenant scope the application uses.</p>
+ *
+ * <p><b>What the fourth state changed here ({@code S2} and {@code S3} of
+ * {@code odd/tasks/fiscal-cancellation-reconciliation.md}).</b> A submitted cancellation used to write nothing, because
+ * {@code ck_fiscal_document_status} had no state for it; {@code V113} adds {@code CANCELLATION_PENDING} and the
+ * submission now writes that row. The 202 body does not move ({@code L2}(g)), so these cases count rows and provider
+ * calls rather than reading the answer alone ({@code S8}): one pending row for a {@code 211}, one {@code CANCELLED}
+ * row for a {@code 201}, none of either for a refusal, and no second submission once the pointer exists.</p>
  */
 @SpringBootTest
 @Transactional
@@ -143,7 +151,8 @@ class FiscalDocumentCancellationIntegrationTest extends AbstractPostgresIntegrat
 
     @Test
     @DisplayName("S7: a granted cancellation writes exactly one CANCELLED row that names the cancelled document, "
-            + "carries the motive and the authority's code, and copies every frozen fact of the source")
+            + "carries the motive, the authority's code and no settle stamp, and copies every frozen fact of the "
+            + "source")
     void aGrantedCancellationWritesOneRowCopyingTheFrozenFacts() {
         var before = row(stamped);
         var stampedBytes =
@@ -172,6 +181,13 @@ class FiscalDocumentCancellationIntegrationTest extends AbstractPostgresIntegrat
                 .as("the authority witnessed the cancelled document, not this row")
                 .isNull();
         assertThat(cancellation.get("company_id")).isEqualTo(seed.company());
+        assertThat(cancellation.get("cancellation_status_uuid"))
+                .as("V113: the authority's own code is kept on the row, which is what a later reader quotes")
+                .isEqualTo(InMemoryFiscalCancellationProvider.CANCELLED_STATUS_UUID);
+        assertThat(cancellation.get("cancellation_settled_at"))
+                .as("a granted cancellation is CANCELLED and done: settled is a timestamp, not a state, and it is "
+                        + "what a rejection waits for (L2(d))")
+                .isNull();
         assertThat(cancellation.get("source_type")).isEqualTo("SALES_ORDER");
         assertThat(cancellation.get("source_id"))
                 .as("the two rows are one sale's history")
@@ -224,33 +240,119 @@ class FiscalDocumentCancellationIntegrationTest extends AbstractPostgresIntegrat
     }
 
     // ──────────────────────────────────────
-    // L20(d) — in process writes nothing
+    // S2/S3 — a submitted cancellation is remembered
     // ──────────────────────────────────────
 
     @Test
-    @DisplayName("L20(d): a request the authority has not decided writes no row and answers its code, because a "
-            + "submitted cancellation is not a cancelled document")
-    void anInProcessAnswerWritesNoRow() {
+    @DisplayName("S2/S3: a request the authority has not decided writes exactly one CANCELLATION_PENDING row "
+            + "carrying the pointer, the motive, the authority's code and no settle stamp — and no CANCELLED row")
+    void anInProcessAnswerWritesOnePendingRow() {
         FiscalCancellationProviderTestConfiguration.PROVIDER.answerWith(
                 InMemoryFiscalCancellationProvider.Answer.IN_PROCESS);
         var before = documentCount();
 
         var answer = cancellations.cancel(stamped, FiscalCancellationMotive.ERRORS_WITHOUT_RELATION, null);
 
-        assertThat(answer.wrote()).isFalse();
+        assertThat(answer.wrote())
+                .as("L2(g): the 202 body does not change — an id and a state come together, or neither do")
+                .isFalse();
         assertThat(answer.cancellationDocumentId()).isNull();
         assertThat(answer.status()).isNull();
         assertThat(answer.cancelledDocumentId()).isEqualTo(stamped);
         assertThat(answer.statusUuid()).isEqualTo(InMemoryFiscalCancellationProvider.IN_PROCESS_STATUS_UUID);
-        assertThat(documentCount())
-                .as("nothing is written for a request that is not decided")
-                .isEqualTo(before);
         assertThat(FiscalCancellationProviderTestConfiguration.PROVIDER.invocations())
                 .as("the authority was asked once and answered 211")
                 .isEqualTo(1);
+
+        assertThat(documentCount())
+                .as("S3: the submission is remembered — one row more than before, and it is the pending one")
+                .isEqualTo(before + 1);
+        assertThat(countByStatus("CANCELLATION_PENDING")).isEqualTo(1);
+        assertThat(countByStatus("CANCELLED"))
+                .as("S2: a submitted request is not a cancellation, so nothing says CANCELLED")
+                .isZero();
+
+        var pending = pendingCancellationRow();
+        assertThat(pending.get("status")).isEqualTo("CANCELLATION_PENDING");
+        assertThat(pending.get("cancels_fiscal_document_id"))
+                .as("L2(b): the pending row IS the cancellation row in waiting — the pointer is what makes a "
+                        + "second submission impossible (uq_fiscal_document_cancels)")
+                .isEqualTo(stamped);
+        assertThat(pending.get("cancellation_motive")).isEqualTo("02");
+        assertThat(pending.get("cancellation_status_uuid"))
+                .as("211 is what the authority said, and the row states it")
+                .isEqualTo(InMemoryFiscalCancellationProvider.IN_PROCESS_STATUS_UUID);
+        assertThat(pending.get("cancellation_message"))
+                .as("the authority's own sentence is kept, untranslated, for the operator")
+                .isEqualTo("La cancelación está en proceso");
+        assertThat(pending.get("cancellation_settled_at"))
+                .as("L2(d): settled is the timestamp a reconciliation writes, and a submission has not settled")
+                .isNull();
+        assertThat(pending.get("uuid_fiscal"))
+                .as("L2(c): the pending row carries no UUID of its own — the one the authority knows belongs to "
+                        + "the cancelled document and is reached through the pointer")
+                .isNull();
+        assertThat(pending.get("stamped_at")).isNull();
         assertThat(row(stamped).get("status"))
-                .as("and the document being cancelled stays STAMPED")
+                .as("and the document being cancelled stays STAMPED: it is what the sale still issues against")
                 .isEqualTo("STAMPED");
+    }
+
+    @Test
+    @DisplayName("S3/S8: 201 and 202 each write exactly one CANCELLED row carrying the authority's own code, and no "
+            + "pending row — the terminal answer does not pass through the fourth state")
+    void aGrantedCancellationWritesOneCancelledRowAndNoPendingRow() {
+        var granted = cancellations.cancel(stamped, FiscalCancellationMotive.ERRORS_WITHOUT_RELATION, null);
+
+        assertThat(granted.statusUuid()).isEqualTo(InMemoryFiscalCancellationProvider.CANCELLED_STATUS_UUID);
+        assertThat(countByStatus("CANCELLED"))
+                .as("one row, and it is the cancelled one")
+                .isEqualTo(1);
+        assertThat(countByStatus("CANCELLATION_PENDING"))
+                .as("a terminal answer goes straight to CANCELLED: nothing is left waiting for a reconciliation")
+                .isZero();
+
+        var cancellation = row(granted.cancellationDocumentId());
+        assertThat(cancellation.get("cancellation_status_uuid"))
+                .as("S3: the code the authority answered is stored, so the row says what it was told")
+                .isEqualTo(InMemoryFiscalCancellationProvider.CANCELLED_STATUS_UUID);
+        assertThat(cancellation.get("cancellation_settled_at"))
+                .as("and it is not settled by a timestamp: settled is what a rejection keeps waiting on")
+                .isNull();
+        assertThat(cancellation.get("cancellation_message"))
+                .as("201 and 202 are one outcome with two sentences, and the row keeps the one it received")
+                .isEqualTo(InMemoryFiscalCancellationProvider.CANCELLED_MESSAGE);
+
+        // 202 is the same outcome stated a second time: the authority says the document had already been cancelled.
+        // It writes the same row, and the code it answered is the one the row keeps — which is the whole reason the
+        // column is the authority's and not a constant.
+        var secondSale = seed.anotherCompletedSale();
+        // One UUID per document: uq_fiscal_document_uuid_fiscal is unique across the table, so the second stamped
+        // document of this transaction needs its own.
+        FiscalStampProviderTestConfiguration.PROVIDER.stampingUnder(UUID.randomUUID());
+        var second = stamper.stamp(secondSale, SUBSTITUTING_ATTEMPT).documentId();
+        FiscalCancellationProviderTestConfiguration.PROVIDER.grantingUnder(
+                InMemoryFiscalCancellationProvider.ALREADY_CANCELLED_STATUS_UUID,
+                InMemoryFiscalCancellationProvider.ALREADY_CANCELLED_MESSAGE);
+
+        var repeated = cancellations.cancel(second, FiscalCancellationMotive.ERRORS_WITHOUT_RELATION, null);
+
+        assertThat(repeated.statusUuid()).isEqualTo(InMemoryFiscalCancellationProvider.ALREADY_CANCELLED_STATUS_UUID);
+        assertThat(countByStatus("CANCELLED"))
+                .as("a second document, a second CANCELLED row: 202 is not a replay of 201")
+                .isEqualTo(2);
+        assertThat(countByStatus("CANCELLATION_PENDING"))
+                .as("and still nothing waiting")
+                .isZero();
+
+        var alreadyCancelled = row(repeated.cancellationDocumentId());
+        assertThat(alreadyCancelled.get("status")).isEqualTo("CANCELLED");
+        assertThat(alreadyCancelled.get("cancellation_status_uuid"))
+                .as("the code is the authority's answer, never a constant this tree chose")
+                .isEqualTo(InMemoryFiscalCancellationProvider.ALREADY_CANCELLED_STATUS_UUID);
+        assertThat(alreadyCancelled.get("cancellation_settled_at"))
+                .as("202 is finished by its state like 201: a granted cancellation is never settled by a timestamp")
+                .isNull();
     }
 
     @Test
@@ -271,7 +373,48 @@ class FiscalDocumentCancellationIntegrationTest extends AbstractPostgresIntegrat
         assertThat(documentCount())
                 .as("a refusal leaves the row set exactly as it found it")
                 .isEqualTo(before);
+        assertThat(countByStatus("CANCELLED"))
+                .as("S8: zero rows of either cancellation state — a refusal is not remembered as attempted")
+                .isZero();
+        assertThat(countByStatus("CANCELLATION_PENDING")).isZero();
         assertThat(row(stamped).get("status")).isEqualTo("STAMPED");
+    }
+
+    // ──────────────────────────────────────
+    // S2/L2(e) — the fourth state's guard
+    // ──────────────────────────────────────
+
+    @Test
+    @DisplayName("S2/L2(e): a pending row may only stay pending or become CANCELLED — an UPDATE to STAMPED is "
+            + "refused and the settled one is accepted")
+    void aPendingRowCannotBeStampedAndCanBeSettled() {
+        FiscalCancellationProviderTestConfiguration.PROVIDER.answerWith(
+                InMemoryFiscalCancellationProvider.Answer.IN_PROCESS);
+        cancellations.cancel(stamped, FiscalCancellationMotive.ERRORS_WITHOUT_RELATION, null);
+        var pending = (UUID) pendingCancellationRow().get("id");
+
+        // A savepoint, because a refused statement aborts the transaction it ran in: the accepted transition
+        // below has to be judged on the row the case reached, not on a transaction PostgreSQL already voided.
+        jdbc.execute("SAVEPOINT pending_transition");
+        assertThatThrownBy(() -> jdbc.update(
+                        "UPDATE fiscal_document SET status = 'STAMPED', uuid_fiscal = ?, stamped_at = now()"
+                                + " WHERE id = ?",
+                        UUID.randomUUID(),
+                        pending))
+                .as("L2(e): only a DRAFT has the transition out to STAMPED. A submitted cancellation that could "
+                        + "be stamped would be a second stamp of a document the authority still holds")
+                .isInstanceOf(DataAccessException.class)
+                .hasMessageContaining("CANCELLATION_PENDING");
+        jdbc.execute("ROLLBACK TO SAVEPOINT pending_transition");
+        assertThat(row(pending).get("status"))
+                .as("and the refused transition changed nothing")
+                .isEqualTo("CANCELLATION_PENDING");
+
+        jdbc.update("UPDATE fiscal_document SET status = 'CANCELLED' WHERE id = ?", pending);
+
+        assertThat(row(pending).get("status"))
+                .as("the one transition the fourth state has: the reconciliation's, from pending to cancelled")
+                .isEqualTo("CANCELLED");
     }
 
     // ──────────────────────────────────────
@@ -392,6 +535,36 @@ class FiscalDocumentCancellationIntegrationTest extends AbstractPostgresIntegrat
         assertThat(documentCount()).isEqualTo(before);
     }
 
+    @Test
+    @DisplayName("S7: a document whose cancellation is already submitted is a 409 and the authority is not asked "
+            + "twice, because the pending row carries the unique pointer")
+    void aDocumentWithAPendingCancellationCannotBeCancelledAgain() {
+        FiscalCancellationProviderTestConfiguration.PROVIDER.answerWith(
+                InMemoryFiscalCancellationProvider.Answer.IN_PROCESS);
+        cancellations.cancel(stamped, FiscalCancellationMotive.ERRORS_WITHOUT_RELATION, null);
+        var pending = pendingCancellationRow();
+        var before = documentCount();
+
+        assertThatThrownBy(() -> cancellations.cancel(stamped, FiscalCancellationMotive.ERRORS_WITHOUT_RELATION, null))
+                .isInstanceOfSatisfying(
+                        FiscalDocumentAlreadyCancelledException.class,
+                        conflict -> assertThat(conflict.getMessage())
+                                .as("the conflict names the blocking row and states what it says about this "
+                                        + "document — S7's first clause is about a *pending* cancellation, so a "
+                                        + "message that claimed the document was already cancelled would state "
+                                        + "something false")
+                                .contains(pending.get("id").toString())
+                                .contains("CANCELLATION_PENDING")
+                                .doesNotContain("is already cancelled by"));
+
+        assertThat(FiscalCancellationProviderTestConfiguration.PROVIDER.invocations())
+                .as("S7: the guard reads the pointer uq_fiscal_document_cancels is unique on, so the second "
+                        + "submission never reaches the authority")
+                .isEqualTo(1);
+        assertThat(documentCount()).isEqualTo(before);
+        assertThat(countByStatus("CANCELLATION_PENDING")).isEqualTo(1);
+    }
+
     // ──────────────────────────────────────
     // the fixtures
     // ──────────────────────────────────────
@@ -430,6 +603,27 @@ class FiscalDocumentCancellationIntegrationTest extends AbstractPostgresIntegrat
     private long documentCount() {
         return jdbc.queryForObject(
                 "SELECT count(*) FROM fiscal_document WHERE company_id = ?", Long.class, seed.company());
+    }
+
+    /** How many rows of one state this company holds, which is what a row-counting case asserts on (S8). */
+    private long countByStatus(String status) {
+        return jdbc.queryForObject(
+                "SELECT count(*) FROM fiscal_document WHERE company_id = ? AND status = ?",
+                Long.class,
+                seed.company(),
+                status);
+    }
+
+    /**
+     * The one pending cancellation row of this company, read whole.
+     *
+     * <p>{@code queryForMap} and not a count: the case has to read the state, the pointer, the motive and the
+     * three answer columns off the row the service wrote, and a count would let every one of them be wrong.</p>
+     */
+    private Map<String, Object> pendingCancellationRow() {
+        return jdbc.queryForMap(
+                "SELECT * FROM fiscal_document WHERE company_id = ? AND status = 'CANCELLATION_PENDING'",
+                seed.company());
     }
 
     private long lineCount(UUID documentId) {
