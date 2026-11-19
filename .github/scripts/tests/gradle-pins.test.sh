@@ -91,8 +91,8 @@ build-api|life-control-api/build.gradle'
 
 # label|distributionUrl — the wrapper each module downloads. Both modules state the same line since
 # #894; the case at the end of this file is what makes that a rule instead of an observation.
-FROZEN_WRAPPERS='wrapper-api|https://services.gradle.org/distributions/gradle-9.9.0-bin.zip
-wrapper-gateway|https://services.gradle.org/distributions/gradle-9.9.0-bin.zip'
+FROZEN_WRAPPERS='wrapper-api|https://services.gradle.org/distributions/gradle-9.9.1-bin.zip
+wrapper-gateway|https://services.gradle.org/distributions/gradle-9.9.1-bin.zip'
 
 # plugin id|version — every `[plugins]` entry of the shared catalog, resolved through its
 # `version.ref`. One table, not one per module: both builds read the same file, which is the point
