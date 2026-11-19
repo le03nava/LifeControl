@@ -364,8 +364,13 @@ class FiscalDocumentSnapshotMigrationIntegrationTest extends AbstractPostgresInt
                         + "hands — V112 pins it, because c_MotivoCancelacion was read from the SAT's "
                         + "cancelación.xsd and from the vendor's catalogue before it was written (L20(e)) — and "
                         + "it appears in this list for exactly that reason: a vocabulary that arrives has to be "
-                        + "a deliberate entry here, and so does one that leaves")
-                .isEqualTo("ck_fiscal_document_cancellation,ck_fiscal_document_cancellation_motive,"
+                        + "a deliberate entry here, and so does one that leaves. "
+                        + "ck_fiscal_document_cancellation_answer is V113's, and it is the one that is not a "
+                        + "vocabulary: it couples the three answer columns to the two cancellation states "
+                        + "(L2(d)), and it is listed here because it changes the shape of a cancellation row "
+                        + "just as the motive vocabulary does")
+                .isEqualTo("ck_fiscal_document_cancellation,ck_fiscal_document_cancellation_answer,"
+                        + "ck_fiscal_document_cancellation_motive,"
                         + "ck_fiscal_document_metodo_pago,"
                         + "ck_fiscal_document_parts_not_negative,ck_fiscal_document_source_type,"
                         + "ck_fiscal_document_stamped_at,ck_fiscal_document_status,"
