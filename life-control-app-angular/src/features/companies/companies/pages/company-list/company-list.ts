@@ -6,6 +6,7 @@ import {
   inject,
   signal,
   computed,
+  untracked,
 } from '@angular/core';
 import { rxResource, takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Router, RouterLink } from '@angular/router';
@@ -88,12 +89,20 @@ export class CompanyList {
       onCleanup(() => clearTimeout(timer));
     });
 
-    // Reset a página 0 cuando cambia la búsqueda debounced
+    // Reset a página 0 cuando cambia la búsqueda debounced.
+    //
+    // La lectura de `pageIndex` va por `untracked` a propósito: leída de forma reactiva, este effect se vuelve
+    // consumidor de la señal que escribe, así que `onPageChange` la sube a 1 y el effect la vuelve a 0 en el
+    // siguiente change detection. La request de la página elegida ya salió, así que la pantalla mostraba esa
+    // página mientras el paginador leía 0 — y toda página posterior a la primera era inalcanzable. La única
+    // dependencia que este effect declara es el término debounced, que es lo que el reset existe para hacer.
     effect(() => {
       this._debouncedSearch();
-      if (this.pageIndex() !== 0) {
-        this.pageIndex.set(0);
-      }
+      untracked(() => {
+        if (this.pageIndex() !== 0) {
+          this.pageIndex.set(0);
+        }
+      });
     });
   }
 
