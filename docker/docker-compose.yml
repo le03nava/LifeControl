@@ -17,7 +17,7 @@ services:
     entrypoint: ["/usr/local/bin/lc-postgres-entrypoint.sh"]
     command: ["postgres"]
     ports:
-      - "${POSTGRES_PORT:-5433}:5432"
+      - "127.0.0.1:${POSTGRES_PORT:-5433}:5432"
     environment:
       POSTGRES_DB: ${KEYCLOAK_POSTGRES_DB:-keycloak}
       POSTGRES_USER: ${KEYCLOAK_POSTGRES_USER:-keycloak}
@@ -49,7 +49,7 @@ services:
     entrypoint: ["/usr/local/bin/lc-postgres-entrypoint.sh"]
     command: ["postgres"]
     ports:
-      - "${LIFECONTROL_POSTGRES_PORT:-5435}:5432"
+      - "127.0.0.1:${LIFECONTROL_POSTGRES_PORT:-5435}:5432"
     environment:
       POSTGRES_DB: ${LIFECONTROL_POSTGRES_DB:-lifecontrol}
       # initdb creates exactly one role, and PostgreSQL refuses to take SUPERUSER away from it ("The
@@ -278,13 +278,16 @@ services:
   redis-exporter:
     image: ${REDIS_EXPORTER_IMAGE:-oliver006/redis_exporter:v1.69.0}
     container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-redis-exporter
-    # The same address the API uses. This stack's Redis runs without --requirepass, so the
-    # exporter authenticates with no credential at all, exactly like the API. When a password is
-    # added it goes through --redis.password-file=/run/secrets/redis_password, never an environment
-    # value, for the same reason the Postgres exporters use DATA_SOURCE_PASS_FILE.
-    command: ["--redis.addr=redis://${REDIS_HOST:-redis}:${REDIS_INTERNAL_PORT:-6379}"]
+    # The same address the API uses, and now the same credential: the password reaches the exporter through
+    # --redis.password-file, never an environment value, for the same reason the Postgres exporters use
+    # DATA_SOURCE_PASS_FILE (issue #890).
+    command:
+      - "--redis.addr=redis://${REDIS_HOST:-redis}:${REDIS_INTERNAL_PORT:-6379}"
+      - "--redis.password-file=/run/secrets/redis_password"
     ports:
       - "127.0.0.1:${REDIS_EXPORTER_PORT:-9121}:9121"
+    volumes:
+      - ./secrets/redis_password:/run/secrets/redis_password:ro
     networks:
       - default
     depends_on:
@@ -421,8 +424,8 @@ services:
         GIT_COMMIT: ${GIT_COMMIT:-unknown}
         JAVA_BASE_IMAGE: ${JAVA_BASE_IMAGE:-eclipse-temurin:21-jre-alpine}
     ports:
-      - "${API_GATEWAY_PORT:-9000}:${API_GATEWAY_SERVER_PORT:-9000}"
-      - "${API_GATEWAY_MANAGEMENT_PORT:-9001}:${API_GATEWAY_MANAGEMENT_PORT:-9001}"
+      - "127.0.0.1:${API_GATEWAY_PORT:-9000}:${API_GATEWAY_SERVER_PORT:-9000}"
+      - "127.0.0.1:${API_GATEWAY_MANAGEMENT_PORT:-9001}:${API_GATEWAY_MANAGEMENT_PORT:-9001}"
     environment:
       - SPRING_PROFILES_ACTIVE=${SPRING_PROFILES_ACTIVE:?SPRING_PROFILES_ACTIVE must be set to dev, staging or prod}
       - SERVER_PORT=${API_GATEWAY_SERVER_PORT:-9000}
@@ -471,11 +474,16 @@ services:
   redis:
     image: ${REDIS_IMAGE:-redis:8.10-alpine}
     container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-redis
+    # The wrapper is what turns the mounted secret into --requirepass: `command:` is raw YAML and not a
+    # shell, so a password can only reach redis-server from a file through a script (issue #890).
+    entrypoint: ["/usr/local/bin/lc-redis-entrypoint.sh"]
+    # Loopback only, like every observability port above: an unauthenticated Redis reachable on the LAN
+    # was a read/write cache one `CONFIG SET dir` away from an arbitrary file write. The password closes
+    # the same door from the inside, and neither half is optional.
     ports:
-      - "${REDIS_PORT:-6379}:6379"
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
     command:
       [
-        "redis-server",
         "--appendonly",
         "yes",
         "--maxmemory",
@@ -484,6 +492,8 @@ services:
         "allkeys-lru",
       ]
     volumes:
+      - ./entrypoints/redis-entrypoint.sh:/usr/local/bin/lc-redis-entrypoint.sh:ro
+      - ./secrets/redis_password:/run/secrets/redis_password:ro
       - ${VOLUMES_ROOT:?VOLUMES_ROOT must be set}/redis/data:/data
     networks:
       - default
@@ -492,7 +502,14 @@ services:
         limits:
           memory: ${REDIS_MEMORY_LIMIT:-256m}
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      # Authenticated on purpose. Once the password exists, a bare `ping` answers NOAUTH and redis-cli
+      # still exits 0, so an unauthenticated probe would report healthy a container that answers nobody.
+      # The password is read from the file at probe time and never written into this file.
+      test:
+        [
+          "CMD-SHELL",
+          "redis-cli --no-auth-warning -a \"$$(cat /run/secrets/redis_password)\" ping | grep -q PONG",
+        ]
       interval: 15s
       timeout: 5s
       retries: 3
@@ -514,7 +531,7 @@ services:
     container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-lifecontrol-api
     entrypoint: ["/usr/local/bin/lc-app-entrypoint.sh"]
     ports:
-      - "${LIFECONTROL_API_PORT:-8082}:${LIFECONTROL_API_PORT:-8082}"
+      - "127.0.0.1:${LIFECONTROL_API_PORT:-8082}:${LIFECONTROL_API_PORT:-8082}"
     environment:
       - SPRING_PROFILES_ACTIVE=${SPRING_PROFILES_ACTIVE:?SPRING_PROFILES_ACTIVE must be set to dev, staging or prod}
       - SERVER_PORT=${LIFECONTROL_API_PORT:-8082}
