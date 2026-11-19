@@ -12,6 +12,7 @@ import java.io.IOException;
 import java.time.Instant;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -26,6 +27,23 @@ import org.springframework.web.filter.OncePerRequestFilter;
  * <p>
  * Adds {@code X-RateLimit-*} headers to every response from the matched endpoints.
  * Returns HTTP 429 with {@code Retry-After} when the limit is exceeded.
+ * <p>
+ * <b>A bucket belongs to one endpoint and one client.</b> The key is
+ * {@code endpoint + "|" + resolved client address}: with the path alone as the key, exhausting the
+ * endpoint's budget blocked every other caller, and {@code X-RateLimit-Remaining} described a budget
+ * nobody in particular owned. The address is the one {@link ClientIpResolver} returns, so a forwarded
+ * header only counts when the peer is a trusted proxy.
+ * <p>
+ * <b>The map is bounded without a cache dependency, and the bound is behavioural.</b> One entry per
+ * client per endpoint grows with the number of client addresses, which is exactly the quantity a
+ * caller controls, so it cannot be left unbounded. Caffeine is not on the classpath and this filter
+ * adds no dependency, so every {@value #SWEEP_INTERVAL_REQUESTS} requests the filter drops the entries
+ * whose bucket is back at its full capacity. That is safe by construction rather than by argument: a
+ * full bucket carries no history — its state is "capacity tokens available", which is precisely the
+ * state of a bucket that had just been created — so a swept entry answers the next request exactly as
+ * the entry it replaced would have, with the same limit and the same remaining budget. What the sweep
+ * therefore bounds is the population of <em>idle</em> clients: a caller that keeps consuming keeps its
+ * bucket away from full and keeps its history, which is the only history the limit is made of.
  */
 @Component
 public class RateLimitFilter extends OncePerRequestFilter {
@@ -39,13 +57,22 @@ public class RateLimitFilter extends OncePerRequestFilter {
 
     private static final String APPLICATION_JSON = "application/json";
 
+    /** Stands in for a missing socket address so the bucket key is still a function of the request. */
+    private static final String UNKNOWN_CLIENT = "unknown";
+
+    /** How many requests pass between two sweeps of the bucket map. */
+    static final int SWEEP_INTERVAL_REQUESTS = 256;
+
     private final RateLimitProperties properties;
 
     /**
      * Holds a Bucket4j bucket along with its configured maximum request count
-     * so we can report it in the {@code X-RateLimit-Limit} header.
+     * so we can report it in the {@code X-RateLimit-Limit} header. Keyed by
+     * {@code endpoint + "|" + client address}.
      */
     private final Map<String, RateLimitedEndpoint> endpoints = new ConcurrentHashMap<>();
+
+    private final AtomicLong requestCount = new AtomicLong();
 
     public RateLimitFilter(RateLimitProperties properties) {
         this.properties = properties;
@@ -64,19 +91,23 @@ public class RateLimitFilter extends OncePerRequestFilter {
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
             throws ServletException, IOException {
 
-        if (isWhitelisted(request)) {
+        var clientIp = ClientIpResolver.resolve(request, properties.getTrustedProxies());
+        if (isWhitelisted(clientIp)) {
             filterChain.doFilter(request, response);
             return;
         }
 
         var endpointKey = resolveEndpointKey(request);
-        var endpoint = resolveEndpoint(endpointKey);
-
-        if (endpoint == null) {
+        var limit = properties.getEndpoints().get(endpointKey);
+        if (limit == null) {
             // No rate limit configured for this path — allow through
             filterChain.doFilter(request, response);
             return;
         }
+
+        var bucketKey = bucketKey(endpointKey, clientIp);
+        var endpoint = endpoints.computeIfAbsent(bucketKey, key -> createEndpoint(limit));
+        sweepIfDue();
 
         var probe = endpoint.bucket().tryConsumeAndReturnRemaining(1);
         var nowEpochSecond = Instant.now().getEpochSecond();
@@ -98,20 +129,24 @@ public class RateLimitFilter extends OncePerRequestFilter {
             response.setStatus(429);
             response.setContentType(APPLICATION_JSON);
             response.getWriter().write(buildRateLimitExceededBody(retryAfterSeconds));
-            log.warn(
-                    "Rate limit exceeded for endpoint [{}] from IP [{}]",
-                    endpointKey,
-                    ClientIpResolver.resolve(request, properties.getTrustedProxies()));
+            log.warn("Rate limit exceeded for endpoint [{}] from IP [{}]", endpointKey, clientIp);
         }
     }
 
     /**
-     * Returns {@code true} if the request originates from a whitelisted internal IP.
-     * The client IP is resolved through {@link ClientIpResolver}, which only trusts
-     * forwarded headers coming from a trusted proxy.
+     * Number of buckets currently held, one per endpoint and client. Package-visible so a test can
+     * observe that the map is swept instead of growing without a bound.
      */
-    private boolean isWhitelisted(HttpServletRequest request) {
-        var clientIp = ClientIpResolver.resolve(request, properties.getTrustedProxies());
+    int trackedEndpointCount() {
+        return endpoints.size();
+    }
+
+    /**
+     * Returns {@code true} if the resolved client address is whitelisted. The address comes from
+     * {@link ClientIpResolver}, which only trusts forwarded headers coming from a trusted proxy, so a
+     * caller cannot whitelist itself by sending a header.
+     */
+    private boolean isWhitelisted(String clientIp) {
         if (clientIp == null) {
             return false;
         }
@@ -139,22 +174,38 @@ public class RateLimitFilter extends OncePerRequestFilter {
         return bestMatch;
     }
 
+    private static String bucketKey(String endpointKey, String clientIp) {
+        return endpointKey + "|" + (clientIp == null ? UNKNOWN_CLIENT : clientIp);
+    }
+
     /**
-     * Returns the {@link RateLimitedEndpoint} for the given key, creating it
-     * lazily from configuration if necessary.
+     * Builds the bucket for one client of one endpoint from that endpoint's configured limit.
      */
-    private RateLimitedEndpoint resolveEndpoint(String endpointKey) {
-        return endpoints.computeIfAbsent(endpointKey, key -> {
-            var limit = properties.getEndpoints().get(key);
-            if (limit == null) {
-                return null;
+    private static RateLimitedEndpoint createEndpoint(RateLimitProperties.EndpointLimit limit) {
+        var bandwidth = Bandwidth.builder()
+                .capacity(limit.maxRequests())
+                .refillIntervally(limit.maxRequests(), limit.duration())
+                .build();
+        var bucket = Bucket.builder().addLimit(bandwidth).build();
+        return new RateLimitedEndpoint(bucket, limit.maxRequests());
+    }
+
+    /**
+     * Drops every bucket that is back at its full capacity, once every
+     * {@value #SWEEP_INTERVAL_REQUESTS} requests. The removal is the map's own atomic
+     * {@code remove(key, value)}, so a request that consumes a token between the test and the removal
+     * cannot lose its bucket: the conditional remove fails and the entry stays.
+     */
+    private void sweepIfDue() {
+        if (requestCount.incrementAndGet() % SWEEP_INTERVAL_REQUESTS != 0) {
+            return;
+        }
+        endpoints.forEach((key, endpoint) -> {
+            if (endpoint.bucket().getAvailableTokens() >= endpoint.maxRequests()) {
+                if (endpoints.remove(key, endpoint) && log.isDebugEnabled()) {
+                    log.debug("Swept the idle rate-limit bucket [{}]", key);
+                }
             }
-            var bandwidth = Bandwidth.builder()
-                    .capacity(limit.maxRequests())
-                    .refillIntervally(limit.maxRequests(), limit.duration())
-                    .build();
-            var bucket = Bucket.builder().addLimit(bandwidth).build();
-            return new RateLimitedEndpoint(bucket, limit.maxRequests());
         });
     }
 

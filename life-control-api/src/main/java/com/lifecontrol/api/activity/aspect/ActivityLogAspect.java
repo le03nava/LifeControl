@@ -4,6 +4,8 @@ import com.lifecontrol.api.activity.annotation.ActivityLog;
 import com.lifecontrol.api.activity.event.ActivityLogEvent;
 import com.lifecontrol.api.activity.util.ProcessNameResolver;
 import com.lifecontrol.api.common.auth.CurrentUserContext;
+import com.lifecontrol.api.common.net.ClientIpResolver;
+import com.lifecontrol.api.config.security.SecurityAccessProperties;
 import jakarta.servlet.http.HttpServletRequest;
 import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
@@ -35,6 +37,11 @@ import org.springframework.web.util.ContentCachingRequestWrapper;
  * Runs at {@link Ordered#HIGHEST_PRECEDENCE} so it fires before security
  * and other concerns — but only captures data after the controller method
  * returns successfully. Actuator and swagger endpoints are skipped.
+ * <p>
+ * <b>The audit address is resolved, not read.</b> It used to be the leftmost
+ * {@code X-Forwarded-For} hop, taken with no trust gate at all — so the address an audit row recorded
+ * was whatever the caller chose to send. It now goes through {@link ClientIpResolver} with the
+ * configured trusted proxies, the same rule the rate limiter and the actuator gate apply.
  */
 @Aspect
 @Component
@@ -53,10 +60,15 @@ public class ActivityLogAspect {
 
     private final ApplicationEventPublisher eventPublisher;
     private final CurrentUserContext currentUserContext;
+    private final SecurityAccessProperties accessProperties;
 
-    public ActivityLogAspect(ApplicationEventPublisher eventPublisher, CurrentUserContext currentUserContext) {
+    public ActivityLogAspect(
+            ApplicationEventPublisher eventPublisher,
+            CurrentUserContext currentUserContext,
+            SecurityAccessProperties accessProperties) {
         this.eventPublisher = eventPublisher;
         this.currentUserContext = currentUserContext;
+        this.accessProperties = accessProperties;
     }
 
     /**
@@ -200,16 +212,11 @@ public class ActivityLogAspect {
     }
 
     /**
-     * Resolves the client IP from the {@code X-Forwarded-For} header or
-     * falls back to {@link HttpServletRequest#getRemoteAddr()}.
+     * Resolves the client IP through {@link ClientIpResolver}: the socket peer unless the peer is a
+     * configured trusted proxy, and never a caller-written leftmost hop.
      */
-    private static String resolveIpAddress(HttpServletRequest request) {
-        var forwarded = request.getHeader("X-Forwarded-For");
-        if (forwarded != null && !forwarded.isBlank()) {
-            var comma = forwarded.indexOf(',');
-            return (comma > 0) ? forwarded.substring(0, comma).trim() : forwarded.trim();
-        }
-        return request.getRemoteAddr();
+    private String resolveIpAddress(HttpServletRequest request) {
+        return ClientIpResolver.resolve(request, accessProperties.getTrustedProxies());
     }
 
     /**

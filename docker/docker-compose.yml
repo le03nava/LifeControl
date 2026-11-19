@@ -531,6 +531,9 @@ services:
     container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-lifecontrol-api
     entrypoint: ["/usr/local/bin/lc-app-entrypoint.sh"]
     ports:
+      # Loopback only: this service treats the address range its deployment declares for trusted
+      # proxies and actuator readers as trusted, so a mapping bound to every interface would put
+      # every host on the LAN inside that range.
       - "127.0.0.1:${LIFECONTROL_API_PORT:-8082}:${LIFECONTROL_API_PORT:-8082}"
     environment:
       - SPRING_PROFILES_ACTIVE=${SPRING_PROFILES_ACTIVE:?SPRING_PROFILES_ACTIVE must be set to dev, staging or prod}
@@ -546,6 +549,12 @@ services:
       # maintenance superuser and must never be the login Flyway uses.
       - DATABASE_USERNAME=${LIFECONTROL_DATABASE_USERNAME:-lifecontrol_app}
       - FLYWAY_USERNAME=lifecontrol_owner
+      # Edge trust (#892): the ranges this service accepts as proxies and as actuator readers. The
+      # published port is loopback-bound, so a peer inside these ranges is a container of this stack and
+      # not a host on the LAN -- Prometheus is the actuator reader, and the gateway is the proxy whose
+      # X-Forwarded-For hop carries the client address the rate limiter keys its buckets on.
+      - TRUSTED_PROXIES=${TRUSTED_PROXIES:-172.16.0.0/12}
+      - ACTUATOR_ALLOWED_CIDRS=${ACTUATOR_ALLOWED_CIDRS:-172.16.0.0/12}
       - LOKI_URL=${LOKI_URL:-http://loki:3100/loki/api/v1/push}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - PROMETHEUS_ENABLED=${PROMETHEUS_ENABLED:-true}

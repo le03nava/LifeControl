@@ -675,6 +675,32 @@ curl -s -X POST "http://localhost:8181/realms/life-control-realm/protocol/openid
 
 ---
 
+## Borde de confianza del API (proxies, rate limit y actuador)
+
+El API decide dos cosas con la dirección del cliente: si confía en las cabeceras reenviadas y quién
+consume qué cuota. Las dos estaban resueltas por defecto de la forma más amplia posible —todo RFC1918
+era proxy confiable y lector del actuador— y el rate limiter contaba una sola bolsa por endpoint.
+`odd/tasks/api-edge-trust.md` (issue #892).
+
+| Regla | Valor |
+|-------|-------|
+| Dónde se declara la confianza | `app.security.trusted-proxies` (actuador), `app.security.actuator.allowed-cidrs` (lectores del actuador) y `app.rate-limit.trusted-proxies` (rate limiter). El default de las tres es **loopback y nada más**: `127.0.0.1/32,::1/128`. Una red privada que el operador no declaró no es un proxy |
+| Un solo knob por concepto | `TRUSTED_PROXIES` alimenta las **dos** listas de proxies (seguridad y rate limiter: un mismo peer no puede ser confiable para una y no para la otra) y `ACTUATOR_ALLOWED_CIDRS` la de lectores del actuador. `docker/docker-compose.yml` declara las dos para el servicio del API con el rango del que Docker asigna sus redes bridge; es seguro **porque** el puerto publicado está en loopback, y ese par es la razón por la que el valor vive en el compose y no en un default de código |
+| Cómo se resuelve la IP | La puerta va primero: si el peer inmediato no es un proxy confiable, se devuelve `getRemoteAddr()` y las cabeceras se ignoran. Si lo es, `X-Forwarded-For` se recorre **de derecha a izquierda** salteando los hops confiables, y el primero no confiable es el cliente. El hop de la izquierda lo escribe quien llama; el de la derecha lo agrega el proxy |
+| Un hop que no es una IP | Falla cerrado: se devuelve el peer del socket. `CidrMatcher.looksLikeIp` es la puerta, y existe porque `InetAddress.getByName` **resuelve nombres** — una cabecera con un hostname provocaba una consulta DNS desde el borde |
+| La cuota | Una bolsa por **(endpoint, cliente)**: `X-RateLimit-Remaining` es del que llama y agotar la de uno no toca la del otro. La clave no puede ser el path solo, que es lo que compartía la cuota entre todos |
+| La cota de memoria | No hay dependencia nueva para acotar el mapa. Cada 256 requests se barren las bolsas que volvieron a su capacidad: una bolsa llena no guarda historia y responde exactamente lo que respondería una nueva, así que descartarla no cambia ninguna respuesta observable |
+| La cadena de filtros | Termina en `denyAll()`: un controller fuera de `/api/**` y `/actuator/**` ya no es anónimo por construcción. `/error` queda permitido aparte porque Spring Security filtra el dispatch de ERROR, y denegarlo convertiría una falla sin token en un 403 en vez del estado que el árbol ya responde |
+| La documentación | Sale de `permitAll` y entra detrás de `security.docs-public` (`${SECURITY_DOCS_PUBLIC:false}`), el mismo idioma que el gateway ya usaba, con `true` sólo en `application-dev.properties`. En staging `/v3/api-docs` y `/swagger-ui.html` responden **401**. Un test de contrato que necesite leer el documento —`SalesOrderOpenApiContractTest`— enciende la propiedad en su propio contexto: lee el contrato, no afirma que sea público |
+| Actuador del API | `/actuator/health` público y el resto por CIDR (`app.security.actuator.allowed-cidrs`), sin cambios de mecanismo pero con el default angosto |
+| Actuador del gateway | La exposición default es `health,prometheus`, los dos endpoints cuyos únicos lectores son el healthcheck del contenedor y el scraper. El resto de `/actuator/**` termina en `denyAll()` salvo `security.actuator-public` (dev). **No** se filtra por rol: este gateway deriva authorities del claim `scope`, así que `hasAuthority("ROLE_admin")` rechazaría también a los administradores |
+| Los puertos | Todos los puertos publicados de la aplicación están en `127.0.0.1:` — `lifecontrol-api` 8082, la entrada del gateway (9000 dev / 9200 prod) y su management (9001 / 9201). El reparto los ató junto con los datastores en issue #890; esta unidad aporta el par que los vuelve seguros: el rango que el API acepta como proxy y lector del actuador sólo puede ser un contenedor de este stack porque el puerto no sale del host. `observability-port-binding.test.sh` congela el alcance de cada mapping y `datastore-port-binding.test.sh` la otra mitad |
+| Enforcement | `docker/scripts/tests/observability-port-binding.test.sh` congela el alcance de host **por mapping** (`loopback` o `any`), así que un puerto que cambie de un lado al otro falla ahí. Del lado Java, `SecurityConfigAccessTest` y `SecurityConfigDocsPublicTest` son los primeros tests del árbol contra el `securityFilterChain` real —los ~44 `@WebMvcTest` de controller instalan cada uno su propio `TestSecurityConfig` y no prueban nada de esa clase—, y `RateLimitFilterTest`, `ClientIpResolverTest` y `CidrMatcherTest` fijan las cuatro reglas de arriba |
+| Lo que **no** cubre | Los sub-paths de health en el gateway (`/actuator/health/**`) responden 403: no se ampliaron a propósito, porque esta unidad angosta superficie y ningún probe de este árbol los usa. `k8s/` no tiene overlay de entorno y su borde lo decide el ingress del cluster, que este repo no describe. Y el gateway no declara filtro propio de `X-Forwarded-For`: depende del `XForwardedHeadersFilter` de Spring Cloud Gateway, que **agrega** la dirección de la conexión — de ahí que el walk vaya de derecha a izquierda |
+| La trampa que creó el renglón anterior | Un `TRUSTED_PROXIES` que se agregue a un `.env.<env>` sin estar en `.env.template` no llega al contenedor: compose lee el env file por interpolación, y cada key que el env file no declara corre con el default del compose en silencio. Es el mismo modo de falla que dejó el worker de provisioning apagado en dev |
+
+---
+
 ## Development Commands
 
 ### Backend (Gradle)
