@@ -34,9 +34,10 @@ import org.junit.jupiter.api.Test;
  * to take on trust.</p>
  *
  * <p><b>And a read-back is not an enforcement.</b> The last case compiles a stylesheet whose only reference is
- * external and asks who refuses it: on this engine it is the engine that says the URI "has been prohibited", and
- * the same stylesheet compiled with no control at all is attempted instead — which is what makes the prohibition
- * the control's doing rather than the network's.</p>
+ * external and asserts who refused it: on this engine the message says the URI "has been prohibited" and does not
+ * say the reference failed to load, which is what separates a refusal by the control from a refusal by the network.
+ * Both halves are read from one exception on purpose — the case never lets the reference reach the network, so it
+ * cannot become a slow or environment-dependent assertion.</p>
  *
  * <p><b>Each assertion builds its own factory</b>, because these are settings on an instance: sharing one would make
  * the answers order-dependent and the test would pin the order rather than the engine.</p>
@@ -45,8 +46,8 @@ import org.junit.jupiter.api.Test;
 class FiscalCadenaOriginalEngineAnswersTest {
 
     /**
-     * A stylesheet whose only reference is external, on the reserved {@code .invalid} domain: it can never load, so
-     * the question is always <i>who</i> refused it rather than whether the network answered.
+     * A stylesheet whose only reference is external, on the reserved {@code .invalid} domain: if the control were
+     * not in force it would never load, so the assertion does not depend on what the domain answers.
      */
     private static final String EXTERNAL_INCLUDE = "<?xml version='1.0'?><xsl:stylesheet version='2.0' "
             + "xmlns:xsl='http://www.w3.org/1999/XSL/Transform'>"
@@ -112,13 +113,7 @@ class FiscalCadenaOriginalEngineAnswersTest {
                 .as("the engine is what refuses the reference once the empty string is honoured, which is the "
                         + "second layer CadenaOriginal's javadoc claims")
                 .isInstanceOf(TransformerException.class)
-                .hasMessageContaining("prohibited");
-
-        var uncontrolled = new TransformerFactoryImpl();
-        assertThatThrownBy(() -> uncontrolled.newTemplates(new StreamSource(new StringReader(EXTERNAL_INCLUDE))))
-                .as("and without the control the same reference is attempted instead of prohibited, which is what "
-                        + "makes the refusal above the control's doing rather than the network's")
-                .isInstanceOf(TransformerException.class)
-                .hasMessageNotContaining("prohibited");
+                .hasMessageContaining("prohibited")
+                .hasMessageNotContaining("I/O error");
     }
 }
