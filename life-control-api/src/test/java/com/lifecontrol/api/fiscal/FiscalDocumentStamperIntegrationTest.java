@@ -4,13 +4,17 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.lifecontrol.api.accounting.catalog.StarterAccountingCatalogApplier;
+import com.lifecontrol.api.common.tenant.TenantScope;
+import com.lifecontrol.api.fiscal.FiscalCancellationProviderTestConfiguration.InMemoryFiscalCancellationProvider;
 import com.lifecontrol.api.fiscal.FiscalStampProviderTestConfiguration.InMemoryFiscalStampProvider;
 import com.lifecontrol.api.fiscal.exception.FiscalSaleAlreadyStampedException;
 import com.lifecontrol.api.fiscal.exception.FiscalStampRejectedException;
+import com.lifecontrol.api.fiscal.model.FiscalCancellationMotive;
 import com.lifecontrol.api.fiscal.model.IssuerSeal;
 import com.lifecontrol.api.fiscal.repository.FiscalDocumentArtifactRepository;
 import com.lifecontrol.api.fiscal.repository.FiscalDocumentLineRepository;
 import com.lifecontrol.api.fiscal.repository.FiscalDocumentRepository;
+import com.lifecontrol.api.fiscal.service.FiscalDocumentCancellationService;
 import com.lifecontrol.api.fiscal.service.FiscalDocumentStamper;
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
 import java.time.Clock;
@@ -67,7 +71,7 @@ import org.springframework.transaction.annotation.Transactional;
  */
 @SpringBootTest
 @Transactional
-@Import(FiscalStampProviderTestConfiguration.class)
+@Import({FiscalStampProviderTestConfiguration.class, FiscalCancellationProviderTestConfiguration.class})
 @DisplayName("Fiscal stamp attempt (S10, S11, T7b)")
 class FiscalDocumentStamperIntegrationTest extends AbstractPostgresIntegrationTest {
 
@@ -124,6 +128,15 @@ class FiscalDocumentStamperIntegrationTest extends AbstractPostgresIntegrationTe
     @Autowired
     private StarterAccountingCatalogApplier accountingCatalog;
 
+    /**
+     * The submission, for the one case whose condition is a cancellation waiting beside the stamped document.
+     *
+     * <p>It is the endpoint's own service, so the row the case relies on is the row {@code T2} writes — motive
+     * {@code 02}, the authority's code and no settle stamp — and not a row this suite fabricated.</p>
+     */
+    @Autowired
+    private FiscalDocumentCancellationService cancellations;
+
     private FiscalDocumentSeed seed;
 
     @BeforeEach
@@ -136,6 +149,7 @@ class FiscalDocumentStamperIntegrationTest extends AbstractPostgresIntegrationTe
 
     @AfterEach
     void clearTheIdentity() {
+        TenantScope.clear();
         SecurityContextHolder.clearContext();
     }
 
@@ -309,6 +323,63 @@ class FiscalDocumentStamperIntegrationTest extends AbstractPostgresIntegrationTe
     }
 
     // ──────────────────────────────────────
+    // S7 — the guards a pending cancellation leaves standing
+    // ──────────────────────────────────────
+
+    @Test
+    @DisplayName("S7: with a cancellation pending on the sale's document, a new stamp attempt is still refused and "
+            + "no second document is written")
+    void aPendingCancellationDoesNotLetTheSaleBeStampedAgain() {
+        var first = stamper.stamp(seed.sale(), ATTEMPT);
+        submitAPendingCancellation(first.documentId());
+        var provider = FiscalStampProviderTestConfiguration.PROVIDER;
+
+        assertThatThrownBy(() -> stamper.stamp(seed.sale(), SECOND_ATTEMPT))
+                .as("the refusal a stamped sale already received, unchanged by the cancellation row beside it")
+                .isInstanceOf(FiscalSaleAlreadyStampedException.class)
+                .hasMessageContaining(first.documentId().toString());
+
+        assertThat(provider.invocations())
+                .as("the guard still runs before the network call: a second stamp cannot be undone either")
+                .isEqualTo(1);
+        assertThat(countByStatus("STAMPED"))
+                .as("the sale still has exactly the one document that was stamped")
+                .isEqualTo(1);
+        assertThat(countByStatus("CANCELLATION_PENDING"))
+                .as("and the row that waits is the submission's, not a second document")
+                .isEqualTo(1);
+        assertThat(countByStatus("DRAFT"))
+                .as("a refused attempt writes no draft of its own")
+                .isZero();
+        assertThat(documentCount()).isEqualTo(2);
+        assertThat(artefactCount()).isEqualTo(1);
+        assertThat(row(first.documentId()).get("status"))
+                .as("the stamped row is untouched by both the submission and the refusal")
+                .isEqualTo("STAMPED");
+    }
+
+    /**
+     * Writes the pending cancellation row through the service the endpoint calls, stating the two facts a request
+     * would have stated for it: the tenant scope and the caller's identity.
+     *
+     * <p>The authority answers {@code 211}, so the submission is remembered and nothing is cancelled yet — the state
+     * {@code S7} calls "a pending cancellation", and the one this suite needs the guard measured against.</p>
+     */
+    private void submitAPendingCancellation(UUID documentId) {
+        FiscalCancellationProviderTestConfiguration.PROVIDER.reset();
+        FiscalCancellationProviderTestConfiguration.SEALER.reset();
+        FiscalCancellationProviderTestConfiguration.PROVIDER.answerWith(
+                InMemoryFiscalCancellationProvider.Answer.IN_PROCESS);
+        seed.authenticateAs(seed.store());
+        TenantScope.set(seed.company(), null);
+        try {
+            cancellations.cancel(documentId, FiscalCancellationMotive.ERRORS_WITHOUT_RELATION, null);
+        } finally {
+            TenantScope.clear();
+        }
+    }
+
+    // ──────────────────────────────────────
     // S11 — the rejection
     // ──────────────────────────────────────
 
@@ -403,6 +474,15 @@ class FiscalDocumentStamperIntegrationTest extends AbstractPostgresIntegrationTe
     private long artefactCount() {
         return jdbc.queryForObject(
                 "SELECT count(*) FROM fiscal_document_artifact WHERE company_id = ?", Long.class, seed.company());
+    }
+
+    /** How many rows of one state this company holds, which is what the row-counting cases assert on (S8). */
+    private long countByStatus(String status) {
+        return jdbc.queryForObject(
+                "SELECT count(*) FROM fiscal_document WHERE company_id = ? AND status = ?",
+                Long.class,
+                seed.company(),
+                status);
     }
 
     private String artifactOf(UUID documentId) {

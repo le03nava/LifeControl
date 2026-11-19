@@ -10,14 +10,19 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.lifecontrol.api.accounting.catalog.StarterAccountingCatalogApplier;
+import com.lifecontrol.api.common.tenant.TenantScope;
+import com.lifecontrol.api.fiscal.FiscalCancellationProviderTestConfiguration.InMemoryFiscalCancellationProvider;
 import com.lifecontrol.api.fiscal.FiscalStampProviderTestConfiguration.InMemoryFiscalStampProvider;
 import com.lifecontrol.api.fiscal.exception.FiscalStampRejectedException;
+import com.lifecontrol.api.fiscal.model.FiscalCancellationMotive;
 import com.lifecontrol.api.fiscal.repository.FiscalDocumentArtifactRepository;
+import com.lifecontrol.api.fiscal.service.FiscalDocumentCancellationService;
 import com.lifecontrol.api.fiscal.service.FiscalDocumentSnapshotWriter;
 import com.lifecontrol.api.fiscal.service.FiscalDocumentStamper;
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
 import com.lifecontrol.api.support.TenantFixtures;
 import java.nio.charset.StandardCharsets;
+import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -55,11 +60,16 @@ import org.springframework.transaction.annotation.Transactional;
  * another company's document are all {@code S10}'s negative half, and the last one is {@code L15}(c): the policy
  * hides the row, so "not found" is what the query <i>answers</i>; producing a 403 would need a second read
  * outside the policy, which is the leak the policy exists to close.</p>
+ *
+ * <p><b>Why the pending-cancellation case lives here and not in a suite of its own</b> ({@code S7} of
+ * {@code odd/tasks/fiscal-cancellation-reconciliation.md}): this suite already builds the stamped document and reads
+ * its bytes, so "the reprint does not move" is one case beside the case that states what the bytes are — and a new
+ * class would have to rebuild the same sale, store chain and stamp to compare the same two strings.</p>
  */
 @SpringBootTest
 @AutoConfigureMockMvc
 @Transactional
-@Import(FiscalStampProviderTestConfiguration.class)
+@Import({FiscalStampProviderTestConfiguration.class, FiscalCancellationProviderTestConfiguration.class})
 @DisplayName("Fiscal document reprint (S10)")
 class FiscalDocumentXmlReprintHttpIntegrationTest extends AbstractPostgresIntegrationTest {
 
@@ -87,6 +97,9 @@ class FiscalDocumentXmlReprintHttpIntegrationTest extends AbstractPostgresIntegr
     private FiscalDocumentArtifactRepository artifactRepository;
 
     @Autowired
+    private FiscalDocumentCancellationService cancellations;
+
+    @Autowired
     private StarterAccountingCatalogApplier accountingCatalog;
 
     private FiscalDocumentSeed seed;
@@ -100,6 +113,7 @@ class FiscalDocumentXmlReprintHttpIntegrationTest extends AbstractPostgresIntegr
 
     @AfterEach
     void clearTheIdentity() {
+        TenantScope.clear();
         SecurityContextHolder.clearContext();
     }
 
@@ -157,9 +171,47 @@ class FiscalDocumentXmlReprintHttpIntegrationTest extends AbstractPostgresIntegr
     }
 
     // ──────────────────────────────────────
-    // S10/L15(c) — the 404s
+    // S7 — a cancellation pending beside the document
     // ──────────────────────────────────────
 
+    @Test
+    @DisplayName("S7: a document with a CANCELLATION_PENDING row reprints byte-identically to the same document "
+            + "before that row existed — the comparison is the bytes, not a status")
+    void aPendingCancellationLeavesTheReprintByteIdentical() throws Exception {
+        var stamp = stamper.stamp(seed.sale(), ATTEMPT);
+        var before = reprintBytes(stamp.documentId());
+
+        assertThat(before)
+                .as("the baseline is the authority's own bytes, so the comparison below cannot pass against a "
+                        + "document this tree rebuilt twice")
+                .isEqualTo(FiscalStampProviderTestConfiguration.PROVIDER
+                        .lastAnswerXml()
+                        .getBytes(StandardCharsets.UTF_8));
+
+        // The pending row T2 writes, through the service the cancellation endpoint calls: the authority answers
+        // 211, so the submission is remembered and nothing is cancelled yet.
+        FiscalCancellationProviderTestConfiguration.PROVIDER.reset();
+        FiscalCancellationProviderTestConfiguration.SEALER.reset();
+        FiscalCancellationProviderTestConfiguration.PROVIDER.answerWith(
+                InMemoryFiscalCancellationProvider.Answer.IN_PROCESS);
+        submitAPendingCancellation(stamp.documentId());
+
+        assertThat(pendingCancellationCount())
+                .as("the fixture really added the row this case is about")
+                .isEqualTo(1);
+
+        assertThat(reprintBytes(stamp.documentId()))
+                .as("a cancellation is a row beside the document and never an edit of it (V108): the reprint "
+                        + "serves the same bytes before and after, which is what makes it an audit copy")
+                .isEqualTo(before);
+        assertThat(row(stamp.documentId()).get("status"))
+                .as("and the document itself was not touched by the submission")
+                .isEqualTo("STAMPED");
+    }
+
+    // ──────────────────────────────────────
+    // S10/L15(c) — the 404s
+    // ──────────────────────────────────────
     @Test
     @DisplayName("S10/L15(c): a draft is a 404 — it has no artefact, and a reprint of one is a reprint of nothing")
     void aDraftIs404() throws Exception {
@@ -249,6 +301,44 @@ class FiscalDocumentXmlReprintHttpIntegrationTest extends AbstractPostgresIntegr
                 .findByCompanyIdAndFiscalDocumentId(seed.company(), documentId)
                 .map(artifact -> artifact.getXml())
                 .orElse(null);
+    }
+
+    /** The bytes the reprint endpoint answers, which is what "byte-identically" is a statement about. */
+    private byte[] reprintBytes(UUID documentId) throws Exception {
+        return mockMvc.perform(get(BASE_URL + documentId + "/xml").with(token(seed.company())))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsByteArray();
+    }
+
+    /**
+     * Writes the pending cancellation row the submission writes, through the service the endpoint calls.
+     *
+     * <p>The service reads the tenant from the scope and the caller from the identity, neither of which a direct
+     * call receives from a request, so both are stated here for the one call and cleared after it — the next
+     * reprint goes through {@code MockMvc}, where the filter states them itself.</p>
+     */
+    private void submitAPendingCancellation(UUID documentId) {
+        seed.authenticateAs(seed.store());
+        TenantScope.set(seed.company(), null);
+        TenantFixtures.stateTenantWithinTheOpenTransaction(seed.company(), jdbc);
+        try {
+            cancellations.cancel(documentId, FiscalCancellationMotive.ERRORS_WITHOUT_RELATION, null);
+        } finally {
+            TenantScope.clear();
+        }
+    }
+
+    private Map<String, Object> row(UUID documentId) {
+        return jdbc.queryForMap("SELECT * FROM fiscal_document WHERE id = ?", documentId);
+    }
+
+    private long pendingCancellationCount() {
+        return jdbc.queryForObject(
+                "SELECT count(*) FROM fiscal_document WHERE company_id = ? AND status = 'CANCELLATION_PENDING'",
+                Long.class,
+                seed.company());
     }
 
     /**
