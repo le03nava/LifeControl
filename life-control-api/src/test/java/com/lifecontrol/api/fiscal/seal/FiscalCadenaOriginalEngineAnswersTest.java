@@ -4,7 +4,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatNoException;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.io.StringReader;
 import javax.xml.XMLConstants;
+import javax.xml.transform.TransformerException;
+import javax.xml.transform.stream.StreamSource;
 import net.sf.saxon.TransformerFactoryImpl;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -30,11 +33,25 @@ import org.junit.jupiter.api.Test;
  * second layer instead of only the resolver, and it is the change a reader of a dependency bump would otherwise have
  * to take on trust.</p>
  *
+ * <p><b>And a read-back is not an enforcement.</b> The last case compiles a stylesheet whose only reference is
+ * external and asks who refuses it: on this engine it is the engine that says the URI "has been prohibited", and
+ * the same stylesheet compiled with no control at all is attempted instead — which is what makes the prohibition
+ * the control's doing rather than the network's.</p>
+ *
  * <p><b>Each assertion builds its own factory</b>, because these are settings on an instance: sharing one would make
  * the answers order-dependent and the test would pin the order rather than the engine.</p>
  */
 @DisplayName("The engine's JAXP answers are the ones CadenaOriginal records")
 class FiscalCadenaOriginalEngineAnswersTest {
+
+    /**
+     * A stylesheet whose only reference is external, on the reserved {@code .invalid} domain: it can never load, so
+     * the question is always <i>who</i> refused it rather than whether the network answered.
+     */
+    private static final String EXTERNAL_INCLUDE = "<?xml version='1.0'?><xsl:stylesheet version='2.0' "
+            + "xmlns:xsl='http://www.w3.org/1999/XSL/Transform'>"
+            + "<xsl:include href='http://example.invalid/x.xsl'/>"
+            + "<xsl:template match='/'><x/></xsl:template></xsl:stylesheet>";
 
     @Test
     @DisplayName("secure processing is accepted, because a refusal aborts the boot of the deployment")
@@ -83,5 +100,25 @@ class FiscalCadenaOriginalEngineAnswersTest {
                 .as("and it echoes what it was given, which is what makes the case above an answer rather than a "
                         + "constant")
                 .isEqualTo("file,http");
+    }
+
+    @Test
+    @DisplayName("the stylesheet control is enforced, not merely echoed: an external include is prohibited")
+    void theStylesheetControlIsEnforcedAgainstAnExternalInclude() {
+        var factory = new TransformerFactoryImpl();
+        factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_STYLESHEET, "");
+
+        assertThatThrownBy(() -> factory.newTemplates(new StreamSource(new StringReader(EXTERNAL_INCLUDE))))
+                .as("the engine is what refuses the reference once the empty string is honoured, which is the "
+                        + "second layer CadenaOriginal's javadoc claims")
+                .isInstanceOf(TransformerException.class)
+                .hasMessageContaining("prohibited");
+
+        var uncontrolled = new TransformerFactoryImpl();
+        assertThatThrownBy(() -> uncontrolled.newTemplates(new StreamSource(new StringReader(EXTERNAL_INCLUDE))))
+                .as("and without the control the same reference is attempted instead of prohibited, which is what "
+                        + "makes the refusal above the control's doing rather than the network's")
+                .isInstanceOf(TransformerException.class)
+                .hasMessageNotContaining("prohibited");
     }
 }
