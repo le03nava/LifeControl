@@ -148,3 +148,14 @@ public list: this unit narrows surfaces, and no probe on the tree uses one.
 first cut of T4 which bound 9000/9200 to loopback as well. S7 names the API's port, and closing the
 stack's entry point changes how the app is reached without closing any hole this unit is about; the
 port-binding suite freezes it as `any` so the choice is visible in the same table as the loopback rows.
+
+**L10** — 2026-11-19, T4b landed and this supersedes the block L7 records: the maintainer added
+`TRUSTED_PROXIES` and `ACTUATOR_ALLOWED_CIDRS` to the environment template, the API service
+interpolates both, and `env-defaults.test.sh` reports 292 passed / 0 failed with both keys named as
+declared and bound. `docker compose config` resolves the API service to `TRUSTED_PROXIES:
+172.16.0.0/12` and `ACTUATOR_ALLOWED_CIDRS: 172.16.0.0/12`. The unit's remaining deferral is none.
+
+**L11** — 2026-11-19, `AGENTS.md` and this record's own guard shaped one more correction: the two
+keys sit in the environment template because that is where every knob of this stack lives, and the
+harness safety policy refuses that path to the agent — the maintainer applied them and the compose
+interpolation followed in the same slice, so the pair can never be half-landed.
