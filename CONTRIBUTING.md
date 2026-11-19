@@ -113,6 +113,16 @@ git config core.hooksPath .githooks      # once per clone; linked worktrees shar
 ./.github/scripts/new-unit.sh <branch>   # branch = the unit; the directory slug is derived from it
 ```
 
+`core.hooksPath` has **two** values in circulation and **both give the same two guarantees** — the anchor
+guard and formatting — so a clone holding either one is not misconfigured. The command above points it at
+`.githooks`, the repository hook, which refuses a commit on the default branch and formats the staged
+Angular files from the app's own directory whenever `life-control-app-angular/node_modules` exists. Running
+`npm install` in the Angular app rewrites it to `life-control-app-angular/.husky/_`, from that package's
+`prepare` script; what runs behind that value is `life-control-app-angular/.husky/pre-commit`, which does
+not format on its own — it runs `bash ../../.githooks/pre-commit` and exits with its code. Reading a value
+other than the one above from `git config --show-origin --get core.hooksPath` is therefore not a finding:
+when the guard does not act, look at the hook, not at the value.
+
 Before anything else in a session, three reads in the anchor:
 
 ```bash
