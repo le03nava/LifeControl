@@ -11,6 +11,7 @@ import com.lifecontrol.api.activity.annotation.ActivityLog;
 import com.lifecontrol.api.activity.event.ActivityLogEvent;
 import com.lifecontrol.api.common.auth.CurrentUserContext;
 import com.lifecontrol.api.company.controller.CompanyController;
+import com.lifecontrol.api.config.security.SecurityAccessProperties;
 import com.lifecontrol.api.country.controller.CountryController;
 import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.reflect.MethodSignature;
@@ -53,7 +54,7 @@ class ActivityLogAspectTest {
 
     @BeforeEach
     void setUp() {
-        aspect = new ActivityLogAspect(eventPublisher, currentUserContext);
+        aspect = new ActivityLogAspect(eventPublisher, currentUserContext, new SecurityAccessProperties());
     }
 
     private void mockRequest(String method, String path) {
@@ -256,6 +257,57 @@ class ActivityLogAspectTest {
 
             verify(eventPublisher).publishEvent(eventCaptor.capture());
             assertThat(eventCaptor.getValue().getHttpStatus()).isEqualTo(201);
+        }
+    }
+
+    // ── Client address resolution ────────────────────────────
+
+    @Nested
+    @DisplayName("client address resolution")
+    class ClientAddressTests {
+
+        @BeforeEach
+        void setUp() throws Throwable {
+            given(joinPoint.getSignature()).willReturn(methodSignature);
+            given(methodSignature.getDeclaringType()).willReturn(CompanyController.class);
+            given(methodSignature.getMethod())
+                    .willReturn(CompanyController.class.getMethod("getAllCompanies", Pageable.class, String.class));
+            willReturn(ResponseEntity.ok("OK")).given(joinPoint).proceed();
+            given(currentUserContext.getUserId()).willReturn("user-1");
+            given(currentUserContext.getUsername()).willReturn("testuser");
+        }
+
+        private void mockRequestFrom(String remoteAddr, String forwardedFor) {
+            var request = new MockHttpServletRequest("GET", "/api/companies");
+            request.setRemoteAddr(remoteAddr);
+            if (forwardedFor != null) {
+                request.addHeader("X-Forwarded-For", forwardedFor);
+            }
+            RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request));
+        }
+
+        @Test
+        @DisplayName("ignores a forwarded header written by an untrusted peer")
+        void untrustedPeer_CannotWriteTheAuditAddress() throws Throwable {
+            mockRequestFrom("203.0.113.5", "127.0.0.1");
+
+            aspect.logActivity(joinPoint);
+
+            verify(eventPublisher).publishEvent(eventCaptor.capture());
+            assertThat(eventCaptor.getValue().getIpAddress())
+                    .as("the audit row must record the socket peer, not a caller-written hop")
+                    .isEqualTo("203.0.113.5");
+        }
+
+        @Test
+        @DisplayName("walks a forwarded header past a trusted proxy")
+        void trustedProxy_ForwardsTheClientAddress() throws Throwable {
+            mockRequestFrom("127.0.0.1", "198.51.100.7, 127.0.0.1");
+
+            aspect.logActivity(joinPoint);
+
+            verify(eventPublisher).publishEvent(eventCaptor.capture());
+            assertThat(eventCaptor.getValue().getIpAddress()).isEqualTo("198.51.100.7");
         }
     }
 
