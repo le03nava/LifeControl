@@ -531,6 +531,9 @@ services:
     container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-lifecontrol-api
     entrypoint: ["/usr/local/bin/lc-app-entrypoint.sh"]
     ports:
+      # Loopback only: this service treats the address range its deployment declares for trusted
+      # proxies and actuator readers as trusted, so a mapping bound to every interface would put
+      # every host on the LAN inside that range.
       - "127.0.0.1:${LIFECONTROL_API_PORT:-8082}:${LIFECONTROL_API_PORT:-8082}"
     environment:
       - SPRING_PROFILES_ACTIVE=${SPRING_PROFILES_ACTIVE:?SPRING_PROFILES_ACTIVE must be set to dev, staging or prod}
