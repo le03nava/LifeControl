@@ -220,13 +220,17 @@ services:
     # The cache requires a password, so the exporter has to present one. It arrives through
     # --redis.password-file, never an environment value, for the same reason the Postgres exporters use
     # DATA_SOURCE_PASS_FILE (issue #890).
+    #
+    # The file is the JSON map of address to password that the redis service's wrapper writes -- the only
+    # shape this distroless image parses -- and it is mounted read-only from the directory both services
+    # share, the same one the base file declares for both.
     command:
       - "--redis.addr=redis://${REDIS_HOST:-redis}:${REDIS_INTERNAL_PORT:-6379}"
-      - "--redis.password-file=/run/secrets/redis_password"
+      - "--redis.password-file=/run/lc-exporter/redis_passwords.json"
     ports:
       - "127.0.0.1:${REDIS_EXPORTER_PORT:-9221}:9121"
     volumes:
-      - ./secrets/redis_password:/run/secrets/redis_password:ro
+      - ${VOLUMES_ROOT:?VOLUMES_ROOT must be set}/redis/exporter:/run/lc-exporter:ro
     networks:
       - default
     depends_on:

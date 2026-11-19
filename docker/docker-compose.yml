@@ -281,13 +281,19 @@ services:
     # The same address the API uses, and now the same credential: the password reaches the exporter through
     # --redis.password-file, never an environment value, for the same reason the Postgres exporters use
     # DATA_SOURCE_PASS_FILE (issue #890).
+    #
+    # That file is a JSON MAP of address to password, not the secret: this image parses
+    # `{"redis://redis:6379":"..."}` and restarts with `password file format error` on the bare file, and
+    # it is distroless, so it cannot have a wrapper of its own to convert one into the other. The redis
+    # service's wrapper writes the map into a shared host directory; this service mounts it read-only and
+    # starts only after redis is healthy, which is what guarantees the document exists.
     command:
       - "--redis.addr=redis://${REDIS_HOST:-redis}:${REDIS_INTERNAL_PORT:-6379}"
-      - "--redis.password-file=/run/secrets/redis_password"
+      - "--redis.password-file=/run/lc-exporter/redis_passwords.json"
     ports:
       - "127.0.0.1:${REDIS_EXPORTER_PORT:-9121}:9121"
     volumes:
-      - ./secrets/redis_password:/run/secrets/redis_password:ro
+      - ${VOLUMES_ROOT:?VOLUMES_ROOT must be set}/redis/exporter:/run/lc-exporter:ro
     networks:
       - default
     depends_on:
@@ -494,6 +500,10 @@ services:
     volumes:
       - ./entrypoints/redis-entrypoint.sh:/usr/local/bin/lc-redis-entrypoint.sh:ro
       - ./secrets/redis_password:/run/secrets/redis_password:ro
+      # The exporter's password is a JSON map of address to password, and the wrapper above is the only
+      # shell on the path that can build one (the exporter image is distroless). Read-write here because
+      # this service writes it; the exporter mounts the same host directory read-only.
+      - ${VOLUMES_ROOT:?VOLUMES_ROOT must be set}/redis/exporter:/run/lc-exporter
       - ${VOLUMES_ROOT:?VOLUMES_ROOT must be set}/redis/data:/data
     networks:
       - default
@@ -604,6 +614,10 @@ services:
       - ./secrets/lifecontrol_postgres_password:/run/secrets/lifecontrol_postgres_password:ro
       - ./secrets/lifecontrol_app_password:/run/secrets/lifecontrol_app_password:ro
       - ./secrets/keycloak_admin_client_secret:/run/secrets/keycloak_admin_client_secret:ro
+      # The cache credential, at the path the wrapper exports REDIS_PASSWORD from. Without this mount the
+      # wrapper reads nothing and the application restarts with `the cache requires a password` (issue
+      # #890): the credential existed in the wrapper and never reached the container.
+      - ./secrets/redis_password:/run/secrets/redis_password:ro
       # The fiscal credentials, mounted and never valued. No .template declares any of them, exactly like
       # smtp_password: they are created by hand from material that must not live in this repository, and
       # the wrapper reads them only while the provider is on, so an installation that does not invoice

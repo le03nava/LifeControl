@@ -16,10 +16,20 @@
 #     observability-port-binding.test.sh, which this suite copies in structure and in the frozen-table
 #     idea;
 #   * the Redis credential -- the password lives in a mounted secret file, reaches redis-server through
-#     a wrapper (`command:` is raw YAML, not a shell, so it could never read a file), reaches the API as
-#     an exported variable and the exporter through `--redis.password-file`. It appears in no compose
-#     file and in no env template, because a password in an environment value is a password in
-#     `docker inspect` and in `docker compose config`.
+#     a wrapper (`command:` is raw YAML, not a shell, so it could never read a file) and reaches the API
+#     as an exported variable read from the same mounted file. It appears in no compose file and in no
+#     env template, because a password in an environment value is a password in `docker inspect` and in
+#     `docker compose config`;
+#   * the exporter's half of it, which is a format and not a file. `--redis.password-file` takes a JSON
+#     MAP of address to password -- handed the bare secret the pinned image restarts with `password file
+#     format error: invalid character ... looking for beginning of value`, measured on 2026-11-21 -- and
+#     `oliver006/redis_exporter` is distroless, so it can have no wrapper of its own to convert one into
+#     the other. The redis wrapper writes that map into a shared directory the exporter mounts
+#     read-only.
+#
+# Both defects this suite grew assertions for shipped because the checks named the flag and not what the
+# flag consumes: an exporter pointed at a file nothing converts, and an API whose wrapper exported a
+# credential the container was never given.
 #
 # Pinned here:
 #
@@ -31,9 +41,11 @@
 #      what the rest of the repository addresses (`deploy.sh` reads `${POSTGRES_PORT}`,
 #      `.env.template` declares it, and the API container listens on its `LIFECONTROL_API_PORT`);
 #   4. the credential half: no Redis password literal in a compose file or in `.env.template`, the
-#      exporter reads it with `--redis.password-file` from a mounted secret, the Redis wrapper is what
-#      turns that file into `--requirepass`, the API wrapper exports `REDIS_PASSWORD` from a file, and
-#      `application.properties` consumes it.
+#      exporter reads `--redis.password-file` at the JSON map path and mounts the directory the redis
+#      service writes it into (read-write there, read-only here), the Redis wrapper turns the mounted
+#      file into `--requirepass` **and** writes the map -- escaping it and renaming it into place -- the
+#      API service mounts the cache secret at the path its wrapper reads, the API wrapper exports
+#      `REDIS_PASSWORD` from that file, and `application.properties` consumes it.
 #
 # The Redis wrapper is checked statically and not executed: it ends in `exec /usr/local/bin/
 # docker-entrypoint.sh`, an absolute path that only exists inside the image, so running it would need
@@ -289,8 +301,20 @@ else
 fi
 
 # ------------------------------------------
-# 4. The exporter: `--redis.password-file` and the secret it names, mounted read-only, in both files.
+# 4. The exporter's password is a JSON map, not the secret file, and both services mount it.
+#
+# The pinned `--redis.password-file` is a JSON object of address to password, so the value the exporter
+# parses is `{"redis://redis:6379":"..."}` and never the bare secret. The redis service writes that
+# document into a host directory both services mount at the same container path -- read-write there
+# because the wrapper writes, read-only here because the exporter only reads. Both halves are asserted:
+# a single `:ro` on the wrong service (or on both) is a wrapper that cannot write or an exporter that
+# finds a document nobody created.
 # ------------------------------------------
+SHARED_HOST_DIR='${VOLUMES_ROOT:?VOLUMES_ROOT must be set}/redis/exporter'
+SHARED_CONTAINER_DIR='/run/lc-exporter'
+SHARED_MOUNT="$SHARED_HOST_DIR:$SHARED_CONTAINER_DIR"
+EXPORTER_MAP_PATH="$SHARED_CONTAINER_DIR/redis_passwords.json"
+
 for file in docker-compose.yml docker-compose.prod.yml; do
 	compose="$DOCKER_DIR/$file"
 	if [ ! -f "$compose" ]; then
@@ -306,21 +330,45 @@ for file in docker-compose.yml docker-compose.prod.yml; do
 	password_file="$(printf '%s\n' "$block" | sed -n 's/.*--redis\.password-file=\([^"[:space:]]*\).*/\1/p' | head -1)"
 	if [ -z "$password_file" ]; then
 		fail "$file: 'redis-exporter' passes no --redis.password-file, so it cannot authenticate against a Redis that requires a password (redis_up would be 0)"
-	elif [ "$password_file" = "/run/secrets/redis_password" ]; then
-		pass "$file: 'redis-exporter' reads its password from $password_file"
+	elif [ "$password_file" = "$EXPORTER_MAP_PATH" ]; then
+		pass "$file: 'redis-exporter' reads its password from $password_file, the JSON map the redis service writes"
 	else
-		fail "$file: 'redis-exporter' reads its password from '$password_file' instead of /run/secrets/redis_password"
+		fail "$file: 'redis-exporter' reads its password from '$password_file' instead of $EXPORTER_MAP_PATH: this image parses that file as a JSON map of address to password, and a bare secret restarts it with 'password file format error'"
 	fi
 
-	if [ -n "$password_file" ]; then
-		secret_name="${password_file##*/}"
-		if printf '%s\n' "$block" | grep -qE "^[[:space:]]*-[[:space:]]*\./secrets/$secret_name:$password_file:ro[[:space:]]*$"; then
-			pass "$file: 'redis-exporter' mounts ./secrets/$secret_name read-only at $password_file"
-		else
-			fail "$file: 'redis-exporter' reads $password_file but does not mount ./secrets/$secret_name there read-only"
-		fi
+	shared_ro="$(printf '%s\n' "$block" | grep -F "$SHARED_MOUNT" | head -1)"
+	if [ -z "$shared_ro" ]; then
+		fail "$file: 'redis-exporter' does not mount $SHARED_MOUNT, so the map the redis service writes is not visible to it and it restarts with no password"
+	elif printf '%s' "$shared_ro" | grep -qE ':ro[[:space:]]*$'; then
+		pass "$file: 'redis-exporter' mounts $SHARED_CONTAINER_DIR read-only"
+	else
+		fail "$file: 'redis-exporter' mounts $SHARED_CONTAINER_DIR without :ro ('$shared_ro'), and an exporter has no business writing the document redis owns"
+	fi
+
+	# The bare secret is not a shape this image can parse, and a mounted secret nothing reads is a
+	# credential channel that looks wired and is not -- the exact half-state issue #890 shipped.
+	if printf '%s\n' "$block" | grep -qE 'secrets/redis_password:/run/secrets/redis_password'; then
+		fail "$file: 'redis-exporter' still mounts the bare secret at /run/secrets/redis_password: it parses that path as a JSON map and restarts"
+	else
+		pass "$file: 'redis-exporter' no longer mounts the bare secret it cannot parse"
 	fi
 done
+
+# The writing half. Without this mount the wrapper has nowhere to put the map, and the exporter -- which
+# waits for this service to be healthy -- would start against a directory that never holds a document.
+redis_service_block="$(strip_comments "$(service_block "$DOCKER_DIR/docker-compose.yml" redis)")"
+if [ -z "$redis_service_block" ]; then
+	fail "docker-compose.yml declares no redis service"
+else
+	shared_rw="$(printf '%s\n' "$redis_service_block" | grep -F "$SHARED_MOUNT" | head -1)"
+	if [ -z "$shared_rw" ]; then
+		fail "docker-compose.yml: 'redis' does not mount $SHARED_MOUNT, so the wrapper has nowhere to write the map the exporter reads and the cache credential never reaches the exporter"
+	elif printf '%s' "$shared_rw" | grep -qE ':ro[[:space:]]*$'; then
+		fail "docker-compose.yml: 'redis' mounts $SHARED_CONTAINER_DIR read-only ('$shared_rw'): the wrapper cannot write into it, and a read-only mount fails the start instead of the exporter"
+	else
+		pass "docker-compose.yml: 'redis' mounts $SHARED_CONTAINER_DIR read-write, the half that writes the map"
+	fi
+fi
 
 # ------------------------------------------
 # 5. The Redis wrapper: the only thing that can turn a mounted file into `--requirepass`.
@@ -351,6 +399,76 @@ else
 		pass "the wrapper refuses to start without the password instead of falling back to no authentication"
 	else
 		fail "the wrapper has no failure path for a missing password: an unmounted secret would start an unauthenticated Redis"
+	fi
+
+	# --- the map the exporter parses -------------------------------------------------
+	# The exporter's --redis.password-file is a JSON object, not a password, so the wrapper is the only
+	# converter on this path (the exporter image is distroless). The four properties below are what a
+	# working document needs; a wrapper that wrote the bare password instead would pass a check that only
+	# named the file.
+	if printf '%s\n' "$wrapper_body" | grep -qF 'LC_REDIS_EXPORTER_DIR:-/run/lc-exporter'; then
+		pass "the wrapper writes into the exported directory by default (LC_REDIS_EXPORTER_DIR:-/run/lc-exporter)"
+	else
+		fail "the wrapper never defaults LC_REDIS_EXPORTER_DIR to /run/lc-exporter, the mount the compose files declare"
+	fi
+
+	if printf '%s\n' "$wrapper_body" | grep -qF 'redis_passwords.json'; then
+		pass "the wrapper writes the file name the exporter's --redis.password-file names"
+	else
+		fail "the wrapper never writes redis_passwords.json, the file --redis.password-file points at"
+	fi
+
+	# The map's key is the address the exporter dials. A map keyed on anything else carries no password
+	# for the target being scraped, and the exporter authenticates as nobody.
+	if printf '%s\n' "$wrapper_body" | grep -qF 'LC_REDIS_ADDR:-redis://redis:6379'; then
+		pass "the wrapper keys the map on the exporter's address (LC_REDIS_ADDR:-redis://redis:6379)"
+	else
+		fail "the wrapper does not key the map on the address the exporter dials (LC_REDIS_ADDR:-redis://redis:6379)"
+	fi
+
+	# Shape, not just the file name: an object with an address key and a password value. A bare password
+	# is what the exporter could not parse, which is the defect this unit removes.
+	json_format="$(printf '%s\n' "$wrapper_body" | sed -n "s/.*printf[[:space:]]*'\([^']*{[^']*\)'.*/\1/p" | head -1)"
+	json_shape="$(printf '%s' "$json_format" | sed -e 's/\\n$//')"
+	json_values="$(printf '%s' "$json_shape" | grep -o '%s' | wc -l | tr -d ' ')"
+	if [ -n "$json_shape" ] && printf '%s' "$json_shape" | grep -qE '^\{.*:.*\}$' && [ "$json_values" -ge 2 ]; then
+		pass "the wrapper builds a JSON object with a key and a string value ('$json_shape'), not a bare password"
+	else
+		fail "the wrapper's document is '${json_shape:-<none>}', which is not an address-to-password JSON object: the exporter parses this file as a map and restarts on anything else"
+	fi
+
+	# A password holding either character would otherwise produce invalid JSON, and the operator would see
+	# a parse error for a password the file shows as correct.
+	if printf '%s\n' "$wrapper_body" | grep -qF 's/\\/\\\\/g' && printf '%s\n' "$wrapper_body" | grep -qF 's/"/\\"/g'; then
+		pass "the wrapper escapes a backslash and then a double quote, so neither can corrupt the document"
+	else
+		fail "the wrapper does not escape a backslash and a double quote: a password containing either produces invalid JSON and the exporter restarts"
+	fi
+
+	# The exporter starts on the same event redis becomes healthy, so it can read while the wrapper
+	# writes. A rename is what makes the reader see the old document or the new one, never half of either.
+	tmp_line="$(printf '%s\n' "$wrapper_body" | grep -E '^[[:space:]]*[A-Za-z_]*_tmp=' | head -1)"
+	mv_line="$(printf '%s\n' "$wrapper_body" | grep -E '^[[:space:]]*mv[[:space:]]+.*_tmp' | head -1)"
+	if [ -n "$tmp_line" ] && printf '%s' "$tmp_line" | grep -qF '.tmp' && [ -n "$mv_line" ] && printf '%s' "$mv_line" | grep -qE 'redis_passwords\.json|[A-Za-z_]*file'; then
+		pass "the wrapper writes a temporary name and renames it into place, so a concurrent reader never sees a half-written document"
+	else
+		fail "the wrapper writes the map in place instead of writing a temporary file and renaming it: the exporter starts beside it and can parse a truncated document"
+	fi
+
+	# uid 59000 is the exporter's own user (measured on the pinned tag), and a 0600 root-owned map is a
+	# document the exporter cannot open -- a permission error in place of a credential.
+	if printf '%s\n' "$wrapper_body" | grep -qE '^[[:space:]]*chmod[[:space:]]+0?6[04][04][[:space:]]+.*_tmp'; then
+		pass "the wrapper sets a mode the exporter's own uid can read before the rename"
+	else
+		fail "the wrapper does not chmod the map before renaming it: the exporter runs as uid 59000 and cannot read a file only root can open"
+	fi
+
+	# A missing directory must be its own FATAL. A silent skip leaves the exporter restarting forever
+	# with no password, which is the failure mode this unit exists to remove.
+	if printf '%s\n' "$wrapper_body" | grep -qE '\[[[:space:]]*![[:space:]]*-d[[:space:]]+"[^\"]*exporter_dir"' && printf '%s\n' "$wrapper_body" | grep -qF 'FATAL: $exporter_dir'; then
+		pass "the wrapper fails with its own FATAL when the exporter's directory is missing, instead of skipping the write"
+	else
+		fail "the wrapper skips the map when its directory is missing: the exporter would restart forever with no password and nothing would say why"
 	fi
 	# The credential boundary app-credential-split.test.sh protects: a wrapper that carried the value
 	# would be a password in the repository.
@@ -424,6 +542,22 @@ else
 		pass "the API wrapper's default Redis secret path is the mount the compose files declare"
 	else
 		fail "the API wrapper does not default REDIS_PASSWORD_FILE to /run/secrets/redis_password"
+	fi
+
+	# The other half of the same sentence, and the reason `lifecontrol-api` restarted with `FATAL: ... is
+	# missing or empty; the cache requires a password (issue #890)`: the wrapper exported a credential the
+	# service never received. The mount is checked against the path the wrapper actually defaults to, so a
+	# renamed default cannot leave a mount behind that nothing reads.
+	app_redis_mount="$(sed -n 's/.*REDIS_PASSWORD_FILE:-\([^}]*\)}.*/\1/p' "$APP_WRAPPER" | head -1)"
+	api_block="$(strip_comments "$(service_block "$DOCKER_DIR/docker-compose.yml" lifecontrol-api)")"
+	if [ -z "$api_block" ]; then
+		fail "docker-compose.yml declares no lifecontrol-api service"
+	elif [ -z "$app_redis_mount" ]; then
+		fail "the API wrapper's Redis secret path could not be read, so the mount it needs cannot be checked"
+	elif printf '%s\n' "$api_block" | grep -qE "^[[:space:]]*-[[:space:]]*\./secrets/redis_password:$app_redis_mount:ro[[:space:]]*$"; then
+		pass "the lifecontrol-api service mounts the cache secret read-only at $app_redis_mount, the path its wrapper reads"
+	else
+		fail "the lifecontrol-api service does not mount ./secrets/redis_password at $app_redis_mount: the wrapper exports a credential the container never receives, and the API restarts with 'the cache requires a password (issue #890)'"
 	fi
 fi
 
