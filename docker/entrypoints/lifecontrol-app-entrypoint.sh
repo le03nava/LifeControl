@@ -20,6 +20,12 @@
 #
 # The Keycloak admin client secret is exported the same way and for the same reason.
 #
+# The cache's password is exported the same way too, and is required like the three above: a deployment
+# where the API starts without it answers NOAUTH on every cached read, and a database restore plus a
+# cache flush would then look like an application bug. What changed on the Redis side is not just the
+# credential -- the datastore answered without one at all -- so the value arrives through a mounted file
+# here as well and never as an environment entry (issue #890).
+#
 # The fiscal provider's four credentials -- the issuer's certificate, its private key, the password that
 # protects that key, and the PAC's own password -- are read the same way, and only while
 # FISCAL_PROVIDER_ENABLED is true: a deployment that does not invoice must start exactly as it did before
@@ -29,7 +35,8 @@
 #
 # The three secret paths are overridable through the `*_FILE` variables below, with the real mount path
 # as the default: that is what lets docker/scripts/tests/app-credential-split.test.sh drive this file
-# against a throwaway directory instead of the container's /run/secrets.
+# against a throwaway directory instead of the container's /run/secrets. The Redis password path is
+# overridable for the same reason.
 #
 # POSIX sh on purpose: the runtime image is eclipse-temurin alpine (no bash).
 # The Java launch command mirrors life-control-api/Dockerfile ENTRYPOINT.
@@ -41,6 +48,7 @@ set -eu
 owner_secret_file="${LIFECONTROL_OWNER_PASSWORD_FILE:-/run/secrets/lifecontrol_postgres_password}"
 app_secret_file="${LIFECONTROL_APP_PASSWORD_FILE:-/run/secrets/lifecontrol_app_password}"
 admin_secret_file="${KEYCLOAK_ADMIN_CLIENT_SECRET_FILE:-/run/secrets/keycloak_admin_client_secret}"
+redis_secret_file="${REDIS_PASSWORD_FILE:-/run/secrets/redis_password}"
 
 if [ ! -s "$owner_secret_file" ]; then
 	echo "FATAL: $owner_secret_file is missing or empty" >&2
@@ -57,9 +65,17 @@ if [ ! -s "$admin_secret_file" ]; then
 	exit 1
 fi
 
+# A directory is the shape Docker leaves behind for a bind-mount source that does not exist, and `test -s`
+# is true for one, so the Redis file is checked for both shapes before its content is read.
+if [ -d "$redis_secret_file" ] || [ ! -s "$redis_secret_file" ]; then
+	echo "FATAL: $redis_secret_file is missing or empty; the cache requires a password (issue #890)" >&2
+	exit 1
+fi
+
 export DATABASE_PASSWORD="$(cat "$app_secret_file")"
 export FLYWAY_PASSWORD="$(cat "$owner_secret_file")"
 export KEYCLOAK_ADMIN_CLIENT_SECRET="$(cat "$admin_secret_file")"
+export REDIS_PASSWORD="$(cat "$redis_secret_file")"
 
 # --------------------------------------------
 # The fiscal provider (issue #930)
