@@ -30,7 +30,7 @@ import org.springframework.security.web.access.intercept.RequestAuthorizationCon
  * - Keeps `/error` reachable
  * - Allows public access to actuator health endpoints
  * - Restricts other actuator endpoints (e.g. /actuator/prometheus) to internal
- *   client addresses configured via {@code app.security.actuator.allowed-cidrs}
+ *   client addresses configured via {@code app.security.actuator-allowed-cidrs}
  * - Serves the docs (`/v3/api-docs`, `/swagger-ui.html`, …) only when `security.docs-public` is true,
  *   the same switch and the same default the gateway declares
  * - Disables CSRF (appropriate for REST APIs)

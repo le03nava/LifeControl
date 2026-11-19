@@ -30,7 +30,7 @@ public class SecurityAccessProperties {
      * {@code /actuator/prometheus}. Defaults to loopback so that a scraper running on the
      * same host works while every other address is denied; a deployment that scrapes over
      * the container network declares that network through
-     * {@code app.security.actuator.allowed-cidrs} (bound to {@code ACTUATOR_ALLOWED_CIDRS}).
+     * {@code app.security.actuator-allowed-cidrs} (bound to {@code ACTUATOR_ALLOWED_CIDRS}).
      */
     private List<String> actuatorAllowedCidrs = List.of("127.0.0.1/32", "::1/128");
 
