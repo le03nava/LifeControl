@@ -59,13 +59,16 @@ import org.slf4j.LoggerFactory;
  *
  * <p><b>What the factory could be told, and what Saxon accepts.</b> The intent is stated where a reader looks for
  * it: {@code FEATURE_SECURE_PROCESSING} is turned on and both JAXP external-access controls are applied. The
- * engine's answers are recorded by {@link #restrictExternalAccess} rather than assumed, and they are the reason the
- * resolver is the boundary instead of a second layer: <b>Saxon 12.10 refuses {@code ACCESS_EXTERNAL_DTD}</b> with
- * {@code IllegalArgumentException: Unknown configuration property …accessExternalDTD}, and <b>accepts
- * {@code ACCESS_EXTERNAL_STYLESHEET} while continuing to report it back as {@code all}</b>, so neither restriction
- * is in force. Dropping the committed include resolution to keep them would be the wrong trade — the include set is
- * what makes the chain exact — so both are attempted (an engine that honours JAXP must not run unhardened), the
- * outcome is logged, and {@link #include(String)} is what actually closes the references.</p>
+ * engine's answers are recorded by {@link #restrictExternalAccess} rather than assumed, and they are not the same
+ * answer twice: <b>Saxon 13.1 still refuses {@code ACCESS_EXTERNAL_DTD}</b> — the set is accepted and the read-back
+ * throws {@code IllegalArgumentException: Unknown configuration property …accessExternalDTD} — so that control is
+ * not in force, while <b>it honours {@code ACCESS_EXTERNAL_STYLESHEET}</b> — the empty string reads back as the empty
+ * string, which denies every protocol (12.10 read it back as {@code all} and ignored it; Saxon corrects the
+ * empty-string case in 13.1, release note 7269) — so the engine is a second layer for stylesheet references and
+ * not only the resolver. Dropping the committed include resolution to keep the controls would be the wrong trade —
+ * the include set is what makes the chain exact — so both are attempted (an engine that honours JAXP must not run
+ * unhardened), what the engine did with them is logged, and {@link #include(String)} is what actually closes the
+ * references: the resolver answers from the classpath and never through a protocol.</p>
  *
  * <p><b>Why the resource's SHA-256 is checked here and not only in a test.</b> The hash is the pin: the test
  * asserts it so a substitution fails CI, and this constructor asserts it so a substitution fails the <b>boot</b>
@@ -253,7 +256,8 @@ public final class CadenaOriginal {
      * <p>Both halves are here and not in {@link #include(String)} alone, because the refusal a reader should find
      * first is the intent: secure processing on, external access restricted, and a resolver that resolves the
      * committed set. What the engine does with the restrictions is {@link #restrictExternalAccess}'s job to record
-     * — Saxon 12.10 refuses one and ignores the other — so this method never assumes they took effect.</p>
+     * — 13.1 refuses the DTD control and honours the stylesheet one — so this method never assumes they took
+     * effect.</p>
      */
     private static TransformerFactoryImpl hardenedFactory(DeclaredIncludes declared) {
         var factory = new TransformerFactoryImpl();
@@ -277,12 +281,16 @@ public final class CadenaOriginal {
     /**
      * One JAXP external-access restriction, and what the engine did with it.
      *
-     * <p>The two controls are applied but neither is relied on. Measured on this tree's engine (Saxon-HE 12.10):
-     * {@code ACCESS_EXTERNAL_DTD} is <b>refused</b> — {@code IllegalArgumentException: Unknown configuration
-     * property …accessExternalDTD} — and {@code ACCESS_EXTERNAL_STYLESHEET} is <b>accepted and then ignored</b>,
-     * since the factory reports it back as {@code all}. Both outcomes are logged at the moment the pipeline is
-     * built, because a reader who expects the JAXP controls to be what closes {@code xsl:include} would otherwise
-     * believe the transform is protected by a setting that does nothing.</p>
+     * <p>The two controls are applied and they answer differently, so neither answer is assumed. Measured on this
+     * tree's engine (Saxon-HE 13.1): {@code ACCESS_EXTERNAL_DTD} is <b>refused</b> when it is read back — the set is
+     * accepted and {@code getAttribute} throws {@code IllegalArgumentException: Unknown configuration
+     * property …accessExternalDTD} — so that control does nothing, and
+     * {@code ACCESS_EXTERNAL_STYLESHEET} is <b>accepted and honoured</b>, reading the empty string back as the empty
+     * string, which allows no protocol at all. 12.10 read that same value back as {@code all} and ignored it, which
+     * is why this paragraph changed with the bump: Saxon corrects the empty-string case in 13.1 (release note 7269).
+     * The outcome is logged when the pipeline is built — the refusal always, the acceptance only when the engine
+     * reports back a value showing it was ignored — because the difference between a control that holds and one
+     * that does nothing is exactly what a reader of this code cannot see.</p>
      */
     private static void restrictExternalAccess(TransformerFactoryImpl factory, String attribute) {
         try {
