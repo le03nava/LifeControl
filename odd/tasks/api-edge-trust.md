@@ -86,7 +86,7 @@ second suite appearing, so one file owns "which port is published where".
 | T1 | S1, S2 | `ClientIpResolver` walks `X-Forwarded-For` from the right past trusted hops and fails closed on a hop that is not an IP literal; `CidrMatcher.looksLikeIp` gates every `InetAddress.getByName` call; both property classes default to loopback and the three keys read `${TRUSTED_PROXIES:...}` / `${ACTUATOR_ALLOWED_CIDRS:...}` | `ClientIpResolverTest` (right-to-left walk, forged leftmost hop, fail-closed hop), `CidrMatcherTest` (`looksLikeIp`, hostname refused), `SecurityAccessPropertiesTest` |
 | T2 | S1, S3 | `RateLimitFilter` keys its bucket map by endpoint + client and sweeps buckets that are back at capacity every 256 requests; `X-RateLimit-Remaining` becomes per caller | `RateLimitFilterTest` (independent budgets, one quota exhausted leaves the other, private-range peer cannot forward a loopback client, sweep keeps history) |
 | T3 | S1, S4, S5 | `SecurityConfig` ends in `denyAll`, permits `/error`, and takes the docs out of `permitAll` behind `security.docs-public` (false by default, true on dev) | `SecurityConfigAccessTest` and `SecurityConfigDocsPublicTest` — the first tests on the tree against the real `securityFilterChain`; `SalesOrderOpenApiContractTest` enables the property for itself; 5168 tests / 0 failures / 0 skipped on the slice that carries it |
-| T4 | S7 | `lifecontrol-api` 8082 and the gateway management port (9001 dev / 9201 prod) publish on `127.0.0.1` in the base and prod compose; the gateway's application port stays published on purpose | `docker compose config` reports `host_ip: 127.0.0.1` for 8082/9001/9201 and no host IP for 9000/9200 |
+| T4 | S7 | `lifecontrol-api` 8082 and the gateway's two ports publish on `127.0.0.1`; the pair the API needs in-container is the address range that binding makes safe. Issue #890 had already bound every application port by the time this branch rebased onto `main`, so the unit inherits them instead of restating them | `docker compose config` reports `host_ip: 127.0.0.1` on every application mapping; `observability-port-binding.test.sh` freezes all of them |
 | T5 | S7 | The port-binding suite freezes the host scope **per mapping** (`loopback` / `any`) instead of assuming it, and owns the two application services as well as the four observability ones | `observability-port-binding.test.sh`: 59 passed, 0 failed; whole `docker/scripts/tests/` glob green |
 | T6 | S6 | Gateway actuator: exposure ships `health,prometheus`, the rest of `/actuator/**` is `denyAll()` unless `security.actuator-public=true` (dev) | `SecurityConfigTests` (`/actuator/metrics` 403 with a valid non-admin token, `/actuator/prometheus` still 200 without one) and `SecurityConfigActuatorPublicTests`; 25 tests green |
 | T7 | S1 | Adjacent finding, not an acceptance criterion of #892: `ActivityLogAspect` reads the raw leftmost `X-Forwarded-For` hop with no trust gate, so an audit row's address is caller-written — it resolves through the same resolver now | `ActivityLogAspectTest` `ClientAddressTests` |
@@ -121,9 +121,11 @@ environment overlay and already scrape `metrics_path: '/actuator/prometheus'`
 (`k8s/manifests/*/prometheus.yml:55`). The edge trust model there is decided by the cluster's ingress,
 which this repository does not describe.
 
-**L6** — 2026-11-19, delivery shape, measured rather than estimated: the unit is **1218 authored lines
-in four commits** (gateway gate, docker bindings and suite, resolver and buckets, closed chain), past the ~400-line review budget. The slices are commits and not a chain because
-CONTRIBUTING §3 reserves chains for units that are independent of each other, and these four answer
+**L6** — 2026-11-19, delivery shape, measured rather than estimated: the unit is **1416 authored lines
+in seven commits** (gateway gate, docker bindings and suite, resolver and buckets, closed chain, docs
+and record, the in-container declaration, and this record's closing), past the ~400-line review budget.
+The slices are commits and not a chain because
+CONTRIBUTING §3 reserves chains for units that are independent of each other, and these seven answer
 one issue; the boundary is recorded here so the maintainer can ask for a chain instead before the
 pull request is shaped. The API suite is 5168 tests / 0 failures / 0 skipped with `spotlessCheck` and
 `spotbugsMain` green on the slice that carries it.
@@ -144,10 +146,13 @@ never be resolved and can never match an allow-list entry, so it is a junk addre
 The gateway's `/actuator/health/**` sub-paths were deliberately left denied rather than added to the
 public list: this unit narrows surfaces, and no probe on the tree uses one.
 
-**L9** — 2026-11-19, the gateway's application port stays published on every interface, against the
-first cut of T4 which bound 9000/9200 to loopback as well. S7 names the API's port, and closing the
-stack's entry point changes how the app is reached without closing any hole this unit is about; the
-port-binding suite freezes it as `any` so the choice is visible in the same table as the loopback rows.
+**L9** — 2026-11-19, superseded by `main`, and recorded because the correction is the interesting
+part: the first cut of T4 bound 9000/9200 to loopback, was reverted to leave the gateway's entry point
+published on the reading that S7 names only the API's port, and then the rebase onto `main` showed PR
+#975 (issue #890) had already bound the datastores **and** both application entry ports and documented
+it in `AGENTS.md`. The branch now takes `main`'s bindings and the suite freezes every row as
+`loopback`, with `any` as the state it refuses to let back in. A decision about a shared file is only
+as good as the base it was measured on, and this one was measured on a `main` that no longer existed.
 
 **L10** — 2026-11-19, T4b landed and this supersedes the block L7 records: the maintainer added
 `TRUSTED_PROXIES` and `ACTUATOR_ALLOWED_CIDRS` to the environment template, the API service
