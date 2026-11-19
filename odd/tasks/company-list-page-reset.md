@@ -63,3 +63,11 @@ the same blind spot the issue describes — the existing case asserts the reques
 `… | tail -12`, including the run that had a failing spec, because the pipeline's status was `tail`'s. Every
 gate quoted above comes from a run whose own `$?` was captured, and `tail` was never in the pipeline that
 decided the verdict.
+
+**L4** — 2026-11-19, delivered as pull request **#981**, labelled `type:bug`, with issue #944 carrying
+`status:approved`. The commit that holds this record is derived, never stored: `git log -1 --format='%h'
+-- odd/tasks/company-list-page-reset.md`, the rule this repository states for delivery evidence, because a
+commit id written here would name a branch object that the merge leaves behind. The pull request's checks
+all passed before the merge: `A linked, approved issue`, `Exactly one type:* label`, `Lint & Build`,
+`Unit tests (1)`, `Unit tests (2)` and `Coverage`. The screen was not exercised in a browser; the proof of
+this unit is the spec that fails without the fix (L2).
