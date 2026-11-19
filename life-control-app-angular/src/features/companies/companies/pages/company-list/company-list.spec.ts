@@ -198,6 +198,45 @@ describe('CompanyList', () => {
     vi.useRealTimers();
   });
 
+  it('should keep the page the operator chose after change detection', () => {
+    vi.useFakeTimers();
+    fixture.detectChanges();
+    vi.advanceTimersByTime(0);
+
+    component.onPageChange({ pageIndex: 1, pageSize: 12 });
+    fixture.detectChanges();
+    vi.advanceTimersByTime(0);
+
+    // La request de la página 2 se emite, pero también tiene que sobrevivir el estado: mientras el effect de
+    // reset lea `pageIndex` de forma reactiva, se vuelve a 0 en el mismo change detection y toda página
+    // posterior a la primera queda inalcanzable desde la pantalla.
+    expect(component.pageIndex()).toBe(1);
+    expect(companyService.getCompanies).toHaveBeenCalledWith(1, 12, undefined);
+
+    vi.useRealTimers();
+  });
+
+  it('should reset to page 0 when the debounced search changes, after a page change', () => {
+    vi.useFakeTimers();
+    fixture.detectChanges();
+    vi.advanceTimersByTime(0);
+
+    component.onPageChange({ pageIndex: 2, pageSize: 24 });
+    fixture.detectChanges();
+    vi.advanceTimersByTime(0);
+
+    // El reset que el effect existe para hacer: un término nuevo siempre vuelve a la primera página.
+    component.searchQuery.set('Alpha');
+    fixture.detectChanges();
+    vi.advanceTimersByTime(300);
+    fixture.detectChanges();
+
+    expect(component.pageIndex()).toBe(0);
+    expect(companyService.getCompanies).toHaveBeenCalledWith(0, 24, 'Alpha');
+
+    vi.useRealTimers();
+  });
+
   describe('responsive paginator (isMobile signal)', () => {
     let originalMatchMedia: typeof window.matchMedia;
 
