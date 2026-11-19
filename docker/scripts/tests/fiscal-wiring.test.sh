@@ -233,11 +233,14 @@ echo "== 4. the entrypoint wrapper reads the credentials only while the provider
 SANDBOX="$TMP_BASE/wrapper"
 mkdir -p "$SANDBOX/bin" "$SANDBOX/secrets"
 
-# The three credentials the wrapper already required, so every case below reaches the fiscal block
-# instead of failing on the database split this suite is not testing.
+# The four credentials the wrapper already required, so every case below reaches the fiscal block instead
+# of failing on the database split or the cache password this suite is not testing. The fourth arrived with
+# issue #890: the cache requires a password from a mounted file, so a sandbox that mounts three credentials
+# stops at the wrapper's own FATAL before any fiscal assertion runs.
 printf 'owner-secret\n' >"$SANDBOX/secrets/owner"
 printf 'app-secret\n' >"$SANDBOX/secrets/app"
 printf 'admin-secret\n' >"$SANDBOX/secrets/admin"
+printf 'redis-secret\n' >"$SANDBOX/secrets/redis"
 
 # The CSD material as an operator would produce it: `openssl base64` wraps at 64 columns, and the value
 # CsdProperties binds is continuous.
@@ -270,6 +273,7 @@ run_wrapper() {
 			LIFECONTROL_OWNER_PASSWORD_FILE="$SANDBOX/secrets/owner" \
 			LIFECONTROL_APP_PASSWORD_FILE="$SANDBOX/secrets/app" \
 			KEYCLOAK_ADMIN_CLIENT_SECRET_FILE="$SANDBOX/secrets/admin" \
+			REDIS_PASSWORD_FILE="$SANDBOX/secrets/redis" \
 			FISCAL_CSD_CERTIFICADO_FILE="${CERT_FILE:-$SANDBOX/secrets/cert}" \
 			FISCAL_CSD_LLAVE_FILE="${KEY_FILE:-$SANDBOX/secrets/key}" \
 			FISCAL_CSD_PASSWORD_FILE="${KEY_PASSWORD_FILE:-$SANDBOX/secrets/key-password}" \

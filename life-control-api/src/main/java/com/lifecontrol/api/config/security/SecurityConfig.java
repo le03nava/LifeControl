@@ -4,7 +4,10 @@ import com.lifecontrol.api.common.auth.CurrentUserContext;
 import com.lifecontrol.api.common.net.CidrMatcher;
 import com.lifecontrol.api.common.net.ClientIpResolver;
 import com.lifecontrol.api.common.tenant.TenantScopeFilter;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.function.Supplier;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -22,9 +25,14 @@ import org.springframework.security.web.access.intercept.RequestAuthorizationCon
 /**
  * Security configuration for the REST API.
  * - Requires JWT authentication for all /api/** endpoints
- * - Allows public access to swagger and actuator health endpoints
+ * - Ends the chain closed: a path outside `/api/**` and `/actuator/**` is refused instead of being
+ *   anonymous by omission
+ * - Keeps `/error` reachable
+ * - Allows public access to actuator health endpoints
  * - Restricts other actuator endpoints (e.g. /actuator/prometheus) to internal
- *   client addresses configured via {@code app.security.actuator.allowed-cidrs}
+ *   client addresses configured via {@code app.security.actuator-allowed-cidrs}
+ * - Serves the docs (`/v3/api-docs`, `/swagger-ui.html`, …) only when `security.docs-public` is true,
+ *   the same switch and the same default the gateway declares
  * - Disables CSRF (appropriate for REST APIs)
  * - CORS is handled by the API Gateway, not here
  */
@@ -34,15 +42,34 @@ import org.springframework.security.web.access.intercept.RequestAuthorizationCon
 @EnableConfigurationProperties(SecurityAccessProperties.class)
 public class SecurityConfig {
 
-    private static final String[] PUBLIC_URLS = {
-        "/swagger-ui.html", "/swagger-ui/**", "/v3/api-docs/**",
-        "/swagger-resources/**", "/api-docs/**", "/aggregate/**"
-    };
+    /**
+     * Paths that answer the ERROR dispatch. Spring Security filters it on Boot 3+/Security 6+, so
+     * denying them would turn an unauthenticated request that failed into a 403 and lose the status
+     * the tree already answers.
+     */
+    private static final List<String> ALWAYS_PUBLIC_URLS = List.of("/error");
+
+    /**
+     * Documentation endpoints. They are <b>not</b> public by default: they describe the whole API
+     * surface, and a deployment that does not pin {@code security.docs-public=true} should not serve
+     * them to an unauthenticated caller. This mirrors the gateway's {@code DOC_URLS}.
+     */
+    private static final List<String> DOC_URLS = List.of(
+            "/swagger-ui.html",
+            "/swagger-ui/**",
+            "/v3/api-docs/**",
+            "/swagger-resources/**",
+            "/api-docs/**",
+            "/aggregate/**");
 
     private final SecurityAccessProperties accessProperties;
 
-    public SecurityConfig(SecurityAccessProperties accessProperties) {
+    private final boolean docsPublic;
+
+    public SecurityConfig(
+            SecurityAccessProperties accessProperties, @Value("${security.docs-public:false}") boolean docsPublic) {
         this.accessProperties = accessProperties;
+        this.docsPublic = docsPublic;
     }
 
     @Bean
@@ -64,8 +91,13 @@ public class SecurityConfig {
         // time with no principal (record L13).
         var tenantScopeFilter = new TenantScopeFilter(currentUserContext);
 
+        var publicUrls = new ArrayList<>(ALWAYS_PUBLIC_URLS);
+        if (docsPublic) {
+            publicUrls.addAll(DOC_URLS);
+        }
+
         return http.addFilterAfter(tenantScopeFilter, ExceptionTranslationFilter.class)
-                .authorizeHttpRequests(auth -> auth.requestMatchers(PUBLIC_URLS)
+                .authorizeHttpRequests(auth -> auth.requestMatchers(publicUrls.toArray(String[]::new))
                         .permitAll()
                         .requestMatchers("/actuator/health", "/actuator/health/**")
                         .permitAll()
@@ -75,8 +107,11 @@ public class SecurityConfig {
                         .hasAuthority("ROLE_admin")
                         .requestMatchers("/api/**")
                         .authenticated()
+                        // Closed by default and not by omission: a controller registered outside
+                        // /api/** and /actuator/** used to be anonymous because the chain ended in
+                        // permitAll. /error is the one path that stays open, listed above.
                         .anyRequest()
-                        .permitAll())
+                        .denyAll())
                 .oauth2ResourceServer(oauth2 -> oauth2.jwt(
                         jwt -> jwt.decoder(keycloakJwtDecoder).jwtAuthenticationConverter(jwtAuthenticationConverter)))
                 .csrf(csrf -> csrf.disable())

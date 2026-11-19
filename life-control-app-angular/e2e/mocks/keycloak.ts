@@ -1,7 +1,7 @@
 import type { Page, Route } from '@playwright/test';
 import { buildTokenSet } from '../support/tokens';
 
-const KEYCLOAK_BASE = process.env.E2E_KEYCLOAK_URL || 'http://localhost:8181';
+const KEYCLOAK_BASE = process.env['E2E_KEYCLOAK_URL'] || 'http://localhost:8181';
 const REALM = 'life-control-realm';
 const PROTOCOL_PATH = `/realms/${REALM}/protocol/openid-connect`;
 const ISSUER = `${KEYCLOAK_BASE}/realms/${REALM}`;

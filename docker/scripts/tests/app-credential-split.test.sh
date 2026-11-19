@@ -22,6 +22,10 @@
 #      back to when it runs outside a container;
 #   4. `.env.template` declares the role the pool must log in as, and no password for either role.
 #
+# The cache's password is a fifth credential the same wrapper now requires (issue #890), so the sandbox
+# materializes one and its export is asserted from a file like the other four: a wrapper that started
+# without it would run an API that answers NOAUTH on every cached read.
+#
 # No Docker daemon, no network, no Java, no repository file written: the wrapper cases run against a
 # tree under `mktemp -d` with a stub `java` on PATH.
 #
@@ -143,9 +147,11 @@ mkdir -p "$SANDBOX/bin" "$SANDBOX/secrets"
 OWNER_SECRET='owner-secret-1'
 APP_SECRET='app-secret-2'
 ADMIN_SECRET='admin-secret-3'
+REDIS_SECRET='redis-secret-4'
 printf '%s\n' "$OWNER_SECRET" >"$SANDBOX/secrets/lifecontrol_postgres_password"
 printf '%s\n' "$APP_SECRET" >"$SANDBOX/secrets/lifecontrol_app_password"
 printf '%s\n' "$ADMIN_SECRET" >"$SANDBOX/secrets/keycloak_admin_client_secret"
+printf '%s\n' "$REDIS_SECRET" >"$SANDBOX/secrets/redis_password"
 
 # A stub `java` that records the environment the real process would have received. This is the only way
 # to observe the split: the wrapper's whole output IS the env it execs with.
@@ -158,6 +164,7 @@ cat >"$SANDBOX/bin/java" <<'STUB'
 	printf 'FLYWAY_PASSWORD=%s\n' "${FLYWAY_PASSWORD-<unset>}"
 	printf 'DATABASE_APP_PASSWORD=%s\n' "${DATABASE_APP_PASSWORD-<unset>}"
 	printf 'KEYCLOAK_ADMIN_CLIENT_SECRET=%s\n' "${KEYCLOAK_ADMIN_CLIENT_SECRET-<unset>}"
+	printf 'REDIS_PASSWORD=%s\n' "${REDIS_PASSWORD-<unset>}"
 	printf 'ARGV=%s\n' "$*"
 } >"$JAVA_LOG"
 STUB
@@ -175,6 +182,7 @@ run_wrapper() {
 			LIFECONTROL_OWNER_PASSWORD_FILE="${OWNER_FILE:-$SANDBOX/secrets/lifecontrol_postgres_password}" \
 			LIFECONTROL_APP_PASSWORD_FILE="${APP_FILE:-$SANDBOX/secrets/lifecontrol_app_password}" \
 			KEYCLOAK_ADMIN_CLIENT_SECRET_FILE="${ADMIN_FILE:-$SANDBOX/secrets/keycloak_admin_client_secret}" \
+			REDIS_PASSWORD_FILE="${REDIS_FILE:-$SANDBOX/secrets/redis_password}" \
 			"$@" "$ENTRYPOINT"
 	) >"$SANDBOX/out.log" 2>&1
 	LAST_RC=$?
@@ -203,6 +211,10 @@ assert_absent "the second name for the pool credential is gone (one name per job
 	"$LAST_ENV" "DATABASE_APP_PASSWORD=app-secret"
 assert_contains "the Keycloak admin client secret is still exported" \
 	"$LAST_ENV" "KEYCLOAK_ADMIN_CLIENT_SECRET=$ADMIN_SECRET"
+assert_contains "the cache's password is exported from its own file" \
+	"$LAST_ENV" "REDIS_PASSWORD=$REDIS_SECRET"
+assert_absent "the cache never borrows another service's secret" \
+	"$LAST_ENV" "REDIS_PASSWORD=$OWNER_SECRET"
 assert_contains "the Java launch command is the image's" "$LAST_ENV" "-jar /app/app.jar"
 
 # A wrapper that exported a literal would be a secret in the repository. Every credential assignment it
@@ -210,12 +222,13 @@ assert_contains "the Java launch command is the image's" "$LAST_ENV" "-jar /app/
 assert_file_absent "the wrapper carries no secret content" "$ENTRYPOINT" "$OWNER_SECRET"
 assert_file_absent "the wrapper carries no secret content" "$ENTRYPOINT" "$APP_SECRET"
 exported_passwords="$(grep -cE '^[[:space:]]*export [A-Z_]*PASSWORD=' "$ENTRYPOINT")"
-# Four, not two: the database pair this file is about, plus the PAC's password and the CSD key's password,
-# which the fiscal provider's own suite drives (fiscal-wiring.test.sh). The count is asserted here, where
-# the "from a file" loop below lives, so that a fifth credential cannot be added without a reviewer seeing
-# this line change. The leading whitespace is allowed because the fiscal two are exported inside the block
-# that the provider switch gates, and indentation is how that gating stays readable.
-check_equal "the wrapper exports exactly the four credentials, none of them a literal" "4" "$exported_passwords"
+# Five, not two: the database pair this file is about, plus the PAC's password and the CSD key's password,
+# which the fiscal provider's own suite drives (fiscal-wiring.test.sh), plus the cache's password, which the
+# Redis unit added (issue #890). The count is asserted here, where the "from a file" loop below lives, so
+# that a sixth credential cannot be added without a reviewer seeing this line change. The leading whitespace
+# is allowed because the fiscal two are exported inside the block that the provider switch gates, and
+# indentation is how that gating stays readable.
+check_equal "the wrapper exports exactly the five credentials, none of them a literal" "5" "$exported_passwords"
 while IFS= read -r export_line; do
 	assert_contains "every credential the wrapper exports is read from a file" "$export_line" '$(cat '
 done < <(grep -E '^[[:space:]]*export [A-Z_]*PASSWORD=' "$ENTRYPOINT")
@@ -223,6 +236,8 @@ assert_file_contains "the owner secret path defaults to the mount the compose fi
 	"$ENTRYPOINT" 'LIFECONTROL_OWNER_PASSWORD_FILE:-/run/secrets/lifecontrol_postgres_password'
 assert_file_contains "the app secret path defaults to the mount the compose files declare" \
 	"$ENTRYPOINT" 'LIFECONTROL_APP_PASSWORD_FILE:-/run/secrets/lifecontrol_app_password'
+assert_file_contains "the cache secret path defaults to the mount the compose files declare" \
+	"$ENTRYPOINT" 'REDIS_PASSWORD_FILE:-/run/secrets/redis_password'
 
 # Fail closed: an API that starts without either credential ships the wrong identity to every connection.
 mkdir -p "$SANDBOX/without-owner" "$SANDBOX/without-app"
@@ -239,6 +254,16 @@ check_equal "an absent pool credential fails the start" "1" "$LAST_RC"
 assert_contains "the failure names the pool's file" "$LAST_TEXT" "lifecontrol_app_password"
 check_equal "it never reaches the application either" "" "$LAST_ENV"
 APP_FILE=""
+
+# The cache's credential fails the start the same way the two database ones do: an API that starts without
+# it answers NOAUTH on every cached read, which reads as an application bug and not as a missing mount.
+mkdir -p "$SANDBOX/without-redis"
+REDIS_FILE="$SANDBOX/without-redis/redis_password"
+run_wrapper env DATABASE_USERNAME="$APP_ROLE" FLYWAY_USERNAME="$OWNER_ROLE"
+check_equal "an absent cache credential fails the start" "1" "$LAST_RC"
+assert_contains "the failure names the cache's file" "$LAST_TEXT" "redis_password"
+check_equal "it never reaches the application either" "" "$LAST_ENV"
+REDIS_FILE=""
 
 # ------------------------------------------
 # 2. application.properties: which pair feeds which consumer.

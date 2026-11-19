@@ -27,13 +27,20 @@ import tools.jackson.databind.ObjectMapper;
  * free, the promise does not. Each endpoint is its own case so a regression names the endpoint that
  * lost the declaration.</p>
  */
-@SpringBootTest
+// The document is only emitted behind `security.docs-public`, which ships false everywhere except
+// the dev profile: those two lines are refused with 401 on every other environment, and that is what
+// odd/tasks/api-edge-trust.md S5 pins. A contract test is a reader of the document, not a claim that
+// it is public, so it turns the property on instead of depending on the shipped default.
+@SpringBootTest(properties = "security.docs-public=true")
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
 @DisplayName("Sales order OpenAPI contract")
 class SalesOrderOpenApiContractTest {
 
-    /** {@code springdoc.api-docs.path} on {@code application.properties}; public per SecurityConfig. */
+    /**
+     * {@code springdoc.api-docs.path} on {@code application.properties}; reachable here because this
+     * class enables {@code security.docs-public}.
+     */
     private static final String DOC_PATH = "/api-docs";
 
     @Autowired

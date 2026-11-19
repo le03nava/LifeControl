@@ -30,13 +30,17 @@ public class RateLimitProperties {
     private List<String> internalIpWhitelist = List.of();
 
     /**
-     * Addresses (IP or CIDR) whose {@code X-Forwarded-For} / {@code X-Real-IP}
-     * headers may be trusted. Only when the immediate peer matches one of these
-     * entries is the forwarded client address honored; otherwise the socket peer
-     * address is used, preventing clients from spoofing the whitelist.
+     * Addresses (IP or CIDR) whose {@code X-Forwarded-For} / {@code X-Real-IP} headers may be trusted.
+     * Only when the immediate peer matches one of these entries is the forwarded client address
+     * honored; otherwise the socket peer address is used, preventing clients from spoofing the
+     * whitelist.
+     * <p>
+     * The shipped default is loopback and nothing else: a private range is not a proxy declaration,
+     * it is a network. The deployment that has a real proxy declares it through
+     * {@code app.rate-limit.trusted-proxies} (which {@code application.properties} binds to
+     * {@code TRUSTED_PROXIES}, the same operator knob {@code app.security.trusted-proxies} reads).
      */
-    private List<String> trustedProxies =
-            List.of("127.0.0.1/32", "::1/128", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16");
+    private List<String> trustedProxies = List.of("127.0.0.1/32", "::1/128");
 
     private Map<String, EndpointLimit> endpoints = new HashMap<>();
 

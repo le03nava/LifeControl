@@ -4,6 +4,12 @@ name: Docker Build Integrity
 # (`gradle/libs.versions.toml`, issue #894). It matches no module path, so it is listed in both
 # triggers: a catalog-only version bump changes what both modules build, and without this entry
 # it would start no run at all.
+#
+# `.github/scripts/**` and `.gitignore` are here for the same reason, and this workflow is the one
+# that runs every suite under `.github/scripts/tests/`. Without them a change to a suite — or to the
+# ignore rules a suite asserts — matched no path and started nothing, so the suites that guard the
+# repository were exactly the ones a repository change could skip (measured on pull request #961,
+# where a new assertion in `version-catalog.test.sh` produced two checks and no suite run at all).
 on:
   push:
     branches: [main]
@@ -14,6 +20,8 @@ on:
       - 'life-control-api/Dockerfile'
       - 'life-control-api/build.gradle'
       - 'gradle/libs.versions.toml'
+      - '.gitignore'
+      - '.github/scripts/**'
       - '.github/workflows/docker-build-integrity.yml'
   pull_request:
     paths:
@@ -23,6 +31,8 @@ on:
       - 'life-control-api/Dockerfile'
       - 'life-control-api/build.gradle'
       - 'gradle/libs.versions.toml'
+      - '.gitignore'
+      - '.github/scripts/**'
       - '.github/workflows/docker-build-integrity.yml'
 
 # Read-only, declared instead of inherited: this job reads the checkout and runs containers from it,

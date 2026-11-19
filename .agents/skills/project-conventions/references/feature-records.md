@@ -84,6 +84,31 @@ sentence #436 had to repair. The vocabulary is bilingual because the records are
 header reading `implementado y entregado para revisión … el merge es una decisión del mantenedor`,
 which is a live claim in the same class.
 
+## The Tasks table
+
+The task list is the part of the record another agent is handed, so its shape is stated once here
+rather than inferred from whichever record was read last. New records use four columns:
+
+```markdown
+| ID | Specs | Task | Evidence |
+| --- | --- | --- | --- |
+| T1 | S1 | what the task changes | pid `5a116e74770b` |
+```
+
+**There is no `Commit` column, and that is the point.** `odd-citations.test.sh` rejects a backticked
+7–40 hex token that resolves in this repository and is not an ancestor of `origin/main`, and a branch
+commit is never an ancestor at the moment the record is written — so the column's only legal value is
+empty, which is a field demanding a fact that cannot exist yet. It is the same defect as a header that
+needs a second pull request to become true, one layer down: `odd/tasks/pin-enforcement.md` spent a
+paragraph explaining why its column stayed empty. **`Evidence`** names what the task touched instead of
+where it lives: a `git patch-id --stable` (content, per rule 8), a suite and its count, the file, or
+`this record` for the task that writes it.
+
+**Records written before this section are not rewritten** (rule 5): the column survives in them, and
+their frozen narrative is itself the evidence that the field was wrong. No suite enforces the column
+set either, for the same reason — enforcement over a hundred existing records would demand exactly the
+rewrite rule 5 forbids.
+
 ## Anti-patterns
 
 | Anti-pattern | Consequence |

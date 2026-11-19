@@ -397,15 +397,20 @@ class FiscalDocumentCancellationIntegrationTest extends AbstractPostgresIntegrat
     // ──────────────────────────────────────
 
     /**
-     * States one tenant for both halves of the contract: the scope the service reads and the setting the policy
-     * reads.
+     * States one tenant for the three halves of the contract: the caller's own identity, the scope the service
+     * reads and the setting the policy reads.
      *
-     * <p>Both are needed and neither implies the other: {@code TenantScope} is what a service states its reads with,
-     * and {@code app.company_id} is what the row policies filter — a {@code @Transactional} suite opened its
-     * transaction before any of its cases ran, so the second cannot be installed by a transaction boundary and has to
-     * be stated inside the open one ({@code TenantFixtures} owns that rule).</p>
+     * <p>Each is needed and none implies the others: the JWT is what the store guard walks company &rarr; country
+     * &rarr; region &rarr; zone &rarr; store, {@code TenantScope} is what a service states its reads with, and
+     * {@code app.company_id} is what the row policies filter — a {@code @Transactional} suite opened its
+     * transaction before any of its cases ran, so the last cannot be installed by a transaction boundary and has to
+     * be stated inside the open one ({@code TenantFixtures} owns that rule). The identity is re-stated because the
+     * cases that stamp a document of another company leave that company's caller in the context: restoring only the
+     * tenant would hand the guard a caller of the wrong company, which is a refusal about the fixture and not about
+     * the code under test.</p>
      */
     private void asCompany(UUID companyId) {
+        seed.authenticateAs(seed.store());
         TenantScope.set(companyId, null);
         TenantFixtures.stateTenantWithinTheOpenTransaction(companyId, jdbc);
     }

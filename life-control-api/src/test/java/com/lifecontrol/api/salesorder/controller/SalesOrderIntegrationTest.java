@@ -681,6 +681,18 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
      * {@code V61} trigger, and that is what makes it the answer.</p>
      */
     private BigDecimal stockPositionOf(UUID variantId) {
+        return stockPositionIn(companyStoreId, variantId);
+    }
+
+    /**
+     * One store's position of a variant, from the same projection: the number a sale <em>at that store</em> is
+     * refused by.
+     *
+     * <p>The store is a parameter because a case can be about two stores of one company, and the position that
+     * matters is the one the document's own store holds. It is one query with two names and not a second definition
+     * of the number: {@link #stockPositionOf} is this method with this class's store.</p>
+     */
+    private BigDecimal stockPositionIn(UUID storeId, UUID variantId) {
         return documentQuantity(TenantFixtures.inTenant(
                 companyId, () -> jdbcTemplate.queryForObject("""
                         SELECT COALESCE(
@@ -688,7 +700,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                                       FROM stock_position
                                      WHERE company_store_id = ? AND product_variant_id = ?),
                                    0)
-                        """, BigDecimal.class, companyStoreId, variantId)));
+                        """, BigDecimal.class, storeId, variantId)));
     }
 
     /**
@@ -5115,6 +5127,390 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
         }
     }
 
+    // ─── 5.22 Cross-store authorization: the order's store decides, and the list narrows ───
+
+    /**
+     * The rule of {@code odd/tasks/sales-order-cross-store-authz.md}, stated over HTTP against real PostgreSQL: a
+     * document is reachable only through the store it belongs to, and the flat list only through the caller's own
+     * store scope.
+     *
+     * <p><b>What this class proves.</b> Two stores of <b>one</b> company — so the tenant policy admits every row to
+     * every caller here, and nothing but the store guard can refuse a request. Every id-addressed path the issue
+     * names is refused with {@code 403} when the order belongs to the other store, and each refusal is paired with
+     * the state a write would have moved: the read's row, the edit's {@code company_store_id}, the charge's payment
+     * rows, total and status, the status change's stored status, the soft-delete's {@code enabled}. The list answers
+     * the caller's store only, while a caller that holds both stores still sees both documents. And the legitimate
+     * path stays open: the store that owns the order still charges it, with the payment row and the stock the
+     * charge books.</p>
+     *
+     * <p><b>What it deliberately does not do.</b> It does not re-prove the tenant-level row level security, which
+     * its own suites pin: both stores belong to one company on purpose, because a refusal that could come from
+     * either layer would prove neither. It does not enumerate the line sub-paths ({@code POST}/{@code PUT}/{@code
+     * DELETE .../items}): they enter the same guard through one helper, and this class is about the header paths the
+     * issue names. And it does not re-prove the transitions, the breakdown or the ledger arithmetic — the effects
+     * asserted here are only the ones a refused write would have moved.</p>
+     */
+    @Nested
+    @DisplayName("5.22 Cross-store authorization — the order's store decides, and the list narrows to the caller's")
+    class StoreScopingTests {
+
+        @Test
+        @DisplayName("should refuse the read of another store's order with 403 and leave its row as it was")
+        void readOfAnotherStoresOrder_IsForbidden_AndLeavesTheRowAsItWas() throws Exception {
+            var variant = createTestVariant(new BigDecimal("100.00"));
+            var other = otherStore();
+            var orderId = placeOrderIn(other, line(null, variant.getId(), "2.00"));
+            var before = storedHeader(orderId);
+
+            // The caller holds store A and nothing else, and the order is store B's of the same company: the
+            // company policy admits the row, so the store is the only thing that can refuse this read.
+            mockMvc.perform(get("/api/sales-orders/{id}", orderId).with(scopedSalesJwt()))
+                    .andExpect(status().isForbidden())
+                    .andExpect(jsonPath("$.status").value(403));
+
+            var after = storedHeader(orderId);
+            assertThat(after.status()).isEqualTo(before.status());
+            assertThat(after.enabled()).isEqualTo(before.enabled());
+            assertThat(after.totalAmount()).isEqualByComparingTo(before.totalAmount());
+        }
+
+        @Test
+        @DisplayName("should refuse the edit of another store's order with 403 and leave it in its own store")
+        void editOfAnotherStoresOrder_IsForbidden_AndLeavesItsStore() throws Exception {
+            var other = otherStore();
+            var orderId = placeOrderIn(other);
+            var before = storedHeader(orderId);
+
+            // The body names the caller's OWN store — the move an edit from the wrong store attempts. The order
+            // carries no lines, so the reassignment rule is not what answers: on the previous tree this request was
+            // a 200 that moved the document into store A.
+            var moveIntoMyStore = new SalesOrderRequest(customerId, companyStoreId, shiftId, "user123", List.of());
+            mockMvc.perform(put("/api/sales-orders/{id}", orderId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(moveIntoMyStore))
+                            .with(scopedSalesJwt()))
+                    .andExpect(status().isForbidden())
+                    .andExpect(jsonPath("$.status").value(403));
+
+            var after = storedHeader(orderId);
+            assertThat(after.companyStoreId()).isEqualTo(other.storeId());
+            assertThat(after.status()).isEqualTo(before.status());
+        }
+
+        @Test
+        @DisplayName("should refuse the charge of another store's order with 403 and write no payment")
+        void chargeOfAnotherStoresOrder_IsForbidden_AndWritesNoPayment() throws Exception {
+            var variant = createTestVariant(new BigDecimal("100.00"));
+            var other = otherStore();
+            seedStockIn(other, variant.getId(), "10.00");
+            var orderId = placeOrderIn(other, line(null, variant.getId(), "2.00"));
+            // Chargeable before the refusal, so the store is the only thing that can refuse it: the charge answers
+            // a Draft document with its own state guard, which would say nothing about this case.
+            transitionTo(orderId, activeStatusId, scopedSalesJwt(other.storeId()));
+            var before = storedHeader(orderId);
+
+            mockMvc.perform(patch("/api/sales-orders/{id}/charge", orderId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(
+                                    objectMapper.writeValueAsString(chargeForItsTotal(orderId, savedPaymentMethodId())))
+                            .with(scopedSalesJwt()))
+                    .andExpect(status().isForbidden())
+                    .andExpect(jsonPath("$.status").value(403));
+
+            assertThat(paymentsOf(orderId))
+                    .as("`sale_payment` is append-only, so a row this refusal wrote could never be taken back")
+                    .isEmpty();
+            var after = storedHeader(orderId);
+            assertThat(after.totalAmount()).isEqualByComparingTo(before.totalAmount());
+            assertThat(after.status())
+                    .as("the charge auto-promotes Active to Pending before it moves money, so the guard has to run "
+                            + "before that write (D2 of the record)")
+                    .isEqualTo(SalesOrderState.ACTIVE);
+            assertThat(stockPositionIn(other.storeId(), variant.getId()))
+                    .as("and no unit of the document was booked anywhere")
+                    .isEqualByComparingTo(new BigDecimal("10.00"));
+        }
+
+        @Test
+        @DisplayName("should refuse a status change on another store's order with 403 and leave the status alone")
+        void statusChangeOnAnotherStoresOrder_IsForbidden_AndLeavesTheStatus() throws Exception {
+            var variant = createTestVariant(new BigDecimal("100.00"));
+            var other = otherStore();
+            var orderId = placeOrderIn(other, line(null, variant.getId(), "1.00"));
+            var before = storedHeader(orderId);
+
+            // Draft -> Active is a legal move of the document's own machine, so on the previous tree this request
+            // answered 200 and the stored status became Active.
+            mockMvc.perform(patch("/api/sales-orders/{id}/status", orderId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(new UpdateSalesOrderStatusRequest(activeStatusId)))
+                            .with(scopedSalesJwt()))
+                    .andExpect(status().isForbidden())
+                    .andExpect(jsonPath("$.status").value(403));
+
+            assertThat(storedHeader(orderId).status()).isEqualTo(before.status());
+        }
+
+        @Test
+        @DisplayName("should refuse the delete of another store's order with 403 and leave it enabled")
+        void deleteOfAnotherStoresOrder_IsForbidden_AndLeavesItEnabled() throws Exception {
+            var variant = createTestVariant(new BigDecimal("100.00"));
+            var other = otherStore();
+            var orderId = placeOrderIn(other, line(null, variant.getId(), "1.00"));
+
+            mockMvc.perform(delete("/api/sales-orders/{id}", orderId).with(scopedSalesJwt()))
+                    .andExpect(status().isForbidden())
+                    .andExpect(jsonPath("$.status").value(403));
+
+            assertThat(storedHeader(orderId).enabled())
+                    .as("the delete is the soft one: on the previous tree the row came back disabled")
+                    .isTrue();
+        }
+
+        @Test
+        @DisplayName("should list only the caller's store, and both stores for a caller that holds both")
+        void list_NarrowsToTheCallersStores() throws Exception {
+            var variant = createTestVariant(new BigDecimal("10.00"));
+            var other = otherStore();
+            var mine = createOrder(line(null, variant.getId(), "1.00")).orderId();
+            var theirs = placeOrderIn(other, line(null, variant.getId(), "1.00"));
+
+            mockMvc.perform(get("/api/sales-orders").with(scopedSalesJwt()))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.totalElements").value(1))
+                    .andExpect(jsonPath("$.content[*].id")
+                            .value(org.hamcrest.Matchers.containsInAnyOrder(mine.toString())));
+
+            // The same query, for a caller that holds both stores: the narrowing is a scope and not a filter that
+            // hides a document from everyone.
+            mockMvc.perform(get("/api/sales-orders").with(scopedSalesJwt(other.storeId())))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.totalElements").value(2))
+                    .andExpect(jsonPath("$.content[*].id")
+                            .value(org.hamcrest.Matchers.containsInAnyOrder(mine.toString(), theirs.toString())));
+        }
+
+        @Test
+        @DisplayName("should still charge another store's order from a caller scoped to that store alone")
+        void chargeFromTheStoresOwnCaller_StillSucceeds() throws Exception {
+            var variant = createTestVariant(new BigDecimal("100.00"));
+            var other = otherStore();
+            seedStockIn(other, variant.getId(), "10.00");
+            var orderId = placeOrderIn(other, line(null, variant.getId(), "2.00"));
+            // A token whose store claim is exactly store B: the guard has to admit the order's own store, or the
+            // narrowing would have closed the legitimate path instead of the foreign one.
+            var storeBCaller = salesJwtForStores(List.of(other.storeId()));
+            transitionTo(orderId, activeStatusId, storeBCaller);
+
+            mockMvc.perform(patch("/api/sales-orders/{id}/charge", orderId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(
+                                    objectMapper.writeValueAsString(chargeForItsTotal(orderId, savedPaymentMethodId())))
+                            .with(storeBCaller))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.statusName").value("Completed"));
+
+            assertThat(paymentsOf(orderId)).hasSize(1);
+            assertThat(stockPositionIn(other.storeId(), variant.getId()))
+                    .as("the charge booked the two units in the store that owns the document")
+                    .isEqualByComparingTo(new BigDecimal("8.00"));
+        }
+
+        /**
+         * A second store of this company, in the same zone, with the shelf its stock is received on.
+         *
+         * <p>Find-or-create, the shape {@code ensureInventoryLocations} already uses: the cases of this class share
+         * one store instead of accumulating one per case. It deliberately carries no {@code store_inventory_settings}
+         * row — a sale allocates FIFO across the store's locations when the row is absent (W3-D8) — so the fixture
+         * states one fewer thing than production would and nothing asserted here depends on the difference.</p>
+         */
+        private OtherStore otherStore() {
+            return TenantFixtures.inTenant(companyId, () -> {
+                var zone = companyStoreRepository
+                        .findById(companyStoreId)
+                        .orElseThrow()
+                        .getCompanyZone();
+                var store = companyStoreRepository.findByCompanyZoneId(zone.getId()).stream()
+                        .filter(candidate -> !candidate.getId().equals(companyStoreId))
+                        .findFirst()
+                        .orElseGet(() -> companyStoreRepository.save(CompanyStore.builder()
+                                .companyZone(zone)
+                                .storeName("Sales Other Store "
+                                        + UUID.randomUUID().toString().substring(0, 8))
+                                .enabled(true)
+                                .build()));
+
+                var area =
+                        storeAreaRepository
+                                .findByCompanyStoreIdOrderByDisplayOrderAscAreaCodeAsc(store.getId())
+                                .stream()
+                                .filter(candidate -> "OTHER-AREA".equals(candidate.getAreaCode()))
+                                .findFirst()
+                                .orElseGet(() -> storeAreaRepository.save(StoreArea.builder()
+                                        .companyStore(store)
+                                        .areaCode("OTHER-AREA")
+                                        .areaName("Other Area")
+                                        .displayOrder(1)
+                                        .enabled(true)
+                                        .build()));
+
+                var otherZone =
+                        storeZoneRepository.findByStoreAreaIdOrderByDisplayOrderAscZoneCodeAsc(area.getId()).stream()
+                                .filter(candidate -> "OTHER-ZONE".equals(candidate.getZoneCode()))
+                                .findFirst()
+                                .orElseGet(() -> storeZoneRepository.save(StoreZone.builder()
+                                        .storeArea(area)
+                                        .zoneCode("OTHER-ZONE")
+                                        .zoneName("Other Zone")
+                                        .displayOrder(1)
+                                        .enabled(true)
+                                        .build()));
+
+                var location =
+                        storeLocationRepository
+                                .findByStoreZoneIdOrderByDisplayOrderAscLocationCodeAsc(otherZone.getId())
+                                .stream()
+                                .filter(candidate -> "OTHER-01".equals(candidate.getLocationCode()))
+                                .findFirst()
+                                .orElseGet(() -> storeLocationRepository.save(StoreLocation.builder()
+                                        .storeZone(otherZone)
+                                        .locationCode("OTHER-01")
+                                        .locationName("Other shelf")
+                                        .displayOrder(1)
+                                        .enabled(true)
+                                        .build()));
+
+                return new OtherStore(store.getId(), location.getId());
+            });
+        }
+
+        /**
+         * Creates a document at the other store, through the API and by a principal that holds that store.
+         *
+         * <p>Creating is the one path that already authorized the caller for the store it builds the document in, so
+         * the document has to be placed by a caller that holds it: {@code scopedSalesJwt(other.storeId())} holds
+         * both, and every refusal of this class is made by the store-A-only caller. The shift is this class's — a
+         * shift is only read for being open, and the document records it as the operator's.</p>
+         */
+        /**
+         * The delete of another store's <em>charged</em> order is refused and the row stays enabled.
+         *
+         * <p><b>What this case does not prove, measured.</b> It was written to pin the guard's <em>position</em> — above
+         * the reversal — and it cannot: with the guard moved below {@code restoreAllLines} it still passes, because the
+         * reversal of a fully charged order credits nothing back in this fixture, so the store position is the same
+         * either way. The position is pinned instead by
+         * {@code SalesOrderServiceTest.StoreScopeOnExistingOrdersTests#deleteIsRefusedBeforeTheReversal}, where the
+         * ledger is a mock and "the reversal ran" is an interaction the assertion can see.</p>
+         */
+        @Test
+        @DisplayName("should refuse the delete of another store's charged order and restore no stock")
+        void deleteOfAnotherStoresChargedOrder_RestoresNoStock() throws Exception {
+            var variant = createTestVariant(new BigDecimal("100.00"));
+            var other = otherStore();
+            seedStockIn(other, variant.getId(), "10.00");
+            var orderId = placeOrderIn(other, line(null, variant.getId(), "2.00"));
+            var storeBCaller = salesJwtForStores(List.of(other.storeId()));
+
+            transitionTo(orderId, activeStatusId, storeBCaller);
+            mockMvc.perform(patch("/api/sales-orders/{id}/charge", orderId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(
+                                    objectMapper.writeValueAsString(chargeForItsTotal(orderId, savedPaymentMethodId())))
+                            .with(storeBCaller))
+                    .andExpect(status().isOk());
+
+            assertThat(storedHeader(orderId).status())
+                    .as("only a COMPLETED document reverses stock on delete, so the case is vacuous unless the "
+                            + "charge actually finished")
+                    .isEqualTo(SalesOrderState.COMPLETED);
+            var chargedPosition = stockPositionIn(other.storeId(), variant.getId());
+
+            mockMvc.perform(delete("/api/sales-orders/{id}", orderId).with(scopedSalesJwt()))
+                    .andExpect(status().isForbidden());
+
+            assertThat(stockPositionIn(other.storeId(), variant.getId()))
+                    .as("no units came back to the foreign store on a refused delete")
+                    .isEqualByComparingTo(chargedPosition);
+            assertThat(storedHeader(orderId).enabled()).isTrue();
+        }
+
+        private UUID placeOrderIn(OtherStore other, SalesOrderItemRequest... items) throws Exception {
+            var request = new SalesOrderRequest(customerId, other.storeId(), shiftId, "user123", List.of(items));
+            var result = mockMvc.perform(post("/api/sales-orders")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request))
+                            .with(scopedSalesJwt(other.storeId())))
+                    .andExpect(status().isCreated())
+                    .andReturn();
+            return UUID.fromString(objectMapper
+                    .readTree(result.getResponse().getContentAsString())
+                    .get("id")
+                    .asText());
+        }
+
+        /** A status move through the API, from the principal the case names. */
+        private void transitionTo(UUID orderId, UUID statusId, RequestPostProcessor principal) throws Exception {
+            mockMvc.perform(patch("/api/sales-orders/{id}/status", orderId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(new UpdateSalesOrderStatusRequest(statusId)))
+                            .with(principal))
+                    .andExpect(status().isOk());
+        }
+
+        /**
+         * Gives the other store the units a charge there needs: the store's own stock row and one receipt.
+         *
+         * <p>Booked through {@link StockLedgerEngine#applyReceipt} for the reason the suite's opening is: the position
+         * a charge is refused by is the ledger's projection, so the fixture writes it the way production does. The
+         * variant's stock in this class's store is untouched — a case that charges the other store must not also
+         * depend on what store A holds.</p>
+         */
+        private void seedStockIn(OtherStore other, UUID variantId, String quantity) {
+            TenantFixtures.inTenant(companyId, () -> {
+                productVariantStoreStockRepository.save(ProductVariantStoreStock.builder()
+                        .productVariantId(variantId)
+                        .companyStoreId(other.storeId())
+                        .costPrice(new BigDecimal("60.00"))
+                        .build());
+                stockLedgerEngine.applyReceipt(
+                        variantId,
+                        other.storeId(),
+                        other.salesLocationId(),
+                        new BigDecimal(quantity),
+                        // An opening balance, not a purchase: no price is stated, so these units are valued at the
+                        // store's declared cost_price — the same number the suite's own opening uses.
+                        null,
+                        FIXTURE_OPENING,
+                        UUID.randomUUID(),
+                        "fixture");
+            });
+        }
+
+        /**
+         * The stored header, read under this class's tenant: what a refused write would have moved.
+         *
+         * <p>Scalars and not the entity, so the two reads a case makes cannot be one instance answering from one
+         * persistence context — the assertion would then compare a row with itself.</p>
+         */
+        private StoredHeader storedHeader(UUID orderId) {
+            return inTransaction(() -> {
+                var so = salesOrderRepository.findById(orderId).orElseThrow();
+                return new StoredHeader(
+                        so.getStatus(),
+                        Boolean.TRUE.equals(so.getEnabled()),
+                        so.getCompanyStoreId(),
+                        so.getTotalAmount());
+            });
+        }
+
+        /** The columns of a document that a refused write could have moved. */
+        private record StoredHeader(
+                SalesOrderState status, boolean enabled, UUID companyStoreId, BigDecimal totalAmount) {}
+
+        /** The other store, with the shelf its stock is received on. */
+        private record OtherStore(UUID storeId, UUID salesLocationId) {}
+    }
+
     /**
      * A store-scoped {@code lc-sales} principal whose claims carry the real company -> country ->
      * region -> zone -> store chain, so the store guard passes through the real stack instead of
@@ -5122,10 +5518,21 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
      * the multi-store reassignment case; the claim accepts a comma-separated list.
      */
     private RequestPostProcessor scopedSalesJwt(UUID... extraStoreIds) {
-        var chain = storeChain();
         var storeIds = new ArrayList<UUID>();
-        storeIds.add(chain.storeId());
+        storeIds.add(storeChain().storeId());
         storeIds.addAll(List.of(extraStoreIds));
+        return salesJwtForStores(storeIds);
+    }
+
+    /**
+     * The same principal, with the {@code company_store_id} claim stating exactly {@code storeIds}.
+     *
+     * <p>{@link #scopedSalesJwt} always widens the claim with this class's own store, which is what a case about a
+     * foreign document needs. The store-scoping cases also need the narrow direction — a caller that holds one store
+     * and nothing else — and it is the same token built here once, so the two shapes cannot drift apart.</p>
+     */
+    private RequestPostProcessor salesJwtForStores(List<UUID> storeIds) {
+        var chain = storeChain();
         var storeClaim = storeIds.stream().map(UUID::toString).collect(Collectors.joining(","));
 
         return jwt().authorities(ROLE_LC_SALES)

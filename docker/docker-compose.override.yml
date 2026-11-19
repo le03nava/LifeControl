@@ -62,13 +62,15 @@ services:
   # docker-compose.prod.yml. Keycloak relays the realm's action emails here
   # (SMTP_HOST=mailpit, see .env.template). The UI/API is published on
   # MAILPIT_PORT; the SMTP port (1025) is deliberately NOT published to the
-  # host because only the compose network needs it. No explicit healthcheck:
-  # the image ships HEALTHCHECK /mailpit readyz.
+  # host because only the compose network needs it. The UI/API mapping is bound
+  # to 127.0.0.1 like every other non-browser-facing port: Mailpit stores every
+  # invitation email this stack sends and authenticates nobody (issue #890).
+  # No explicit healthcheck: the image ships HEALTHCHECK /mailpit readyz.
   mailpit:
     image: ${MAILPIT_IMAGE:-axllent/mailpit:v1.31.6}
     container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-mailpit
     ports:
-      - "${MAILPIT_PORT:-8025}:8025"
+      - "127.0.0.1:${MAILPIT_PORT:-8025}:8025"
     networks:
       - default
     restart: unless-stopped

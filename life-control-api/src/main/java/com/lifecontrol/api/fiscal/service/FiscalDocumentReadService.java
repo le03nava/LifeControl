@@ -49,11 +49,15 @@ public class FiscalDocumentReadService {
 
     private final SalesOrderRepository salesOrderRepository;
     private final FiscalDocumentRepository fiscalDocumentRepository;
+    private final FiscalDocumentStoreScope storeScope;
 
     public FiscalDocumentReadService(
-            SalesOrderRepository salesOrderRepository, FiscalDocumentRepository fiscalDocumentRepository) {
+            SalesOrderRepository salesOrderRepository,
+            FiscalDocumentRepository fiscalDocumentRepository,
+            FiscalDocumentStoreScope storeScope) {
         this.salesOrderRepository = salesOrderRepository;
         this.fiscalDocumentRepository = fiscalDocumentRepository;
+        this.storeScope = storeScope;
     }
 
     /**
@@ -80,10 +84,16 @@ public class FiscalDocumentReadService {
         // and only the row can tell them apart. The policy already hides another company's sale; the comparison
         // states the same fact in the call, so a connection that bypassed the policy cannot turn a foreign sale into
         // a 204 (S5, S7).
-        salesOrderRepository
+        var sale = salesOrderRepository
                 .findById(salesOrderId)
-                .filter(sale -> companyId.equals(sale.getCompanyId()))
+                .filter(candidate -> companyId.equals(candidate.getCompanyId()))
                 .orElseThrow(() -> new FiscalSaleNotFoundException(salesOrderId));
+
+        // The store the sale belongs to decides, before any document is read: a caller of store A receives a 403 for
+        // store B's sale and learns nothing from it — not the authority's UUID, not the folio, not even whether one
+        // exists (S1 of odd/tasks/fiscal-document-cross-store-authz.md). The tenant policy admits both stores because
+        // both are of one company, so the store is the only axis that can refuse this.
+        storeScope.verifyAccessOfSale(sale);
 
         var stamped = fiscalDocumentRepository
                 .findByCompanyIdAndSourceTypeAndSourceIdOrderByCreatedAtAsc(

@@ -69,8 +69,44 @@ class CidrMatcherTest {
     }
 
     @Nested
+    @DisplayName("IP literal detection")
+    class IpLiteralTests {
+
+        @Test
+        @DisplayName("accepts IPv4 and IPv6 literals")
+        void acceptsLiterals() {
+            assertThat(CidrMatcher.looksLikeIp("127.0.0.1")).isTrue();
+            assertThat(CidrMatcher.looksLikeIp("255.255.255.255")).isTrue();
+            assertThat(CidrMatcher.looksLikeIp("::1")).isTrue();
+            assertThat(CidrMatcher.looksLikeIp("2001:db8::7")).isTrue();
+            assertThat(CidrMatcher.looksLikeIp("  ::1  ")).isTrue();
+        }
+
+        @Test
+        @DisplayName("rejects names and malformed addresses")
+        void rejectsNames() {
+            assertThat(CidrMatcher.looksLikeIp("localhost")).isFalse();
+            assertThat(CidrMatcher.looksLikeIp("evil.example.com")).isFalse();
+            assertThat(CidrMatcher.looksLikeIp("127.0.0.1.example.com")).isFalse();
+            assertThat(CidrMatcher.looksLikeIp("999.999.999.999")).isFalse();
+            assertThat(CidrMatcher.looksLikeIp("10.0.0")).isFalse();
+            assertThat(CidrMatcher.looksLikeIp("")).isFalse();
+            assertThat(CidrMatcher.looksLikeIp(null)).isFalse();
+        }
+    }
+
+    @Nested
     @DisplayName("invalid input")
     class InvalidInputTests {
+
+        @Test
+        @DisplayName("refuses a hostname instead of resolving it")
+        void refusesHostname() {
+            // "localhost" resolves to 127.0.0.1, so InetAddress.getByName would have matched it: a
+            // caller-written hop could name a hostname and reach any address DNS answers for it.
+            assertThat(CidrMatcher.matches("localhost", "127.0.0.1/32")).isFalse();
+            assertThat(CidrMatcher.matches("localhost", "127.0.0.1")).isFalse();
+        }
 
         @Test
         @DisplayName("fails closed on malformed rules")

@@ -45,12 +45,15 @@ public class FiscalDocumentReprintService {
 
     private final FiscalDocumentRepository fiscalDocumentRepository;
     private final FiscalDocumentArtifactRepository fiscalDocumentArtifactRepository;
+    private final FiscalDocumentStoreScope storeScope;
 
     public FiscalDocumentReprintService(
             FiscalDocumentRepository fiscalDocumentRepository,
-            FiscalDocumentArtifactRepository fiscalDocumentArtifactRepository) {
+            FiscalDocumentArtifactRepository fiscalDocumentArtifactRepository,
+            FiscalDocumentStoreScope storeScope) {
         this.fiscalDocumentRepository = fiscalDocumentRepository;
         this.fiscalDocumentArtifactRepository = fiscalDocumentArtifactRepository;
+        this.storeScope = storeScope;
     }
 
     /**
@@ -83,6 +86,11 @@ public class FiscalDocumentReprintService {
                 .filter(candidate ->
                         FiscalDocumentSnapshotWriter.SOURCE_TYPE_SALES_ORDER.equals(candidate.getSourceType()))
                 .orElseThrow(() -> new FiscalDocumentArtifactNotFoundException(fiscalDocumentId));
+
+        // The store the document came from decides, before the artefact is read: a caller of store A receives a 403
+        // for store B's document and no bytes of it (S2 of odd/tasks/fiscal-document-cross-store-authz.md). The same
+        // 403 a foreign store always received, answered before anything the caller could keep.
+        storeScope.verifyAccessOfDocument(document);
 
         var xml = fiscalDocumentArtifactRepository
                 .findByCompanyIdAndFiscalDocumentId(companyId, document.getId())

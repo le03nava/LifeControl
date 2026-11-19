@@ -132,7 +132,7 @@ src/
 ├── styles.scss                   # Estilos globales (M3 theme, dark mode)
 ├── main.ts                       # Entry point browser
 ├── test-setup.ts                 # Configuración de tests (Vitest)
-└── test-timeouts.ts              # Budgets de timeout del runner (20s, no los defaults)
+└── test-timeouts.ts              # Config del runner: budgets de 20s y techo de 2 workers
 ```
 
 ### Path Aliases
@@ -806,6 +806,18 @@ npm run test:coverage   # Con coverage
 npm run test:coverage:check  # Tests + enforcement de umbrales (local)
 ```
 
+### Entorno DOM (jsdom) — riesgo registrado
+
+El DOM en el que corre la suite unitaria es **jsdom**, y hoy va dos líneas mayores por detrás de la
+última publicada (`jsdom ^26.1.0`). Es un riesgo de **verde falso**, no de comodidad: un bug de jsdom es
+indistinguible de un componente sano, porque el test no puede separar "el componente está mal" de "el DOM
+de mentira no implementa lo que el componente usa". El árbol ya paga ese precio en varios specs, que
+stubean `matchMedia`, `scrollIntoView` y la object-URL API (`src/test-setup.ts:29,37`).
+
+Subir de línea **no** entra en esta unidad: cambia el DOM de toda la suite, así que se mide con la suite
+entera en la mano y no como un bump de versión. Queda registrado acá para que la próxima persona lo
+encuentre antes de escribir el primer stub nuevo.
+
 ### Timeouts
 
 `src/test-timeouts.ts` define los budgets por encima de los defaults de Vitest y `src/test-setup.ts` los
@@ -823,19 +835,60 @@ cobertura mientras que el gate corre **con** ella, así que 1.72x es un techo y 
 dispara por contención no detecta un defecto: destruye señal.
 
 - `@angular/build:unit-test` **no expone** `testTimeout`, `hookTimeout`, `maxWorkers` ni `pool` en su
-  schema, y arranca Vitest con `config: false`, así que `setupFiles` + `vi.setConfig()` es la única vía.
+  schema, y arranca Vitest con `config: false`; la vía es `runnerConfig` (`angular.json` →
+  `src/test-timeouts.ts`), cuyo objeto `test` el builder fusiona tal cual en el proyecto de Vitest
+  (`@angular/build/src/builders/unit-test/runners/vitest/plugins.js`:
+  `mergeConfig(projectDefaults, { test: testConfig })`) sin pisar el pool. `vi.setConfig()` instala los dos
+  budgets desde ese mismo módulo; **no** puede llevar el tamaño del pool, que se lee del proyecto.
 - `hookTimeout` sube junto con `testTimeout`: si no, la misma contención reaparece como timeout de
   `beforeEach`/`afterEach`, que es donde vive casi todo el trabajo por test de `TestBed`.
 - `src/test-timeouts.spec.ts` es un source guard: bajar cualquiera de los dos por debajo de 20 000ms, o
   desconectar la llamada a `vi.setConfig`, pone el gate en rojo.
 
+Los budgets **no** alcanzan solos para que el veredicto deje de depender de la carga: eso lo resuelve el
+techo de workers, en la sección siguiente.
+
+### Concurrencia del runner (por qué la suite no usa todos los cores)
+
+`src/test-timeouts.ts` declara `maxWorkers: MAX_WORKERS`, y `MAX_WORKERS` vale **2**.
+
+Vitest dimensiona el pool con la cantidad de cores (`resolveMaxWorkers` en
+`vitest/dist/chunks/cli-api`: `availableParallelism() - 1`, o sea **7** en una máquina de 8), y cada fork es
+un proceso Node entero con el bundle compilado de Angular, un documento jsdom y la instrumentación de
+cobertura: **~280MB** residentes por fork, medidos acá. Siete de esos no entran al lado del resto de una
+máquina de desarrollo, y el runner **no tiene presupuesto de memoria**, así que la sobre-suscripción
+aparece como swap y un timer que no se puede agendar dispara muy después de sus 20s: la corrida que
+reprodujo el issue registró tests individuales de 90s y 405s y **un archivo** de 522s, sin una sola falla de
+aserción. Subir el budget no arregla eso — un timer que no se agenda tampoco respeta un número más grande.
+
+- El techo es **fijo** y no una fracción de los cores, a propósito: una fracción **es** el defecto — más
+  cores, más forks, y el recurso que se agota primero es la memoria, no los cores.
+- El costo está medido: sobre el mismo subconjunto de 6 archivos, sin el techo la corrida tardó **16.30s**
+  y con el techo **27.12s**. Un gate que siempre dice la verdad tarda más que uno que bajo carga miente, y
+  se paga a propósito. La medición completa, con la suite entera y en las dos condiciones de carga, está en
+  `odd/tasks/unit-test-load-independence.md`.
+- `src/test-timeouts.spec.ts` falla si el número se sube por encima del medido, si el wiring desaparece o si
+  aparece un `retry`: un retry haría verde a una máquina cargada escondiendo la falla que el gate existe
+  para reportar (issue #971, criterio "no silent retry").
+- Que el techo **llegue** al runner y no quede sólo escrito: con la corrida viva,
+  `pgrep -f 'vitest/dist/workers/forks.js' | wc -l` nunca pasa de 2 workers (más el fork transitorio de
+  arranque/cierre). Sin el techo, la misma corrida abre 6 con 6 archivos.
+
 **No corras esta suite en paralelo consigo misma.** Dos corridas concurrentes se roban CPU y producen
-`Test timed out` en tests que no tienen nada de malo. Si una primera corrida falla así, sospechá de la
-carga antes que del código: ver `odd/tasks/test-timeout-headroom.md`.
+`Test timed out` en tests que no tienen nada de malo. El techo de workers **no** cubre esto: son dos
+corridas, cada una con sus dos workers. Si una primera corrida falla así, sospechá de la carga antes que
+del código: ver `odd/tasks/unit-test-load-independence.md`.
 
 ### Umbrales de Cobertura
 
-`@angular/build:unit-test` en Angular 20 **no soporta `codeCoverageThresholds`** (schema con `additionalProperties: false`; `coverageThresholds` llegó en versiones posteriores de Angular). El enforcement se hace vía `scripts/check-coverage.mjs`, que lee `coverage/coverage-summary.json` (reporter `json-summary` en `angular.json`).
+`@angular/build:unit-test` expone `coverageThresholds` en su schema en la línea que este repo corre
+(`@angular/build` 22.2.3), así que el umbral **podría** vivir en `angular.json`. El enforcement se hace
+igual vía `scripts/check-coverage.mjs`, que lee `coverage/coverage-summary.json` (reporter `json-summary`
+en `angular.json`), porque es el único punto que cubre los dos caminos: los dos shards de CI que corren
+`ng test --coverage` y el job de `Coverage`, que recombina los reportes blob con
+`test:coverage:merge:check` — y ese segundo camino corre `vitest --merge-reports` directo, sin builder que
+aplique el umbral. Mover el umbral al builder es una unidad aparte, no una migración que este documento
+pueda dar por hecha.
 
 | Métrica | Actual | Umbral (floor) |
 |---------|--------|----------------|
@@ -1343,7 +1396,7 @@ El código de `src/**` lo formatea prettier (por `lint-staged` en el pre-commit)
 
 ## Referencias
 
-- [Angular 20 Documentation](https://angular.dev)
+- [Angular 22 Documentation](https://angular.dev)
 - [Angular Signals Guide](https://angular.dev/guide/signals)
 - [Angular rxResource](https://angular.dev/guide/rx-resource)
 - [Keycloak Angular](https://www.npmjs.com/package/keycloak-angular)

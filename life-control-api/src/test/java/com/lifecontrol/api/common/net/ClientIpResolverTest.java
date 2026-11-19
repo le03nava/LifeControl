@@ -72,4 +72,54 @@ class ClientIpResolverTest {
             assertThat(ClientIpResolver.resolve(request, TRUSTED_PROXIES)).isEqualTo("10.0.0.1");
         }
     }
+
+    /**
+     * The walk starts at the right. Spring Cloud Gateway's default {@code XForwardedHeadersFilter}
+     * appends the connection's address, so the header is {@code <caller-written prefix>, <real client>}:
+     * reading the leftmost hop returns bytes the caller chose.
+     */
+    @Nested
+    @DisplayName("right-to-left walk over X-Forwarded-For")
+    class RightToLeftWalkTests {
+
+        @Test
+        @DisplayName("ignores a forged leftmost hop and returns the rightmost untrusted hop")
+        void ignoresForgedLeftmostHop() {
+            var request = requestFrom("10.0.0.1");
+            request.addHeader("X-Forwarded-For", "127.0.0.1, 203.0.113.5, 10.0.0.2");
+
+            assertThat(ClientIpResolver.resolve(request, TRUSTED_PROXIES))
+                    .as("the client is the first hop leftwards that is not itself a trusted proxy")
+                    .isEqualTo("203.0.113.5");
+        }
+
+        @Test
+        @DisplayName("returns the leftmost hop when every hop is a trusted proxy")
+        void allHopsTrusted_ReturnsLeftmost() {
+            var request = requestFrom("10.0.0.1");
+            request.addHeader("X-Forwarded-For", "10.0.0.7, 10.0.0.2");
+
+            assertThat(ClientIpResolver.resolve(request, TRUSTED_PROXIES)).isEqualTo("10.0.0.7");
+        }
+
+        @Test
+        @DisplayName("trims whitespace around each hop")
+        void trimsHops() {
+            var request = requestFrom("10.0.0.1");
+            request.addHeader("X-Forwarded-For", "  203.0.113.5  ,  10.0.0.2 ");
+
+            assertThat(ClientIpResolver.resolve(request, TRUSTED_PROXIES)).isEqualTo("203.0.113.5");
+        }
+
+        @Test
+        @DisplayName("fails closed to the socket peer when a hop is not an IP literal")
+        void failsClosedOnHostnameHop() {
+            var request = requestFrom("10.0.0.1");
+            request.addHeader("X-Forwarded-For", "evil.example.com, 10.0.0.2");
+
+            assertThat(ClientIpResolver.resolve(request, TRUSTED_PROXIES))
+                    .as("a hop that is a name is never matched, and never resolved by DNS")
+                    .isEqualTo("10.0.0.1");
+        }
+    }
 }

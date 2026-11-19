@@ -27,7 +27,7 @@ services:
     entrypoint: ["/usr/local/bin/lc-postgres-entrypoint.sh"]
     command: ["postgres"]
     ports:
-      - "${POSTGRES_PORT:-5453}:5432"
+      - "127.0.0.1:${POSTGRES_PORT:-5453}:5432"
     environment:
       POSTGRES_DB: ${KEYCLOAK_POSTGRES_DB:-keycloak_production}
       POSTGRES_USER: ${KEYCLOAK_POSTGRES_USER:-keycloak}
@@ -217,9 +217,20 @@ services:
   redis-exporter:
     image: ${REDIS_EXPORTER_IMAGE:-oliver006/redis_exporter:v1.69.0}
     container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-redis-exporter
-    command: ["--redis.addr=redis://${REDIS_HOST:-redis}:${REDIS_INTERNAL_PORT:-6379}"]
+    # The cache requires a password, so the exporter has to present one. It arrives through
+    # --redis.password-file, never an environment value, for the same reason the Postgres exporters use
+    # DATA_SOURCE_PASS_FILE (issue #890).
+    #
+    # The file is the JSON map of address to password that the redis service's wrapper writes -- the only
+    # shape this distroless image parses -- and it is mounted read-only from the directory both services
+    # share, the same one the base file declares for both.
+    command:
+      - "--redis.addr=redis://${REDIS_HOST:-redis}:${REDIS_INTERNAL_PORT:-6379}"
+      - "--redis.password-file=/run/lc-exporter/redis_passwords.json"
     ports:
       - "127.0.0.1:${REDIS_EXPORTER_PORT:-9221}:9121"
+    volumes:
+      - ${VOLUMES_ROOT:?VOLUMES_ROOT must be set}/redis/exporter:/run/lc-exporter:ro
     networks:
       - default
     depends_on:
@@ -312,9 +323,11 @@ services:
         # this build look for build/libs/api-gateway-1.0.0.jar, which Gradle never
         # produces (build.gradle pins 0.0.1-SNAPSHOT), so the prod image could not
         # be built at all.
+    # Loopback only, like the datastores the gateway fronts: an operator reaches these ports from the
+    # host through deploy.sh, and nothing about the application requires them on the LAN (issue #890).
     ports:
-      - "${API_GATEWAY_PORT:-9200}:${API_GATEWAY_SERVER_PORT:-9200}"
-      - "${API_GATEWAY_MANAGEMENT_PORT:-9201}:${API_GATEWAY_MANAGEMENT_PORT:-9201}"
+      - "127.0.0.1:${API_GATEWAY_PORT:-9200}:${API_GATEWAY_SERVER_PORT:-9200}"
+      - "127.0.0.1:${API_GATEWAY_MANAGEMENT_PORT:-9201}:${API_GATEWAY_MANAGEMENT_PORT:-9201}"
     environment:
       - SPRING_PROFILES_ACTIVE=prod
       - SERVER_PORT=${API_GATEWAY_SERVER_PORT:-9200}
@@ -370,7 +383,7 @@ services:
     entrypoint: ["/usr/local/bin/lc-postgres-entrypoint.sh"]
     command: ["postgres"]
     ports:
-      - "${LIFECONTROL_POSTGRES_PORT:-5445}:5432"
+      - "127.0.0.1:${LIFECONTROL_POSTGRES_PORT:-5445}:5432"
     environment:
       POSTGRES_DB: ${LIFECONTROL_POSTGRES_DB:-lifecontrol}
       # The role initdb creates, which is the maintenance superuser of ADR-0005 -- not the owner. The

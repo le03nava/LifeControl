@@ -404,5 +404,44 @@ else
 	pass "the catalog matcher rejects a path that is not listed"
 fi
 
+echo "== the workflow that runs the shell suites is triggered by the suites themselves =="
+# Same silence, one step further in: `docker-build-integrity` is the workflow that executes every
+# suite under `.github/scripts/tests/`, and its own filter listed neither that directory nor
+# `.gitignore` — so a change to a suite, or to the ignore rules a suite asserts, started nothing.
+# Measured on pull request #961: a new assertion in `version-catalog.test.sh` produced two checks
+# and no suite run at all. This repo has now paid for this shape twice (the catalog, then the
+# suites), which is why it is asserted instead of remembered.
+SUITE_HOME_PATH='.github/scripts/**'
+IGNORE_RULES_PATH='.gitignore'
+for path in "$SUITE_HOME_PATH" "$IGNORE_RULES_PATH"; do
+	for trigger in push pull_request; do
+		if paths_include "$WORKFLOWS/docker-build-integrity.yml" "$trigger" "$path"; then
+			pass "docker-build-integrity.yml lists $path under $trigger"
+		else
+			fail "docker-build-integrity.yml does not list $path under $trigger, so the workflow that runs the shell suites is the one a suite change cannot start"
+		fi
+	done
+done
+
+cat >"$TMP/suites-listed.yml" <<'YAML'
+on:
+  push:
+    paths:
+      - '.github/scripts/**'
+  pull_request:
+    paths:
+      - '.github/scripts/**'
+YAML
+if paths_include "$TMP/suites-listed.yml" pull_request "$SUITE_HOME_PATH"; then
+	pass "the suite-home matcher finds a listed path"
+else
+	fail "the suite-home matcher does not find a listed path"
+fi
+if paths_include "$TMP/suites-listed.yml" push '.github/workflows/**'; then
+	fail "the suite-home matcher accepts a path that is not listed (a prefix match would)"
+else
+	pass "the suite-home matcher rejects a path that is not listed"
+fi
+
 printf '\n%d passed, %d failed\n' "$PASS_COUNT" "$FAIL_COUNT"
 [ "$FAIL_COUNT" -eq 0 ]

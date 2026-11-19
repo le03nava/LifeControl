@@ -72,8 +72,19 @@ A pull request that is genuinely two change types is two pull requests.
 ## 3. Keep the review small: the ~400-line budget and chained slices
 
 This repository reviews against an advisory budget of about **400 authored changed lines** per pull
-request. A slice that cannot fit inside the budget without losing a cohesive unit is split into a
+request. **What the number counts, because a budget nobody can recount is a budget nobody obeys:**
+*authored* lines — lock files are excluded, and so are generated fixtures, because neither is written
+here and both are read by the tool that consumes them. **Test code is counted** (a suite a change needs
+is part of the change) but it is reviewed by its **assertions** rather than line by line, so a unit that
+expends most of its budget on suites spends it on the cheapest thing to read and the most valuable to
+keep. The budget therefore never rewards leaving a suite out: a change that ships a defect to stay under
+400 lines spent the budget wrong.
+
+A slice that cannot fit inside the budget without losing a cohesive unit is split into a
 **chain**: each slice branches from the previous slice, and each pull request is read on its own.
+**Slices are commits inside one pull request, a chain is for units that are independent of each
+other, and the ODD record never gets a pull request of its own** — the record and the code it
+describes are one review, which is what keeps a unit to one pull request.
 The mechanics — the base-branch deletion failure mode, the pre-merge guard, the order of operations
 and the anti-patterns — belong to
 `.agents/skills/project-conventions/references/pr-chains.md`, and that file is the source of truth.
@@ -101,6 +112,16 @@ cd ~/workspace/<repo> && git checkout main && git pull
 git config core.hooksPath .githooks      # once per clone; linked worktrees share it
 ./.github/scripts/new-unit.sh <branch>   # branch = the unit; the directory slug is derived from it
 ```
+
+`core.hooksPath` has **two** values in circulation and **both give the same two guarantees** — the anchor
+guard and formatting — so a clone holding either one is not misconfigured. The command above points it at
+`.githooks`, the repository hook, which refuses a commit on the default branch and formats the staged
+Angular files from the app's own directory whenever `life-control-app-angular/node_modules` exists. Running
+`npm install` in the Angular app rewrites it to `life-control-app-angular/.husky/_`, from that package's
+`prepare` script; what runs behind that value is `life-control-app-angular/.husky/pre-commit`, which does
+not format on its own — it runs `bash ../../.githooks/pre-commit` and exits with its code. Reading a value
+other than the one above from `git config --show-origin --get core.hooksPath` is therefore not a finding:
+when the guard does not act, look at the hook, not at the value.
 
 Before anything else in a session, three reads in the anchor:
 
@@ -147,8 +168,11 @@ branch-protection runbook below names required checks by exactly those strings.
 | `.github/workflows/angular-ci.yml` | `life-control-app-angular/**`, `.github/workflows/angular-ci.yml` | `Lint & Build`, `Unit tests`, `Coverage` |
 | `.github/workflows/docker-build-integrity.yml` | `docker/**`, the two `Dockerfile`s and `build.gradle`s, `.github/workflows/docker-build-integrity.yml` | `Shell & Artifact Integrity` |
 
-The label guard's self-tests run the offline suites in `.github/scripts/tests/` and `shellcheck
---severity=warning` over `.github/scripts/*.sh`. The four component workflows run their component's
+The label guard's self-tests run the offline suites in `.github/scripts/tests/`, and its `ShellCheck`
+step lints every shell file that runs in CI or in a clone — `.github/scripts/**`, `.githooks/*` and
+`k8s/**`; `docker/scripts/**` is linted by `Shell & Artifact Integrity`. The roots that must be covered
+are frozen in `.github/scripts/tests/workflow-pins.test.sh`, so a glob that stops naming one fails a
+suite instead of leaving its files unlinted and green. The four component workflows run their component's
 lint, build and test gate; the exact commands are in `AGENTS.md` under `## Development Commands` and
 in the `Dispatch` table of `.agents/skills/project-conventions/references/index.md`. Each component
 workflow filters both `push` and `pull_request` by the same `paths:` block, so a merge to `main`

@@ -1,7 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 
-const CI = process.env.CI === 'true';
-const E2E_PORT = process.env.E2E_PORT || '4200';
+const CI = process.env['CI'] === 'true';
+const E2E_PORT = process.env['E2E_PORT'] || '4200';
 const BASE_URL = `http://localhost:${E2E_PORT}`;
 
 export default defineConfig({

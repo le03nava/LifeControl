@@ -23,9 +23,11 @@
 #      inside the network, where Prometheus actually runs;
 #   2. every exporter publishes on `127.0.0.1:` only, the rule T3 applied to the rest of the
 #      observability plane: none of these endpoints authenticates its callers;
-#   3. no exporter takes its datastore password from an environment value. It reads the same
-#      mounted secret the datastore reads, through the exporter's `*_FILE` mechanism, so the
-#      password never reaches `docker inspect`, a `.env` file or this repository;
+#   3. no exporter takes its datastore password from an environment value. The Postgres exporters
+#      read the same mounted secret the database reads, through `DATA_SOURCE_PASS_FILE`; the Redis
+#      exporter reads the JSON map the redis service writes (`--redis.password-file`, a JSON object of
+#      address to password -- the only shape this image parses) from a directory it mounts read-only.
+#      Either way the password never reaches `docker inspect`, a `.env` file or this repository;
 #   4. both image pins agree with the frozen table of `image-pins.test.sh` in the template *and*
 #      in every compose default, and neither tag floats. That suite already compares template
 #      against compose defaults; this one closes the other direction -- a pin edited in both
@@ -339,9 +341,18 @@ while IFS='|' read -r svc image_var container_port host_var; do
 				fi
 				;;
 			redis-exporter)
-				# This stack's Redis runs without --requirepass, so the exporter authenticates
-				# exactly like the API: with no credential at all. If one is ever added it goes
-				# through --redis.password-file, which is checked here when it appears.
+				# Since issue #890 the cache requires a password, so the exporter carries one -- and it can only
+				# arrive through --redis.password-file, because a password in an environment entry is a password
+				# in `docker inspect` and in `compose config`. That file is not the secret: this exporter parses
+				# it as a JSON MAP of address to password (`{"redis://redis:6379":"..."}`), measured on the
+				# pinned tag, which restarts with `password file format error` on the bare secret -- and its
+				# image is distroless, so no wrapper of its own can convert one into the other. The redis
+				# service's wrapper writes the map, and the exporter mounts that directory read-only.
+				#
+				# Both shapes are accepted because this suite audits every compose file, not only this
+				# stack's: a file that passes no password at all (the datastore has no requirepass) and a file
+				# that mounts a bare secret under /run/secrets. What is refused is a path with neither mount,
+				# which is a credential the exporter cannot read.
 				pass_file="$(printf '%s\n' "$block" | sed -n 's/.*--redis\.password-file=\([^"[:space:]]*\).*/\1/p' | head -1)"
 				if [ -z "$pass_file" ]; then
 					pass "$file: '$svc' passes no Redis password (the datastore has no requirepass)"
@@ -355,8 +366,17 @@ while IFS='|' read -r svc image_var container_port host_var; do
 								fail "$file: '$svc' reads $pass_file but does not mount ./secrets/$secret_name there read-only"
 							fi
 							;;
+						/run/lc-exporter/*)
+							# The map document, written by the redis service into a shared host directory. Read-only
+							# on this side: the exporter reads a document it does not own.
+							if printf '%s\n' "$block" | grep -qE '^[[:space:]]*-[[:space:]]*.*:/run/lc-exporter:ro[[:space:]]*$'; then
+								pass "$file: '$svc' reads its password from $pass_file, the JSON map the redis service writes into a directory it mounts read-only"
+							else
+								fail "$file: '$svc' reads $pass_file but does not mount /run/lc-exporter read-only, so the map the redis service writes is not there when it starts"
+							fi
+							;;
 						*)
-							fail "$file: '$svc' reads its Redis password from '$pass_file', which is not a mounted secret under /run/secrets"
+							fail "$file: '$svc' reads its Redis password from '$pass_file', which is neither a mounted secret under /run/secrets nor the shared map directory under /run/lc-exporter"
 							;;
 					esac
 				fi

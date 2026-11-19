@@ -78,11 +78,14 @@ jobs:
         shell: bash
         run: |
           # Every shell file that runs either in CI or in a clone: the scripts and suites under
-          # .github/scripts, and every git hook, which carries no extension because git requires the
-          # bare name. `pre-commit` refuses a commit on the default branch, so a defect in it breaks
-          # ordinary work in every clone that installs it -- `tests/worktree-anchor.test.sh` asserts
-          # this step still covers that path.
-          mapfile -t scripts < <({ find .github/scripts -type f -name '*.sh'; find .githooks -type f; } | sort)
+          # .github/scripts, every git hook, which carries no extension because git requires the
+          # bare name, and the kind cluster scripts under k8s. `pre-commit` refuses a commit on the
+          # default branch, so a defect in it breaks ordinary work in every clone that installs it --
+          # `tests/worktree-anchor.test.sh` asserts this step still covers that path. `k8s` is here
+          # and not in the integrity job because this workflow declares no `paths:` filter: it runs on
+          # every pull request, so a change that touches only k8s is still linted. The surfaces are
+          # frozen in `tests/workflow-pins.test.sh`, so dropping one fails a suite.
+          mapfile -t scripts < <({ find .github/scripts -type f -name '*.sh'; find .githooks -type f; find k8s -type f -name '*.sh'; } | sort)
           printf 'Checking %d script(s)\n' "${#scripts[@]}"
           # Same pinned image as docker-build-integrity.yml, so the verdict does not drift
           # with the runner image. The tag is frozen in tests/workflow-pins.test.sh: it used to be a

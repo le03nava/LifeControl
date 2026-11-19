@@ -136,19 +136,23 @@ public class FiscalDocumentCancellationService {
      */
     private final Clock fiscalClock;
 
+    private final FiscalDocumentStoreScope storeScope;
+
     public FiscalDocumentCancellationService(
             FiscalDocumentRepository fiscalDocumentRepository,
             FiscalDocumentArtifactRepository fiscalDocumentArtifactRepository,
             CurrentUserContext currentUserContext,
             ObjectProvider<FiscalCancellationProvider> cancellationProvider,
             ObjectProvider<CfdiCancellationSealer> cancellationSealer,
-            Clock fiscalClock) {
+            Clock fiscalClock,
+            FiscalDocumentStoreScope storeScope) {
         this.fiscalDocumentRepository = fiscalDocumentRepository;
         this.fiscalDocumentArtifactRepository = fiscalDocumentArtifactRepository;
         this.currentUserContext = currentUserContext;
         this.cancellationProvider = cancellationProvider;
         this.cancellationSealer = cancellationSealer;
         this.fiscalClock = fiscalClock;
+        this.storeScope = storeScope;
     }
 
     /**
@@ -181,6 +185,12 @@ public class FiscalDocumentCancellationService {
                 .orElseThrow(() -> new FiscalDocumentNotStampedException(fiscalDocumentId));
 
         var cancelled = requireStampedDocument(companyId, fiscalDocumentId);
+
+        // The store the document's sale belongs to decides, first of all: a caller of store A receives a 403 for
+        // store B's document, and receives it before this method reads whether it is already cancelled and long
+        // before the authority is called — a cancellation is a statement to the receiver, not a local flag (S3 of
+        // odd/tasks/fiscal-document-cross-store-authz.md).
+        storeScope.verifyAccessOfDocument(cancelled);
 
         // A document is cancelled once, and the schema says so (uq_fiscal_document_cancels). The read is here
         // because the constraint would answer after the SAT had registered a second cancellation.
@@ -275,10 +285,17 @@ public class FiscalDocumentCancellationService {
         if (substitutingFolio == null) {
             return null;
         }
-        return fiscalDocumentRepository
+        var substituting = fiscalDocumentRepository
                 .findByCompanyIdAndUuidFiscal(companyId, substitutingFolio)
                 .filter(candidate -> FiscalDocument.STATUS_STAMPED.equals(candidate.getStatus()))
                 .orElseThrow(() -> new FiscalSubstitutingFolioUnknownException(substitutingFolio));
+
+        // The substituting document is the second document a cancellation names, and the rule is stated over
+        // "a sale, or a document that belongs to one": a folio of another store is refused here, as the 403 a
+        // foreign store always receives, instead of resolving to a success that tells the caller the folio exists
+        // (S8 of odd/tasks/fiscal-document-cross-store-authz.md).
+        storeScope.verifyAccessOfDocument(substituting);
+        return substituting;
     }
 
     // ─── the request ───────────────────────────────────────────────────────────────────────────────────

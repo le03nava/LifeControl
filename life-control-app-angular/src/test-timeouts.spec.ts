@@ -1,4 +1,4 @@
-import { HOOK_TIMEOUT_MS, TEST_TIMEOUT_MS } from './test-timeouts';
+import { HOOK_TIMEOUT_MS, MAX_WORKERS, TEST_TIMEOUT_MS } from './test-timeouts';
 
 /**
  * Source guard for the per-test and per-hook budgets that `src/test-setup.ts`
@@ -12,7 +12,7 @@ import { HOOK_TIMEOUT_MS, TEST_TIMEOUT_MS } from './test-timeouts';
  * contention again and the next person re-investigates from scratch. The
  * measurements and the full reasoning are in `odd/tasks/test-timeout-headroom.md`.
  *
- * Three groups of assertions, which fail for different reasons:
+ * Three groups of assertions for the budgets, which fail for different reasons:
  *
  * - The **values** are imported from `./test-timeouts` (side-effect free, which is
  *   why they are not read from the setup module) and compared against the reviewed
@@ -44,6 +44,12 @@ import { HOOK_TIMEOUT_MS, TEST_TIMEOUT_MS } from './test-timeouts';
  *   the realistic regressions -- not a determined adversary hand-crafting source to
  *   satisfy a regex, against which no regex guard can win.
  *
+ * A fourth group covers the **runner concurrency cap** (`MAX_WORKERS`), added by
+ * `odd/tasks/unit-test-load-independence.md`: a ceiling on the value, the same
+ * wiring assertion against `src/test-timeouts.ts` instead of the setup module, the
+ * same numeric ban, and a refusal of any `retry` option -- a retry would turn a
+ * loaded host green by hiding the failure the gate exists to report.
+ *
  * **What this guard cannot do, stated so it is not mistaken for proof**: it shows
  * the configuration is present and wired, not that Vitest honours it. That second
  * claim is falsifiable only by a test body that outlives the default, which was
@@ -51,7 +57,9 @@ import { HOOK_TIMEOUT_MS, TEST_TIMEOUT_MS } from './test-timeouts';
  * with `Test timed out in 5000ms` before the change and passes after it, in a
  * separate spec file -- which is also the evidence that the setting reaches beyond
  * the setup module. Repeating that permanently would cost 6s on every run to
- * re-prove a property that only changes when these two files change.
+ * re-prove a property that only changes when these two files change. The worker cap
+ * has the same limit and was proved the same way, by counting live runner processes
+ * during a run instead of reading a log (record, L3).
  *
  * Deliberately NOT guarded: the `setupFiles` wiring in `angular.json`. Dropping
  * `src/test-setup.ts` from it removes the `matchMedia` mock and the `vi.setConfig`
@@ -67,19 +75,31 @@ import { HOOK_TIMEOUT_MS, TEST_TIMEOUT_MS } from './test-timeouts';
 /** The reviewed floor for both budgets, in milliseconds. See D1/D2/D5. */
 const REVIEWED_FLOOR_MS = 20_000;
 
+/**
+ * The largest number of concurrent runners the reviewed measurement left green, on
+ * the 8-core host of `odd/tasks/unit-test-load-independence.md`. A ceiling rather
+ * than an equality for the same reason as the millisecond floor: lowering the cap
+ * is a cost, not a risk, and must not require a guard fight -- while raising it past
+ * the measured value must require deleting an assertion that names the record.
+ */
+const REVIEWED_WORKER_CEILING = 2;
+
 /** The setup module whose wiring this guard protects. */
 const SETUP_SOURCE = 'src/test-setup.ts';
 
-/** Reads the setup module as text, or throws with the reason it could not. */
-function readSetupSource(): string {
+/** The module that declares the runner configuration the builder merges. */
+const CONFIG_SOURCE = 'src/test-timeouts.ts';
+
+/** Reads one of this suite's own source modules as text, or throws with the reason. */
+function readSource(path: string): string {
   const fs = process.getBuiltinModule('fs');
-  if (!fs.existsSync(SETUP_SOURCE)) {
+  if (!fs.existsSync(path)) {
     throw new Error(
-      `Cannot read ${SETUP_SOURCE} from the working directory ${process.cwd()}. ` +
+      `Cannot read ${path} from the working directory ${process.cwd()}. ` +
         'Run the tests from the Angular project root, for example with `npm test`.',
     );
   }
-  return fs.readFileSync(SETUP_SOURCE, 'utf8');
+  return fs.readFileSync(path, 'utf8');
 }
 
 /**
@@ -111,7 +131,7 @@ describe('test timeouts', () => {
   });
 
   it('wires both budgets into vi.setConfig from the shared constants', () => {
-    const source = stripNonCode(readSetupSource());
+    const source = stripNonCode(readSource(SETUP_SOURCE));
     expect(source).toMatch(/vi\.setConfig\(/);
     expect(source).toMatch(/testTimeout:\s*TEST_TIMEOUT_MS/);
     expect(source).toMatch(/hookTimeout:\s*HOOK_TIMEOUT_MS/);
@@ -122,8 +142,41 @@ describe('test timeouts', () => {
     // would silently drop the suite back to a 5s budget. Forbidding numeric
     // timeout values anywhere in the module closes that hole without needing to
     // count calls and reject legitimate future ones.
-    const source = stripNonCode(readSetupSource());
+    const source = stripNonCode(readSource(SETUP_SOURCE));
     expect(source).not.toMatch(/testTimeout:\s*[\d_]+/);
     expect(source).not.toMatch(/hookTimeout:\s*[\d_]+/);
+  });
+});
+
+describe('runner concurrency', () => {
+  it('leaves at least one worker so the suite can run at all', () => {
+    expect(MAX_WORKERS).toBeGreaterThanOrEqual(1);
+  });
+
+  it('never exceeds the worker count the loaded-host measurement left green', () => {
+    expect(MAX_WORKERS).toBeLessThanOrEqual(REVIEWED_WORKER_CEILING);
+  });
+
+  it('hands the cap to the runner configuration from the shared constant', () => {
+    // `@angular/build:unit-test` merges this module's `test` object into the Vitest
+    // project as-is (`plugins.js`: `mergeConfig(projectDefaults, { test: testConfig })`),
+    // and Vitest resolves the pool size from `project.config.maxWorkers`
+    // (`cli-api` `resolveMaxWorkers`), so a cap declared here reaches the pool. This
+    // guard only proves the wiring is present; the record proves it is honoured.
+    const source = stripNonCode(readSource(CONFIG_SOURCE));
+    expect(source).toMatch(/maxWorkers:\s*MAX_WORKERS/);
+  });
+
+  it('never hardcodes a numeric worker count', () => {
+    const source = stripNonCode(readSource(CONFIG_SOURCE));
+    expect(source).not.toMatch(/maxWorkers:\s*[\d_]+/);
+    expect(source).not.toMatch(/minWorkers:\s*[\d_]+/);
+  });
+
+  it('never asks the runner to retry a failed test', () => {
+    // A retry would make a loaded host green by hiding the failure it is supposed to
+    // report, which is the one fix issue #971 rules out by name.
+    const source = stripNonCode(readSource(CONFIG_SOURCE));
+    expect(source).not.toMatch(/\bretry:/);
   });
 });
