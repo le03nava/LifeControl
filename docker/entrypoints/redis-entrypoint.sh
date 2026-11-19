@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 # ============================================
 # LifeControl - Redis Entrypoint Wrapper
 # ============================================
@@ -20,7 +20,10 @@
 # This wrapper contains NO secret content.
 # ============================================
 
-set -euo pipefail
+# POSIX sh on purpose: the redis image is alpine and ships no bash, so a bash shebang is a container
+# that never starts -- and `exec` reports the missing interpreter as a missing file, which is how this
+# shipped once (issue #890). The assertions that pin this live in datastore-port-binding.test.sh.
+set -eu
 
 password_file="${LC_REDIS_PASSWORD_FILE:-/run/secrets/redis_password}"
 

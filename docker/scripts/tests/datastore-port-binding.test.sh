@@ -360,6 +360,23 @@ else
 		pass "the wrapper carries no credential value"
 	fi
 
+	# The interpreter has to exist in the image, and no assertion above can tell. On 2026-11-19 this
+	# suite was green while the container restarted forever with `exec
+	# /usr/local/bin/lc-redis-entrypoint.sh: no such file or directory`, because the shebang named bash
+	# and `redis:8.10-alpine` ships only sh. `exec` reports a missing interpreter exactly like a missing
+	# file, so the symptom named the wrong cause and the fix looked like a mount problem.
+	wrapper_shebang="$(head -1 "$REDIS_WRAPPER")"
+	if [ "$wrapper_shebang" = '#!/bin/sh' ]; then
+		pass "the wrapper starts with #!/bin/sh, the interpreter the redis image actually ships"
+	else
+		fail "the wrapper starts with '$wrapper_shebang' instead of #!/bin/sh: redis:8.10-alpine has no bash, and exec reports the missing interpreter as a missing file, so the container restarts instead of starting"
+	fi
+	if printf '%s\n' "$wrapper_body" | grep -qE '(^|[^[:alnum:]_])bash([^[:alnum:]_]|$)'; then
+		fail "the wrapper names bash somewhere: the redis image has none, and a wrapper written for bash dies before its first line of logic"
+	else
+		pass "the wrapper asks for nothing the redis image does not ship"
+	fi
+
 	redis_block="$(strip_comments "$(service_block "$DOCKER_DIR/docker-compose.yml" redis)")"
 	if [ -z "$redis_block" ]; then
 		fail "docker-compose.yml declares no redis service"
