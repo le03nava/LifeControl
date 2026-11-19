@@ -19,7 +19,7 @@
 > `.github/scripts/tests/version-catalog.test.sh` fails when a version managed there is written back
 > into a `build.gradle` or a `plugins` block.
 >
-> **Recorded skew, deliberately out of scope**: `keycloak-admin-client` resolves `26.0.12`, while
+> **Recorded skew, deliberately out of scope**: `keycloak-admin-client` resolves `26.0.13`, while
 > `docker/docker-compose.yml` runs the Keycloak server `26.8.1` and both k8s trees declare `24.0.1`.
 > The three numbers are stated here so nobody has to re-measure them, and they are **not** aligned
 > by the catalog: the server images belong to the image pinning unit (#896), and the client's own
