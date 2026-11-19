@@ -15,7 +15,15 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 @Configuration
 public class SecurityConfig {
 
+    /** The two management endpoints whose only readers are the container healthcheck and the scraper. */
     private static final List<String> ALWAYS_PUBLIC_URLS = List.of("/actuator/health", "/actuator/prometheus");
+
+    /**
+     * The rest of the management surface. It is not gated on a role: this gateway derives authorities
+     * from the token's {@code scope} claim, so a {@code hasAuthority} rule would refuse administrators
+     * as well. It is denied, and only {@code security.actuator-public} (dev) opens it.
+     */
+    private static final String MANAGEMENT_URLS = "/actuator/**";
 
     private static final List<String> DOC_URLS = List.of(
             "/swagger-ui.html",
@@ -27,14 +35,17 @@ public class SecurityConfig {
 
     private final GatewayProperties props;
     private final boolean docsPublic;
+    private final boolean actuatorPublic;
     private final boolean requireHttps;
 
     public SecurityConfig(
             GatewayProperties props,
             @Value("${security.docs-public:false}") boolean docsPublic,
+            @Value("${security.actuator-public:false}") boolean actuatorPublic,
             @Value("${security.require-https:false}") boolean requireHttps) {
         this.props = props;
         this.docsPublic = docsPublic;
+        this.actuatorPublic = actuatorPublic;
         this.requireHttps = requireHttps;
     }
 
@@ -47,11 +58,17 @@ public class SecurityConfig {
         }
 
         httpSecurity
-                .authorizeHttpRequests(authorize -> authorize
-                        .requestMatchers(publicUrls.toArray(String[]::new))
-                        .permitAll()
-                        .anyRequest()
-                        .authenticated())
+                .authorizeHttpRequests(authorize -> {
+                    authorize.requestMatchers(publicUrls.toArray(String[]::new)).permitAll();
+                    // Declared after the two public endpoints, so `health` and `prometheus` keep
+                    // answering the healthcheck and the scraper in every environment.
+                    if (actuatorPublic) {
+                        authorize.requestMatchers(MANAGEMENT_URLS).permitAll();
+                    } else {
+                        authorize.requestMatchers(MANAGEMENT_URLS).denyAll();
+                    }
+                    authorize.anyRequest().authenticated();
+                })
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .oauth2ResourceServer(oauth2 -> oauth2.jwt(jwt -> jwt.decoder(keycloakJwtDecoder)))
                 // Stateless bearer-token API: there is no browser session or cookie, so CSRF does not apply.
