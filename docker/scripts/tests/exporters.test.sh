@@ -339,9 +339,10 @@ while IFS='|' read -r svc image_var container_port host_var; do
 				fi
 				;;
 			redis-exporter)
-				# This stack's Redis runs without --requirepass, so the exporter authenticates
-				# exactly like the API: with no credential at all. If one is ever added it goes
-				# through --redis.password-file, which is checked here when it appears.
+				# Since issue #890 the cache requires a password, so the exporter carries one -- and it can only
+				# arrive through --redis.password-file, because a password in an environment entry is a password
+				# in `docker inspect` and in `compose config`. The branch below still accepts a file that passes
+				# nothing, because this suite audits every compose file and not only this stack's.
 				pass_file="$(printf '%s\n' "$block" | sed -n 's/.*--redis\.password-file=\([^"[:space:]]*\).*/\1/p' | head -1)"
 				if [ -z "$pass_file" ]; then
 					pass "$file: '$svc' passes no Redis password (the datastore has no requirepass)"

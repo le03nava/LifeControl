@@ -77,3 +77,28 @@ failure, so it is not reported as acceptable: the fix is two lines in that file 
 under its sandbox and pass `REDIS_PASSWORD_FILE` beside the other three), and that file is outside this
 half's allowed edit surfaces. Escalated rather than patched from here, and not silenced by relaxing the
 wrapper's requirement, which would undo the boundary S5 exists for.
+
+**L9** — the escalation was resolved in favour of the unit rather than the surface: the parent made the
+two-line fixture edit in `docker/scripts/tests/fiscal-wiring.test.sh` (one more file under its sandbox,
+`REDIS_PASSWORD_FILE` beside the other three) and that suite went from 27 failures to **97 passed, 0
+failed**. The same pass corrected a premise this unit falsified: `docker/scripts/tests/exporters.test.sh`
+still said this stack's Redis runs without `--requirepass`, which stopped being true the moment the wrapper
+landed; its comment now states the requirement and keeps the branch that accepts a compose file with no
+password, because that suite audits every compose file and not only this one (75 passed after the edit).
+
+**L10** — the delivery is three commits, and the slice boundary is declared rather than left to the
+reviewer to discover: behaviour and its two sandbox fixtures first, then the new offline suite alone, then
+this record. Measured 692 authored lines, over the ~400-line review budget, and the overage is one file —
+`datastore-port-binding.test.sh`, 422 lines of frozen table and assertions. Chaining was considered and
+rejected: the three slices are one unit, nothing in the second or third can land without the first, and
+`references/pr-chains.md` reserves a chain for units that are independent of each other. What that leaves
+is a reviewer-facing risk, so it is stated here: the suite is where the review time goes.
+
+**L11** — what this record cannot claim, listed as limits instead of omissions. S1's literal evidence —
+`docker compose config` printing `host_ip: 127.0.0.1` — was not produced, because interpolation needs a
+materialized `docker/.env.<env>` and that path carries the environment's passwords; the suite pins the same
+property textually, so the claim is made by a test rather than by a transcript. S3 and S4 were not run for
+the same class of reason: they need the live stack, and starting it is the maintainer's decision, not this
+unit's. Shellcheck is not installed in this worktree, so the two touched suites are unlinted locally; CI's
+`PR Label Guard` lints `docker/scripts/**` by glob, which is where that check happens.
+
