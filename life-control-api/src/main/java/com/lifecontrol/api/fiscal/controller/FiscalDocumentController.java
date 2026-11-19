@@ -4,6 +4,7 @@ import static com.lifecontrol.api.common.security.Roles.ADMIN;
 import static com.lifecontrol.api.common.security.Roles.SALES;
 
 import com.lifecontrol.api.exception.GlobalExceptionHandler;
+import com.lifecontrol.api.fiscal.dto.FiscalCancellationReconciliation;
 import com.lifecontrol.api.fiscal.dto.FiscalDocumentCancellation;
 import com.lifecontrol.api.fiscal.dto.FiscalDocumentCancellationRequest;
 import com.lifecontrol.api.fiscal.dto.FiscalDocumentIssueRequest;
@@ -14,6 +15,7 @@ import com.lifecontrol.api.fiscal.exception.FiscalCancellationNotConfiguredExcep
 import com.lifecontrol.api.fiscal.exception.FiscalSealNotConfiguredException;
 import com.lifecontrol.api.fiscal.exception.FiscalStampProviderNotConfiguredException;
 import com.lifecontrol.api.fiscal.model.FiscalCancellationMotive;
+import com.lifecontrol.api.fiscal.service.FiscalCancellationReconciliationService;
 import com.lifecontrol.api.fiscal.service.FiscalDocumentCancellationService;
 import com.lifecontrol.api.fiscal.service.FiscalDocumentReadService;
 import com.lifecontrol.api.fiscal.service.FiscalDocumentReprintService;
@@ -46,15 +48,18 @@ import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
 /**
- * The fiscal document's four operations: issuing one from a completed sale ({@code #927}), reading the one a sale
+ * The fiscal document's five operations: issuing one from a completed sale ({@code #927}), reading the one a sale
  * produced ({@code #947}), the reprint of one stamped document ({@code S10}) and the cancellation that ends it
  * ({@code S7}), the last two of {@code odd/tasks/cfdi-fiscal-document.md} and its decisions {@code L15}(a)–(c) and
- * {@code L20}(a)–(g).
+ * {@code L20}(a)–(g), and the reconciliation that resolves a submitted cancellation
+ * ({@code odd/tasks/fiscal-cancellation-reconciliation.md}, {@code T8}).
  *
- * <p><b>Why two reads and a write, with nothing else beside them.</b> {@code S10} is one rule — the artefact returns
- * the bytes that were stamped — and {@code S7} is one act — a cancellation is a new row naming the cancelled
- * document and its motive. The read by sale is what makes both reachable: a document's id was answered only to the
- * caller who issued it, so a caller who never issued it could name neither the reprint nor the cancellation
+ * <p><b>Why two reads and two writes, with nothing else beside them.</b> {@code S10} is one rule — the artefact
+ * returns the bytes that were stamped — and {@code S7} is one act — a cancellation is a new row naming the cancelled
+ * document and its motive. The reconciling pass is the second write and it writes the <b>same row</b> the submission
+ * wrote, once the authority has decided ({@code odd/tasks/fiscal-cancellation-reconciliation.md}); it adds no surface
+ * beside the document it resolves. The read by sale is what makes both reachable: a document's id was answered only to
+ * the caller who issued it, so a caller who never issued it could name neither the reprint nor the cancellation
  * ({@code odd/tasks/fiscal-document-read.md}). What that adds is exactly one read by sale, and there is still no list
  * across sales, no substitution, no re-issue and no drafting surface here: those are screens and slices of their own,
  * and a read that built a document instead of returning it would be the failure {@code L15}(a) names.</p>
@@ -66,7 +71,9 @@ import org.springframework.web.context.request.ServletRequestAttributes;
  *
  * <p><b>Why the roles are {@code lc-admin} and {@code lc-sales} on both.</b> The same pair that reads and edits a
  * sale, because a reprint and a cancellation are what the sale produced and no fiscal role exists to grant — the gate
- * {@code SalesOrderController} already uses for the document a sale issues.</p>
+ * {@code SalesOrderController} already uses for the document a sale issues. The reconciling operation is the one
+ * exception, and it is narrower on purpose: it is an administrative act on a state the submission left, not something
+ * the sale screen does, so it is {@code lc-admin} alone.</p>
  *
  * <p><b>Why the bytes leave as an attachment.</b> {@code L15}(b): {@code application/xml} with an attachment
  * disposition, asserted byte-identical against what the provider returned. Rendering a third-party fiscal document
@@ -85,16 +92,19 @@ public class FiscalDocumentController {
 
     private final FiscalDocumentReprintService reprintService;
     private final FiscalDocumentCancellationService cancellationService;
+    private final FiscalCancellationReconciliationService reconciliationService;
     private final FiscalDocumentReadService readService;
     private final FiscalDocumentStamper stamper;
 
     public FiscalDocumentController(
             FiscalDocumentReprintService reprintService,
             FiscalDocumentCancellationService cancellationService,
+            FiscalCancellationReconciliationService reconciliationService,
             FiscalDocumentReadService readService,
             FiscalDocumentStamper stamper) {
         this.reprintService = reprintService;
         this.cancellationService = cancellationService;
+        this.reconciliationService = reconciliationService;
         this.readService = readService;
         this.stamper = stamper;
     }
@@ -315,6 +325,63 @@ public class FiscalDocumentController {
         return cancellation.wrote()
                 ? ResponseEntity.status(HttpStatus.CREATED).body(cancellation)
                 : ResponseEntity.status(HttpStatus.ACCEPTED).body(cancellation);
+    }
+
+    /**
+     * Resolves a submitted cancellation into the answer the authority gave it.
+     *
+     * <p><b>Why this endpoint exists, stated as the defect it closes.</b> {@code T3} made the reconciling service and
+     * its adapter, and nothing in {@code src/main} called it: a {@code CANCELLATION_PENDING} row — the one the
+     * submission writes when the authority has not decided — could only be resolved by a human querying the PAC, which
+     * is exactly what {@code S1} says must not be necessary. That is the same lesson {@code L17} recorded for the
+     * stamping endpoint one capability earlier: a green suite and a registered adapter are not a reachable capability
+     * until something calls them.</p>
+     *
+     * <p><b>Why it is an endpoint and not a scheduler.</b> {@code L5} decided it with the maintainer on 2026-11-19:
+     * {@code fiscal_document} is armed and forced, so no platform thread can enumerate the companies that hold a
+     * pending cancellation, and the tree's only precedent for a privileged cross-tenant read is a
+     * {@code SECURITY DEFINER} function this unit does not open. The pass therefore runs inside a request's tenant
+     * scope, and the service's logic is already scheduling-free, so a scheduler is a later, purely additive unit.</p>
+     *
+     * <p><b>Why every answered pass is a {@code 200}.</b> An acceptance, a settled rejection, a still-pending answer
+     * and a refused registration are four <b>answers</b>, and the body says which one this pass read:
+     * {@code documentStatus} is where the row stands after it and {@code settled} whether anything is left to ask. A
+     * status that encoded the outcome would make a caller parse a nullable body to learn a fact the body already
+     * states, and a rejection — finished by its stamp ({@code L2}(d)) — would have to borrow the status of a failure
+     * it is not. {@code S1}'s idempotence falls out of the same shape: a second call over a settled row answers the
+     * row and asks the authority nothing.</p>
+     *
+     * <p><b>What the two refusals are.</b> A document with no submitted cancellation at all is the service's own
+     * {@code 404} — answering "nothing to do" would report a settled state nobody reached — and a deployment with no
+     * reconciling adapter is the {@code 503} the handler below already gives the other two absences of this same
+     * configuration. Neither writes a row.</p>
+     *
+     * @param id the stamped document whose submitted cancellation is reconciled
+     * @return {@code 200} with what the row says after the pass, what the authority said and whether it is finished
+     */
+    @PostMapping("/{id}/cancellation/reconciliation")
+    @PreAuthorize("hasRole('" + ADMIN + "')")
+    @Operation(
+            summary = "Reconcile a submitted cancellation with the authority's answer",
+            description = "Asks the authority about the cancellation submitted for this document and settles the "
+                    + "pending row with what it answered: an acceptance moves it to CANCELLED, a rejection settles it "
+                    + "where it stands with the authority's code preserved, and a still-pending answer or a refused "
+                    + "registration writes nothing and says so. Every answered pass is a 200 with the row's state and "
+                    + "a settled flag, because all four are answers; running it again over a settled row answers the "
+                    + "row and asks the authority nothing. A document whose cancellation was never submitted is a 404, "
+                    + "and a deployment without the reconciling adapter is a 503. It takes no request body: what to "
+                    + "ask is the row's, not the caller's.")
+    @ApiResponses({
+        @ApiResponse(
+                responseCode = "200",
+                description = "What the authority answered and where the cancellation row stands after the pass"),
+        @ApiResponse(responseCode = "400", description = "The document id in the path is not a UUID"),
+        @ApiResponse(responseCode = "403", description = "The caller does not hold lc-admin"),
+        @ApiResponse(responseCode = "404", description = "This document has no submitted cancellation in this company"),
+        @ApiResponse(responseCode = "503", description = "No reconciling provider is configured")
+    })
+    public ResponseEntity<FiscalCancellationReconciliation> reconcileCancellation(@PathVariable UUID id) {
+        return ResponseEntity.ok(reconciliationService.reconcile(id));
     }
 
     /**
