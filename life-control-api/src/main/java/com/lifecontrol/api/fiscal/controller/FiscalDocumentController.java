@@ -13,6 +13,7 @@ import com.lifecontrol.api.fiscal.dto.FiscalDocumentStamp;
 import com.lifecontrol.api.fiscal.exception.FiscalCancellationMotiveUnknownException;
 import com.lifecontrol.api.fiscal.exception.FiscalCancellationNotConfiguredException;
 import com.lifecontrol.api.fiscal.exception.FiscalSealNotConfiguredException;
+import com.lifecontrol.api.fiscal.exception.FiscalStampProviderException;
 import com.lifecontrol.api.fiscal.exception.FiscalStampProviderNotConfiguredException;
 import com.lifecontrol.api.fiscal.model.FiscalCancellationMotive;
 import com.lifecontrol.api.fiscal.service.FiscalCancellationReconciliationService;
@@ -90,6 +91,18 @@ public class FiscalDocumentController {
 
     private static final Logger logger = LoggerFactory.getLogger(FiscalDocumentController.class);
 
+    /**
+     * The one sentence a caller receives when the authority failed to answer ({@code D2} of
+     * {@code odd/tasks/fiscal-provider-failure-status.md}).
+     *
+     * <p><b>Why it is a constant and not the exception's message.</b> The family's own messages state the endpoint, the
+     * timeout, the HTTP status the receiver answered and, on a defect, the fragment of the answer that could not be
+     * read. Every one of those is an operator's fact and a stranger's reconnaissance: a caller needs to know that the
+     * authority it depends on did not answer, and the detail travels through the correlation id the envelope already
+     * returns, which the log pairs with it.</p>
+     */
+    private static final String FISCAL_PROVIDER_FAILURE_MESSAGE = "The fiscal authority failed to answer this request";
+
     private final FiscalDocumentReprintService reprintService;
     private final FiscalDocumentCancellationService cancellationService;
     private final FiscalCancellationReconciliationService reconciliationService;
@@ -147,7 +160,9 @@ public class FiscalDocumentController {
                     + "each refused by name; a sale that already has a live stamped document under another attempt is "
                     + "a 409, because the authority cannot hold two UUIDs for one sale and neither would be the "
                     + "original. An absent or blank attempt key is a 400 naming the field, and a deployment without a "
-                    + "provider or without a sealer is a 503.")
+                    + "provider or without a sealer is a 503. An authority that failed to answer — unreachable, a non-2xx, "
+                    + "or an answer that cannot be read — is a 502 carrying one constant sentence and the correlation id "
+                    + "of the log line that holds the cause.")
     @ApiResponses({
         @ApiResponse(responseCode = "201", description = "This call stamped the document and kept the artefact"),
         @ApiResponse(
@@ -160,7 +175,10 @@ public class FiscalDocumentController {
                 responseCode = "409",
                 description = "The sale is not completed, already has a live stamped document under another "
                         + "attempt, or a profile or tax mapping it needs is incomplete or missing"),
-        @ApiResponse(responseCode = "503", description = "No stamping provider or no sealer is configured")
+        @ApiResponse(responseCode = "503", description = "No stamping provider or no sealer is configured"),
+        @ApiResponse(
+                responseCode = "502",
+                description = "The authority failed to answer: unreachable, a non-2xx, or an unreadable answer")
     })
     public ResponseEntity<FiscalDocumentStamp> issue(@Valid @RequestBody FiscalDocumentIssueRequest request) {
         var stamp = stamper.stamp(request.salesOrderId(), request.attemptKey());
@@ -299,7 +317,8 @@ public class FiscalDocumentController {
                     + "a motive that is not one of the authority's four, a motive 01 without a substituting folio and "
                     + "a folio that names no stamped document of this company are all 400. A request the receiver has "
                     + "not answered yet is a 202 and writes nothing, because a submitted cancellation is not a "
-                    + "cancelled document.")
+                    + "cancelled document. An authority that failed to answer is the same 502 the stamp answers, with "
+                    + "the same constant sentence.")
     @ApiResponses({
         @ApiResponse(responseCode = "201", description = "The authority cancelled it and the row was written"),
         @ApiResponse(
@@ -316,7 +335,10 @@ public class FiscalDocumentController {
         @ApiResponse(
                 responseCode = "409",
                 description = "The document is already cancelled, or the authority refused the cancellation"),
-        @ApiResponse(responseCode = "503", description = "No cancellation provider or sealer is configured")
+        @ApiResponse(responseCode = "503", description = "No cancellation provider or sealer is configured"),
+        @ApiResponse(
+                responseCode = "502",
+                description = "The authority failed to answer: unreachable, a non-2xx, or an unreadable answer")
     })
     public ResponseEntity<FiscalDocumentCancellation> cancel(
             @PathVariable UUID id, @Valid @RequestBody FiscalDocumentCancellationRequest request) {
@@ -369,8 +391,9 @@ public class FiscalDocumentController {
                     + "registration writes nothing and says so. Every answered pass is a 200 with the row's state and "
                     + "a settled flag, because all four are answers; running it again over a settled row answers the "
                     + "row and asks the authority nothing. A document whose cancellation was never submitted is a 404, "
-                    + "and a deployment without the reconciling adapter is a 503. It takes no request body: what to "
-                    + "ask is the row's, not the caller's.")
+                    + "and a deployment without the reconciling adapter is a 503. An authority that failed to answer is "
+                    + "a 502 with the same constant sentence the other two endpoints answer. It takes no request body: "
+                    + "what to ask is the row's, not the caller's.")
     @ApiResponses({
         @ApiResponse(
                 responseCode = "200",
@@ -378,7 +401,10 @@ public class FiscalDocumentController {
         @ApiResponse(responseCode = "400", description = "The document id in the path is not a UUID"),
         @ApiResponse(responseCode = "403", description = "The caller does not hold lc-admin"),
         @ApiResponse(responseCode = "404", description = "This document has no submitted cancellation in this company"),
-        @ApiResponse(responseCode = "503", description = "No reconciling provider is configured")
+        @ApiResponse(responseCode = "503", description = "No reconciling provider is configured"),
+        @ApiResponse(
+                responseCode = "502",
+                description = "The authority failed to answer: unreachable, a non-2xx, or an unreadable answer")
     })
     public ResponseEntity<FiscalCancellationReconciliation> reconcileCancellation(@PathVariable UUID id) {
         return ResponseEntity.ok(reconciliationService.reconcile(id));
@@ -423,6 +449,52 @@ public class FiscalDocumentController {
                         HttpStatus.SERVICE_UNAVAILABLE.value(),
                         refusal.getMessage(),
                         currentPath(),
+                        LocalDateTime.now(),
+                        MDC.get("traceId")));
+    }
+
+    /**
+     * Answers an authority that failed to answer with <b>502 Bad Gateway</b> instead of the 500 the advice's fallback
+     * would give ({@code S1}, {@code S2} and {@code S3} of {@code odd/tasks/fiscal-provider-failure-status.md}).
+     *
+     * <p><b>Why 502, and why not the two codes that look closer.</b> {@code D1}: {@code 503} already answers two
+     * different facts in this tree — the "not configured" refusal of the three handlers above, and
+     * {@code IdentityProviderConnectionException} in the shared advice — and the whole point of this answer is to be
+     * distinguishable from "this deployment cannot invoice", so it cannot reuse that code. {@code 504} is excluded for
+     * a narrower reason: the tree does not separate a timeout from any other transport failure, since
+     * {@code FiscalStampProviderTransportException.unreachable} and {@code …answeredWithStatus} are one family, so
+     * {@code 504} would name a distinction no code makes. Both subclasses mean the same thing to a caller — an upstream
+     * server did not answer us in a usable way — which is what {@code 502} means.</p>
+     *
+     * <p><b>Why the body is one constant sentence.</b> {@code D2}: the family's own messages carry the endpoint, the
+     * configured timeout, the HTTP status the receiver answered and, on a defect, the fragment of the answer that could
+     * not be read. None of that belongs in a response — a caller cannot act on it and it describes this tree's
+     * deployment to whoever asked — so the cause goes to the log together with the path the response names, and the
+     * operator reaches it through the correlation id the envelope already returns.</p>
+     *
+     * <p><b>Why the mapping is here and not in {@code GlobalExceptionHandler} ({@code L4}).</b> That advice is the class
+     * every endpoint of the module goes through, and its {@link Exception} fallback is the behaviour {@code S7} protects:
+     * a fiscal arm there would change where one family lands for surfaces no other controller asked for. A handler on
+     * this controller resolves before the advice, so the three endpoints of this document get the {@code 502} while every
+     * other exception keeps the answer it has today — the same reason the not-configured trio lives here. It also keeps
+     * the blast radius to the three paths {@code D3} names: {@code FiscalCancellationPass} reaches the same ports from a
+     * scheduled thread, where no exception handler is involved and nothing about this method changes.</p>
+     *
+     * @param failure the port's failure, logged whole and never quoted in the body
+     * @return {@code 502} with the constant sentence, the request path and the correlation id
+     */
+    @ExceptionHandler(FiscalStampProviderException.class)
+    public ResponseEntity<GlobalExceptionHandler.ErrorResponse> handleProviderFailure(
+            FiscalStampProviderException failure) {
+        var path = currentPath();
+        // The path is in the log line because it is what the response carries: an operator holding a caller's body and
+        // its correlation id can name the endpoint without asking for anything else (S1).
+        logger.error("Fiscal provider failed to answer the request: path={}", path, failure);
+        return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+                .body(new GlobalExceptionHandler.ErrorResponse(
+                        HttpStatus.BAD_GATEWAY.value(),
+                        FISCAL_PROVIDER_FAILURE_MESSAGE,
+                        path,
                         LocalDateTime.now(),
                         MDC.get("traceId")));
     }
