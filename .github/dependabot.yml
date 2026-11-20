@@ -36,3 +36,52 @@ updates:
     labels:
       - dependencies
       - type:chore
+
+  # The Angular application: 27 direct dependencies, `package-lock.json`, Node from `.nvmrc`.
+  # Nothing watched it before this entry (issue #985).
+  #
+  # Two shapes here are easy to get wrong, and both fail closed into "no pull requests at all"
+  # rather than into an error anyone sees in CI, because nothing in this repository validates
+  # the schema of this file:
+  #
+  #   * `update-types` speaks two different vocabularies. Under `ignore` the values are
+  #     `version-update:semver-*`; under `groups` they are the bare `major`/`minor`/`patch`.
+  #     Mixing them is an invalid config.
+  #   * A group only holds what its `patterns` match, so the catch-all group has to exclude the
+  #     Angular line explicitly, or the two groups overlap and Dependabot rejects the entry.
+  #
+  # The Angular major line moves by its own migration (`ng update`, with its codemods and its
+  # changelog), never by a bot pull request, so majors of `@angular/*` are ignored here rather
+  # than grouped: a grouped major would arrive as one more approval away from a broken build.
+  - package-ecosystem: npm
+    directory: /life-control-app-angular
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+    ignore:
+      - dependency-name: "@angular/*"
+        update-types:
+          - version-update:semver-major
+    # One pull request per group instead of one per package: 27 dependencies on a weekly
+    # schedule is 27 pull requests, and `open-pull-requests-limit: 5` would then hide most of
+    # them behind the limit rather than slow them down.
+    groups:
+      angular:
+        patterns:
+          - "@angular/*"
+        update-types:
+          - minor
+          - patch
+      everything-else:
+        patterns:
+          - "*"
+        exclude-patterns:
+          - "@angular/*"
+        update-types:
+          - minor
+          - patch
+    labels:
+      - dependencies
+      - type:chore
