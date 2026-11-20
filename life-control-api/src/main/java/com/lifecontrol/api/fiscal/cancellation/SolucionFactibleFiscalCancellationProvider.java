@@ -1,32 +1,28 @@
 package com.lifecontrol.api.fiscal.cancellation;
 
+import static com.lifecontrol.api.fiscal.cancellation.SolucionFactibleSoapTransport.CANCELACION;
+import static com.lifecontrol.api.fiscal.cancellation.SolucionFactibleSoapTransport.SOAP_ENVELOPE;
+import static com.lifecontrol.api.fiscal.cancellation.SolucionFactibleSoapTransport.STATUS;
+import static com.lifecontrol.api.fiscal.cancellation.SolucionFactibleSoapTransport.answerOf;
+import static com.lifecontrol.api.fiscal.cancellation.SolucionFactibleSoapTransport.children;
+import static com.lifecontrol.api.fiscal.cancellation.SolucionFactibleSoapTransport.elapsedMillis;
+import static com.lifecontrol.api.fiscal.cancellation.SolucionFactibleSoapTransport.parse;
+import static com.lifecontrol.api.fiscal.cancellation.SolucionFactibleSoapTransport.quoted;
+import static com.lifecontrol.api.fiscal.cancellation.SolucionFactibleSoapTransport.statusOf;
+import static com.lifecontrol.api.fiscal.cancellation.SolucionFactibleSoapTransport.text;
+
 import com.lifecontrol.api.config.fiscal.SolucionFactibleProperties;
 import com.lifecontrol.api.fiscal.exception.FiscalStampProviderDefectException;
-import com.lifecontrol.api.fiscal.exception.FiscalStampProviderTransportException;
-import java.io.IOException;
-import java.io.StringReader;
-import java.net.URI;
-import java.net.URISyntaxException;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
-import javax.xml.XMLConstants;
-import javax.xml.parsers.DocumentBuilderFactory;
-import javax.xml.parsers.ParserConfigurationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.w3c.dom.Document;
 import org.w3c.dom.Element;
-import org.xml.sax.InputSource;
-import org.xml.sax.SAXException;
 
 /**
  * Solución Factible's {@code enviarSolicitudCancelacion} operation, behind {@link FiscalCancellationProvider}
@@ -94,15 +90,8 @@ public final class SolucionFactibleFiscalCancellationProvider implements FiscalC
 
     private static final Logger logger = LoggerFactory.getLogger(SolucionFactibleFiscalCancellationProvider.class);
 
-    private static final String SOAP_ENVELOPE = "http://schemas.xmlsoap.org/soap/envelope/";
-    private static final String CANCELACION = "http://timbrado.ws.cfdi.solucionfactible.com";
-    private static final String XSI = "http://www.w3.org/2001/XMLSchema-instance";
-
     /** SOAP 1.1 carries the operation in the {@code Action} header, quoted as the HTTP binding requires. */
     private static final String SOAP_ACTION = "\"urn:enviarSolicitudCancelacion\"";
-
-    private static final String ENDPOINT_PROPERTY = "app.fiscal.provider.solucion-factible.endpoint";
-    private static final String TIMEOUT_PROPERTY = "app.fiscal.provider.solucion-factible.timeout-seconds";
 
     /** The process level's "the call worked"; it is not a verdict on the document ({@code L20}(c)). */
     private static final int STATUS_OK = 200;
@@ -119,83 +108,45 @@ public final class SolucionFactibleFiscalCancellationProvider implements FiscalC
 
     private static final String RESPONSE = "EnviarSolicitudCancelacionResponse";
     private static final String RESULT = "CFDIResultadoCancelacion";
-    private static final String STATUS = "status";
     private static final String MENSAJE = "mensaje";
     private static final String STATUS_UUID = "statusUUID";
     private static final String UUID_ELEMENT = "UUID";
 
-    private final URI endpoint;
-    private final String usuario;
-    private final String password;
-    private final Duration timeout;
-    private final HttpClient httpClient;
+    /** The one copy of the vendor's endpoint, credentials and answer reading, shared with the reconciling adapter. */
+    private final SolucionFactibleSoapTransport transport;
 
     /**
-     * Binds the adapter to one endpoint and one account, validating both before the first call.
+     * Binds the adapter to one endpoint and one account through the shared transport, which validates both before the
+     * first call.
      *
-     * <p>The endpoint is parsed here rather than at the first cancellation on purpose: a value that is not an
-     * absolute {@code http(s)} URL is a configuration mistake, and the boot is where an operator sees it. This
-     * adapter deliberately reuses {@code app.fiscal.provider.solucion-factible.*} whole — the same vendor, the same
-     * service URL and the same account cancel what they stamp — so no second properties record and no second
-     * secret exist to drift from this one.</p>
+     * <p>This adapter deliberately reuses {@code app.fiscal.provider.solucion-factible.*} whole — the same vendor, the
+     * same service URL and the same account cancel what they stamp — so no second properties record and no second
+     * secret exist to drift from this one. The validation, and the reason it happens at the boot, moved to
+     * {@link SolucionFactibleSoapTransport} when the reconciling adapter started sending to the same host: one copy of
+     * the rule instead of two.</p>
      *
      * @param properties the bound {@code app.fiscal.provider.solucion-factible} values
      * @throws IllegalStateException when the endpoint is absent or is not an absolute {@code http(s)} URL
      */
     public SolucionFactibleFiscalCancellationProvider(SolucionFactibleProperties properties) {
-        Objects.requireNonNull(properties, "the Solución Factible adapter is configured, never defaulted");
-        this.endpoint = endpointOf(properties.endpoint());
-        this.usuario = Objects.requireNonNull(
-                properties.usuario(), "app.fiscal.provider.solucion-factible.usuario is required");
-        this.password = Objects.requireNonNull(
-                properties.password(), "app.fiscal.provider.solucion-factible.password is required");
-        this.timeout = Duration.ofSeconds(
-                Objects.requireNonNull(properties.timeoutSeconds(), TIMEOUT_PROPERTY + " is required")
-                        .longValue());
-        this.httpClient = HttpClient.newBuilder().connectTimeout(timeout).build();
+        this.transport = new SolucionFactibleSoapTransport(properties);
     }
 
     @Override
     public FiscalCancellationResult cancel(FiscalCancellationRequest request) {
         Objects.requireNonNull(request, "a cancellation carries the sealed request to send");
         var startedAt = System.nanoTime();
-        var body = send(request, startedAt);
+        var body = transport.send(SOAP_ACTION, envelopeFor(request), startedAt);
         var answer = map(body, request.uuid());
         logger.info(
                 "Solución Factible cancellation call: endpoint={}, elapsedMillis={}, answer={}",
-                endpoint,
+                transport.endpoint(),
                 elapsedMillis(startedAt),
                 answer.getClass().getSimpleName());
         return answer;
     }
 
     // ─── the call ────────────────────────────────────────────────────────────────────────────────────
-
-    private String send(FiscalCancellationRequest request, long startedAt) {
-        var httpRequest = HttpRequest.newBuilder(endpoint)
-                .timeout(timeout)
-                .header("Content-Type", "text/xml; charset=utf-8")
-                .header("SOAPAction", SOAP_ACTION)
-                .POST(HttpRequest.BodyPublishers.ofString(envelopeFor(request), StandardCharsets.UTF_8))
-                .build();
-        try {
-            var response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-            if (response.statusCode() / 100 != 2) {
-                throw FiscalStampProviderTransportException.answeredWithStatus(
-                        endpoint.toString(), timeout, elapsedMillis(startedAt), response.statusCode());
-            }
-            return response.body();
-        } catch (IOException transportFailed) {
-            throw FiscalStampProviderTransportException.unreachable(
-                    endpoint.toString(), timeout, elapsedMillis(startedAt), transportFailed);
-        } catch (InterruptedException interrupted) {
-            // The interrupt is the caller's, so it is restored before the failure is reported: a swallowed one
-            // would leave the transaction unable to be cancelled and the pool unable to notice a shutdown.
-            Thread.currentThread().interrupt();
-            throw FiscalStampProviderTransportException.unreachable(
-                    endpoint.toString(), timeout, elapsedMillis(startedAt), interrupted);
-        }
-    }
 
     /**
      * The one fixed envelope: SOAP 1.1, document style, three children in the WSDL's order.
@@ -213,20 +164,11 @@ public final class SolucionFactibleFiscalCancellationProvider implements FiscalC
                 + "<soapenv:Header/>"
                 + "<soapenv:Body>"
                 + "<timb:enviarSolicitudCancelacion>"
-                + "<timb:usuario>" + escape(usuario) + "</timb:usuario>"
-                + "<timb:password>" + escape(password) + "</timb:password>"
+                + transport.credentialsAs("timb")
                 + "<timb:solicitudCancelacion>" + document + "</timb:solicitudCancelacion>"
                 + "</timb:enviarSolicitudCancelacion>"
                 + "</soapenv:Body>"
                 + "</soapenv:Envelope>";
-    }
-
-    private static String escape(String value) {
-        return value.replace("&", "&amp;")
-                .replace("<", "&lt;")
-                .replace(">", "&gt;")
-                .replace("\"", "&quot;")
-                .replace("'", "&apos;");
     }
 
     // ─── the answer ──────────────────────────────────────────────────────────────────────────────────
@@ -242,7 +184,7 @@ public final class SolucionFactibleFiscalCancellationProvider implements FiscalC
      * there and {@code 205} below it ({@code L20}(c)).</p>
      */
     private FiscalCancellationResult map(String body, UUID requested) {
-        var answer = answerOf(parse(body, "the SOAP answer"));
+        var answer = answerOf(parse(body, "the SOAP answer"), RESPONSE);
         var processStatus = statusOf(answer, "the answer");
         var processMessage = text(answer, MENSAJE);
         var results = children(answer, RESULT);
@@ -333,144 +275,4 @@ public final class SolucionFactibleFiscalCancellationProvider implements FiscalC
     }
 
     // ─── reading the answer ──────────────────────────────────────────────────────────────────────────
-
-    /**
-     * The operation's answer element, found by local name, bare or inside a SOAP body.
-     *
-     * <p>By local name and not by namespace because the vendor's own published answers carry no namespace at all,
-     * and this tree has never been told the qualification is part of the contract. The bare form is not tolerated by
-     * accident: it is what the vendor publishes for this operation, and a parser that demanded an envelope would
-     * refuse the very examples this adapter is pinned against.</p>
-     */
-    private static Element answerOf(Document document) {
-        var faults = document.getElementsByTagNameNS("*", "Fault");
-        if (faults.getLength() > 0) {
-            var fault = (Element) faults.item(0);
-            throw FiscalStampProviderDefectException.unreadable("the answer is a SOAP Fault: "
-                    + firstText(fault, "faultstring") + " / " + firstText(fault, "faultcode"));
-        }
-        var scope = document.getDocumentElement();
-        var bodies = document.getElementsByTagNameNS("*", "Body");
-        if (bodies.getLength() > 0) {
-            scope = (Element) bodies.item(0);
-        }
-        if (RESPONSE.equalsIgnoreCase(scope.getLocalName() == null ? scope.getNodeName() : scope.getLocalName())) {
-            return scope;
-        }
-        for (var descendant : descendants(scope)) {
-            var name = descendant.getLocalName() == null ? descendant.getNodeName() : descendant.getLocalName();
-            if (RESPONSE.equalsIgnoreCase(name)) {
-                return descendant;
-            }
-        }
-        throw FiscalStampProviderDefectException.unreadable("the answer carries no " + RESPONSE + " element, so "
-                + "there is nothing in it that can be read as the operation's answer");
-    }
-
-    private static List<Element> descendants(Element scope) {
-        var elements = scope.getElementsByTagName("*");
-        List<Element> found = new ArrayList<>(elements.getLength());
-        for (var index = 0; index < elements.getLength(); index++) {
-            found.add((Element) elements.item(index));
-        }
-        return found;
-    }
-
-    private static String firstText(Element scope, String localName) {
-        var elements = scope.getElementsByTagNameNS("*", localName);
-        return elements.getLength() == 0 ? "none" : elements.item(0).getTextContent();
-    }
-
-    private static int statusOf(Element scope, String what) {
-        var value = text(scope, STATUS);
-        if (value == null) {
-            throw FiscalStampProviderDefectException.unreadable(what + " states no status");
-        }
-        try {
-            return Integer.parseInt(value);
-        } catch (NumberFormatException notANumber) {
-            throw FiscalStampProviderDefectException.unreadable(what + " states status '" + value + "'", notANumber);
-        }
-    }
-
-    private static String text(Element scope, String name) {
-        for (var element : children(scope, name)) {
-            // An `xsi:nil="true"` child is the vendor's own way of saying the field is absent, and an empty string
-            // is not the same fact as a missing one.
-            if ("true".equals(element.getAttributeNS(XSI, "nil"))) {
-                continue;
-            }
-            var value = element.getTextContent();
-            return value == null ? null : value.trim();
-        }
-        return null;
-    }
-
-    /** Direct children by local name, whatever namespace the vendor qualifies them with. */
-    private static List<Element> children(Element parent, String localName) {
-        List<Element> found = new ArrayList<>();
-        for (var child = parent.getFirstChild(); child != null; child = child.getNextSibling()) {
-            if (child instanceof Element element) {
-                var name = element.getLocalName() == null ? element.getNodeName() : element.getLocalName();
-                if (localName.equals(name)) {
-                    found.add(element);
-                }
-            }
-        }
-        return found;
-    }
-
-    /**
-     * Parses XML this process did not produce, with a parser that cannot be talked into fetching anything.
-     *
-     * <p>The input is a third party's answer, so the factory refuses a DOCTYPE outright and disables every route
-     * from it — external general and parameter entities, and external DTD loading — which is what closes an XXE in
-     * a client that has no business resolving any external reference.</p>
-     */
-    private static Document parse(String xml, String what) {
-        try {
-            var factory = DocumentBuilderFactory.newInstance();
-            factory.setNamespaceAware(true);
-            factory.setXIncludeAware(false);
-            factory.setExpandEntityReferences(false);
-            factory.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);
-            factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
-            factory.setFeature("http://xml.org/sax/features/external-general-entities", false);
-            factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
-            factory.setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false);
-            return factory.newDocumentBuilder().parse(new InputSource(new StringReader(xml)));
-        } catch (ParserConfigurationException | SAXException | IOException cannotParse) {
-            throw FiscalStampProviderDefectException.unreadable(what + " is not well-formed XML", cannotParse);
-        }
-    }
-
-    // ─── construction ───────────────────────────────────────────────────────────────────────────────
-
-    private static URI endpointOf(String value) {
-        if (value == null || value.isBlank()) {
-            throw new IllegalStateException(ENDPOINT_PROPERTY + " is required: the adapter has no default endpoint, "
-                    + "because a default would send a tenant's document to whichever host the default names (L18).");
-        }
-        try {
-            var uri = new URI(value.trim());
-            var scheme = uri.getScheme() == null ? "" : uri.getScheme().toLowerCase();
-            if (!uri.isAbsolute() || uri.getHost() == null || !(scheme.equals("http") || scheme.equals("https"))) {
-                throw new IllegalStateException(ENDPOINT_PROPERTY + " = '" + value
-                        + "' is not an absolute http(s) URL of the vendor's Timbrado service, so there is no "
-                        + "authority to call.");
-            }
-            return uri;
-        } catch (URISyntaxException notAUri) {
-            throw new IllegalStateException(
-                    ENDPOINT_PROPERTY + " = '" + value + "' is not a URI at all: " + notAUri, notAUri);
-        }
-    }
-
-    private static String quoted(String message) {
-        return message == null || message.isBlank() ? "no message" : "\"" + message + "\"";
-    }
-
-    private static long elapsedMillis(long startedAt) {
-        return (System.nanoTime() - startedAt) / 1_000_000L;
-    }
 }
