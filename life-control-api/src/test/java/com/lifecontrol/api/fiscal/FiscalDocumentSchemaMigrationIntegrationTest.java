@@ -389,6 +389,173 @@ class FiscalDocumentSchemaMigrationIntegrationTest extends AbstractPostgresInteg
                 .contains("fk_fiscal_document_cancels");
     }
 
+    // --- V113: the fourth state, its two constraints and its guard arm (S2, L2(a)-L2(e)) ---
+
+    @Test
+    @DisplayName("V113 lands on rows the three-state vocabulary already wrote: nothing is rejected and nothing is "
+            + "backfilled")
+    void admitsTheRowsTheThreeStateVocabularyWrote() throws Exception {
+        migrateTo("112");
+        var sale = fixtures.seedSale("V113-A");
+        var stamped = insertStamped(sale);
+
+        assertThat(refusalOf(cancellationRow(sale.company(), stamped, "'02'")))
+                .as("the control: at 112 the only cancellation row the vocabulary admits is a CANCELLED one, and "
+                        + "it states no answer — the shape #926 ships")
+                .isEmpty();
+
+        migrateToHead();
+
+        assertThat(read("SELECT status || ':' || coalesce(cancellation_status_uuid, 'null') || ':' "
+                        + "|| coalesce(cancellation_message, 'null') || ':' "
+                        + "|| coalesce(cancellation_settled_at::text, 'null') "
+                        + "FROM fiscal_document WHERE cancels_fiscal_document_id = '" + stamped + "'"))
+                .as("the ADD CONSTRAINT passes over the populated table (not NOT VALID): the row it finds is "
+                        + "already legal under the widened vocabulary, and nothing read it into a pending state "
+                        + "or invented an answer and a settle stamp for it")
+                .isEqualTo("CANCELLED:null:null:null");
+    }
+
+    @Test
+    @DisplayName("a CANCELLATION_PENDING row is coupled to its pointer and to its answer, and no reader of "
+            + "STAMPED counts it")
+    void couplesThePendingRowToItsPointerAndItsAnswer() throws Exception {
+        migrateTo(PRE_UNIT_HEAD);
+        migrateToHead();
+
+        var sale = fixtures.seedSale("V113-B");
+        var company = sale.company();
+        var stamped = insertStamped(sale);
+
+        assertThat(refusalOf(documentRow(
+                        UUID.randomUUID(),
+                        company,
+                        UUID.randomUUID(),
+                        "CANCELLATION_PENDING",
+                        "NULL",
+                        "NULL",
+                        "NULL",
+                        "NULL")))
+                .as("L2(b): the pending row is the cancellation row in waiting, so the pointer and the motive are "
+                        + "what it exists to state — a pending row naming no document is a claim that the "
+                        + "authority was asked about nothing")
+                .contains("ck_fiscal_document_cancellation");
+
+        var pending = insertPending(company, stamped, "'02'");
+
+        assertThat(refusalOf("UPDATE fiscal_document SET cancellation_settled_at = now() WHERE id = '" + pending + "'"))
+                .as("L2(d), second half: settled is the timestamp, and a timestamp with no verdict says something "
+                        + "finished without saying how")
+                .contains("ck_fiscal_document_cancellation_answer");
+
+        assertThat(refusalOf("UPDATE fiscal_document SET cancellation_status_uuid = '211',"
+                        + " cancellation_message = 'La solicitud de cancelación se registró exitosamente'"
+                        + " WHERE id = '" + pending + "'"))
+                .as("L2(f): the submission's own code and its sentence are legal on a pending row — that is what "
+                        + "the row records before any pass settles it")
+                .isEmpty();
+
+        var draft = insertDraft(company, UUID.randomUUID());
+        assertThat(refusalOf("UPDATE fiscal_document SET cancellation_status_uuid = '211',"
+                        + " cancellation_message = 'registrada' WHERE id = '" + draft + "'"))
+                .as("and illegal on a DRAFT: an answer belongs to a cancellation row, or a draft would carry the "
+                        + "authority's verdict about nothing")
+                .contains("ck_fiscal_document_cancellation_answer");
+
+        assertThat(count("SELECT count(*) FROM fiscal_document WHERE source_id = '" + sale.sale()
+                        + "' AND status = 'STAMPED'"))
+                .as("S2: no reader of STAMPED counts the pending row — the fourth state is not a stamp, which is "
+                        + "why the vocabulary needed a fourth word instead of a flag beside the third")
+                .isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("a CANCELLATION_PENDING row may only stay pending or become CANCELLED, and neither its identity "
+            + "nor the row itself moves")
+    void constrainsThePendingTransition() throws Exception {
+        migrateTo(PRE_UNIT_HEAD);
+        migrateToHead();
+
+        var sale = fixtures.seedSale("V113-C");
+        var stamped = insertStamped(sale);
+        var pending = insertPending(sale.company(), stamped, "'02'");
+
+        assertThat(refusalOf("UPDATE fiscal_document SET status = 'DRAFT' WHERE id = '" + pending + "'"))
+                .as("L2(e): becoming DRAFT would return a document the authority still holds to mutable")
+                .contains("refuses this transition")
+                .contains("CANCELLATION_PENDING");
+        assertThat(refusalOf("UPDATE fiscal_document SET status = 'STAMPED' WHERE id = '" + pending + "'"))
+                .as("and becoming STAMPED would be a second stamp of the sale the pending row names")
+                .contains("refuses this transition")
+                .contains("CANCELLATION_PENDING");
+
+        assertThat(refusalOf("UPDATE fiscal_document SET source_id = '" + UUID.randomUUID() + "' WHERE id = '" + pending
+                        + "'"))
+                .as("the identity arm is not replaced by the pending arm: a pending row's identity is as frozen "
+                        + "as a draft's")
+                .contains("change of identity");
+
+        assertThat(refusalOf("DELETE FROM fiscal_document WHERE id = '" + pending + "'"))
+                .as("and DELETE is still refused on every row, pending included")
+                .contains("DELETE");
+
+        assertThat(refusalOf("UPDATE fiscal_document SET status = 'CANCELLED' WHERE id = '" + pending + "'"))
+                .as("the one transition out of pending: the authority accepted the submitted cancellation")
+                .isEmpty();
+        assertThat(read("SELECT status FROM fiscal_document WHERE id = '" + pending + "'"))
+                .as("and it really moved the row")
+                .isEqualTo("CANCELLED");
+    }
+
+    @Test
+    @DisplayName("a CANCELLATION_PENDING row's pointer, motive and substituted folio are frozen while it waits")
+    void freezesThePendingRowsOwnFacts() throws Exception {
+        migrateTo(PRE_UNIT_HEAD);
+        migrateToHead();
+
+        var tree = fixtures.seedTree("V113-D");
+        var sale = fixtures.seedSale(tree, 1);
+        var secondSale = fixtures.seedSale(tree, 2);
+        var stamped = insertStamped(sale);
+        var otherStamped = insertStamped(secondSale);
+        var pending = insertPending(tree.company(), stamped, "'02'");
+
+        assertThat(refusalOf("UPDATE fiscal_document SET cancels_fiscal_document_id = '" + otherStamped
+                        + "' WHERE id = '" + pending + "'"))
+                .as("the pass asks the authority about the pointed document's UUID, so a re-pointed pending row "
+                        + "would settle a cancellation against a document the authority never judged — the move "
+                        + "the CANCELLED state already forbids")
+                .contains("fiscal_document refuses")
+                .contains("cancels_fiscal_document_id")
+                .doesNotContain("violates check constraint");
+
+        assertThat(refusalOf("UPDATE fiscal_document SET cancellation_motive = '03' WHERE id = '" + pending + "'"))
+                .as("the motive is what the authority was told; '03' is a legal motive, so only the guard can "
+                        + "refuse this edit — which is what makes the assertion one about the arm and not about "
+                        + "the closed motive vocabulary")
+                .contains("fiscal_document refuses")
+                .contains("cancellation_motive")
+                .doesNotContain("violates check constraint");
+
+        assertThat(refusalOf("UPDATE fiscal_document SET replaces_fiscal_document_id = '" + otherStamped
+                        + "' WHERE id = '" + pending + "'"))
+                .as("and the substituted folio is the third fact a second submission reads")
+                .contains("fiscal_document refuses")
+                .contains("replaces_fiscal_document_id")
+                .doesNotContain("violates check constraint");
+
+        assertThat(refusalOf("UPDATE fiscal_document SET cancellation_status_uuid = '213',"
+                        + " cancellation_message = 'La solicitud de cancelación no se pudo procesar'"
+                        + " WHERE id = '" + pending + "'"))
+                .as("while recording the authority's answer is the one update the waiting row exists for")
+                .isEmpty();
+
+        assertThat(read("SELECT cancels_fiscal_document_id::text || ':' || cancellation_motive "
+                        + "FROM fiscal_document WHERE id = '" + pending + "'"))
+                .as("and the three refusals left the row's own facts exactly as they were")
+                .isEqualTo(stamped + ":02");
+    }
+
     @Test
     @DisplayName("a DRAFT cannot change its company, its source_type or its source_id")
     void refusesAChangeOfIdentityOnADraft() throws Exception {
@@ -422,7 +589,7 @@ class FiscalDocumentSchemaMigrationIntegrationTest extends AbstractPostgresInteg
     // --- S12/L9(i): the vocabularies live in the schema, and they are read where they live ---
 
     @Test
-    @DisplayName("ck_fiscal_document_status names exactly DRAFT, STAMPED and CANCELLED, and "
+    @DisplayName("ck_fiscal_document_status names exactly CANCELLATION_PENDING, CANCELLED, DRAFT and STAMPED, and "
             + "ck_fiscal_document_source_type names SALES_ORDER")
     void statesItsClosedVocabulariesInNamedChecks() throws Exception {
         migrateTo(PRE_UNIT_HEAD);
@@ -431,8 +598,10 @@ class FiscalDocumentSchemaMigrationIntegrationTest extends AbstractPostgresInteg
         assertThat(checkValues("ck_fiscal_document_status"))
                 .as("L9(i): the enums arrive with A3's first reader, and the vocabulary is verified here, "
                         + "where it lives — an enum nothing reads would be exactly the unused code the audit in "
-                        + "docs/ flags")
-                .isEqualTo("CANCELLED,DRAFT,STAMPED");
+                        + "docs/ flags. The fourth token is V113's and it is S2's whole point: a submitted "
+                        + "cancellation is a state of its own, and a document that is not CANCELLED must not be "
+                        + "read as one")
+                .isEqualTo("CANCELLATION_PENDING,CANCELLED,DRAFT,STAMPED");
         assertThat(checkValues("ck_fiscal_document_source_type"))
                 .as("`source_type` names the table `source_id` points at, so an open vocabulary there would let "
                         + "a row name a table no writer of this tree loads")
@@ -545,6 +714,30 @@ class FiscalDocumentSchemaMigrationIntegrationTest extends AbstractPostgresInteg
                 "NULL",
                 "'" + cancels + "'",
                 motive);
+    }
+
+    /**
+     * The pending cancellation row {@code L2(b)} describes: a cancellation row whose state says the authority has
+     * the request and has not answered. It states the pointer and the motive and nothing else — no {@code
+     * uuid_fiscal} and no {@code stamped_at} (L2(c)), and no answer until a pass records one (L2(d)).
+     */
+    private String pendingRow(UUID document, UUID company, UUID cancels, String motive) {
+        return documentRow(
+                document,
+                company,
+                UUID.randomUUID(),
+                "CANCELLATION_PENDING",
+                "NULL",
+                "NULL",
+                "'" + cancels + "'",
+                motive);
+    }
+
+    /** Inserts a pending cancellation row and returns its id. */
+    private UUID insertPending(UUID company, UUID cancels, String motive) throws SQLException {
+        var document = UUID.randomUUID();
+        execute(pendingRow(document, company, cancels, motive));
+        return document;
     }
 
     /** Inserts a stamped row for a real sale and returns its id: a refusal is the case's own assertion. */
