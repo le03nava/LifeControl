@@ -203,6 +203,76 @@ BEGIN
     END IF;
 END $$;
 
+-- ─── 6b. the fiscal cancellation pass's enumerator: the second escape, and the narrowest one ──────
+-- The scheduled pass that settles submitted cancellations (issue #994) cannot find its work for the
+-- same reason the provisioning worker could not find its tenant: `fiscal_document` is armed and FORCED
+-- (V108:218), so a connection carrying no `app.company_id` reads zero rows -- and a scheduler thread
+-- carries no scope, because no filter ever runs for it.
+--
+-- **What this function returns is the smallest thing the pass can be given: the companies that have a
+-- row waiting, and nothing else.** Not the rows, not the documents' ids, not their money: the pass then
+-- states each company's scope through `TenantScope.with` and the ordinary policy selects that tenant's
+-- candidates. So the bypass is one query that says *which tenant has work*, and every fact about the
+-- work itself is still read under a scope. The alternative -- returning rows cross-tenant -- would hand
+-- a scheduled thread the contents of every tenant's fiscal documents, which is the door ADR-0005's
+-- 2026-10-30 amendment deliberately kept narrow.
+--
+-- `cancellation_settled_at IS NULL` is part of the predicate, not an optimisation: a rejected
+-- cancellation keeps `CANCELLATION_PENDING` and is finished by that stamp (FiscalDocument
+-- `settleCancellationRejected`), so a tenant whose only pending rows were rejected has nothing left to
+-- do and must stop appearing here -- otherwise every pass would keep a rejected row in the candidate
+-- set and ask the authority again about an answer it already gave.
+--
+-- It lives here and not in a migration, is owned by the bootstrap role, is plpgsql and pins
+-- `search_path` for exactly the reasons step 6 states; `RETURNS SETOF uuid` because the pass has one
+-- tenant per unit of work, and `STABLE` because it only reads.
+CREATE OR REPLACE FUNCTION fiscal_cancellation_pending_tenants() RETURNS SETOF uuid
+    LANGUAGE plpgsql STABLE SECURITY DEFINER
+    SET search_path = pg_catalog, public, pg_temp
+    AS $$
+BEGIN
+    RETURN QUERY
+        SELECT DISTINCT d.company_id
+          FROM public.fiscal_document d
+         WHERE d.status = 'CANCELLATION_PENDING'
+           AND d.cancellation_settled_at IS NULL;
+END
+$$;
+
+ALTER FUNCTION fiscal_cancellation_pending_tenants() OWNER TO lifecontrol_bootstrap;
+REVOKE ALL ON FUNCTION fiscal_cancellation_pending_tenants() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION fiscal_cancellation_pending_tenants() TO lifecontrol_app;
+
+-- The same read-back as step 6, for the same reason: a function not owned by the bootstrap role runs
+-- its `SECURITY DEFINER` body subject to the policies and answers zero rows in silence, which is the
+-- failure mode that reads as "no tenant has work" while the work waits.
+DO $$
+DECLARE
+    v_owner  text;
+    v_secdef boolean;
+    v_acl    aclitem[];
+BEGIN
+    SELECT pg_get_userbyid(p.proowner), p.prosecdef, p.proacl
+      INTO v_owner, v_secdef, v_acl
+      FROM pg_proc p
+     WHERE p.oid = to_regprocedure('public.fiscal_cancellation_pending_tenants()');
+    IF v_owner IS NULL THEN
+        RAISE EXCEPTION 'fiscal_cancellation_pending_tenants() was not created';
+    END IF;
+    IF v_owner <> 'lifecontrol_bootstrap' THEN
+        RAISE EXCEPTION 'fiscal_cancellation_pending_tenants() must be owned by lifecontrol_bootstrap: ownership is what grants the bypass, found %', v_owner;
+    END IF;
+    IF NOT v_secdef THEN
+        RAISE EXCEPTION 'fiscal_cancellation_pending_tenants() must be SECURITY DEFINER: an invoker-rights body reads fiscal_document through the caller, where the policy hides every row';
+    END IF;
+    IF v_acl IS NULL OR EXISTS (SELECT 1 FROM aclexplode(v_acl) a WHERE a.grantee = 0) THEN
+        RAISE EXCEPTION 'fiscal_cancellation_pending_tenants() must not be executable by PUBLIC: the bypass is one query, not one role';
+    END IF;
+    IF NOT has_function_privilege('lifecontrol_app', 'public.fiscal_cancellation_pending_tenants()', 'EXECUTE') THEN
+        RAISE EXCEPTION 'lifecontrol_app cannot execute fiscal_cancellation_pending_tenants(), so the pass would enumerate no tenant at all';
+    END IF;
+END $$;
+
 -- ─── 7. read the end state back ─────────────────────────────────────────────────────────────────
 -- psql's exit code is not the evidence: this raises when the roles are not what was just written, so
 -- a silent no-op cannot pass as success. Through db-roles.sh a raise here aborts `deploy.sh <env> start`.

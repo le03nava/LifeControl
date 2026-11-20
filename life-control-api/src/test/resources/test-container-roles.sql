@@ -103,3 +103,29 @@ $$;
 -- The same privileges as the roles script: the bypass is one query, not one role.
 REVOKE ALL ON FUNCTION task_employee_company(uuid) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION task_employee_company(uuid) TO lifecontrol_app;
+
+-- WHY IT ALSO CREATES THE FISCAL CANCELLATION ENUMERATOR
+-- ------------------------------------------------------
+-- `fiscal_cancellation_pending_tenants()` mirrors step 6b of `docker/postgres-init/lifecontrol-roles.sql`
+-- for the same reason the resolver above is here: `fiscal_document` is armed and FORCED by `V108` and a
+-- scheduled pass carries no `app.company_id`, so without this function the pass enumerates zero tenants
+-- and reports an idle system while the rows wait. Without it here every PostgreSQL suite that runs the
+-- pass would fail, which is the loud half of the same defect.
+--
+-- The body is the same predicate as delivery, deliberately: what the suite asserts about the candidate
+-- set is then a statement about the enumerator delivery runs, not about a fixture's idea of it.
+CREATE OR REPLACE FUNCTION fiscal_cancellation_pending_tenants() RETURNS SETOF uuid
+    LANGUAGE plpgsql STABLE SECURITY DEFINER
+    SET search_path = pg_catalog, public, pg_temp
+    AS $$
+BEGIN
+    RETURN QUERY
+        SELECT DISTINCT d.company_id
+          FROM public.fiscal_document d
+         WHERE d.status = 'CANCELLATION_PENDING'
+           AND d.cancellation_settled_at IS NULL;
+END
+$$;
+
+REVOKE ALL ON FUNCTION fiscal_cancellation_pending_tenants() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION fiscal_cancellation_pending_tenants() TO lifecontrol_app;

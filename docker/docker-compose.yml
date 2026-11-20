@@ -604,6 +604,13 @@ services:
       - FISCAL_SF_ENDPOINT=${FISCAL_SF_ENDPOINT:-}
       - FISCAL_SF_USUARIO=${FISCAL_SF_USUARIO:-}
       - FISCAL_SF_TIMEOUT_SECONDS=${FISCAL_SF_TIMEOUT_SECONDS:-30}
+      # The pass that settles submitted cancellations on a cadence (issue #994): OFF in every environment by
+      # default, for the same family of reason as the two blocks above -- it calls the authority with nobody
+      # asking. Switching it on is a per-environment operator decision made here, without rebuilding an image.
+      # A deployment that enables it with no reconciling provider skips every pass with one line instead of
+      # failing once per document, so the mistake reads as what it is.
+      - FISCAL_CANCELLATION_PASS_ENABLED=${FISCAL_CANCELLATION_PASS_ENABLED:-false}
+      - FISCAL_CANCELLATION_PASS_INTERVAL_SECONDS=${FISCAL_CANCELLATION_PASS_INTERVAL_SECONDS:-600}
       - REDIS_HOST=${REDIS_HOST:-redis}
       - REDIS_PORT=${REDIS_INTERNAL_PORT:-6379}
     volumes:

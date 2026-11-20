@@ -84,4 +84,20 @@ public interface FiscalDocumentRepository extends JpaRepository<FiscalDocument, 
      * {@code (company_id, cancels_fiscal_document_id)} in the schema, so the pair is the key the query states.</p>
      */
     Optional<FiscalDocument> findByCompanyIdAndCancelsFiscalDocumentId(UUID companyId, UUID cancelsFiscalDocumentId);
+
+    /**
+     * The submitted cancellations of one company that no answer has settled yet — the candidate set of the scheduled
+     * pass (issue {@code #994}).
+     *
+     * <p><b>Why it filters the settle stamp as well as the state.</b> A rejection keeps the row
+     * {@code CANCELLATION_PENDING} and finishes it with {@code cancellation_settled_at} (see
+     * {@link FiscalDocument#settleCancellationRejected}), so a filter on the state alone would make a rejected
+     * cancellation a candidate forever and have every pass ask the authority again about an answer it already gave.
+     * The two halves together are the set the pass may act on: submitted, and unanswered.</p>
+     *
+     * <p><b>Why it names the company</b> — as every finder here does. Here it is also what makes the pass safe: it
+     * runs inside {@code TenantScope#with} for the company the privileged enumerator named, so the read is policed by
+     * the same policy every request is, and the enumerator is the only thing that ever saw more than one tenant.</p>
+     */
+    List<FiscalDocument> findByCompanyIdAndStatusAndCancellationSettledAtIsNull(UUID companyId, String status);
 }
