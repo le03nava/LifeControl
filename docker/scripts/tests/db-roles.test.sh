@@ -782,6 +782,14 @@ else
 		"SELECT DISTINCT d.company_id"
 	assert_absent "it never returns document ids or rows" "$code" \
 		"SELECT DISTINCT d.id"
+	# The absence above only refuses one spelling. What makes the escape narrow is that the body names **one** column,
+	# so every column the widening would plausibly add is refused by name: a resolver that started answering with an
+	# issuer RFC or a document's fiscal UUID would hand a scheduled thread identifying data from every tenant, and
+	# "it does not return d.id" would never have noticed.
+	assert_absent "it never returns an issuer RFC" "$code" "d.rfc_emisor"
+	assert_absent "it never returns a fiscal UUID" "$code" "d.uuid_fiscal"
+	assert_absent "it never returns an authority answer" "$code" "d.cancellation_status_uuid"
+	assert_absent "it never returns the cancelling pointer" "$code" "d.cancels_fiscal_document_id"
 
 	# The predicate is the candidate rule itself: `CANCELLATION_PENDING` is the submitted state, and the settle
 	# stamp is what removes a rejected row from the set -- a rejection keeps the state (FiscalDocument

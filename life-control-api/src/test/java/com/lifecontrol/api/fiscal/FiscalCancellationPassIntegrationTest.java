@@ -35,7 +35,7 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * The scheduled pass that settles submitted cancellations — {@code S1}–{@code S5} of issue {@code #994}, {@code T6} of
+ * The scheduled pass that settles submitted cancellations — {@code S1}–{@code S5} of issue {@code #994}, {@code T8} of
  * {@code odd/tasks/fiscal-cancellation-cadence.md}.
  *
  * <p><b>Why the distinction this suite is built around is "no HTTP request from a human".</b> The settlement itself is
@@ -234,6 +234,24 @@ class FiscalCancellationPassIntegrationTest extends AbstractPostgresIntegrationT
         assertThat(FiscalCancellationProviderTestConfiguration.RECONCILER.statusInvocations())
                 .as("retrying a rejection is a decision nobody has made")
                 .isZero();
+    }
+
+    @Test
+    @DisplayName("S8: a transaction the authority no longer keeps is left for a human — a cadence never re-files one")
+    void aPassDoesNotRegisterWhenTheAuthorityKeepsNoTransaction() {
+        FiscalCancellationProviderTestConfiguration.RECONCILER.answeringStatus(new Outcome.NoTransaction());
+
+        var report = pass.runPass();
+
+        assertThat(report.documents()).isEqualTo(1);
+        assertThat(report.waiting()).isEqualTo(1);
+        assertThat(FiscalCancellationProviderTestConfiguration.RECONCILER.registerInvocations())
+                .as("registering again is a write to the authority, and S8 leaves it to a human")
+                .isZero();
+
+        Map<String, Object> row = pendingRow();
+        assertThat(row.get("status")).isEqualTo("CANCELLATION_PENDING");
+        assertThat(row.get("cancellation_settled_at")).isNull();
     }
 
     // ─── S3: the tenant enumeration is the only door ──────────────────────────────────────────────────

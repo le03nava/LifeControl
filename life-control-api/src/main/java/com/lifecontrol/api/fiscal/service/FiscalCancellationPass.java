@@ -13,7 +13,7 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 
 /**
- * Settles every submitted cancellation the authority has answered, without an operator per document — {@code T4} of
+ * Settles every submitted cancellation the authority has answered, without an operator per document — {@code T5} of
  * {@code odd/tasks/fiscal-cancellation-cadence.md}, whose requirement is {@code S1} of issue {@code #994}.
  *
  * <p><b>What this class is not.</b> It does not talk to the authority, does not write a status and does not know what

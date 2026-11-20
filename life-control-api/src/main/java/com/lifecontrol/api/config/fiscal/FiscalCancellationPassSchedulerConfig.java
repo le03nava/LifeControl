@@ -9,7 +9,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 
 /**
  * Puts the fiscal cancellation pass on a schedule — and only while a deployment has opted into it ({@code S6} of issue
- * {@code #994}, {@code T5} of {@code odd/tasks/fiscal-cancellation-cadence.md}).
+ * {@code #994}, {@code T6} of {@code odd/tasks/fiscal-cancellation-cadence.md}).
  *
  * <p><b>Off by default is structural, not a check inside a running job.</b> This is the same decision
  * {@code ProvisioningWorkerSchedulerConfig} states, copied rather than re-derived, because the failure it removes is

@@ -12,7 +12,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Asks PostgreSQL for the tenants that have work, through the {@code SECURITY DEFINER} function the roles script
- * owns ({@code S3}, {@code T3} of {@code odd/tasks/fiscal-cancellation-cadence.md}).
+ * owns ({@code S3}, {@code T2} of {@code odd/tasks/fiscal-cancellation-cadence.md}).
  *
  * <p><b>The shape follows {@code AccessProvisioningTaskTenantResolutionImpl}, on purpose.</b> That class is the tree's
  * first escape from a forced policy — one fixed query, one uuid back, {@code EXECUTE} for the application role and
@@ -43,7 +43,7 @@ public class FiscalCancellationTenantResolverImpl implements FiscalCancellationT
      *
      * <p>The function is a set-returning one, so it is read in the {@code FROM} clause with a column alias of its own —
      * {@code select company_id from f()} would name a column the function's signature never declared, and PostgreSQL
-     * refuses it as a grammar error rather than guessing ({@code T6} measured it: five cases, one message).</p>
+     * refuses it as a grammar error rather than guessing ({@code L6} measured it: five cases, one message).</p>
      */
     static final String RESOLVER =
             "select tenant.company_id from public.fiscal_cancellation_pending_tenants() as tenant(company_id)";

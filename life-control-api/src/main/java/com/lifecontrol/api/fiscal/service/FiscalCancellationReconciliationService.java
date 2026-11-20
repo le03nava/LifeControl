@@ -151,7 +151,7 @@ public class FiscalCancellationReconciliationService {
         // second read (S3 of odd/tasks/fiscal-document-cross-store-authz.md).
         storeScope.verifyAccessOfDocument(cancellation);
 
-        return reconcileWithin(companyId, cancelledFiscalDocumentId, cancellation);
+        return reconcileWithin(companyId, cancelledFiscalDocumentId, cancellation, true);
     }
 
     /**
@@ -189,7 +189,7 @@ public class FiscalCancellationReconciliationService {
                 "a reconciliation names the stamped document whose cancellation it resolves");
 
         return reconcileWithin(
-                companyId, cancelledFiscalDocumentId, cancellationOf(companyId, cancelledFiscalDocumentId));
+                companyId, cancelledFiscalDocumentId, cancellationOf(companyId, cancelledFiscalDocumentId), false);
     }
 
     /**
@@ -227,7 +227,7 @@ public class FiscalCancellationReconciliationService {
      * through {@link FiscalDocument}'s own settling methods.</p>
      */
     private FiscalCancellationReconciliation reconcileWithin(
-            UUID companyId, UUID cancelledFiscalDocumentId, FiscalDocument cancellation) {
+            UUID companyId, UUID cancelledFiscalDocumentId, FiscalDocument cancellation, boolean mayRegister) {
         if (isSettled(cancellation)) {
             logger.info(
                     "Fiscal cancellation already settled: document={}, cancellation={}, company={}, status={}, code={}",
@@ -252,8 +252,33 @@ public class FiscalCancellationReconciliationService {
             case Outcome.Rejected rejected -> settleRejected(cancelledFiscalDocumentId, cancellation, rejected);
             case Outcome.StillPending pending -> answerAsWaiting(cancellation, pending.statusUuid(), pending.message());
             case Outcome.NoTransaction noTransaction ->
-                register(port, companyId, cancelledFiscalDocumentId, cancellation, cancelled);
+                mayRegister
+                        ? register(port, companyId, cancelledFiscalDocumentId, cancellation, cancelled)
+                        : answerWithoutRegistering(cancellation);
         };
+    }
+
+    /**
+     * The authority holds no transaction for this cancellation and this caller may not register one — the answer the
+     * scheduled pass gives ({@code S8} of {@code #994}, and the reason the pass carries a flag at all).
+     *
+     * <p><b>Why the pass must not re-register, when a human's click may.</b> Re-registering is a <b>write</b> to the
+     * authority, not a read: it rebuilds the sealed request and sends it. On the endpoint that is one operator's
+     * deliberate act, once, with the document in front of them. On a cadence it would be that same write every
+     * interval, for as long as the authority keeps answering {@code NoTransaction} — unbounded, unattended, and about a
+     * transaction the authority no longer keeps, which {@code S8} names as a non-goal precisely because re-filing is
+     * a decision nobody has made. So the pass reports the row as still waiting, writes nothing, and leaves the decision
+     * to a human: the row stays a candidate, and the next pass asks about the status again without filing anything.</p>
+     *
+     * <p>The code and the message are the row's own, because this pass read no answer: reporting the submission's code
+     * as if it were a fresh reading would state a fact nobody observed.</p>
+     */
+    private static FiscalCancellationReconciliation answerWithoutRegistering(FiscalDocument cancellation) {
+        return answerAsWaiting(
+                cancellation,
+                cancellation.getCancellationStatusUuid(),
+                "The authority holds no transaction for this cancellation, and a scheduled pass does not register one "
+                        + "again; the row stays pending for a human to decide.");
     }
 
     // ─── the answers the pass settles ───────────────────────────────────────────────────────────────
