@@ -147,6 +147,17 @@ export default {
     hookTimeout: HOOK_TIMEOUT_MS,
     maxWorkers: MAX_WORKERS,
     isolate: true,
+    // Vitest 5 enables `clearMocks` by default, and the cost is not constant: `vi.clearAllMocks()`
+    // runs before every test over the module's whole mock registry, and the two largest specs here
+    // (`product-edit`, `purchase-order-edit`, 82 tests each) build their mocks per test. Measured on
+    // v5.1.1: shard 2/2 took 276s against 91.56s on v4 in CI, and those two files alone accounted for
+    // 290s, roughly 10x their v4 cost, which is what pushed one test per file past the 20s budget
+    // (`TestTimeoutError` / `HookTimeoutError`, a different test each run).
+    //
+    // It buys nothing here: v5.1.1 with `clearMocks` on failed 22 tests, all of them from the
+    // `globalThis.history` assignment change, and none from mock-history carry-over. Keeping the v4
+    // default is the deliberate choice, not an oversight.
+    clearMocks: false,
     coverage: {
       reportsDirectory: 'coverage',
     },

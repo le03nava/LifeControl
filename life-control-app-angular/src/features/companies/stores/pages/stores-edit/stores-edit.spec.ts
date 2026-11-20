@@ -506,10 +506,11 @@ describe('StoresEdit', () => {
 
   describe('edit mode', () => {
     beforeEach(async () => {
-      globalThis.history = {
-        ...globalThis.history,
-        state: { store: mockStore },
-      };
+      // `replaceState`, not `globalThis.history = {...}`: Vitest 5 propagates assignments to
+      // `globalThis` onto the real jsdom `window`, whose `history` is a getter-only accessor, so
+      // replacing the object throws `TypeError: Cannot set property history`. This is the same form
+      // `countries-edit`, `zones-edit` and `regions-edit` already use.
+      window.history.replaceState({ store: mockStore }, '');
 
       await TestBed.configureTestingModule({
         imports: [StoresEdit, HttpClientTestingModule],
@@ -555,7 +556,7 @@ describe('StoresEdit', () => {
     });
 
     afterEach(() => {
-      delete (globalThis.history as { state?: unknown }).state;
+      window.history.replaceState(null, '');
     });
 
     it('should be in edit mode (isEditMode = true)', () => {
@@ -748,10 +749,7 @@ describe('StoresEdit', () => {
 
     /** Mounts the page in edit mode over the store in `history.state`. */
     async function setupEdit(queryParams: Record<string, string> = {}): Promise<void> {
-      globalThis.history = {
-        ...globalThis.history,
-        state: { store: mockStore },
-      };
+      window.history.replaceState({ store: mockStore }, '');
       settingsService = new MockStoreInventorySettingsService();
       locationService = new MockStoreLocationLookupService();
       router = { navigate: vi.fn() };
@@ -790,7 +788,7 @@ describe('StoresEdit', () => {
     }
 
     afterEach(() => {
-      delete (globalThis.history as { state?: unknown }).state;
+      window.history.replaceState(null, '');
     });
 
     function panel(): StoreInventorySettingsPanel | null {
