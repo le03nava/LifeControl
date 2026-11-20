@@ -2,7 +2,9 @@ package com.lifecontrol.api.config.fiscal;
 
 import com.lifecontrol.api.fiscal.FiscalStampProvider;
 import com.lifecontrol.api.fiscal.cancellation.FiscalCancellationProvider;
+import com.lifecontrol.api.fiscal.cancellation.FiscalCancellationReconciliationPort;
 import com.lifecontrol.api.fiscal.cancellation.SolucionFactibleFiscalCancellationProvider;
+import com.lifecontrol.api.fiscal.cancellation.SolucionFactibleFiscalCancellationReconciler;
 import com.lifecontrol.api.fiscal.provider.SolucionFactibleFiscalStampProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -39,6 +41,16 @@ import org.springframework.context.annotation.Configuration;
  * The switch stays single for the same reason: an installation that does not invoice neither stamps nor cancels,
  * and an installation that does gets both, which is what keeps {@code FiscalDocumentStamper}'s and the cancelling
  * service's refusals describing one configuration.</p>
+ *
+ * <p><b>Why reconciling is a third bean and not a call the cancelling adapter grows.</b> The two surfaces are two
+ * capabilities of one account ({@code L3} of {@code odd/tasks/fiscal-cancellation-reconciliation.md}): the
+ * synchronous cancel answers a verdict now, and the asynchronous pair registers a request and is asked about it
+ * later, behind {@link FiscalCancellationReconciliationPort}. Registering the third adapter — from these same
+ * properties, under this same switch — is not bookkeeping ({@code L7}(b) of that record): a bean reachable only
+ * through an {@code ObjectProvider} is <b>found missing by nobody</b>, because the missing case has a good answer
+ * in {@code FiscalCancellationReconciliationService}, and an installation with the switch on would answer a 503 for
+ * a capability it believes it has. The suite that pins it is
+ * {@code SolucionFactibleFiscalCancellationReconcilerConfigTest}, one context per half of the switch.</p>
  */
 @Configuration
 @ConditionalOnProperty(prefix = "app.fiscal.provider", name = "enabled", havingValue = "true")
@@ -72,5 +84,30 @@ public class FiscalProviderConfig {
     public FiscalCancellationProvider solucionFactibleFiscalCancellationProvider(
             SolucionFactibleProperties properties) {
         return new SolucionFactibleFiscalCancellationProvider(properties);
+    }
+
+    /**
+     * The vendor's asynchronous cancellation operations, behind the reconciling port and the same credentials.
+     *
+     * <p>Registered beside the other two and under the same condition, because this is the third capability of one
+     * account: the two operations it speaks ({@code enviarSolicitudCancelacionAsincrono} and
+     * {@code getStatusCancelacionAsincrona}) take the same {@code usuario} and {@code password} as
+     * {@code timbrarBase64}, and the transaction they resolve is the cancellation the bean above submitted
+     * ({@code L3}).</p>
+     *
+     * <p><b>Why this bean is the point and not a detail.</b> The reconciling service asks for the port through an
+     * {@code ObjectProvider}, which is right — an installation that does not invoice must still start — but
+     * an {@code ObjectProvider} cannot tell "this deployment has no reconciler" from "nobody wired the one it has"
+     * ({@code L7}(b)). A bean definition is the only place the difference is observable, and it is what the switch
+     * promises: with {@code app.fiscal.provider.enabled=true} the context holds one reconciler.</p>
+     *
+     * @param properties the same bound {@code app.fiscal.provider.solucion-factible} values, validated again by the
+     *     adapter's constructor so a mistake is a boot failure instead of a failed reconciliation
+     * @return the one implementation of {@link FiscalCancellationReconciliationPort} this context registers
+     */
+    @Bean
+    public FiscalCancellationReconciliationPort solucionFactibleFiscalCancellationReconciler(
+            SolucionFactibleProperties properties) {
+        return new SolucionFactibleFiscalCancellationReconciler(properties);
     }
 }
