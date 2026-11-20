@@ -24,7 +24,7 @@
 spring-boot = "4.1.2"
 spring-dependency-management = "1.1.7"
 spring-cloud = "2025.1.3"
-springdoc = "3.1.1"
+springdoc = "3.2.0"
 asciidoctor = "4.0.5"
 spotless = "8.11.0"
 spotbugs = "6.5.13"
