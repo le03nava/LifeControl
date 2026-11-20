@@ -85,3 +85,29 @@ updates:
     labels:
       - dependencies
       - type:chore
+
+  # The workflow actions: 20 `uses:` lines across five workflows, every one anchored to a
+  # 40-hex commit with its released tag in a comment beside it. They were hand-picked, so they
+  # go stale in silence and the only thing that noticed a moved action was a human reading the
+  # file (issue #986).
+  #
+  # Whether this entry is safe to add was a measured question, not a guess, because
+  # `gradle-pins.test.sh` had just made the opposite true for the wrapper: there, freezing an
+  # exact value turned every Dependabot bump into an unmergeable pull request (#935).
+  # `workflow-pins.test.sh:161` freezes the SHAPE -- `@[0-9a-f]{40}` plus a `# vN` comment -- and
+  # never a specific commit, so the bot can move a pin and stay green. What the suite forbids is
+  # the other failure: a mutable ref, because a major tag is a pointer its publisher can retag.
+  #
+  # One pin deliberately stays out of reach: the shellcheck image is a `docker run` argument
+  # inside a step, not a `uses:`, so this ecosystem does not see it and it keeps being bumped by
+  # hand in both workflows at once.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(ci)"
+    labels:
+      - dependencies
+      - type:chore
