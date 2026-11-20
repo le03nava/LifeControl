@@ -57,8 +57,8 @@ describe('Angular 22 migration invariants', () => {
       expect(all[name], name).toBe('22.2.3');
     }
     expect(all['typescript']).toBe('~6.0.3');
-    expect(all['angular-eslint']).toBe('22.6.0');
-    expect(all['typescript-eslint']).toMatch(/^\^8\.71\.2$/);
+    expect(all['angular-eslint']).toBe('22.7.0');
+    expect(all['typescript-eslint']).toMatch(/^\^8\.73\.0$/);
     expect(all['keycloak-angular']).toMatch(/^\^22\./);
 
     // Removed in v22: `@angular/animations` is deprecated and its only consumer here migrated,
