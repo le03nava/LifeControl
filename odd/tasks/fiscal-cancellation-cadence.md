@@ -118,3 +118,37 @@ that is not an ancestor of `origin/main` — so the slices are named in `L4` and
   well** — a `git add` that names that path is refused to this session, and staging it by glob to get around the
   refusal would be a bypass, not a shortcut. The evidence they landed is the suite that reads the file:
   `env-defaults` **296 passed, 0 failed**, four PASS lines naming both keys. No harness bypass was attempted.
+- **L9** — **The independent verification was not a formality, and this is what it bought.** `gentle-ai-verify`
+  (read-only, `Risk: item 2`) returned `met` on `S1`–`S6` and one **defect of scope**, which is fixed here:
+
+  `reconcileWithin` re-registered the request on `NoTransaction` for every caller. On the endpoint that is one
+  operator's deliberate act; on a cadence it was that **write** repeated every interval, unattended, for as long as the
+  authority kept answering `NoTransaction`, about a transaction the authority no longer keeps. `S8` names exactly that
+  as a non-goal — the cadence had made a prohibited behaviour automatic. The system path now enters with
+  `mayRegister = false` and answers "still waiting" without writing anything (`answerWithoutRegistering`), the
+  endpoint keeps its branch, and the case that pins it is
+  `FiscalCancellationPassIntegrationTest#aPassDoesNotRegisterWhenTheAuthorityKeepsNoTransaction`.
+
+  Four evidence holes were closed with it: (a) the integration suite runs in **one** transaction and `TenantScope` is
+  installed at a transaction **boundary**, so deleting the wrapper left every case green — the wiring is now pinned by
+  `FiscalCancellationPassTest`, which is the suite that fails when it is removed, and the limit is stated in its own
+  javadoc instead of being implied; (b) the "never returns rows" pin only refused one literal, so
+  `db-roles.test.sh` § `1c` now refuses four more column names by name; (c) `S6` had no test of the **context**, so a
+  prefix typo or an unresolvable interval would have left the pass unregistered with every suite green —
+  `FiscalCancellationPassSchedulerConfigTest` asserts one task when enabled and no scheduling infrastructure at all
+  when absent or `false`; (d) four javadocs cited the wrong task ids and are corrected.
+
+  **This closes `L7`**: the containment that had no case of its own now has one — `keepsGoingWhenOneTenantFails`, which
+  abandons a broken tenant and settles the healthy one in the same pass. What is still **not** covered end-to-end is a
+  second tenant through the container (the fixture seeds one company per instance); the two-tenant statement is a unit
+  one, and saying otherwise would be the kind of claim this record exists to avoid.
+- **L10** — The RED of the wiring is observed, not asserted. Removing
+  `TenantScope.with` from `FiscalCancellationPass.runPass` and running only the new suite produced
+  `FiscalCancellationPassTest > S1/S3: every tenant is stated before its candidates are read, and the thread carries no
+  scope after FAILED` → `BUILD FAILED in 15s`; the line was then restored byte for byte from a copy taken before the
+  mutation. That is the difference between a test and a decoration.
+- **L11** — Second gate, after the correction round, on 2026-11-20: `./gradlew spotlessCheck spotbugsMain test` →
+  **BUILD SUCCESSFUL**, 18m05s, **5244 tests** across **1189** classes, **0 failures, 0 errors, 0 skipped**. The three
+  suites this round added: `FiscalCancellationPassTest` **4**, `FiscalCancellationPassSchedulerConfigTest` **3**,
+  `FiscalCancellationPassIntegrationTest` now **6**. `db-roles.test.sh` **190 passed, 0 failed**.
+  `L5` above is the first gate and its numbers are that tree, not this one: they are kept as the two runs happened.
