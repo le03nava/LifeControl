@@ -54,26 +54,26 @@
     "@angular/platform-browser": "22.2.3",
     "@angular/router": "22.2.3",
     "keycloak-angular": "^22.0.0",
-    "keycloak-js": "^26.2.1",
+    "keycloak-js": "^26.2.5",
     "rxjs": "~7.8.0",
-    "tslib": "^2.3.0"
+    "tslib": "^2.9.1"
   },
   "devDependencies": {
     "@angular/build": "22.2.3",
     "@angular/cli": "22.2.3",
     "@angular/compiler-cli": "22.2.3",
     "@eslint/js": "^10.0.1",
-    "@playwright/test": "^1.63.0",
+    "@playwright/test": "^1.65.1",
     "@types/node": "^24.19.2",
     "@vitest/coverage-v8": "^5.1.0",
-    "angular-eslint": "22.6.0",
+    "angular-eslint": "22.7.0",
     "eslint": "^10.15.0",
     "husky": "^9.1.7",
     "jsdom": "^31.0.1",
-    "lint-staged": "^17.5.1",
-    "prettier": "^3.9.6",
+    "lint-staged": "^17.6.1",
+    "prettier": "^3.10.1",
     "typescript": "~6.0.3",
-    "typescript-eslint": "^8.71.2",
+    "typescript-eslint": "^8.73.0",
     "vitest": "^5.1.0"
   }
 }
