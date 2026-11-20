@@ -762,6 +762,69 @@ done
 check_equal "no secret file exists for the bootstrap role" "0" "$bootstrap_secrets"
 
 # ------------------------------------------
+# 1c. The fiscal cancellation pass's enumerator: the same escape, on the second path that has no scope.
+# ------------------------------------------
+# A scheduled pass carries no `app.company_id` and `fiscal_document` is armed and FORCED (V108:218), so the
+# worker-style escape is needed a second time. What separates the two functions is what each one is allowed to
+# answer: the worker asks for one task's tenant, and the pass asks which companies have work. Neither may answer
+# with rows, which is why the assertion below pins `d.company_id` -- a body that started returning documents
+# would hand a scheduled thread every tenant's fiscal detail, and this is where that shows.
+echo "== 1c. fiscal cancellation enumerator: tenants with pending work, grants, and nothing else"
+
+if [ ! -f "$SQL_FILE" ]; then
+	fail "missing docker/postgres-init/lifecontrol-roles.sql"
+else
+	code="$(sql_code "$SQL_FILE")"
+
+	assert_contains "the enumerator is created with the signature the pass calls" "$code" \
+		"CREATE OR REPLACE FUNCTION fiscal_cancellation_pending_tenants() RETURNS SETOF uuid"
+	assert_contains "it answers companies, never documents" "$code" \
+		"SELECT DISTINCT d.company_id"
+	assert_absent "it never returns document ids or rows" "$code" \
+		"SELECT DISTINCT d.id"
+
+	# The predicate is the candidate rule itself: `CANCELLATION_PENDING` is the submitted state, and the settle
+	# stamp is what removes a rejected row from the set -- a rejection keeps the state (FiscalDocument
+	# `settleCancellationRejected`), so a filter on state alone would ask the authority again about an answer.
+	assert_contains "it only names rows still awaiting an answer" "$code" \
+		"d.status = 'CANCELLATION_PENDING'"
+	assert_contains "a settled rejection leaves the candidate set" "$code" \
+		"d.cancellation_settled_at IS NULL"
+
+	assert_contains "the enumerator is plpgsql, because it is created before the tables exist" "$code" \
+		"LANGUAGE plpgsql STABLE SECURITY DEFINER"
+	assert_contains "the function is owned by the maintenance superuser" "$code" \
+		"ALTER FUNCTION fiscal_cancellation_pending_tenants() OWNER TO lifecontrol_bootstrap"
+	assert_contains "the SQL re-reads SECURITY DEFINER instead of trusting the CREATE" "$code" \
+		"fiscal_cancellation_pending_tenants() must be SECURITY DEFINER"
+	assert_contains "the SQL re-reads the ownership instead of trusting the ALTER" "$code" \
+		"fiscal_cancellation_pending_tenants() must be owned by lifecontrol_bootstrap"
+	assert_contains "EXECUTE is revoked from every role" "$code" \
+		"REVOKE ALL ON FUNCTION fiscal_cancellation_pending_tenants() FROM PUBLIC"
+	assert_contains "EXECUTE is granted to the application role" "$code" \
+		"GRANT EXECUTE ON FUNCTION fiscal_cancellation_pending_tenants() TO lifecontrol_app"
+	assert_absent "EXECUTE is never granted to PUBLIC" "$code" \
+		"GRANT EXECUTE ON FUNCTION fiscal_cancellation_pending_tenants() TO PUBLIC"
+	assert_contains "the SQL refuses an enumerator that PUBLIC could still execute" "$code" \
+		"fiscal_cancellation_pending_tenants() must not be executable by PUBLIC"
+
+	# Parity with the container, in the same two directions as 1b: the suites run the real pass, so the container
+	# has to carry the function, the same predicate and the same privileges.
+	assert_file_contains "the test container also creates the enumerator" "$TEST_ROLES_SQL" \
+		"CREATE OR REPLACE FUNCTION fiscal_cancellation_pending_tenants() RETURNS SETOF uuid"
+	assert_file_contains "the test container's enumerator is the same predicate" "$TEST_ROLES_SQL" \
+		"d.cancellation_settled_at IS NULL"
+	assert_file_contains "the test container's enumerator is SECURITY DEFINER on plpgsql" "$TEST_ROLES_SQL" \
+		"LANGUAGE plpgsql STABLE SECURITY DEFINER"
+	assert_file_contains "the test container revokes EXECUTE from every role too" "$TEST_ROLES_SQL" \
+		"REVOKE ALL ON FUNCTION fiscal_cancellation_pending_tenants() FROM PUBLIC"
+	assert_file_contains "the test container grants EXECUTE to the application role too" "$TEST_ROLES_SQL" \
+		"GRANT EXECUTE ON FUNCTION fiscal_cancellation_pending_tenants() TO lifecontrol_app"
+	assert_file_absent "the test container never grants the enumerator to PUBLIC" "$TEST_ROLES_SQL" \
+		"GRANT EXECUTE ON FUNCTION fiscal_cancellation_pending_tenants() TO PUBLIC"
+fi
+
+# ------------------------------------------
 # Summary
 # ------------------------------------------
 echo "------------------------------------------"
