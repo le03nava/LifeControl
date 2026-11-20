@@ -136,12 +136,13 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: vitest-reports-${{ matrix.shard }}
-          path: life-control-app-angular/.vitest-reports/
-          # `.vitest-reports` is a HIDDEN directory and `upload-artifact` excludes hidden files by
+          path: life-control-app-angular/.vitest/blob/
+          # `.vitest` is a HIDDEN directory and `upload-artifact` excludes hidden files by
           # default, so without this the step finds nothing even though the blob was written —
           # measured on the first run of pull request #445, where the shard log said `blob report
           # written to .../.vitest-reports/blob-1-2.json` and the upload reported `No files were
-          # found with the provided path`.
+          # found with the provided path`. Vitest 5 moved that directory from `.vitest-reports/`
+          # to `.vitest/blob/`; the hidden-root trap is unchanged, so the flag stays.
           include-hidden-files: true
           # A shard that wrote no blob would be dropped from the merge without a word, which is how
           # the failure above surfaced instead of a half-covered verdict.
@@ -172,7 +173,7 @@ jobs:
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: vitest-reports-*
-          path: life-control-app-angular/.vitest-reports
+          path: life-control-app-angular/.vitest/blob
           merge-multiple: true
 
       - name: Merge shard reports and enforce coverage

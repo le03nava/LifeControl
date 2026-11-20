@@ -520,11 +520,13 @@ describe('StoreZonesEdit', () => {
     };
 
     beforeEach(() => {
-      globalThis.history = { ...globalThis.history, state: { storeZone: seededZone } };
+      // See `stores-edit.spec.ts`: Vitest 5 propagates `globalThis` assignments onto the real jsdom
+      // `window`, whose `history` is getter-only, so seeding the state goes through `replaceState`.
+      window.history.replaceState({ storeZone: seededZone }, '');
     });
 
     afterEach(() => {
-      delete (globalThis.history as { state?: unknown }).state;
+      window.history.replaceState(null, '');
     });
 
     it('should paint from history.state before the flat lookup resolves', async () => {

@@ -8,7 +8,10 @@
 /playwright-report/
 /test-results/
 /blob-report/
-.vitest-reports/
+# Vitest 5 keeps every generated artifact under one `.vitest` root -- the blob reports
+# `--merge-reports` consumes, plus json/junit/html/attachments -- so this single entry replaces the
+# v4 `.vitest-reports/`. Without it the blob of a local `ng test` run is an untracked directory.
+.vitest/
 
 # Node
 /node_modules
