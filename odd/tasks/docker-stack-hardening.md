@@ -116,6 +116,14 @@ abort) is a second branch off `origin/main` and a second PR: it shares no file w
 is the slice that has to run `docker compose config` for the three file combinations and recreate
 the dev stack, which the shared dev environment feels. Nothing in this slice depends on it.
 
+L10. Delivery evidence for this slice, 2026-11-20: PR #1023 (`chore/docker-stack-hardening` →
+`main`), commits `d64a943b` (scripts) and `ce0066af` (images). Checks: `Static analysis` pass 50s,
+`Test` pass 12m44s, `Check` (gateway) pass 1m41s, `Shell & Artifact Integrity` pass 40s, `Exactly one
+type:* label` pass 51s, and `A linked, approved issue` **fails in 5s** because #897 carries no
+`status:approved` — the contributor checklist's first box is unticked for the same reason, rather than
+attested without evidence. That gate is the human's act; it was flagged before the first write and again
+before the PR.
+
 L7. The record's own header had to open with a verdict before the first commit: the audit rejected a
 header that only described the branch. `**Status**: deferred` with S6/S9 named as the deferred half is the
 honest token while T4 waits on L4; the Tasks table carries the per-task state, which the audit reads
