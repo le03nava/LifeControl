@@ -112,3 +112,23 @@ ancestor of `origin/main`.
   foreign key instead of passing quietly. (b) `S6` has no case of its own here: four suites already pin the `503` trio,
   and a fifth copy would measure the same three handlers a second time. What this unit adds to that check is that it
   **ran** them.
+- **L7** — The independent verification (`gentle-ai-verify`, read-only, `Risk: item 3`) returned **`met` on `S1`–`S10`**
+  with `path:line` evidence for each, and it did not stop at reading. Two things it measured are worth keeping:
+  (a) **a mutation probe on `S9`**, which is the only way to know that case is not vacuous: in a scratch copy it declared
+  `@Transactional(noRollbackFor = FiscalStampProviderException.class)` on `FiscalDocumentStamper#stamp`, and the suite
+  failed with `expected: 0L but was: 1L` — the draft really is written before the authority is called, and the rollback
+  is the only thing that keeps it out of the table. Without that probe the assertion and a permanently-empty table look
+  identical.
+  (b) **`S4` read as a call graph**: the only callers of `stamper.stamp`, `cancellationService.cancel` and
+  `reconciliationService.reconcile` are the controller's three mappings, so the blast radius `D3` claims is the one the
+  code has.
+  Its finding **`A1`** is fixed in this unit: `S8` asserted the exact message but nothing asserted that the envelope
+  carries **only** its five fields and no provider detail, so a handler that later answered with the family's own
+  message would still have passed. `assertProviderFailure` now also asserts `aMapWithSize(5)` and three canaries — the
+  provider's name, the receiver's host and the upstream status phrase — none of which may appear in the body. After the
+  hardening: `spotlessCheck spotbugsMain` plus the two new suites and the four not-configured suites → **BUILD
+  SUCCESSFUL**, 1m03s, **16 tests, 0 failures** (`FiscalProviderFailureHttpIntegrationTest` 10,
+  `FiscalProviderFailureLeavesNoRowIntegrationTest` 1, the four `503` suites 5).
+  Its `A2` is recorded and not acted on: both the assertion and the teardown are scoped by `company_id`, so a draft
+  written under a **different** company would be missed by both — the draft's company is the sale's, so no path reaches
+  it, and closing it would mean asserting on a cross-tenant read the suite deliberately does not have.

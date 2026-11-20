@@ -1,10 +1,14 @@
 package com.lifecontrol.api.fiscal;
 
+import static org.hamcrest.Matchers.aMapWithSize;
+import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.not;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -275,7 +279,14 @@ class FiscalProviderFailureHttpIntegrationTest extends AbstractPostgresIntegrati
                 .andExpect(jsonPath("$.message").value(MESSAGE))
                 .andExpect(jsonPath("$.path").value(expectedPath))
                 .andExpect(jsonPath("$.timestamp").exists())
-                .andExpect(jsonPath("$.correlationId").isNotEmpty());
+                .andExpect(jsonPath("$.correlationId").isNotEmpty())
+                // S8 reinforces S3/D2: the envelope is exactly its five fields and carries no provider detail.
+                // The constant sentence is asserted above; this is the other half — that nothing else is written,
+                // so a later handler cannot answer with the family's own message and still pass.
+                .andExpect(jsonPath("$", aMapWithSize(5)))
+                .andExpect(content().string(not(containsString("Solución Factible"))))
+                .andExpect(content().string(not(containsString("pac.example.test"))))
+                .andExpect(content().string(not(containsString("answered HTTP"))));
     }
 
     /** One stamp of the seeded sale through the shared double, which is the fixture the two writes need. */
