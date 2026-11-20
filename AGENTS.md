@@ -311,6 +311,10 @@ implementaba. `odd/tasks/purchase-cost-into-inventory.md` (issue #853).
 
 Scripts en `docker/scripts/`:
 
+| Regla | Valor |
+|-------|-------|
+| Modo estricto | Los cuatro scripts de entorno (`setup-env.sh`, `deploy.sh`, `cleanup.sh`, `validate-env.sh`) declaran `set -euo pipefail`, igual que `db-roles.sh`, los dos preflight y los wrappers de `docker/entrypoints/`. `-u` es lo que hace fallar un `ENV` sin declarar dentro del guard de borrado —`volumes_root_env_dir_name` formatea `$ENV`, así que sin `-u` el nombre era `volumes-` y el guard comparaba un path que nadie declaró—; `pipefail` es lo que vuelve visible un comando que falla adentro de un pipe. `scripts/tests/script-strictness.test.sh` extrae la línea `set` de **cada** script y corre las sondas bajo ella, así que un script cuyos flags se debiliten hace fallar su propia sonda: el literal del test no puede divergir del archivo que protege |
+
 ### setup-env.sh
 Configura el entorno de Docker. Crea volúmenes, copia archivos de entorno, materializa `docker/secrets/*` desde los templates y valida Docker. En **todos** los entornos elimina las líneas de contraseñas de los `.env.*` (las contraseñas vienen solo de `docker/secrets/`).
 ```bash
@@ -777,7 +781,7 @@ npm run test:e2e            # E2E con Playwright (mocks de Keycloak y API)
 > El job `Shell & Artifact Integrity` de `docker-build-integrity` corre **todas** las suites de
 > `docker/scripts/tests/*.test.sh` por glob —antes nombraba cinco, así que una suite nueva corría en una
 > laptop y nunca en CI—, imprime cuántas encontró y falla si el glob no matchea nada: una suite queda
-> cableada por existir. La corrida del 2026-10-31 levantó **23 suites**; el conteo se lee de la corrida
+> cableada por existir. La corrida del 2026-11-20 levantó **30 suites**; el conteo se lee de la corrida
 > (`for s in docker/scripts/tests/*.test.sh; do "$s" >/dev/null || echo "FAILED $s"; done`) y no se copia acá.
 
 ### Docker
