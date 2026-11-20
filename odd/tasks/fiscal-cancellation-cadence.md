@@ -57,15 +57,15 @@ that is not an ancestor of `origin/main` — so the slices are named in `L4` and
 
 | ID | Task | Specs | Route | Slice |
 | --- | --- | --- | --- | --- |
-| T1 | `fiscal_cancellation_pending_tenants()` in `docker/postgres-init/lifecontrol-roles.sql`: plpgsql, `SECURITY DEFINER`, owned by the bootstrap role, `REVOKE`/`GRANT` for `lifecontrol_app` only, and a read-back that refuses the deploy when any of it is not true. Mirrored into `life-control-api/src/test/resources/test-container-roles.sql`; `db-roles.test.sh` section `1c` pins both halves and the narrow shape (`d.company_id`, never `d.id`) | S3 | inline | — |
-| T2 | `FiscalCancellationTenantResolver` + `…Impl`: one fixed query, the `to_regprocedure` probe, and a refusal that names `db-roles.sh` instead of answering "no tenant has work" | S3 | inline | — |
-| T3 | `reconcileAsSystem(companyId, documentId)` on the reconciliation service, sharing `reconcileWithin` with the endpoint path, so the pass reuses the settlement instead of writing a second one | S1, S4, S5 | inline | — |
-| T4 | `findByCompanyIdAndStatusAndCancellationSettledAtIsNull` on `FiscalDocumentRepository`: the candidate rule as a query, state **and** stamp | S5 | inline | — |
-| T5 | `FiscalCancellationPass`: tenant loop through `TenantScope.with`, per-document containment, and a `Report` of the counts the gate reads | S1, S4, S5 | inline | — |
-| T6 | `FiscalCancellationPassSchedulerConfig`: absent unless `app.fiscal.cancellation.pass.enabled=true`, `fixedDelay` measured from the end of the previous pass, seconds in the property name | S2, S6 | inline | — |
-| T7 | The property in `application.properties` and as a compose default (`FISCAL_CANCELLATION_PASS_ENABLED`, `FISCAL_CANCELLATION_PASS_INTERVAL_SECONDS`) | S6 | inline | — |
-| T8 | `FiscalCancellationPassIntegrationTest`: acceptance settled with no request, a second pass silent about it, a pending answer still a candidate, a rejection gone from the set, and the resolver as the only door | S1–S5 | inline | — |
-| T9 | Gate: `./gradlew spotlessCheck spotbugsMain test` and the docker suites the change reaches | S7 | inline | — |
+| T1 | `fiscal_cancellation_pending_tenants()` in `docker/postgres-init/lifecontrol-roles.sql`: plpgsql, `SECURITY DEFINER`, owned by the bootstrap role, `REVOKE`/`GRANT` for `lifecontrol_app` only, and a read-back that refuses the deploy when any of it is not true. Mirrored into `life-control-api/src/test/resources/test-container-roles.sql`; `db-roles.test.sh` section `1c` pins both halves and the narrow shape (`d.company_id`, never `d.id`) | S3 | inline | 1 — enumerate tenants through a privileged resolver |
+| T2 | `FiscalCancellationTenantResolver` + `…Impl`: one fixed query, the `to_regprocedure` probe, and a refusal that names `db-roles.sh` instead of answering "no tenant has work" | S3 | inline | 1 — enumerate tenants through a privileged resolver |
+| T3 | `reconcileAsSystem(companyId, documentId)` on the reconciliation service, sharing `reconcileWithin` with the endpoint path, so the pass reuses the settlement instead of writing a second one | S1, S4, S5 | inline | 2 — split the reconciliation into a caller path and a system path |
+| T4 | `findByCompanyIdAndStatusAndCancellationSettledAtIsNull` on `FiscalDocumentRepository`: the candidate rule as a query, state **and** stamp | S5 | inline | 2 — split the reconciliation into a caller path and a system path |
+| T5 | `FiscalCancellationPass`: tenant loop through `TenantScope.with`, per-document containment, and a `Report` of the counts the gate reads | S1, S4, S5 | inline | 3 — settle submitted cancellations on a cadence |
+| T6 | `FiscalCancellationPassSchedulerConfig`: absent unless `app.fiscal.cancellation.pass.enabled=true`, `fixedDelay` measured from the end of the previous pass, seconds in the property name | S2, S6 | inline | 3 — settle submitted cancellations on a cadence |
+| T7 | The property in `application.properties` and as a compose default (`FISCAL_CANCELLATION_PASS_ENABLED`, `FISCAL_CANCELLATION_PASS_INTERVAL_SECONDS`) | S6 | inline | 3 — settle submitted cancellations on a cadence |
+| T8 | `FiscalCancellationPassIntegrationTest`: acceptance settled with no request, a second pass silent about it, a pending answer still a candidate, a rejection gone from the set, and the resolver as the only door | S1–S5 | inline | 4 — cover the pass and the resolver-only door |
+| T9 | Gate: `./gradlew spotlessCheck spotbugsMain test` and the docker suites the change reaches | S7 | inline | 4 — cover the pass and the resolver-only door |
 
 ## Log
 
@@ -152,3 +152,17 @@ that is not an ancestor of `origin/main` — so the slices are named in `L4` and
   suites this round added: `FiscalCancellationPassTest` **4**, `FiscalCancellationPassSchedulerConfigTest` **3**,
   `FiscalCancellationPassIntegrationTest` now **6**. `db-roles.test.sh` **190 passed, 0 failed**.
   `L5` above is the first gate and its numbers are that tree, not this one: they are kept as the two runs happened.
+- **L12** — Delivery, and the two things it changed. "Rebasear y abrir el PR de la cadencia (#994)" (2026-11-20) is the
+  authorization; the branch had been sitting **21 commits behind** `origin/main` with no remote ref and no pull
+  request, so the history was unpublished and the rebase is a rewrite of nothing anyone holds. `git rebase origin/main`
+  replayed the nine slices with **no conflict**; every commit id in `L4` and `L9` moved, which is exactly why the
+  `Tasks` column names a subject and not a SHA — this record now cites no branch commit at all. Two things moved with
+  it: the `Tasks` table's last column was `—` for every row while the paragraph above it promised the slice, so it now
+  names the four subjects `L4` declares; and the gates were re-run on the rebased tree, because the 21 commits
+  underneath included five dependency bumps (`springdoc` 3.2.0, `spring-cloud` 2025.1.4, `restdocs-mockmvc` 4.0.2,
+  `loki-logback-appender` 2.1.0, `jsdom` 31.0.1) that the earlier gate never saw. That gate on the rebased tree:
+  `./gradlew spotlessCheck spotbugsMain test` → **BUILD SUCCESSFUL**, 17m25s, **5244 tests** across **1189** classes,
+  **0 failures, 0 errors, 0 skipped** — the same counts `L11` measured, so the bumps underneath moved nothing; the three
+  suites this unit adds report **4 + 3 + 6**. The 47 script suites of `docker/scripts/tests/` and `.github/scripts/tests/`
+  were run on the same tree and all exit `0` (`db-roles.test.sh` **190 passed**, `env-defaults.test.sh` **296 passed**,
+  `odd-status-headers.test.sh` and `odd-citations.test.sh` green).
