@@ -15,3 +15,24 @@ updates:
     labels:
       - dependencies
       - type:chore
+
+  # The gateway is a second Gradle build — its own wrapper, its own `build.gradle`, the same
+  # version catalog — and until this entry existed nobody updated it. That was not only
+  # staleness, it made the bumps the bot *did* open unmergeable: `gradle-pins.test.sh` freezes
+  # the wrapper PAIR and asserts both modules print the same `distributionUrl`, so a bump
+  # proposed for one module alone fails that suite, the guard job aborts at `Self-tests` before
+  # the label check runs, and the required `Exactly one type:* label` context reports a label
+  # failure for a pull request whose labels are right (measured on #935, issue #984).
+  #
+  # The labels are the same two as the entry above, for the reason stated there: every
+  # `updates[]` entry is checked on its own and one without them fails the guard.
+  - package-ecosystem: gradle
+    directory: /api-gateway
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+    labels:
+      - dependencies
+      - type:chore
