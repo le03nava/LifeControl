@@ -47,14 +47,14 @@ describe('Angular 22 migration invariants', () => {
     const all = { ...pkg.dependencies, ...pkg.devDependencies };
 
     // One policy for every `@angular/*` package, not two: `@angular/material` requires
-    // `@angular/cdk` exactly `22.2.3` and `@angular/compiler-cli` requires `@angular/compiler`
-    // exactly `22.2.3`, so a caret on any of them can reach a version its peers forbid — and a
+    // `@angular/cdk` exactly `22.3.0` and `@angular/compiler-cli` requires `@angular/compiler`
+    // exactly `22.3.0`, so a caret on any of them can reach a version its peers forbid — and a
     // caret is exactly what lets `npm install` move one of them alone (issue #895, S2). Reading
     // the keys instead of listing them is what makes a package added later inherit the policy.
     const angularPackages = Object.keys(all).filter((name) => name.startsWith('@angular/'));
     expect(angularPackages).not.toHaveLength(0);
     for (const name of angularPackages) {
-      expect(all[name], name).toBe('22.2.3');
+      expect(all[name], name).toBe('22.3.0');
     }
     expect(all['typescript']).toBe('~6.0.3');
     expect(all['angular-eslint']).toBe('22.7.0');
