@@ -36,8 +36,8 @@ import org.springframework.transaction.annotation.Transactional;
  * <p><b>The cancellation is a new row and the stamped one is never touched ({@code S7}).</b> A stamped document is
  * the authority's statement about a sale, and {@code V108}'s guard refuses every {@code UPDATE} of it — so what this
  * class writes is a <b>second</b> row, built by
- * {@link FiscalDocument#cancellationOf(FiscalDocument, FiscalCancellationMotive, UUID, String)}, that names the
- * cancelled document through {@code cancels_fiscal_document_id} and carries the motive and — when the motive
+ * {@link FiscalDocument#cancellationOf(FiscalDocument, FiscalCancellationMotive, UUID, String, String, String)}, that
+ * names the cancelled document through {@code cancels_fiscal_document_id} and carries the motive and — when the motive
  * replaces it — the row of the document that substitutes it. The stamped row therefore stays byte-identical,
  * artefact included, which is what makes a reprint of a cancelled invoice still serve the bytes that were stamped.</p>
  *
@@ -52,11 +52,13 @@ import org.springframework.transaction.annotation.Transactional;
  *       {@link FiscalDocumentNotStampedException}, a <b>404</b> — which is the reprint's own answer for the reprint's
  *       own reason: the policy makes another tenant's row invisible, so "not found" is what the query <i>answers</i>,
  *       and a 403 would need a second read outside the policy to learn that the row exists.</li>
- *   <li><b>A document that is already cancelled is refused with a 409 before the authority is called</b>
+ *   <li><b>A document whose cancellation already exists is refused with a 409 before the authority is called</b>
  *       ({@link FiscalDocumentAlreadyCancelledException}). {@code uq_fiscal_document_cancels} states the rule, and it
  *       would refuse the second row anyway — but only <b>after</b> the SAT had registered a second cancellation this
  *       transaction is about to lose. The read is what turns "the transaction rolled back" into "nothing was
- *       sent".</li>
+ *       sent", and since {@code V113} it is also what refuses a second submission of a document whose first one is
+ *       still {@code CANCELLATION_PENDING} ({@code S7}): the pointer is the row's, whichever of the two states it is
+ *       in.</li>
  *   <li><b>The substituting folio resolves to a row of this company, and only when one is stated.</b>
  *       {@code replaces_fiscal_document_id} is a composite foreign key to {@code fiscal_document (company_id, id)}
  *       ({@code V108}), so what the column stores is a row id and not a folio: the request's folio is looked up by
@@ -65,7 +67,7 @@ import org.springframework.transaction.annotation.Transactional;
  *       ({@link FiscalSubstitutingFolioUnknownException}) and nothing is sent. The one-way rule that motive
  *       {@code 01} <i>requires</i> a folio belongs to {@link CancellationRequest}, which states it with the
  *       attribute's own spelling.</li>
- *   <li><b>Nothing is written before the call.</b> The row is written in step 8 and nowhere earlier, so a refusal at
+ *   <li><b>Nothing is written before the call.</b> The rows are written in step 8 and nowhere earlier, so a refusal at
  *       any point — including the authority's — leaves a row set that is exactly what it was. That is
  *       {@code FiscalDeferredPaymentNotSupportedException}'s precedent ({@code L15}(d)): a refund that happens after
  *       a write leaves a row in a table that refuses {@code DELETE} ({@code V108}).</li>
@@ -76,12 +78,13 @@ import org.springframework.transaction.annotation.Transactional;
  *       {@link CfdiCancellationSealer}'s: an enveloped XMLDSig over the seal-less rendering, because this request's
  *       signature is an element of the document and not the {@code Sello} a CFDI carries ({@code L20}(g)).</li>
  *   <li><b>The authority is asked once.</b> {@link FiscalCancellationProvider#cancel(FiscalCancellationRequest)}.</li>
- *   <li><b>Only a granted cancellation writes a row.</b> {@link FiscalCancellationResult.Cancelled} inserts the row
- *       and answers it. {@link FiscalCancellationResult.InProcess} writes <b>nothing</b> and answers with the
- *       authority's code, because a submitted request is not a cancelled document and
- *       {@code ck_fiscal_document_status} has no state for it — writing {@code CANCELLED} there is the lie
- *       {@code V108} exists to prevent ({@code L20}(d)). {@link FiscalCancellationResult.Rejected} writes nothing and
- *       raises {@link FiscalCancellationRejectedException}, the <b>409</b> the stamping path answers
+ *   <li><b>A non-terminal answer writes the pending row, and a terminal one writes the cancelled row.</b>
+ *       {@link FiscalCancellationResult.Cancelled} inserts the {@code CANCELLED} row and answers it;
+ *       {@link FiscalCancellationResult.InProcess} inserts the {@code CANCELLATION_PENDING} row and answers the same
+ *       {@link FiscalDocumentCancellation#submitted} it always answered, because the 202 body does not change
+ *       ({@code L2}(g)): the row is reachable through the document and the screen that would show it is a non-goal.
+ *       {@link FiscalCancellationResult.Rejected} writes nothing and raises
+ *       {@link FiscalCancellationRejectedException}, the <b>409</b> the stamping path answers
  *       {@code FiscalStampRejectedException} with.</li>
  *   <li><b>With nothing registered the answer is a named refusal</b>, not a boot failure
  *       ({@link FiscalCancellationNotConfiguredException}), exactly as the stamper resolves its provider and sealer
@@ -90,8 +93,9 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p><b>What this class deliberately does not do.</b> It does not read a live catalog ({@code S9}), so a company that
  * renamed itself does not change the {@code RfcEmisor} of a cancellation of last year's document. It does not touch
- * the cancelled row or its artefact. It does not remember a submitted cancellation: the acceptance poll that would is
- * {@code L20}(i)'s and needs a state this schema does not have. And it posts nothing to the books ({@code S14}): the
+ * the cancelled row or its artefact. It does not <b>settle</b> the submitted cancellation it writes: resolving a
+ * pending row into {@code CANCELLED} or into a reported rejection is the reconciliation's ({@code T3}), and this class
+ * only states what the authority answered now ({@code S5}). And it posts nothing to the books ({@code S14}): the
  * revenue accrued at the sale and ADR-0008's projection describes the sale, not the document.</p>
  */
 @Service
@@ -193,11 +197,14 @@ public class FiscalDocumentCancellationService {
         storeScope.verifyAccessOfDocument(cancelled);
 
         // A document is cancelled once, and the schema says so (uq_fiscal_document_cancels). The read is here
-        // because the constraint would answer after the SAT had registered a second cancellation.
+        // because the constraint would answer after the SAT had registered a second cancellation, and since V113 it
+        // is also what refuses a second submission of a document whose first one is still CANCELLATION_PENDING: the
+        // pointer is the row's whichever of the two states it is in, and the refusal says which one it found (S7).
         fiscalDocumentRepository
                 .findByCompanyIdAndCancelsFiscalDocumentId(companyId, cancelled.getId())
                 .ifPresent(existing -> {
-                    throw new FiscalDocumentAlreadyCancelledException(cancelled.getId(), existing.getId());
+                    throw new FiscalDocumentAlreadyCancelledException(
+                            cancelled.getId(), existing.getId(), existing.getStatus());
                 });
 
         // The pointer is a row id, so the folio resolves to a row — and a folio that names no stamped document of
@@ -219,13 +226,26 @@ public class FiscalDocumentCancellationService {
                 new FiscalCancellationRequest(seal(request, cancelled, sealer), cancelled.getUuidFiscal()));
 
         if (answer instanceof FiscalCancellationResult.InProcess inProcess) {
-            // Nothing is written: a submitted request is not a cancelled document, and the schema has no state for
-            // one (L20(d)). The 202 the endpoint answers is this value's to justify, not this class's.
+            // S3/L2(f): the submission is remembered. The row is the cancellation row in waiting — pointer, motive and
+            // substituting row — carrying the authority's code and no settle stamp, so a reconciliation can resolve it
+            // later without a human asking the PAC. The answer below does not change (L2(g)): it states no row, and
+            // that is the whole of what the 202 means.
+            var pending = FiscalDocument.pendingCancellationOf(
+                    cancelled,
+                    motive,
+                    substituting == null ? null : substituting.getId(),
+                    FiscalDocumentSnapshotWriter.requireActor(currentUserContext),
+                    inProcess.statusUuid(),
+                    inProcess.message());
+
+            var written = fiscalDocumentRepository.saveAndFlush(pending);
             logger.info(
-                    "Fiscal cancellation in process: document={}, company={}, uuid={}, statusUUID={}",
+                    "Fiscal cancellation submitted: document={}, pending={}, company={}, uuid={}, motive={}, statusUUID={}",
                     cancelled.getId(),
+                    written.getId(),
                     companyId,
                     cancelled.getUuidFiscal(),
+                    motive.code(),
                     inProcess.statusUuid());
             return FiscalDocumentCancellation.submitted(
                     cancelled.getId(), motive.code(), inProcess.statusUuid(), inProcess.message());
@@ -323,8 +343,10 @@ public class FiscalDocumentCancellationService {
      *
      * <p>The row is the one {@code V108} describes: {@code CANCELLED}, naming the cancelled document, carrying the
      * motive and — when the motive replaces it — the row of the substituting document, with no {@code uuid_fiscal} of
-     * its own and no lines ({@code S7}). Nothing is derived from a catalog here, which is what keeps {@code S9} true
-     * one row further on.</p>
+     * its own and no lines ({@code S7}). Since {@code V113} it also keeps the authority's code
+     * ({@code cancellation_status_uuid}), which is the answer a later reader quotes, and it stays unsettled: a granted
+     * cancellation is finished by its state and not by a timestamp ({@code L2}(d)). Nothing is derived from a catalog
+     * here, which is what keeps {@code S9} true one row further on.</p>
      */
     private FiscalDocumentCancellation record(
             FiscalDocument cancelled,
@@ -335,7 +357,9 @@ public class FiscalDocumentCancellationService {
                 cancelled,
                 motive,
                 substituting == null ? null : substituting.getId(),
-                FiscalDocumentSnapshotWriter.requireActor(currentUserContext));
+                FiscalDocumentSnapshotWriter.requireActor(currentUserContext),
+                granted.statusUuid(),
+                granted.message());
 
         var written = fiscalDocumentRepository.saveAndFlush(row);
         logger.info(

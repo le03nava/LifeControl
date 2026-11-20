@@ -14,6 +14,7 @@ import com.lifecontrol.api.fiscal.FiscalCancellationProviderTestConfiguration.In
 import com.lifecontrol.api.fiscal.service.FiscalDocumentStamper;
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
 import com.lifecontrol.api.support.TenantFixtures;
+import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -39,9 +40,11 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p><b>Why the assertion is the response and not the service.</b> {@code L20}(d) is a statement about the
  * <b>status</b> a caller gets: a granted cancellation is {@code 201} and a document that was written, and a request
- * the authority has not decided is {@code 202} and a document that was <b>not</b>. Only a real request through the
- * chain — the filter that states the tenant of a path that names none, the {@code @PreAuthorize} of the two roles, the
- * binding of the body, and the controller — can prove which of the two a caller is looking at.</p>
+ * the authority has not decided is {@code 202} and a document that was <b>not</b> — and since {@code V113} the row
+ * exists all the same, as a {@code CANCELLATION_PENDING} one the response deliberately does not echo
+ * ({@code L2}(g)), so a case reads the state off the database beside the code off the body. Only a real request
+ * through the chain — the filter that states the tenant of a path that names none, the {@code @PreAuthorize} of the
+ * two roles, the binding of the body, and the controller — can prove which of the two a caller is looking at.</p>
  *
  * <p><b>Why the motive is a code in the body and an enum in the service.</b> The body states what the authority
  * spells ({@code "02"}), so a case that sent the enum's name would be testing this tree's vocabulary instead of the
@@ -113,8 +116,9 @@ class FiscalDocumentCancellationHttpIntegrationTest extends AbstractPostgresInte
     }
 
     @Test
-    @DisplayName("L20(d): a request the authority has not decided is a 202 with its code and writes no row")
-    void anInProcessAnswerIs202WithNoRow() throws Exception {
+    @DisplayName("S2/S3: a request the authority has not decided is a 202 with its code and exactly one "
+            + "CANCELLATION_PENDING row, and no CANCELLED row")
+    void anInProcessAnswerIs202WithOnePendingRow() throws Exception {
         FiscalCancellationProviderTestConfiguration.PROVIDER.answerWith(
                 InMemoryFiscalCancellationProvider.Answer.IN_PROCESS);
         var before = cancellationCount();
@@ -125,8 +129,22 @@ class FiscalDocumentCancellationHttpIntegrationTest extends AbstractPostgresInte
                 .andExpect(jsonPath("$.statusUuid").value(InMemoryFiscalCancellationProvider.IN_PROCESS_STATUS_UUID));
 
         assertThat(cancellationCount())
-                .as("202 means submitted, not cancelled: nothing was written")
-                .isEqualTo(before);
+                .as("S3: the submission is remembered — one cancellation row more than before, and it is the "
+                        + "pending one")
+                .isEqualTo(before + 1);
+        assertThat(statusCount("CANCELLATION_PENDING")).isEqualTo(1);
+        assertThat(statusCount("CANCELLED"))
+                .as("S2: a submitted request is not a cancellation, so the wire writes nothing that says CANCELLED")
+                .isZero();
+
+        var pending = pendingRow();
+        assertThat(pending.get("cancels_fiscal_document_id")).isEqualTo(stamped);
+        assertThat(pending.get("cancellation_status_uuid"))
+                .as("and the row states the code the response echoed: 211, the authority's own (L2(g))")
+                .isEqualTo(InMemoryFiscalCancellationProvider.IN_PROCESS_STATUS_UUID);
+        assertThat(pending.get("cancellation_settled_at"))
+                .as("L2(d): nothing has settled it — a submission waits for the reconciliation")
+                .isNull();
     }
 
     @Test
@@ -223,6 +241,22 @@ class FiscalDocumentCancellationHttpIntegrationTest extends AbstractPostgresInte
         return jdbc.queryForObject(
                 "SELECT count(*) FROM fiscal_document WHERE company_id = ? AND cancels_fiscal_document_id IS NOT NULL",
                 Long.class,
+                seed.company());
+    }
+
+    /** How many rows of one state this company holds, which is what a row-counting case asserts on (S8). */
+    private long statusCount(String status) {
+        return jdbc.queryForObject(
+                "SELECT count(*) FROM fiscal_document WHERE company_id = ? AND status = ?",
+                Long.class,
+                seed.company(),
+                status);
+    }
+
+    /** The one pending cancellation row of this company, read whole: the state, the pointer and the answer columns. */
+    private Map<String, Object> pendingRow() {
+        return jdbc.queryForMap(
+                "SELECT * FROM fiscal_document WHERE company_id = ? AND status = 'CANCELLATION_PENDING'",
                 seed.company());
     }
 

@@ -33,15 +33,19 @@ import org.hibernate.type.SqlTypes;
  * {@code forma_pago} and {@code exportacion} are {@code insertable = false, updatable = false} because the
  * schema's defaults write them ({@code V109}), and no code states them until {@code T9};
  * {@code com.lifecontrol.api.fiscal.service.FiscalDocumentCancellationService} <b>inserts</b> a second row
- * through {@link #cancellationOf(FiscalDocument, FiscalCancellationMotive, java.util.UUID, String)} and never
- * touches the stamped one ({@code S7}). {@code status} is a {@code String} and not an enum because the
- * vocabulary lives in {@code ck_fiscal_document_status} ({@code L9}(i)).</p>
+ * through {@link #cancellationOf(FiscalDocument, FiscalCancellationMotive, java.util.UUID, String, String, String)}
+ * — or, when the authority has the request and has not decided, through
+ * {@link #pendingCancellationOf(FiscalDocument, FiscalCancellationMotive, java.util.UUID, String, String, String)} —
+ * and never touches the stamped one ({@code S7}, {@code S2}). {@code status} is a {@code String} and not an enum
+ * because the vocabulary lives in {@code ck_fiscal_document_status} ({@code L9}(i)).</p>
  *
  * <p><b>What the database refuses, and therefore what this mapping does not have to.</b> {@code V108} revokes
  * {@code DELETE} and guards {@code UPDATE} with a trigger, so a {@code STAMPED} or {@code CANCELLED} row
  * refuses every write and no setter here can rewrite history: the one legitimate update is the transition out
- * of {@code DRAFT}. The identity columns ({@code company_id}, {@code source_type}, {@code source_id}) are
- * refused on any row, which is why moving a document to another sale is not a setter anybody owns.</p>
+ * of {@code DRAFT}. A {@code CANCELLATION_PENDING} row has exactly one transition of its own — to
+ * {@code CANCELLED}, written by the reconciliation — and the same guard refuses every other target
+ * ({@code V113}, {@code L2}(e)). The identity columns ({@code company_id}, {@code source_type}, {@code source_id})
+ * are refused on any row, which is why moving a document to another sale is not a setter anybody owns.</p>
  */
 @Entity
 @Table(name = "fiscal_document")
@@ -68,6 +72,20 @@ public class FiscalDocument {
      * a literal in a second class is a spelling free to drift from the constraint that enforces it.</p>
      */
     public static final String STATUS_CANCELLED = "CANCELLED";
+
+    /**
+     * The state of a <b>submitted</b> cancellation: the authority holds the request and has not decided
+     * ({@code S2} and {@code S3} of {@code odd/tasks/fiscal-cancellation-reconciliation.md}, {@code V113}).
+     *
+     * <p><b>Why it is not {@code CANCELLED}.</b> A request the receiver has not answered is not a document the SAT
+     * cancelled, and writing {@code CANCELLED} on it is the lie {@code L20}(d) refuses. This is the missing word
+     * that let the submission be remembered instead of forgotten: the row keeps the pointer, the motive and the
+     * authority's code, and a later pass resolves it into {@code CANCELLED} or into a settled rejection.</p>
+     *
+     * <p>Twenty characters, exactly the width {@code fiscal_document.status} declares — the longest value the
+     * closed vocabulary can hold without retyping the column ({@code L2}(a)).</p>
+     */
+    public static final String STATUS_CANCELLATION_PENDING = "CANCELLATION_PENDING";
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
@@ -115,6 +133,31 @@ public class FiscalDocument {
 
     @Column(name = "replaces_fiscal_document_id")
     private UUID replacesFiscalDocumentId;
+
+    /**
+     * The authority's code for the answer it gave this cancellation ({@code L2}(d), {@code V113}).
+     *
+     * <p>Four characters because the vendor's catalogue states four-digit codes ({@code 211}, {@code 204},
+     * {@code 213}), and the value is the wire vocabulary an operator quotes back and never a translation. Non-null
+     * exactly on a cancellation row, which {@code ck_fiscal_document_cancellation_answer} enforces.</p>
+     */
+    @Column(name = "cancellation_status_uuid", length = 4)
+    private String cancellationStatusUuid;
+
+    /** The authority's sentence for that code, kept untranslated. {@code TEXT}, because a sentence is not a name. */
+    @Column(name = "cancellation_message", columnDefinition = "TEXT")
+    private String cancellationMessage;
+
+    /**
+     * When a pass decided this cancellation was finished, or {@code null} while it is not.
+     *
+     * <p><b>Settled is this column and not a state</b> ({@code L2}(d)): a rejection keeps the row at
+     * {@code CANCELLATION_PENDING} and is settled here, which is what lets a second pass skip it without asking the
+     * authority again. Read-only in this slice — the pass that writes it is the reconciliation, and a setter here
+     * would be a second way to state a fact the row records once.</p>
+     */
+    @Column(name = "cancellation_settled_at")
+    private OffsetDateTime cancellationSettledAt;
 
     /** Who issued the document, as the tree records an actor elsewhere. Never a fiscal fact. */
     @Column(name = "issued_by", length = 255, nullable = false)
@@ -226,6 +269,13 @@ public class FiscalDocument {
      * The cancellation of {@code cancelled}: a <b>new row</b> that names the document it cancels, and never an
      * edit of it ({@code S7} of {@code odd/tasks/cfdi-fiscal-document.md}).
      *
+     * <p><b>This is the row for a cancellation the authority granted.</b> Its sibling
+     * {@link #pendingCancellationOf(FiscalDocument, FiscalCancellationMotive, UUID, String, String, String)} builds the
+     * same row for a submission the authority has not decided ({@code S2}, {@code V113}): both delegate to
+     * {@link #cancellationRow(FiscalDocument, FiscalCancellationMotive, UUID, String, String)}, so the field list below
+     * is stated once for the two states. What the paragraph about {@code uuid_fiscal} and {@code stamped_at} below says
+     * holds for both, and for the reason it gives.</p>
+     *
      * <p><b>Why it copies every frozen fact instead of pointing at the cancelled row.</b> {@code V109} made the
      * document's frozen header {@code NOT NULL} — the receiver's and the issuer's identity, the place of issue,
      * the currency and the four money parts — so a thin pointer would be a row the schema refuses. Copying them is
@@ -261,10 +311,81 @@ public class FiscalDocument {
      *     {@code fiscal_document (company_id, id)}
      * @param issuedBy who asked for the cancellation, {@code issued_by}; not a fiscal fact and not the cancelled
      *     document's actor, because cancelling is a new act by a person
+     * @param statusUuid the authority's code for the answer it gave — {@code 201} or {@code 202} on this row, because
+     *     it is the row that says the authority cancelled; the code is stored as the authority stated it
+     *     ({@code L2}(d))
+     * @param message the authority's sentence for that code, untranslated, or {@code null} when it stated none
      * @return a new row: {@code CANCELLED}, naming its source, with the source's frozen facts and no lines
      */
     public static FiscalDocument cancellationOf(
-            FiscalDocument cancelled, FiscalCancellationMotive motive, UUID replacesFiscalDocumentId, String issuedBy) {
+            FiscalDocument cancelled,
+            FiscalCancellationMotive motive,
+            UUID replacesFiscalDocumentId,
+            String issuedBy,
+            String statusUuid,
+            String message) {
+        return answer(
+                cancellationRow(cancelled, motive, replacesFiscalDocumentId, issuedBy, STATUS_CANCELLED),
+                statusUuid,
+                message);
+    }
+
+    /**
+     * The <b>submitted</b> cancellation of {@code cancelled}: the same row, waiting for the authority to decide
+     * ({@code S2} and {@code S3} of {@code odd/tasks/fiscal-cancellation-reconciliation.md}, {@code L2}(c)–(d)).
+     *
+     * <p><b>What it copies and what it changes.</b> Every field is the one
+     * {@link #cancellationOf(FiscalDocument, FiscalCancellationMotive, UUID, String, String, String)} builds — the
+     * tenant, the source pair, the pointer, the motive, the substituting row and the whole frozen snapshot — and the
+     * two factories share that copy rather than repeating it, so a column added to the snapshot is a decision taken in
+     * one place and not two that can drift. What differs is exactly the answer: the state is
+     * {@link #STATUS_CANCELLATION_PENDING} instead of {@code CANCELLED}, {@code cancellation_status_uuid} is the code
+     * the authority answered ({@code 211} in process), and {@code cancellation_settled_at} is {@code null} because a
+     * submission has not settled.</p>
+     *
+     * <p><b>Why the row carries no {@code uuid_fiscal} and no {@code stamped_at}, and why that is the schema's rule</b>
+     * ({@code L2}(c)): {@code ck_fiscal_document_uuid_matches_status} and {@code ck_fiscal_document_stamped_at} are
+     * equalities and stay as {@code V108} states them, so a pending row claiming either would claim the authority
+     * witnessed <b>it</b>. The UUID a later reconciliation asks about is the pointed document's, reached through
+     * {@code cancels_fiscal_document_id}.</p>
+     *
+     * @param cancelled the stamped document whose cancellation was submitted; anything else is refused, for the
+     *     reason the field-by-field argument above states
+     * @param motive the motive the submission stated
+     * @param replacesFiscalDocumentId the substituting document's row id, or {@code null}
+     * @param issuedBy who asked for the cancellation
+     * @param statusUuid the authority's code for the answer it gave the submission — {@code 211} when it is in
+     *     process
+     * @param message the authority's sentence for that code, untranslated, or {@code null}
+     * @return a new row: {@code CANCELLATION_PENDING}, carrying the authority's code and no settle stamp
+     */
+    public static FiscalDocument pendingCancellationOf(
+            FiscalDocument cancelled,
+            FiscalCancellationMotive motive,
+            UUID replacesFiscalDocumentId,
+            String issuedBy,
+            String statusUuid,
+            String message) {
+        return answer(
+                cancellationRow(cancelled, motive, replacesFiscalDocumentId, issuedBy, STATUS_CANCELLATION_PENDING),
+                statusUuid,
+                message);
+    }
+
+    /**
+     * The one copy of the field list both cancellation factories build, with the state left to the caller.
+     *
+     * <p>Separate and private on purpose: {@code CANCELLED} and {@code CANCELLATION_PENDING} are the same row before
+     * and after the authority answers, so two copies of the sixteen assignments above would be two places a copied
+     * column could be forgotten — and forgetting one is silent, because the schema only requires that the row be
+     * complete, not that it agree with the source.</p>
+     */
+    private static FiscalDocument cancellationRow(
+            FiscalDocument cancelled,
+            FiscalCancellationMotive motive,
+            UUID replacesFiscalDocumentId,
+            String issuedBy,
+            String status) {
         Objects.requireNonNull(cancelled, "a cancellation names the document it cancels");
         Objects.requireNonNull(motive, "a cancellation states the authority's motive");
         Objects.requireNonNull(issuedBy, "a cancellation states who asked for it");
@@ -278,7 +399,7 @@ public class FiscalDocument {
         cancellation.setCompanyId(cancelled.getCompanyId());
         cancellation.setSourceType(cancelled.getSourceType());
         cancellation.setSourceId(cancelled.getSourceId());
-        cancellation.setStatus(STATUS_CANCELLED);
+        cancellation.setStatus(status);
         cancellation.setIssuedBy(issuedBy);
 
         // The pointers, and the three columns ck_fiscal_document_cancellation couples to them.
@@ -309,6 +430,22 @@ public class FiscalDocument {
         cancellation.setTaxWithheld(cancelled.getTaxWithheld());
         cancellation.setTotalAmount(cancelled.getTotalAmount());
         return cancellation;
+    }
+
+    /**
+     * The authority's verdict on a cancellation row: its code, its sentence, and a settle stamp of {@code null}.
+     *
+     * <p>The stamp is written by the pass that settles the row ({@code L2}(d)) and by nothing here; a factory that
+     * filled it would be claiming a settlement the caller never observed. The code is required because
+     * {@code ck_fiscal_document_cancellation_answer} couples the answer to the row and a cancellation row without a
+     * code is a row that says something happened without saying what.</p>
+     */
+    private static FiscalDocument answer(FiscalDocument row, String statusUuid, String message) {
+        Objects.requireNonNull(statusUuid, "a cancellation row states the authority's code");
+        row.cancellationStatusUuid = statusUuid;
+        row.cancellationMessage = message;
+        row.cancellationSettledAt = null;
+        return row;
     }
 
     public UUID getId() {
@@ -443,8 +580,8 @@ public class FiscalDocument {
      * The authority's motive a cancellation row carries, and {@code null} on every row that is not one.
      *
      * <p><b>Why this getter exists and no setter beside it.</b> The write path is
-     * {@link #cancellationOf(FiscalDocument, FiscalCancellationMotive, UUID, String)}, which states the motive when
-     * it builds the row; a setter would be a second way to write a column the schema couples to
+     * {@link #cancellationOf(FiscalDocument, FiscalCancellationMotive, UUID, String, String, String)}, which states
+     * the motive when it builds the row; a setter would be a second way to write a column the schema couples to
      * {@code status = 'CANCELLED'} and to the pointer it names ({@code ck_fiscal_document_cancellation}). What was
      * missing was a <b>reader</b>: the sale's read reports the motive of the cancellation that ended its document
      * ({@code S1} of {@code odd/tasks/fiscal-document-read.md}), and the value as stored is the authority's own code
@@ -454,8 +591,123 @@ public class FiscalDocument {
         return cancellationMotive;
     }
 
+    /**
+     * The authority's code for the answer it gave this cancellation, and {@code null} on every row that is not one
+     * ({@code L2}(d), {@code V113}).
+     *
+     * <p>Read-only like the motive beside it: the value is stated by the factory that builds the row, and the pass that
+     * settles a pending row is the reconciliation's ({@code T3}). What was missing was a <b>reader</b> — the code is
+     * the authority's own vocabulary, which is what an operator looks up.</p>
+     */
+    public String getCancellationStatusUuid() {
+        return cancellationStatusUuid;
+    }
+
+    /** The authority's sentence for that code, untranslated, or {@code null}. */
+    public String getCancellationMessage() {
+        return cancellationMessage;
+    }
+
+    /**
+     * The document this row cancels, and {@code null} on every row that is not a cancellation ({@code V108}).
+     *
+     * <p><b>Why this getter exists.</b> The pointer is what a reconciliation reads the row <b>by</b>
+     * ({@code FiscalDocumentRepository#findByCompanyIdAndCancelsFiscalDocumentId}), and the document it names is
+     * where the fiscal UUID the authority is asked about lives: a cancellation row carries no {@code uuid_fiscal} of
+     * its own ({@code L2}(c)), so the UUID reached through this column is the only one there is.</p>
+     */
+    public UUID getCancelsFiscalDocumentId() {
+        return cancelsFiscalDocumentId;
+    }
+
+    /**
+     * The row of the document that substitutes this one, or {@code null}; a row id and not a folio, because the
+     * column is a composite foreign key ({@code V108}).
+     *
+     * <p><b>Why a reconciliation needs to read it.</b> Registering the request again means rebuilding the Anexo 20
+     * document from the row, and {@code FolioSustitucion} is a <b>folio</b> while this column is a row id: the pass
+     * resolves one to the other exactly as the submission did ({@code L20}(f)).</p>
+     */
+    public UUID getReplacesFiscalDocumentId() {
+        return replacesFiscalDocumentId;
+    }
+
+    /**
+     * When a pass decided this cancellation was finished, or {@code null} when nothing has settled it.
+     *
+     * <p>{@code null} means no pass has settled this row yet, which covers a submission the authority acknowledged and
+     * has not decided ({@code 211}) and an answer a pass read but did not settle (the codes {@code L4} of this record
+     * moves nothing on). A rejection is the case the column exists for: the row stays {@code CANCELLATION_PENDING} and
+     * this timestamp is what says a pass decided it. An acceptance keeps the row {@code CANCELLED} <b>and</b> carries
+     * the stamp of the pass that read it, so "settled" is one predicate on both halves instead of a state a reader has
+     * to translate — what {@link #settleCancellationAccepted} writes and {@link #getCancellationSettledAt()} answers.</p>
+     */
+    public OffsetDateTime getCancellationSettledAt() {
+        return cancellationSettledAt;
+    }
+
     public void setCompanyId(UUID companyId) {
         this.companyId = companyId;
+    }
+
+    /**
+     * Settles a <b>submitted</b> cancellation the authority accepted: the row becomes {@code CANCELLED}.
+     *
+     * <p><b>Why this is one method and not three setters.</b> The transition is one fact — the state, the authority's
+     * code and the moment a pass read it — and {@code ck_fiscal_document_cancellation_answer} couples all three
+     * columns. A caller free to set them one at a time could write a row that says «finished» without saying how, or
+     * a code over a state the guard never let move. The pointer, the motive and the substituting row are deliberately
+     * untouched: the submission stated them and this row still cancels the same document. {@code uuid_fiscal} and
+     * {@code stamped_at} stay {@code null}, which is the equality {@code ck_fiscal_document_uuid_matches_status} and
+     * {@code ck_fiscal_document_stamped_at} require of a cancellation row ({@code L2}(c)).</p>
+     *
+     * <p><b>What actually enforces the direction.</b> Not this method: {@code trg_fiscal_document_guard} refuses
+     * every target but {@code CANCELLED} — and staying pending — for a {@code CANCELLATION_PENDING} row, so the arm
+     * {@code V113} added is the authority and this is the writer that uses it ({@code L2}(e)).</p>
+     *
+     * @param statusUuid the authority's code for the answer that accepted the cancellation
+     * @param message the authority's sentence for it, untranslated, or {@code null} when it stated none
+     * @param settledAt when the pass read that answer — the moment a second pass reads to skip this row
+     * @return this row, so the caller writes what it settled
+     */
+    public FiscalDocument settleCancellationAccepted(String statusUuid, String message, OffsetDateTime settledAt) {
+        return settle(STATUS_CANCELLED, statusUuid, message, settledAt);
+    }
+
+    /**
+     * Settles a <b>submitted</b> cancellation the authority rejected: the row stays {@code CANCELLATION_PENDING} and
+     * is finished by the timestamp.
+     *
+     * <p><b>Why a rejection keeps the state.</b> The authority refused to cancel the document, so the document is
+     * still stamped and the row that remembers the attempt is not a cancellation: promoting it would state a fact the
+     * authority denied ({@code S5}, {@code L2}(d)). What finishes it is {@code cancellation_settled_at}, which is
+     * also what lets a second pass skip it without asking the authority again ({@code S6}).</p>
+     *
+     * @param statusUuid the authority's code — {@code 213} or {@code 204} on this surface
+     * @param message the authority's sentence for it, untranslated
+     * @param settledAt when the pass read that answer — the moment a second pass reads to skip this row
+     * @return this row, so the caller writes what it settled
+     */
+    public FiscalDocument settleCancellationRejected(String statusUuid, String message, OffsetDateTime settledAt) {
+        return settle(STATUS_CANCELLATION_PENDING, statusUuid, message, settledAt);
+    }
+
+    /**
+     * The three answer columns of a cancellation row, written together because they are one fact ({@code L2}(d)).
+     *
+     * <p>The state is the caller's, so the two public halves state their own target and share everything else: one of
+     * them moves the row and the other does not, and the three fields are identical either way.</p>
+     */
+    private FiscalDocument settle(String status, String statusUuid, String message, OffsetDateTime settledAt) {
+        this.status = status;
+        this.cancellationStatusUuid = Objects.requireNonNull(
+                statusUuid,
+                "a settled cancellation states the authority's code: a timestamp with no verdict says something "
+                        + "finished without saying how (ck_fiscal_document_cancellation_answer)");
+        this.cancellationMessage = message;
+        this.cancellationSettledAt =
+                Objects.requireNonNull(settledAt, "a settled cancellation states the moment a pass read the answer");
+        return this;
     }
 
     public void setSourceType(String sourceType) {
