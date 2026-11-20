@@ -143,20 +143,91 @@ public class FiscalCancellationReconciliationService {
                 cancelledFiscalDocumentId,
                 "a reconciliation names the stamped document whose cancellation it resolves");
 
-        var companyId = TenantScope.current()
-                .map(TenantScope.Scope::companyId)
-                .filter(Objects::nonNull)
-                .orElseThrow(() -> new FiscalDocumentNotStampedException(cancelledFiscalDocumentId));
-
-        var cancellation = fiscalDocumentRepository
-                .findByCompanyIdAndCancelsFiscalDocumentId(companyId, cancelledFiscalDocumentId)
-                .orElseThrow(() -> new FiscalCancellationNotFoundException(cancelledFiscalDocumentId));
+        var companyId = companyOfTheCaller(cancelledFiscalDocumentId);
+        var cancellation = cancellationOf(companyId, cancelledFiscalDocumentId);
 
         // The store the document's sale belongs to decides, first of all, exactly as it does for the submission: the
         // pending row copies the source pair of the document it cancels, so this resolves the same sale without a
         // second read (S3 of odd/tasks/fiscal-document-cross-store-authz.md).
         storeScope.verifyAccessOfDocument(cancellation);
 
+        return reconcileWithin(companyId, cancelledFiscalDocumentId, cancellation, true);
+    }
+
+    /**
+     * The same settlement, on behalf of the company instead of on behalf of a caller — the entry point the
+     * scheduled pass uses (issue {@code #994}).
+     *
+     * <p><b>Why this is not {@link #reconcile(UUID)} with a scope and nothing else.</b> That method authorizes a
+     * <i>caller</i> for the store the document's sale belongs to, through
+     * {@code FiscalDocumentStoreScope} and the {@code company_*} claims of a JWT. A scheduled pass has no caller:
+     * no principal, no claims, no store. Running the caller's guard there would refuse every document it looked at
+     * — fail-closed, and therefore silent — so the pass must state its own boundary instead of borrowing one that
+     * answers a question nobody asked.</p>
+     *
+     * <p><b>What the boundary is instead.</b> The company, stated twice and independently: the row is read by
+     * {@code (company_id, cancels_fiscal_document_id)}, and {@code fiscal_document} is armed with {@code FORCE} since
+     * {@code V108}, so a transaction whose scope is that company cannot reach another tenant's cancellation even if
+     * it asked for one by id. What the pass gains is no authority to act on a store it never had — it acts on the
+     * tenant that the enumerator named, and the row it settles is that tenant's.</p>
+     *
+     * <p><b>Everything after the boundary is the endpoint's own code.</b> The settled short-circuit, the pointed
+     * document, the authority's answer and the two writers are {@code reconcileWithin}, shared with the caller path,
+     * because a second settlement that differed by a sentence would be two behaviours wearing one endpoint's name.</p>
+     *
+     * @param companyId the tenant the pass is working on, which is the scope its transaction installs
+     * @param cancelledFiscalDocumentId the stamped document whose cancellation was submitted
+     * @return what the row says after the pass, what the authority said, and whether it is finished
+     * @throws FiscalCancellationNotFoundException when this document has no submitted cancellation in this company
+     * @throws FiscalCancellationNotConfiguredException when nothing answers the reconciling port
+     */
+    @Transactional
+    public FiscalCancellationReconciliation reconcileAsSystem(UUID companyId, UUID cancelledFiscalDocumentId) {
+        Objects.requireNonNull(companyId, "a scheduled pass settles a cancellation for one company, named");
+        Objects.requireNonNull(
+                cancelledFiscalDocumentId,
+                "a reconciliation names the stamped document whose cancellation it resolves");
+
+        return reconcileWithin(
+                companyId, cancelledFiscalDocumentId, cancellationOf(companyId, cancelledFiscalDocumentId), false);
+    }
+
+    /**
+     * The company the caller's transaction carries.
+     *
+     * <p>The filter states it once per request and the transaction manager installs it; its absence is the same
+     * answer the cancelling service gives, a 404, because a document addressed without a tenant is a document this
+     * caller cannot name.</p>
+     */
+    private static UUID companyOfTheCaller(UUID cancelledFiscalDocumentId) {
+        return TenantScope.current()
+                .map(TenantScope.Scope::companyId)
+                .filter(Objects::nonNull)
+                .orElseThrow(() -> new FiscalDocumentNotStampedException(cancelledFiscalDocumentId));
+    }
+
+    /**
+     * The submitted cancellation of one document in one company, or the refusal both entry points state.
+     *
+     * <p>The pair is the key: {@code uq_fiscal_document_cancels} makes the pointer unique per company, so this reads
+     * at most one row and its absence means this company has no submitted cancellation for that document.</p>
+     */
+    private FiscalDocument cancellationOf(UUID companyId, UUID cancelledFiscalDocumentId) {
+        return fiscalDocumentRepository
+                .findByCompanyIdAndCancelsFiscalDocumentId(companyId, cancelledFiscalDocumentId)
+                .orElseThrow(() -> new FiscalCancellationNotFoundException(cancelledFiscalDocumentId));
+    }
+
+    /**
+     * The settlement both entry points share, from the settled short-circuit to the writer the authority's answer
+     * selects.
+     *
+     * <p>The order is the whole of {@code S4} and {@code S5}: a row that is already settled answers from itself and
+     * asks the authority nothing, a pending answer writes nothing, and the two answers that finished the row write
+     * through {@link FiscalDocument}'s own settling methods.</p>
+     */
+    private FiscalCancellationReconciliation reconcileWithin(
+            UUID companyId, UUID cancelledFiscalDocumentId, FiscalDocument cancellation, boolean mayRegister) {
         if (isSettled(cancellation)) {
             logger.info(
                     "Fiscal cancellation already settled: document={}, cancellation={}, company={}, status={}, code={}",
@@ -181,8 +252,33 @@ public class FiscalCancellationReconciliationService {
             case Outcome.Rejected rejected -> settleRejected(cancelledFiscalDocumentId, cancellation, rejected);
             case Outcome.StillPending pending -> answerAsWaiting(cancellation, pending.statusUuid(), pending.message());
             case Outcome.NoTransaction noTransaction ->
-                register(port, companyId, cancelledFiscalDocumentId, cancellation, cancelled);
+                mayRegister
+                        ? register(port, companyId, cancelledFiscalDocumentId, cancellation, cancelled)
+                        : answerWithoutRegistering(cancellation);
         };
+    }
+
+    /**
+     * The authority holds no transaction for this cancellation and this caller may not register one — the answer the
+     * scheduled pass gives ({@code S8} of {@code #994}, and the reason the pass carries a flag at all).
+     *
+     * <p><b>Why the pass must not re-register, when a human's click may.</b> Re-registering is a <b>write</b> to the
+     * authority, not a read: it rebuilds the sealed request and sends it. On the endpoint that is one operator's
+     * deliberate act, once, with the document in front of them. On a cadence it would be that same write every
+     * interval, for as long as the authority keeps answering {@code NoTransaction} — unbounded, unattended, and about a
+     * transaction the authority no longer keeps, which {@code S8} names as a non-goal precisely because re-filing is
+     * a decision nobody has made. So the pass reports the row as still waiting, writes nothing, and leaves the decision
+     * to a human: the row stays a candidate, and the next pass asks about the status again without filing anything.</p>
+     *
+     * <p>The code and the message are the row's own, because this pass read no answer: reporting the submission's code
+     * as if it were a fresh reading would state a fact nobody observed.</p>
+     */
+    private static FiscalCancellationReconciliation answerWithoutRegistering(FiscalDocument cancellation) {
+        return answerAsWaiting(
+                cancellation,
+                cancellation.getCancellationStatusUuid(),
+                "The authority holds no transaction for this cancellation, and a scheduled pass does not register one "
+                        + "again; the row stays pending for a human to decide.");
     }
 
     // ─── the answers the pass settles ───────────────────────────────────────────────────────────────
