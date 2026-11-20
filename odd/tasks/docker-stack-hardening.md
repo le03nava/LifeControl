@@ -1,5 +1,6 @@
-**Status**: deferred — this record covers the container and script hardening of issue #897. The
-secrets-mode criteria (S6 and S9, task T4) are deferred to the mechanism decision recorded in L4.
+**Status**: deferred — this record covers the container and script hardening of issue #897 across two
+review slices. The scripting and image half (S1-S3, S8) is the first slice; container hardening (S4,
+S5) and the secrets-mode criteria (S6, S9) are deferred, the latter to the mechanism decision in L4.
 
 ## Specs
 
@@ -41,10 +42,10 @@ connection pool.
 
 | ID | Spec | Route | Commit | State |
 | --- | --- | --- | --- | --- |
-| T1 | S1 | inline | 1 | in progress |
-| T2 | S2, S3, S8 | inline | 2 | pending |
-| T3 | S4, S5 | inline | 3 | pending |
-| T4 | S6, S9 | blocked on the secrets-mode decision (L4) | - | pending |
+| T1 | S1 | inline | 1 | done |
+| T2 | S2, S3, S8 | inline | 2 | done |
+| T3 | S4, S5 | second slice, second branch off `origin/main` (L9) | - | pending |
+| T4 | S6, S9 | deferred to the secrets-mode decision (L4) | - | deferred |
 
 ## Log
 
@@ -93,6 +94,27 @@ secrets were never materialized, so the flag change aborts nothing that used to 
 clean over the four scripts and the new suite. Whole-tree runs: `docker/scripts/tests/` 30 suites, 0 failed;
 `.github/scripts/tests/` 18 suites, 0 failed — the first attempt failed the ODD header audit because this
 record had no `**Status**:` paragraph, which L7 records.
+
+L8. Evidence, T2: `dockerfile-hardening.test.sh` added (20 assertions). RED measured first — 5
+failures: the gateway entrypoint matched no `exec java`, its `sh -c java` form was still there, one
+package install was hidden behind `|| true`, and neither module shipped a `.dockerignore`. GREEN after
+the three edits. The `.dockerignore` trap is proven twice, not argued: a throwaway `FROM scratch` tree
+with `build/libs/app-1.0.jar`, `build/classes/` and `.gradle/caches/` builds with the shipped ignore
+file and fails with `"/build/libs/app-1.0.jar": not found` under a blanket `/build/` control. So S3's
+literal "the build context no longer contains `build/`" is not satisfiable while `${JAR_FILE}` lives
+inside that tree; the context shrink is. `curl` was dead weight and not a lost capability: the
+gateway's HEALTHCHECK probes with `wget`, and the only other `curl` mentions in the tree are README
+examples run from the host. Runtime half of S2 is deliberately not claimed: the `exec` is asserted
+statically, and the "exit status is not 137" measurement needs the image rebuilt, which belongs to T3's
+integration run. Whole-tree runs: `docker/scripts/tests/` 31 suites, 0 failed; `.github/scripts/tests/`
+18 suites, 0 failed; shellcheck `--severity=warning -x` clean on the new suite.
+
+L9. Slice boundary, measured after T2: 455 authored changed lines across two commits, past the ~400
+line review budget. The first slice is T1 and T2 — script strict mode, the gateway `exec`, the dead
+`curl`, the two `.dockerignore` files. T3 (compose hardening, numeric uids, the `chown` that has to
+abort) is a second branch off `origin/main` and a second PR: it shares no file with this one, and it
+is the slice that has to run `docker compose config` for the three file combinations and recreate
+the dev stack, which the shared dev environment feels. Nothing in this slice depends on it.
 
 L7. The record's own header had to open with a verdict before the first commit: the audit rejected a
 header that only described the branch. `**Status**: deferred` with S6/S9 named as the deferred half is the
