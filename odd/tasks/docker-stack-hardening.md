@@ -1,6 +1,6 @@
-**Status**: deferred — this record covers the container and script hardening of issue #897 across two
-review slices. The scripting and image half (S1-S3, S8) is the first slice; container hardening (S4,
-S5) and the secrets-mode criteria (S6, S9) are deferred, the latter to the mechanism decision in L4.
+**Status**: deferred — the scripting and image half (S1-S3, S8) and the container half (S4, S5) are
+implemented, in two review slices. The secrets-mode criteria (S6, S9) are deferred to the mechanism
+decision in L4.
 
 ## Specs
 
@@ -44,7 +44,7 @@ connection pool.
 | --- | --- | --- | --- | --- |
 | T1 | S1 | inline | 1 | done |
 | T2 | S2, S3, S8 | inline | 2 | done |
-| T3 | S4, S5 | second slice, second branch off `origin/main` (L9) | - | pending |
+| T3 | S4, S5 | second slice, branch `chore/compose-hardening` (L12) | - | done |
 | T4 | S6, S9 | deferred to the secrets-mode decision (L4) | - | deferred |
 
 ## Log
@@ -133,8 +133,96 @@ commits are named by subject instead. The guard job is called `Exactly one type:
 every suite in `.github/scripts/tests/`, so this read as a label failure in `gh pr checks` until the
 suite itself named the record.
 
+L18. Independent verification of T3, 2026-11-22: every claim confirmed, no merge-blocking finding. The
+rendered `docker compose config` for the three file combinations matched the frozen table row by row;
+`require_dir_owner` was driven behaviourally — an already-owned directory succeeds **without** calling
+`chown`, a missing one is created, a `chown` that cannot succeed exits 1 naming both the directory and
+the `sudo chown -R` command, and no warning-and-continue path is left in `setup-env.sh`; one `cap_add`
+block was re-measured with a throwaway postgres reaching "database system is ready to accept connections"
+as uid 999 under `--read-only` with the four capabilities and no `FOWNER`; 32 suites, 0 failed. The one
+advisory — that the `AGENTS.md` row stated `web-app`'s verdict as fact while this record disclosed it as
+source-derived — is fixed in that same row.
+
 L7. The record's own header had to open with a verdict before the first commit: the audit rejected a
 header that only described the branch. `**Status**: deferred` with S6/S9 named as the deferred half is the
 honest token while T4 waits on L4; the Tasks table carries the per-task state, which the audit reads
 outside the header paragraph and accepts. No unguarded expansion was found that a normal invocation
 reaches: `_common.sh:23-26` expand a bare `$1`, but no call site passes zero arguments.
+
+L12. T3 started by measuring every image instead of carrying the recon's verdicts, because a wrong
+verdict in either direction is a restart loop: a `cap_drop` or a `read_only` an image does not tolerate,
+or a flag left off an image that tolerates it. Default users, from `docker image inspect -f
+'{{.Config.User}}'` on the pinned tags: prometheus `nobody` (65534), tempo `10001:10001`, loki `10001`,
+grafana `472` (the compose declares `1000:1000`, pre-existing and untouched), keycloak `1000`, redis and
+postgres unset (root, then dropped by their entrypoints), redis-exporter `59000:59000`, both exporters
+`nobody`, mailpit unset. Everything else came from throwaway `docker run --rm` containers with
+`mktemp -d` bind directories, never from the shared dev stack, which was not started, stopped, rebuilt
+or otherwise touched.
+
+L13. Five recon verdicts were wrong or unproven, and are the ones this slice changed. (a) **keycloak
+cannot be `read_only`**: `kc.sh start-dev` re-augments the server image and writes
+`/opt/keycloak/lib/quarkus/transformed-bytecode.jar` — measured `java.nio.file.FileSystemException:
+/opt/keycloak/lib/quarkus/transformed-bytecode.jar: Read-only file system` — and the recon's tmpfs on
+`/opt/keycloak/data` and `/tmp` does not cover that path, while a tmpfs over it would hide the jars the
+build step reads. The prod command `start` announces "Changes detected in configuration. Updating the
+server image." and wrote nothing to `/opt/keycloak/lib` in 75 s, but it never reached a finished start
+(no reachable database), so prod stays writable instead of being frozen on partial evidence. (b)
+**grafana needs `/tmp` and not `/var/log/grafana`**: without `/tmp` every plugin dies on `open
+/tmp/pluginN: read-only file system`; logs go to stdout, so `/var/log/grafana` was not declared. (c)
+**tempo and loki do not need `/tmp`**: each started clean for 22 s with only its data directory
+writable, zero permission errors; the `tmpfs` stays declared as cheap insurance and the record says so
+rather than claiming a need that was not observed. (d) **mailpit was never measured and does need
+`/tmp`**: `--read-only` alone dies at `[db] open /tmp/mailpit-1795218271355410715.db: read-only file
+system`, and with a tmpfs on `/tmp` it serves SMTP and HTTP normally. (e) **web-app cannot be
+`read_only`**, established from `life-control-app-angular/Dockerfile`, `nginx.conf` and `entrypoint.sh`
+rather than by running it (its image is built here, and building it was out of bounds): the entrypoint
+generates `assets/env.js` and `sed -i`s `index.html` inside the document root, and nginx writes
+`/var/log/nginx/error.log` and `/var/cache/nginx`.
+
+L14. The two `cap_add` sets are measured minimums, not copied from the recon. Postgres with `cap_drop:
+ALL` and nothing added fails at `chmod: changing permissions of '/var/run/postgresql': Operation not
+permitted` and `chown: changing ownership of '/var/lib/postgresql/18/docker': Operation not permitted`.
+`CHOWN, SETUID, SETGID` alone fail earlier, on `mkdir: cannot create directory '/var/lib/postgresql/18':
+Permission denied` — root without `DAC_OVERRIDE` cannot write into a directory owned by the operator — so
+the set that reaches "database system is ready to accept connections" as uid 999 is `CHOWN,
+DAC_OVERRIDE, SETUID, SETGID`, and `FOWNER` was measured unnecessary by leaving it out. Redis is the
+case where a blanket `cap_drop` reverses the hardening: its entrypoint guards the privilege drop with
+`has_cap setuid && has_cap setgid`, so with an empty set `redis-server` keeps running as **root**
+(measured with `docker top`), while `CHOWN, DAC_OVERRIDE, FOWNER, SETUID, SETGID` make it drop to uid 999
+and write `appendonly.aof` into `/data` exactly as before. Both measured sets also hold with
+`security-opt no-new-privileges:true` added, which is the combination that ships.
+
+L15. Evidence, T3: `docker/scripts/tests/compose-hardening.test.sh` added (15 assertions). It freezes the
+per-service `cap_drop`, `cap_add`, `security_opt`, `read_only`, `tmpfs` and `user` record for the three
+file combinations, read from `docker compose config --format json`, in both directions — a service whose
+record moves and a rendered service with no row both fail — because S4's literal "for every image that
+tolerates it" is not falsifiable and a table of what each image was measured to tolerate is. RED
+measured first on the pre-change tree, via `git archive HEAD docker | tar -x -C "$(mktemp -d)"` with the
+new suite copied in: **1 passed, 52 failed**, naming each service's previous record (no `cap_drop`, no
+`read_only`, `prometheus`/`tempo` at `0:0`) and every missing `require_dir_owner` call. GREEN after the
+compose edits and the `setup-env.sh` helper: **15 passed, 0 failed**. The suite also drives the new
+ownership helper out of the script into a throwaway tree: already-correct owner is a success without
+`chown`, a missing directory is created, and a `chown` it cannot apply exits non-zero naming both the
+directory and the command to run.
+
+L16. `setup-env.sh` gained `require_dir_owner`, and every bind-mounted data directory it owns now goes
+through it: `loki` and `tempo` at `10001:10001`, `prometheus` at `65534:65534`, `grafana` at
+`1000:1000`. A failed `chown` is `exit 1` with the directory and the exact `sudo chown -R` line, which is
+the half `AGENTS.md` recorded as conditional until this change; the "already owned by the target" case is
+a success so a non-root operator can re-run the script after applying the hint. **What an operator has to
+run once on an existing checkout** (those directories are the operator's today, not the images'): `sudo
+chown -R 65534:65534 docker/volumes-<env>/prometheus/data` and `sudo chown -R 10001:10001
+docker/volumes-<env>/tempo/data`, plus `sudo chown -R 10001:10001 …/loki/data` if it is not already 10001.
+In prod the two observability services use named volumes, which Docker initializes with the image's
+ownership. Without those commands `setup-env.sh` aborts naming them, which is the chosen failure mode and
+not a silent restart loop.
+
+L17. Checks run for this slice, all on a worktree whose dev stack was left alone: `docker compose config`
+for the three combinations (base; base+override; base+prod) rendered the frozen record for all 14/15/14
+services; `docker/scripts/tests/` **32 suites, 0 failed** (31 before, the new suite is the 32nd);
+`.github/scripts/tests/odd-status-headers.test.sh` and `odd-citations.test.sh` pass over this record and
+all 194 of them; shellcheck with the CI pin (`docker run --rm -v "$PWD:/mnt" -w /mnt
+koalaman/shellcheck:v0.11.0 --severity=warning -x`) is clean over `setup-env.sh` and the new suite. No
+image version, port or mount moved: the change is how the existing containers run. Two verdicts are
+recorded rather than fixed because they are edits to images, not to compose: `keycloak`'s dev-mode
+augmentation and `web-app`'s generated `env.js` inside the document root.

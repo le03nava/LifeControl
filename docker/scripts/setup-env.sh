@@ -60,6 +60,41 @@ if ! docker info >/dev/null 2>&1; then
 fi
 print_success "Docker is running"
 
+# Every bind-mounted data directory below is writable by the fixed non-root uid its image runs as,
+# and that uid is a property of the image, not of the host: Docker creates a missing bind-mount
+# source as root, and a directory owned by anyone else is a `permission denied` inside the container
+# and a restart loop outside it -- measured for Loki as `mkdir /loki/chunks: permission denied`, and
+# for Prometheus and Tempo as the same class of failure once they stopped running as root (issue
+# #897).
+#
+# A failure here is FATAL, never a warning: the stack cannot start, the reason is buried in one
+# container's log, and continuing just hides which directory is wrong. The message names both the
+# directory and the command that fixes it, and a directory that is ALREADY owned by the target is a
+# success -- otherwise a non-root operator could never re-run this script after following the hint.
+require_dir_owner() {
+	local dir="$1"
+	local owner="$2"
+	local current
+
+	mkdir -p "$dir"
+	current="$(stat -c '%u:%g' "$dir" 2>/dev/null || echo unknown)"
+	if [ "$current" = "$owner" ]; then
+		print_success "$dir already owned by $owner"
+		return 0
+	fi
+
+	if chown -R "$owner" "$dir" 2>/dev/null; then
+		print_success "$dir owner set to $owner"
+		return 0
+	fi
+
+	print_error "Cannot set the owner of '$dir' to $owner (it is $current)."
+	print_error "The container runs as $owner and cannot write there without it, so it would restart-loop."
+	print_error "Run this once, then re-run this script:"
+	print_error "  sudo chown -R $owner '$dir'"
+	exit 1
+}
+
 # Install reference monitoring configs (prometheus/tempo/grafana) into the
 # environment's volume root if absent. Prometheus/Tempo need a config file to
 # start and the grafana config dir is the provisioning/datasources mount.
@@ -88,28 +123,21 @@ install_monitoring_configs() {
 		print_status "Monitoring configs already present — not overwritten"
 	fi
 
-	# The grafana container runs as uid 1000:1000; make its data dir writable.
-	if [ -d "$vol_path/grafana/data" ]; then
-		if chown 1000:1000 "$vol_path/grafana/data" 2>/dev/null; then
-			print_success "grafana data dir owner set to 1000:1000"
-		else
-			print_warning "Could not chown '$vol_path/grafana/data' to 1000:1000 — apply manually:"
-			print_warning "  chown 1000:1000 '$vol_path/grafana/data'"
-		fi
-	fi
+	# The grafana container runs as uid 1000:1000 (docker-compose.yml pins it) and keeps its
+	# SQLite database under /var/lib/grafana.
+	require_dir_owner "$vol_path/grafana/data" 1000:1000
 
-	# Loki writes under /loki (common.path_prefix) and its distroless image runs as uid 10001,
-	# so the bind-mounted directory must be writable by it: Docker creates a missing
-	# bind-mount source as root, and Loki would fail to start against it.
-	if [ -d "$vol_path/loki/data" ]; then
-		mkdir -p "$vol_path/loki/data/rules" "$vol_path/loki/data/rules-temp"
-		if chown -R 10001:10001 "$vol_path/loki/data" 2>/dev/null; then
-			print_success "loki data dir owner set to 10001:10001"
-		else
-			print_warning "Could not chown '$vol_path/loki/data' to 10001:10001 — apply manually:"
-			print_warning "  chown -R 10001:10001 '$vol_path/loki/data'"
-		fi
-	fi
+	# Loki writes under /loki (common.path_prefix) and its distroless image runs as uid 10001, so the
+	# bind-mounted directory must be writable by it. `rules/` and `rules-temp/` are its rules
+	# directories and have to be inside the same mount.
+	mkdir -p "$vol_path/loki/data/rules" "$vol_path/loki/data/rules-temp"
+	require_dir_owner "$vol_path/loki/data" 10001:10001
+
+	# Prometheus is `nobody` (65534:65534) in the pinned image and writes its TSDB to /prometheus.
+	require_dir_owner "$vol_path/prometheus/data" 65534:65534
+
+	# Tempo's image default is 10001:10001 and it writes the local trace store to /var/tempo.
+	require_dir_owner "$vol_path/tempo/data" 10001:10001
 }
 
 # Create volume directories from VOLUMES_ROOT and install reference configs
