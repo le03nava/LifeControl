@@ -1,0 +1,9 @@
+# The image copies exactly one build artifact, `${JAR_FILE}`, which resolves to
+# `build/libs/<module>-<version>.jar`. Without this file the whole module directory is uploaded on
+# every build; with a blanket `build/` line the image stops building, because the JAR lives inside
+# the tree being excluded. The four lines below keep the one file `COPY` reads and drop the rest.
+/.gradle/
+/build/*
+!/build/libs/
+/build/libs/*
+!/build/libs/*.jar
