@@ -73,4 +73,17 @@ services:
       - "127.0.0.1:${MAILPIT_PORT:-8025}:8025"
     networks:
       - default
+    # Hardening (issue #897): same two rules as every service in the base file, and this image is
+    # measured for both. It needs no capability, and with `--read-only` its SQLite store is created
+    # at /tmp/mailpit-<n>.db -- under a read-only root it dies at boot with `[db] open
+    # /tmp/mailpit-1795218271355410715.db: read-only file system`. With a tmpfs on /tmp it starts and
+    # serves SMTP (1025) and HTTP (8025) normally. Its mail store is in memory, so nothing here is
+    # lost by having no writable /data.
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
     restart: unless-stopped

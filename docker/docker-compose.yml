@@ -7,6 +7,26 @@ networks:
   default:
     driver: bridge
 
+# ============================================
+# Container hardening (issue #897, S4/S5)
+# ============================================
+# Two rules, applied to every service in every compose file of this stack, and frozen per service by
+# docker/scripts/tests/compose-hardening.test.sh so that gaining or losing one is a reviewed edit:
+#
+#   1. `cap_drop: [ALL]` + `security_opt: [no-new-privileges:true]`. Nothing in this stack needs a
+#      Linux capability. The two exceptions are `cap_add:` blocks with a measured reason written next
+#      to them: the images whose entrypoint starts as root, chowns its data dir and drops to a
+#      service user (both Postgres, and Redis). `cap_drop: ALL` on those is not hardening, it is a
+#      restart loop -- measured, see the comment on each block.
+#
+#   2. `read_only: true` with a `tmpfs:` for each path the image writes outside its mounts, where the
+#      image tolerates it. The verdict is per image and measured, never blanket: `keycloak` and
+#      `web-app` refuse it for reasons written next to each service.
+#
+# Both are about HOW the existing containers run, so neither changes an image, a port, a mount or a
+# topology.
+# ============================================
+
 services:
   # ============================================
   # PostgreSQL - Keycloak Database
@@ -38,6 +58,30 @@ services:
       timeout: 10s
       retries: 3
       start_period: 60s
+    # Hardening (issue #897): see the block above `services:`. Measured, not assumed -- the image
+    # entrypoint starts as root, chowns the data dir and drops to the postgres user with gosu, so
+    # `cap_drop: ALL` alone stops the container at startup (`chmod: changing permissions of
+    # '/var/run/postgresql': Operation not permitted`, `chown: changing ownership of
+    # '/var/lib/postgresql/18/docker': Operation not permitted`) and it restart-loops. These four are
+    # the smallest measured set that reaches "database system is ready to accept connections" as uid
+    # 999: CHOWN for the chown, SETUID/SETGID for gosu, and DAC_OVERRIDE because the bind-mounted data
+    # dir belongs to the operator who ran setup-env.sh, not to root. FOWNER is NOT needed -- measured
+    # by leaving it out.
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - SETGID
+      - SETUID
+    security_opt:
+      - no-new-privileges:true
+    # /var/lib/postgresql is the bind mount and holds everything that has to survive a recreate; the
+    # socket directory and /tmp are the only two paths the image writes outside it.
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/run/postgresql
     restart: unless-stopped
 
   # ============================================
@@ -85,6 +129,21 @@ services:
       timeout: 10s
       retries: 3
       start_period: 60s
+    # Same measured cap set and read-only verdict as keycloak-postgres above: one image, one
+    # entrypoint, one answer.
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - SETGID
+      - SETUID
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/run/postgresql
     restart: unless-stopped
 
   # ============================================
@@ -125,6 +184,20 @@ services:
       timeout: 10s
       retries: 5
       start_period: 120s
+    # Hardening (issue #897): the image runs as uid 1000 and needs no capability.
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    # NOT read-only, and this is measured, not a preference: `kc.sh start-dev` re-augments the
+    # server image at startup and writes /opt/keycloak/lib/quarkus/transformed-bytecode.jar, so a
+    # read-only root gives `java.nio.file.FileSystemException: /opt/keycloak/lib/quarkus/
+    # transformed-bytecode.jar: Read-only file system` and the container never starts. The tmpfs the
+    # recon suggested (`/opt/keycloak/data`, `/tmp`) does not cover that path, and mounting a tmpfs
+    # over /opt/keycloak/lib/quarkus would hide the jars the build step reads. This file and the
+    # staging file run `start-dev`; the prod override runs `start`, which announces "Changes detected
+    # in configuration. Updating the server image." but was not measured to a finished start here, so
+    # prod is left writable rather than frozen on partial evidence.
     restart: unless-stopped
 
   # ============================================
@@ -157,6 +230,15 @@ services:
           memory: ${LOKI_MEMORY_LIMIT:-256m}
     # No healthcheck: this image is distroless (no shell, no wget), so an in-container probe
     # could never pass. deploy.sh health measures /ready from the host instead.
+    # Hardening (issue #897): distroless image, no capability needed. It writes only under /loki,
+    # which is the bind mount (config/loki/loki.yml: `path_prefix: /loki`).
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
     restart: unless-stopped
 
   # ============================================
@@ -165,7 +247,11 @@ services:
   prometheus:
     image: ${PROMETHEUS_IMAGE:-prom/prometheus:v3.15.0}
     container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-prometheus
-    user: "0:0"
+    # Hardening (issue #897, S5): NOT root any more. `docker image inspect -f '{{.Config.User}}'
+    # prom/prometheus:v3.15.0` answers `nobody`, which is uid/gid 65534 in that image's /etc/passwd,
+    # so the previous `user: "0:0"` here was overriding the image just to run Prometheus as root. The number is written out (not `nobody`) because setup-env.sh
+    # creates $VOLUMES_ROOT/prometheus/data with this uid and the suite holds the two together.
+    user: "65534:65534"
     command:
       - --enable-feature=exemplar-storage
       - --config.file=/etc/prometheus/prometheus.yml
@@ -197,6 +283,13 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+    # Hardening (issue #897): no capability needed, and the root filesystem is only read. The TSDB
+    # lives in /prometheus, which is the bind mount.
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
     restart: unless-stopped
 
   # ============================================
@@ -251,6 +344,12 @@ services:
           memory: ${POSTGRES_EXPORTER_MEMORY_LIMIT:-128m}
     # No healthcheck: nothing gates on this container, and a dead exporter is already visible as
     # `up == 0` on the scrape target that consumes it, which is the signal it exists to provide.
+    # Same image, same measured answer as postgres-exporter-lifecontrol above.
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
     restart: unless-stopped
 
   postgres-exporter-keycloak:
@@ -273,6 +372,12 @@ services:
       resources:
         limits:
           memory: ${POSTGRES_EXPORTER_MEMORY_LIMIT:-128m}
+    # Same image, same measured answer as postgres-exporter-lifecontrol above.
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
     restart: unless-stopped
 
   redis-exporter:
@@ -306,6 +411,12 @@ services:
     # No healthcheck: this image is distroless -- the pinned tag has no shell and no wget, measured
     # with `docker run --entrypoint /bin/sh` -- so an in-container probe could never pass. The
     # scrape is the readiness signal.
+    # Hardening (issue #897): the image runs as uid 59000 and writes nothing but the scrape target.
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
     restart: unless-stopped
 
   # ============================================
@@ -314,7 +425,12 @@ services:
   tempo:
     image: ${TEMPO_IMAGE:-grafana/tempo:3.1.0}
     container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-tempo
-    user: "0:0"
+    # Hardening (issue #897, S5): the image's own default user is 10001:10001, which is what this
+    # file and the prod override disagreed about -- the base pinned `user: "0:0"` and prod pinned
+    # nothing. Both now inherit the image's numeric uid written out here (measured with `docker image
+    # inspect -f '{{.Config.User}}' grafana/tempo:3.1.0`), and setup-env.sh creates
+    # $VOLUMES_ROOT/tempo/data with the same uid.
+    user: "10001:10001"
     command: ["-config.file=/etc/tempo/tempo.yml"]
     ports:
       - "127.0.0.1:${TEMPO_PORT:-3110}:3100" # Tempo
@@ -330,6 +446,17 @@ services:
           memory: ${TEMPO_MEMORY_LIMIT:-512m}
     # No healthcheck: this image is distroless (no shell, no wget), so an in-container probe
     # could never pass. deploy.sh health measures /ready from the host instead.
+    # Hardening (issue #897): no capability needed.
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    # /var/tempo is the bind mount (config/tempo/tempo.yml: `path: /var/tempo/traces`); /tmp is kept
+    # writable as cheap insurance -- it was not observed to be written in a 22s clean start, but a
+    # later write there under a read-only root would fail loudly.
+    read_only: true
+    tmpfs:
+      - /tmp
     restart: unless-stopped
 
   # ============================================
@@ -415,6 +542,16 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+    # Hardening (issue #897): no capability needed. /var/lib/grafana is the bind mount (the SQLite
+    # database lives there); /tmp is where Grafana unpacks the plugin processes it starts, and without
+    # it each plugin fails with `open /tmp/pluginN: read-only file system`.
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
     restart: unless-stopped
 
   # ============================================
@@ -472,6 +609,17 @@ services:
       timeout: ${HEALTH_CHECK_TIMEOUT:-3s}
       retries: ${HEALTH_CHECK_RETRIES:-3}
       start_period: ${HEALTH_CHECK_START_PERIOD:-60s}
+    # Hardening (issue #897): the two java images run as the image's own `appuser`, write only /tmp
+    # and need no capability. Measured on the built image: with `--read-only --tmpfs /tmp
+    # --cap-drop ALL` the log carries no filesystem error and boot proceeds to the database
+    # connection, which is the one thing a measurement without a database cannot provide.
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
     restart: unless-stopped
 
   # ============================================
@@ -524,6 +672,28 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+    # Hardening (issue #897): measured, and the one service where `cap_drop: ALL` would silently
+    # reverse a hardening: the image entrypoint only drops from root to the redis user when it can
+    # (it guards the drop with `has_cap setuid && has_cap setgid`), so with an empty capability set
+    # redis-server KEEPS RUNNING AS ROOT -- measured with `docker top`. These five are what the
+    # entrypoint does: CHOWN and FOWNER to chown/chmod the data dir it inherits (a dir owned by the
+    # operator who ran setup-env.sh), DAC_OVERRIDE to write into it, SETUID/SETGID for the privilege
+    # drop. With them it runs as uid 999 and writes appendonly.aof into /data, exactly as today.
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETGID
+      - SETUID
+    security_opt:
+      - no-new-privileges:true
+    # /data is the bind mount; the exporter directory is a second one. /tmp is the only other path
+    # the wrapper and the server use.
+    read_only: true
+    tmpfs:
+      - /tmp
     restart: unless-stopped
 
   # ============================================
@@ -655,6 +825,14 @@ services:
       timeout: ${HEALTH_CHECK_TIMEOUT:-3s}
       retries: ${HEALTH_CHECK_RETRIES:-3}
       start_period: ${HEALTH_CHECK_START_PERIOD:-60s}
+    # Hardening (issue #897): same two java images as api-gateway, same measured answer.
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
     restart: unless-stopped
 
   # ============================================
@@ -704,4 +882,17 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
+    # Hardening (issue #897): no capability needed.
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    # NOT read-only, and it cannot be made so by adding tmpfs entries: the image's entrypoint
+    # GENERATES its configuration into the document root before nginx starts
+    # (life-control-app-angular/entrypoint.sh writes /usr/share/nginx/html/assets/env.js and runs
+    # `sed -i` over /usr/share/nginx/html/index.html for the CSP nonce), and a tmpfs over that
+    # directory would hide the built SPA it has to patch. nginx also writes
+    # /var/log/nginx/error.log and its temp files under /var/cache/nginx. Both fixes that would work
+    # (serving the config from a separate writable mount, or moving the nginx logs to /dev/stdout)
+    # are edits to the Angular image, not to how this container runs.
     restart: unless-stopped
