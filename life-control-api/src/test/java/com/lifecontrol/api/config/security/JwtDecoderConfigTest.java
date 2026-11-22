@@ -20,13 +20,21 @@ class JwtDecoderConfigTest {
     private static final String EXPECTED_ISSUER = "http://lifecontrol-dev-keycloak:8080/realms/life-control-realm";
     private static final String PUBLIC_ISSUER = "http://localhost:8181/realms/life-control-realm";
     private static final String JWK_SET_URI = EXPECTED_ISSUER + "/protocol/openid-connect/certs";
+    private static final String EXPECTED_AUDIENCE = "life-control-api";
+    private static final String AUTHORITY_CLIENT = "life-control-client";
+    private static final String FOREIGN_CLIENT = "another-client-of-the-same-realm";
 
     private final JwtDecoderConfig config;
     private final JwtAuthenticationConverter converter;
 
     JwtDecoderConfigTest() {
         this.config = new JwtDecoderConfig(new KeycloakJwtProperties(
-                EXPECTED_ISSUER, EXPECTED_ISSUER, JWK_SET_URI, List.of(PUBLIC_ISSUER, EXPECTED_ISSUER)));
+                EXPECTED_ISSUER,
+                EXPECTED_ISSUER,
+                JWK_SET_URI,
+                List.of(PUBLIC_ISSUER, EXPECTED_ISSUER),
+                List.of(EXPECTED_AUDIENCE),
+                List.of(AUTHORITY_CLIENT)));
         this.converter = config.jwtAuthenticationConverter();
     }
 
@@ -168,6 +176,9 @@ class JwtDecoderConfigTest {
             return Jwt.withTokenValue("test-token")
                     .header("alg", "RS256")
                     .issuer(issuer)
+                    // The audience is present in every token here on purpose: these cases assert the
+                    // issuer rejection, so they must not fail for a second, unrelated reason.
+                    .audience(List.of(EXPECTED_AUDIENCE))
                     .issuedAt(now)
                     .expiresAt(now.plus(5, ChronoUnit.MINUTES))
                     .build();
@@ -213,6 +224,140 @@ class JwtDecoderConfigTest {
             var result = config.jwtValidator().validate(jwt);
 
             assertThat(result.hasErrors()).isFalse();
+        }
+    }
+
+    // ─── Timestamp Validation ────────────────────────────────
+
+    @Nested
+    @DisplayName("Timestamp validation")
+    class TimestampValidation {
+
+        @Test
+        @DisplayName("rejects an expired token")
+        void rejectsExpiredToken() {
+            var past = Instant.now().minus(30, ChronoUnit.MINUTES);
+            var jwt = Jwt.withTokenValue("test-token")
+                    .header("alg", "RS256")
+                    .issuer(EXPECTED_ISSUER)
+                    .audience(List.of(EXPECTED_AUDIENCE))
+                    .issuedAt(past)
+                    .expiresAt(past.plus(5, ChronoUnit.MINUTES))
+                    .build();
+
+            assertThat(config.jwtValidator().validate(jwt).hasErrors()).isTrue();
+        }
+
+        @Test
+        @DisplayName("rejects a token that is not valid yet")
+        void rejectsNotYetValidToken() {
+            var now = Instant.now();
+            var jwt = Jwt.withTokenValue("test-token")
+                    .header("alg", "RS256")
+                    .issuer(EXPECTED_ISSUER)
+                    .audience(List.of(EXPECTED_AUDIENCE))
+                    .notBefore(now.plus(30, ChronoUnit.MINUTES))
+                    .issuedAt(now)
+                    .expiresAt(now.plus(60, ChronoUnit.MINUTES))
+                    .build();
+
+            assertThat(config.jwtValidator().validate(jwt).hasErrors()).isTrue();
+        }
+    }
+
+    // ─── Audience Validation ─────────────────────────────────
+
+    @Nested
+    @DisplayName("Audience validation")
+    class AudienceValidation {
+
+        private Jwt jwtWithAudience(List<String> audience) {
+            var now = Instant.now();
+            var builder = Jwt.withTokenValue("test-token")
+                    .header("alg", "RS256")
+                    .issuer(EXPECTED_ISSUER)
+                    .issuedAt(now)
+                    .expiresAt(now.plus(5, ChronoUnit.MINUTES));
+            if (audience != null) {
+                builder.audience(audience);
+            }
+            return builder.build();
+        }
+
+        @Test
+        @DisplayName("rejects a token that does not name the API in aud")
+        void rejectsTokenWithoutTheExpectedAudience() {
+            var jwt = jwtWithAudience(List.of("account"));
+
+            var result = config.jwtValidator().validate(jwt);
+
+            assertThat(result.hasErrors()).isTrue();
+            assertThat(result.getErrors())
+                    .anySatisfy(error -> assertThat(error.getDescription()).contains("aud"));
+        }
+
+        @Test
+        @DisplayName("rejects a token whose aud claim is missing, rather than treating it as a pass")
+        void rejectsTokenWithMissingAudience() {
+            var jwt = jwtWithAudience(null);
+
+            var result = config.jwtValidator().validate(jwt);
+
+            assertThat(result.hasErrors()).isTrue();
+        }
+
+        @Test
+        @DisplayName("accepts a token that names the API in aud alongside other audiences")
+        void acceptsTokenNamingTheExpectedAudience() {
+            var jwt = jwtWithAudience(List.of("account", EXPECTED_AUDIENCE));
+
+            var result = config.jwtValidator().validate(jwt);
+
+            assertThat(result.hasErrors()).isFalse();
+        }
+    }
+
+    // ─── Client role authority ───────────────────────────────
+
+    @Nested
+    @DisplayName("Client role authority")
+    class ClientRoleAuthority {
+
+        private Jwt jwtWithResourceAccess(String azp, String clientWithRoles) {
+            return jwtWithClaims(Map.of(
+                    "azp", azp, "resource_access", Map.of(clientWithRoles, Map.of("roles", List.of("lc-admin")))));
+        }
+
+        @Test
+        @DisplayName("grants client roles carried by the client that is meant to grant them")
+        void grantsRolesFromTheAuthorityClient() {
+            var jwt = jwtWithResourceAccess(AUTHORITY_CLIENT, AUTHORITY_CLIENT);
+
+            assertThat(extractRoles(jwt)).contains(new SimpleGrantedAuthority("ROLE_lc-admin"));
+        }
+
+        @Test
+        @DisplayName("ignores a colliding role carried by another client of the same realm")
+        void ignoresCollidingRoleFromAnotherClient() {
+            var jwt = jwtWithResourceAccess(FOREIGN_CLIENT, FOREIGN_CLIENT);
+
+            assertThat(extractRoles(jwt)).doesNotContain(new SimpleGrantedAuthority("ROLE_lc-admin"));
+        }
+
+        @Test
+        @DisplayName("ignores a colliding role even when the foreign client also carries the expected one")
+        void ignoresForeignRolesWhenBothArePresent() {
+            var jwt = jwtWithClaims(Map.of(
+                    "azp",
+                    FOREIGN_CLIENT,
+                    "resource_access",
+                    Map.of(
+                            FOREIGN_CLIENT, Map.of("roles", List.of("lc-admin")),
+                            AUTHORITY_CLIENT, Map.of("roles", List.of("lc-sales")))));
+
+            assertThat(extractRoles(jwt))
+                    .contains(new SimpleGrantedAuthority("ROLE_lc-sales"))
+                    .doesNotContain(new SimpleGrantedAuthority("ROLE_lc-admin"));
         }
     }
 }
