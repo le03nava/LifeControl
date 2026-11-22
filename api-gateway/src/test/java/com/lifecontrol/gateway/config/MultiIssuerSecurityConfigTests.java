@@ -83,6 +83,22 @@ class MultiIssuerSecurityConfigTests {
 
             assertThat(result.hasErrors()).isFalse();
         }
+
+        @Test
+        @DisplayName("rejects a token whose aud is present but empty")
+        void rejectsEmptyAudienceArray() {
+            Jwt jwt = validToken().claim("aud", List.of()).build();
+
+            assertThat(config.jwtValidator().validate(jwt).hasErrors()).isTrue();
+        }
+
+        @Test
+        @DisplayName("accepts an aud emitted as a single string, which JWT permits")
+        void acceptsSingleStringAudience() {
+            Jwt jwt = validToken().claim("aud", EXPECTED_AUDIENCE).build();
+
+            assertThat(config.jwtValidator().validate(jwt).hasErrors()).isFalse();
+        }
     }
 
     @Nested

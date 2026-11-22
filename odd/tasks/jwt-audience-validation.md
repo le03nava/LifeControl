@@ -30,24 +30,29 @@ and API authority derives from the client that is meant to grant it."*
 
 ## Tasks
 
+Each task names the commit that holds it **by subject**, not by SHA: a SHA of this branch stops being
+an ancestor after the next amend or rebase, and still resolves as an object, so it reads as evidence
+when it is not (`0be840d4`, *cite the slice's commits by subject, not by branch SHA*).
+
 | ID | Spec | Route | Commit |
 |----|------|-------|--------|
-| T1 | S1, S4, S6 | inline — API `JwtDecoderConfig`: audience validator, missing `aud` rejected | `fix(security): require the audience claim in the API decoder` |
-| T2 | S1, S4, S6 | inline — gateway `MultiIssuerSecurityConfig`: same validator | `fix(security): require the audience claim in the gateway decoder` |
-| T3 | S2, S6 | inline — API authority from the expected client only | `fix(security): grant client authority only from the intended client` |
-| T4 | S3, S6 | inline — `keycloak-setup.sh`: audience mapper on the clients that must mint `aud` | `fix(keycloak): mint the audience the decoders now require` |
-| T5 | S3, S4 | inline — frontend-client token and the three existing rejection tests stay green | (inside T1/T2) |
-| T6 | — | inline — `AGENTS.md` security boundary | `docs: record the audience requirement` |
-| T7 | S5 | inline — `./gradlew test` + `spotlessCheck spotbugsMain` in both modules | (gate, no commit of its own) |
+| T1 | S1, S4, S6 | inline — API `JwtDecoderConfig`: audience validator, missing `aud` rejected | `fix(security): validate the audience and narrow client authority in the API` |
+| T2 | S1, S4, S6 | inline — gateway `MultiIssuerSecurityConfig`, `jwtValidator()` extracted as the test seam | `fix(security): require the audience claim in the gateway decoder` |
+| T3 | S2, S6 | inline — client roles from `keycloak.authority-client-ids`, never from `azp` | same commit as T1: one file, one behavior boundary |
+| T4 | S3, S6 | inline — `keycloak-setup.sh`: `api-audience` mapper, outside the tenancy block | `fix(keycloak): mint the platform audience the decoders require` |
+| T5 | S3, S4 | inline — frontend token keeps working; `exp`, `nbf` and issuer each keep a biting test | inside T1/T2 |
+| T6 | — | inline — `AGENTS.md` root and `life-control-api/AGENTS.md` | `docs: record the audience requirement` |
+| T7 | S5 | inline — `./gradlew test` + `spotlessCheck spotbugsMain`, both modules | gate, no commit of its own |
+| T8 | S1, S2 | inline — verifier findings: pin the three copies of the literal, add the claim edges | `test(security): pin the audience literal and the claim edges` |
 
 ## Delivery
 
 Two chained pull requests, because the authored diff is ~841 changed lines and the review budget is ~400:
 
-| Slice | Commits | What it holds | Why the boundary is there |
-|-------|---------|---------------|--------------------------|
-| A | `0c88a6d1`, `95c8711b` | Realm mapper + API decoder | Self-consistent on its own: the realm starts minting the platform audience and the API starts requiring it. Merging A alone changes no behaviour for the others, because nothing else validates the claim yet |
-| B | `be970ba0`, `77cd7dd8` | Gateway decoder + docs | The gateway is a second, independent copy of the same chain, and the docs describe both. B rides on A's mapper, which is why it cannot go first |
+| Slice | Commits (by subject) | What it holds | Why the boundary is there |
+|-------|----------------------|---------------|--------------------------|
+| A | `fix(keycloak): mint the platform audience…`, `fix(security): validate the audience and narrow client authority in the API` | Realm mapper + API decoder | Self-consistent on its own: the realm starts minting the platform audience and the API starts requiring it. Merging A alone changes no behaviour for the others, because nothing else validates the claim yet |
+| B | `fix(security): require the audience claim in the gateway…`, `docs: record the audience requirement`, `test(security): pin the audience literal…` | Gateway decoder + docs + the pin | The gateway is a second, independent copy of the same chain, and the docs describe both. B rides on A's mapper, which is why it cannot go first |
 
 ## Log
 
@@ -88,3 +93,23 @@ refuses a token that does not name the platform, and the converter reads client 
 `keycloak.authority-client-ids` — so even a token that carried the audience inherits nothing from a
 foreign client's `resource_access`. Realm roles stay realm-wide on purpose: they belong to the user,
 not to the client that minted the token.
+
+L8. Independent verification (Risk item 2), verdict by spec: S1 PASS, S2 PASS, S4 PASS, S6 PASS, and both
+proven by mutation — deleting `new JwtAudienceValidator(…)` from either chain fails the two audience
+cases, and restoring the `azp` lookup fails the two client-role cases. S3 UNPROVEN on its live half: the
+literal agrees across the four copies (checked by `diff`), but no real Keycloak-minted token was
+decoded, because no stack may be run from there. S5 UNPROVEN by the verifier — the 18-minute full suite
+is the parent's observation (L5), not its own. Three findings it raised, all fixed in T8: the component
+doc `life-control-api/AGENTS.md` still taught `resource_access.<azp>.roles` (a stale rule this unit
+created); this record cited a slice-B commit that this amend had already orphaned; and nothing pinned
+the four copies of the audience literal to each other. The pin is now `AudienceDefaultConsistencyTest`,
+and the claim edges (`aud: []`, a single-string `aud`, a case-differing `aud`, an emptied authority list,
+a malformed `resource_access`) are pinned in the two existing test classes rather than in a probe file.
+
+L9. Deployment hazard, unchanged and worth reading twice: if this lands and `keycloak-setup.sh <env>` is
+**not** re-run, the public client carries no audience mapper, Keycloak keeps minting
+`aud: ["account"]`, and **every** token is rejected with `401 invalid_token` on `/api/**` and on every
+gateway route. Nothing gates the deploy on it — `deploy.sh` never mentions `keycloak-setup.sh`, and
+`health` does not read the realm — so the recovery is manual and the only warning is prose. It is
+recorded rather than fixed here because wiring the realm provisioning into the deploy path is its own
+decision, not a property of this unit.
