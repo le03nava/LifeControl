@@ -13,8 +13,9 @@ import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
  * Configuración para aceptar tokens JWT del mismo Keycloak
  * aunque el issuer en el token sea diferente.
  *
- * La firma se valida contra las JWK del Keycloak interno y el issuer contra la
- * allowlist configurada ({@code lifecontrol.gateway.allowed-issuers}).
+ * La firma se valida contra las JWK del Keycloak interno, el issuer contra la
+ * allowlist configurada ({@code lifecontrol.gateway.allowed-issuers}) y la audiencia
+ * contra {@code lifecontrol.gateway.allowed-audiences}.
  */
 @Configuration
 public class MultiIssuerSecurityConfig {
@@ -31,11 +32,16 @@ public class MultiIssuerSecurityConfig {
                         props.keycloakInternalUri() + "/protocol/openid-connect/certs")
                 .build();
 
-        // createDefault() aporta la validación de exp/nbf (con 60s de leeway).
-        OAuth2TokenValidator<Jwt> validator = new DelegatingOAuth2TokenValidator<>(
-                JwtValidators.createDefault(), new JwtIssuerAllowlistValidator(props.allowedIssuers()));
-        decoder.setJwtValidator(validator);
+        decoder.setJwtValidator(jwtValidator());
 
         return decoder;
+    }
+
+    OAuth2TokenValidator<Jwt> jwtValidator() {
+        // createDefault() aporta la validación de exp/nbf (con 60s de leeway).
+        return new DelegatingOAuth2TokenValidator<>(
+                JwtValidators.createDefault(),
+                new JwtIssuerAllowlistValidator(props.allowedIssuers()),
+                new JwtAudienceValidator(props.allowedAudiences()));
     }
 }
