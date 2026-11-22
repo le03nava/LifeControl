@@ -78,20 +78,43 @@ require_dir_owner() {
 
 	mkdir -p "$dir"
 	current="$(stat -c '%u:%g' "$dir" 2>/dev/null || echo unknown)"
-	if [ "$current" = "$owner" ]; then
+	uid="${owner%%:*}"
+
+	# The directory's own owner is not the answer, its contents are. A service that ran as another uid
+	# wrote files a shallow check never sees: measured on this stack, Tempo's data directory was already
+	# owned by 10001 while 57 trace blocks inside were still root's, and the only symptom was a restart
+	# loop whose logs said "permission denied" about a block nobody had heard of. `-print -quit` stops
+	# at the first offender, so only the healthy case walks the tree (1,718 files on the largest of these
+	# directories, under 0.01 s).
+	foreign="$(find "$dir" ! -user "$uid" -print -quit 2>/dev/null || true)"
+
+	if [ "$current" = "$owner" ] && [ -z "$foreign" ]; then
 		print_success "$dir already owned by $owner"
 		return 0
 	fi
 
 	if chown -R "$owner" "$dir" 2>/dev/null; then
-		print_success "$dir owner set to $owner"
-		return 0
+		# Re-read after the write instead of trusting its exit status: the directory can be set while
+		# an entry inside is left behind.
+		foreign="$(find "$dir" ! -user "$uid" -print -quit 2>/dev/null || true)"
+		if [ -z "$foreign" ]; then
+			print_success "$dir owner set to $owner"
+			return 0
+		fi
+		current="$(stat -c '%u:%g' "$dir" 2>/dev/null || echo unknown)"
 	fi
 
 	print_error "Cannot set the owner of '$dir' to $owner (it is $current)."
+	if [ -n "$foreign" ]; then
+		print_error "At least one entry inside is still owned by someone else: $foreign"
+	fi
 	print_error "The container runs as $owner and cannot write there without it, so it would restart-loop."
-	print_error "Run this once, then re-run this script:"
+	print_error "Stop the stack FIRST. A container that is still running keeps writing here as its old"
+	print_error "uid and recreates files this chown cannot reach, which is how a chown that looked"
+	print_error "successful produced the restart loop anyway. Then, in this order:"
+	print_error "  ./docker/scripts/deploy.sh <env> stop"
 	print_error "  sudo chown -R $owner '$dir'"
+	print_error "  ./docker/scripts/deploy.sh <env> up"
 	exit 1
 }
 
