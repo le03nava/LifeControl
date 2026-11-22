@@ -143,6 +143,22 @@ as uid 999 under `--read-only` with the four capabilities and no `FOWNER`; 32 su
 advisory — that the `AGENTS.md` row stated `web-app`'s verdict as fact while this record disclosed it as
 source-derived — is fixed in that same row.
 
+L19. Integration finding, 2026-11-22, from the first real `deploy.sh dev start` after the merge: Tempo came
+up in a restart loop (`tempo(restarting)`, `permission denied` on a trace block) while every other service
+was healthy, and `dev health` failed the run. The cause was this record's own procedure, not the compose
+file: the ownership step ran against a **live** stack, so the old Tempo container — still root until it was
+replaced — wrote one more root-owned block at `22:05:42`, after the `chown` and before the new container
+started. `require_dir_owner` then reported `already owned` on the next run, because it compared the
+directory's own owner and never its contents. Both halves are fixed in `fix/setup-env-chown-order`: the
+helper now walks the tree (`find "$dir" ! -user <uid> -print -quit`, 0.01 s over 1,718 files), re-reads
+after a `chown` instead of trusting its exit status, and its abort names the order that works —
+`deploy.sh <env> stop`, the `chown`, `deploy.sh <env> up` — because a `chown` against a running stack
+leaves fresh foreign-owned files behind. `compose-hardening.test.sh` gained the order assertion and a static
+one on the tree check, which cannot be driven as an ordinary user: fabricating an entry owned by a second
+uid needs root. Measured after the fix: `sudo chown -R 10001:10001` with the stack stopped, then
+`dev health` green on all 15 services, and `docker stop lifecontrol-api-gateway` closed in **1 second** with
+`ExitCode=143` (SIGTERM, not 137) — S2's live half, which no offline suite could establish.
+
 L7. The record's own header had to open with a verdict before the first commit: the audit rejected a
 header that only described the branch. `**Status**: deferred` with S6/S9 named as the deferred half is the
 honest token while T4 waits on L4; the Tasks table carries the per-task state, which the audit reads

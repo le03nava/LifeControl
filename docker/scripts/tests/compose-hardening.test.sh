@@ -415,6 +415,27 @@ else
 		else
 			fail "the ownership helper aborted without naming the directory and the command (output: $(printf '%s' "$out" | head -3))"
 		fi
+
+		# (d) The order matters as much as the command. The first version of this helper said "run
+		#     this once, then re-run the script", and that is exactly how the stack entered the restart
+		#     loop anyway: the container still running writes here with its old uid until it is
+		#     replaced, so a chown against a live stack leaves fresh foreign-owned files behind. The
+		#     abort has to name the stop, then the chown, then the start.
+		if printf '%s' "$out" | grep -qF 'deploy.sh <env> stop' && printf '%s' "$out" | grep -qF 'deploy.sh <env> up'; then
+			pass "the abort names the order that works: stop the stack, chown, then start it"
+		else
+			fail "the abort does not name the stop-then-start order, so an operator chowns a live stack and the restart loop survives (output: $(printf '%s' "$out" | head -4))"
+		fi
+	fi
+
+	# (e) The check reads the directory's contents, not only its own owner. This one is static on
+	#     purpose: fabricating an entry owned by a second uid needs root, so the failure cannot be
+	#     driven as an ordinary user — and this is the shape that was measured to fail in production,
+	#     a data directory already owned by the target uid with 57 root-owned blocks inside it.
+	if grep -qF 'find "$dir" ! -user "$uid"' "$helper"; then
+		pass "the helper inspects the contents of the directory, not only its own owner"
+	else
+		fail "the helper only compares the directory's own owner: files a previous uid wrote inside it go unseen, which is the restart loop behind the Tempo incident"
 	fi
 fi
 
