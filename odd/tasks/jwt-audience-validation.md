@@ -113,3 +113,14 @@ gateway route. Nothing gates the deploy on it — `deploy.sh` never mentions `ke
 `health` does not read the realm — so the recovery is manual and the only warning is prose. It is
 recorded rather than fixed here because wiring the realm provisioning into the deploy path is its own
 decision, not a property of this unit.
+
+L10. Delivery, 2026-11-22: slice A is PR #1026 (base `main`, head `fix/jwt-audience-validation-part-1`,
+`Refs #893` plus the chain declaration) and slice B is PR #1027 (base the slice-A branch, `Closes #893`).
+Both carry `type:bug` and `java`, and every check is green on both: `Lint & Build`, `Unit tests (1)` and
+`(2)`, `Coverage`, `Test`, `Static analysis`, `Shell & Artifact Integrity`, `Check`, `A linked, approved
+issue` and `Exactly one type:* label`. One gateway check failed first on
+`Received status code 429 from server: Too Many Requests` resolving `spring-cloud-dependencies` from
+Maven Central — a repository rate limit, not this diff — and passed on re-run. The realm half was
+applied to dev the same day: `keycloak-setup.sh dev` created the `api-audience` mapper
+(`4c1a1e16-e6ca-4d3b-85b7-00be8885719a`) and verified it, and a second run reported `exists and matches
+the declared aud`, so the provisioning is idempotent in practice as well as in the suite.
