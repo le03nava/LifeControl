@@ -617,6 +617,69 @@ for claim in "${TENANCY_CLAIMS[@]}"; do
 	fi
 done
 
+# ---- Audience protocol mapper (the claim both JWT decoders require) ----
+# An issuer allowlist answers "which realm signed this", never "who was this minted for". The API and
+# the gateway both validate `aud` (JwtAudienceValidator in each module), so the realm has to emit the
+# platform audience: without this mapper Keycloak emits `aud: ["account"]` and every real token would be
+# rejected with 401. One fixed custom audience, on the public client, and the same value the two
+# services default to (`keycloak.allowed-audiences` / `lifecontrol.gateway.allowed-audiences`).
+#
+# It sits OUTSIDE the tenancy loop on purpose: KeycloakClaimMapperCoverageTest bounds that loop to
+# TENANCY_CLAIMS and asserts its body binds a user attribute per claim, so a second mapper inside it
+# would be verified against the wrong contract.
+API_AUDIENCE="$(get_env KEYCLOAK_API_AUDIENCE life-control-api)"
+AUDIENCE_MAPPER="api-audience"
+
+# Verifies the audience mapper's JSON against the contract the decoders enforce. Same shape as
+# verify_tenancy_mapper: whitespace stripped from the pretty-printed read-back, then fixed-string match.
+verify_audience_mapper() {
+	local json="$1"
+	local compact requirement
+	compact="$(printf '%s' "$json" | tr -d ' \n\t')"
+	for requirement in \
+		"\"protocolMapper\":\"oidc-audience-mapper\"" \
+		"\"included.custom.audience\":\"$API_AUDIENCE\"" \
+		"\"access.token.claim\":\"true\"" \
+		"\"id.token.claim\":\"false\""; do
+		if ! printf '%s' "$compact" | grep -qF "$requirement"; then
+			print_error "Protocol mapper $APP_CLIENT/$AUDIENCE_MAPPER is missing $requirement." >&2
+			print_error "$APP_CLIENT declares oidc-audience-mapper with included.custom.audience=$API_AUDIENCE, access.token.claim=true and id.token.claim=false." >&2
+			print_error "The script fails rather than repairs a drifted mapper; an operator must fix the authorization artifact deliberately." >&2
+			exit 1
+		fi
+	done
+}
+
+if find_mapper_id "$AUDIENCE_MAPPER"; then
+	# Re-read the existing mapper by id instead of trusting its name in the list.
+	kcadm_get "clients/$APP_CID/protocol-mappers/models/$MAPPER_ID" -r "$REALM" || {
+		print_error "Protocol mapper $APP_CLIENT/$AUDIENCE_MAPPER exists but could not be read back by id $MAPPER_ID." >&2
+		exit 1
+	}
+	verify_audience_mapper "$KCADM_GET_OUT"
+	print_success "Protocol mapper $APP_CLIENT/$AUDIENCE_MAPPER exists and matches the declared aud"
+else
+	print_status "Creating protocol mapper $APP_CLIENT/$AUDIENCE_MAPPER..."
+	kcadm create "clients/$APP_CID/protocol-mappers/models" -r "$REALM" \
+		-s name="$AUDIENCE_MAPPER" \
+		-s protocol=openid-connect \
+		-s protocolMapper=oidc-audience-mapper \
+		-s "config.\"included.custom.audience\"=$API_AUDIENCE" \
+		-s "config.\"access.token.claim\"=true" \
+		-s "config.\"id.token.claim\"=false" >/dev/null
+	# Do not trust the create's exit code: read the new mapper back and verify what it means.
+	if ! find_mapper_id "$AUDIENCE_MAPPER"; then
+		print_error "Protocol mapper $APP_CLIENT/$AUDIENCE_MAPPER was created but is absent from the mapper list read back." >&2
+		exit 1
+	fi
+	kcadm_get "clients/$APP_CID/protocol-mappers/models/$MAPPER_ID" -r "$REALM" || {
+		print_error "Protocol mapper $APP_CLIENT/$AUDIENCE_MAPPER was created but could not be read back by id $MAPPER_ID." >&2
+		exit 1
+	}
+	verify_audience_mapper "$KCADM_GET_OUT"
+	print_success "Protocol mapper $APP_CLIENT/$AUDIENCE_MAPPER created and verified"
+fi
+
 # ---- Realm role: the Keycloak admin gate for /api/users-admin/** ----
 # `admin` is the ONLY realm role this script provisions. The legacy realm roles
 # `life-control-admin` and `life-control-country` are retired and must not come
