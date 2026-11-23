@@ -39,19 +39,27 @@ public interface TaxRateRepository extends JpaRepository<TaxRate, UUID> {
     List<TaxRate> findByCompanyIdAndEnabledTrueOrderByTaxCodeAscEffectiveFromDesc(UUID companyId);
 
     /**
-     * Whether this company already states a rate for that code and day <b>in that region</b>, enabled or not.
+     * Whether this company already holds that code and day with an <b>enabled</b> rate in that region.
      *
      * <p>The same-day duplicate check's query, and the second of the pair below: two rows for one day are
-     * legal only when their scopes differ, so the check names the scope instead of the day alone. {@code
-     * enabled} is deliberately absent — a retired row still occupies its day, and the insert would collide
-     * with it in {@code uq_tax_rate_region_scope_from} anyway; asking here is what turns that collision into
-     * a sentence naming which scope holds the day.</p>
+     * legal only when their scopes differ, so the check names the scope instead of the day alone.</p>
+     *
+     * <p><b>Why {@code enabled} is part of it, and was not before {@code V114}.</b> A retired row used to
+     * occupy its day — the key in {@code uq_tax_rate_region_scope_from} ignored the flag — so this query
+     * ignored it too and the two agreed. {@code V114} moved both onto the enabled rows: retiring a rate is now
+     * how a mistake is corrected on its own day (issue #888), and a check that still counted the retired row
+     * would refuse exactly the declaration the key accepts. The pair stays in agreement, which is the property
+     * that matters: this query names the scope that holds the day, and the index is what makes the answer true
+     * under a race.</p>
      */
-    boolean existsByCompanyIdAndTaxCodeAndCompanyRegionIdAndEffectiveFrom(
+    boolean existsByCompanyIdAndTaxCodeAndCompanyRegionIdAndEffectiveFromAndEnabledTrue(
             UUID companyId, String taxCode, UUID companyRegionId, LocalDate effectiveFrom);
 
-    /** The same day in the <b>company-wide</b> scope, where the region column is absent from the identity. */
-    boolean existsByCompanyIdAndTaxCodeAndCompanyRegionIsNullAndEffectiveFrom(
+    /**
+     * The same day in the <b>company-wide</b> scope, where the region column is absent from the identity, and
+     * again only over the enabled rows ({@code V114}, issue #888).
+     */
+    boolean existsByCompanyIdAndTaxCodeAndCompanyRegionIsNullAndEffectiveFromAndEnabledTrue(
             UUID companyId, String taxCode, LocalDate effectiveFrom);
 
     /**

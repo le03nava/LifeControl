@@ -245,6 +245,50 @@ class TaxRateMigrationIntegrationTest extends AbstractPostgresIntegrationTest {
 
     // --- migrations ---
 
+    @Test
+    @DisplayName("V114 states both same-day keys over the enabled rows, so a retired row frees its day (S7)")
+    void theSameDayKeysAreStatedOverTheEnabledRows() throws Exception {
+        migrateToHead();
+        var company = insertCompany("v114keys");
+        var day = LocalDate.of(2026, 1, 1);
+
+        assertThat(readScoped(
+                        company,
+                        "SELECT pg_get_expr(i.indpred, i.indrelid) FROM pg_index i "
+                                + "WHERE i.indexrelid = to_regclass('uq_tax_rate_scope_from')"))
+                .as("without the `enabled` half of the predicate a retired company-wide row still owns its day")
+                .contains("enabled")
+                .contains("company_region_id IS NULL");
+        assertThat(readScoped(
+                        company,
+                        "SELECT pg_get_expr(i.indpred, i.indrelid) FROM pg_index i "
+                                + "WHERE i.indexrelid = to_regclass('uq_tax_rate_region_scope_from')"))
+                .as("the region key has to move with the company-wide one, or the frontier's day stays blocked")
+                .contains("enabled")
+                .contains("company_region_id IS NOT NULL");
+
+        // While a row is enabled it owns its day, and the key — not the service — is what says so.
+        insertRate(company, "IVA", "0.16", day);
+        assertThat(refusalOf(company, rateInsert(company, "0.08", day.toString())))
+                .as("two enabled rows for one day are two answers for the same document")
+                .contains("uq_tax_rate_scope_from");
+
+        // Retiring it gives the day back: the correction is a new enabled row, and the retired one is kept.
+        execute(company, "UPDATE tax_rate SET enabled = false WHERE company_id = '" + company + "'");
+        execute(company, rateInsert(company, "0.08", day.toString()));
+        // Read scoped, never with `count(...)`: `tax_rate` is armed with `FORCE` row-level security, so an
+        // unscoped count answers **0** over a table that has the rows — and a `0` that should be `2` reads as
+        // «the insert did not land» instead of «this read is blind». The same trap `V95` documents.
+        assertThat(Integer.parseInt(
+                        readScoped(company, "SELECT count(*) FROM tax_rate WHERE company_id = '" + company + "'")))
+                .as("history stays append-only: the retired row is kept beside the correction")
+                .isEqualTo(2);
+        assertThat(Integer.parseInt(readScoped(
+                        company, "SELECT count(*) FROM tax_rate WHERE company_id = '" + company + "' AND enabled")))
+                .as("exactly one enabled row holds the day after the correction")
+                .isEqualTo(1);
+    }
+
     private void migrateTo(String target) {
         Flyway.configure()
                 .dataSource(jdbcUrl, OWNER, OWNER_PASSWORD)
