@@ -23,6 +23,7 @@ class GatewayPropertiesTests {
                 API_URI,
                 KEYCLOAK_URI,
                 new ArrayList<>(List.of("http://issuer-a")),
+                new ArrayList<>(List.of("life-control-api")),
                 new ArrayList<>(List.of("http://origin-a")));
 
         assertThat(props.allowedIssuers()).containsExactly("http://issuer-a");
@@ -37,6 +38,7 @@ class GatewayPropertiesTests {
                 API_URI,
                 KEYCLOAK_URI,
                 new ArrayList<>(List.of("http://issuer-a")),
+                new ArrayList<>(List.of("life-control-api")),
                 new ArrayList<>(List.of("http://origin-a")));
 
         assertThat(props.allowedOrigins()).containsExactly("http://origin-a");
@@ -49,7 +51,8 @@ class GatewayPropertiesTests {
     void mutatingTheListHandedToTheConstructorDoesNotChangeTheProperties() {
         List<String> issuers = new ArrayList<>(List.of("http://issuer-a"));
         List<String> origins = new ArrayList<>(List.of("http://origin-a"));
-        GatewayProperties props = new GatewayProperties(API_URI, KEYCLOAK_URI, issuers, origins);
+        GatewayProperties props = new GatewayProperties(
+                API_URI, KEYCLOAK_URI, issuers, new ArrayList<>(List.of("life-control-api")), origins);
 
         issuers.add("http://issuer-b");
         origins.add("http://origin-b");
@@ -64,9 +67,10 @@ class GatewayPropertiesTests {
      */
     @Test
     void anAbsentListStaysNullSoThatNotEmptyCanReportIt() {
-        GatewayProperties props = new GatewayProperties(API_URI, KEYCLOAK_URI, null, null);
+        GatewayProperties props = new GatewayProperties(API_URI, KEYCLOAK_URI, null, null, null);
 
         assertThat(props.allowedIssuers()).isNull();
+        assertThat(props.allowedAudiences()).isNull();
         assertThat(props.allowedOrigins()).isNull();
     }
 }

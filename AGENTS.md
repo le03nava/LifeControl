@@ -706,6 +706,27 @@ curl -s -X POST "http://localhost:8181/realms/life-control-realm/protocol/openid
 
 ---
 
+## Audiencia del JWT (`aud`)
+
+Los dos decoders validaban `exp`, `nbf` y el issuer, y **ninguno miraba `aud`**. Un allowlist de issuers
+contesta *qué realm firmó esto*, nunca *para quién se emitió*: cualquier token del realm, de cualquier
+cliente, y para cualquier otro recurso adentro del realm, lo aceptaban el API y el gateway.
+`odd/tasks/jwt-audience-validation.md` (issue #893).
+
+| Regla | Valor |
+|-------|-------|
+| Dónde se declara | `keycloak.allowed-audiences` (API) y `lifecontrol.gateway.allowed-audiences` (gateway). Los dos default a `life-control-api`, y son una lista porque un token puede nombrar varias audiencias |
+| Qué exige el decoder | El claim `aud` tiene que **nombrar** alguna audiencia configurada. `aud` **ausente es rechazo**, no un pase: tratar el claim faltante como «sin restricción declarada» dejaría pasar justo el token contra el que existe la validación |
+| Quién la emite | El mapper `api-audience` (`oidc-audience-mapper`, `included.custom.audience=life-control-api`) que provisiona `keycloak-setup.sh` sobre el client **público**. Sin ese mapper Keycloak emite `aud: ["account"]` y **ningún** token real pasaría: es la mitad que hay que desplegar junto con el código, no después |
+| El gateway valida el mismo token | Comparte la audiencia con el API porque es su puerta de entrada: no hay un segundo recurso al que el token esté destinado entre uno y otro |
+| De dónde salen los roles de cliente | `resource_access.<cliente>.roles`, y el cliente es **configuración del servicio** (`keycloak.authority-client-ids`, default `${keycloak.app.client-id}` = `life-control-client`). Antes salía de `resource_access.<azp>`, o sea del cliente que el propio token declaraba: un rol `lc-admin` homónimo en **cualquier otro cliente del realm** otorgaba autoridad de API. Una lista vacía significa que ningún cliente otorga roles de cliente |
+| Los roles de realm no cambian | `realm_access.roles` sigue mapeando a `ROLE_*`, incluido el rol de realm `admin` que gobierna `/api/users-admin/**`: el rol de realm es del **usuario** y es el mismo sin importar qué cliente emitió el token. Lo que se angostó es la autoridad de **cliente**, que era la que dependía del token |
+| Valor por entorno | No cambia por entorno. Las dos properties leen un env var (`KEYCLOAK_ALLOWED_AUDIENCES` / `ALLOWED_AUDIENCES`) que **ningún compose pasa al contenedor**, así que el valor efectivo es el default del archivo — el mismo mecanismo de «key que el `.env` no declara corre en silencio con el default» que ya documenta este archivo. El script sí lee `KEYCLOAK_API_AUDIENCE` del env file directo, porque `get_env` lo abre él mismo. Cambiar la audiencia es editar las **tres** copias juntas (script, API, gateway) y `AudienceDefaultConsistencyTest` es lo que falla si una queda atrás |
+| Enforcement | `JwtDecoderConfigTest` (API) y `MultiIssuerSecurityConfigTests` (gateway) fijan el rechazo por `aud` ausente, por `aud` presente pero vacía y por `aud` ajena, el pase con la audiencia correcta (array o string único, que JWT permite) y las dos caras del rol: `lc-admin` desde el cliente que lo otorga se concede, desde otro cliente **no**. `exp`, `nbf` y el issuer tienen cada uno su test en la misma cadena, así que sacar cualquiera de los tres validadores rompe una prueba. `AudienceDefaultConsistencyTest` es el que ata las tres copias del literal (script, API, gateway) y los overrides por profile |
+| Lo que **no** cubre | No valida `azp` (`authorized party`): la pieza que importa es qué cliente puede **otorgar** roles, y eso es configuración del servicio. El navegador no prueba esta regla: los mocks de Playwright emiten su propio token, así que el fixture de `e2e/support/tokens.ts` lleva la audiencia para no mentir sobre lo que Keycloak emite, pero ningún test de e2e decodifica un JWT real |
+
+---
+
 ## Borde de confianza del API (proxies, rate limit y actuador)
 
 El API decide dos cosas con la dirección del cliente: si confía en las cabeceras reenviadas y quién

@@ -315,6 +315,40 @@ class JwtDecoderConfigTest {
 
             assertThat(result.hasErrors()).isFalse();
         }
+
+        @Test
+        @DisplayName("rejects a token whose aud is present but empty")
+        void rejectsEmptyAudienceArray() {
+            // An empty array is a claim that is present and names nobody: the failure has to come from the
+            // membership check, not from the null guard.
+            var jwt = jwtWithAudience(List.of());
+
+            assertThat(config.jwtValidator().validate(jwt).hasErrors()).isTrue();
+        }
+
+        @Test
+        @DisplayName("accepts an aud emitted as a single string, which JWT permits")
+        void acceptsSingleStringAudience() {
+            var now = Instant.now();
+            var jwt = Jwt.withTokenValue("test-token")
+                    .header("alg", "RS256")
+                    .issuer(EXPECTED_ISSUER)
+                    .claim("aud", EXPECTED_AUDIENCE)
+                    .issuedAt(now)
+                    .expiresAt(now.plus(5, ChronoUnit.MINUTES))
+                    .build();
+
+            assertThat(config.jwtValidator().validate(jwt).hasErrors()).isFalse();
+        }
+
+        @Test
+        @DisplayName("rejects an aud that differs only in case")
+        void rejectsCaseDifferingAudience() {
+            // Audiences are compared by value, not folded: a near miss fails closed instead of matching.
+            var jwt = jwtWithAudience(List.of(EXPECTED_AUDIENCE.toUpperCase(java.util.Locale.ROOT)));
+
+            assertThat(config.jwtValidator().validate(jwt).hasErrors()).isTrue();
+        }
     }
 
     // ─── Client role authority ───────────────────────────────
@@ -358,6 +392,35 @@ class JwtDecoderConfigTest {
             assertThat(extractRoles(jwt))
                     .contains(new SimpleGrantedAuthority("ROLE_lc-sales"))
                     .doesNotContain(new SimpleGrantedAuthority("ROLE_lc-admin"));
+        }
+
+        @Test
+        @DisplayName("grants no client roles at all when no client is configured to grant them")
+        void grantsNoClientRolesWhenTheAuthorityListIsEmpty() {
+            // Fail closed: an unset or emptied list must not fall back to reading whoever minted the token.
+            var configWithNoAuthorityClient = new JwtDecoderConfig(new KeycloakJwtProperties(
+                    EXPECTED_ISSUER,
+                    EXPECTED_ISSUER,
+                    JWK_SET_URI,
+                    List.of(EXPECTED_ISSUER),
+                    List.of(EXPECTED_AUDIENCE),
+                    List.of()));
+            var jwt = jwtWithResourceAccess(AUTHORITY_CLIENT, AUTHORITY_CLIENT);
+
+            var roles = configWithNoAuthorityClient.jwtAuthenticationConverter().convert(jwt).getAuthorities().stream()
+                    .filter(SimpleGrantedAuthority.class::isInstance)
+                    .map(SimpleGrantedAuthority.class::cast)
+                    .toList();
+
+            assertThat(roles).isEmpty();
+        }
+
+        @Test
+        @DisplayName("survives a resource_access claim that is not a map")
+        void ignoresMalformedResourceAccess() {
+            var jwt = jwtWithClaims(Map.of("azp", AUTHORITY_CLIENT, "resource_access", "not-a-map"));
+
+            assertThat(extractRoles(jwt)).isEmpty();
         }
     }
 }

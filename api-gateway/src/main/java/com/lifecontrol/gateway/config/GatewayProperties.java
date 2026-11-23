@@ -9,7 +9,7 @@ import org.springframework.validation.annotation.Validated;
 /**
  * Bound configuration of the gateway.
  *
- * <p>The two list components are copied and made unmodifiable at construction: the binder hands in a mutable list
+ * <p>The three list components are copied and made unmodifiable at construction: the binder hands in a mutable list
  * that it keeps for itself, and every consumer of these values — a JWT validator, the CORS configuration — would
  * otherwise share one list with the bound configuration, so a single {@code add} anywhere would rewrite the
  * allowlist the gateway validates against while it is running.
@@ -20,6 +20,7 @@ public record GatewayProperties(
         @NotBlank String lifeControlApiUri,
         @NotBlank String keycloakInternalUri,
         @NotEmpty List<String> allowedIssuers,
+        @NotEmpty List<String> allowedAudiences,
         @NotEmpty List<String> allowedOrigins) {
 
     public GatewayProperties {
@@ -27,6 +28,7 @@ public record GatewayProperties(
         // an absent list stays null so that `@NotEmpty` reports the missing property by name instead of
         // this constructor failing with a bare NullPointerException.
         allowedIssuers = allowedIssuers == null ? null : List.copyOf(allowedIssuers);
+        allowedAudiences = allowedAudiences == null ? null : List.copyOf(allowedAudiences);
         allowedOrigins = allowedOrigins == null ? null : List.copyOf(allowedOrigins);
     }
 }
