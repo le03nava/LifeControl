@@ -87,17 +87,27 @@ public interface TaxRateRepository extends JpaRepository<TaxRate, UUID> {
                     UUID companyId, String taxCode, UUID companyRegionId, LocalDate documentDate);
 
     /**
-     * Whether this company has stated <b>any</b> rate for that code in that region — enabled or not, of any
-     * date.
+     * Whether this company holds an <b>enabled</b> rate for that code in that region — of any date.
      *
      * <p>Step 2 of the resolution, and the one question that separates a gap from a fallback: a region that
-     * has rows for a code is authoritative for it, so a <i>missing applicable day</i> there is a refusal
-     * naming the region, while a region with <b>no rows at all</b> resolves from the company-wide ones
-     * ({@code D2}). {@code enabled} and {@code effective_from} are deliberately absent: a region whose only
-     * rows are retired has still stated its position on that code, and answering it with another
-     * jurisdiction's rate is the failure this check exists to prevent.</p>
+     * states the code is authoritative for it, so a <i>missing applicable day</i> there is a refusal naming the
+     * region, while a region with <b>no enabled rows</b> for that code resolves from the company-wide ones
+     * ({@code D2}).</p>
+     *
+     * <p><b>Why {@code enabled} is part of it.</b> Authority follows the rows the region is stating, and
+     * retiring a row is the only switch the product has for withdrawing one. A check that ignored the flag would
+     * make authority <b>open-only</b>: retiring every row a region declared for a code withdraws every statement
+     * the region made and still leaves it authoritative, so step 1 finds nothing, this check says yes, and every
+     * document of that region and code is refused with a gap — for good, with nothing left for anyone to state
+     * (issue #1030). With the flag in the predicate the region gives the place back when it retires its last
+     * row, and the refusal returns as soon as it states the code again.</p>
+     *
+     * <p><b>Why {@code effective_from} stays out.</b> A region whose enabled row starts in the future has stated
+     * that this code is its own, so a document dated before it is refused instead of falling back to the
+     * company-wide rate. That is {@code V95}'s {@code D2}, and it is why this is not "has an applicable row".</p>
      */
-    boolean existsByCompanyIdAndTaxCodeAndCompanyRegionId(UUID companyId, String taxCode, UUID companyRegionId);
+    boolean existsByCompanyIdAndTaxCodeAndCompanyRegionIdAndEnabledTrue(
+            UUID companyId, String taxCode, UUID companyRegionId);
 
     /**
      * The company-wide rate that applies to a document dated {@code documentDate}: the latest

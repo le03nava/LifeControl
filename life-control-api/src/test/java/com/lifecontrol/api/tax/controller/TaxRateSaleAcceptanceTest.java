@@ -2,6 +2,7 @@ package com.lifecontrol.api.tax.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -20,17 +21,22 @@ import com.lifecontrol.api.inventory.ledger.StockLedgerEngine;
 import com.lifecontrol.api.inventory.model.StoreInventorySettings;
 import com.lifecontrol.api.inventory.repository.StoreInventorySettingsRepository;
 import com.lifecontrol.api.measureunit.repository.MeasureUnitRepository;
+import com.lifecontrol.api.paymentmethod.model.PaymentMethod;
+import com.lifecontrol.api.paymentmethod.repository.PaymentMethodRepository;
 import com.lifecontrol.api.product.model.Product;
 import com.lifecontrol.api.product.model.ProductVariant;
 import com.lifecontrol.api.product.model.ProductVariantStoreStock;
 import com.lifecontrol.api.product.repository.ProductRepository;
 import com.lifecontrol.api.product.repository.ProductVariantRepository;
 import com.lifecontrol.api.product.repository.ProductVariantStoreStockRepository;
+import com.lifecontrol.api.purchaseorder.dto.PurchaseOrderDetailRequest;
+import com.lifecontrol.api.purchaseorder.dto.PurchaseOrderRequest;
 import com.lifecontrol.api.salesorder.dto.SalesOrderItemRequest;
 import com.lifecontrol.api.salesorder.dto.SalesOrderRequest;
 import com.lifecontrol.api.salesorder.repository.SalesOrderItemRepository;
 import com.lifecontrol.api.shift.model.Shift;
 import com.lifecontrol.api.shift.repository.ShiftRepository;
+import com.lifecontrol.api.status.repository.StatusRepository;
 import com.lifecontrol.api.store.model.CompanyStore;
 import com.lifecontrol.api.store.model.StoreArea;
 import com.lifecontrol.api.store.model.StoreLocation;
@@ -39,6 +45,7 @@ import com.lifecontrol.api.store.repository.CompanyStoreRepository;
 import com.lifecontrol.api.store.repository.StoreAreaRepository;
 import com.lifecontrol.api.store.repository.StoreLocationRepository;
 import com.lifecontrol.api.store.repository.StoreZoneRepository;
+import com.lifecontrol.api.supplier.repository.SupplierRepository;
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
 import com.lifecontrol.api.support.TenantFixtures;
 import java.math.BigDecimal;
@@ -92,6 +99,13 @@ import tools.jackson.databind.ObjectMapper;
  * therefore {@value #COMPANY_KEY}, and the rate rows of that company are cleared in both setup and teardown,
  * because a declared rate commits and would otherwise survive into the next case — including the one that needs
  * the "refused" state.</p>
+ *
+ * <p><b>What the region axis adds, and the purchase writer beside it.</b> Since {@code V95} a rate is scoped by
+ * the document's place, and since issue #1030 a region is authoritative for a code only while it holds an
+ * <b>enabled</b> row for that code. That pair is one flip this class can make end to end: a regional row whose
+ * first day is still ahead refuses the document, and retiring it through {@code PATCH …/enable} hands the place
+ * back, so the very same sale — and the very same purchase line, the other writer of a taxable line — is charged
+ * the company-wide 16% instead of the 400 it answered a moment earlier ({@code S1}, {@code S2}, {@code S7}).</p>
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -100,6 +114,8 @@ class TaxRateSaleAcceptanceTest extends AbstractPostgresIntegrationTest {
 
     private static final String TAX_RATE_URL = "/api/companies/{companyId}/tax-rates";
     private static final String SALES_ORDER_URL = "/api/sales-orders";
+    private static final String PURCHASE_ORDER_URL = "/api/purchase-orders";
+    private static final String PURCHASE_ORDER_DETAILS_URL = "/api/purchase-orders/{id}/details";
 
     /** This class's company, distinct from every other suite's, so no other case's rate decides this one. */
     private static final String COMPANY_KEY = "TAX-ACCEPTANCE-KEY";
@@ -165,12 +181,22 @@ class TaxRateSaleAcceptanceTest extends AbstractPostgresIntegrationTest {
     private SalesOrderItemRepository itemRepository;
 
     @Autowired
+    private SupplierRepository supplierRepository;
+
+    @Autowired
+    private PaymentMethodRepository paymentMethodRepository;
+
+    @Autowired
+    private StatusRepository statusRepository;
+
+    @Autowired
     private StockLedgerEngine stockLedgerEngine;
 
     private UUID companyId;
     private UUID companyStoreId;
     private UUID shiftId;
     private UUID salesLocationId;
+    private UUID productId;
     private UUID variantId;
     private StoreChain chain;
 
@@ -286,6 +312,232 @@ class TaxRateSaleAcceptanceTest extends AbstractPostgresIntegrationTest {
     }
 
     /**
+     * {@code S1} and {@code S2}, in that order and on the same document: a region whose only row for the code
+     * starts in the future is authoritative, so the sale is refused; retiring that row through the ABM gives the
+     * region back, and the same sale — same day, same store, same article — is then charged the company-wide 16%.
+     */
+    @Test
+    @DisplayName("a regional row that starts ahead refuses the sale, and retiring it answers the company-wide 16%")
+    void retiringTheRegionsOnlyRowGivesTheRegionBack() throws Exception {
+        var today = LocalDate.now();
+        declareRate("IVA", "0.16", today.minusYears(1), null);
+        var regional = declareRate("IVA", "0.08", today.plusMonths(1), chain.regionId());
+
+        var refused = mockMvc.perform(post(SALES_ORDER_URL)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(saleBody())
+                        .with(scopedJwt("lc-sales")))
+                .andReturn();
+
+        assertThat(refused.getResponse().getStatus())
+                .as("the region holds an enabled row for IVA, so a day it does not cover is a refusal and never "
+                        + "the company-wide rate of a place the document was not sold in (D2, S1)")
+                .isEqualTo(400);
+        assertThat(refused.getResponse().getContentAsString())
+                .as("the refusal names the code, the region and the document's date")
+                .contains("IVA")
+                .contains(chain.regionId().toString())
+                .contains(today.toString())
+                .doesNotContain("violates a data constraint");
+        assertThat(countOfThisSuitesOrders())
+                .as("a refused line refuses the document, so no order row of this suite's store survives")
+                .isZero();
+        assertThat(countOfThisSuitesLines())
+                .as("and no line row either — the copy runs before the line is written")
+                .isZero();
+
+        retireRate(regional);
+
+        var accepted = mockMvc.perform(post(SALES_ORDER_URL)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(saleBody())
+                        .with(scopedJwt("lc-sales")))
+                .andExpect(status().isCreated())
+                .andReturn();
+
+        var line = objectMapper
+                .readTree(accepted.getResponse().getContentAsString())
+                .get("items")
+                .get(0);
+        assertThat(decimalOf(line, "taxRate"))
+                .as("once its only row for the code is retired the region states nothing, so the company-wide row "
+                        + "answers — authority follows the enabled rows (S2)")
+                .isEqualByComparingTo(new BigDecimal("0.160000"));
+        assertThat(decimalOf(line, "taxAmount"))
+                .as("V90 derives round(200 * 0.16, 4) from the stored rate")
+                .isEqualByComparingTo(new BigDecimal("32.0000"));
+
+        var stored = inTransaction(
+                () -> itemRepository.findById(UUID.fromString(line.get("id").asText())));
+        assertThat(stored).isPresent();
+        assertThat(stored.orElseThrow().getTaxRate())
+                .as("the row holds the company-wide snapshot, not the 8% the retired regional row stated")
+                .isEqualByComparingTo(new BigDecimal("0.160000"));
+    }
+
+    /**
+     * {@code S7}: the other writer of a taxable line follows the same path. A draft order of this suite's store
+     * takes a line for the same code and date; the enabled regional row that starts ahead refuses it exactly as
+     * it refused the sale, and retiring that row lets the line in at the company-wide 16%.
+     */
+    @Test
+    @DisplayName("a purchase line in the same region follows the same path: refused, then 16% once the row is retired")
+    void aPurchaseLineFollowsTheSamePath() throws Exception {
+        var today = LocalDate.now();
+        declareRate("IVA", "0.16", today.minusYears(1), null);
+        var regional = declareRate("IVA", "0.08", today.plusMonths(1), chain.regionId());
+        var orderId = createDraftPurchaseOrder();
+
+        var refused = mockMvc.perform(post(PURCHASE_ORDER_DETAILS_URL, orderId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(purchaseLineBody())
+                        .with(scopedJwt("lc-sales")))
+                .andReturn();
+
+        assertThat(refused.getResponse().getStatus())
+                .as("the purchase path resolves the same region axis, so the line is refused instead of taxed "
+                        + "with another place's rate (S7)")
+                .isEqualTo(400);
+        assertThat(refused.getResponse().getContentAsString())
+                .as("the refusal is the region gap naming the code and the document's date, not a constraint")
+                .contains("IVA")
+                .contains(today.toString())
+                .doesNotContain("violates a data constraint");
+        assertThat(countOfDetailsOf(orderId))
+                .as("a refused line leaves no row: the copy runs before the detail is built")
+                .isZero();
+
+        retireRate(regional);
+
+        var accepted = mockMvc.perform(post(PURCHASE_ORDER_DETAILS_URL, orderId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(purchaseLineBody())
+                        .with(scopedJwt("lc-sales")))
+                .andExpect(status().isCreated())
+                .andReturn();
+
+        var line = objectMapper.readTree(accepted.getResponse().getContentAsString());
+        assertThat(line.get("taxCode").asText())
+                .as("the code is the product's, copied by the same reader the sale uses")
+                .isEqualTo("IVA");
+        assertThat(decimalOf(line, "taxRate"))
+                .as("the company-wide 16% applies once the region has given its authority back (S7)")
+                .isEqualByComparingTo(new BigDecimal("0.160000"));
+        assertThat(decimalOf(line, "taxAmount"))
+                .as("purchase_order_detail_money() derives round(2 * 100 * 0.16, 4)")
+                .isEqualByComparingTo(new BigDecimal("32.0000"));
+        assertThat(taxRateOfDetail(orderId))
+                .as("and the line's stored snapshot is the rate the response reported")
+                .isEqualByComparingTo(new BigDecimal("0.160000"));
+    }
+
+    /**
+     * Declares one rate through the ABM and returns its id, so a case can retire exactly the row it stated.
+     *
+     * <p>The ABM is the only writer of {@code tax_rate} in this class, and {@code regionId} absent is the
+     * company-wide scope: the two bodies differ by that one key, which is the whole of {@code V95}'s axis.</p>
+     */
+    private UUID declareRate(String taxCode, String rate, LocalDate effectiveFrom, UUID regionId) throws Exception {
+        var body = regionId == null
+                ? "{\"taxCode\": \"%s\", \"rate\": %s, \"effectiveFrom\": \"%s\", \"enabled\": true}"
+                        .formatted(taxCode, rate, effectiveFrom)
+                : ("{\"taxCode\": \"%s\", \"regionId\": \"%s\", \"rate\": %s, \"effectiveFrom\": "
+                                + "\"%s\", \"enabled\": true}")
+                        .formatted(taxCode, regionId, rate, effectiveFrom);
+        var created = mockMvc.perform(post(TAX_RATE_URL, companyId)
+                        .with(scopedJwt("lc-tax"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isCreated())
+                .andReturn();
+        return UUID.fromString(objectMapper
+                .readTree(created.getResponse().getContentAsString())
+                .get("id")
+                .asText());
+    }
+
+    /**
+     * {@code S2}'s switch: {@code PATCH …/enable} is how a region withdraws the statement that made it
+     * authoritative, and the response is read back so a refused patch cannot be mistaken for a retirement.
+     */
+    private void retireRate(UUID rateId) throws Exception {
+        mockMvc.perform(patch(TAX_RATE_URL + "/{id}/enable", companyId, rateId)
+                        .with(scopedJwt("lc-tax"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"enabled\": false}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.enabled").value(false));
+    }
+
+    /** A draft order of this suite's store, posted without lines: the two-step surface the API exposes. */
+    private UUID createDraftPurchaseOrder() throws Exception {
+        var request = new PurchaseOrderRequest(
+                supplierOfThisCompany(),
+                companyStoreId,
+                paymentMethodOf(),
+                statusRepository
+                        .findByTypeNameAndStatusName("PURCHASE_ORDER", "Draft")
+                        .orElseThrow()
+                        .getId(),
+                "tax acceptance purchase",
+                null);
+        var created = mockMvc.perform(post(PURCHASE_ORDER_URL)
+                        .with(scopedJwt("lc-sales"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isCreated())
+                .andReturn();
+        return UUID.fromString(objectMapper
+                .readTree(created.getResponse().getContentAsString())
+                .get("id")
+                .asText());
+    }
+
+    /** One line of the {@code IVA} variant at 100, the same article and amount the sale above names. */
+    private String purchaseLineBody() throws Exception {
+        return objectMapper.writeValueAsString(new PurchaseOrderDetailRequest(
+                productId, variantId, new BigDecimal("2.00"), new BigDecimal("100.00"), "tax acceptance line", null));
+    }
+
+    /** The supplier a purchase order must name: it belongs to the company the order's store does. */
+    private UUID supplierOfThisCompany() {
+        // Fully qualified: the model and `java.util.function.Supplier` share a simple name in this class.
+        return TenantFixtures.inTenant(
+                        companyId,
+                        () -> supplierRepository.save(com.lifecontrol.api.supplier.model.Supplier.builder()
+                                .supplierName("Tax Acceptance Supplier")
+                                .rfc("TA" + UUID.randomUUID().toString().substring(0, 10))
+                                .company(companyRepository.findById(companyId).orElseThrow())
+                                .enabled(true)
+                                .build()))
+                .getId();
+    }
+
+    /** The header's payment method: a global catalog row, found or created once per container. */
+    private UUID paymentMethodOf() {
+        return paymentMethodRepository
+                .findByPaymentMethodNameIgnoreCase("Tax Acceptance Transfer")
+                .orElseGet(() -> paymentMethodRepository.save(PaymentMethod.builder()
+                        .paymentMethodName("Tax Acceptance Transfer")
+                        .paymentMethodShortName("TATF")
+                        .enabled(true)
+                        .build()))
+                .getId();
+    }
+
+    /** How many line rows the order holds, read in this suite's tenant. */
+    private long countOfDetailsOf(UUID orderId) {
+        return inTransaction(() -> jdbc.queryForObject(
+                "SELECT count(*) FROM purchase_order_details WHERE purchase_order_id = ?", Long.class, orderId));
+    }
+
+    /** The stored rate of the order's single line: the snapshot an auditor reads months later. */
+    private BigDecimal taxRateOfDetail(UUID orderId) {
+        return inTransaction(() -> jdbc.queryForObject(
+                "SELECT tax_rate FROM purchase_order_details WHERE purchase_order_id = ?", BigDecimal.class, orderId));
+    }
+
+    /**
      * How many order rows this suite's own fixture could have written: its store, in its tenant.
      *
      * <p><b>Why the count is scoped, and why that is not a weaker assertion.</b> {@code sales_orders} is shared
@@ -391,6 +643,9 @@ class TaxRateSaleAcceptanceTest extends AbstractPostgresIntegrationTest {
         var regionsOfThisCompany =
                 "SELECT id FROM company_regions WHERE company_country_id IN (SELECT id FROM company_countries WHERE company_id = ?)";
         deleteScopedToThisCompany(List.of(
+                "DELETE FROM purchase_order_details WHERE purchase_order_id IN (SELECT id FROM purchase_orders WHERE company_id = ?)",
+                "DELETE FROM purchase_orders WHERE company_id = ?",
+                "DELETE FROM suppliers WHERE company_id = ?",
                 "DELETE FROM document_sequence WHERE company_id = ?",
                 "DELETE FROM shifts WHERE company_store_id IN (" + storesOfThisCompany + ")",
                 "DELETE FROM store_inventory_settings WHERE company_store_id IN (" + storesOfThisCompany + ")",
@@ -572,6 +827,7 @@ class TaxRateSaleAcceptanceTest extends AbstractPostgresIntegrationTest {
 
             var variant = new ProductVariant();
             variant.setProductId(product.getId());
+            productId = product.getId();
             variant.setCompanyId(companyId);
             variant.setMeasureUnitId(
                     measureUnitRepository.findBySatCode("H87").orElseThrow().getId());
