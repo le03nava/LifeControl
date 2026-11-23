@@ -130,3 +130,48 @@ plain run with the same files still refuses and still logs in from the host cred
 the dev stack as uid 1000 (the script copied to /tmp with `SCRIPT_DIR` on the anchor's docker directory):
 `--verify-audience dev` → exit 0, "Protocol mapper life-control-client/api-audience exists and matches
 the declared aud"; `--ensure-audience dev` → exit 0, same verdict, no write. `deploy.sh` needed no change.
+
+L8. 2026-11-23 — independent verification found a blocker the unit and its author both missed, and it is a
+different container concern from L6/L7: **neither realm script could address the keycloak container outside
+dev.** `keycloak-setup.sh` computed `CONTAINER="${COMPOSE_PROJECT_NAME}-keycloak"` and every call used
+`docker exec "$CONTAINER"`, and `deploy.sh`'s wait read the health from the `{{.Health}}` column of
+`compose ps`. Measured in the tree: `docker/docker-compose.yml`'s `keycloak:` block (lines 161-232) declares
+**no** `container_name`; `docker/docker-compose.override.yml:28` — the dev-only file — is the only place
+that sets `container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-keycloak`; and
+`docker/docker-compose.prod.yml:87` gives keycloak `deploy.replicas: 2`, still with no `container_name`. So
+in staging and prod compose names the container `<project>-keycloak-1` (and `-2` in prod) and every
+`docker exec` targeted something that does not exist. The bug is pre-existing — `keycloak-setup.sh` was
+already unusable there — but this unit surfaces it, because `deploy.sh staging|prod start` would now abort
+at the realm step and `deploy.sh <env> health` would be permanently red. The health read had the same shape
+of defect on its own: with two replicas the column prints two lines, and `tr -d '\r\n'` turned them into
+`healthyhealthy`, which matches no state and waited out the whole bound on a healthy stack.
+**Resolution, in both scripts:** the id is asked of compose (`docker compose <the file stack that
+environment loads> --env-file "$ENV_FILE" ps -q keycloak`), which is the only thing that knows how a project
+names what it runs; the health is then read **per id** with `docker inspect -f '{{.State.Health.Status}}'
+<id>`, and any one healthy replica is enough. `keycloak-setup.sh` takes the first id because prod's two
+replicas share one realm database, so provisioning through either provisions both. Three failures are now
+told apart instead of collapsing into one timeout: "compose reports no `<service>` container in this
+project" (a stack that was never started), "the container exists but is not running" (the `-a` probe), and
+"it did not report healthy after N attempts". **The compose files were not touched** — whether prod should
+run two keycloak replicas is a real question and not this unit's. **Frozen by**
+`docker/scripts/tests/realm-container-identity.test.sh` (9 cases, 42 assertions, offline, stub-driven): the
+three compose shapes asserted through the argv each script builds, every exec target equal to the id compose
+answered (RED before the fix: `15 passed, 27 failed`, the first failure being "keycloak-setup.sh derives
+CONTAINER from COMPOSE_PROJECT_NAME again"), two healthy replicas passing the wait, the second-replica case
+that a single-project-wide health value would fail, "no container" and "exists but not running" each naming
+their cause instead of a timeout, and static checks that neither script rebuilds the name or reads the health
+column again. `keycloak-setup.test.sh` stayed at **143 assertions** (its shim learned the compose lookup and
+records the id; nothing weakened, nothing deleted), `deploy-realm-gate.test.sh` stayed at **39** (its stub
+learned `ps -q`/`ps -aq`/`docker inspect`; **one assertion needle followed the call** — "Keycloak answered
+before the realm step" now names the `docker inspect` read instead of the removed `ps --format '{{.Health}}'`
+column, same claim, same count), `db-roles.test.sh` 190, and the whole `docker/scripts/tests` glob is 35
+suites / 2049 assertions / every rc=0. **Three stale citations repaired**, each to the range measured after
+the edits: `validate-env.sh:309` and `tests/secrets-directory.test.sh:299` cited `keycloak-setup.sh:262-278`
+for the SMTP guard, which resolves to the audience block — the guard is at `keycloak-setup.sh:554-574`; and
+`tests/env-defaults.test.sh:28` cited `deploy.sh:173-179` for the prod gate, which is now
+`deploy.sh:255-262`. The SMTP citation was **already stale before this unit** (the guard sat at 512-533 at
+HEAD as well, so the earlier drift came from the audience block, not from here), and no suite checks
+`docker/scripts/*.sh:<line>` citations, so none was invented. Measured live on the dev stack as uid 1000
+(the script copied to /tmp with `SCRIPT_DIR` on the anchor's docker directory): `--verify-audience dev` →
+exit 0, resolving `dbc1e8c2…` through compose and reporting "Protocol mapper
+life-control-client/api-audience exists and matches the declared aud".

@@ -240,6 +240,14 @@ if [ "${1:-}" = "info" ]; then
 	exit 0
 fi
 
+# `docker inspect --format '{{.State.Health.Status}}' <id>`: the health of the ONE keycloak container,
+# read by the id compose answered. The wait reads it per container, never from a `ps` column.
+if [ "${1:-}" = "inspect" ]; then
+	printf 'inspect %s\n' "${!#}" >>"$STATE/calls.log"
+	printf '%s\n' "${DRG_KC_HEALTH:-healthy}"
+	exit 0
+fi
+
 if [ "${1:-}" != "compose" ]; then
 	printf 'compose shim: unsupported docker invocation: %s\n' "$*" >&2
 	exit 64
@@ -278,6 +286,16 @@ ps)
 	*" --services "*)
 		# The expected container count of the health loop.
 		printf '%s\n' keycloak lifecontrol-api
+		;;
+	*" -aq "* | *" -a -q "*)
+		# The stopped-container probe. This fixture's project has one running keycloak and nothing
+		# stopped, so the answer is empty and "no container at all" stays distinguishable from
+		# "exists but is not running".
+		:
+		;;
+	*" -q "*)
+		# The container resolution: compose answers the id of the running keycloak container.
+		printf '%s\n' "${DRG_KC_ID:-drgkeycloakcontainerid}"
 		;;
 	*"{{.Service}} {{.State}} {{.Health}}"*)
 		printf 'keycloak running %s\n' "${DRG_KC_HEALTH:-healthy}"
@@ -373,8 +391,10 @@ if build_tree "$root"; then
 	# D-c: services up, then the bounded wait, then the converge.
 	assert_before "case 1 (S4): the whole project is up before the realm step" \
 		"$root/state/calls.log" "compose up all" "keycloak-setup --ensure-audience"
+	# The health read that answers "has Keycloak answered" is now one `docker inspect` per container id,
+	# not a `ps --format` column (see realm-container-identity.test.sh); the CLAIM is unchanged.
 	assert_before "case 1 (S4): Keycloak answered before the realm step" \
-		"$root/state/calls.log" "compose ps --format {{.Health}} keycloak" \
+		"$root/state/calls.log" "inspect " \
 		"keycloak-setup --ensure-audience"
 	# S4: the converge runs before the health gate that would otherwise pass over an unconverged realm.
 	assert_before "case 1 (S4): the converge runs before the health gate" \

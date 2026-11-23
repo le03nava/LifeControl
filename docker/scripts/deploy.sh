@@ -186,13 +186,63 @@ REALM_WAIT_ATTEMPTS=${REALM_WAIT_ATTEMPTS:-90}
 REALM_WAIT_SECONDS=${REALM_WAIT_SECONDS:-5}
 KEYCLOAK_SERVICE="keycloak"
 
+# The ids of the keycloak containers this project runs, asked of COMPOSE, one per line.
+#
+# Never by name: only the dev override declares `container_name` for keycloak, so in staging and prod compose
+# names the container `<project>-keycloak-1` (and prod runs two replicas -- docker/docker-compose.prod.yml).
+# `-a` answers "exists at all", stopped containers included, which is a different failure from a project
+# that never ran one.
+keycloak_container_ids() {
+	compose_run ps -q "$KEYCLOAK_SERVICE" 2>/dev/null | tr -d '\r' | sed '/^$/d' || true
+}
+
+keycloak_container_ids_all() {
+	compose_run ps -aq "$KEYCLOAK_SERVICE" 2>/dev/null | tr -d '\r' | sed '/^$/d' || true
+}
+
+# The health of ONE container, by id.
+#
+# Per id on purpose: the `{{.Health}}` column of `compose ps` prints one line per replica, and a shell that
+# strips newlines turns two healthy replicas into `healthyhealthy` -- a state no container is in, which
+# waits out the whole bound on a perfectly healthy stack.
+keycloak_container_health() {
+	docker inspect --format '{{.State.Health.Status}}' "$1" 2>/dev/null || true
+}
+
+# Wait for a keycloak container to report healthy, bounded by the two knobs below.
+#
+# `compose up -d` returns as soon as the container exists, long before the Admin API answers, and the realm
+# step converges through that API: running it against a container that is still booting would fail a deploy
+# for a race instead of for a reason (odd/tasks/deploy-realm-gate.md D-c). The bound is what keeps a broken
+# container from hanging the start; the default leaves room above the image's own `start_period: 120s` plus
+# its 30s interval, so a slow first boot is not read as broken.
+#
+# A project with no keycloak container is diagnosed BEFORE any sleep, because it is not a container that is
+# slow to become healthy: it is a stack that was never started (or was taken down), and the operator fixes
+# it differently. Any one healthy replica is enough -- they share one realm database.
 wait_for_keycloak_healthy() {
-	local attempt=1 state
-	while [ "$attempt" -le "$REALM_WAIT_ATTEMPTS" ]; do
-		state="$(compose_run ps --format '{{.Health}}' "$KEYCLOAK_SERVICE" 2>/dev/null | tr -d '\r\n' || true)"
-		if [ "$state" = "healthy" ]; then
-			return 0
+	local attempt=1 ids id state project
+	ids="$(keycloak_container_ids)"
+	if [ -z "$ids" ]; then
+		project="$(get_env_var COMPOSE_PROJECT_NAME)"
+		[ -n "$project" ] || project="(COMPOSE_PROJECT_NAME is not set in $ENV_FILE)"
+		if [ -n "$(keycloak_container_ids_all)" ]; then
+			print_error "The $KEYCLOAK_SERVICE container of this project ($project) exists but is not running."
+			print_error "Start it: ./docker/scripts/deploy.sh $ENV up"
+		else
+			print_error "There is no $KEYCLOAK_SERVICE container in this project ($project), so the realm has nothing to converge."
+			print_error "Start the stack first: ./docker/scripts/deploy.sh $ENV up"
 		fi
+		return 1
+	fi
+	while [ "$attempt" -le "$REALM_WAIT_ATTEMPTS" ]; do
+		while IFS= read -r id; do
+			[ -n "$id" ] || continue
+			state="$(keycloak_container_health "$id")"
+			if [ "$state" = "healthy" ]; then
+				return 0
+			fi
+		done <<<"$ids"
 		print_status "Waiting for $KEYCLOAK_SERVICE ($attempt/$REALM_WAIT_ATTEMPTS)..."
 		sleep "$REALM_WAIT_SECONDS"
 		attempt=$((attempt + 1))

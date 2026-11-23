@@ -112,7 +112,25 @@ get_env() {
 }
 
 COMPOSE_PROJECT_NAME="$(get_env COMPOSE_PROJECT_NAME "lifecontrol")"
-CONTAINER="${COMPOSE_PROJECT_NAME}-keycloak"
+# The keycloak container this project runs, and NOT a name built from COMPOSE_PROJECT_NAME.
+#
+# Only the dev override declares `container_name` for keycloak (docker/docker-compose.override.yml), so
+# in staging and prod compose names the container `<project>-keycloak-1` (and `-2` in prod, which runs two
+# replicas), and the composed name below would address a container that does not exist. compose is the
+# only thing that knows how a project names what it runs, so the id is asked for instead -- see
+# resolve_container, called before any container is touched.
+CONTAINER=""
+KEYCLOAK_SERVICE="keycloak"
+# The compose files this environment loads, in the order compose merges them. Spelled here because this
+# script does not source _common.sh; it is the same list `resolve_compose_env` builds there, and the
+# realm-container-identity suite asserts the argv per environment.
+COMPOSE_FILE_ARGS=(-f "$DOCKER_DIR/docker-compose.yml")
+if [ "$ENV" = "dev" ]; then
+	COMPOSE_FILE_ARGS+=(-f "$DOCKER_DIR/docker-compose.override.yml")
+fi
+if [ "$ENV" = "prod" ]; then
+	COMPOSE_FILE_ARGS+=(-f "$DOCKER_DIR/docker-compose.prod.yml")
+fi
 KC_ADMIN_USER="$(get_env KC_ADMIN_USERNAME admin)"
 REALM="$(get_env KEYCLOAK_REALM life-control-realm)"
 APP_CLIENT="$(get_env KEYCLOAK_CLIENT_ID life-control-client)"
@@ -135,6 +153,32 @@ print_error() { echo -e "\033[0;31m[ERROR]\033[0m $*"; }
 
 kcadm() {
 	docker exec "$CONTAINER" /opt/keycloak/bin/kcadm.sh "$@"
+}
+
+# resolve_container: sets CONTAINER to the id of the keycloak container this project runs, resolved THROUGH
+# COMPOSE, or aborts naming the cause.
+#
+# The first id is enough and it is deliberate: prod runs two replicas (docker/docker-compose.prod.yml sets
+# `deploy.replicas: 2` for keycloak) and they share ONE realm database, so provisioning the realm through
+# either of them provisions it for both.
+#
+# A missing container is reported as a missing container, never as a start that is merely slow: an
+# operator fixes "compose has no keycloak container" by starting the stack, and "it never became healthy"
+# by reading its logs, and one message for both sends them to the wrong place.
+resolve_container() {
+	local out
+	CONTAINER=""
+	if ! out="$(docker compose "${COMPOSE_FILE_ARGS[@]}" --env-file "$ENV_FILE" ps -q "$KEYCLOAK_SERVICE" 2>/dev/null)"; then
+		print_error "Could not ask compose for the $KEYCLOAK_SERVICE container of the $ENV project ($COMPOSE_PROJECT_NAME)."
+		print_error "Check the stack: ./docker/scripts/deploy.sh $ENV status"
+		exit 1
+	fi
+	CONTAINER="$(printf '%s\n' "$out" | head -1 | tr -d '\r')"
+	if [ -z "$CONTAINER" ]; then
+		print_error "There is no $KEYCLOAK_SERVICE container in the $ENV project ($COMPOSE_PROJECT_NAME), so its realm cannot be provisioned."
+		print_error "This is not a slow start — there is nothing to converge. Start the stack first: ./docker/scripts/deploy.sh $ENV up"
+		exit 1
+	fi
 }
 
 # ---- Fail-closed reads ----
@@ -355,11 +399,8 @@ resolve_provisioned_client() {
 	APP_CID="$CLIENT_ID"
 }
 
-if ! docker ps --format '{{.Names}}' | grep -qx "$CONTAINER"; then
-	print_error "Container $CONTAINER is not running."
-	print_error "Start it first: ./docker/scripts/deploy.sh $ENV up"
-	exit 1
-fi
+resolve_container
+print_status "Using the $KEYCLOAK_SERVICE container compose reports for the $ENV project: $CONTAINER"
 
 # ---- Credentials from secrets (no plaintext in env files) ----
 KC_ADMIN_PASS_FILE="$SECRETS_DIR/keycloak_admin_password"

@@ -306,7 +306,7 @@ check_declared_secrets_materialized() {
 # `docker/secrets/smtp_password` is created by hand, so its absence is legal -- until the relay is told to
 # authenticate. `SMTP_AUTH=true` is what makes it required, and it is read by two other programs that
 # refuse without it: keycloak-setup.sh refuses to write the relay when the file is missing, empty or still
-# holds CHANGEME (keycloak-setup.sh:262-278), and Grafana's entrypoint exports it as GF_SMTP_PASSWORD only
+# holds CHANGEME (keycloak-setup.sh:554-574), and Grafana's entrypoint exports it as GF_SMTP_PASSWORD only
 # when GF_SMTP_USER is non-empty. Without this check the gate reported "nothing is missing" over a
 # directory -- or no file at all -- in exactly the configuration that needs one, and let a production
 # start proceed to a setup step that would then abort.

@@ -10,11 +10,15 @@
 # The copy is asserted identical with `cmp -s` before it runs, so the bytes under
 # test are the repository's bytes.
 #
-# The seam is the script's only two external shell-outs:
-#   `docker ps --format '{{.Names}}'`                 keycloak-setup.sh:148
+# The seam is the script's only external shell-outs:
+#   `docker compose ... ps -q keycloak`               (the container id, resolved through compose)
 #   `docker exec "$CONTAINER" .../kcadm.sh "$@"`      keycloak-setup.sh:55-57
-# Everything the script does to Keycloak rides inside the `docker exec` argv,
-# so a PATH shim named `docker` intercepts 100% of it.
+#   `docker exec "$CONTAINER" /bin/sh -c '...'`       (the narrow modes' in-container login)
+# Everything the script does to Keycloak rides inside a `docker exec` argv,
+# so a PATH shim named `docker` intercepts 100% of it. The container is addressed by the id compose
+# answers, never by a name built from COMPOSE_PROJECT_NAME: only the dev override declares
+# `container_name`, so a built name does not exist outside dev (realm-container-identity.test.sh freezes
+# that, and this shim answers the compose question so every case here goes through the same path).
 #
 # Nothing is written inside the repository tree, and no repository .env.<env> or
 # materialised secret is read: this worktree has none and CI has none.
@@ -53,6 +57,9 @@ ENV_KEYCLOAK_URL="http://localhost:8181"
 ENV_API_AUDIENCE="life-control-api"
 ENV_AUDIENCE_MAPPER="api-audience"
 export KCS_SHIM_CONTAINER="$ENV_COMPOSE_NAME-keycloak"
+# The id the compose lookup answers. Not derived from the project name on purpose: the assertion this
+# fixtures is that the script execs into whatever compose reported, not into a name it built itself.
+export KCS_SHIM_CONTAINER_ID="kcscontainerid7f3a"
 
 TMP_BASE="$(mktemp -d)"
 
@@ -241,8 +248,29 @@ set -u
 STATE="${KCS_SHIM_STATE_DIR:?KCS_SHIM_STATE_DIR must be set}"
 mkdir -p "$STATE"
 
-# ---- docker ps (keycloak-setup.sh:148) ----
-# Exactly one line so `grep -qx "$CONTAINER"` matches it.
+# ---- docker compose ps -q keycloak (the container resolution) ----
+# keycloak-setup.sh asks compose for the id of the project's keycloak container instead of building a name
+# from COMPOSE_PROJECT_NAME: only the dev override declares `container_name`, so a built name is exactly
+# what compose does not run in staging or prod. The call is recorded so a case can assert the exec target
+# is what compose answered.
+if [ "${1:-}" = "compose" ]; then
+	printf 'compose %s\n' "${*:2}" >>"$STATE/calls.log"
+	case " ${*:2} " in
+	*" ps "*)
+		case " ${*:2} " in
+		*" -q "*)
+			printf '%s\n' "${KCS_SHIM_CONTAINER_ID:?KCS_SHIM_CONTAINER_ID must be set}"
+			exit 0
+			;;
+		esac
+		;;
+	esac
+	printf 'shim: refusing unsupported compose invocation: %s\n' "$*" >&2
+	exit 64
+fi
+
+# ---- docker ps (the pre-resolution shape, kept because nothing is deleted from this shim) ----
+# Exactly one line so a `grep -qx <name>` would match it; the script no longer asks this question.
 if [ "${1:-}" = "ps" ]; then
 	printf '%s\n' "${KCS_SHIM_CONTAINER:?KCS_SHIM_CONTAINER must be set}"
 	exit 0
