@@ -163,7 +163,11 @@ rotate_secrets() {
 			rm -f "$secret_file"
 			continue
 		fi
-		chmod 0444 "$secret_file" 2>/dev/null || true
+		# No 0444 here. The declared shape of every credential — owner, group, mode — lives in
+		# setup-env.sh, from one table, and a rotation that opened the file to every local account
+		# again would undo it silently. The rotated file is narrowed to its creator (never wider) and
+		# the table is applied by the script that owns it, which the warning below names.
+		chmod 0600 "$secret_file" 2>/dev/null || true
 		print_success "Rotated $secret_name (edit $secret_file with the new value)"
 		rotated=$((rotated + 1))
 	done
@@ -172,7 +176,8 @@ rotate_secrets() {
 		print_warning "No secrets rotated — no *.template files found in $secrets_dir"
 	else
 		print_success "Secret rotation completed ($rotated file(s))"
-		print_warning "After rotating secrets, restart services so containers pick up the new values:"
+		print_warning "After rotating secrets, apply the declared ownership and restart services:"
+		print_warning "  ./docker/scripts/setup-env.sh $ENV"
 		print_warning "  ./docker/scripts/deploy.sh $ENV restart"
 	fi
 }

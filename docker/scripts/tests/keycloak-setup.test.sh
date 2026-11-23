@@ -1164,6 +1164,41 @@ if build_layout "$root" "$state" all ""; then
 fi
 
 # ------------------------------------------
+# Case 16 — the credential exists but the account running the script cannot read it, which is the shape of a
+# host-side reader after S6/S9: the files are 0400 owned by the container uid that reads them
+# (odd/tasks/docker-stack-hardening.md L21). `cat` under `set -e` would die with a bare `Permission denied`
+# that names neither the reason nor the fix, so the script has to say both. Driven by chmod 0000 on a file
+# this run owns: no root, no second uid, and `-r` answers exactly what the script asks. A root run cannot
+# be refused that way, so the case is skipped there instead of pretending to pass.
+# ------------------------------------------
+if [ "$(id -u)" -eq 0 ]; then
+	printf 'SKIP: case 16: running as root, so a 0000 credential is still readable and the guard cannot trigger\n'
+else
+	root="$(new_root)"
+	state="$root/state"
+	LAYOUT_ENV=dev
+	LAYOUT_SMTP_AUTH=false
+	LAYOUT_CLIENT_REDIRECTS=""
+	LAYOUT_CLIENT_WEB_ORIGINS=""
+	if build_layout "$root" "$state" all ""; then
+		export KCS_SHIM_STATE_DIR="$state"
+		export KCS_SHIM_INJECT_MATCH=""
+		export KCS_SHIM_INJECT_KIND=""
+		unset KCS_SHIM_REALM_DROP_UPDATE
+		admin_credential="$root/docker/secrets/keycloak_admin_password"
+		chmod 0000 "$admin_credential"
+		run_setup "$root"
+		assert_rc "case 16: an unreadable credential aborts with 1" 1 "$SETUP_RC" "$SETUP_OUT"
+		assert_contains "case 16: names the file it cannot read" "keycloak_admin_password" "$SETUP_OUT"
+		assert_contains "case 16: says it cannot read it as this uid" "Cannot read" "$SETUP_OUT"
+		assert_contains "case 16: names the fix, sudo" "sudo ./docker/scripts/keycloak-setup.sh dev" "$SETUP_OUT"
+		assert_file_has_no_match "case 16: no realm write before the refusal" "realms/" "$state/updates.log"
+		assert_creates "case 16: no create before the refusal" 0 "$state/creates.log"
+		chmod 0644 "$admin_credential"
+	fi
+fi
+
+# ------------------------------------------
 # Summary
 # ------------------------------------------
 echo "------------------------------------------"

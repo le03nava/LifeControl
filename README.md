@@ -205,25 +205,42 @@ contenedor. Ninguna contraseña vive en los `.env.*` (setup-env.sh las elimina a
 
 ### Secretos existentes
 
+El dueño, el grupo y el modo de cada archivo son parte del contrato: `setup-env.sh` los aplica y
+`validate-env.sh` los verifica (la tabla completa, con el porqué de cada forma, está en
+[`AGENTS.md`](AGENTS.md#secretos)). Un archivo con `0400` lo lee un solo uid; uno con `0440` lo leen dos,
+y el `group_add` de esos dos servicios es lo que se lo permite.
+
 | Archivo (`docker/secrets/`)           | Uso                                        | Quién lo lee                                    |
 |---------------------------------------|--------------------------------------------|-------------------------------------------------|
-| `lifecontrol_postgres_password`       | DB principal de la app                     | lifecontrol-postgres + lifecontrol-api          |
-| `keycloak_postgres_password`          | DB de Keycloak                             | keycloak-postgres + keycloak                    |
+| `lifecontrol_postgres_password`       | DB principal de la app                     | lifecontrol-postgres + lifecontrol-api + exporter |
+| `keycloak_postgres_password`          | DB de Keycloak                             | keycloak-postgres + keycloak + exporter         |
 | `keycloak_admin_password`             | Admin de Keycloak                          | keycloak (`KC_BOOTSTRAP_ADMIN_PASSWORD`)        |
 | `grafana_admin_password`              | Admin de Grafana                           | grafana (`GF_SECURITY_ADMIN_PASSWORD`)          |
 | `keycloak_admin_client_secret`        | Client secret de `life-control-admin-client` | lifecontrol-api (`KEYCLOAK_ADMIN_CLIENT_SECRET`) |
+| `redis_password`                      | Password del cache                         | redis (`--requirepass`) + lifecontrol-api       |
+| `smtp_password`                       | Credencial del relay SMTP                  | grafana (`GF_SMTP_PASSWORD`)                    |
+| `fiscal_*`                            | Proveedor fiscal (CFDI)                    | lifecontrol-api                                 |
 
 ### Flujo de materialización
 
 1. `./docker/scripts/setup-env.sh <env>` copia cada `docker/secrets/*.template` a
-   `docker/secrets/<nombre>`, quitando comentarios, si el archivo aún no existe, y aplica
-   `chmod 0444` (legible por los uids no-root de los contenedores). Si ya existe, lo conserva.
-2. Editar cada archivo con un valor real (reemplazar `CHANGEME`).
+   `docker/secrets/<nombre>`, quitando comentarios, si el archivo aún no existe, y después aplica
+   **dueño y modo por archivo** (tabla en [`AGENTS.md`](AGENTS.md#secretos)): `0400` con el uid que lo
+   lee como dueño, o `0440 root:<gid>` cuando son dos uids distintos. Si ya existe, lo conserva y sólo
+   corrige la forma.
+2. Editar cada archivo con un valor real (reemplazar `CHANGEME`). `redis_password` y los cuatro del
+   proveedor fiscal **se crean a mano**: no tienen `.template`.
 3. `docker-compose` monta cada secreto read-only y los entrypoint wrappers
    (`docker/entrypoints/*.sh`) leen el archivo y exportan la env var que la imagen espera.
 4. `./docker/scripts/deploy.sh <env> start` levanta los servicios. En todos los entornos
-   `validate-env.sh` valida que cada secreto exista, no esté vacío, no contenga `CHANGEME`
-   y tenga modo `0444`.
+   `validate-env.sh` valida que cada secreto exista, no esté vacío, no contenga `CHANGEME` y que su
+   modo, dueño y grupo coincidan con la tabla.
+
+> **Primera vez en un checkout existente: un solo paso con `sudo`.** Los archivos de hoy son del
+> operador, así que `setup-env.sh` no puede cambiarles el dueño por su cuenta. En vez de abortar en el
+> primero, **junta todos** los que no pudo arreglar e imprime **un bloque copiable** con el orden que
+> funciona — `deploy.sh <env> stop`, un `sudo chown … && sudo chmod …` por archivo, `deploy.sh <env> up`
+> — y sale distinto de cero. Un viaje privilegiado, no once.
 
 ```bash
 # Generar un valor fuerte para un secreto

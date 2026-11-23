@@ -31,6 +31,60 @@ resolve_compose_env "${ENV_ARG:-dev}"
 
 ERRORS=0
 
+# ---------------------------------------------------------------------------------------------------
+# The credential files' ownership table. It is the SAME table setup-env.sh applies, and it is duplicated
+# here on purpose: this script is the production start gate and has to be able to say "this file is not
+# readable by the account that reads it" without executing setup-env.sh (which materializes, owns and
+# exits). `docker/scripts/tests/secrets-ownership.test.sh` asserts the two copies and the `### Secretos`
+# table in AGENTS.md against one another and against its own frozen copy, so a row that moves in one
+# place fails the suite instead of silently widening a mode. The sixteen-line duplication is the price of
+# a gate that cannot be talked into a different answer by the file it is inspecting.
+#
+# Columns: name|mode|owner:group|reader. A row is the whole contract: 0400 with the single reading uid for
+# the credentials one non-root account reads, 0440 root:<gid> for the three that two accounts read, whose
+# consumers carry that numeric gid through `group_add` in docker-compose.yml.
+SECRET_OWNERSHIP_TABLE='
+fiscal_csd_certificado|0400|1001:0|the api wrapper (uid 1001)
+fiscal_csd_llave|0400|1001:0|the api wrapper (uid 1001)
+fiscal_csd_password|0400|1001:0|the api wrapper (uid 1001)
+fiscal_sf_password|0400|1001:0|the api wrapper (uid 1001)
+grafana_admin_password|0400|1000:0|the grafana wrapper (uid 1000)
+keycloak_admin_client_secret|0400|1001:0|the api wrapper (uid 1001)
+keycloak_admin_password|0400|1000:0|the keycloak wrapper (uid 1000)
+keycloak_postgres_password|0440|0:9313|the keycloak wrapper (uid 1000) and postgres-exporter-keycloak (uid 65534)
+lifecontrol_app_password|0440|0:9311|the api wrapper (uid 1001) and the postgres role script (uid 999)
+lifecontrol_postgres_password|0440|0:9312|the api wrapper (uid 1001) and postgres-exporter-lifecontrol (uid 65534)
+redis_password|0400|1001:0|the api wrapper (uid 1001); the redis wrapper reads it as root before its drop
+smtp_password|0400|1000:0|the grafana wrapper (uid 1000)
+'
+
+# secret_ownership_row <name> -- "mode|owner:group|reader", or nothing and a non-zero status when the name
+# has no row. An undeclared credential is an error, not a pass: a file nobody declared is a file nobody
+# decided the reader of, which is the state this contract exists to end.
+secret_ownership_row() {
+	local name="$1" row_name row_mode row_owner row_reader
+	while IFS='|' read -r row_name row_mode row_owner row_reader; do
+		[ -n "$row_name" ] || continue
+		if [ "$row_name" = "$name" ]; then
+			printf '%s|%s|%s\n' "$row_mode" "$row_owner" "$row_reader"
+			return 0
+		fi
+	done <<<"$SECRET_OWNERSHIP_TABLE"
+	return 1
+}
+
+# file_metadata <file> -- "mode uid gid" on one line, GNU then BSD stat, `?` when neither can read it.
+file_metadata() {
+	local file="$1"
+	stat -c '%a %u %g' "$file" 2>/dev/null || stat -f '%Lp %u %g' "$file" 2>/dev/null || printf '? ? ?\n'
+}
+
+# normalize_mode <mode> -- `stat -c %a` prints 400 for a 0400 file, the table spells it 0400.
+normalize_mode() {
+	local mode="$1"
+	printf '%s\n' "${mode#"${mode%%[!0]*}"}"
+}
+
 check_env_file() {
 	print_status "Checking environment file..."
 	if [ -f "$ENV_FILE" ]; then
@@ -132,6 +186,8 @@ check_secret_files() {
 	FOUND=0
 	for secret_file in "$SECRETS_DIR"/*; do
 		local secret_name
+		local MODE_INFO MODE OWNER_UID OWNER_GID
+		local OWNERSHIP_ROW WANT_MODE WANT_OWNER WANT_READER WANT_UID WANT_GID OWNERSHIP_OK
 		secret_name="$(basename "$secret_file")"
 		# Skip tracked templates and dotfiles; only materialized secrets are gated
 		case "$secret_name" in
@@ -143,7 +199,8 @@ check_secret_files() {
 		# (docker-compose.yml:354-357 documents exactly that). Reading it went wrong in three
 		# measured ways: `test -s` is true for a directory, `grep` answered "Is a directory" instead
 		# of "no CHANGEME" -- which made the entry earn a success line it never earned -- and the
-		# mode of a directory is never 0444, so the gate failed over a file nothing required.
+		# ownership of a directory answers none of the three questions this gate asks, so the gate
+		# failed over a file nothing required.
 		if [ -d "$secret_file" ]; then
 			if [ -f "$secret_file.template" ]; then
 				# The template set is exactly what setup-env.sh materializes, so a directory where a
@@ -178,12 +235,39 @@ check_secret_files() {
 			print_success "$secret_file set"
 		fi
 
-		MODE=$(stat -c '%a' "$secret_file" 2>/dev/null || stat -f '%Lp' "$secret_file" 2>/dev/null || echo "?")
-		if [ "$MODE" != "444" ] && [ "$MODE" != "0444" ]; then
-			print_error "$secret_file mode is $MODE — must be 0444 so container uids (999/1000/472) can read it"
+		MODE_INFO="$(file_metadata "$secret_file")"
+		read -r MODE OWNER_UID OWNER_GID <<<"$MODE_INFO"
+
+		OWNERSHIP_ROW=""
+		if ! OWNERSHIP_ROW="$(secret_ownership_row "$secret_name")"; then
+			print_error "$secret_file has no declared ownership row — nobody decided who may read it"
+			print_status "  Every credential file needs a row in the table setup-env.sh applies and this gate checks (the same table, asserted by docker/scripts/tests/secrets-ownership.test.sh). Add the row in the change that adds the credential"
 			ERRORS=$((ERRORS + 1))
-		else
-			print_success "$secret_file mode 0444"
+			continue
+		fi
+
+		IFS='|' read -r WANT_MODE WANT_OWNER WANT_READER <<<"$OWNERSHIP_ROW"
+		WANT_UID="${WANT_OWNER%%:*}"
+		WANT_GID="${WANT_OWNER##*:}"
+
+		OWNERSHIP_OK=1
+		if [ "$(normalize_mode "$MODE")" != "$(normalize_mode "$WANT_MODE")" ]; then
+			print_error "$secret_file mode is $MODE — must be $WANT_MODE so only $WANT_READER can read it"
+			ERRORS=$((ERRORS + 1))
+			OWNERSHIP_OK=0
+		fi
+		if [ "$OWNER_UID" != "$WANT_UID" ]; then
+			print_error "$secret_file owner is uid $OWNER_UID — must be $WANT_UID ($WANT_READER)"
+			ERRORS=$((ERRORS + 1))
+			OWNERSHIP_OK=0
+		fi
+		if [ "$OWNER_GID" != "$WANT_GID" ]; then
+			print_error "$secret_file group is gid $OWNER_GID — must be $WANT_GID ($WANT_READER)"
+			ERRORS=$((ERRORS + 1))
+			OWNERSHIP_OK=0
+		fi
+		if [ "$OWNERSHIP_OK" -eq 1 ]; then
+			print_success "$secret_file mode $WANT_MODE, owner $WANT_OWNER ($WANT_READER)"
 		fi
 	done
 

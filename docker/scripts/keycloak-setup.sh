@@ -7,12 +7,23 @@
 # the running keycloak container). Idempotent: existing entities are kept.
 #
 # Usage:
-#   ./docker/scripts/keycloak-setup.sh [dev|staging|prod]
+#   sudo ./docker/scripts/keycloak-setup.sh [dev|staging|prod]
+#
+# Root is required, not a preference. The three credential files this script reads from the HOST
+# (`keycloak_admin_password`, `keycloak_admin_client_secret` and `smtp_password`) are 0400 with the
+# container uid that reads them as owner -- 1000 for keycloak and grafana, 1001 for the api -- so the
+# operator's own account cannot read any of them (odd/tasks/docker-stack-hardening.md L21, and the
+# `### Secretos` table in AGENTS.md). A credential an operator account could read is a credential any
+# process that account runs could read, which is the whole point of the change; root is the only
+# account that reads every one of them without widening a mode.
 #
 # Requires:
+#   - root
 #   - Keycloak container up (run ./docker/scripts/deploy.sh <env> start first)
-#   - docker/secrets/keycloak_admin_password and
-#     docker/secrets/keycloak_admin_client_secret materialized (setup-env.sh)
+#   - docker/secrets/keycloak_admin_password,
+#     docker/secrets/keycloak_admin_client_secret and (with SMTP_AUTH=true)
+#     docker/secrets/smtp_password materialized (setup-env.sh materializes the first two; the SMTP
+#     credential is created by hand because it has no .template)
 #
 # This script contains NO secret content.
 # ============================================
@@ -189,7 +200,15 @@ fi
 KC_ADMIN_PASS_FILE="$SECRETS_DIR/keycloak_admin_password"
 ADM_CLIENT_SECRET_FILE="$SECRETS_DIR/keycloak_admin_client_secret"
 
+# Readable, not merely present: since the credential files are 0400 with their container uid as owner,
+# a non-root run reaches `cat` with `Permission denied` under `set -e`, which names neither the reason
+# nor the fix. This turns that into one sentence that does.
 for f in "$KC_ADMIN_PASS_FILE" "$ADM_CLIENT_SECRET_FILE"; do
+	if [ -s "$f" ] && [ ! -r "$f" ]; then
+		print_error "Cannot read $f as uid $(id -u): the file is owned by the container uid that reads it, mode 0400."
+		print_error "Run this script as root: sudo ./docker/scripts/keycloak-setup.sh $ENV"
+		exit 1
+	fi
 	if [ ! -s "$f" ]; then
 		print_error "Missing or empty secret file $f — run ./docker/scripts/setup-env.sh $ENV"
 		exit 1
@@ -264,6 +283,11 @@ SMTP_PASSWORD=""
 if [ "$SMTP_AUTH" = "true" ]; then
 	if [ -z "$SMTP_USER" ]; then
 		print_error "SMTP_AUTH=true requires a non-empty SMTP_USER in $ENV_FILE." >&2
+		exit 1
+	fi
+	if [ -s "$SMTP_PASSWORD_FILE" ] && [ ! -r "$SMTP_PASSWORD_FILE" ]; then
+		print_error "Cannot read $SMTP_PASSWORD_FILE as uid $(id -u): it is 0400, owned by the uid that reads it (grafana, 1000)." >&2
+		print_error "Run this script as root: sudo ./docker/scripts/keycloak-setup.sh $ENV" >&2
 		exit 1
 	fi
 	if [ ! -s "$SMTP_PASSWORD_FILE" ]; then
