@@ -41,7 +41,7 @@ usage() {
 	echo "  prod, production   - Production environment"
 	echo ""
 	echo "Commands:"
-	echo "  start              - Build services, build images, and start containers (use SKIP_BUILD=true to skip the build)"
+	echo "  start              - Build services, build images, start containers and converge the realm audience (use SKIP_BUILD=true to skip the build)"
 	echo "  build              - Build services (Java + Angular) only (no containers)"
 	echo "  build-images       - Build Docker images only (uses pre-built services)"
 	echo "  up                - Start services without building"
@@ -51,7 +51,7 @@ usage() {
 	echo "  status            - Show status"
 	echo "  version           - Show the revision each running application image was built from (exits non-zero when one is not HEAD)"
 	echo "  clean [--data]     - Stop and remove the containers, the network and the named volumes (--data also deletes this environment's own ./volumes-<env> data directory)"
-	echo "  health            - Check service health"
+	echo "  health            - Check service health: containers, Prometheus, Tempo and the realm audience the decoders require"
 	echo ""
 	echo "Environment Variables:"
 	echo "  BUILD_PROFILE     - Build profile (dev|staging|prod), default: current environment"
@@ -175,6 +175,32 @@ build_images() {
 	print_success "Docker images built!"
 }
 
+# Wait for the keycloak container to report healthy, bounded by the two knobs below.
+#
+# `compose up -d` returns as soon as the container exists, long before the Admin API answers, and the
+# realm step converges through that API: running it against a container that is still booting would
+# fail a deploy for a race instead of for a reason (odd/tasks/deploy-realm-gate.md D-c). The bound is
+# what keeps a genuinely broken container from hanging the start; the default leaves room above the
+# image's own `start_period: 120s` plus its 30s interval, so a slow first boot is not read as broken.
+REALM_WAIT_ATTEMPTS=${REALM_WAIT_ATTEMPTS:-90}
+REALM_WAIT_SECONDS=${REALM_WAIT_SECONDS:-5}
+KEYCLOAK_SERVICE="keycloak"
+
+wait_for_keycloak_healthy() {
+	local attempt=1 state
+	while [ "$attempt" -le "$REALM_WAIT_ATTEMPTS" ]; do
+		state="$(compose_run ps --format '{{.Health}}' "$KEYCLOAK_SERVICE" 2>/dev/null | tr -d '\r\n' || true)"
+		if [ "$state" = "healthy" ]; then
+			return 0
+		fi
+		print_status "Waiting for $KEYCLOAK_SERVICE ($attempt/$REALM_WAIT_ATTEMPTS)..."
+		sleep "$REALM_WAIT_SECONDS"
+		attempt=$((attempt + 1))
+	done
+	print_error "$KEYCLOAK_SERVICE did not report healthy after $REALM_WAIT_ATTEMPTS attempts"
+	return 1
+}
+
 start_services() {
 	if [ "$ENV" = "prod" ]; then
 		print_status "Running production validation gate..."
@@ -199,6 +225,23 @@ start_services() {
 	print_status "Starting services for $ENV environment..."
 	compose_run up -d
 	print_success "Services started!"
+
+	# The realm is what makes a token acceptable: without the platform audience mapper on the public
+	# client Keycloak mints `aud: ["account"]` and both JWT decoders reject every token with 401, while
+	# a health check that never reads the realm reports green over it (issue #1029).
+	#
+	# Keycloak has to answer first -- `up -d` returns as soon as the container exists -- and the wait is
+	# bounded so a broken container fails the start instead of hanging it (D-c).
+	if ! wait_for_keycloak_healthy; then
+		print_error "Keycloak did not become healthy — aborting start. Its realm cannot be converged against a container that is not answering."
+		exit 1
+	fi
+	if ! "$SCRIPT_DIR/keycloak-setup.sh" --ensure-audience "$ENV"; then
+		print_error "Realm audience convergence failed — aborting start. Without the api-audience mapper on the public client Keycloak does not mint the audience both JWT decoders require, so every token is rejected with 401."
+		print_error "Run ./docker/scripts/keycloak-setup.sh $ENV by hand, then retry."
+		exit 1
+	fi
+	print_success "Realm audience in place"
 	show_status
 }
 
@@ -442,6 +485,17 @@ health_check() {
 			attempt=$((attempt + 1))
 		else
 			print_success "All services healthy!"
+
+			# The realm is part of "healthy": a green stack over a realm that does not mint the audience
+			# the running decoders require answers 401 on every token, and nothing above reads the realm.
+			# Read-only on purpose (D-d): a health check that converges can mask the state it is asked to
+			# report.
+			if ! "$SCRIPT_DIR/keycloak-setup.sh" --verify-audience "$ENV"; then
+				print_error "The realm does not mint the audience the running decoders require, so every token is rejected with 401."
+				print_error "Converge it with: ./docker/scripts/keycloak-setup.sh $ENV"
+				return 1
+			fi
+			print_success "Realm mints the audience the running decoders require"
 			return 0
 		fi
 	done

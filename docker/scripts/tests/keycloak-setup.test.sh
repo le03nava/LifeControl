@@ -259,6 +259,23 @@ shift
 if [ "$#" -gt 0 ]; then
 	shift
 fi
+# ---- In-container login form (keycloak-setup.sh's narrow modes) ----
+# keycloak-setup.sh's --ensure-audience / --verify-audience log kcadm in through the container's own
+# shell, so the admin password is expanded from the copy compose mounts at /run/secrets/<name> and never
+# appears on the host argv. There is no real container here: the form is recorded (the WHOLE host argv,
+# which is exactly what lets a case assert that no secret travelled) and answered with success. Any other
+# in-container command is a harness bug and is refused, so this branch cannot silently stand in for
+# something the script does not actually ask for.
+if [ "${1:-}" = "/bin/sh" ] && [ "${2:-}" = "-c" ]; then
+	case "${3:-}" in
+	*/kcadm.sh\ config\ credentials*)
+		printf 'in-container kcadm.sh config credentials | host-argv: %s\n' "$*" >>"$STATE/calls.log"
+		exit 0
+		;;
+	esac
+	printf 'shim: refusing unsupported in-container command: %s\n' "${3:-}" >&2
+	exit 64
+fi
 # Drop everything up to and including the kcadm.sh argument.
 while [ "$#" -gt 0 ]; do
 	case "$1" in
@@ -439,8 +456,15 @@ case "$SUB" in
 						clientId=*) cid="${a#clientId=}" ;;
 					esac
 				done
-				present=1
-				output="cid-$cid"
+				# A client the test seeds in missing_clients answers the "Resource not found"
+				# diagnostic instead of an id, which is the only way client_exists reads absence. The
+				# ordinary world is a realm that already holds both clients.
+				if [ -f "$STATE/missing_clients" ] && grep -qxF -- "$cid" "$STATE/missing_clients"; then
+					present=0
+				else
+					present=1
+					output="cid-$cid"
+				fi
 				;;
 			clients/*/protocol-mappers/models)
 				# keycloak-setup.sh:138 — id,name CSV. The script selects the claim
@@ -739,6 +763,9 @@ build_layout() {
 	# Realm-role world state, same convention and same default: empty = a realm
 	# that already holds every role the realm-role loop enumerates.
 	: >"$state/missing_realm_roles"
+	# Client world state, same convention: empty = a realm where both clients already exist. A case
+	# seeds a name here to model the narrow modes' refusal to provision one.
+	: >"$state/missing_clients"
 
 	# W6b world state: realm frontendUrl/smtpServer and the public client's
 	# registered lists. Defaults are the already-converged values, so the plain
@@ -765,6 +792,14 @@ run_setup_env() {
 
 run_setup() {
 	run_setup_env "$1" dev
+}
+
+# run_setup_mode <root> <mode> <env> — runs the copied script with one narrow mode flag, the way
+# deploy.sh calls it (keycloak-setup.sh --ensure-audience dev). Sets SETUP_RC and SETUP_OUT.
+run_setup_mode() {
+	local root="$1" mode="$2" env="${3:-dev}"
+	SETUP_OUT="$(PATH="$root/bin:$PATH" bash "$root/docker/scripts/keycloak-setup.sh" "$mode" "$env" 2>&1)"
+	SETUP_RC=$?
 }
 
 # assert_line_count <name> <expected> <file> — same observation as assert_creates
@@ -1337,6 +1372,242 @@ if build_layout "$root" "$state" all ""; then
 		"protocol-mappers/models" "$state/updates.log"
 	assert_not_contains "case 18 (audience-drift): never reports success" \
 		"Keycloak setup complete" "$SETUP_OUT"
+fi
+
+# ------------------------------------------
+# Cases 19-24 (deploy-realm-gate, D-a/D-b/D-d) — the two narrow modes.
+#
+# `deploy.sh <env> start` converges the audience mapper and `deploy.sh <env> health` reads it, and both
+# do it through a flag on this script instead of a second copy of the contract. What these cases pin is
+# the half the deploy suite cannot see (it stands in for this script): each mode touches the mapper and
+# NOTHING ELSE — no SMTP convergence, no client redirect write, no client-role or realm-role create — and
+# the read-only mode writes nothing at all, which is what makes it usable as a health verdict.
+#
+# The narrow modes are also the only path that can refuse a realm it cannot provision, so the absence of
+# the public client is modelled through missing_clients and must fail naming the full run.
+# ------------------------------------------
+LAYOUT_ENV=dev
+LAYOUT_SMTP_AUTH=false
+LAYOUT_SMTP_HOST=""
+LAYOUT_KEYCLOAK_URL=""
+LAYOUT_CLIENT_REDIRECTS=""
+LAYOUT_CLIENT_WEB_ORIGINS=""
+
+# ------------------------------------------
+# Case 19 (--verify-audience) — a converged realm: exit 0, and NOT ONE write.
+# The positive control for cases 20 and 21; without it they would be satisfied by refusing everything.
+# ------------------------------------------
+root="$(new_root)"
+state="$root/state"
+if build_layout "$root" "$state" all ""; then
+	export KCS_SHIM_STATE_DIR="$state"
+	export KCS_SHIM_INJECT_MATCH=""
+	export KCS_SHIM_INJECT_KIND=""
+	unset KCS_SHIM_REALM_DROP_UPDATE
+	run_setup_mode "$root" --verify-audience dev
+	assert_rc "case 19 (verify-audience): a converged realm exits 0" 0 "$SETUP_RC" "$SETUP_OUT"
+	assert_contains "case 19 (verify-audience): reports the mapper matches the declared aud" \
+		"Protocol mapper $ENV_APP_CLIENT/$ENV_AUDIENCE_MAPPER exists and matches the declared aud" "$SETUP_OUT"
+	assert_creates "case 19 (verify-audience): creates nothing" 0 "$state/creates.log"
+	assert_line_count "case 19 (verify-audience): updates nothing" 0 "$state/updates.log"
+	assert_line_count "case 19 (verify-audience): never converges the invitation environment" 0 "$state/realm_frontend_url"
+	assert_not_contains "case 19 (verify-audience): does not provision the realm" \
+		"Keycloak setup complete" "$SETUP_OUT"
+fi
+
+# ------------------------------------------
+# Case 20 (--verify-audience) — the mapper is ABSENT: exit 1, naming it, and still no write.
+# This is the state a deploy that skipped the realm leaves behind, and the one the health gate must be
+# red on. The read-only mode must report it, never create it (D-d).
+# ------------------------------------------
+root="$(new_root)"
+state="$root/state"
+if build_layout "$root" "$state" tenancy ""; then
+	export KCS_SHIM_STATE_DIR="$state"
+	export KCS_SHIM_INJECT_MATCH=""
+	export KCS_SHIM_INJECT_KIND=""
+	unset KCS_SHIM_REALM_DROP_UPDATE
+	run_setup_mode "$root" --verify-audience dev
+	assert_rc "case 20 (verify-audience): an absent mapper exits 1" 1 "$SETUP_RC" "$SETUP_OUT"
+	assert_contains "case 20 (verify-audience): names the mapper and says it is absent" \
+		"$ENV_APP_CLIENT/$ENV_AUDIENCE_MAPPER is absent" "$SETUP_OUT"
+	assert_contains "case 20 (verify-audience): names the audience it does not mint" \
+		"aud=$ENV_API_AUDIENCE" "$SETUP_OUT"
+	assert_creates "case 20 (verify-audience): never creates the mapper it was asked to report" 0 "$state/creates.log"
+	assert_line_count "case 20 (verify-audience): updates nothing" 0 "$state/updates.log"
+fi
+
+# ------------------------------------------
+# Case 21 (--verify-audience) — the mapper EXISTS AND DRIFTED: exit 1 naming the missing requirement,
+# and no repair. The negative half of the shared contract: a read-only verdict that quietly fixed the
+# mapper would report the state it was asked to surface as fine.
+# ------------------------------------------
+root="$(new_root)"
+state="$root/state"
+if build_layout "$root" "$state" all ""; then
+	printf '%s\n' 1 >"$state/audience_drift"
+	export KCS_SHIM_STATE_DIR="$state"
+	export KCS_SHIM_INJECT_MATCH=""
+	export KCS_SHIM_INJECT_KIND=""
+	unset KCS_SHIM_REALM_DROP_UPDATE
+	run_setup_mode "$root" --verify-audience dev
+	assert_rc "case 21 (verify-audience): a drifted mapper exits 1" 1 "$SETUP_RC" "$SETUP_OUT"
+	assert_contains "case 21 (verify-audience): names the mapper and the missing requirement" \
+		"$ENV_APP_CLIENT/$ENV_AUDIENCE_MAPPER is missing \"id.token.claim\":\"false\"." "$SETUP_OUT"
+	assert_creates "case 21 (verify-audience): creates nothing" 0 "$state/creates.log"
+	assert_line_count "case 21 (verify-audience): does not repair the mapper" 0 "$state/updates.log"
+fi
+
+# ------------------------------------------
+# Case 22 (--ensure-audience) — the mapper is ABSENT: it is created and verified, and nothing else is
+# converged. The second half of the assertion is D-a's point: a deploy converging the realm must not
+# rewrite the registered origins, the SMTP server or the client roles as a side effect.
+# ------------------------------------------
+root="$(new_root)"
+state="$root/state"
+if build_layout "$root" "$state" tenancy ""; then
+	export KCS_SHIM_STATE_DIR="$state"
+	export KCS_SHIM_INJECT_MATCH=""
+	export KCS_SHIM_INJECT_KIND=""
+	unset KCS_SHIM_REALM_DROP_UPDATE
+	run_setup_mode "$root" --ensure-audience dev
+	assert_rc "case 22 (ensure-audience): an absent mapper is converged and exits 0" 0 "$SETUP_RC" "$SETUP_OUT"
+	assert_creates "case 22 (ensure-audience): exactly one mapper is created" 1 "$state/creates.log"
+	assert_contains "case 22 (ensure-audience): the created mapper is the platform audience mapper" \
+		"name=$ENV_AUDIENCE_MAPPER" "$(cat "$state/creates.log")"
+	assert_contains "case 22 (ensure-audience): it declares the platform audience" \
+		"config.\"included.custom.audience\"=$ENV_API_AUDIENCE" "$(cat "$state/creates.log")"
+	assert_contains "case 22 (ensure-audience): the create is read back and verified" \
+		"Protocol mapper $ENV_APP_CLIENT/$ENV_AUDIENCE_MAPPER created and verified" "$SETUP_OUT"
+	assert_line_count "case 22 (ensure-audience): converges nothing else (no realm or client write)" 0 "$state/updates.log"
+	assert_not_contains "case 22 (ensure-audience): does not provision the rest of the realm" \
+		"Keycloak setup complete" "$SETUP_OUT"
+fi
+
+# ------------------------------------------
+# Case 23 (--ensure-audience) — a converged realm: verified, no create, no update. Inverse of case 22,
+# so it cannot pass by writing on every run.
+# ------------------------------------------
+root="$(new_root)"
+state="$root/state"
+if build_layout "$root" "$state" all ""; then
+	export KCS_SHIM_STATE_DIR="$state"
+	export KCS_SHIM_INJECT_MATCH=""
+	export KCS_SHIM_INJECT_KIND=""
+	unset KCS_SHIM_REALM_DROP_UPDATE
+	run_setup_mode "$root" --ensure-audience dev
+	assert_rc "case 23 (ensure-audience): a converged realm exits 0" 0 "$SETUP_RC" "$SETUP_OUT"
+	assert_creates "case 23 (ensure-audience): creates nothing" 0 "$state/creates.log"
+	assert_line_count "case 23 (ensure-audience): updates nothing" 0 "$state/updates.log"
+	assert_contains "case 23 (ensure-audience): reports the mapper matches the declared aud" \
+		"Protocol mapper $ENV_APP_CLIENT/$ENV_AUDIENCE_MAPPER exists and matches the declared aud" "$SETUP_OUT"
+fi
+
+# ------------------------------------------
+# Case 24 (--ensure-audience) — the public client does not exist: the mode refuses and names the full
+# run. This is the boundary D-a draws: the narrow mode converges ONE artifact of a provisioned realm,
+# and provisioning the realm, its clients and its roles is the rest of the script, which a deploy must
+# not perform as a side effect.
+# ------------------------------------------
+root="$(new_root)"
+state="$root/state"
+if build_layout "$root" "$state" all ""; then
+	printf '%s\n' "$ENV_APP_CLIENT" >"$state/missing_clients"
+	export KCS_SHIM_STATE_DIR="$state"
+	export KCS_SHIM_INJECT_MATCH=""
+	export KCS_SHIM_INJECT_KIND=""
+	unset KCS_SHIM_REALM_DROP_UPDATE
+	run_setup_mode "$root" --ensure-audience dev
+	assert_rc "case 24 (ensure-audience): an unprovisioned client exits 1" 1 "$SETUP_RC" "$SETUP_OUT"
+	assert_contains "case 24 (ensure-audience): names the client that is absent" \
+		"Client $ENV_APP_CLIENT is absent" "$SETUP_OUT"
+	assert_contains "case 24 (ensure-audience): names the full run that provisions it" \
+		"Provision the clients first: sudo ./docker/scripts/keycloak-setup.sh dev" "$SETUP_OUT"
+	assert_creates "case 24 (ensure-audience): never creates the client it cannot see" 0 "$state/creates.log"
+	assert_line_count "case 24 (ensure-audience): updates nothing" 0 "$state/updates.log"
+fi
+
+# ------------------------------------------
+# Cases 25-26 (deploy-realm-gate) — the narrow modes read NO host secret, and the full run still does.
+#
+# The deploy path calls these two modes as the operator, and the host copies of the credentials are 0400
+# with the keycloak container uid as owner: a `cat` of them is a root operation. So the narrow modes log
+# kcadm in through the container's own shell and expand the password from the copy compose already mounts
+# at /run/secrets/<name>, which means a non-root `deploy.sh <env> start` / `health` works and no secret
+# ever reaches the host process or its argv.
+#
+# The property is pinned by making BOTH host credential files unreadable (chmod 0000) and requiring the
+# modes to still converge and verify. `-r` answers exactly what the script asks, so the case needs no
+# second uid; as root it is weaker on its own, which is why the evidence that does not depend on the uid
+# is the call log: the login has to be the in-container form and must carry no password.
+# ------------------------------------------
+root="$(new_root)"
+state="$root/state"
+LAYOUT_ENV=dev
+LAYOUT_SMTP_AUTH=false
+LAYOUT_SMTP_HOST=""
+LAYOUT_KEYCLOAK_URL=""
+LAYOUT_CLIENT_REDIRECTS=""
+LAYOUT_CLIENT_WEB_ORIGINS=""
+if build_layout "$root" "$state" all ""; then
+	export KCS_SHIM_STATE_DIR="$state"
+	export KCS_SHIM_INJECT_MATCH=""
+	export KCS_SHIM_INJECT_KIND=""
+	unset KCS_SHIM_REALM_DROP_UPDATE
+	admin_credential="$root/docker/secrets/keycloak_admin_password"
+	client_credential="$root/docker/secrets/keycloak_admin_client_secret"
+	chmod 0000 "$admin_credential" "$client_credential"
+
+	run_setup_mode "$root" --verify-audience dev
+	assert_rc "case 25: --verify-audience succeeds with unreadable host secrets" 0 "$SETUP_RC" "$SETUP_OUT"
+	assert_contains "case 25: it still reports the mapper as declared" \
+		"Protocol mapper $ENV_APP_CLIENT/$ENV_AUDIENCE_MAPPER exists and matches the declared aud" "$SETUP_OUT"
+	assert_contains "case 25: the login went through the container's own shell" \
+		"in-container kcadm.sh config credentials" "$(cat "$state/calls.log")"
+	assert_file_has_no_match "case 25: the admin password never reaches the host argv" \
+		"offline-test-admin-password" "$state/calls.log"
+	assert_file_has_no_match "case 25: no host-credential login is attempted" \
+		"--password offline-test-admin-password" "$state/calls.log"
+
+	run_setup_mode "$root" --ensure-audience dev
+	assert_rc "case 25: --ensure-audience succeeds with unreadable host secrets" 0 "$SETUP_RC" "$SETUP_OUT"
+	assert_creates "case 25: it creates nothing on a converged realm" 0 "$state/creates.log"
+	assert_line_count "case 25: it updates nothing" 0 "$state/updates.log"
+
+	# The control: the SAME unreadable files stop the plain run, because the full run still reads the host
+	# credential. A root run cannot be refused that way, so the control is skipped there instead of
+	# pretending to pass (case 16 does the same), and the log assertions above stay the uid-free evidence.
+	if [ "$(id -u)" -eq 0 ]; then
+		printf 'SKIP: case 25: running as root, so a 0000 host credential is still readable and the control cannot trigger\n'
+	else
+		run_setup "$root"
+		assert_rc "case 25 (control): the plain run still requires the host credential" 1 "$SETUP_RC" "$SETUP_OUT"
+		assert_contains "case 25 (control): it names the file it cannot read" "keycloak_admin_password" "$SETUP_OUT"
+		assert_contains "case 25 (control): it names the fix, sudo" \
+			"sudo ./docker/scripts/keycloak-setup.sh dev" "$SETUP_OUT"
+	fi
+
+	chmod 0644 "$admin_credential" "$client_credential"
+fi
+
+# ------------------------------------------
+# Case 26 — the full run is unchanged: it still reads the credential from the HOST and passes it as an
+# argv of this process, which is the behaviour `### Secretos` is built on and the reason it keeps its root
+# requirement. Without this case, moving every run to the in-container source would pass case 25.
+# ------------------------------------------
+root="$(new_root)"
+state="$root/state"
+if build_layout "$root" "$state" all ""; then
+	export KCS_SHIM_STATE_DIR="$state"
+	export KCS_SHIM_INJECT_MATCH=""
+	export KCS_SHIM_INJECT_KIND=""
+	unset KCS_SHIM_REALM_DROP_UPDATE
+	run_setup "$root"
+	assert_rc "case 26: the plain run still converges and exits 0" 0 "$SETUP_RC" "$SETUP_OUT"
+	assert_contains "case 26: it logs kcadm in from the host credential, unchanged" \
+		"--password offline-test-admin-password" "$(cat "$state/calls.log")"
+	assert_not_contains "case 26: it does not use the in-container login" \
+		"in-container kcadm.sh config credentials" "$(cat "$state/calls.log")"
 fi
 
 # ------------------------------------------
