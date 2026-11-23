@@ -267,6 +267,14 @@ public class TaxRateService {
      * would be a column no caller could ever set — a control that behaves like a comment. It is also the switch
      * that opens and closes a region's authority: a region whose rows for a code are all retired still counts as
      * having stated that code, so the line refuses instead of falling back to the company-wide rate.</p>
+     *
+     * <p><b>Why reinstating is checked and retiring is not.</b> Since {@code V114} the same-day key is stated
+     * over the enabled rows, so the only direction that can collide with it is {@code false &rarr; true}: a
+     * retired row's day may already be held by the enabled row that replaced it, and re-enabling the old one is
+     * a second enabled rate for that day. The refusal is the one {@code requireNoRateForTheSameDay} states — a
+     * 409 naming the code and the scope — rather than the generic «violates a data constraint» a
+     * {@code DataIntegrityViolationException} would produce. Only the transition is checked: an already enabled
+     * row asked to stay enabled would otherwise find itself and refuse a no-op.</p>
      */
     @Transactional
     public TaxRateResponse setTaxRateEnabled(UUID companyId, UUID id, boolean enabled) {
@@ -275,6 +283,12 @@ public class TaxRateService {
         var rate = taxRateRepository
                 .findByCompanyIdAndId(companyId, id)
                 .orElseThrow(() -> new TaxRateNotFoundException(id));
+
+        // A no-op must stay a no-op, which is why the state is read instead of the flag alone.
+        if (enabled && !Boolean.TRUE.equals(rate.getEnabled())) {
+            requireNoRateForTheSameDay(companyId, rate.getTaxCode(), rate.getCompanyRegion(), rate.getEffectiveFrom());
+        }
+
         rate.setEnabled(enabled);
         var saved = taxRateRepository.save(rate);
 
@@ -358,13 +372,19 @@ public class TaxRateService {
      * half the check has to name: asking the day alone would refuse the frontier's 8% because the country's 16%
      * holds that day, which is exactly the row the feature exists to allow. The refusal names the scope that
      * holds it, because that is what the caller has to change.</p>
+     *
+     * <p><b>And it is the enabled rows that hold it.</b> Since {@code V114} the key is stated over the enabled
+     * rows, because retiring a rate is how a mistyped value is corrected on its own day (issue #888). This
+     * check reads the same half: an enabled row holds the day, a retired one has given it back. Asking the
+     * whole table would refuse the declaration the index accepts, and the two must agree or the guard becomes
+     * the bug.</p>
      */
     private void requireNoRateForTheSameDay(
             UUID companyId, String taxCode, CompanyRegion region, LocalDate effectiveFrom) {
         var taken = region == null
-                ? taxRateRepository.existsByCompanyIdAndTaxCodeAndCompanyRegionIsNullAndEffectiveFrom(
+                ? taxRateRepository.existsByCompanyIdAndTaxCodeAndCompanyRegionIsNullAndEffectiveFromAndEnabledTrue(
                         companyId, taxCode, effectiveFrom)
-                : taxRateRepository.existsByCompanyIdAndTaxCodeAndCompanyRegionIdAndEffectiveFrom(
+                : taxRateRepository.existsByCompanyIdAndTaxCodeAndCompanyRegionIdAndEffectiveFromAndEnabledTrue(
                         companyId, taxCode, region.getId(), effectiveFrom);
         if (taken) {
             throw new DuplicateTaxRateException(
