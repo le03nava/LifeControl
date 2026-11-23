@@ -8,14 +8,23 @@ import java.util.UUID;
  * applies on the document's date.
  *
  * <p><b>Why this is a refusal and not a fallback.</b> The precedence {@code D2} of
- * {@code odd/tasks/tax-rate-region-axis.md} settles it: a region that holds <b>no row at all</b> for a code
- * resolves from the company-wide rows, so nothing that works today changes; a region that <b>holds rows</b> is
- * authoritative for that code, and if none applies on the document's date the line is refused. The two are one
- * rule — <i>a region that has stated rates is authoritative for them</i> — and the alternative is not a gap
- * but a wrong number: a company on the northern frontier charges 8% IVA there and 16% everywhere else for the
- * same code, so a fallback would charge the 16% in the place that must not pay it, silently, on a document
- * whose rate the schema accepts. Refusing unconditionally was rejected for the mirror reason: with no region
- * rows anywhere it would refuse every line in the tree.</p>
+ * {@code odd/tasks/tax-rate-region-axis.md} settles it: a region that holds <b>no enabled row</b> for a code
+ * resolves from the company-wide rows, so nothing that works today changes; a region that <b>holds enabled
+ * rows</b> is authoritative for that code, and if none applies on the document's date the line is refused. The
+ * two are one rule — <i>a region that is stating rates is authoritative for them</i> — and the alternative is
+ * not a gap but a wrong number: a company on the northern frontier charges 8% IVA there and 16% everywhere
+ * else for the same code, so a fallback would charge the 16% in the place that must not pay it, silently, on a
+ * document whose rate the schema accepts. Refusing unconditionally was rejected for the mirror reason: with no
+ * region rows anywhere it would refuse every line in the tree.</p>
+ *
+ * <p><b>What "is stating" means, and why it is not "has rows".</b> Authority is decided by the region's
+ * <b>enabled</b> rows and deliberately ignores their date: a row that starts in the future still says the code
+ * belongs to this place, which is the {@code D2} case above. But it does not ignore {@code enabled}, and that
+ * is the half issue #1030 settled: {@code enabled} is the only switch the product has, so a check that counted
+ * retired rows made authority <b>open-only</b> — retiring a region's rows withdrew every statement the region
+ * had made and left it authoritative with nothing to charge, refusing every document of that region and code
+ * for good, with no path back but SQL. Retiring the last enabled row now hands the code back to the company-wide
+ * rate, and re-enabling a row takes it back.</p>
  *
  * <p>Thin subclass of {@link IllegalArgumentException}, the shape {@link InvalidTaxRateSupersessionException}
  * and the document writers' own refusals use: {@code GlobalExceptionHandler} already maps that class to

@@ -91,12 +91,12 @@ public class TaxRateService {
      *   <li><b>The region answers first.</b> When the caller knows the region, the latest enabled row for
      *       <b>that region</b> whose {@code effective_from} is not after the document's date is the answer. A
      *       company-wide row never competes with it — that is the silent 16% in the frontier.</li>
-     *   <li><b>A region that states rates and has none for this day refuses the line.</b> If the region has
-     *       <b>any</b> row for that code — enabled or not, of any date — it is authoritative for that code, so a
+     *   <li><b>A region that states enabled rates and has none for this day refuses the line.</b> If the region
+     *       holds an <b>enabled</b> row for that code — of any date — it is authoritative for that code, so a
      *       missing applicable day is {@link TaxRateRegionGapException} naming the code, the region and the
      *       date. Falling through to step 3 here would answer the company-wide rate, which in the frontier case
-     *       is precisely the amount that must not be charged; refusing without the «has rows» check would refuse
-     *       every line in a tree where no region has rows yet ({@code D2}).</li>
+     *       is precisely the amount that must not be charged; refusing without the «has enabled rows» check
+     *       would refuse every line in a tree where no region has rows yet ({@code D2}).</li>
      *   <li><b>Otherwise, today's behaviour.</b> No region rows for that code, or no region at all: the latest
      *       enabled <b>company-wide</b> row ({@code company_region_id IS NULL}) on or before the document's
      *       date, as {@link Optional} so both callers keep turning empty into their own 400 ({@code S3}).</li>
@@ -109,8 +109,8 @@ public class TaxRateService {
      * @param documentDate the date the document itself states — never "today"
      * @return the applying rate, or empty when neither the region nor the company states one for that code on or
      *     before that date
-     * @throws TaxRateRegionGapException (400) when the region states rates for the code and none applies on the
-     *     document's date
+     * @throws TaxRateRegionGapException (400) when the region states an enabled rate for the code and none
+     *     applies on the document's date
      */
     @Transactional(readOnly = true)
     public Optional<TaxRateResolution> resolve(
@@ -126,10 +126,12 @@ public class TaxRateService {
             if (regional.isPresent()) {
                 return regional.map(TaxRateService::toResolution);
             }
-            // Step 2: the region's silence about this day is a refusal only when the region has spoken about
-            // this code at all. The check ignores `enabled` and the date on purpose — a region whose only rows
-            // are retired, or all of them dated after this document, has still stated that this code is its own.
-            if (taxRateRepository.existsByCompanyIdAndTaxCodeAndCompanyRegionId(companyId, taxCode, companyRegionId)) {
+            // Step 2: the region's silence about this day is a refusal only when the region is stating this code
+            // at all. Authority follows the *enabled* rows and still ignores the date on purpose: retiring its
+            // last row gives the region back to the company-wide rate (issue #1030), while a region whose enabled
+            // row simply starts after this document has stated that the code is its own and must refuse (D2).
+            if (taxRateRepository.existsByCompanyIdAndTaxCodeAndCompanyRegionIdAndEnabledTrue(
+                    companyId, taxCode, companyRegionId)) {
                 throw new TaxRateRegionGapException(
                         taxCode, companyRegionId, regionNameOf(companyRegionId), documentDate);
             }
@@ -265,8 +267,9 @@ public class TaxRateService {
      * <p>The one in-place write the table allows, and it exists because the resolver already depends on it: a
      * retired row keeps its place in history while the resolution steps over it, which without this endpoint
      * would be a column no caller could ever set — a control that behaves like a comment. It is also the switch
-     * that opens and closes a region's authority: a region whose rows for a code are all retired still counts as
-     * having stated that code, so the line refuses instead of falling back to the company-wide rate.</p>
+     * that opens and closes a region's authority: authority follows the enabled rows (issue #1030), so retiring a
+     * region's last row for a code gives the place back to the company-wide rate, and reinstating one takes it
+     * back and restores the refusal for the days it does not cover.</p>
      *
      * <p><b>Why reinstating is checked and retiring is not.</b> Since {@code V114} the same-day key is stated
      * over the enabled rows, so the only direction that can collide with it is {@code false &rarr; true}: a

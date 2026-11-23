@@ -34,9 +34,11 @@ import org.mockito.ArgumentCaptor;
  * <p>What the database owns — the policy, the FK, the two partial unique keys, the bounds of {@code rate} — is
  * {@code TaxRateMigrationIntegrationTest}'s; what is pinned here is the part the schema cannot state: that the
  * date handed to the query is the <b>document's</b> and never the clock, that "no rate" stays empty instead of
- * becoming a silent zero, and that a region which has stated rates for a code is authoritative for it — the
- * frontier's 8% must not be answered with the country's 16%, and a gap in the region is a refusal that names it
- * rather than a fallback.</p>
+ * becoming a silent zero, and that a region that holds <b>enabled</b> rows for a code is authoritative for it —
+ * the frontier's 8% must not be answered with the country's 16%, and a gap in a region that states the code is a
+ * refusal that names it rather than a fallback. Authority follows the enabled rows and not the existence of any
+ * row (issue #1030): retiring a region's rows gives the place back, so the refusal is a state a region enters and
+ * leaves, never an open-only flag.</p>
  */
 @DisplayName("TaxRateService: the document's date decides, the region comes first, and no rate is not zero tax")
 class TaxRateServiceTest {
@@ -183,12 +185,13 @@ class TaxRateServiceTest {
         region.setId(REGION);
         region.setRegionName("Frontera Norte");
         when(companyRegionRepository.findById(REGION)).thenReturn(Optional.of(region));
-        // The region has rows for IVA — dated after this document — and none that applies on its date.
+        // The region holds one *enabled* row for IVA and it starts after this document, so the region states the
+        // code and has no answer for the day: the enabled read finds nothing and the authority check says yes (S1).
         when(taxRateRepository
                         .findFirstByCompanyIdAndTaxCodeAndCompanyRegionIdAndEnabledTrueAndEffectiveFromLessThanEqualOrderByEffectiveFromDesc(
                                 COMPANY, "IVA", REGION, DOCUMENT_DATE))
                 .thenReturn(Optional.empty());
-        when(taxRateRepository.existsByCompanyIdAndTaxCodeAndCompanyRegionId(COMPANY, "IVA", REGION))
+        when(taxRateRepository.existsByCompanyIdAndTaxCodeAndCompanyRegionIdAndEnabledTrue(COMPANY, "IVA", REGION))
                 .thenReturn(true);
         // The company-wide 16% that must NOT be charged in the frontier is there for the taking. Lenient for the
         // same reason as above: never consulting it is the property under test.
@@ -225,7 +228,8 @@ class TaxRateServiceTest {
                                 COMPANY, "IVA", REGION, DOCUMENT_DATE))
                 .thenReturn(Optional.empty());
         lenient()
-                .when(taxRateRepository.existsByCompanyIdAndTaxCodeAndCompanyRegionId(COMPANY, "IVA", REGION))
+                .when(taxRateRepository.existsByCompanyIdAndTaxCodeAndCompanyRegionIdAndEnabledTrue(
+                        COMPANY, "IVA", REGION))
                 .thenReturn(false);
         var companyWide = rate("IVA", "0.160000", LocalDate.of(2026, 1, 1));
         when(taxRateRepository
@@ -242,28 +246,162 @@ class TaxRateServiceTest {
     }
 
     @Test
-    @DisplayName("a region whose only rows are retired refuses instead of falling back to the company-wide rate")
-    void regionWithOnlyRetiredRowsRefuses() {
-        // What the two queries answer when the region's only rows are `enabled = false`: the enabled-and-in-date
-        // read finds nothing, and the existence check still says the region has stated this code — it ignores
-        // `enabled` and the date on purpose, which is what makes a retired region's rate a position and not a
-        // silence. `TaxRateControllerHttpIntegrationTest` proves the same pair against real rows.
+    @DisplayName("a region whose only rows are retired gives the place back: the company-wide rate answers (S2)")
+    void regionWithOnlyRetiredRowsFallsBackToTheCompanyWideRate() {
+        // What the two queries answer when the region's only row for IVA is `enabled = false`: the enabled read
+        // finds nothing and — since issue #1030 — the authority check finds nothing either, because authority
+        // follows the enabled rows. The region withdrew its statement, so the company-wide rate is the answer it
+        // used to be denied: the old check counted the retired row as a statement and refused every document of
+        // that region and code for good, with nothing left for anyone to state.
         when(taxRateRepository
                         .findFirstByCompanyIdAndTaxCodeAndCompanyRegionIdAndEnabledTrueAndEffectiveFromLessThanEqualOrderByEffectiveFromDesc(
                                 COMPANY, "IVA", REGION, DOCUMENT_DATE))
                 .thenReturn(Optional.empty());
-        when(taxRateRepository.existsByCompanyIdAndTaxCodeAndCompanyRegionId(COMPANY, "IVA", REGION))
+        when(taxRateRepository.existsByCompanyIdAndTaxCodeAndCompanyRegionIdAndEnabledTrue(COMPANY, "IVA", REGION))
+                .thenReturn(false);
+        var companyWide = rate("IVA", "0.160000", LocalDate.of(2026, 1, 1));
+        when(taxRateRepository
+                        .findFirstByCompanyIdAndTaxCodeAndCompanyRegionIsNullAndEnabledTrueAndEffectiveFromLessThanEqualOrderByEffectiveFromDesc(
+                                COMPANY, "IVA", DOCUMENT_DATE))
+                .thenReturn(Optional.of(companyWide));
+
+        assertThat(taxRateService.resolve(COMPANY, "IVA", REGION, DOCUMENT_DATE))
+                .as("a retired row is a statement the region withdrew: answering the company-wide rate is the "
+                        + "fallback D2 allows for a region that says nothing, and refusing here would leave the "
+                        + "region with no way back")
+                .get()
+                .extracting(TaxRateResolution::rate)
+                .isEqualTo(new BigDecimal("0.160000"));
+    }
+
+    @Test
+    @DisplayName("a day the retired row used to cover answers 8% while it is enabled and 16% after it is retired (S3)")
+    void aRetiredRowStopsCoveringTheDayItUsedToAnswer() {
+        var covered = LocalDate.of(2026, 2, 1);
+        var regional = rate(REGION, "IVA", "0.080000", LocalDate.of(2026, 1, 1));
+        when(taxRateRepository
+                        .findFirstByCompanyIdAndTaxCodeAndCompanyRegionIdAndEnabledTrueAndEffectiveFromLessThanEqualOrderByEffectiveFromDesc(
+                                COMPANY, "IVA", REGION, covered))
+                .thenReturn(Optional.of(regional));
+
+        assertThat(taxRateService.resolve(COMPANY, "IVA", REGION, covered))
+                .as("while the row is enabled the region answers the day it covers")
+                .get()
+                .extracting(TaxRateResolution::rate)
+                .isEqualTo(new BigDecimal("0.080000"));
+
+        // The same row, now retired: step 1 steps over it and step 2 no longer counts it, so the scope is a region
+        // that states nothing and the company-wide row answers the very day the 8% used to.
+        when(taxRateRepository
+                        .findFirstByCompanyIdAndTaxCodeAndCompanyRegionIdAndEnabledTrueAndEffectiveFromLessThanEqualOrderByEffectiveFromDesc(
+                                COMPANY, "IVA", REGION, covered))
+                .thenReturn(Optional.empty());
+        when(taxRateRepository.existsByCompanyIdAndTaxCodeAndCompanyRegionIdAndEnabledTrue(COMPANY, "IVA", REGION))
+                .thenReturn(false);
+        var companyWide = rate("IVA", "0.160000", LocalDate.of(2026, 1, 1));
+        when(taxRateRepository
+                        .findFirstByCompanyIdAndTaxCodeAndCompanyRegionIsNullAndEnabledTrueAndEffectiveFromLessThanEqualOrderByEffectiveFromDesc(
+                                COMPANY, "IVA", covered))
+                .thenReturn(Optional.of(companyWide));
+
+        assertThat(taxRateService.resolve(COMPANY, "IVA", REGION, covered))
+                .as("retiring the region's row withdraws the answer it was giving, so the day it used to cover is "
+                        + "the company's again instead of a gap")
+                .get()
+                .extracting(TaxRateResolution::rate)
+                .isEqualTo(new BigDecimal("0.160000"));
+    }
+
+    @Test
+    @DisplayName("a region that states only another code is not authoritative for this one (S4)")
+    void authorityIsPerRegionAndCode() {
+        // The region holds an enabled row for another code. The rule is per (region, code), so that row says
+        // nothing about IVA — and this change must not widen the rule into "a region with any rate at all".
+        lenient()
+                .when(taxRateRepository.existsByCompanyIdAndTaxCodeAndCompanyRegionIdAndEnabledTrue(
+                        COMPANY, "IEPS", REGION))
                 .thenReturn(true);
+        lenient()
+                .when(taxRateRepository
+                        .findFirstByCompanyIdAndTaxCodeAndCompanyRegionIdAndEnabledTrueAndEffectiveFromLessThanEqualOrderByEffectiveFromDesc(
+                                COMPANY, "IVA", REGION, DOCUMENT_DATE))
+                .thenReturn(Optional.empty());
+        when(taxRateRepository.existsByCompanyIdAndTaxCodeAndCompanyRegionIdAndEnabledTrue(COMPANY, "IVA", REGION))
+                .thenReturn(false);
+        var companyWide = rate("IVA", "0.160000", LocalDate.of(2026, 1, 1));
+        when(taxRateRepository
+                        .findFirstByCompanyIdAndTaxCodeAndCompanyRegionIsNullAndEnabledTrueAndEffectiveFromLessThanEqualOrderByEffectiveFromDesc(
+                                COMPANY, "IVA", DOCUMENT_DATE))
+                .thenReturn(Optional.of(companyWide));
+
+        assertThat(taxRateService.resolve(COMPANY, "IVA", REGION, DOCUMENT_DATE))
+                .as("an IEPS row in the region is not a statement about IVA, so the company-wide IVA rate answers")
+                .get()
+                .extracting(TaxRateResolution::rate)
+                .isEqualTo(new BigDecimal("0.160000"));
+
+        // The question is the line's own pair: a check that dropped the code would find the IEPS row and refuse
+        // an IVA line, which is the widening this change must not introduce.
+        verify(taxRateRepository).existsByCompanyIdAndTaxCodeAndCompanyRegionIdAndEnabledTrue(COMPANY, "IVA", REGION);
+        verify(taxRateRepository, never())
+                .existsByCompanyIdAndTaxCodeAndCompanyRegionIdAndEnabledTrue(COMPANY, "IEPS", REGION);
+    }
+
+    @Test
+    @DisplayName("authority returns as soon as the region speaks again, so the refusal is a state (S6)")
+    void authorityReturnsWhenTheRegionSpeaksAgain() {
+        var companyWide = rate("IVA", "0.160000", LocalDate.of(2026, 1, 1));
+        when(taxRateRepository
+                        .findFirstByCompanyIdAndTaxCodeAndCompanyRegionIdAndEnabledTrueAndEffectiveFromLessThanEqualOrderByEffectiveFromDesc(
+                                COMPANY, "IVA", REGION, DOCUMENT_DATE))
+                .thenReturn(Optional.empty());
+        when(taxRateRepository
+                        .findFirstByCompanyIdAndTaxCodeAndCompanyRegionIsNullAndEnabledTrueAndEffectiveFromLessThanEqualOrderByEffectiveFromDesc(
+                                COMPANY, "IVA", DOCUMENT_DATE))
+                .thenReturn(Optional.of(companyWide));
+        // The retired state first, then the reinstated one: the region leaves authority and enters it again.
+        when(taxRateRepository.existsByCompanyIdAndTaxCodeAndCompanyRegionIdAndEnabledTrue(COMPANY, "IVA", REGION))
+                .thenReturn(false, true);
+
+        assertThat(taxRateService.resolve(COMPANY, "IVA", REGION, DOCUMENT_DATE))
+                .as("first half: nothing enabled in the region, so the company-wide 16% answers")
+                .get()
+                .extracting(TaxRateResolution::rate)
+                .isEqualTo(new BigDecimal("0.160000"));
+
         var region = new CompanyRegion();
         region.setId(REGION);
         region.setRegionName("Frontera Norte");
         when(companyRegionRepository.findById(REGION)).thenReturn(Optional.of(region));
 
         assertThatThrownBy(() -> taxRateService.resolve(COMPANY, "IVA", REGION, DOCUMENT_DATE))
-                .as("retiring a region's rows does not hand the place back to the company-wide rate: it says the "
-                        + "region has no answer, which is a refusal and not the 16%")
+                .as("second half: the region states the code again, and the refusal for a day it does not cover is "
+                        + "back — which is what makes authority a state the region enters and leaves rather than a "
+                        + "one-way flag")
                 .isInstanceOf(TaxRateRegionGapException.class)
                 .hasMessageContaining("Frontera Norte");
+    }
+
+    @Test
+    @DisplayName(
+            "an empty answer is not zero tax: with no company-wide row either, the retired region resolves empty (S8)")
+    void aRetiredRegionWithNoCompanyWideRowResolvesEmpty() {
+        when(taxRateRepository
+                        .findFirstByCompanyIdAndTaxCodeAndCompanyRegionIdAndEnabledTrueAndEffectiveFromLessThanEqualOrderByEffectiveFromDesc(
+                                COMPANY, "IVA", REGION, DOCUMENT_DATE))
+                .thenReturn(Optional.empty());
+        when(taxRateRepository.existsByCompanyIdAndTaxCodeAndCompanyRegionIdAndEnabledTrue(COMPANY, "IVA", REGION))
+                .thenReturn(false);
+        when(taxRateRepository
+                        .findFirstByCompanyIdAndTaxCodeAndCompanyRegionIsNullAndEnabledTrueAndEffectiveFromLessThanEqualOrderByEffectiveFromDesc(
+                                COMPANY, "IVA", DOCUMENT_DATE))
+                .thenReturn(Optional.empty());
+
+        assertThat(taxRateService.resolve(COMPANY, "IVA", REGION, DOCUMENT_DATE))
+                .as("no scope states an enabled rate, so the answer is empty and each document writer turns it into "
+                        + "its own 400: a zero here would tax the line at nothing and ck_item_tax would agree with "
+                        + "it (S8)")
+                .isEmpty();
     }
 
     /** A read-only entity has no public constructor by design, so the company-wide fixture is a mock. */

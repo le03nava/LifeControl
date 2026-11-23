@@ -529,21 +529,40 @@ class TaxRateControllerHttpIntegrationTest extends AbstractPostgresIntegrationTe
     }
 
     @Test
-    @DisplayName("a region whose only rows are retired still refuses the line instead of answering the company rate")
-    void aRegionWithOnlyRetiredRowsRefusesRatherThanFallingBack() throws Exception {
+    @DisplayName("retiring a region's only row gives the region back, and re-enabling it takes it back again (S2, S6)")
+    void retiringARegionsOnlyRowHandsThePlaceBackAndReEnablingTakesItBack() throws Exception {
         var frontier = insertRegion(companyId, "FRONTERA");
-        var regional = createRegionalRate(companyId, "IVA", "0.08", JANUARY, frontier);
+        var regional = createRegionalRate(companyId, "IVA", "0.08", JULY, frontier);
         createRate(companyId, "IVA", "0.16", JANUARY);
-        disable(companyId, regional);
         em.flush();
 
         assertThatThrownBy(() -> taxRateService.resolve(companyId, "IVA", frontier, JANUARY))
-                .as("the existence check ignores enabled and the date, so a retired region has still stated this "
-                        + "code: answering the company-wide 16% here is the silent frontier rate D2 refuses")
+                .as("the region holds an enabled row for IVA and its first day is still ahead, so D2 refuses the "
+                        + "line instead of charging the company-wide 16% of a place it was not sold in (S1)")
                 .isInstanceOf(TaxRateRegionGapException.class)
                 .hasMessageContaining("IVA")
                 .hasMessageContaining("FRONTERA")
                 .hasMessageContaining(JANUARY.toString());
+
+        disable(companyId, regional);
+        em.flush();
+
+        assertThat(taxRateService.resolve(companyId, "IVA", frontier, JANUARY))
+                .as("with its only row for the code retired the region states nothing, so the company-wide row "
+                        + "answers again — authority follows the enabled rows and is not an open-only flag (S2)")
+                .get()
+                .extracting(TaxRateResolution::rate)
+                .isEqualTo(new BigDecimal("0.160000"));
+
+        enable(companyId, regional);
+        em.flush();
+
+        assertThatThrownBy(() -> taxRateService.resolve(companyId, "IVA", frontier, JANUARY))
+                .as("and reinstating it restores the refusal, so the region can enter and leave authority "
+                        + "instead of only leaving it (S6)")
+                .isInstanceOf(TaxRateRegionGapException.class)
+                .hasMessageContaining("IVA")
+                .hasMessageContaining("FRONTERA");
     }
 
     // ---- reads, and the enabled flag the resolver depends on ----
@@ -714,6 +733,20 @@ class TaxRateControllerHttpIntegrationTest extends AbstractPostgresIntegrationTe
                         .content("{\"enabled\": false}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.enabled").value(false));
+    }
+
+    /**
+     * The other direction of {@link #disable}: the row is stated again and, per {@code V114}, the check that
+     * guards the transition is the enabled-rows one, so a row whose day nobody else holds comes back.
+     */
+    private void enable(UUID company, String id) throws Exception {
+        useTenant(company);
+        mockMvc.perform(patch(BASE_URL + "/{id}/enable", company, id)
+                        .with(taxWriter(company))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"enabled\": true}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.enabled").value(true));
     }
 
     /**
