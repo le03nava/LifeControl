@@ -12,8 +12,16 @@
 #   <work>/.env.template         the tracked template it is compared against
 #   <work>/scripts/              copies of validate-env.sh and _common.sh, so SCRIPT_DIR and DOCKER_DIR
 #                                resolve inside the scratch tree and never touch the repository's files
-#   <work>/secrets/              one materialised secret at mode 0444, which is what the gate requires
+#   <work>/secrets/              one materialised credential in its declared shape, which is what the
+#                                gate requires: `redis_password` at 0400 owned by uid 1001
 #   <work>/bin/docker            a stub that answers `docker info`, so no daemon is needed
+#   <work>/bin/stat              a shim that answers the gate's `stat -c '%a %u %g'` for that one file
+#
+# The `stat` shim is here for the same reason the `docker` stub is: the credential contract names uids
+# (1000, 1001, root) that a test run cannot own a file as, so the one question the gate asks about the
+# inode is doubled. The real metadata path and the real permission semantics are covered by
+# secrets-ownership.test.sh, which drives a real `stat` for the drift half and real containers for the
+# criterion itself.
 #
 # No Docker daemon, no network, no compose and no repository file is read or written.
 #
@@ -79,15 +87,39 @@ cp "$DOCKER_DIR/.env.template" "$WORK/.env.template" 2>/dev/null || true
 printf '#!/bin/sh\nexit 0\n' >"$WORK/bin/docker"
 chmod +x "$WORK/bin/docker"
 
-# The gate's own preconditions: the four required variables, and one materialised secret at 0444.
+# The credential metadata double, documented above `install_metadata_double` in the header.
+METADATA_TSV="$WORK/metadata.tsv"
+: >"$METADATA_TSV"
+REAL_STAT="$(command -v stat)"
+cat >"$WORK/bin/stat" <<SHIM
+#!/bin/bash
+if [ "\${1:-}" = "-c" ] && [ "\${2:-}" = "%a %u %g" ]; then
+	name="\$(basename "\${@: -1}")"
+	while IFS='|' read -r n m u g; do
+		[ -n "\$n" ] || continue
+		if [ "\$n" = "\$name" ]; then printf '%s %s %s\\n' "\$m" "\$u" "\$g"; exit 0; fi
+	done <"$METADATA_TSV"
+fi
+exec "$REAL_STAT" "\$@"
+SHIM
+chmod +x "$WORK/bin/stat"
+
+# declare_metadata <name> <mode> <uid> <gid> -- the shape the gate will read for that file.
+declare_metadata() {
+	printf '%s|%s|%s|%s\n' "$1" "$2" "$3" "$4" >>"$METADATA_TSV"
+}
+
+# The gate's own preconditions: the four required variables, and one materialised credential in the shape
+# its row declares -- `redis_password` is 0400 owned by uid 1001, the api's account.
 REQUIRED='COMPOSE_PROJECT_NAME=lc-test
 ENVIRONMENT=dev
 API_GATEWAY_MANAGEMENT_PORT=9001
 LIFECONTROL_API_PORT=8082'
 printf '%s\n' "$REQUIRED" >"$WORK/.env.template"
 printf 'LOKI_IMAGE=grafana/loki:3.7.8\n' >>"$WORK/.env.template"
-printf 'secret\n' >"$WORK/secrets/db_password"
-chmod 0444 "$WORK/secrets/db_password"
+printf 'secret\n' >"$WORK/secrets/redis_password"
+chmod 0400 "$WORK/secrets/redis_password"
+declare_metadata redis_password 400 1001 0
 
 OUT="$WORK/out.log"
 LAST_RC=0
@@ -163,12 +195,16 @@ assert_contains "--help is still refused as an unknown environment" "$(sed 's/\x
 # 5. The pre-existing failure paths are untouched: the gate still refuses a broken environment with
 #    aligned pins, without the flag, and without claiming anything about pins.
 # ------------------------------------------
-chmod 0644 "$WORK/secrets/db_password"
+# A credential whose shape drifts is still a failure of its own, and still not blamed on the pins.
+: >"$METADATA_TSV"
+declare_metadata redis_password 444 1001 0
 run_gate "grafana/loki:3.7.8" dev
 assert_equal "a broken secret still fails the gate without the flag" "1" "$LAST_RC"
 assert_contains "the pre-existing failure is still reported" "$LAST_TEXT" "Validation failed with"
+assert_contains "the failure is the credential's mode, and it says which" "$LAST_TEXT" "must be 0400"
 assert_absent "a pre-existing failure is not blamed on the pins" "$LAST_TEXT" "Strict pin check failed"
-chmod 0444 "$WORK/secrets/db_password"
+: >"$METADATA_TSV"
+declare_metadata redis_password 400 1001 0
 
 rm -f "$WORK/.env.dev"
 PATH="$WORK/bin:$PATH" "$WORK/scripts/validate-env.sh" dev >"$OUT" 2>&1

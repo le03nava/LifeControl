@@ -15,7 +15,8 @@
 # Prerequisites (the script fails loudly, naming the missing one):
 #   - Keycloak up and the realm provisioned: ./docker/scripts/keycloak-setup.sh dev
 #   - Mailpit up: ./docker/scripts/deploy.sh dev up
-#   - docker/secrets/keycloak_admin_client_secret materialized
+#   - docker/secrets/keycloak_admin_client_secret materialized, read with sudo: the file is owned by
+#     the API's uid at 0400, so the host reader needs root, which is how keycloak-setup.sh runs too
 #
 # It obtains an admin token with a client-credentials grant, creates a throwaway
 # user, calls PUT /admin/realms/<realm>/users/<id>/execute-actions-email with
