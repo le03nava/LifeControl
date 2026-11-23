@@ -166,6 +166,104 @@ class TaxRateControllerHttpIntegrationTest extends AbstractPostgresIntegrationTe
         assertThat(ratesOf(companyId)).containsOnly(new BigDecimal("0.160000"));
     }
 
+    // ---- S1, S2, S5, S6 of issue #888: retiring a rate frees its day, and only that ----
+
+    @Test
+    @DisplayName("a retired rate stops owning its day: the corrected value is declared for that same day, 201")
+    void retiringTheWrongRateFreesItsDayForTheCorrection() throws Exception {
+        var wrong = createRate(companyId, "IVA", "0.16", JANUARY);
+        disable(companyId, wrong);
+
+        // The same (company, code, scope, day) the retired row occupies — the declaration the key refused until
+        // `V114`, and the whole point of the unit. The helper asserts the 201 for us.
+        var corrected = createRate(companyId, "IVA", "0.08", JANUARY);
+
+        assertThat(corrected).isNotEqualTo(wrong);
+        assertThat(countRates(companyId))
+                .as("history stays append-only: the retired row is still there, beside the correction")
+                .isEqualTo(2);
+        assertRow(wrong, "0.160000", JANUARY, false);
+        assertRow(corrected, "0.080000", JANUARY, true);
+        assertThat(ratesOf(companyId))
+                .as("the list shows both rows, the first one retired")
+                .containsExactlyInAnyOrder(new BigDecimal("0.160000"), new BigDecimal("0.080000"));
+    }
+
+    @Test
+    @DisplayName("the corrected day resolves the new value, and a document dated before it keeps the old one")
+    void theCorrectionResolvesFromItsDayAndNothingEarlierChanges() throws Exception {
+        var earlier = JANUARY.minusDays(1);
+        createRate(companyId, "IVA", "0.10", earlier);
+        var wrong = createRate(companyId, "IVA", "0.16", JANUARY);
+        disable(companyId, wrong);
+        createRate(companyId, "IVA", "0.08", JANUARY);
+
+        assertThat(taxRateService.resolve(companyId, "IVA", null, JANUARY))
+                .as("the mistyped day answers the corrected rate, never the retired one")
+                .get()
+                .extracting(TaxRateResolution::taxCode, TaxRateResolution::rate)
+                .containsExactly("IVA", new BigDecimal("0.080000"));
+        assertThat(taxRateService.resolve(companyId, "IVA", null, earlier))
+                .as("a document dated before the corrected day keeps what it resolved then")
+                .get()
+                .extracting(TaxRateResolution::taxCode, TaxRateResolution::rate)
+                .containsExactly("IVA", new BigDecimal("0.100000"));
+    }
+
+    @Test
+    @DisplayName("the two scopes may still share a day: the key is per scope, not per day")
+    void theTwoScopesStillShareTheDay() throws Exception {
+        var frontier = insertRegion(companyId, "FRONTERA");
+
+        createRate(companyId, "IVA", "0.16", JANUARY);
+        var regional = createRegionalRate(companyId, "IVA", "0.08", JANUARY, frontier);
+
+        assertThat(countRates(companyId)).isEqualTo(2);
+        assertRow(regional, "0.080000", JANUARY, true);
+    }
+
+    @Test
+    @DisplayName("two retired rows for one day are representable, and neither is ever resolved")
+    void retiredPairsAreAcceptedAndNeverResolve() throws Exception {
+        // The state the new predicate admits, pinned instead of left to be discovered: both are born retired, so
+        // neither ever answered a document, and the resolver reads the enabled rows and finds nothing.
+        mockMvc.perform(post(BASE_URL, companyId)
+                        .with(taxWriter())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(rateBody("IVA", "0.16", JANUARY, ", \"enabled\": false")))
+                .andExpect(status().isCreated());
+        mockMvc.perform(post(BASE_URL, companyId)
+                        .with(taxWriter())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(rateBody("IVA", "0.08", JANUARY, ", \"enabled\": false")))
+                .andExpect(status().isCreated());
+
+        assertThat(countRates(companyId)).isEqualTo(2);
+        assertThat(taxRateService.resolve(companyId, "IVA", null, JANUARY)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("reinstating the retired rate after the correction answers 409 naming code and scope")
+    void reinstatingAfterACorrectionIsRefusedByName() throws Exception {
+        var wrong = createRate(companyId, "IVA", "0.16", JANUARY);
+        disable(companyId, wrong);
+        var corrected = createRate(companyId, "IVA", "0.08", JANUARY);
+
+        useTenant(companyId);
+        mockMvc.perform(patch(BASE_URL + "/{id}/enable", companyId, wrong)
+                        .with(taxWriter(companyId))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"enabled\": true}"))
+                .andExpect(status().isConflict())
+                // The named refusal, not the generic «violates a data constraint» the index alone would
+                // produce: the caller has to learn which code and which scope hold the day.
+                .andExpect(jsonPath("$.message", containsString("IVA")))
+                .andExpect(jsonPath("$.message", containsString("company-wide scope")));
+
+        assertRow(wrong, "0.160000", JANUARY, false);
+        assertRow(corrected, "0.080000", JANUARY, true);
+    }
+
     @Test
     @DisplayName("a rate outside [0, 1] answers 400 and writes nothing")
     void rateOutsideTheUnitIntervalIsRejected() throws Exception {
@@ -431,21 +529,40 @@ class TaxRateControllerHttpIntegrationTest extends AbstractPostgresIntegrationTe
     }
 
     @Test
-    @DisplayName("a region whose only rows are retired still refuses the line instead of answering the company rate")
-    void aRegionWithOnlyRetiredRowsRefusesRatherThanFallingBack() throws Exception {
+    @DisplayName("retiring a region's only row gives the region back, and re-enabling it takes it back again (S2, S6)")
+    void retiringARegionsOnlyRowHandsThePlaceBackAndReEnablingTakesItBack() throws Exception {
         var frontier = insertRegion(companyId, "FRONTERA");
-        var regional = createRegionalRate(companyId, "IVA", "0.08", JANUARY, frontier);
+        var regional = createRegionalRate(companyId, "IVA", "0.08", JULY, frontier);
         createRate(companyId, "IVA", "0.16", JANUARY);
-        disable(companyId, regional);
         em.flush();
 
         assertThatThrownBy(() -> taxRateService.resolve(companyId, "IVA", frontier, JANUARY))
-                .as("the existence check ignores enabled and the date, so a retired region has still stated this "
-                        + "code: answering the company-wide 16% here is the silent frontier rate D2 refuses")
+                .as("the region holds an enabled row for IVA and its first day is still ahead, so D2 refuses the "
+                        + "line instead of charging the company-wide 16% of a place it was not sold in (S1)")
                 .isInstanceOf(TaxRateRegionGapException.class)
                 .hasMessageContaining("IVA")
                 .hasMessageContaining("FRONTERA")
                 .hasMessageContaining(JANUARY.toString());
+
+        disable(companyId, regional);
+        em.flush();
+
+        assertThat(taxRateService.resolve(companyId, "IVA", frontier, JANUARY))
+                .as("with its only row for the code retired the region states nothing, so the company-wide row "
+                        + "answers again — authority follows the enabled rows and is not an open-only flag (S2)")
+                .get()
+                .extracting(TaxRateResolution::rate)
+                .isEqualTo(new BigDecimal("0.160000"));
+
+        enable(companyId, regional);
+        em.flush();
+
+        assertThatThrownBy(() -> taxRateService.resolve(companyId, "IVA", frontier, JANUARY))
+                .as("and reinstating it restores the refusal, so the region can enter and leave authority "
+                        + "instead of only leaving it (S6)")
+                .isInstanceOf(TaxRateRegionGapException.class)
+                .hasMessageContaining("IVA")
+                .hasMessageContaining("FRONTERA");
     }
 
     // ---- reads, and the enabled flag the resolver depends on ----
@@ -616,6 +733,20 @@ class TaxRateControllerHttpIntegrationTest extends AbstractPostgresIntegrationTe
                         .content("{\"enabled\": false}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.enabled").value(false));
+    }
+
+    /**
+     * The other direction of {@link #disable}: the row is stated again and, per {@code V114}, the check that
+     * guards the transition is the enabled-rows one, so a row whose day nobody else holds comes back.
+     */
+    private void enable(UUID company, String id) throws Exception {
+        useTenant(company);
+        mockMvc.perform(patch(BASE_URL + "/{id}/enable", company, id)
+                        .with(taxWriter(company))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"enabled\": true}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.enabled").value(true));
     }
 
     /**
