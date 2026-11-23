@@ -1231,7 +1231,41 @@ if build_layout "$root" "$state" all ""; then
 fi
 
 # ------------------------------------------
-# Case 16 (audience mapper) — a realm that holds every tenancy mapper but NOT the
+# Case 16 — the credential exists but the account running the script cannot read it, which is the shape of a
+# host-side reader after S6/S9: the files are 0400 owned by the container uid that reads them
+# (odd/tasks/docker-stack-hardening.md L21). `cat` under `set -e` would die with a bare `Permission denied`
+# that names neither the reason nor the fix, so the script has to say both. Driven by chmod 0000 on a file
+# this run owns: no root, no second uid, and `-r` answers exactly what the script asks. A root run cannot
+# be refused that way, so the case is skipped there instead of pretending to pass.
+# ------------------------------------------
+if [ "$(id -u)" -eq 0 ]; then
+	printf 'SKIP: case 16: running as root, so a 0000 credential is still readable and the guard cannot trigger\n'
+else
+	root="$(new_root)"
+	state="$root/state"
+	LAYOUT_ENV=dev
+	LAYOUT_SMTP_AUTH=false
+	LAYOUT_CLIENT_REDIRECTS=""
+	LAYOUT_CLIENT_WEB_ORIGINS=""
+	if build_layout "$root" "$state" all ""; then
+		export KCS_SHIM_STATE_DIR="$state"
+		export KCS_SHIM_INJECT_MATCH=""
+		export KCS_SHIM_INJECT_KIND=""
+		unset KCS_SHIM_REALM_DROP_UPDATE
+		admin_credential="$root/docker/secrets/keycloak_admin_password"
+		chmod 0000 "$admin_credential"
+		run_setup "$root"
+		assert_rc "case 16: an unreadable credential aborts with 1" 1 "$SETUP_RC" "$SETUP_OUT"
+		assert_contains "case 16: names the file it cannot read" "keycloak_admin_password" "$SETUP_OUT"
+		assert_contains "case 16: says it cannot read it as this uid" "Cannot read" "$SETUP_OUT"
+		assert_contains "case 16: names the fix, sudo" "sudo ./docker/scripts/keycloak-setup.sh dev" "$SETUP_OUT"
+		assert_file_has_no_match "case 16: no realm write before the refusal" "realms/" "$state/updates.log"
+		assert_creates "case 16: no create before the refusal" 0 "$state/creates.log"
+		chmod 0644 "$admin_credential"
+	fi
+fi
+
+# Case 17 (audience mapper) — a realm that holds every tenancy mapper but NOT the
 # platform audience mapper gains exactly that one. Both JWT decoders reject a
 # token whose `aud` does not name them (odd/tasks/jwt-audience-validation.md,
 # S1-S3, S6), and Keycloak emits `aud: ["account"]` with no mapper, so this
@@ -1254,28 +1288,28 @@ if build_layout "$root" "$state" tenancy ""; then
 	export KCS_SHIM_INJECT_KIND=""
 	unset KCS_SHIM_REALM_DROP_UPDATE
 	run_setup "$root"
-	assert_rc "case 16 (audience): a realm without the audience mapper converges and exits 0" 0 "$SETUP_RC" "$SETUP_OUT"
-	assert_creates "case 16 (audience): exactly one mapper is created" 1 "$state/creates.log"
-	assert_contains "case 16 (audience): the created mapper is the platform audience mapper" \
+	assert_rc "case 17 (audience): a realm without the audience mapper converges and exits 0" 0 "$SETUP_RC" "$SETUP_OUT"
+	assert_creates "case 17 (audience): exactly one mapper is created" 1 "$state/creates.log"
+	assert_contains "case 17 (audience): the created mapper is the platform audience mapper" \
 		"name=$ENV_AUDIENCE_MAPPER" "$(cat "$state/creates.log")"
-	assert_contains "case 16 (audience): it declares oidc-audience-mapper" \
+	assert_contains "case 17 (audience): it declares oidc-audience-mapper" \
 		"protocolMapper=oidc-audience-mapper" "$(cat "$state/creates.log")"
-	assert_contains "case 16 (audience): it declares the platform audience" \
+	assert_contains "case 17 (audience): it declares the platform audience" \
 		"config.\"included.custom.audience\"=$ENV_API_AUDIENCE" "$(cat "$state/creates.log")"
-	assert_contains "case 16 (audience): the audience travels in the access token" \
+	assert_contains "case 17 (audience): the audience travels in the access token" \
 		"config.\"access.token.claim\"=true" "$(cat "$state/creates.log")"
-	assert_contains "case 16 (audience): and not in the id token" \
+	assert_contains "case 17 (audience): and not in the id token" \
 		"config.\"id.token.claim\"=false" "$(cat "$state/creates.log")"
-	assert_contains "case 16 (audience): the create was read back and verified" \
+	assert_contains "case 17 (audience): the create was read back and verified" \
 		"Protocol mapper $ENV_APP_CLIENT/$ENV_AUDIENCE_MAPPER created and verified" "$SETUP_OUT"
-	assert_contains "case 16 (audience): reaches the end" "Keycloak setup complete for dev" "$SETUP_OUT"
+	assert_contains "case 17 (audience): reaches the end" "Keycloak setup complete for dev" "$SETUP_OUT"
 fi
 
 # ------------------------------------------
-# Case 17 (audience mapper drift) — an existing audience mapper that sends the
+# Case 18 (audience mapper drift) — an existing audience mapper that sends the
 # audience in the id token instead of the access token. The script must fail,
 # name the mapper and the missing requirement, and NOT repair it: no create and
-# no mapper update. Inverse of case 16, and the negative half of the
+# no mapper update. Inverse of case 17, and the negative half of the
 # fail-rather-than-repair property the block declares.
 # ------------------------------------------
 root="$(new_root)"
@@ -1293,15 +1327,15 @@ if build_layout "$root" "$state" all ""; then
 	export KCS_SHIM_INJECT_KIND=""
 	unset KCS_SHIM_REALM_DROP_UPDATE
 	run_setup "$root"
-	assert_rc "case 17 (audience-drift): a drifted audience mapper aborts with 1" 1 "$SETUP_RC" "$SETUP_OUT"
-	assert_creates "case 17 (audience-drift): no create is attempted" 0 "$state/creates.log"
-	assert_contains "case 17 (audience-drift): names the mapper and the missing requirement" \
+	assert_rc "case 18 (audience-drift): a drifted audience mapper aborts with 1" 1 "$SETUP_RC" "$SETUP_OUT"
+	assert_creates "case 18 (audience-drift): no create is attempted" 0 "$state/creates.log"
+	assert_contains "case 18 (audience-drift): names the mapper and the missing requirement" \
 		"$ENV_APP_CLIENT/$ENV_AUDIENCE_MAPPER is missing \"id.token.claim\":\"false\"." "$SETUP_OUT"
-	assert_contains "case 17 (audience-drift): the drifted mapper was actually read" \
+	assert_contains "case 18 (audience-drift): the drifted mapper was actually read" \
 		"protocol-mappers/models/mid-$ENV_AUDIENCE_MAPPER" "$(cat "$state/calls.log")"
-	assert_file_has_no_match "case 17 (audience-drift): no mapper update (no repair)" \
+	assert_file_has_no_match "case 18 (audience-drift): no mapper update (no repair)" \
 		"protocol-mappers/models" "$state/updates.log"
-	assert_not_contains "case 17 (audience-drift): never reports success" \
+	assert_not_contains "case 18 (audience-drift): never reports success" \
 		"Keycloak setup complete" "$SETUP_OUT"
 fi
 

@@ -138,6 +138,15 @@ services:
       - DAC_OVERRIDE
       - SETGID
       - SETUID
+    # The two credentials this service reads besides the one its own wrapper exports are shared with a
+    # second, differently-owned reader: `lifecontrol_app_password` (0440 root:9311) is read here at uid
+    # 999 by the roles script on a fresh volume and by the api at 1001, and
+    # `lifecontrol_postgres_password` (0440 root:9312) is read here at 999 by the same script and by
+    # postgres-exporter-lifecontrol at 65534. Numeric gids, no host group, no second copy of the value
+    # (odd/tasks/docker-stack-hardening.md L21).
+    group_add:
+      - "9311"
+      - "9312"
     security_opt:
       - no-new-privileges:true
     read_only: true
@@ -187,6 +196,14 @@ services:
     # Hardening (issue #897): the image runs as uid 1000 and needs no capability.
     cap_drop:
       - ALL
+    # One credential, one gid (odd/tasks/docker-stack-hardening.md L21): `keycloak_postgres_password` is
+    # read by this container at uid 1000 AND by postgres-exporter-keycloak at uid 65534, so no single
+    # owner can serve both and a 0400 file would lock one of them out. The file is 0440 root:9313 and
+    # this is one of the two services that declare 9313. The value stays in ONE copy -- a per-reader
+    # duplicate would drift the moment the credential rotates. A numeric gid needs no entry in the
+    # container's /etc/group and none is created on the host, by design.
+    group_add:
+      - "9313"
     security_opt:
       - no-new-privileges:true
     # NOT read-only, and this is measured, not a preference: `kc.sh start-dev` re-augments the
@@ -347,6 +364,12 @@ services:
     # Same image, same measured answer as postgres-exporter-lifecontrol above.
     cap_drop:
       - ALL
+    # `lifecontrol_postgres_password` is 0440 root:9312 because the api reads it at 1001 and this
+    # exporter reads it at 65534 -- measured: as a foreign uid the exporter refuses to start with
+    # `failed loading data source pass file ...: permission denied` (odd/tasks/docker-stack-hardening.md
+    # L20/L21). This service is one of the two that declare 9312; the other is lifecontrol-api.
+    group_add:
+      - "9312"
     security_opt:
       - no-new-privileges:true
     read_only: true
@@ -375,6 +398,10 @@ services:
     # Same image, same measured answer as postgres-exporter-lifecontrol above.
     cap_drop:
       - ALL
+    # `keycloak_postgres_password` is 0440 root:9313: keycloak reads it at 1000, this exporter at 65534.
+    # One of the two services that declare 9313 (docker/docker-compose.yml, keycloak).
+    group_add:
+      - "9313"
     security_opt:
       - no-new-privileges:true
     read_only: true
@@ -828,6 +855,15 @@ services:
     # Hardening (issue #897): same two java images as api-gateway, same measured answer.
     cap_drop:
       - ALL
+    # This wrapper reads eight credential files (docker/entrypoints/lifecontrol-app-entrypoint.sh:48-51,
+    # :94-97). Six of them are 0400 with uid 1001 as the owner -- this is the only account that reads
+    # them -- and the two database credentials are 0440 root:<gid> because a second container reads the
+    # same file: `lifecontrol_app_password` (9311) is also read by the postgres role script at 999, and
+    # `lifecontrol_postgres_password` (9312) also by postgres-exporter-lifecontrol at 65534. Numeric
+    # gids: nothing is created on the host and no container needs an /etc/group entry.
+    group_add:
+      - "9311"
+      - "9312"
     security_opt:
       - no-new-privileges:true
     read_only: true
