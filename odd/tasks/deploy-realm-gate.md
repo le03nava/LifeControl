@@ -175,3 +175,11 @@ HEAD as well, so the earlier drift came from the audience block, not from here),
 (the script copied to /tmp with `SCRIPT_DIR` on the anchor's docker directory): `--verify-audience dev` →
 exit 0, resolving `dbc1e8c2…` through compose and reporting "Protocol mapper
 life-control-client/api-audience exists and matches the declared aud".
+
+L9. Re-verification of the identity fix: F1 closure, the replica case, the pre-sleep diagnosis, the three
+citations and the scope of the diff all MET, with 35 suites and 2049 assertions green. One finding stood:
+the ordering assertion in `deploy-realm-gate.test.sh` case 1 had been narrowed to the bare needle
+`inspect `, so an unrelated `docker inspect` anywhere in `start_services` satisfied it while Keycloak's
+health was never read, and the suite stayed green. Restored to pin `inspect <the id compose answered>`,
+which is the claim it always meant, plus an assertion naming the id. The suite is now 40 assertions and
+the verifier's own false-positive control fails 18 of them, the ordering one among them.

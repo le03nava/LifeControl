@@ -392,9 +392,14 @@ if build_tree "$root"; then
 	assert_before "case 1 (S4): the whole project is up before the realm step" \
 		"$root/state/calls.log" "compose up all" "keycloak-setup --ensure-audience"
 	# The health read that answers "has Keycloak answered" is now one `docker inspect` per container id,
-	# not a `ps --format` column (see realm-container-identity.test.sh); the CLAIM is unchanged.
+	# not a `ps --format` column (see realm-container-identity.test.sh). The needle names the id and the
+	# inspect, not just the word: with a bare "inspect " a `docker inspect` of anything at all satisfied the
+	# ordering claim while Keycloak's health was never read, and this suite stayed green.
+	assert_before "case 1 (S4): the keycloak container was inspected, by the id compose answered" \
+		"$root/state/calls.log" "inspect ${DRG_KC_ID:-drgkeycloakcontainerid}" \
+		"keycloak-setup --ensure-audience"
 	assert_before "case 1 (S4): Keycloak answered before the realm step" \
-		"$root/state/calls.log" "inspect " \
+		"$root/state/calls.log" "inspect ${DRG_KC_ID:-drgkeycloakcontainerid}" \
 		"keycloak-setup --ensure-audience"
 	# S4: the converge runs before the health gate that would otherwise pass over an unconverged realm.
 	assert_before "case 1 (S4): the converge runs before the health gate" \
