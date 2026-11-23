@@ -8,6 +8,19 @@
 #
 # Usage:
 #   sudo ./docker/scripts/keycloak-setup.sh [dev|staging|prod]
+#   ./docker/scripts/keycloak-setup.sh --ensure-audience [dev|staging|prod]
+#   ./docker/scripts/keycloak-setup.sh --verify-audience [dev|staging|prod]
+#
+# The plain invocation provisions everything. The two narrow modes touch ONE artifact, the platform
+# audience mapper on the public client, because `deploy.sh <env> start` has to converge it and
+# `deploy.sh <env> health` has to read it without a deploy rewriting the SMTP server, the registered
+# origins, the user-profile policy or the client roles as a side effect (odd/tasks/deploy-realm-gate.md).
+#
+# They also read a different COPY of the admin credential, and that is deliberate: the plain run reads
+# docker/secrets/keycloak_admin_password from this host and therefore needs root, while the narrow modes
+# expand the password inside the keycloak container from the copy compose mounts there. That is what keeps
+# the deploy path (`start` and `health`) usable by the operator who could not read a 0400 host file. See
+# configure_kcadm for the two sources and why only one of them costs a root shell.
 #
 # Root is required, not a preference. The three credential files this script reads from the HOST
 # (`keycloak_admin_password`, `keycloak_admin_client_secret` and `smtp_password`) are 0400 with the
@@ -34,7 +47,55 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DOCKER_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 SECRETS_DIR="$DOCKER_DIR/secrets"
 
-ENV="${1:-dev}"
+# ---- Modes ----
+# The narrowing is a mode, not a second script: the declaration of the audience contract lives here
+# (API_AUDIENCE, AUDIENCE_MAPPER, verify_audience_mapper) and both modes reuse it verbatim, so a drift
+# check cannot exist in two copies and disagree with itself (D-b of odd/tasks/deploy-realm-gate.md).
+usage() {
+	echo "Usage: $0 [dev|staging|prod]"
+	echo "       $0 --ensure-audience [dev|staging|prod]"
+	echo "       $0 --verify-audience [dev|staging|prod]"
+	echo ""
+	echo "Modes:"
+	echo "  (no flag)          - Provision the realm, the clients, the roles, the tenancy mappers, the"
+	echo "                       invitation environment and the audience mapper"
+	echo "  --ensure-audience  - Only the platform audience mapper: create it when it is absent, verify it when"
+	echo "                       it is present, and fail on drift. What deploy.sh <env> start runs."
+	echo "  --verify-audience  - Read-only: exit 0 when the mapper exists and matches the declared contract, 1"
+	echo "                       when it is absent or drifted, and write nothing. What deploy.sh <env> health runs."
+	echo ""
+	echo "Credential:"
+	echo "  (no flag) reads keycloak_admin_password and keycloak_admin_client_secret from docker/secrets/ on"
+	echo "  the HOST, so it requires root: those files are 0400, owned by the container uid that reads them."
+	echo "  --ensure-audience and --verify-audience read the admin password INSIDE the keycloak container, from"
+	echo "  the copy compose already mounts under /run/secrets/, so they need no root and read no host secret."
+	echo ""
+	echo "Environments: dev, staging, prod (default: dev)."
+}
+
+MODE="all"
+case "${1:-}" in
+--ensure-audience)
+	MODE="ensure-audience"
+	ENV="${2:-dev}"
+	;;
+--verify-audience)
+	MODE="verify-audience"
+	ENV="${2:-dev}"
+	;;
+-h | --help)
+	usage
+	exit 0
+	;;
+-*)
+	echo "ERROR: unknown option: $1" >&2
+	usage >&2
+	exit 1
+	;;
+"") ENV="dev" ;;
+*) ENV="$1" ;;
+esac
+
 ENV_FILE="$DOCKER_DIR/.env.$ENV"
 
 if [ ! -f "$ENV_FILE" ]; then
@@ -51,7 +112,25 @@ get_env() {
 }
 
 COMPOSE_PROJECT_NAME="$(get_env COMPOSE_PROJECT_NAME "lifecontrol")"
-CONTAINER="${COMPOSE_PROJECT_NAME}-keycloak"
+# The keycloak container this project runs, and NOT a name built from COMPOSE_PROJECT_NAME.
+#
+# Only the dev override declares `container_name` for keycloak (docker/docker-compose.override.yml), so
+# in staging and prod compose names the container `<project>-keycloak-1` (and `-2` in prod, which runs two
+# replicas), and the composed name below would address a container that does not exist. compose is the
+# only thing that knows how a project names what it runs, so the id is asked for instead -- see
+# resolve_container, called before any container is touched.
+CONTAINER=""
+KEYCLOAK_SERVICE="keycloak"
+# The compose files this environment loads, in the order compose merges them. Spelled here because this
+# script does not source _common.sh; it is the same list `resolve_compose_env` builds there, and the
+# realm-container-identity suite asserts the argv per environment.
+COMPOSE_FILE_ARGS=(-f "$DOCKER_DIR/docker-compose.yml")
+if [ "$ENV" = "dev" ]; then
+	COMPOSE_FILE_ARGS+=(-f "$DOCKER_DIR/docker-compose.override.yml")
+fi
+if [ "$ENV" = "prod" ]; then
+	COMPOSE_FILE_ARGS+=(-f "$DOCKER_DIR/docker-compose.prod.yml")
+fi
 KC_ADMIN_USER="$(get_env KC_ADMIN_USERNAME admin)"
 REALM="$(get_env KEYCLOAK_REALM life-control-realm)"
 APP_CLIENT="$(get_env KEYCLOAK_CLIENT_ID life-control-client)"
@@ -74,6 +153,32 @@ print_error() { echo -e "\033[0;31m[ERROR]\033[0m $*"; }
 
 kcadm() {
 	docker exec "$CONTAINER" /opt/keycloak/bin/kcadm.sh "$@"
+}
+
+# resolve_container: sets CONTAINER to the id of the keycloak container this project runs, resolved THROUGH
+# COMPOSE, or aborts naming the cause.
+#
+# The first id is enough and it is deliberate: prod runs two replicas (docker/docker-compose.prod.yml sets
+# `deploy.replicas: 2` for keycloak) and they share ONE realm database, so provisioning the realm through
+# either of them provisions it for both.
+#
+# A missing container is reported as a missing container, never as a start that is merely slow: an
+# operator fixes "compose has no keycloak container" by starting the stack, and "it never became healthy"
+# by reading its logs, and one message for both sends them to the wrong place.
+resolve_container() {
+	local out
+	CONTAINER=""
+	if ! out="$(docker compose "${COMPOSE_FILE_ARGS[@]}" --env-file "$ENV_FILE" ps -q "$KEYCLOAK_SERVICE" 2>/dev/null)"; then
+		print_error "Could not ask compose for the $KEYCLOAK_SERVICE container of the $ENV project ($COMPOSE_PROJECT_NAME)."
+		print_error "Check the stack: ./docker/scripts/deploy.sh $ENV status"
+		exit 1
+	fi
+	CONTAINER="$(printf '%s\n' "$out" | head -1 | tr -d '\r')"
+	if [ -z "$CONTAINER" ]; then
+		print_error "There is no $KEYCLOAK_SERVICE container in the $ENV project ($COMPOSE_PROJECT_NAME), so its realm cannot be provisioned."
+		print_error "This is not a slow start — there is nothing to converge. Start the stack first: ./docker/scripts/deploy.sh $ENV up"
+		exit 1
+	fi
 }
 
 # ---- Fail-closed reads ----
@@ -190,37 +295,203 @@ build_json_array() {
 	printf '%s]' "$out"
 }
 
-if ! docker ps --format '{{.Names}}' | grep -qx "$CONTAINER"; then
-	print_error "Container $CONTAINER is not running."
-	print_error "Start it first: ./docker/scripts/deploy.sh $ENV up"
-	exit 1
-fi
+# ---- The audience mapper: the one artifact the deploy path touches ----
+#
+# An issuer allowlist answers "which realm signed this", never "who was this minted for". The API and
+# the gateway both validate `aud` (JwtAudienceValidator in each module), so the realm has to emit the
+# platform audience: without this mapper Keycloak emits `aud: ["account"]` and every real token would be
+# rejected with 401. One fixed custom audience, on the public client, and the same value the two
+# services default to (`keycloak.allowed-audiences` / `lifecontrol.gateway.allowed-audiences`).
+#
+# It sits OUTSIDE the tenancy loop on purpose: KeycloakClaimMapperCoverageTest bounds that loop to
+# TENANCY_CLAIMS and asserts its body binds a user attribute per claim, so a second mapper inside it
+# would be verified against the wrong contract. It sits ABOVE the container check so that the two narrow
+# modes below can reach it without running the rest of this script.
+API_AUDIENCE="$(get_env KEYCLOAK_API_AUDIENCE life-control-api)"
+AUDIENCE_MAPPER="api-audience"
+
+# Verifies the audience mapper's JSON against the contract the decoders enforce. Same shape as
+# verify_tenancy_mapper: whitespace stripped from the pretty-printed read-back, then fixed-string match.
+verify_audience_mapper() {
+	local json="$1"
+	local compact requirement
+	compact="$(printf '%s' "$json" | tr -d ' \n\t')"
+	for requirement in \
+		"\"protocolMapper\":\"oidc-audience-mapper\"" \
+		"\"included.custom.audience\":\"$API_AUDIENCE\"" \
+		"\"access.token.claim\":\"true\"" \
+		"\"id.token.claim\":\"false\""; do
+		if ! printf '%s' "$compact" | grep -qF "$requirement"; then
+			print_error "Protocol mapper $APP_CLIENT/$AUDIENCE_MAPPER is missing $requirement." >&2
+			print_error "$APP_CLIENT declares oidc-audience-mapper with included.custom.audience=$API_AUDIENCE, access.token.claim=true and id.token.claim=false." >&2
+			print_error "The script fails rather than repairs a drifted mapper; an operator must fix the authorization artifact deliberately." >&2
+			exit 1
+		fi
+	done
+}
+
+# The converging half -- what the plain invocation and `--ensure-audience` both run: create the mapper
+# when it is absent, verify it when it is present, and refuse a drifted one instead of repairing it.
+ensure_audience_mapper() {
+	if find_mapper_id "$AUDIENCE_MAPPER"; then
+		# Re-read the existing mapper by id instead of trusting its name in the list.
+		kcadm_get "clients/$APP_CID/protocol-mappers/models/$MAPPER_ID" -r "$REALM" || {
+			print_error "Protocol mapper $APP_CLIENT/$AUDIENCE_MAPPER exists but could not be read back by id $MAPPER_ID." >&2
+			exit 1
+		}
+		verify_audience_mapper "$KCADM_GET_OUT"
+		print_success "Protocol mapper $APP_CLIENT/$AUDIENCE_MAPPER exists and matches the declared aud"
+	else
+		print_status "Creating protocol mapper $APP_CLIENT/$AUDIENCE_MAPPER..."
+		kcadm create "clients/$APP_CID/protocol-mappers/models" -r "$REALM" \
+			-s name="$AUDIENCE_MAPPER" \
+			-s protocol=openid-connect \
+			-s protocolMapper=oidc-audience-mapper \
+			-s "config.\"included.custom.audience\"=$API_AUDIENCE" \
+			-s "config.\"access.token.claim\"=true" \
+			-s "config.\"id.token.claim\"=false" >/dev/null
+		# Do not trust the create's exit code: read the new mapper back and verify what it means.
+		if ! find_mapper_id "$AUDIENCE_MAPPER"; then
+			print_error "Protocol mapper $APP_CLIENT/$AUDIENCE_MAPPER was created but is absent from the mapper list read back." >&2
+			exit 1
+		fi
+		kcadm_get "clients/$APP_CID/protocol-mappers/models/$MAPPER_ID" -r "$REALM" || {
+			print_error "Protocol mapper $APP_CLIENT/$AUDIENCE_MAPPER was created but could not be read back by id $MAPPER_ID." >&2
+			exit 1
+		}
+		verify_audience_mapper "$KCADM_GET_OUT"
+		print_success "Protocol mapper $APP_CLIENT/$AUDIENCE_MAPPER created and verified"
+	fi
+}
+
+# The read-only half -- what `--verify-audience` runs: 0 when the mapper exists and matches the declared
+# contract, 1 naming the mapper and what is missing when it does not. It answers and never writes, because
+# a health check that repairs what it is asked to report hides the state it was supposed to surface (D-d).
+audience_mapper_is_declared() {
+	if ! find_mapper_id "$AUDIENCE_MAPPER"; then
+		print_error "Protocol mapper $APP_CLIENT/$AUDIENCE_MAPPER is absent from realm $REALM." >&2
+		print_error "Without it Keycloak does not mint aud=$API_AUDIENCE, and both JWT decoders reject every token." >&2
+		return 1
+	fi
+	kcadm_get "clients/$APP_CID/protocol-mappers/models/$MAPPER_ID" -r "$REALM" || {
+		print_error "Protocol mapper $APP_CLIENT/$AUDIENCE_MAPPER exists but could not be read back by id $MAPPER_ID." >&2
+		return 1
+	}
+	verify_audience_mapper "$KCADM_GET_OUT"
+}
+
+# Resolves the public client of an ALREADY provisioned realm into APP_CID. Read-only: the narrow modes
+# refuse an unprovisioned realm instead of creating it, because the realm, its clients and its roles are
+# the rest of this script -- exactly what a deploy must not converge as a side effect (D-a).
+resolve_provisioned_client() {
+	APP_CID=""
+	if ! kcadm_get "realms/$REALM"; then
+		print_error "Realm $REALM is absent, so it has no public client to carry the audience mapper." >&2
+		print_error "Provision the realm first: sudo ./docker/scripts/keycloak-setup.sh $ENV" >&2
+		exit 1
+	fi
+	if ! client_exists "$APP_CLIENT"; then
+		print_error "Client $APP_CLIENT is absent from realm $REALM, so it cannot carry the audience mapper." >&2
+		print_error "Provision the clients first: sudo ./docker/scripts/keycloak-setup.sh $ENV" >&2
+		exit 1
+	fi
+	resolve_client_id "$APP_CLIENT" || exit 1
+	APP_CID="$CLIENT_ID"
+}
+
+resolve_container
+print_status "Using the $KEYCLOAK_SERVICE container compose reports for the $ENV project: $CONTAINER"
 
 # ---- Credentials from secrets (no plaintext in env files) ----
 KC_ADMIN_PASS_FILE="$SECRETS_DIR/keycloak_admin_password"
 ADM_CLIENT_SECRET_FILE="$SECRETS_DIR/keycloak_admin_client_secret"
+# The SAME admin credential as it exists inside the keycloak container: compose mounts every file of
+# docker/secrets/ read-only under /run/secrets/<name>, and the container's own wrapper already reads this
+# one there (docker/entrypoints/keycloak-entrypoint.sh exports the bootstrap admin password from it). The
+# name is derived from the host file it pairs with, so the two cannot be renamed apart.
+KC_ADMIN_PASS_SECRET="$(basename "$KC_ADMIN_PASS_FILE")"
+KC_ADMIN_PASS_IN_CONTAINER="/run/secrets/$KC_ADMIN_PASS_SECRET"
 
-# Readable, not merely present: since the credential files are 0400 with their container uid as owner,
-# a non-root run reaches `cat` with `Permission denied` under `set -e`, which names neither the reason
-# nor the fix. This turns that into one sentence that does.
-for f in "$KC_ADMIN_PASS_FILE" "$ADM_CLIENT_SECRET_FILE"; do
-	if [ -s "$f" ] && [ ! -r "$f" ]; then
-		print_error "Cannot read $f as uid $(id -u): the file is owned by the container uid that reads it, mode 0400."
+# Readable, not merely present: the host copies are 0400 with their container uid as owner, so a non-root
+# run reaches `cat` with `Permission denied` under `set -e`, which names neither the reason nor the fix.
+# This turns that into one sentence that does. It runs in the CURRENT shell and never in a command
+# substitution: an `exit 1` inside one kills only the subshell, which would turn this abort into a plain
+# non-zero exit its caller could read as "absent".
+require_host_secret() {
+	local file="$1"
+	if [ -s "$file" ] && [ ! -r "$file" ]; then
+		print_error "Cannot read $file as uid $(id -u): the file is owned by the container uid that reads it, mode 0400."
 		print_error "Run this script as root: sudo ./docker/scripts/keycloak-setup.sh $ENV"
 		exit 1
 	fi
-	if [ ! -s "$f" ]; then
-		print_error "Missing or empty secret file $f — run ./docker/scripts/setup-env.sh $ENV"
+	if [ ! -s "$file" ]; then
+		print_error "Missing or empty secret file $file — run ./docker/scripts/setup-env.sh $ENV"
 		exit 1
 	fi
-	if grep -q "CHANGEME" "$f"; then
-		print_error "Secret $f still holds the CHANGEME placeholder — set a real value first"
+	if grep -q "CHANGEME" "$file"; then
+		print_error "Secret $file still holds the CHANGEME placeholder — set a real value first"
 		exit 1
 	fi
-done
+}
 
-KC_ADMIN_PASS="$(cat "$KC_ADMIN_PASS_FILE")"
-ADM_CLIENT_SECRET="$(cat "$ADM_CLIENT_SECRET_FILE")"
+# configure_kcadm <host|container>
+#
+# Logs kcadm in for THIS run from whichever copy of the admin credential the mode is allowed to read. ONE
+# helper, because the two modes differ only in WHERE the secret comes from, never in what is done with it:
+# a second copy of the login is how the two sources would drift apart.
+#
+#   host       the full run, and the only mode that needs root. The password is read on this host and
+#              passed as an argv of this process, exactly as it always has been; the 0400/gid model in
+#              `### Secretos` is what makes that a root operation, and it is deliberately unchanged here.
+#   container  the two narrow modes -- what `deploy.sh <env> start` and `deploy.sh <env> health` run. The
+#              container's own shell expands the password from the copy compose mounts there, so it never
+#              reaches this host process, this script's environment, its argv or `docker inspect`, and an
+#              operator who cannot read a 0400 host file can still deploy and read the health verdict.
+#
+# The inner script receives the path and the two non-secret values as positional arguments ($1..$3)
+# instead of being assembled by string interpolation, so no command line ever carries the secret.
+configure_kcadm() {
+	local credential_source="$1"
+	print_status "Authenticating kcadm as $KC_ADMIN_USER against $CONTAINER ($credential_source credential)..."
+	if [ "$credential_source" = "container" ]; then
+		docker exec "$CONTAINER" /bin/sh -c \
+			'/opt/keycloak/bin/kcadm.sh config credentials --server "$2" --realm master --user "$3" --password "$(cat "$1")" >/dev/null' \
+			kcadm-credential "$KC_ADMIN_PASS_IN_CONTAINER" "$KC_BASE" "$KC_ADMIN_USER"
+		return 0
+	fi
+	kcadm config credentials --server "$KC_BASE" --realm master --user "$KC_ADMIN_USER" --password "$KC_ADMIN_PASS" >/dev/null
+}
+
+if [ "$MODE" = "all" ]; then
+	# The full run reads both credentials from the HOST and therefore keeps its root requirement. Nothing
+	# here is relaxed: the model in `### Secretos` is that a credential an operator account can read is a
+	# credential any process of that account can read, so the full run stays a root operation.
+	for f in "$KC_ADMIN_PASS_FILE" "$ADM_CLIENT_SECRET_FILE"; do
+		require_host_secret "$f"
+	done
+	KC_ADMIN_PASS="$(cat "$KC_ADMIN_PASS_FILE")"
+	ADM_CLIENT_SECRET="$(cat "$ADM_CLIENT_SECRET_FILE")"
+	configure_kcadm host
+else
+	# No host secret is read in the narrow modes, and none has to be: the audience mapper needs neither the
+	# admin client's secret nor the SMTP credential. Reading them here is what would put root back in the
+	# way of `deploy.sh <env> start` and `deploy.sh <env> health`.
+	configure_kcadm container
+fi
+
+# ---- Mode dispatch: the narrow modes end here ----
+# `--ensure-audience` converges the one artifact a deploy has to leave in place; `--verify-audience` reads
+# it and writes nothing. Both refuse a realm that was never provisioned and name the script to run.
+if [ "$MODE" != "all" ]; then
+	resolve_provisioned_client
+	if [ "$MODE" = "ensure-audience" ]; then
+		ensure_audience_mapper
+	else
+		audience_mapper_is_declared || exit 1
+		print_success "Protocol mapper $APP_CLIENT/$AUDIENCE_MAPPER exists and matches the declared aud"
+	fi
+	exit 0
+fi
 
 # ---- SMTP relay configuration (the invitation environment) ----
 # The realm's SMTP server is declared by the environment, with the DEV mail
@@ -303,9 +574,6 @@ if [ "$SMTP_AUTH" = "true" ]; then
 fi
 
 print_status "SMTP relay: $SMTP_HOST:$SMTP_PORT from $SMTP_FROM (starttls=$SMTP_STARTTLS, auth=$SMTP_AUTH)"
-
-print_status "Authenticating kcadm as $KC_ADMIN_USER against $CONTAINER..."
-kcadm config credentials --server "$KC_BASE" --realm master --user "$KC_ADMIN_USER" --password "$KC_ADMIN_PASS" >/dev/null
 
 # ---- Realm ----
 if kcadm_get "realms/$REALM"; then
@@ -642,67 +910,9 @@ for claim in "${TENANCY_CLAIMS[@]}"; do
 done
 
 # ---- Audience protocol mapper (the claim both JWT decoders require) ----
-# An issuer allowlist answers "which realm signed this", never "who was this minted for". The API and
-# the gateway both validate `aud` (JwtAudienceValidator in each module), so the realm has to emit the
-# platform audience: without this mapper Keycloak emits `aud: ["account"]` and every real token would be
-# rejected with 401. One fixed custom audience, on the public client, and the same value the two
-# services default to (`keycloak.allowed-audiences` / `lifecontrol.gateway.allowed-audiences`).
-#
-# It sits OUTSIDE the tenancy loop on purpose: KeycloakClaimMapperCoverageTest bounds that loop to
-# TENANCY_CLAIMS and asserts its body binds a user attribute per claim, so a second mapper inside it
-# would be verified against the wrong contract.
-API_AUDIENCE="$(get_env KEYCLOAK_API_AUDIENCE life-control-api)"
-AUDIENCE_MAPPER="api-audience"
-
-# Verifies the audience mapper's JSON against the contract the decoders enforce. Same shape as
-# verify_tenancy_mapper: whitespace stripped from the pretty-printed read-back, then fixed-string match.
-verify_audience_mapper() {
-	local json="$1"
-	local compact requirement
-	compact="$(printf '%s' "$json" | tr -d ' \n\t')"
-	for requirement in \
-		"\"protocolMapper\":\"oidc-audience-mapper\"" \
-		"\"included.custom.audience\":\"$API_AUDIENCE\"" \
-		"\"access.token.claim\":\"true\"" \
-		"\"id.token.claim\":\"false\""; do
-		if ! printf '%s' "$compact" | grep -qF "$requirement"; then
-			print_error "Protocol mapper $APP_CLIENT/$AUDIENCE_MAPPER is missing $requirement." >&2
-			print_error "$APP_CLIENT declares oidc-audience-mapper with included.custom.audience=$API_AUDIENCE, access.token.claim=true and id.token.claim=false." >&2
-			print_error "The script fails rather than repairs a drifted mapper; an operator must fix the authorization artifact deliberately." >&2
-			exit 1
-		fi
-	done
-}
-
-if find_mapper_id "$AUDIENCE_MAPPER"; then
-	# Re-read the existing mapper by id instead of trusting its name in the list.
-	kcadm_get "clients/$APP_CID/protocol-mappers/models/$MAPPER_ID" -r "$REALM" || {
-		print_error "Protocol mapper $APP_CLIENT/$AUDIENCE_MAPPER exists but could not be read back by id $MAPPER_ID." >&2
-		exit 1
-	}
-	verify_audience_mapper "$KCADM_GET_OUT"
-	print_success "Protocol mapper $APP_CLIENT/$AUDIENCE_MAPPER exists and matches the declared aud"
-else
-	print_status "Creating protocol mapper $APP_CLIENT/$AUDIENCE_MAPPER..."
-	kcadm create "clients/$APP_CID/protocol-mappers/models" -r "$REALM" \
-		-s name="$AUDIENCE_MAPPER" \
-		-s protocol=openid-connect \
-		-s protocolMapper=oidc-audience-mapper \
-		-s "config.\"included.custom.audience\"=$API_AUDIENCE" \
-		-s "config.\"access.token.claim\"=true" \
-		-s "config.\"id.token.claim\"=false" >/dev/null
-	# Do not trust the create's exit code: read the new mapper back and verify what it means.
-	if ! find_mapper_id "$AUDIENCE_MAPPER"; then
-		print_error "Protocol mapper $APP_CLIENT/$AUDIENCE_MAPPER was created but is absent from the mapper list read back." >&2
-		exit 1
-	fi
-	kcadm_get "clients/$APP_CID/protocol-mappers/models/$MAPPER_ID" -r "$REALM" || {
-		print_error "Protocol mapper $APP_CLIENT/$AUDIENCE_MAPPER was created but could not be read back by id $MAPPER_ID." >&2
-		exit 1
-	}
-	verify_audience_mapper "$KCADM_GET_OUT"
-	print_success "Protocol mapper $APP_CLIENT/$AUDIENCE_MAPPER created and verified"
-fi
+# The contract and both of its halves are declared once, above the container check, so the two narrow
+# modes the deploy path uses reach exactly the same verification the full run applies.
+ensure_audience_mapper
 
 # ---- Realm role: the Keycloak admin gate for /api/users-admin/** ----
 # `admin` is the ONLY realm role this script provisions. The legacy realm roles

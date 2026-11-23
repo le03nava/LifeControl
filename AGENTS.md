@@ -381,6 +381,17 @@ Script principal de despliegue. Build y start de servicios.
 > puede aislar un tenant. `up` y `restart` pasan por el mismo `start_services`, así que hay un solo
 > lugar que arranca contenedores y un solo lugar que aplica los roles.
 >
+> **`start` tampoco reporta éxito sin el realm.** Después de `compose_run up -d` espera —acotado, y con
+> knobs `REALM_WAIT_ATTEMPTS`/`REALM_WAIT_SECONDS`— a que el contenedor de Keycloak esté `healthy`, y
+> recién entonces corre `keycloak-setup.sh --ensure-audience <env>`, que aborta el start si falla. La
+> razón es que el mapper `api-audience` es lo que hace aceptable a **todo** token: sin él Keycloak emite
+> `aud: ["account"]` y los dos decoders responden `401 invalid_token` sobre todo, mientras `health`
+> seguía verde. `health` cierra la otra mitad: corre `keycloak-setup.sh --verify-audience <env>`, que es
+> **sólo lectura**, después de sus veredictos de contenedores, Prometheus y Tempo, y devuelve rojo cuando
+> el realm no emite la audiencia que los decoders exigen. Un health check que escribe puede enmascarar
+> justo el estado que le pidieron reportar, así que no escribe. Ver `odd/tasks/deploy-realm-gate.md`
+> (issue #1029).
+>
 > **Qué código corre se reporta, no se adivina.** Cada imagen de app lleva bakeado
 > `org.opencontainers.image.revision`, que `build_images` estampa con `HEAD` —o con `HEAD-dirty` si
 > el árbol tiene cambios sin commitear, porque un build sucio **no** es ese commit—, y
@@ -599,7 +610,27 @@ Todas las contraseñas viajan por archivos `docker/secrets/*` (NO por los `.env.
 Provisión idempotente del realm `life-control-realm`, los clients (`life-control-client` public + `life-control-admin-client` confidential con service account) y los roles (`lc-*` client roles, roles legacy de realm) vía `kcadm.sh` dentro del contenedor. Requiere Keycloak arriba, los secrets de keycloak materializados y **root**, porque las tres credenciales que lee del host (`keycloak_admin_password`, `keycloak_admin_client_secret` y `smtp_password`) son `0400` con el uid del contenedor que las lee como dueño, y la cuenta del operador no es ninguna de ellas; root es la única que lee todas sin ensanchar un modo. El script falla nombrando el `sudo` si un archivo existe y no es legible, en vez de morir en un `Permission denied` de `cat`.
 ```bash
 sudo ./docker/scripts/keycloak-setup.sh [dev|staging|prod]
+
+# Los dos modos acotados del camino de deploy NO necesitan root: leen la credencial
+# del admin DENTRO del contenedor, desde el mismo `/run/secrets/keycloak_admin_password`
+# que el entrypoint ya lee, así que el host nunca abre un archivo 0400.
+./docker/scripts/keycloak-setup.sh --ensure-audience [dev|staging|prod]
+./docker/scripts/keycloak-setup.sh --verify-audience [dev|staging|prod]
 ```
+> **Dos modos acotados, dos preguntas.** `--ensure-audience` toca **sólo** el mapper de audiencia de la
+> plataforma: lo crea si falta y lo verifica si está, fallando ante un mapper derivado en vez de
+> repararlo. `--verify-audience` es **sólo lectura**: exit 0 cuando el mapper existe y coincide con el
+> contrato declarado, 1 cuando falta o derivó, y no escribe nada — ni un create, ni un update, ni una
+> escritura al realm. Los dos reusan la **misma** declaración (`API_AUDIENCE`, `AUDIENCE_MAPPER`,
+> `verify_audience_mapper`), porque un contrato en dos copias es el drift que el contrato existe para
+> atrapar. La invocación sin flag sigue convergiendo todo el realm, con su requisito de root intacto.
+>
+> **Por qué los modos acotados no leen el host.** Las tres credenciales del provisioning completo son
+> `0400` con el uid del contenedor como dueño, así que la corrida completa necesita root; mandar `deploy.sh`
+> por ahí volvía root-only un flujo que hoy no lo es. Los modos acotados configuran `kcadm` con el
+> password expandido **adentro** del contenedor, de modo que el valor no está en el proceso del host, ni
+> en su entorno, ni en un argv que `docker inspect` muestre. Ninguno de los dos toca
+> `keycloak_admin_client_secret` ni `smtp_password`: el mapper de audiencia no los necesita.
 > En dev la password del admin del realm la define `docker/secrets/keycloak_admin_password`; el service account del admin client toma `docker/secrets/keycloak_admin_client_secret`. Tras crear users en el realm hay que asignarles los roles correspondientes (ej. `lc-admin`) para que el frontend muestre los menús.
 >
 > El realm también declara el **entorno de invitación**: `frontendUrl` y el `smtpServer`, que es lo que hace que los emails de acción (invitación, verify-email, reset) lleguen y que su link apunte a Keycloak. **`frontendUrl` es la URL pública de Keycloak** (`KEYCLOAK_URL`), **no** el origen de la app: fija el **issuer** del realm que valida todo el stack (`KEYCLOAK_ISSUER_URI`) y la base del link de acción. El origen de la app vive en `WEB_APP_URL` y es lo que va en los `redirectUris`/`webOrigins` del client público; el link va a Keycloak y la persona vuelve a la app después por el claim `redirect_uri` del token de acción. Son valores distintos a propósito: apuntar `frontendUrl` al origen de la app rompe el issuer (HTTP 401 en todo token válido) y deja el link apuntando a la SPA, que no proxya `/realms/**`; dejarlo sin setear genera el link contra el host interno (`http://keycloak:8080`). `frontendUrl` se escribe como atributo (`attributes.frontendUrl`), no como campo raíz: Keycloak 26 lo rechaza con `Unrecognized field "frontendUrl"`. La convergencia del `smtpServer` y del `frontendUrl` se lee de vuelta del realm completo y aborta si el write no quedó (nunca se confía en el exit code). Los `redirectUris`/`webOrigins` del client público convergen de forma **aditiva**: se preserva todo lo ya registrado y sólo se agrega el origen que falte.

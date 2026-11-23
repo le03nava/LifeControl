@@ -25,7 +25,7 @@
 #   1. `report_missing_env_keys` (`docker/scripts/_common.sh`) reports the keys an env file
 #      is missing and the compose default each one falls back to. It is read-only and it
 #      always returns 0, because `validate-env.sh` is the **prod start gate**
-#      (`deploy.sh:173-179` aborts the deploy on its non-zero exit): a report may never be
+#      (`deploy.sh:255-262` aborts the deploy on its non-zero exit): a report may never be
 #      able to stop a production start on a condition prod is not expected to satisfy.
 #   2. the access-provisioning worker is ON by default in dev
 #      (`docker-compose.override.yml`, dev-only) and stays OFF in the base compose and in

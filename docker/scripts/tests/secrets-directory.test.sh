@@ -296,7 +296,7 @@ assert_absent "a materialized secret produces no directory warning" "$LAST_TEXT"
 # 6. The requirement that is conditional, which is what makes "optional" a claim the gate cannot make on
 #    its own: `SMTP_AUTH=true` is what requires the hand-created credential, because keycloak-setup.sh
 #    refuses to write the relay when the file is missing, empty or still holds CHANGEME
-#    (keycloak-setup.sh:262-278). A directory in its place, or no file at all, must fail there -- the
+#    (keycloak-setup.sh:554-574). A directory in its place, or no file at all, must fail there -- the
 #    finding that made this case necessary: the warning used to say "no secret is missing" while the
 #    relay was configured to authenticate.
 # ------------------------------------------
