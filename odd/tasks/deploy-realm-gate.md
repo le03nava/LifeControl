@@ -63,6 +63,20 @@ check that can mask the very state it is asked to report.
 | T5 | S6 | parent — full `docker/scripts/tests` glob, both modules untouched | gate |
 | T6 | — | parent — independent verification (risk item 5) | gate |
 
+## Delivery
+
+The authored diff is ~1274 lines, so it does not fit one review slice of ~400. Three chained slices, in
+the order the dependency allows:
+
+| Slice | Contents | Lines | Why it can stand alone |
+|-------|----------|-------|------------------------|
+| A | `keycloak-setup.sh` modes + its suite cases | ~600 | The realm-side capability, callable by hand: `--verify-audience` and `--ensure-audience` exist and are tested without `deploy.sh` knowing about them |
+| B | `deploy.sh` order + `health` + `deploy-realm-gate.test.sh` | ~600 | Depends on A's modes, and adds exactly the deploy half |
+| C | `AGENTS.md` + this record | ~150 | Documents what A and B built |
+
+Most of A and B is test code (548 lines of new suite, 275 of new cases), which is what the freeze in S5
+costs. The production change is ~385 lines across two scripts.
+
 ## Log
 
 L1. User request, verbatim: *"levanta un issue para eso"*, then *"apruebalas y comienza"*. The issue is
