@@ -44,8 +44,12 @@ public class JwtDecoderConfig {
         // createDefault() aporta la validación de exp/nbf (con 60s de leeway);
         // el issuer se valida contra la allowlist (issuer público del navegador
         // e interno de la red Docker), mientras la firma se valida contra el JWK interno.
+        // La audiencia se valida contra la lista configurada: sin ella cualquier token del realm,
+        // emitido por cualquier cliente y para cualquier otro recurso, pasaba.
         return new DelegatingOAuth2TokenValidator<>(
-                JwtValidators.createDefault(), new JwtIssuerAllowlistValidator(keycloakJwtProperties.allowedIssuers()));
+                JwtValidators.createDefault(),
+                new JwtIssuerAllowlistValidator(keycloakJwtProperties.allowedIssuers()),
+                new JwtAudienceValidator(keycloakJwtProperties.allowedAudiences()));
     }
 
     @Bean
@@ -71,7 +75,11 @@ public class JwtDecoderConfig {
                 }
             }
 
-            // 2) Client roles from resource_access.<azp>.roles
+            // 2) Client roles, read only from the clients that are meant to grant them.
+            // Keying this on the token's own `azp` handed authority to whichever client minted it: a
+            // role named `lc-admin` in any other client of the realm became API authority. The
+            // configured list is what makes the granting client a property of this service instead of
+            // of the token.
             Map<String, Object> resourceAccess;
             try {
                 resourceAccess = jwt.getClaimAsMap("resource_access");
@@ -79,18 +87,18 @@ public class JwtDecoderConfig {
                 resourceAccess = null;
             }
             if (resourceAccess != null) {
-                var clientName = jwt.getClaimAsString("azp");
-                if (clientName != null) {
+                for (var authorityClientId : keycloakJwtProperties.authorityClientIds()) {
                     @SuppressWarnings("unchecked")
-                    var clientAccess = (Map<String, Object>) resourceAccess.get(clientName);
-                    if (clientAccess != null) {
-                        @SuppressWarnings("unchecked")
-                        var clientRoles = (List<String>) clientAccess.get("roles");
-                        if (clientRoles != null) {
-                            clientRoles.stream()
-                                    .map(role -> new SimpleGrantedAuthority("ROLE_" + role))
-                                    .forEach(authorities::add);
-                        }
+                    var clientAccess = (Map<String, Object>) resourceAccess.get(authorityClientId);
+                    if (clientAccess == null) {
+                        continue;
+                    }
+                    @SuppressWarnings("unchecked")
+                    var clientRoles = (List<String>) clientAccess.get("roles");
+                    if (clientRoles != null) {
+                        clientRoles.stream()
+                                .map(role -> new SimpleGrantedAuthority("ROLE_" + role))
+                                .forEach(authorities::add);
                     }
                 }
             }

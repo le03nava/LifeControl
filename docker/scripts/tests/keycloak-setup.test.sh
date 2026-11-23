@@ -46,6 +46,12 @@ ENV_WEB_APP_URL="http://localhost:4200"
 # issuer and the link host, the second is the client's redirect target), and the
 # tests pin them to different values so a regression that swaps them cannot pass.
 ENV_KEYCLOAK_URL="http://localhost:8181"
+# The platform audience the public client's audience mapper declares. The layout
+# never declares KEYCLOAK_API_AUDIENCE, so the value under test is the script's
+# own default — the same one the two JWT decoders default to, which is what makes
+# a real token acceptable to them.
+ENV_API_AUDIENCE="life-control-api"
+ENV_AUDIENCE_MAPPER="api-audience"
 export KCS_SHIM_CONTAINER="$ENV_COMPOSE_NAME-keycloak"
 
 TMP_BASE="$(mktemp -d)"
@@ -187,6 +193,17 @@ write_shim() {
 #   calls.log       every kcadm argv, one line per call (evidence, not assertion).
 #   drift           a claim whose single-mapper JSON is served with
 #                   multivalued=false, modelling an existing but drifted mapper.
+#   audience_mappers
+#                   names of the seeded mappers that ARE `oidc-audience-mapper`
+#                   (one per line). The script declares two different protocol
+#                   mappers, so a seeded mapper in this list reads back the
+#                   audience contract verify_audience_mapper requires instead of
+#                   the tenancy contract.
+#   audience_value  the `included.custom.audience` a seeded audience mapper
+#                   declares (the script's own default, life-control-api).
+#   audience_drift  "1" serves a seeded audience mapper with id.token.claim=true,
+#                   modelling an existing but drifted mapper the script must refuse
+#                   rather than repair (empty, the default, is the ideal contract).
 #   missing_roles   client-role names the test seeds as ABSENT from the realm
 #                   (one per line). Empty means an already-provisioned realm:
 #                   every role keycloak-setup.sh:487-492 enumerates is served
@@ -491,28 +508,55 @@ $config_json
   }
 }"
 				else
-					multivalued="true"
-					if [ -f "$STATE/drift" ] && [ "$(cat "$STATE/drift")" = "$claim" ]; then
-						multivalued="false"
+					if [ -f "$STATE/audience_mappers" ] && grep -qxF -- "$claim" "$STATE/audience_mappers"; then
+						# A seeded audience mapper: the same two worlds, against the
+						# contract verify_audience_mapper enforces (keycloak-setup.sh:635-653).
+						# The custom audience is the one the layout seeds, and
+						# audience_drift moves id.token.claim off the declared false so the
+						# refusal path is reachable.
+						audience="$(cat "$STATE/audience_value")"
+						id_token_claim="false"
+						if [ "$(cat "$STATE/audience_drift")" = "1" ]; then
+							id_token_claim="true"
+						fi
+						output="$(
+							printf '%s\n' \
+								'{' \
+								"  \"id\" : \"$mid\"," \
+								"  \"name\" : \"$claim\"," \
+								'  "protocol" : "openid-connect",' \
+								'  "protocolMapper" : "oidc-audience-mapper",' \
+								'  "config" : {' \
+								"    \"included.custom.audience\" : \"$audience\"," \
+								'    "access.token.claim" : "true",' \
+								"    \"id.token.claim\" : \"$id_token_claim\"" \
+								'  }' \
+								'}'
+						)"
+					else
+						multivalued="true"
+						if [ -f "$STATE/drift" ] && [ "$(cat "$STATE/drift")" = "$claim" ]; then
+							multivalued="false"
+						fi
+						output="$(
+							printf '%s\n' \
+								'{' \
+								"  \"id\" : \"$mid\"," \
+								"  \"name\" : \"$claim\"," \
+								'  "protocol" : "openid-connect",' \
+								'  "protocolMapper" : "oidc-usermodel-attribute-mapper",' \
+								'  "config" : {' \
+								"    \"claim.name\" : \"$claim\"," \
+								"    \"user.attribute\" : \"$claim\"," \
+								"    \"multivalued\" : \"$multivalued\"," \
+								'    "access.token.claim" : "true",' \
+								'    "id.token.claim" : "false",' \
+								'    "userinfo.token.claim" : "false",' \
+								'    "jsonType.label" : "String"' \
+								'  }' \
+								'}'
+						)"
 					fi
-					output="$(
-						printf '%s\n' \
-							'{' \
-							"  \"id\" : \"$mid\"," \
-							"  \"name\" : \"$claim\"," \
-							'  "protocol" : "openid-connect",' \
-							'  "protocolMapper" : "oidc-usermodel-attribute-mapper",' \
-							'  "config" : {' \
-							"    \"claim.name\" : \"$claim\"," \
-							"    \"user.attribute\" : \"$claim\"," \
-							"    \"multivalued\" : \"$multivalued\"," \
-							'    "access.token.claim" : "true",' \
-							'    "id.token.claim" : "false",' \
-							'    "userinfo.token.claim" : "false",' \
-							'    "jsonType.label" : "String"' \
-							'  }' \
-							'}'
-					)"
 				fi
 				;;
 			clients/*/roles/*)
@@ -607,7 +651,7 @@ esac
 SHIM
 }
 
-# build_layout <root> <state-dir> <all|none> <drift-claim>
+# build_layout <root> <state-dir> <all|tenancy|none> <drift-claim>
 # Builds the synthetic tree D1 prescribes, asserts the copied script is
 # byte-identical to the repository's, and writes the shim. Returns 1 (after
 # reporting) when the copy does not match, so the case is skipped rather than
@@ -656,13 +700,29 @@ build_layout() {
 		return 1
 	fi
 
-	# Protocol-mapper world state for this case.
+	# Protocol-mapper world state for this case. `all` is the realm contract the
+	# script declares today — the five tenancy mappers PLUS the platform audience
+	# mapper (T4 of odd/tasks/jwt-audience-validation.md) — so a fully provisioned
+	# realm really is fully provisioned. `tenancy` is a realm that predates the
+	# audience mapper, which is what makes that block's create branch reachable.
 	: >"$state/mappers"
-	if [ "$mappers" = "all" ]; then
-		printf '%s\n' \
-			company_id company_country_id company_region_id company_zone_id company_store_id \
-			>"$state/mappers"
-	fi
+	: >"$state/audience_mappers"
+	: >"$state/audience_drift"
+	printf '%s\n' "$ENV_API_AUDIENCE" >"$state/audience_value"
+	case "$mappers" in
+		all)
+			printf '%s\n' \
+				company_id company_country_id company_region_id company_zone_id company_store_id \
+				"$ENV_AUDIENCE_MAPPER" \
+				>"$state/mappers"
+			printf '%s\n' "$ENV_AUDIENCE_MAPPER" >"$state/audience_mappers"
+			;;
+		tenancy)
+			printf '%s\n' \
+				company_id company_country_id company_region_id company_zone_id company_store_id \
+				>"$state/mappers"
+			;;
+	esac
 	: >"$state/created_mappers"
 	: >"$state/created_config"
 	# Both evidence logs exist from the start, so "no create" and "no update" are
@@ -738,7 +798,8 @@ assert_file_line() {
 
 # ------------------------------------------
 # Case 1 — happy path, idempotent: realm, clients, roles, user-profile policy
-# and all five tenancy mappers already exist and match the declared contract.
+# and every protocol mapper the script declares (the five tenancy mappers and the
+# platform audience mapper) already exist and match the declared contract.
 # Control: without it, "aborts" and "works" are indistinguishable.
 # ------------------------------------------
 root="$(new_root)"
@@ -789,7 +850,9 @@ fi
 # "Resource not found" diagnostic the live probes observed for a missing resource
 # (odd/tasks/keycloak-setup-hardening.md, measured 2026-10-02) while no mapper
 # exists. The script must consume it as absence (kcadm_get, keycloak-setup.sh:84-86)
-# and provision, recording exactly the five mapper creates.
+# and provision, recording exactly the five tenancy mapper creates plus the one
+# audience mapper create — counted by class, so a sixth tenancy mapper or a
+# second audience mapper still fails.
 # Inverse injection: without it, case 2 would be satisfied by aborting on
 # everything, including a genuine absence.
 # Limit, stated rather than implied: this exercises the DIAGNOSTIC branch only.
@@ -805,7 +868,11 @@ if build_layout "$root" "$state" none ""; then
 	export KCS_SHIM_INJECT_KIND="absent"
 	run_setup "$root"
 	assert_rc "case 3: a genuine absence is provisioned, not aborted" 0 "$SETUP_RC" "$SETUP_OUT"
-	assert_creates "case 3: exactly the five tenancy mappers are created" 5 "$state/creates.log"
+	grep 'protocolMapper=oidc-usermodel-attribute-mapper' "$state/creates.log" >"$state/tenancy_creates"
+	grep 'protocolMapper=oidc-audience-mapper' "$state/creates.log" >"$state/audience_creates"
+	assert_line_count "case 3: exactly the five tenancy mappers are created" 5 "$state/tenancy_creates"
+	assert_line_count "case 3: exactly one audience mapper is created" 1 "$state/audience_creates"
+	assert_creates "case 3: exactly six protocol mappers are created" 6 "$state/creates.log"
 	assert_contains "case 3: creates the last tenancy mapper" \
 		"Protocol mapper $ENV_APP_CLIENT/company_store_id created and verified" "$SETUP_OUT"
 	assert_not_contains "case 3: does not refuse the absence diagnostic" \
@@ -1196,6 +1263,80 @@ else
 		assert_creates "case 16: no create before the refusal" 0 "$state/creates.log"
 		chmod 0644 "$admin_credential"
 	fi
+fi
+
+# Case 17 (audience mapper) — a realm that holds every tenancy mapper but NOT the
+# platform audience mapper gains exactly that one. Both JWT decoders reject a
+# token whose `aud` does not name them (odd/tasks/jwt-audience-validation.md,
+# S1-S3, S6), and Keycloak emits `aud: ["account"]` with no mapper, so this
+# block is what keeps a valid frontend-client token acceptable. The case pins the
+# declaration the decoders depend on — the protocol mapper, the custom audience
+# and the claim travelling in the access token only — and the read-back proves
+# the create round-trips instead of being trusted on its exit code.
+# ------------------------------------------
+root="$(new_root)"
+state="$root/state"
+LAYOUT_ENV=dev
+LAYOUT_SMTP_AUTH=false
+LAYOUT_SMTP_HOST=""
+LAYOUT_KEYCLOAK_URL=""
+LAYOUT_CLIENT_REDIRECTS=""
+LAYOUT_CLIENT_WEB_ORIGINS=""
+if build_layout "$root" "$state" tenancy ""; then
+	export KCS_SHIM_STATE_DIR="$state"
+	export KCS_SHIM_INJECT_MATCH=""
+	export KCS_SHIM_INJECT_KIND=""
+	unset KCS_SHIM_REALM_DROP_UPDATE
+	run_setup "$root"
+	assert_rc "case 17 (audience): a realm without the audience mapper converges and exits 0" 0 "$SETUP_RC" "$SETUP_OUT"
+	assert_creates "case 17 (audience): exactly one mapper is created" 1 "$state/creates.log"
+	assert_contains "case 17 (audience): the created mapper is the platform audience mapper" \
+		"name=$ENV_AUDIENCE_MAPPER" "$(cat "$state/creates.log")"
+	assert_contains "case 17 (audience): it declares oidc-audience-mapper" \
+		"protocolMapper=oidc-audience-mapper" "$(cat "$state/creates.log")"
+	assert_contains "case 17 (audience): it declares the platform audience" \
+		"config.\"included.custom.audience\"=$ENV_API_AUDIENCE" "$(cat "$state/creates.log")"
+	assert_contains "case 17 (audience): the audience travels in the access token" \
+		"config.\"access.token.claim\"=true" "$(cat "$state/creates.log")"
+	assert_contains "case 17 (audience): and not in the id token" \
+		"config.\"id.token.claim\"=false" "$(cat "$state/creates.log")"
+	assert_contains "case 17 (audience): the create was read back and verified" \
+		"Protocol mapper $ENV_APP_CLIENT/$ENV_AUDIENCE_MAPPER created and verified" "$SETUP_OUT"
+	assert_contains "case 17 (audience): reaches the end" "Keycloak setup complete for dev" "$SETUP_OUT"
+fi
+
+# ------------------------------------------
+# Case 18 (audience mapper drift) — an existing audience mapper that sends the
+# audience in the id token instead of the access token. The script must fail,
+# name the mapper and the missing requirement, and NOT repair it: no create and
+# no mapper update. Inverse of case 17, and the negative half of the
+# fail-rather-than-repair property the block declares.
+# ------------------------------------------
+root="$(new_root)"
+state="$root/state"
+LAYOUT_ENV=dev
+LAYOUT_SMTP_AUTH=false
+LAYOUT_SMTP_HOST=""
+LAYOUT_KEYCLOAK_URL=""
+LAYOUT_CLIENT_REDIRECTS=""
+LAYOUT_CLIENT_WEB_ORIGINS=""
+if build_layout "$root" "$state" all ""; then
+	printf '%s\n' 1 >"$state/audience_drift"
+	export KCS_SHIM_STATE_DIR="$state"
+	export KCS_SHIM_INJECT_MATCH=""
+	export KCS_SHIM_INJECT_KIND=""
+	unset KCS_SHIM_REALM_DROP_UPDATE
+	run_setup "$root"
+	assert_rc "case 18 (audience-drift): a drifted audience mapper aborts with 1" 1 "$SETUP_RC" "$SETUP_OUT"
+	assert_creates "case 18 (audience-drift): no create is attempted" 0 "$state/creates.log"
+	assert_contains "case 18 (audience-drift): names the mapper and the missing requirement" \
+		"$ENV_APP_CLIENT/$ENV_AUDIENCE_MAPPER is missing \"id.token.claim\":\"false\"." "$SETUP_OUT"
+	assert_contains "case 18 (audience-drift): the drifted mapper was actually read" \
+		"protocol-mappers/models/mid-$ENV_AUDIENCE_MAPPER" "$(cat "$state/calls.log")"
+	assert_file_has_no_match "case 18 (audience-drift): no mapper update (no repair)" \
+		"protocol-mappers/models" "$state/updates.log"
+	assert_not_contains "case 18 (audience-drift): never reports success" \
+		"Keycloak setup complete" "$SETUP_OUT"
 fi
 
 # ------------------------------------------

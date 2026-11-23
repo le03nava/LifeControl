@@ -22,7 +22,9 @@ function accessToken(roles: string[], username: string): string {
     sub: username,
     typ: 'Bearer',
     azp: CLIENT_ID,
-    aud: 'account',
+    // The platform audience the realm now mints through its `api-audience` mapper. The real decoder
+    // rejects a token whose `aud` does not name it, so the mock has to carry what Keycloak emits.
+    aud: ['account', 'life-control-api'],
     sid: 'mock-session',
     auth_time: now(),
     session_state: 'mock-session-state',
