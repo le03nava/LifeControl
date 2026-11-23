@@ -3,8 +3,10 @@
 # LifeControl - validate-env.sh: a directory in docker/secrets/ is not a secret
 # ============================================
 # The gate that `deploy.sh prod start` runs before production starts iterates `docker/secrets/*` and
-# demands, of every entry, content that is non-empty, free of CHANGEME and mode 0444. A *directory* in
-# that folder satisfies none of that, and it is not an operator's mistake: compose bind-mounts
+# demands, of every entry, content that is non-empty, free of CHANGEME and the exact `owner:group mode`
+# its row in the ownership table declares (0400 with the single reading uid, or 0440 root:<gid> where two
+# accounts read the file -- see `### Secretos` in AGENTS.md). A *directory* in that folder satisfies none
+# of that, and it is not an operator's mistake: compose bind-mounts
 # `./secrets/smtp_password`, and Docker creates an empty directory in place of a bind source that does
 # not exist (docker-compose.yml:354-357 says so and states the entrypoint treats it as "no credential").
 #
@@ -93,6 +95,38 @@ trap cleanup EXIT
 mkdir -p "$WORK/scripts" "$WORK/secrets" "$WORK/bin"
 cp "$DOCKER_DIR/scripts/validate-env.sh" "$DOCKER_DIR/scripts/_common.sh" "$WORK/scripts/"
 
+# The gate now asks for an exact `owner:group mode` per credential, and the uids it names (1000, 1001,
+# root) are not the account running this suite: no unprivileged run can create a file owned by them. So
+# the OS metadata is doubled the same way `docker info` already is -- a shim ahead of the real command on
+# PATH, answering only the question the gate asks -- and every verdict can still be driven. The real
+# permission semantics (a foreign uid cannot read the file, the declared reader can, and for a 0440 row
+# the GROUP is what grants it) are measured with real containers in secrets-ownership.test.sh.
+METADATA_TSV="$WORK/metadata.tsv"
+: >"$METADATA_TSV"
+install_metadata_double() {
+	local bindir="$1" tsv="$2" real
+	real="$(command -v stat)"
+	cat >"$bindir/stat" <<SHIM
+#!/bin/bash
+if [ "\${1:-}" = "-c" ] && [ "\${2:-}" = "%a %u %g" ]; then
+	name="\$(basename "\${@: -1}")"
+	while IFS='|' read -r n m u g; do
+		[ -n "\$n" ] || continue
+		if [ "\$n" = "\$name" ]; then printf '%s %s %s\\n' "\$m" "\$u" "\$g"; exit 0; fi
+	done <"$tsv"
+fi
+exec "$real" "\$@"
+SHIM
+	chmod +x "$bindir/stat"
+}
+install_metadata_double "$WORK/bin" "$METADATA_TSV"
+
+# declare_metadata <name> <mode> <uid> <gid> -- what the gate will read for that file. The first row
+# written for a name wins, so a case that needs a different shape clears the file first.
+declare_metadata() {
+	printf '%s|%s|%s|%s\n' "$1" "$2" "$3" "$4" >>"$METADATA_TSV"
+}
+
 # `docker info` is the only Docker call the script makes; the stub answers it, so this suite needs no
 # daemon. A `#!/bin/sh` stub is deliberate: validating an env file does not need a real client.
 printf '#!/bin/sh\nexit 0\n' >"$WORK/bin/docker"
@@ -117,17 +151,20 @@ DECLARED='lifecontrol_postgres_password'
 OPTIONAL='smtp_password'
 
 # seed_secrets <declared-shape> -- rebuilds the secrets folder around the case's shape.
-#   file  the declared secret is a materialized file at 0444, and the optional one is a directory
+#   file  the declared secret is a materialized file in its declared shape, and the optional one is a
+#         directory
 #   dir   the declared secret is itself a directory
 #   only-dir  nothing but the optional secret's directory
 seed_secrets() {
 	rm -rf "$WORK/secrets"
 	mkdir -p "$WORK/secrets"
+	: >"$METADATA_TSV"
 	printf 'secret\n' >"$WORK/secrets/$DECLARED.template"
 	case "$1" in
 	file)
 		printf 'secret\n' >"$WORK/secrets/$DECLARED"
-		chmod 0444 "$WORK/secrets/$DECLARED"
+		chmod 0400 "$WORK/secrets/$DECLARED"
+		declare_metadata "$DECLARED" 440 0 9312
 		mkdir "$WORK/secrets/$OPTIONAL"
 		;;
 	dir)
@@ -188,21 +225,24 @@ assert_contains "the gate says it failed" "$LAST_TEXT" "Validation failed"
 seed_secrets file
 chmod u+w "$WORK/secrets/$DECLARED"
 printf 'CHANGEME\n' >"$WORK/secrets/$DECLARED"
-chmod 0444 "$WORK/secrets/$DECLARED"
+chmod 0400 "$WORK/secrets/$DECLARED"
 run_gate
 assert_equal "a CHANGEME secret still fails the gate" "1" "$LAST_RC"
 assert_contains "the CHANGEME failure still names CHANGEME" "$LAST_TEXT" "still contains CHANGEME"
 
 seed_secrets file
 chmod 0644 "$WORK/secrets/$DECLARED"
+: >"$METADATA_TSV"
+declare_metadata "$DECLARED" 644 0 9312
 run_gate
 assert_equal "a secret at the wrong mode still fails the gate" "1" "$LAST_RC"
-assert_contains "the mode failure still names the expected mode" "$LAST_TEXT" "must be 0444"
+assert_contains "the mode failure names the mode the contract requires" "$LAST_TEXT" "must be 0440"
+assert_absent "the retired 0444 demand is gone" "$LAST_TEXT" "must be 0444"
 
 seed_secrets file
 chmod u+w "$WORK/secrets/$DECLARED"
 : >"$WORK/secrets/$DECLARED"
-chmod 0444 "$WORK/secrets/$DECLARED"
+chmod 0400 "$WORK/secrets/$DECLARED"
 run_gate
 assert_equal "an empty secret still fails the gate" "1" "$LAST_RC"
 assert_contains "the empty failure still says so" "$LAST_TEXT" "is missing or empty"
@@ -229,21 +269,25 @@ assert_contains "the failure names the template that declares it" "$LAST_TEXT" "
 assert_contains "the failure says the materialized file does not exist" "$LAST_TEXT" "does not exist"
 assert_contains "the failure names the command that materializes it" "$LAST_TEXT" "setup-env.sh"
 
-# The control: materialize the same secret and the same run passes, so the failure above is the missing
-# file and not the shape of the folder.
+# The control: materialize the same secret in its declared shape and the same run passes, so the
+# failure above is the missing file and not the shape of the folder.
 printf 'secret\n' >"$WORK/secrets/$DECLARED"
-chmod 0444 "$WORK/secrets/$DECLARED"
+chmod 0400 "$WORK/secrets/$DECLARED"
+: >"$METADATA_TSV"
+declare_metadata "$DECLARED" 440 0 9312
 run_gate
 assert_equal "materializing the declared secret clears the failure" "0" "$LAST_RC"
 
 # ------------------------------------------
-# 5. The control: a materialized secret at 0444 and nothing else passes, so case 1's warning is provably
-#    not what keeps the gate green.
+# 5. The control: a materialized secret in its declared shape and nothing else passes, so case 1's
+#    warning is provably not what keeps the gate green.
 # ------------------------------------------
 rm -rf "$WORK/secrets"
 mkdir -p "$WORK/secrets"
 printf 'secret\n' >"$WORK/secrets/$DECLARED"
-chmod 0444 "$WORK/secrets/$DECLARED"
+chmod 0400 "$WORK/secrets/$DECLARED"
+: >"$METADATA_TSV"
+declare_metadata "$DECLARED" 440 0 9312
 run_gate
 assert_equal "a materialized secret alone passes the gate" "0" "$LAST_RC"
 assert_absent "a materialized secret produces no directory warning" "$LAST_TEXT" "is a directory"
@@ -274,14 +318,16 @@ assert_equal "an absent credential is legal when the relay does not authenticate
 seed_secrets file
 rm -rf "$WORK/secrets/$OPTIONAL"
 printf 'relay-password\n' >"$WORK/secrets/$OPTIONAL"
-chmod 0444 "$WORK/secrets/$OPTIONAL"
+chmod 0400 "$WORK/secrets/$OPTIONAL"
+declare_metadata "$OPTIONAL" 400 1000 0
 run_gate 'SMTP_AUTH=true'
 assert_equal "a materialized credential satisfies SMTP_AUTH=true" "0" "$LAST_RC"
 
 seed_secrets file
 rm -rf "$WORK/secrets/$OPTIONAL"
 printf 'CHANGEME\n' >"$WORK/secrets/$OPTIONAL"
-chmod 0444 "$WORK/secrets/$OPTIONAL"
+chmod 0400 "$WORK/secrets/$OPTIONAL"
+declare_metadata "$OPTIONAL" 400 1000 0
 run_gate 'SMTP_AUTH=true'
 assert_equal "a CHANGEME credential fails when the relay authenticates" "1" "$LAST_RC"
 
