@@ -35,7 +35,7 @@ bucket4j = "8.10.1"
 logbook = "4.2.0"
 keycloak-admin-client = "26.0.13"
 saxon-he = "13.1"
-spring-restdocs = "4.0.2"
+spring-restdocs = "4.1.0"
 
 [libraries]
 springdoc-openapi-starter-webmvc-ui = { module = "org.springdoc:springdoc-openapi-starter-webmvc-ui", version.ref = "springdoc" }
