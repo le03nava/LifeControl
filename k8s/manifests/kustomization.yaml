@@ -1,0 +1,25 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# The single entry point for this tree. The two directories are disjoint on purpose: `applications/`
+# holds what this repository builds, `infra/` holds the services it runs beside.
+#
+# There is exactly one copy of each workload. A second directory with near-clones of the same seven
+# workloads was deleted in #891: nothing kept the two in sync, and a fix applied to one copy silently
+# left the other stale.
+#
+#   Render:  kubectl kustomize k8s/manifests
+#   Apply:   k8s/kind/create-secrets.sh && kubectl apply -k k8s/manifests
+#
+# The order is not cosmetic. No Secret lives in this tree any more, so the objects the containers
+# read through `secretKeyRef` have to exist before the pods that read them start.
+resources:
+  - applications/common-config.yml
+  - applications/api-gateway.yml
+  - infra/grafana.yml
+  - infra/keycloak-mysql.yml
+  - infra/keycloak.yml
+  - infra/loki.yml
+  - infra/mysql.yml
+  - infra/prometheus.yml
+  - infra/tempo.yml

@@ -23,16 +23,6 @@ spec:
                 configMapKeyRef:
                   key: GF_AUTH_ANONYMOUS_ENABLED
                   name: grafana-configmap
-            - name: GF_AUTH_ANONYMOUS_ORG_ROLE
-              valueFrom:
-                configMapKeyRef:
-                  key: GF_AUTH_ANONYMOUS_ORG_ROLE
-                  name: grafana-configmap
-            - name: GF_AUTH_DISABLE_LOGIN_FORM
-              valueFrom:
-                configMapKeyRef:
-                  key: GF_AUTH_DISABLE_LOGIN_FORM
-                  name: grafana-configmap
           volumeMounts:
             - name: grafana-config
               mountPath: /etc/grafana/provisioning/datasources
@@ -58,9 +48,7 @@ kind: ConfigMap
 metadata:
   name: grafana-configmap
 data:
-    GF_AUTH_ANONYMOUS_ENABLED: "true"
-    GF_AUTH_ANONYMOUS_ORG_ROLE: "Admin"
-    GF_AUTH_DISABLE_LOGIN_FORM: "true"
+    GF_AUTH_ANONYMOUS_ENABLED: "false"
     datasource.yml: |
       apiVersion: 1
 

@@ -51,13 +51,9 @@ spec:
       targetPort: 3306
   selector:
     app: mysql
----
-apiVersion: v1
-data:
-  mysql_root_password: bXlzcWw=
-kind: Secret
-metadata:
-  name: mysql-secrets
+# Secret `mysql-secrets` (key `mysql_root_password`) is created by k8s/kind/create-secrets.sh and is
+# deliberately absent from this tree: a committed Secret object is the file that gets applied by
+# habit, and base64 is not encryption.
 ---
 apiVersion: v1
 kind: PersistentVolume

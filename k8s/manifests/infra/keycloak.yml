@@ -73,14 +73,9 @@ spec:
     - protocol: TCP
       port: 8080
       targetPort: 8080
----
-apiVersion: v1
-data:
-  DB_PASSWORD: cGFzc3dvcmQ=
-  KEYCLOAK_ADMIN_PASSWORD: YWRtaW4=
-kind: Secret
-metadata:
-  name: keycloak-secrets
+# Secret `keycloak-secrets` (keys `DB_PASSWORD`, `KEYCLOAK_ADMIN_PASSWORD`) is created by
+# k8s/kind/create-secrets.sh and is deliberately absent from this tree. The admin *username* stays in
+# the ConfigMap below because a username is not a credential; the password is generated at run time.
 ---
 apiVersion: v1
 kind: ConfigMap
