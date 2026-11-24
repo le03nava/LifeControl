@@ -21,7 +21,7 @@
 # second, emptier place to look for the version of a library.
 
 [versions]
-spring-boot = "4.1.2"
+spring-boot = "4.2.0"
 spring-dependency-management = "1.1.7"
 spring-cloud = "2025.1.4"
 springdoc = "3.2.1"
