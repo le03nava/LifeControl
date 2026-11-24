@@ -83,3 +83,8 @@ mergeable ones into a single reviewed change and states, per exclusion, why the 
   not partition: 20 absorbed + 1459 ancestors != 1481 cited”* — a branch hash is not an ancestor of
   `origin/main`, and the citation rule only admits resolvable content. Replaced with prose, which is what the
   existing records use; the slice subjects in the log are the durable pointer until the merge commit exists.
+- **L10** — 2026-11-24, delivery: the grouped change travels in **PR #1049** against `main`, opened with
+  `type:chore` and `Closes #1048`, whose issue was created with `status:approved` because the “A linked,
+  approved issue” check is skipped only for the bot's own pull requests. The merge commit is deliberately not
+  written here: `AGENTS.md` says it is derived with `git log -1 --format='%h' -- odd/tasks/dependabot-batch.md`,
+  and a branch hash would be a citation that stops resolving the moment the branch is rewritten.
