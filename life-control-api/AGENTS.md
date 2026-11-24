@@ -4,7 +4,7 @@
 
 | Component        | Technology                              |
 |------------------|-----------------------------------------|
-| Framework        | Spring Boot 4.1.2                      |
+| Framework        | Spring Boot 4.2.0                      |
 | Language         | Java 21                                 |
 | Build Tool       | Gradle 9.x+                             |
 | Database         | PostgreSQL                              |

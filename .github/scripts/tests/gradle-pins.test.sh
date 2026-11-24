@@ -91,16 +91,16 @@ build-api|life-control-api/build.gradle'
 
 # label|distributionUrl — the wrapper each module downloads. Both modules state the same line since
 # #894; the case at the end of this file is what makes that a rule instead of an observation.
-FROZEN_WRAPPERS='wrapper-api|https://services.gradle.org/distributions/gradle-9.9.1-bin.zip
-wrapper-gateway|https://services.gradle.org/distributions/gradle-9.9.1-bin.zip'
+FROZEN_WRAPPERS='wrapper-api|https://services.gradle.org/distributions/gradle-9.9.2-bin.zip
+wrapper-gateway|https://services.gradle.org/distributions/gradle-9.9.2-bin.zip'
 
 # plugin id|version — every `[plugins]` entry of the shared catalog, resolved through its
 # `version.ref`. One table, not one per module: both builds read the same file, which is the point
 # of the catalog.
-FROZEN_PLUGINS='org.springframework.boot|4.1.2
+FROZEN_PLUGINS='org.springframework.boot|4.2.0
 io.spring.dependency-management|1.1.7
 org.asciidoctor.jvm.convert|4.0.5
-com.diffplug.spotless|8.11.0
+com.diffplug.spotless|8.12.0
 com.github.spotbugs|6.5.13'
 
 # The Gradle core plugins. They are shipped inside the distribution the wrapper downloads, so they

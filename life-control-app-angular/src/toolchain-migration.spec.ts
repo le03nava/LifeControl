@@ -57,7 +57,7 @@ describe('Angular 22 migration invariants', () => {
       expect(all[name], name).toBe('22.3.0');
     }
     expect(all['typescript']).toBe('~6.0.3');
-    expect(all['angular-eslint']).toBe('22.7.0');
+    expect(all['angular-eslint']).toBe('22.8.0');
     expect(all['typescript-eslint']).toMatch(/^\^8\.73\.0$/);
     expect(all['keycloak-angular']).toMatch(/^\^22\./);
 
