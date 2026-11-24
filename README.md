@@ -354,11 +354,23 @@ literal `unknown`.
 
 ## Kubernetes (Opcional)
 
+El árbol de `k8s/` es un playground local de `kind`: nada de este repo lo buildea, lo pushea ni lo
+despliega, y por eso sus versiones de imagen están congeladas en una tabla propia, con esa razón
+escrita, en `docker/scripts/tests/image-pins.test.sh`. Hay **una sola copia** de cada workload —se
+borró la segunda, que nada mantenía en sincronía— y el punto de entrada es un kustomization.
+
 ```bash
 ./k8s/kind/create-kind-cluster.sh
-kubectl apply -f k8s/manifests/infrastructure.yaml
-kubectl apply -f k8s/manifests/applications.yaml
+./k8s/kind/create-secrets.sh      # los Secrets se generan acá, no viven en el repo
+kubectl apply -k k8s/manifests
 ```
+
+> El orden importa: ningún `kind: Secret` vive en este repo, así que los tres objetos que los
+> contenedores leen (`mysql-secrets`, `keycloak-mysql-secrets`, `keycloak-secrets`) tienen que existir
+> antes de que arranquen los pods que los leen. Los crea `k8s/kind/create-secrets.sh`, que genera
+> cada password en el momento: un objeto Secret commiteado es el archivo que alguien aplica por
+> costumbre, y base64 no es cifrado. Correrlo dos veces no cambia nada, y rotar una password es
+> borrar el Secret y volver a correrlo, a mano.
 
 ---
 

@@ -29,7 +29,7 @@ Shared repository references live here. Component-specific detail lives in `refe
 - `life-control-api/` — see `references/api.md`; overview in `life-control-api/README.md`.
 - `life-control-app-angular/` — see `references/angular.md`; overview in `life-control-app-angular/README.md`.
 - `docker/docker-compose.yml`, `docker/docker-compose.override.yml`, `docker/docker-compose.prod.yml` — runtime topology per environment.
-- `k8s/manifests/applications/api-gateway.yml`, `k8s/manifests/applications/common-config.yml`, `k8s/manifests/infra/`, `k8s/manifests/infrastructure/` — cluster topology.
+- `k8s/manifests/applications/api-gateway.yml`, `k8s/manifests/applications/common-config.yml`, `k8s/manifests/infra/`, `k8s/manifests/kustomization.yaml` — cluster topology. One copy of each workload, one entry point.
 
 ## Security
 
