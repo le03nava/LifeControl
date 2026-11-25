@@ -359,10 +359,16 @@ despliega, y por eso sus versiones de imagen están congeladas en una tabla prop
 escrita, en `docker/scripts/tests/image-pins.test.sh`. Hay **una sola copia** de cada workload —se
 borró la segunda, que nada mantenía en sincronía— y el punto de entrada es un kustomization.
 
+Todo el árbol aterriza en el namespace `life-control`, que declara `k8s/manifests/namespace.yml` y
+repite el campo `namespace:` del kustomization: esas dos son las únicas copias del nombre. Los
+manifests referencian los Services por nombre corto, que resuelve dentro del namespace del pod, así
+que renombrarlo son esas dos líneas y no una edición por archivo. Nada queda en `default`.
+
 ```bash
 ./k8s/kind/create-kind-cluster.sh
 ./k8s/kind/create-secrets.sh      # los Secrets se generan acá, no viven en el repo
 kubectl apply -k k8s/manifests
+kubectl get pods -n life-control  # los ocho workloads aterrizan acá
 ```
 
 > El orden importa: ningún `kind: Secret` vive en este repo, así que los tres objetos que los
@@ -371,6 +377,18 @@ kubectl apply -k k8s/manifests
 > cada password en el momento: un objeto Secret commiteado es el archivo que alguien aplica por
 > costumbre, y base64 no es cifrado. Correrlo dos veces no cambia nada, y rotar una password es
 > borrar el Secret y volver a correrlo, a mano.
+>
+> Ese script escribe en el namespace que declara el kustomization y lo crea si no existe: corre
+> **antes** del apply, así que el objeto `Namespace` todavía no está, y un Secret en `default` no lo
+> puede leer ningún pod de este árbol. Si querés otro namespace, pasáselo como argumento, pero
+> entonces el kustomization tiene que declarar ese mismo.
+>
+> La red también está cerrada por defecto. `k8s/manifests/network-policy.yml` deniega ingress y egress
+> en todo el namespace y habilita **sólo** los flujos que los manifests declaran —Grafana a sus tres
+> datasources, Prometheus al actuator del gateway, el gateway a Keycloak, Loki y Tempo, Keycloak a su
+> MySQL, y DNS de clúster en el puerto 53 para todos—, cada uno con su regla de entrada y su regla de
+> salida: una NetworkPolicy es direccional, y media regla no habilita nada. Un pod que no es uno de
+> esos destinos no llega a MySQL.
 
 ---
 

@@ -12,8 +12,20 @@ kind: Kustomization
 #   Apply:   k8s/kind/create-secrets.sh && kubectl apply -k k8s/manifests
 #
 # The order is not cosmetic. No Secret lives in this tree any more, so the objects the containers
-# read through `secretKeyRef` have to exist before the pods that read them start.
+# read through `secretKeyRef` have to exist before the pods that read them start. `create-secrets.sh`
+# writes them into the namespace declared below and creates that namespace first, because this apply
+# -- the one that would create it -- has not run yet.
+#
+# The namespace is declared twice and only twice: as an object (`namespace.yml`) and as the transform
+# below. Every Service reference in the tree is a short name, which resolves inside the pod's own
+# namespace, so nothing repeats the name and renaming it is these two lines.
+namespace: life-control
+
+# Deny by default and allow the flows the tree needs, one policy per direction. The boundary is not a
+# property of an object, so it lives in its own manifest rather than beside a workload.
 resources:
+  - namespace.yml
+  - network-policy.yml
   - applications/common-config.yml
   - applications/api-gateway.yml
   - infra/grafana.yml

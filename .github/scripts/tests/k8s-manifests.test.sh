@@ -25,6 +25,13 @@
 #   4. **Two copies of every workload**, near-identical and kept in sync by nothing. A fix applied to
 #      one copy silently left the other stale.
 #
+#   5. **No namespace and no boundary.** Every object landed in the cluster's `default`, seven DNS
+#      strings spelled `default` out by hand, and any pod could reach any other pod -- MySQL
+#      included. The tree now declares its namespace once and denies egress and ingress by default;
+#      what this suite holds is that the declaration is single-sourced and that every allow the
+#      policy file writes exists in both directions, because a NetworkPolicy that allows one side
+#      alone allows nothing at all and fails as a broken pod rather than as a bad policy.
+#
 # A reader that matched nothing would print the same green line as a reader that matched everything,
 # so every checker below also runs against a fixture that must be rejected. The float and directory
 # checks are the two the tree could regress into without anybody typing a credential, which is why
@@ -32,8 +39,10 @@
 #
 # No network, no `kubectl`, no `kind`, no YAML library. `kubectl kustomize` itself is an operator step
 # -- the machine this was written on has no kubectl at all -- so what this suite holds offline is that
-# the kustomization exists, names every manifest the tree has, and names nothing that is missing. That
-# is the half of the render criterion a static check can answer; it is not the render.
+# the kustomization exists, names every manifest the tree has, and names nothing that is missing, that
+# the namespace is declared by one object and one transform and by nothing else, and that the
+# network policy file is symmetric and default-deny. That is the half of the render criterion a static
+# check can answer; it is not the render, and it is not a cluster.
 #
 # Run: ./.github/scripts/tests/k8s-manifests.test.sh
 # Exits 0 only when every case passes.
@@ -295,6 +304,402 @@ deployment_count() {
 }
 
 # ------------------------------------------
+# The namespace
+# ------------------------------------------
+
+# declared_namespace <root>: the value of the kustomization's top-level `namespace:` field.
+declared_namespace() {
+	awk '
+		/^namespace:[[:space:]]*/ {
+			sub(/^namespace:[[:space:]]*/, "")
+			sub(/[[:space:]]*$/, "")
+			print
+			exit
+		}
+	' "$1/kustomization.yaml" 2>/dev/null
+}
+
+# files_with_kind <root> <Kind>: the manifests holding a document of that kind.
+files_with_kind() {
+	find "$1" -type f \( -name '*.yml' -o -name '*.yaml' \) | sort | while IFS= read -r f; do
+		grep -qxE "kind:[[:space:]]*$2[[:space:]]*" "$f" && printf '%s\n' "$f"
+	done
+}
+
+# namespace_object_names <path>: the metadata.name of each `kind: Namespace` document in the file.
+namespace_object_names() {
+	awk '
+		function flush() {
+			if (is_ns && name != "") print name
+			is_ns = 0
+			name = ""
+		}
+		/^---[[:space:]]*$/ { flush(); next }
+		/^kind:[[:space:]]*Namespace[[:space:]]*$/ { is_ns = 1; next }
+		is_ns && /^[[:space:]]+name:[[:space:]]*/ {
+			name = $0
+			sub(/^[[:space:]]+name:[[:space:]]*/, "", name)
+			gsub(/"/, "", name)
+			sub(/[[:space:]]*$/, "", name)
+		}
+		END { flush() }
+	' "$1" 2>/dev/null
+}
+
+# namespace_findings <root>: exactly one Namespace object, and it declares the namespace the
+# kustomization transforms into. The two are read separately on purpose: an object without the
+# transform leaves the workloads in `default`, a transform without the object leaves nothing to
+# create, and one of the two edited without the other is the drift this pair exists to catch.
+namespace_findings() {
+	local root="$1" declared paths count path name
+	declared="$(declared_namespace "$root")"
+	if [ -z "$declared" ]; then
+		printf '%s\n' "kustomization.yaml declares no namespace: field, so no workload belongs to a declared namespace"
+	fi
+	paths="$(files_with_kind "$root" Namespace)"
+	count="$(printf '%s\n' "$paths" | grep -c . || true)"
+	if [ "${count:-0}" = "0" ]; then
+		printf 'no kind: Namespace object exists under %s\n' "$root"
+		return 0
+	fi
+	if [ "${count:-0}" != "1" ]; then
+		printf 'the tree declares %s Namespace objects, and one is the shape this tree supports\n' "$count"
+	fi
+	while IFS= read -r path; do
+		[ -n "$path" ] || continue
+		[ -n "$declared" ] || continue
+		while IFS= read -r name; do
+			[ -n "$name" ] || continue
+			[ "$name" = "$declared" ] ||
+				printf '%s declares Namespace %s while kustomization.yaml declares namespace %s\n' \
+					"${path#"$root"/}" "$name" "$declared"
+			done <<< "$(namespace_object_names "$path")"
+	done <<< "$paths"
+}
+
+# cluster_local_findings <root>: a service name spelled as a full cluster FQDN. A short service name
+# resolves inside the pod's own declared namespace, so this is the line that decides whether renaming
+# the namespace is two edits or one per manifest.
+cluster_local_findings() {
+	grep -rn '\.svc\.cluster\.local' "$1" 2>/dev/null | sed "s|^$1/||" || true
+}
+
+# namespace_literal_findings <root>: every manifest that writes the declared namespace's name, except
+# the Namespace object and the kustomization transform. Those two are the declaration; a third copy is
+# what turns a rename into a hand edit in every file that spells it out.
+namespace_literal_findings() {
+	local root="$1" declared allowed entry path
+	declared="$(declared_namespace "$root")"
+	[ -n "$declared" ] || return 0
+	allowed="kustomization.yaml"
+	while IFS= read -r entry; do
+		[ -n "$entry" ] || continue
+		allowed="$allowed ${entry#"$root"/}"
+	done <<< "$(files_with_kind "$root" Namespace)"
+	while IFS= read -r path; do
+		[ -n "$path" ] || continue
+		case " $allowed " in
+		*" $path "*) continue ;;
+		esac
+		printf '%s writes the namespace name outside the two declarations\n' "$path"
+	done <<< "$(grep -rlF "$declared" "$root" 2>/dev/null | sed "s|^$root/||" | sort)"
+}
+
+# ------------------------------------------
+# The network boundary
+# ------------------------------------------
+
+# comma_list_has <list> <value>: whether a comma-joined list names the value.
+comma_list_has() {
+	case ",$1," in
+	*",$2,"*) return 0 ;;
+	esac
+	return 1
+}
+
+# policy_documents <file>: `name<TAB>podSelector<TAB>policyTypes<TAB>rules` per NetworkPolicy
+# document, where `rules` counts the ingress and egress rules it declares. A policy with no rules is a
+# deny and a policy with rules is an allow, which is what lets the deny check tell them apart.
+policy_documents() {
+	[ -f "$1" ] || return 0
+	awk '
+		function flush() {
+			if (is_np) printf "%s\t%s\t%s\t%s\n", name, sel, types, rules
+			name = ""
+			sel = ""
+			types = ""
+			rules = 0
+			is_np = 0
+			in_types = 0
+		}
+		{
+			indent = match($0, /[^ ]/) - 1
+			if (indent < 0) indent = 0
+			line = substr($0, indent + 1)
+			sub(/[ \t]+$/, "", line)
+		}
+		line == "" || line ~ /^#/ { next }
+		indent == 0 && line ~ /^---/ { flush(); next }
+		indent == 0 && line ~ /^kind:/ {
+			flush()
+			is_np = (line == "kind: NetworkPolicy")
+			next
+		}
+		indent == 0 { next }
+		!is_np { next }
+		indent == 2 {
+			in_types = (line == "policyTypes:")
+			if (line == "podSelector: {}") sel = "*"
+			else if (line == "podSelector:") sel = "labeled"
+			else if (line ~ /^name: /) {
+				name = line
+				sub(/^name: /, "", name)
+				gsub(/"/, "", name)
+			}
+			next
+		}
+		indent == 4 && in_types && line ~ /^- / {
+			types = (types == "") ? substr(line, 3) : types "," substr(line, 3)
+			next
+		}
+		indent == 4 && line ~ /^- / {
+			rules++
+			next
+		}
+		END { flush() }
+	' "$1"
+}
+
+# policy_flows <file>: one `direction<TAB>source<TAB>destination<TAB>protocol/port` record per flow the
+# file allows, where a selector is `app=<name>`, `*` for a selector that names every pod in the
+# namespace, and a peer in another namespace is `ns=<namespace>/<selector>`.
+#
+# The reader understands exactly the shape this tree writes: one peer per rule, `matchLabels` under
+# each selector, `ports` after the peer, labels at a fixed indent. Anything else produces no record,
+# which is why the fixtures below mutate the real file instead of testing a friendlier copy: a reader
+# that had stopped understanding the shape would otherwise report every pair as complete.
+policy_flows() {
+	[ -f "$1" ] || return 0
+	awk '
+		function selector(pod, ns) {
+			if (ns == "") return pod
+			if (pod == "") return "ns=" ns
+			return "ns=" ns "/" pod
+		}
+		function flush_peer() {
+			peer = selector(peer_pod, peer_ns)
+			if (!is_np || peer == "") {
+				peer_pod = ""
+				peer_ns = ""
+				ports = ""
+				return
+			}
+			n = split(ports, parts, ",")
+			for (i = 1; i <= n; i++) {
+				if (parts[i] == "") continue
+				if (dir == "egress") printf "egress\t%s\t%s\t%s\n", policy_sel, peer, parts[i]
+				else if (dir == "ingress") printf "ingress\t%s\t%s\t%s\n", peer, policy_sel, parts[i]
+			}
+			peer_pod = ""
+			peer_ns = ""
+			ports = ""
+		}
+		{
+			indent = match($0, /[^ ]/) - 1
+			if (indent < 0) indent = 0
+			line = substr($0, indent + 1)
+			sub(/[ \t]+$/, "", line)
+		}
+		line == "" || line ~ /^#/ { next }
+		indent == 0 && line ~ /^---/ { flush_peer(); next }
+		indent == 0 && line ~ /^kind:/ {
+			flush_peer()
+			is_np = (line == "kind: NetworkPolicy")
+			policy_sel = ""
+			dir = ""
+			next
+		}
+		indent == 0 { next }
+		!is_np { next }
+		indent == 2 && line == "podSelector: {}" { policy_sel = "*"; next }
+		indent == 2 && (line == "egress:" || line == "ingress:") {
+			flush_peer()
+			dir = line
+			sub(/:$/, "", dir)
+			next
+		}
+		indent == 4 && (line == "- to:" || line == "- from:") {
+			flush_peer()
+			dir = (line == "- to:") ? "egress" : "ingress"
+			next
+		}
+		indent == 6 && dir == "" && line ~ /^[^:]+: / {
+			policy_sel = line
+			sub(/: /, "=", policy_sel)
+			gsub(/"/, "", policy_sel)
+			next
+		}
+		indent == 8 && line == "- namespaceSelector: {}" {
+			flush_peer()
+			peer_ns = "*"
+			peer_scope = "ns"
+			next
+		}
+		indent == 8 && line == "- podSelector: {}" {
+			flush_peer()
+			peer_pod = "*"
+			peer_scope = "pod"
+			next
+		}
+		indent == 8 && line == "- namespaceSelector:" { flush_peer(); peer_scope = "ns"; next }
+		indent == 8 && line == "- podSelector:" { flush_peer(); peer_scope = "pod"; next }
+		indent == 8 && line ~ /^- protocol: / {
+			proto = line
+			sub(/^- protocol: /, "", proto)
+			next
+		}
+		indent == 10 && line == "podSelector:" { peer_scope = "pod"; next }
+		indent == 10 && line == "namespaceSelector:" { peer_scope = "ns"; next }
+		indent == 10 && line ~ /^port: / {
+			port = line
+			sub(/^port: /, "", port)
+			if (proto == "") proto = "TCP"
+			ports = ports "," proto "/" port
+			proto = ""
+			next
+		}
+		indent == 14 && peer_scope == "pod" {
+			peer_pod = line
+			sub(/: /, "=", peer_pod)
+			next
+		}
+		indent == 14 && peer_scope == "ns" {
+			peer_ns = line
+			sub(/: /, "=", peer_ns)
+			sub(/^kubernetes\.io\/metadata\.name=/, "", peer_ns)
+			next
+		}
+		END { flush_peer() }
+	' "$1"
+}
+
+# default_deny_findings <file>: a policy that selects every pod, declares no allow of its own, and
+# stops both directions. One direction is not a default deny: the traffic it does not name still flows
+# the other way. A policy that selects every pod and does carry rules is an allow (cluster DNS is one),
+# not a candidate deny, so it is not judged here.
+default_deny_findings() {
+	local docs name sel types rules found=0
+	docs="$(policy_documents "$1")"
+	if [ -z "$docs" ]; then
+		printf '%s\n' "no NetworkPolicy document exists, so nothing stops the traffic this tree does not need"
+		return 0
+	fi
+	while IFS=$'\t' read -r name sel types rules; do
+		[ -n "$name" ] || continue
+		[ "$sel" = "*" ] || continue
+		if comma_list_has "$types" Ingress && comma_list_has "$types" Egress; then
+			found=$((found + 1))
+			continue
+		fi
+		[ "${rules:-0}" = "0" ] || continue
+		printf 'policy %s selects every pod and declares no rule, but its policyTypes "%s" does not name both directions\n' \
+			"$name" "$types"
+	done <<< "$docs"
+	if [ "$found" = "0" ]; then
+		printf '%s\n' "no policy with an empty podSelector declares both Ingress and Egress, so the namespace is not default-deny"
+	fi
+}
+
+# blanket_peer_findings <file>: a rule whose peer is every pod, or every namespace. That is the line
+# that makes the boundary unprovable -- any pod in the namespace could reach MySQL -- so it is a
+# finding even when both directions agree, which is the one case a pair check cannot catch.
+blanket_peer_findings() {
+	policy_flows "$1" | awk -F'\t' '
+		($1 == "egress" && ($3 == "*" || $3 ~ /^ns=\*/)) ||
+		($1 == "ingress" && ($2 == "*" || $2 ~ /^ns=\*/)) {
+			printf "the %s rule %s -> %s %s allows every peer\n", $1, $2, $3, $4
+		}
+	'
+}
+
+# unpaired_flows <file>: every allowed flow has to exist in both directions. A NetworkPolicy is
+# directional, so one side alone allows nothing at all and the workload that rule was written for
+# simply cannot reach its dependency -- a failure that shows up as a broken pod, not as a bad policy.
+unpaired_flows() {
+	local flows egress ingress probe
+	flows="$(policy_flows "$1")"
+	egress="$(printf '%s\n' "$flows" | awk -F'\t' '$1 == "egress" && $3 !~ /^ns=/ { printf "%s -> %s %s\n", $2, $3, $4 }' | sort -u)"
+	ingress="$(printf '%s\n' "$flows" | awk -F'\t' '$1 == "ingress" && $2 !~ /^ns=/ { printf "%s -> %s %s\n", $2, $3, $4 }' | sort -u)"
+	while IFS= read -r probe; do
+		[ -n "$probe" ] || continue
+		printf '%s\n' "$ingress" | grep -qxF "$probe" ||
+			printf 'egress %s has no ingress rule that allows it\n' "$probe"
+	done <<< "$egress"
+	while IFS= read -r probe; do
+		[ -n "$probe" ] || continue
+		printf '%s\n' "$egress" | grep -qxF "$probe" ||
+			printf 'ingress %s has no egress rule that allows it\n' "$probe"
+	done <<< "$ingress"
+}
+
+# The eight flows the manifests declare, frozen. The pair check above proves the two halves of
+# whatever is written agree; this proves the set itself, because deleting both halves of a pair keeps
+# the boundary symmetric and silently takes a workload's dependency away.
+DECLARED_FLOWS="app=api-gateway -> app=keycloak TCP/8080
+app=api-gateway -> app=loki TCP/3100
+app=api-gateway -> app=tempo TCP/9411
+app=grafana -> app=loki TCP/3100
+app=grafana -> app=prometheus TCP/9090
+app=grafana -> app=tempo TCP/3200
+app=keycloak -> app=mysql TCP/3306
+app=prometheus -> app=api-gateway TCP/9000"
+
+# declared_flow_findings <file>: the intra-namespace flows the file allows are exactly the eight
+# above. An extra allow is a flow no manifest needs, which is what S6 says cannot exist.
+declared_flow_findings() {
+	local flows probe
+	flows="$(policy_flows "$1" | awk -F'\t' '$1 == "egress" && $3 !~ /^ns=/ { printf "%s -> %s %s\n", $2, $3, $4 }' | sort -u)"
+	while IFS= read -r probe; do
+		[ -n "$probe" ] || continue
+		printf '%s\n' "$flows" | grep -qxF "$probe" ||
+			printf 'this tree needs %s and no egress rule allows it\n' "$probe"
+	done <<< "$DECLARED_FLOWS"
+	while IFS= read -r probe; do
+		[ -n "$probe" ] || continue
+		printf '%s\n' "$DECLARED_FLOWS" | grep -qxF "$probe" ||
+			printf 'an egress rule allows %s, and no manifest in this tree needs it\n' "$probe"
+	done <<< "$flows"
+}
+
+# cross_namespace_findings <file>: the only flow that may leave this namespace is cluster DNS, from
+# every pod, on 53 over both transports. Every other dependency in the tree is a Service in its own
+# namespace, so a second cross-namespace allow is a flow nobody declared -- and a DNS allow that names
+# one pod instead of every pod leaves the rest unable to resolve any of the short names.
+DNS_DESTINATION="ns=kube-system/k8s-app=kube-dns"
+cross_namespace_findings() {
+	local flows sources transport
+	flows="$(policy_flows "$1")"
+	printf '%s\n' "$flows" | awk -F'\t' -v dns="$DNS_DESTINATION" '
+		($1 == "egress" && $3 ~ /^ns=/ && $3 != dns) ||
+		($1 == "ingress" && $2 ~ /^ns=/) {
+			printf "the %s rule %s -> %s %s crosses the namespace boundary, and nothing in this tree needs it\n", $1, $2, $3, $4
+		}
+	'
+	for transport in UDP/53 TCP/53; do
+		printf '%s\n' "$flows" |
+			awk -F'\t' -v dns="$DNS_DESTINATION" -v t="$transport" \
+				'$1 == "egress" && $3 == dns && $4 == t' |
+			grep -q . ||
+			printf 'no egress rule allows %s to cluster DNS, so the short names in this tree do not resolve\n' "$transport"
+	done
+	sources="$(printf '%s\n' "$flows" | awk -F'\t' -v dns="$DNS_DESTINATION" '$1 == "egress" && $3 == dns { print $2 }' | sort -u)"
+	if [ -n "$sources" ] && [ "$sources" != "*" ]; then
+		printf 'the DNS allow names %s instead of every pod, so a pod outside that list cannot resolve a short name\n' \
+			"$(printf '%s\n' "$sources" | tr '\n' ' ')"
+	fi
+}
+
+# ------------------------------------------
 # The tree
 # ------------------------------------------
 echo "== 1. one manifests tree, and a kustomization that names all of it"
@@ -353,13 +758,82 @@ else
 fi
 
 echo
-echo "== 3. the documented entry point names things that exist"
+echo "== 3. the namespace is declared twice and written nowhere else"
+
+if [ ! -d "$MANIFESTS" ]; then
+	fail "cannot check the namespace: no manifests directory"
+else
+	check_clean "a kind: Namespace object declares the namespace the kustomization transforms into" \
+		"$(namespace_findings "$MANIFESTS")"
+
+	check_clean "no manifest spells a service name as a cluster FQDN" \
+		"$(cluster_local_findings "$REPO_ROOT/k8s")"
+
+	check_clean "the namespace name is written only by the object and the transform" \
+		"$(namespace_literal_findings "$MANIFESTS")"
+
+	declared="$(declared_namespace "$MANIFESTS")"
+	if [ -z "$declared" ]; then
+		fail "the kustomization declares no namespace, so there is no name to count"
+	else
+		# One declaration in the object, one in the transform. A third occurrence is the copy that
+		# a rename leaves behind, which is the defect this count exists to keep out.
+		occurrences="$(grep -roF "$declared" "$MANIFESTS" 2>/dev/null | wc -l | tr -d ' ')"
+		if [ "$occurrences" = "2" ]; then
+			pass "the namespace name is written exactly twice: once as the object, once as the transform"
+		else
+			fail "the namespace name is written $occurrences times, and the frozen count is 2"
+		fi
+	fi
+fi
+
+echo
+echo "== 4. the network boundary is a default deny and every allow is a pair"
+
+# One manifest owns the boundary. Two of them would be two places to look for the flow that is
+# actually allowed, and the pair check below reads one file.
+POLICY_FILE="$(files_with_kind "$MANIFESTS" NetworkPolicy 2>/dev/null | head -n1)"
+POLICY_COUNT="$(files_with_kind "$MANIFESTS" NetworkPolicy 2>/dev/null | grep -c . || true)"
+POLICY_REL=""
+if [ -n "$POLICY_FILE" ]; then
+	POLICY_REL="${POLICY_FILE#"$MANIFESTS"/}"
+fi
+
+if [ "${POLICY_COUNT:-0}" = "1" ]; then
+	pass "one manifest declares the NetworkPolicies: $POLICY_REL"
+elif [ "${POLICY_COUNT:-0}" = "0" ]; then
+	fail "no manifest declares a NetworkPolicy, so every pod in the namespace can reach every other pod"
+else
+	fail "the tree declares NetworkPolicies in ${POLICY_COUNT:-0} manifests, and exactly one owns the boundary"
+fi
+
+if [ -n "$POLICY_FILE" ] && [ -f "$POLICY_FILE" ]; then
+	check_clean "a default-deny policy selects every pod and names both directions" \
+		"$(default_deny_findings "$POLICY_FILE")"
+
+	check_clean "no rule allows every peer, which is the blanket allow the boundary cannot have" \
+		"$(blanket_peer_findings "$POLICY_FILE")"
+
+	check_clean "every allowed flow is allowed in both directions" \
+		"$(unpaired_flows "$POLICY_FILE")"
+
+	check_clean "the allowed flows are exactly the ones the manifests declare" \
+		"$(declared_flow_findings "$POLICY_FILE")"
+
+	check_clean "the only flow leaving this namespace is cluster DNS on 53, from every pod" \
+		"$(cross_namespace_findings "$POLICY_FILE")"
+else
+	fail "cannot check the network boundary: no NetworkPolicy manifest was found"
+fi
+
+echo
+echo "== 5. the documented entry point names things that exist"
 
 check_clean "every ./k8s path README.md names exists, and every script it runs is executable" \
 	"$(readme_path_findings "$README")"
 
 echo
-echo "== 4. no image floats outside the declared exception"
+echo "== 6. no image floats outside the declared exception"
 
 if [ ! -f "$IMAGE_PINS" ]; then
 	fail "cannot read the documented exception: $IMAGE_PINS is missing"
@@ -379,7 +853,7 @@ fi
 # fails here instead of printing the same green line as a clean read.
 # ------------------------------------------
 echo
-echo "== 5. every checker rejects the input it exists for"
+echo "== 7. every checker rejects the input it exists for"
 
 if [ -d "$MANIFESTS" ]; then
 	cp -R "$MANIFESTS" "$TMP/fx-inline"
@@ -419,6 +893,105 @@ if [ -d "$MANIFESTS" ]; then
 		check_rejected "a README path that does not exist" "$(readme_path_findings "$TMP/fx-readme.md")"
 	else
 		fail "cannot build the README fixture: $README is missing"
+	fi
+
+	# The namespace fixtures. The object and the transform are two edits that have to agree, so the
+	# first fixture edits one of them: a checker that read only one would call that clean.
+	NS_PATH="$(files_with_kind "$MANIFESTS" Namespace | head -n1)"
+	if [ -n "$NS_PATH" ]; then
+		NS_REL="${NS_PATH#"$MANIFESTS"/}"
+		cp -R "$MANIFESTS" "$TMP/fx-ns-drift"
+		sed -i 's/^  name: .*/  name: not-the-declared-namespace/' "$TMP/fx-ns-drift/$NS_REL"
+		check_rejected "a Namespace object that disagrees with the transform" \
+			"$(namespace_findings "$TMP/fx-ns-drift")"
+
+		cp -R "$MANIFESTS" "$TMP/fx-ns-absent"
+		sed -i 's/^kind: Namespace$/kind: NamespaceLost/' "$TMP/fx-ns-absent/$NS_REL"
+		check_rejected "a tree whose Namespace object is gone" \
+			"$(namespace_findings "$TMP/fx-ns-absent")"
+	else
+		fail "cannot build the namespace fixtures: no Namespace object under $MANIFESTS"
+	fi
+
+	cp -R "$REPO_ROOT/k8s" "$TMP/fx-fqdn"
+	printf '  LOKI_URL: "http://loki.default.svc.cluster.local:3100/loki/api/v1/push"\n' \
+		>>"$TMP/fx-fqdn/manifests/applications/common-config.yml"
+	check_rejected "a service name spelled as a cluster FQDN" "$(cluster_local_findings "$TMP/fx-fqdn")"
+
+	declared_for_fixture="$(declared_namespace "$MANIFESTS")"
+	if [ -n "$declared_for_fixture" ]; then
+		cp -R "$MANIFESTS" "$TMP/fx-ns-repeat"
+		printf '  NS: "%s"\n' "$declared_for_fixture" >>"$TMP/fx-ns-repeat/infra/loki.yml"
+		check_rejected "a third copy of the namespace name" \
+			"$(namespace_literal_findings "$TMP/fx-ns-repeat")"
+	else
+		fail "cannot build the namespace-repeat fixture: the kustomization declares no namespace"
+	fi
+
+	if [ -n "$POLICY_REL" ] && [ -f "${MANIFESTS:-}/$POLICY_REL" ]; then
+		cp -R "$MANIFESTS" "$TMP/fx-deny-one-way"
+		awk '/^---$/ { doc++ } doc == 1 && $0 == "    - Egress" { next } { print }' \
+			"$MANIFESTS/$POLICY_REL" >"$TMP/fx-deny-one-way/$POLICY_REL"
+		check_rejected "a default deny that names only one direction" \
+			"$(default_deny_findings "$TMP/fx-deny-one-way/$POLICY_REL")"
+
+		cp -R "$MANIFESTS" "$TMP/fx-pair"
+		sed -i '0,/^              app: tempo$/s//              app: no-longer-tempo/' "$TMP/fx-pair/$POLICY_REL"
+		check_rejected "an egress rule whose destination has no ingress rule" \
+			"$(unpaired_flows "$TMP/fx-pair/$POLICY_REL")"
+		check_rejected "a flow the manifests need that no egress rule allows" \
+			"$(declared_flow_findings "$TMP/fx-pair/$POLICY_REL")"
+
+		cp -R "$MANIFESTS" "$TMP/fx-blanket"
+		printf '%s\n' \
+			'---' \
+			'apiVersion: networking.k8s.io/v1' \
+			'kind: NetworkPolicy' \
+			'metadata:' \
+			'  name: everything' \
+			'spec:' \
+			'  podSelector: {}' \
+			'  policyTypes:' \
+			'    - Egress' \
+			'  egress:' \
+			'    - to:' \
+			'        - podSelector: {}' \
+			'      ports:' \
+			'        - protocol: TCP' \
+			'          port: 3306' \
+			>>"$TMP/fx-blanket/$POLICY_REL"
+		check_rejected "a rule that allows every peer" \
+			"$(blanket_peer_findings "$TMP/fx-blanket/$POLICY_REL")"
+
+		cp -R "$MANIFESTS" "$TMP/fx-cross"
+		printf '%s\n' \
+			'---' \
+			'apiVersion: networking.k8s.io/v1' \
+			'kind: NetworkPolicy' \
+			'metadata:' \
+			'  name: another-namespace' \
+			'spec:' \
+			'  podSelector:' \
+			'    matchLabels:' \
+			'      app: keycloak' \
+			'  policyTypes:' \
+			'    - Egress' \
+			'  egress:' \
+			'    - to:' \
+			'        - namespaceSelector:' \
+			'            matchLabels:' \
+			'              kubernetes.io/metadata.name: default' \
+			'          podSelector:' \
+			'            matchLabels:' \
+			'              app: mysql' \
+			'      ports:' \
+			'        - protocol: TCP' \
+			'          port: 3306' \
+			>>"$TMP/fx-cross/$POLICY_REL"
+		check_rejected "a flow that crosses the namespace boundary" \
+			"$(cross_namespace_findings "$TMP/fx-cross/$POLICY_REL")"
+	else
+		fail "cannot build the network boundary fixtures: no NetworkPolicy manifest was found"
 	fi
 else
 	fail "cannot build the fixtures: no manifests directory"

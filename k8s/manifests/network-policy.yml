@@ -1,0 +1,300 @@
+# The network boundary of this tree's namespace (#1034).
+#
+# Default deny, then one rule for each direction of every flow the manifests actually declare. A
+# NetworkPolicy is directional: a policy that allows egress from A to B does nothing unless a policy
+# also allows that exact ingress into B, and the reverse. So every flow below is written twice, and
+# what the suite asserts is the pair rather than the rules -- one direction alone allows nothing at
+# all, and it fails as a pod that cannot reach its dependency rather than as a policy that looks wrong.
+#
+# There is deliberately no "everything in this namespace may talk to everything in this namespace"
+# policy. That one line would make the boundary unprovable: any pod added here could reach MySQL, and
+# MySQL is the flow this file exists to keep narrow -- `keycloak-mysql` is a second MySQL in the same
+# tree that no manifest reads, and it stays unreachable.
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+# Every pod needs cluster DNS: the seven service names in this tree are short names, and a short name
+# is resolved through `kube-dns`. A default-deny egress policy blocks port 53 along with everything
+# else, so this rule is not an exception to the boundary -- without it the short names do not resolve
+# and the failure reads as a broken policy instead of a missing rule. Written once for every pod
+# because a workload added here tomorrow must resolve names without an edit to this file.
+#
+# This rule has no ingress half, and that is not the one-direction mistake: `kube-dns` runs in
+# `kube-system`, which carries no policy from this tree, so its inbound side is already open. The
+# receiving half of a NetworkPolicy can only be written from the namespace the receiver lives in.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: cluster-dns-egress
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+---
+# grafana -> prometheus:9090, tempo:3200, loki:3100 -- the three datasources in its provisioning
+# ConfigMap.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: grafana-egress
+spec:
+  podSelector:
+    matchLabels:
+      app: grafana
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: prometheus
+      ports:
+        - protocol: TCP
+          port: 9090
+    - to:
+        - podSelector:
+            matchLabels:
+              app: tempo
+      ports:
+        - protocol: TCP
+          port: 3200
+    - to:
+        - podSelector:
+            matchLabels:
+              app: loki
+      ports:
+        - protocol: TCP
+          port: 3100
+---
+# prometheus -> api-gateway:9000 -- the scrape of `/actuator/prometheus`.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: prometheus-egress
+spec:
+  podSelector:
+    matchLabels:
+      app: prometheus
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: api-gateway
+      ports:
+        - protocol: TCP
+          port: 9000
+---
+# api-gateway -> keycloak:8080, loki:3100, tempo:9411 -- its issuer URI, its log push and its trace
+# push, all three read from a ConfigMap.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: api-gateway-egress
+spec:
+  podSelector:
+    matchLabels:
+      app: api-gateway
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: keycloak
+      ports:
+        - protocol: TCP
+          port: 8080
+    - to:
+        - podSelector:
+            matchLabels:
+              app: loki
+      ports:
+        - protocol: TCP
+          port: 3100
+    - to:
+        - podSelector:
+            matchLabels:
+              app: tempo
+      ports:
+        - protocol: TCP
+          port: 9411
+---
+# keycloak -> mysql:3306 -- `DB_ADDR` in its ConfigMap names the Service.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: keycloak-egress
+spec:
+  podSelector:
+    matchLabels:
+      app: keycloak
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: mysql
+      ports:
+        - protocol: TCP
+          port: 3306
+---
+# The ingress half of the flows above. Each rule is the mirror of one egress rule, in the same order.
+---
+# prometheus:9090 <- grafana
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: prometheus-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app: prometheus
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: grafana
+      ports:
+        - protocol: TCP
+          port: 9090
+---
+# tempo:3200 <- grafana (the datasource) and tempo:9411 <- api-gateway (the Zipkin receiver).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: tempo-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app: tempo
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: grafana
+      ports:
+        - protocol: TCP
+          port: 3200
+    - from:
+        - podSelector:
+            matchLabels:
+              app: api-gateway
+      ports:
+        - protocol: TCP
+          port: 9411
+---
+# loki:3100 <- grafana (the datasource) and api-gateway (the log push).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: loki-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app: loki
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: grafana
+      ports:
+        - protocol: TCP
+          port: 3100
+    - from:
+        - podSelector:
+            matchLabels:
+              app: api-gateway
+      ports:
+        - protocol: TCP
+          port: 3100
+---
+# api-gateway:9000 <- prometheus
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: api-gateway-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app: api-gateway
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: prometheus
+      ports:
+        - protocol: TCP
+          port: 9000
+---
+# keycloak:8080 <- api-gateway
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: keycloak-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app: keycloak
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: api-gateway
+      ports:
+        - protocol: TCP
+          port: 8080
+---
+# mysql:3306 <- keycloak, and nobody else. This is the flow a pod without business here must fail to
+# open: `keycloak-mysql` is not named by this rule at all.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: mysql-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app: mysql
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: keycloak
+      ports:
+        - protocol: TCP
+          port: 3306
