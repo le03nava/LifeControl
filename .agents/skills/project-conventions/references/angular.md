@@ -49,7 +49,7 @@ Component reference for the Angular frontend. Run every gate command from `life-
 
 - `docker/scripts/validate-env.sh`, `docker/scripts/setup-env.sh` — environment validation and setup.
 - `docker/docker-compose.yml`, `docker/docker-compose.prod.yml` — runtime composition.
-- `k8s/manifests/infra/`, `k8s/manifests/infrastructure/` — cluster infrastructure manifests.
+- `k8s/manifests/infra/`, `k8s/manifests/kustomization.yaml` — cluster infrastructure manifests.
 - `life-control-app-angular/nginx.conf`, `life-control-app-angular/entrypoint.sh` — runtime serving and entrypoint.
 - Gap: no post-deploy verification checklist; provider-side settings unverifiable from the repository.
 

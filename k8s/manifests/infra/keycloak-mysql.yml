@@ -89,11 +89,6 @@ metadata:
 data:
   MYSQL_DATABASE: "keycloak"
   MYSQL_USER: "keycloak"
----
-apiVersion: v1
-data:
-  MYSQL_PASSWORD: cGFzc3dvcmQ=
-  MYSQL_ROOT_PASSWORD: cm9vdA==
-kind: Secret
-metadata:
-  name: keycloak-mysql-secrets
+
+# Secret `keycloak-mysql-secrets` (keys `MYSQL_PASSWORD`, `MYSQL_ROOT_PASSWORD`) is created by
+# k8s/kind/create-secrets.sh and is deliberately absent from this tree.

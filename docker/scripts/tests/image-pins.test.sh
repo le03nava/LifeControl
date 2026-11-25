@@ -415,7 +415,7 @@ fi
 # 10. Every image reference under k8s/ is a pin or a declared exception.
 #     k8s/ is a local playground: nothing in this repository builds, pushes or deploys it, and the
 #     kind scripts only pull the same references into a local cluster. That is why it cannot read the
-#     docker pin source -- it runs MySQL, Kafka and an external gateway image the stack never runs --
+#     docker pin source -- it runs MySQL and an external gateway image the stack never runs --
 #     and why the frozen table below is its pin source instead. The exception is named, with its
 #     reason, rather than filtered out by a pattern: an image with a single published tag cannot be
 #     materialized, and hiding it in a regex is how the next floating tag goes unnoticed too.
