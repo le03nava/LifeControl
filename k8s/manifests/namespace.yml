@@ -1,0 +1,11 @@
+# The namespace every object in this tree lands in.
+#
+# Until #1034 the tree declared none: every workload took the cluster's `default`, so this playground
+# shared a namespace with anything else the cluster ran, nothing could be scoped to it, and a rule that
+# names a namespace had no namespace to name. The name is written here and once more as the
+# kustomization's `namespace:` transform, and nowhere else -- no manifest spells it into a DNS name, so
+# renaming it is that pair and not one edit per file.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: life-control

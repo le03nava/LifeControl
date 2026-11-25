@@ -54,4 +54,4 @@ data:
       - job_name: 'api-gateway'
         metrics_path: '/actuator/prometheus'
         static_configs:
-          - targets: ['api-gateway.default.svc.cluster.local:9000'] ## only for demo purposes don't use host.docker.internal in production
+          - targets: ['api-gateway:9000'] ## only for demo purposes don't use host.docker.internal in production

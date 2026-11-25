@@ -4,5 +4,5 @@ kind: ConfigMap
 metadata:
   name: common-config
 data:
-  LOKI_URL: "http://loki.default.svc.cluster.local:3100/loki/api/v1/push"
-  MANAGEMENT_ZIPKIN_TRACING_ENDPOINT: "http://tempo.default.svc.cluster.local:9411"
+  LOKI_URL: "http://loki:3100/loki/api/v1/push"
+  MANAGEMENT_ZIPKIN_TRACING_ENDPOINT: "http://tempo:9411"

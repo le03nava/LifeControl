@@ -13,7 +13,7 @@
 # nothing writes one to it, so a fresh clone has no credential to leak.
 #
 # Usage:
-#   ./k8s/kind/create-secrets.sh [namespace]      # namespace defaults to `default`
+#   ./k8s/kind/create-secrets.sh [namespace]      # defaults to the namespace the tree declares
 #
 # Re-running is safe and changes nothing observable: an existing Secret is left exactly as it is.
 # Rotation is deliberately not offered as a flag. Regenerating over a live cluster would disconnect
@@ -23,9 +23,30 @@
 #
 # Run this before `kubectl apply -k k8s/manifests`, not after: the objects the containers read have to
 # exist before the pods that read them start.
+#
+# That ordering is also why this script creates the namespace before it writes anything into it. The
+# manifests declare their namespace and this runs first, so the object the apply would create does not
+# exist yet; a Secret created in some other namespace is a Secret no pod of this tree can read.
 set -euo pipefail
 
-NAMESPACE="${1:-default}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+KUSTOMIZATION="$SCRIPT_DIR/../manifests/kustomization.yaml"
+
+# declared_namespace: the namespace the tree declares, read from the kustomization's `namespace:`
+# transform instead of written here. A literal in this file would be the third copy of the name and the
+# one that keeps pointing at the old namespace after a rename -- silently: the Secrets are created, the
+# apply succeeds, and no pod can read them.
+declared_namespace() {
+	[ -f "$KUSTOMIZATION" ] || return 0
+	awk '
+		/^namespace:[[:space:]]*/ {
+			sub(/^namespace:[[:space:]]*/, "")
+			sub(/[[:space:]]*$/, "")
+			print
+			exit
+		}
+	' "$KUSTOMIZATION"
+}
 
 usage() {
 	awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "${BASH_SOURCE[0]}"
@@ -37,6 +58,16 @@ case "${1:-}" in
 	exit 0
 	;;
 esac
+
+# The namespace is the one the tree declares. Read, never written here: the kustomization's
+# `namespace:` transform and the Namespace object are the two declarations, and a third copy in this
+# file is the one that would keep writing Secrets into the old namespace after a rename.
+NAMESPACE="${1:-$(declared_namespace)}"
+if [ -z "$NAMESPACE" ]; then
+	echo "the namespace could not be read from $KUSTOMIZATION" >&2
+	echo "pass it explicitly: ./k8s/kind/create-secrets.sh <namespace>" >&2
+	exit 1
+fi
 
 if ! command -v kubectl >/dev/null 2>&1; then
 	echo "kubectl is required and was not found on PATH" >&2
@@ -55,6 +86,19 @@ fi
 # alphabet.
 generate_password() {
 	openssl rand -hex 16
+}
+
+# create_namespace: the namespace the tree declares, created before the Secrets that live in it.
+# Skipped when it already exists, so a second run against a cluster that has already been applied does
+# not fail on the object the apply created.
+create_namespace() {
+	if kubectl get namespace "$NAMESPACE" >/dev/null 2>&1; then
+		echo "namespace/$NAMESPACE already exists: left untouched"
+		return 0
+	fi
+
+	kubectl create namespace "$NAMESPACE"
+	echo "namespace/$NAMESPACE created"
 }
 
 # create_secret <name> [--from-literal=key=value]...
@@ -76,6 +120,8 @@ create_secret() {
 		kubectl apply --namespace "$NAMESPACE" --filename -
 	echo "secret/$name created in namespace $NAMESPACE"
 }
+
+create_namespace
 
 echo "creating the Secrets the k8s manifests read, in namespace $NAMESPACE"
 
