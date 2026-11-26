@@ -12,12 +12,60 @@ spec:
       labels:
         app: loki
     spec:
+      # S2: `10001:10001` is the uid the distroless image runs as -- it has no shell, so this value
+      # comes from the image's declared user rather than from `id` inside a container. Nothing
+      # overrides it at the container level.
+      securityContext:
+        runAsUser: 10001
+        runAsGroup: 10001
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: loki
           image: grafana/loki:3.7.8
+          # IfNotPresent: `k8s/kind/kind-load.sh` loads this image into the node, so this playground
+          # never pulls.
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            # Measured: with a read-only root filesystem Loki fails with
+            # `failed to create object client: mkdir /loki/chunks: read-only file system`. `/loki` is
+            # its `path_prefix`, so the tmpfs below is the whole of what it needed.
+            readOnlyRootFilesystem: true
+          # Laptop playground sizing: the observability trio is idle most of the time, so the request
+          # is tiny and the limit only has to survive an ingestion burst of container logs.
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+          # No livenessProbe: `/ready` reports the ingester and querier state, not the process, so a
+          # burst of queries makes a healthy Loki unready and a liveness check built on it would
+          # restart the pod in the middle of the ingestion it was serving.
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 3100
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 6
           ports:
             - containerPort: 3100
           args: ["-config.file=/etc/loki/local-config.yaml"]
+          volumeMounts:
+            - name: loki-data
+              mountPath: /loki
+      volumes:
+        # The writable half of `readOnlyRootFilesystem: true`: the one path the read-only run named.
+        - name: loki-data
+          emptyDir:
+            medium: Memory
 ---
 apiVersion: v1
 kind: Service

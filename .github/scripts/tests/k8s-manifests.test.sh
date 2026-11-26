@@ -849,11 +849,529 @@ else
 fi
 
 # ------------------------------------------
+# The hardening of every workload
+# ------------------------------------------
+
+# Every number below is a measurement, and holding the manifests equal to it is the whole job of this
+# half of the suite: an unmeasured uid or a missing limit is not a visible defect -- the tree applies
+# and the workload runs wide open -- so a value that disagrees has to fail a check instead of being
+# read past.
+
+# The identity each image actually supports. `docker image inspect` for the images that declare a user,
+# `docker run --entrypoint id` for the two MySQL images whose entrypoint drops to one, and `Config.User`
+# for the gateway, which never ran on this host at all: its image is arm64-only and exits
+# `exec /cnb/process/web: exec format error` on an amd64 node.
+MEASURED_IDENTITIES="api-gateway 1002 1000
+grafana 472 0
+keycloak 1000 0
+keycloak-mysql 999 999
+loki 10001 10001
+mysql 999 999
+prometheus 65534 65534
+tempo 65534 65534"
+
+# The five images whose read-only root filesystem works, and every path each run named. Two of them
+# named a second path once the first was writable -- read-only, MySQL stops at `/tmp` and, with `/tmp`
+# as a tmpfs, at `/var/run/mysqld` -- which is why mysql and keycloak-mysql take two lines and the rest
+# one. The pair is the assertion: `readOnlyRootFilesystem: true` without the tmpfs is a workload that
+# cannot start.
+READ_ONLY_ROOTFS="grafana /var/lib/grafana
+keycloak-mysql /tmp
+keycloak-mysql /var/run/mysqld
+loki /loki
+mysql /tmp
+mysql /var/run/mysqld
+prometheus /prometheus"
+
+# The three that keep a writable root filesystem, each carrying its measured reason at the container.
+# Tempo is here for a structural reason rather than an incidental one: its data path is `/tmp/tempo`,
+# so a tmpfs on `/tmp` would shadow the volume it writes to instead of protecting it.
+WRITABLE_ROOTFS="api-gateway
+keycloak
+tempo"
+
+# The readiness probe each workload can actually answer, and the port its own container listens on.
+READINESS="api-gateway httpGet /actuator/health 9000
+grafana httpGet /api/health 3000
+keycloak tcpSocket - 8080
+keycloak-mysql tcpSocket - 3306
+loki httpGet /ready 3100
+mysql tcpSocket - 3306
+prometheus httpGet /-/ready 9090
+tempo httpGet /ready 3200"
+
+# The three hostPath-backed workloads and the uid `prepare-data` has to hand the directory to. Those
+# three are the whole reason an init container exists in this tree: `hostPath` is the one volume type
+# the kubelet does not hand to `fsGroup`, so a non-root workload cannot open its own datadir until
+# somebody chowns it.
+PREPARE_DATA="keycloak-mysql 999
+mysql 999
+tempo 65534"
+
+# deployment_facts <root>: one `<workload><TAB><path><TAB><value>` record per hardening fact of every
+# Deployment, plus `<workload><TAB>file<TAB><manifest>`.
+#
+# The reader understands exactly the shape this tree writes, the same bargain `policy_flows` makes:
+# `spec.template.spec` at indent 4, `securityContext` / `containers` / `initContainers` / `volumes` at
+# 6, a list item's `name` at 8, a container key at 10, its children at 12 and the list under
+# `capabilities` at 16. Anything else produces no record, which is why every checker below also runs
+# against a fixture built by mutating a real manifest: a reader that had stopped understanding the
+# shape would report nothing and print the same green line as a clean tree.
+#
+# The naming assumption is worth stating: the workload container is the one named after the Deployment,
+# so `container.mysql.*` is MySQL's container and a rename makes every check below report rather than
+# read a different container by accident.
+deployment_facts() {
+	local f
+	find "$1" -type f \( -name '*.yml' -o -name '*.yaml' \) | sort | while IFS= read -r f; do
+		awk -v file="${f#"$1"/}" '
+			function emit(prefix, key, value) {
+				printf "%s\t%s.%s\t%s\n", workload, prefix, key, value
+			}
+			function flush_doc(   i, k, idx, p, paths, tmps) {
+				if (in_dep && workload != "") {
+					printf "%s\tfile\t%s\n", workload, file
+					for (i = 1; i <= norder; i++) {
+						p = order[i]
+						paths = ""
+						tmps = ""
+						for (k = 1; k <= mcount[p]; k++) {
+							idx = p "|" k
+							if (mpath[idx] == "") continue
+							paths = (paths == "") ? mpath[idx] : paths "," mpath[idx]
+							if (vol_mem[mname[idx]]) tmps = (tmps == "") ? mpath[idx] : tmps "," mpath[idx]
+						}
+						emit(p, "volumeMounts", paths)
+						emit(p, "tmpfsMounts", tmps)
+					}
+				}
+				in_dep = 0
+				workload = ""
+				section = ""
+				ckind = ""
+				block = ""
+				pfx = ""
+				curvol = ""
+				norder = 0
+				split("", order)
+				split("", mcount)
+				split("", mname)
+				split("", mpath)
+				split("", vol_mem)
+			}
+			function value(line, key) {
+				v = line
+				sub("^" key ": ", "", v)
+				gsub(/"/, "", v)
+				return v
+			}
+			function item_value(line) {
+				v = line
+				sub(/^- /, "", v)
+				gsub(/"/, "", v)
+				return v
+			}
+			{
+				ind = match($0, /[^ ]/) - 1
+				if (ind < 0) ind = 0
+				line = substr($0, ind + 1)
+				sub(/[ \t]+$/, "", line)
+			}
+			line == "" { next }
+			line ~ /^#/ {
+				if (in_dep && pfx != "") printf "%s\t%s.comment\t%s\n", workload, pfx, line
+				next
+			}
+			ind == 0 && line ~ /^---/ { flush_doc(); next }
+			ind == 0 && line ~ /^kind:/ { flush_doc(); in_dep = (line == "kind: Deployment"); next }
+			!in_dep { next }
+			ind == 2 && line ~ /^name: / {
+				workload = value(line, "name")
+				next
+			}
+			ind == 6 {
+				block = ""
+				pfx = ""
+				ckind = ""
+				if (line == "securityContext:") section = "pod"
+				else if (line == "containers:") section = "containers"
+				else if (line == "initContainers:") section = "inits"
+				else if (line == "volumes:") section = "volumes"
+				else section = ""
+				next
+			}
+			ind == 8 {
+				if (line ~ /^- name: /) {
+					item = value(line, "- name")
+					block = ""
+					if (section == "containers") {
+						ckind = "container"
+						pfx = "container." item
+						order[++norder] = pfx
+					} else if (section == "inits") {
+						ckind = "init"
+						pfx = "init." item
+						order[++norder] = pfx
+					} else if (section == "volumes") {
+						ckind = ""
+						pfx = ""
+						curvol = item
+					}
+					next
+				}
+				if (section == "pod") {
+					if (line ~ /^runAsUser: /) emit("pod", "securityContext.runAsUser", value(line, "runAsUser"))
+					else if (line ~ /^runAsGroup: /) emit("pod", "securityContext.runAsGroup", value(line, "runAsGroup"))
+					else if (line ~ /^runAsNonRoot: /) emit("pod", "securityContext.runAsNonRoot", value(line, "runAsNonRoot"))
+					else if (line == "seccompProfile:") block = "seccomp"
+				}
+				next
+			}
+			ind == 10 && section == "pod" && block == "seccomp" {
+				if (line ~ /^type: /) emit("pod", "securityContext.seccompProfile.type", value(line, "type"))
+				next
+			}
+			ind == 10 && section == "volumes" {
+				block = (line == "emptyDir:") ? "emptydir" : ""
+				next
+			}
+			ind == 12 && section == "volumes" && block == "emptydir" {
+				if (line == "medium: Memory") vol_mem[curvol] = 1
+				next
+			}
+			ind == 10 && ckind != "" {
+				if (line == "securityContext:") block = "sc"
+				else if (line == "volumeMounts:") block = "mounts"
+				else if (line == "resources:") block = "resources"
+				else if (line == "readinessProbe:") block = "readiness"
+				else if (line == "livenessProbe:") {
+					block = "liveness"
+					emit(pfx, "livenessProbe", "declared")
+				} else if (line ~ /^imagePullPolicy: /) {
+					block = ""
+					emit(pfx, "imagePullPolicy", value(line, "imagePullPolicy"))
+				} else if (line ~ /^image: /) {
+					block = ""
+					emit(pfx, "image", value(line, "image"))
+				} else if (line ~ /^args: /) {
+					block = ""
+					emit(pfx, "args", value(line, "args"))
+				} else if (line ~ /^command: /) {
+					block = ""
+					emit(pfx, "command", value(line, "command"))
+				} else block = ""
+				next
+			}
+			ind == 12 && ckind != "" {
+				# Keyed on the key rather than on the block, because `capabilities` and `mounts` keep
+				# their state while the keys that follow them in the same `securityContext` do not.
+				if (line ~ /^runAsUser: /) emit(pfx, "securityContext.runAsUser", value(line, "runAsUser"))
+				else if (line ~ /^runAsGroup: /) emit(pfx, "securityContext.runAsGroup", value(line, "runAsGroup"))
+				else if (line ~ /^runAsNonRoot: /) emit(pfx, "securityContext.runAsNonRoot", value(line, "runAsNonRoot"))
+				else if (line ~ /^allowPrivilegeEscalation: /) emit(pfx, "securityContext.allowPrivilegeEscalation", value(line, "allowPrivilegeEscalation"))
+				else if (line ~ /^readOnlyRootFilesystem: /) emit(pfx, "securityContext.readOnlyRootFilesystem", value(line, "readOnlyRootFilesystem"))
+				else if (line == "capabilities:") block = "caps"
+				else if (line == "requests:") block = "requests"
+				else if (line == "limits:") block = "limits"
+				else if (line == "httpGet:") block = "httpGet"
+				else if (line == "tcpSocket:") block = "tcpSocket"
+				else if (block == "mounts" && line ~ /^- /) {
+					idx = pfx "|" ++mcount[pfx]
+					if (line ~ /^- name: /) mname[idx] = value(line, "- name")
+					else if (line ~ /^- mountPath: /) mpath[idx] = value(line, "- mountPath")
+				}
+				next
+			}
+			ind == 14 && ckind != "" {
+				if (block == "caps") {
+					if (line == "drop:") capnext = "drop"
+					else if (line == "add:") capnext = "add"
+				} else if (block == "requests" || block == "limits") {
+					if (line ~ /^cpu: /) emit(pfx, "resources." block ".cpu", value(line, "cpu"))
+					else if (line ~ /^memory: /) emit(pfx, "resources." block ".memory", value(line, "memory"))
+				} else if (block == "httpGet" || block == "tcpSocket") {
+					if (line ~ /^path: /) emit(pfx, "readinessProbe.path", value(line, "path"))
+					else if (line ~ /^port: /) {
+						emit(pfx, "readinessProbe.kind", block)
+						emit(pfx, "readinessProbe.port", value(line, "port"))
+					}
+				} else if (block == "mounts") {
+					idx = pfx "|" mcount[pfx]
+					if (line ~ /^name: /) mname[idx] = value(line, "name")
+					else if (line ~ /^mountPath: /) mpath[idx] = value(line, "mountPath")
+				}
+				next
+			}
+			ind == 16 && ckind != "" && block == "caps" && capnext != "" && line ~ /^- / {
+				emit(pfx, "securityContext.capabilities." capnext, item_value(line))
+				next
+			}
+			END { flush_doc() }
+		' "$f"
+	done
+}
+
+# one_fact <facts> <workload> <path>: the last value recorded for one fact, or nothing.
+one_fact() {
+	printf '%s\n' "$1" | awk -F'\t' -v w="$2" -v p="$3" '$1 == w && $2 == p { v = $3 } END { print v }'
+}
+
+# all_facts <facts> <workload> <path>: every value recorded for one path, one per line.
+all_facts() {
+	printf '%s\n' "$1" | awk -F'\t' -v w="$2" -v p="$3" '$1 == w && $2 == p { print $3 }'
+}
+
+# identity_findings <facts>: the pod-level identity is the one the image supports, and nothing
+# overrides it at the container level -- an override would make the frozen table describe a value the
+# container does not actually run as, which is the silent guess this check exists to refuse.
+identity_findings() {
+	local facts="$1" wl uid gid got
+	while read -r wl uid gid; do
+		[ -n "$wl" ] || continue
+		got="$(one_fact "$facts" "$wl" pod.securityContext.runAsUser)"
+		[ "$got" = "$uid" ] ||
+			printf '%s declares pod runAsUser "%s" and its image supports %s\n' "$wl" "$got" "$uid"
+		got="$(one_fact "$facts" "$wl" pod.securityContext.runAsGroup)"
+		[ "$got" = "$gid" ] ||
+			printf '%s declares pod runAsGroup "%s" and its image supports %s\n' "$wl" "$got" "$gid"
+		got="$(one_fact "$facts" "$wl" pod.securityContext.runAsNonRoot)"
+		[ "$got" = "true" ] ||
+			printf '%s does not declare runAsNonRoot: true at the pod level\n' "$wl"
+		got="$(one_fact "$facts" "$wl" pod.securityContext.seccompProfile.type)"
+		[ "$got" = "RuntimeDefault" ] ||
+			printf '%s does not declare seccompProfile: RuntimeDefault, which is one rule for the whole tree\n' "$wl"
+		got="$(one_fact "$facts" "$wl" "container.$wl.securityContext.runAsUser")"
+		[ -z "$got" ] ||
+			printf '%s overrides runAsUser to "%s" at the container level, which the measured table does not see\n' \
+				"$wl" "$got"
+	done <<< "$MEASURED_IDENTITIES"
+}
+
+# container_security_findings <facts>: every workload container refuses escalation and drops every
+# capability. A capability added back is a drop of ALL that does not mean ALL, so it is a finding.
+container_security_findings() {
+	local facts="$1" wl got adds
+	while read -r wl _; do
+		[ -n "$wl" ] || continue
+		got="$(one_fact "$facts" "$wl" "container.$wl.securityContext.allowPrivilegeEscalation")"
+		[ "$got" = "false" ] ||
+			printf '%s does not set allowPrivilegeEscalation: false on its container\n' "$wl"
+		got="$(all_facts "$facts" "$wl" "container.$wl.securityContext.capabilities.drop" | sort -u | tr '\n' ' ' | sed 's/ $//')"
+		[ "$got" = "ALL" ] ||
+			printf '%s drops capabilities "%s" and the tree drops ALL\n' "$wl" "${got:-none}"
+		adds="$(all_facts "$facts" "$wl" "container.$wl.securityContext.capabilities.add" | sort -u | tr '\n' ' ' | sed 's/ $//')"
+		[ -z "$adds" ] ||
+			printf '%s adds capability "%s" back to a container that must drop ALL\n' "$wl" "$adds"
+	done <<< "$MEASURED_IDENTITIES"
+}
+
+# image_pull_findings <facts>: every container that declares an image also declares
+# `imagePullPolicy: IfNotPresent`. Declared and not spelled out is the whole point: the tree's images
+# are loaded into the kind node by `k8s/kind/kind-load.sh`, and the default for the gateway's `:latest`
+# is `Always`, which would try to pull it and fail. The count is per container rather than per workload
+# so an init container cannot pass by absence.
+image_pull_findings() {
+	printf '%s\n' "$1" | awk -F'\t' '
+		$2 ~ /^(container|init)\.[^.]+\.image$/ {
+			p = $2
+			sub(/\.image$/, "", p)
+			has_image[$1 SUBSEP p] = 1
+		}
+		$2 ~ /^(container|init)\.[^.]+\.imagePullPolicy$/ {
+			p = $2
+			sub(/\.imagePullPolicy$/, "", p)
+			if ($3 != "IfNotPresent") printf "%s declares imagePullPolicy \"%s\" for %s and this tree only loads images\n", $1, $3, p
+			has_policy[$1 SUBSEP p] = 1
+		}
+		END {
+			for (k in has_image) {
+				if (k in has_policy) continue
+				split(k, parts, SUBSEP)
+				printf "%s declares no imagePullPolicy for %s\n", parts[1], parts[2]
+			}
+		}
+	'
+}
+
+# resources_findings <facts>: all four values present and non-zero. A zero request schedules nothing
+# and a zero limit is a limit Kubernetes reads as "no limit", so both are findings rather than a
+# smaller number.
+resources_findings() {
+	local facts="$1" wl kind res got
+	while read -r wl _; do
+		[ -n "$wl" ] || continue
+		for kind in requests limits; do
+			for res in cpu memory; do
+				got="$(one_fact "$facts" "$wl" "container.$wl.resources.$kind.$res")"
+				case "$got" in
+				"" | 0 | 0m | 0Mi | 0M | 0MiB)
+					printf '%s declares no non-zero %s.%s\n' "$wl" "$kind" "$res"
+					;;
+				esac
+			done
+		done
+	done <<< "$MEASURED_IDENTITIES"
+}
+
+# readiness_findings <facts>: each workload answers the probe the tree holds for it. `livenessProbe`
+# has its own check because a workload that cannot answer one must not carry a naively configured one.
+readiness_findings() {
+	local facts="$1" wl kind path port got_kind got_path got_port
+	while read -r wl kind path port; do
+		[ -n "$wl" ] || continue
+		got_kind="$(one_fact "$facts" "$wl" "container.$wl.readinessProbe.kind")"
+		got_path="$(one_fact "$facts" "$wl" "container.$wl.readinessProbe.path")"
+		got_port="$(one_fact "$facts" "$wl" "container.$wl.readinessProbe.port")"
+		[ "$got_kind" = "$kind" ] ||
+			printf '%s declares readiness probe "%s" and this workload answers %s\n' "$wl" "${got_kind:-none}" "$kind"
+		[ "$got_port" = "$port" ] ||
+			printf '%s probes port "%s" for readiness and its container listens on %s\n' "$wl" "${got_port:-none}" "$port"
+		if [ "$kind" = "httpGet" ] && [ "$got_path" != "$path" ]; then
+			printf '%s probes path "%s" and the frozen endpoint is %s\n' "$wl" "${got_path:-none}" "$path"
+		fi
+	done <<< "$READINESS"
+}
+
+# liveness_comment_findings <facts>: the workload that omits a livenessProbe says at the probe site
+# what one would have to prove. S4 permits the omission only when it is stated, so a silent omission
+# is a finding even though the omission itself is correct.
+liveness_comment_findings() {
+	local facts="$1" wl
+	while read -r wl _; do
+		[ -n "$wl" ] || continue
+		all_facts "$facts" "$wl" "container.$wl.comment" | grep -q 'livenessProbe' ||
+			printf '%s omits a livenessProbe and does not say at the probe site what one would have to prove\n' "$wl"
+	done <<< "$MEASURED_IDENTITIES"
+}
+
+# root_filesystem_findings <facts>: read-only exactly where the image tolerated it and its one
+# writable path is a tmpfs, writable exactly where it did not and the measured reason is written at
+# the container. The tmpfs half is asserted in both directions: a missing one is a pod that cannot
+# start, and one added to a workload whose data path is a volume is a mount that shadows it.
+root_filesystem_findings() {
+	local facts="$1" wl path got tmps
+	while read -r wl path; do
+		[ -n "$wl" ] || continue
+		got="$(one_fact "$facts" "$wl" "container.$wl.securityContext.readOnlyRootFilesystem")"
+		[ "$got" = "true" ] ||
+			printf '%s declares readOnlyRootFilesystem "%s" and this image tolerates a read-only root filesystem\n' \
+				"$wl" "${got:-none}"
+		tmps="$(one_fact "$facts" "$wl" "container.$wl.tmpfsMounts")"
+		comma_list_has "$tmps" "$path" ||
+			printf '%s writes %s with a read-only root filesystem and no tmpfs is mounted there\n' "$wl" "$path"
+	done <<< "$READ_ONLY_ROOTFS"
+	while read -r wl; do
+		[ -n "$wl" ] || continue
+		got="$(one_fact "$facts" "$wl" "container.$wl.securityContext.readOnlyRootFilesystem")"
+		[ "$got" = "false" ] ||
+			printf '%s keeps a writable root filesystem and does not declare readOnlyRootFilesystem: false\n' "$wl"
+		tmps="$(one_fact "$facts" "$wl" "container.$wl.tmpfsMounts")"
+		[ -z "$tmps" ] ||
+			printf '%s mounts a tmpfs at "%s" while its root filesystem is writable, which is the mount tempo cannot have\n' \
+				"$wl" "$tmps"
+		all_facts "$facts" "$wl" "container.$wl.comment" | grep -q 'readOnlyRootFilesystem' ||
+			printf '%s keeps a writable root filesystem with no measured reason at the container\n' "$wl"
+	done <<< "$WRITABLE_ROOTFS"
+}
+
+# prepare_data_findings <facts>: exactly the three hostPath-backed workloads carry the init container,
+# it runs as uid 0 with every capability dropped but CHOWN, it mounts nothing but the directory it
+# fixes, and it hands that directory to the uid the workload runs as.
+prepare_data_findings() {
+	local facts="$1" wl uid got adds mounts args_value
+	while read -r wl uid; do
+		[ -n "$wl" ] || continue
+		got="$(one_fact "$facts" "$wl" init.prepare-data.securityContext.runAsUser)"
+		[ "$got" = "0" ] ||
+			printf '%s: prepare-data runs as "%s" and handing a directory over needs uid 0\n' "$wl" "${got:-none}"
+		got="$(one_fact "$facts" "$wl" init.prepare-data.securityContext.runAsNonRoot)"
+		[ "$got" = "false" ] ||
+			printf '%s: prepare-data does not declare runAsNonRoot: false, so the pod-level true would refuse to start it\n' "$wl"
+		got="$(one_fact "$facts" "$wl" init.prepare-data.securityContext.allowPrivilegeEscalation)"
+		[ "$got" = "false" ] ||
+			printf '%s: prepare-data does not set allowPrivilegeEscalation: false\n' "$wl"
+		got="$(all_facts "$facts" "$wl" init.prepare-data.securityContext.capabilities.drop | sort -u | tr '\n' ' ' | sed 's/ $//')"
+		[ "$got" = "ALL" ] ||
+			printf '%s: prepare-data drops capabilities "%s" and the tree drops ALL\n' "$wl" "${got:-none}"
+		adds="$(all_facts "$facts" "$wl" init.prepare-data.securityContext.capabilities.add | sort -u | tr '\n' ' ' | sed 's/ $//')"
+		[ "$adds" = "CHOWN" ] ||
+			printf '%s: prepare-data takes capabilities "%s" back and CHOWN alone is the contract\n' "$wl" "${adds:-none}"
+		mounts="$(one_fact "$facts" "$wl" init.prepare-data.volumeMounts)"
+		case "$mounts" in
+		"" | *,*)
+			printf '%s: prepare-data mounts "%s" and it may mount exactly the one directory it fixes\n' \
+				"$wl" "${mounts:-none}"
+			;;
+		esac
+		args_value="$(one_fact "$facts" "$wl" init.prepare-data.args)"
+		printf '%s\n' "$args_value" | grep -qE "chown -R ${uid}:[0-9]+ " ||
+			printf '%s: prepare-data does not chown the directory to uid %s\n' "$wl" "$uid"
+	done <<< "$PREPARE_DATA"
+	# The other five Deployments declare no init container at all: the three hostPath volumes are the
+	# whole reason one exists in this tree, so a fourth is a mechanism nobody measured.
+	printf '%s\n' "$facts" |
+		awk -F'\t' -v expected="$(printf '%s\n' "$PREPARE_DATA" | awk '{ print $1 }' | tr '\n' ' ')" '
+			$2 ~ /^init\./ {
+				if (index(" " expected " ", " " $1 " ") == 0) {
+					printf "%s declares an init container (%s) and only the three hostPath volumes need one\n", $1, $2
+				}
+			}
+		' | sort -u
+}
+
+# ------------------------------------------
+# The tree, hardened
+# ------------------------------------------
+
+echo
+echo "== 7. every workload is unprivileged, bounded and observable"
+
+if [ ! -d "$MANIFESTS" ]; then
+	fail "cannot check the hardening: no manifests directory"
+else
+	FACTS="$(deployment_facts "$MANIFESTS")"
+	declared_workloads="$(printf '%s\n' "$FACTS" | awk -F'\t' '$2 == "file" { print $1 }' | sort | tr '\n' ' ' | sed 's/ $//')"
+	measured_workloads="$(printf '%s\n' "$MEASURED_IDENTITIES" | awk '{ print $1 }' | sort | tr '\n' ' ' | sed 's/ $//')"
+	if [ -n "$FACTS" ] && [ "$declared_workloads" = "$measured_workloads" ]; then
+		pass "the measured table names exactly the 8 Deployments the tree declares"
+	else
+		fail "the measured table names '$measured_workloads' and the tree declares '$declared_workloads'"
+	fi
+
+	check_clean "every workload runs as the measured uid and gid, non-root, with RuntimeDefault seccomp" \
+		"$(identity_findings "$FACTS")"
+
+	check_clean "every workload container refuses privilege escalation and drops ALL capabilities" \
+		"$(container_security_findings "$FACTS")"
+
+	check_clean "every container declares imagePullPolicy: IfNotPresent" \
+		"$(image_pull_findings "$FACTS")"
+
+	check_clean "every container declares non-zero cpu and memory requests and limits" \
+		"$(resources_findings "$FACTS")"
+
+	check_clean "every Deployment declares the readiness probe its workload answers" \
+		"$(readiness_findings "$FACTS")"
+
+	check_clean "no manifest declares a livenessProbe" \
+		"$(grep -rnE '^[[:space:]]*livenessProbe:' "$MANIFESTS" 2>/dev/null | sed "s|^$MANIFESTS/||" || true)"
+
+	check_clean "every workload says at the probe site what a livenessProbe would have to prove" \
+		"$(liveness_comment_findings "$FACTS")"
+
+	check_clean "readOnlyRootFilesystem is true on exactly the five measured workloads, each with its tmpfs" \
+		"$(root_filesystem_findings "$FACTS")"
+
+	check_clean "prepare-data hands the three hostPath volumes over and takes nothing but CHOWN" \
+		"$(prepare_data_findings "$FACTS")"
+fi
+
+# ------------------------------------------
 # The fixtures. Each one is the tree with exactly one rule broken, so a checker that stopped working
 # fails here instead of printing the same green line as a clean read.
 # ------------------------------------------
 echo
-echo "== 7. every checker rejects the input it exists for"
+echo "== 8. every checker rejects the input it exists for"
 
 if [ -d "$MANIFESTS" ]; then
 	cp -R "$MANIFESTS" "$TMP/fx-inline"
@@ -993,6 +1511,115 @@ if [ -d "$MANIFESTS" ]; then
 	else
 		fail "cannot build the network boundary fixtures: no NetworkPolicy manifest was found"
 	fi
+
+	# The hardening fixtures. Each one breaks exactly one construct, because the checker that proves the
+	# tree cannot also prove itself: a reader that had stopped understanding the manifests would print
+	# the same green line for the tree and for the defect.
+	cp -R "$MANIFESTS" "$TMP/fx-hard-uid"
+	sed -i '0,/^        runAsUser: 999$/s//        runAsUser: 1000/' "$TMP/fx-hard-uid/infra/mysql.yml"
+	check_rejected "a pod uid that disagrees with the measured one" \
+		"$(identity_findings "$(deployment_facts "$TMP/fx-hard-uid")")"
+
+	cp -R "$MANIFESTS" "$TMP/fx-hard-override"
+	awk '{ if ($0 == "            allowPrivilegeEscalation: false") print "            runAsUser: 0"; print }' \
+		"$MANIFESTS/infra/grafana.yml" >"$TMP/fx-hard-override/infra/grafana.yml"
+	check_rejected "a container-level uid that overrides the measured one" \
+		"$(identity_findings "$(deployment_facts "$TMP/fx-hard-override")")"
+
+	cp -R "$MANIFESTS" "$TMP/fx-hard-escape"
+	sed -i '/^            allowPrivilegeEscalation: false$/d' "$TMP/fx-hard-escape/infra/grafana.yml"
+	check_rejected "a container that does not refuse privilege escalation" \
+		"$(container_security_findings "$(deployment_facts "$TMP/fx-hard-escape")")"
+
+	cp -R "$MANIFESTS" "$TMP/fx-hard-caps"
+	sed -i 's/^                - ALL$/                - NET_BIND_SERVICE/' "$TMP/fx-hard-caps/infra/prometheus.yml"
+	check_rejected "a container that drops something other than ALL" \
+		"$(container_security_findings "$(deployment_facts "$TMP/fx-hard-caps")")"
+
+	cp -R "$MANIFESTS" "$TMP/fx-hard-pull"
+	sed -i '/^          imagePullPolicy: IfNotPresent$/d' "$TMP/fx-hard-pull/infra/loki.yml"
+	check_rejected "a container with no imagePullPolicy" \
+		"$(image_pull_findings "$(deployment_facts "$TMP/fx-hard-pull")")"
+
+	cp -R "$MANIFESTS" "$TMP/fx-hard-pull-always"
+	sed -i 's/^          imagePullPolicy: IfNotPresent$/          imagePullPolicy: Always/' \
+		"$TMP/fx-hard-pull-always/applications/api-gateway.yml"
+	check_rejected "a container that would pull the gateway's :latest tag" \
+		"$(image_pull_findings "$(deployment_facts "$TMP/fx-hard-pull-always")")"
+
+	cp -R "$MANIFESTS" "$TMP/fx-hard-zero"
+	sed -i 's/^              memory: 384Mi$/              memory: 0/' "$TMP/fx-hard-zero/infra/prometheus.yml"
+	check_rejected "a zero memory limit" \
+		"$(resources_findings "$(deployment_facts "$TMP/fx-hard-zero")")"
+
+	cp -R "$MANIFESTS" "$TMP/fx-hard-ready"
+	sed -i 's|^              path: /ready$|              path: /-/healthy|' "$TMP/fx-hard-ready/infra/loki.yml"
+	check_rejected "a readiness probe against a path the workload does not serve" \
+		"$(readiness_findings "$(deployment_facts "$TMP/fx-hard-ready")")"
+
+	cp -R "$MANIFESTS" "$TMP/fx-hard-live"
+	awk '{ if ($0 == "          readinessProbe:") print "          livenessProbe:\n            tcpSocket:\n              port: 3000"; print }' \
+		"$MANIFESTS/infra/grafana.yml" >"$TMP/fx-hard-live/infra/grafana.yml"
+	check_rejected "a livenessProbe this tree must not declare" \
+		"$(grep -rnE '^[[:space:]]*livenessProbe:' "$TMP/fx-hard-live" 2>/dev/null || true)"
+
+	cp -R "$MANIFESTS" "$TMP/fx-hard-noreason"
+	sed -i '/# No livenessProbe:/d' "$TMP/fx-hard-noreason/infra/loki.yml"
+	check_rejected "a workload that omits a livenessProbe without saying what one would prove" \
+		"$(liveness_comment_findings "$(deployment_facts "$TMP/fx-hard-noreason")")"
+
+	cp -R "$MANIFESTS" "$TMP/fx-hard-writable"
+	sed -i 's/^            readOnlyRootFilesystem: true$/            readOnlyRootFilesystem: false/' \
+		"$TMP/fx-hard-writable/infra/grafana.yml"
+	check_rejected "a workload that tolerates a read-only root filesystem and declares it writable" \
+		"$(root_filesystem_findings "$(deployment_facts "$TMP/fx-hard-writable")")"
+
+	cp -R "$MANIFESTS" "$TMP/fx-hard-notmpfs"
+	sed -i '/^            medium: Memory$/d' "$TMP/fx-hard-notmpfs/infra/mysql.yml"
+	check_rejected "a read-only root filesystem with no tmpfs on the path the image named" \
+		"$(root_filesystem_findings "$(deployment_facts "$TMP/fx-hard-notmpfs")")"
+
+	cp -R "$MANIFESTS" "$TMP/fx-hard-silent"
+	sed -i '/# readOnlyRootFilesystem stays writable/d' "$TMP/fx-hard-silent/infra/keycloak.yml"
+	check_rejected "a writable root filesystem with no measured reason at the container" \
+		"$(root_filesystem_findings "$(deployment_facts "$TMP/fx-hard-silent")")"
+
+	cp -R "$MANIFESTS" "$TMP/fx-hard-shadow"
+	awk '
+		{
+			if ($0 == "            - name: tempo-config") print "            - name: tempo-tmp\n              mountPath: /tmp"
+			if ($0 == "        - name: tempo-config") print "        - name: tempo-tmp\n          emptyDir:\n            medium: Memory"
+			print
+		}
+	' "$MANIFESTS/infra/tempo.yml" >"$TMP/fx-hard-shadow/infra/tempo.yml"
+	check_rejected "a tmpfs that would shadow the data volume of a writable workload" \
+		"$(root_filesystem_findings "$(deployment_facts "$TMP/fx-hard-shadow")")"
+
+	cp -R "$MANIFESTS" "$TMP/fx-hard-chown"
+	sed -i 's|chown -R 999:999 /var/lib/mysql|chown -R 1000:1000 /var/lib/mysql|' "$TMP/fx-hard-chown/infra/mysql.yml"
+	check_rejected "a prepare-data that hands the directory to the wrong uid" \
+		"$(prepare_data_findings "$(deployment_facts "$TMP/fx-hard-chown")")"
+
+	cp -R "$MANIFESTS" "$TMP/fx-hard-chown-cap"
+	awk '{ if ($0 == "                - CHOWN") print "                - DAC_OVERRIDE"; print }' \
+		"$MANIFESTS/infra/keycloak-mysql.yml" >"$TMP/fx-hard-chown-cap/infra/keycloak-mysql.yml"
+	check_rejected "a prepare-data that takes more than CHOWN" \
+		"$(prepare_data_findings "$(deployment_facts "$TMP/fx-hard-chown-cap")")"
+
+	cp -R "$MANIFESTS" "$TMP/fx-hard-fourth"
+	awk '
+		{
+			if ($0 == "      containers:") {
+				print "      initContainers:"
+				print "        - name: prepare-data"
+				print "          image: grafana/grafana:10.1.0"
+				print "          imagePullPolicy: IfNotPresent"
+			}
+			print
+		}
+	' "$MANIFESTS/infra/grafana.yml" >"$TMP/fx-hard-fourth/infra/grafana.yml"
+	check_rejected "a fourth workload carrying an init container" \
+		"$(prepare_data_findings "$(deployment_facts "$TMP/fx-hard-fourth")")"
 else
 	fail "cannot build the fixtures: no manifests directory"
 fi

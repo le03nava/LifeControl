@@ -12,9 +12,76 @@ spec:
       labels:
         app: tempo
     spec:
+      # S2: this image runs as root by default and has no `tempo` user, so `nobody` (`65534:65534`) is
+      # a choice rather than a reading -- the same one Prometheus already uses in this tree. The pod
+      # cannot become it on its own: the datadir behind the claim is root-owned and `hostPath` is the
+      # one volume type the kubelet does not hand to `fsGroup`, so `prepare-data` below hands it over.
+      securityContext:
+        runAsUser: 65534
+        runAsGroup: 65534
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      # Measured: uid 65534 against a root-owned `/tmp/tempo` cannot write its store, and the failure
+      # reads as a Tempo bug (`failed to create store: mkdir /tmp/tempo/blocks ...`). This container
+      # runs as uid 0, takes `CHOWN` and nothing else, and hands `tempo-data` to 65534 before the
+      # workload starts.
+      initContainers:
+        - name: prepare-data
+          image: grafana/tempo:2.2.2
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "-c"]
+          args: ["chown -R 65534:65534 /tmp/tempo"]
+          securityContext:
+            runAsUser: 0
+            runAsNonRoot: false
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+              add:
+                - CHOWN
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - name: tempo-data
+              mountPath: /tmp/tempo
       containers:
         - name: tempo
           image: grafana/tempo:2.2.2
+          # IfNotPresent: `k8s/kind/kind-load.sh` loads this image into the node, so this playground
+          # never pulls.
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            # readOnlyRootFilesystem stays writable, and the reason is structural rather than
+            # incidental: measured, a read-only run fails with `failed to create store mkdir
+            # /tmp/tempo: read-only file system`, and `/tmp/tempo` *is* the volume this workload
+            # writes its blocks to. A tmpfs on `/tmp` would shadow the claim, so the fix that works
+            # for MySQL here would delete the data instead of protecting it.
+            readOnlyRootFilesystem: false
+          # Laptop playground sizing: trace ingestion in a playground is bursty and idle in between,
+          # so the request stays small and the limit is what keeps a burst from taking the node down.
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+          # No livenessProbe: Tempo answers `/ready` from the ingester, and a trace burst or a
+          # compaction makes it unready while the process is doing exactly its job -- a liveness check
+          # on that endpoint would restart it mid-write. A liveness probe would have to prove the WAL
+          # is readable, not that ingestion is caught up.
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 3200
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 6
           args: ["-config.file=/etc/tempo.yaml"]
           volumeMounts:
             - name: tempo-config
