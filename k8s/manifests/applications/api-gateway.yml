@@ -12,9 +12,51 @@ spec:
       labels:
         app: api-gateway
     spec:
+      # S2: the identity the published image declares (`Config.User: 1002:1000`), and the only one it
+      # was ever read with. Nothing overrides it at the container level, so this pair is the effective
+      # identity the suite compares against its measured table.
+      securityContext:
+        runAsUser: 1002
+        runAsGroup: 1000
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: api-gateway
           image: saiupadhyayula007/new-api-gateway:latest
+          # IfNotPresent: `k8s/kind/kind-load.sh` loads this image into the node, and `:latest`
+          # defaults to `Always`, which would try to pull it and fail offline.
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            # readOnlyRootFilesystem stays writable, and this is the one exception in the tree that is
+            # not a measurement: the published image is arm64-only and exits
+            # `exec /cnb/process/web: exec format error` on an amd64 host, so whether it tolerates a
+            # read-only root filesystem could not be observed at all. Declaring `true` here would be a
+            # claim nobody measured.
+            readOnlyRootFilesystem: false
+          # Laptop playground sizing: one replica on a kind node, so the request is a share of one
+          # core and the limit only stops this workload from starving the other seven.
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          # No livenessProbe: it would have to prove the gateway recovers from a dependency that is
+          # still starting (Keycloak on its first boot) without being restarted for it; readiness
+          # already covers "not serving yet", which is the state that actually happens here.
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 9000
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 6
           ports:
             - containerPort: 9000
           env:

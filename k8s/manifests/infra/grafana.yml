@@ -12,9 +12,48 @@ spec:
       labels:
         app: grafana
     spec:
+      # S2: `472:0` is the user the image declares, and nothing overrides it at the container level,
+      # so this pair is the effective identity the suite compares against its measured table.
+      securityContext:
+        runAsUser: 472
+        runAsGroup: 0
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: grafana
           image: grafana/grafana:10.1.0
+          # IfNotPresent: `k8s/kind/kind-load.sh` loads this image into the node, so this playground
+          # never pulls.
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            # Measured: with a read-only root filesystem the image names exactly one path and then
+            # starts once it is writable -- `GF_PATHS_DATA='/var/lib/grafana' is not writable`. The
+            # tmpfs below is that path, and it is the only one Grafana named.
+            readOnlyRootFilesystem: true
+          # Laptop playground sizing: the observability trio is idle most of the time, so one eighth
+          # of a core of request keeps the node schedulable while a dashboard load still fits.
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 250m
+              memory: 384Mi
+          # No livenessProbe: it would have to tell a Grafana that is slow because a datasource is
+          # timing out from one that is wedged, and `/api/health` says "ok" for both while a query
+          # burst would make a naive check restart it.
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 6
           ports:
             - containerPort: 3000
           env:
@@ -26,10 +65,18 @@ spec:
           volumeMounts:
             - name: grafana-config
               mountPath: /etc/grafana/provisioning/datasources
+            - name: grafana-data
+              mountPath: /var/lib/grafana
       volumes:
         - name: grafana-config
           configMap:
             name: grafana-configmap
+        # The writable half of `readOnlyRootFilesystem: true`. Memory, not disk: this is a
+        # playground database that is rebuilt on every start, and its dashboards come from the
+        # provisioning volume above rather than from here.
+        - name: grafana-data
+          emptyDir:
+            medium: Memory
 ---
 apiVersion: v1
 kind: Service

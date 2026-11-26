@@ -12,9 +12,56 @@ spec:
       labels:
         app: keycloak
     spec:
+      # S2: `1000:0` is the user the image declares. It matters more here than anywhere else in the
+      # tree: Keycloak writes inside its own installation directory (see the container below), so the
+      # uid is the whole reason that directory is writable.
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 0
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: keycloak
           image: quay.io/keycloak/keycloak:24.0.1
+          # IfNotPresent: `k8s/kind/kind-load.sh` loads this image into the node, so this playground
+          # never pulls.
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            # readOnlyRootFilesystem stays writable, and this one is measured, not assumed: a
+            # read-only run fails with `java.nio.file.FileSystemException:
+            # /opt/keycloak/lib/quarkus/transformed-bytecode.jar: Read-only file system`, because
+            # `start-dev` re-augments the application into its own lib directory. A tmpfs cannot fix
+            # it -- the write lands in the directory holding the jars the build step reads.
+            readOnlyRootFilesystem: false
+          # Laptop playground sizing: the two that need real memory are this one and the MySQL it
+          # talks to. A JVM under 512Mi of request thrashes, so the request is the floor and the
+          # limit leaves room for the JIT and the augmentation on first boot.
+          resources:
+            requests:
+              cpu: 200m
+              memory: 512Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+          # No livenessProbe: `start-dev` augments and then imports the realm on first boot, so a
+          # liveness check would restart the pod in the middle of the very work that makes it ready,
+          # and it would never converge. A liveness probe here would have to prove the realm import
+          # finished and the database is reachable without counting a slow boot as death.
+          readinessProbe:
+            # tcpSocket rather than the health endpoints: those live on the management port, which
+            # this manifest does not enable (no `--http-management-port` in `args`), so a readiness
+            # check against them would probe a port nothing listens on. "Accepts a TCP connection on
+            # 8080" is the strongest signal this deployment can actually produce.
+            tcpSocket:
+              port: 8080
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 6
           ports:
             - containerPort: 8080
           args: ["start-dev", "--import-realm"]

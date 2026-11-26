@@ -12,9 +12,75 @@ spec:
       labels:
         app: keycloak-mysql
     spec:
+      # S2: `999:999` is the `mysql` user the entrypoint drops to. The pod cannot become it on its own
+      # -- the datadir behind the claim is root-owned and `hostPath` is the one volume type the kubelet
+      # does not hand to `fsGroup` -- so `prepare-data` below hands the directory over first.
+      securityContext:
+        runAsUser: 999
+        runAsGroup: 999
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      # Measured: uid 999 against a root-owned datadir dies with
+      # `mysqld: Can't create/write to file '/var/lib/mysql/is_writable' (OS errno 13 - Permission
+      # denied)`. This container exists so the workload can be non-root at all: it runs as uid 0,
+      # takes `CHOWN` and nothing else, and hands `keycloak-mysql-data` to 999 before MySQL starts.
+      initContainers:
+        - name: prepare-data
+          image: mysql:8.3.0
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "-c"]
+          args: ["chown -R 999:999 /var/lib/mysql"]
+          securityContext:
+            runAsUser: 0
+            runAsNonRoot: false
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+              add:
+                - CHOWN
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - name: keycloak-mysql-data
+              mountPath: /var/lib/mysql
       containers:
         - name: keycloak-mysql
           image: mysql:8.3.0
+          # IfNotPresent: `k8s/kind/kind-load.sh` loads this image into the node, so this playground
+          # never pulls.
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            # Measured in two rounds, because the first one stops at the first path: read-only it
+            # names `/tmp` -- `Unable to create temporary file inside "/tmp"; errno: 30` -- and with
+            # `/tmp` written the next name is the socket directory,
+            # `Setup of socket: '/var/run/mysqld/mysqlx.sock' failed, can't create lock file
+            # /var/run/mysqld/mysqlx.sock.lock`. With both as tmpfs it reaches `ready for connections`.
+            # The datadir is the claim, which is writable on its own.
+            readOnlyRootFilesystem: true
+          # Laptop playground sizing: MySQL's memory needs are real even at 1Gi of data, so the
+          # request is the floor that keeps InnoDB from swapping and the limit caps a runaway query.
+          resources:
+            requests:
+              cpu: 200m
+              memory: 512Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+          # No livenessProbe: MySQL is not serving while it initializes the datadir, and a check that
+          # fired then would restart it in the middle of `--initialize`, destroying the only copy of
+          # the data it was creating. A liveness probe would have to prove the server answers after
+          # crash recovery without counting a long recovery as death.
+          readinessProbe:
+            tcpSocket:
+              port: 3306
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 6
           ports:
             - containerPort: 3306
           env:
@@ -41,10 +107,21 @@ spec:
           volumeMounts:
             - name: keycloak-mysql-data
               mountPath: /var/lib/mysql
+            - name: keycloak-mysql-tmp
+              mountPath: /tmp
+            - name: keycloak-mysql-socket
+              mountPath: /var/run/mysqld
       volumes:
         - name: keycloak-mysql-data
           persistentVolumeClaim:
             claimName: keycloak-mysql-pvc
+        # The writable half of `readOnlyRootFilesystem: true`: the two paths the read-only runs named.
+        - name: keycloak-mysql-tmp
+          emptyDir:
+            medium: Memory
+        - name: keycloak-mysql-socket
+          emptyDir:
+            medium: Memory
 ---
 apiVersion: v1
 kind: Service
