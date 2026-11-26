@@ -170,3 +170,11 @@ Two measurements that decide the design rather than a flag:
   needs a `chown` in the image. Checked with `docker run --rm --network none --entrypoint /bin/sh <image>
   -c 'command -v chown'`: `mysql:8.3.0` → `/usr/bin/chown`, `grafana/tempo:2.2.2` → `/bin/chown`. Loki
   has no `/bin/sh` at all, which is why it is not an init image and needs no handover.
+- **L13** — `shellcheck` is not installed on this machine, so the local verdict was "not run" and CI
+  gave the real one: the `ShellCheck` step failed with `SC2034: chown appears unused` inside
+  `prepare_data_findings`, a leftover name in a `local` declaration — the chown target is asserted from
+  `args_value`, so the check worked and the variable was only dead. Removed, and the pinned image the
+  workflow uses (`koalaman/shellcheck:v0.11.0`) was then run over **all 28 scripts** CI lints (`find
+  .github/scripts -name '*.sh'`, `.githooks/*`, `k8s/**/*.sh`): exit 0. The lesson recorded here rather
+  than in a commit: "absent locally" means the lint verdict belongs to CI, so the local green on the
+  rest of the suite was never evidence about shellcheck.

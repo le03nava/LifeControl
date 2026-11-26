@@ -1278,7 +1278,7 @@ root_filesystem_findings() {
 # it runs as uid 0 with every capability dropped but CHOWN, it mounts nothing but the directory it
 # fixes, and it hands that directory to the uid the workload runs as.
 prepare_data_findings() {
-	local facts="$1" wl uid got adds mounts chown args_value
+	local facts="$1" wl uid got adds mounts args_value
 	while read -r wl uid; do
 		[ -n "$wl" ] || continue
 		got="$(one_fact "$facts" "$wl" init.prepare-data.securityContext.runAsUser)"
