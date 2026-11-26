@@ -23,6 +23,10 @@ spec:
           type: RuntimeDefault
       containers:
         - name: api-gateway
+          # Docker Hub publishes this image for `linux/arm64` only: one tag, one architecture, no
+          # amd64 build and therefore no tag or digest to pin instead (issue #1056). What makes it run
+          # on an amd64 host is the emulator `k8s/kind/create-kind-cluster.sh` registers before the
+          # cluster, because `binfmt_misc` is kernel-global and the node inherits it.
           image: saiupadhyayula007/new-api-gateway:latest
           # IfNotPresent: `k8s/kind/kind-load.sh` loads this image into the node, and `:latest`
           # defaults to `Always`, which would try to pull it and fail offline.
@@ -33,10 +37,12 @@ spec:
               drop:
                 - ALL
             # readOnlyRootFilesystem stays writable, and this is the one exception in the tree that is
-            # not a measurement: the published image is arm64-only and exits
+            # not a measurement: the published image is arm64-only and exited
             # `exec /cnb/process/web: exec format error` on an amd64 host, so whether it tolerates a
-            # read-only root filesystem could not be observed at all. Declaring `true` here would be a
-            # claim nobody measured.
+            # read-only root filesystem could not be observed at all. Issue #1056 changed only the
+            # first half -- the emulator makes the image runnable, so the measurement is now possible
+            # -- and left the verdict where #1035 put it, because deciding it is that unit's leftover.
+            # Declaring `true` here would still be a claim nobody measured.
             readOnlyRootFilesystem: false
           # Laptop playground sizing: one replica on a kind node, so the request is a share of one
           # core and the limit only stops this workload from starving the other seven.
@@ -50,9 +56,17 @@ spec:
           # No livenessProbe: it would have to prove the gateway recovers from a dependency that is
           # still starting (Keycloak on its first boot) without being restarted for it; readiness
           # already covers "not serving yet", which is the state that actually happens here.
+          #
+          # The path is `/actuator/prometheus` and not `/actuator/health` because that is what the image
+          # answers without a token (measured on an amd64 host, issue #1056): `/`, `/actuator`,
+          # `/actuator/health`, `/actuator/health/liveness`, `/actuator/health/readiness` and
+          # `/actuator/info` all answer `401`, and the kubelet reads a 401 as a failed probe, so the
+          # probe this tree used to declare could never have passed. `/actuator/prometheus` answers
+          # `200` unauthenticated and is the same path `infra/prometheus.yml` scrapes on this port, so
+          # the probe holds the endpoint the workload actually serves instead of one added for it.
           readinessProbe:
             httpGet:
-              path: /actuator/health
+              path: /actuator/prometheus
               port: 9000
             periodSeconds: 10
             timeoutSeconds: 3

@@ -426,17 +426,26 @@ grafana/tempo:2.2.2
 mysql:8.3.0
 prom/prometheus:v2.46.0
 quay.io/keycloak/keycloak:24.0.1
-saiupadhyayula007/new-api-gateway:latest"
+saiupadhyayula007/new-api-gateway:latest
+tonistiigi/binfmt:qemu-v10.2.3"
 
 # The one documented exception: a third-party image this repository does not build, published under a
-# single tag (Docker Hub, last updated 2024-08-03), inside a tutorial manifest tree that no deploy here
-# reads.
+# single tag (Docker Hub, last updated 2024-08-03) **and a single architecture, `linux/arm64`**, inside a
+# tutorial manifest tree that no deploy here reads. The architecture is why `k8s/kind/create-kind-cluster.sh`
+# registers the arm64 emulator before it creates the node (issue #1056): the exception stays, and what
+# changed is the node's ability to execute it.
 K8S_DOCUMENTED_EXCEPTION="saiupadhyayula007/new-api-gateway:latest"
 
 k8s_image_refs() {
 	{
 		grep -rhoE 'image:[[:space:]]+[^[:space:]]+' "$REPO_ROOT/k8s" 2>/dev/null | sed -E 's/.*image:[[:space:]]+//'
 		grep -rhoE 'docker pull[[:space:]]+[^[:space:]]+|kind load docker-image -n [A-Za-z0-9_-]+[[:space:]]+[^[:space:]]+' "$REPO_ROOT/k8s" 2>/dev/null | awk '{print $NF}'
+		# `docker run` is the third way this tree names an image, and the arm64 emulator is the one
+		# reference that is neither declared by a manifest nor loaded into the node: the cluster entry
+		# point runs it on the host before the cluster exists (issue #1056). Read literally from the
+		# command line, like the two readers above, so the next `docker run` enters the freeze by
+		# existing instead of by being remembered.
+		grep -rhoE 'docker run([[:space:]]+--?[^[:space:]]+)*[[:space:]]+[A-Za-z0-9._/-]+:[A-Za-z0-9._-]+' "$REPO_ROOT/k8s" 2>/dev/null | awk '{print $NF}'
 	} | sed '/^$/d' | sort -u
 }
 

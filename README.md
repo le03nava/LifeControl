@@ -371,6 +371,25 @@ kubectl apply -k k8s/manifests
 kubectl get pods -n life-control  # los ocho workloads aterrizan acá
 ```
 
+> **El nodo tiene que poder ejecutar la imagen del gateway, y no es gratis.**
+> `saiupadhyayula007/new-api-gateway` está publicada **sólo para `linux/arm64`**: un tag, una
+> arquitectura, sin build amd64 y sin digest que pinear. Un nodo de `kind` comparte el kernel del host,
+> así que en un host amd64 el pod moría con `exec /cnb/process/web: exec format error` antes de
+> arrancar —ningún `securityContext` arregla una arquitectura que la imagen no trae—. Por eso
+> `create-kind-cluster.sh` registra el emulador arm64 (`tonistiigi/binfmt`, congelado en la tabla de
+> `docker/scripts/tests/image-pins.test.sh`) **antes** de crear el clúster: el registro vive en el
+> kernel del host y el nodo lo hereda sin instalar nada adentro. El script **lee el registro de vuelta**
+> y aborta si no quedó, porque un emulador que no se registró es el mismo pod que no arranca, una hora
+> después y en otro script. Bajo emulación el arranque es lento y variable —el `Started
+> ApiGatewayApplication` apareció a los **165 s** y a los **884 s** en dos corridas medidas—, así que un
+> pod `NotReady` los primeros minutos es lo esperado y no un cuelgue.
+>
+> Y el `readinessProbe` del gateway apunta a **`/actuator/prometheus`**, no a `/actuator/health`: la
+> imagen contesta `401` en `/`, `/actuator`, `/actuator/health`, sus hijos y `/actuator/info`, y el
+> kubelet lee un 401 como probe fallido —ese probe no podía pasar nunca—, mientras que la ruta de
+> scrape del mismo puerto contesta `200` sin token. Es exactamente el path que `infra/prometheus.yml`
+> ya scrapea.
+
 > El orden importa: ningún `kind: Secret` vive en este repo, así que los tres objetos que los
 > contenedores leen (`mysql-secrets`, `keycloak-mysql-secrets`, `keycloak-secrets`) tienen que existir
 > antes de que arranquen los pods que los leen. Los crea `k8s/kind/create-secrets.sh`, que genera

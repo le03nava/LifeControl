@@ -226,6 +226,41 @@ readme_path_findings() {
 	done
 }
 
+# arm64_emulation_findings <cluster_script> <gateway_manifest>: the cluster entry point registers the
+# arm64 emulator the gateway image needs, reads the registration back, and does both before the
+# cluster exists -- and the manifest says at the image why a third-party image published for one
+# architecture is still the pinned one. Docker Hub publishes `saiupadhyayula007/new-api-gateway` for
+# `linux/arm64` only, a kind node shares the host kernel, and until `binfmt_misc` names the emulator the
+# pod dies with `exec /cnb/process/web: exec format error` on an amd64 host: neither a securityContext
+# nor a tag can fix a missing architecture (issue #1056). The registration is host-level, so the entry
+# point is the only place in the tree that can hold it, which is why it is asserted instead of trusted.
+arm64_emulation_findings() {
+	local script="$1" manifest="$2" name emulator_line cluster_line
+	name="${script#"$REPO_ROOT"/}"
+	if [ ! -f "$script" ]; then
+		printf '%s is missing, so nothing registers the emulator the gateway image needs\n' "$name"
+		return 0
+	fi
+	grep -qE 'docker run[^|]*tonistiigi/binfmt:[^ ]+.*--install arm64' "$script" ||
+		printf '%s never registers the arm64 emulator, so the arm64-only gateway image cannot start\n' "$name"
+	grep -q '/proc/sys/fs/binfmt_misc' "$script" ||
+		printf '%s never reads the registration back, so an install that did nothing would go unnoticed\n' "$name"
+	# The order is the contract: the emulator has to be in the kernel before the node that runs the
+	# image exists, or the kubelet is what discovers it is missing.
+	emulator_line="$(grep -nE 'docker run[^|]*tonistiigi/binfmt:' "$script" | head -n1 | cut -d: -f1)"
+	cluster_line="$(grep -nE 'kind create cluster' "$script" | head -n1 | cut -d: -f1)"
+	if [ -n "$emulator_line" ] && [ -n "$cluster_line" ] && [ "$emulator_line" -gt "$cluster_line" ]; then
+		printf '%s registers the emulator after creating the cluster, and the node runs the image before that\n' "$name"
+	fi
+	if [ ! -f "$manifest" ]; then
+		printf '%s is missing, so the tree pins an arm64-only image without saying why\n' "${manifest#"$REPO_ROOT"/}"
+		return 0
+	fi
+	grep -q 'arm64' "$manifest" ||
+		printf '%s pins an image that exists for arm64 only and never says so, which makes the emulator read as an accident\n' \
+			"${manifest#"$REPO_ROOT"/}"
+}
+
 # image_refs <root>: every `image:` value, one per line, deduplicated.
 image_refs() {
 	grep -rhoE 'image:[[:space:]]+[^[:space:]]+' "$1" 2>/dev/null | sed -E 's/.*image:[[:space:]]+//' | sort -u
@@ -859,8 +894,10 @@ fi
 
 # The identity each image actually supports. `docker image inspect` for the images that declare a user,
 # `docker run --entrypoint id` for the two MySQL images whose entrypoint drops to one, and `Config.User`
-# for the gateway, which never ran on this host at all: its image is arm64-only and exits
-# `exec /cnb/process/web: exec format error` on an amd64 node.
+# for the gateway, whose image is arm64-only: since #1056 the emulator lets it run on an amd64 node, but
+# the image carries no `id` either (`exec: "id": executable file not found in $PATH`), so the
+# declaration is still the only reading -- and the pod sets the same pair explicitly, which is what the
+# assertion below compares.
 MEASURED_IDENTITIES="api-gateway 1002 1000
 grafana 472 0
 keycloak 1000 0
@@ -891,7 +928,11 @@ keycloak
 tempo"
 
 # The readiness probe each workload can actually answer, and the port its own container listens on.
-READINESS="api-gateway httpGet /actuator/health 9000
+# The gateway's path is the only endpoint its image leaves unauthenticated: `/`, `/actuator`,
+# `/actuator/health`, its two `/actuator/health/*` children and `/actuator/info` all answer `401`, which
+# the kubelet reads as a failed probe, while `/actuator/prometheus` answers `200` (both measured on an
+# amd64 host under the emulation from #1056, issue #1056).
+READINESS="api-gateway httpGet /actuator/prometheus 9000
 grafana httpGet /api/health 3000
 keycloak tcpSocket - 8080
 keycloak-mysql tcpSocket - 3306
@@ -1367,6 +1408,18 @@ else
 fi
 
 # ------------------------------------------
+# The image the node has to be able to execute
+# ------------------------------------------
+
+echo
+echo "== 7b. the cluster entry point registers the emulator the gateway image needs"
+
+CLUSTER_SCRIPT="$REPO_ROOT/k8s/kind/create-kind-cluster.sh"
+GATEWAY_MANIFEST="$MANIFESTS/applications/api-gateway.yml"
+check_clean "the emulator is registered before the cluster and the arm64-only pin says why" \
+	"$(arm64_emulation_findings "$CLUSTER_SCRIPT" "$GATEWAY_MANIFEST")"
+
+# ------------------------------------------
 # The fixtures. Each one is the tree with exactly one rule broken, so a checker that stopped working
 # fails here instead of printing the same green line as a clean read.
 # ------------------------------------------
@@ -1435,6 +1488,11 @@ if [ -d "$MANIFESTS" ]; then
 	printf '  LOKI_URL: "http://loki.default.svc.cluster.local:3100/loki/api/v1/push"\n' \
 		>>"$TMP/fx-fqdn/manifests/applications/common-config.yml"
 	check_rejected "a service name spelled as a cluster FQDN" "$(cluster_local_findings "$TMP/fx-fqdn")"
+
+	cp -R "$REPO_ROOT/k8s" "$TMP/fx-no-emulator"
+	sed -i '/docker run[^|]*tonistiigi\/binfmt:/d' "$TMP/fx-no-emulator/kind/create-kind-cluster.sh"
+	check_rejected "a cluster entry point that never registers the arm64 emulator" \
+		"$(arm64_emulation_findings "$TMP/fx-no-emulator/kind/create-kind-cluster.sh" "$GATEWAY_MANIFEST")"
 
 	declared_for_fixture="$(declared_namespace "$MANIFESTS")"
 	if [ -n "$declared_for_fixture" ]; then
