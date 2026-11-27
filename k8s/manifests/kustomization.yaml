@@ -32,6 +32,5 @@ resources:
   - infra/keycloak-mysql.yml
   - infra/keycloak.yml
   - infra/loki.yml
-  - infra/mysql.yml
   - infra/prometheus.yml
   - infra/tempo.yml

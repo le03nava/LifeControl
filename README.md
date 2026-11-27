@@ -368,7 +368,7 @@ que renombrarlo son esas dos líneas y no una edición por archivo. Nada queda e
 ./k8s/kind/create-kind-cluster.sh
 ./k8s/kind/create-secrets.sh      # los Secrets se generan acá, no viven en el repo
 kubectl apply -k k8s/manifests
-kubectl get pods -n life-control  # los ocho workloads aterrizan acá
+kubectl get pods -n life-control  # los siete workloads aterrizan acá
 ```
 
 > **El nodo tiene que poder ejecutar la imagen del gateway, y no es gratis.**
@@ -380,7 +380,7 @@ kubectl get pods -n life-control  # los ocho workloads aterrizan acá
 > `docker/scripts/tests/image-pins.test.sh`) **antes** de crear el clúster: el registro vive en el
 > kernel del host y el nodo lo hereda sin instalar nada adentro. El script **lee el registro de vuelta**
 > y aborta si no quedó, porque un emulador que no se registró es el mismo pod que no arranca, una hora
-> después y en otro script. Bajo emulación el arranque es lento y **el criterio de «los ocho pods
+> después y en otro script. Bajo emulación el arranque es lento y **el criterio de «todos los pods
 > `Ready` en 10 minutos» no está garantizado**: dos corridas medidas tardaron el `Started
 > ApiGatewayApplication` **165 s** y **884 s**, y la segunda pasa del límite. Un pod `NotReady` esos
 > minutos es lo esperado y no un cuelgue; que el playground cumpla el criterio depende de un host arm64
@@ -392,8 +392,8 @@ kubectl get pods -n life-control  # los ocho workloads aterrizan acá
 > scrape del mismo puerto contesta `200` sin token. Es exactamente el path que `infra/prometheus.yml`
 > ya scrapea.
 
-> El orden importa: ningún `kind: Secret` vive en este repo, así que los tres objetos que los
-> contenedores leen (`mysql-secrets`, `keycloak-mysql-secrets`, `keycloak-secrets`) tienen que existir
+> El orden importa: ningún `kind: Secret` vive en este repo, así que los dos objetos que los
+> contenedores leen (`keycloak-mysql-secrets`, `keycloak-secrets`) tienen que existir
 > antes de que arranquen los pods que los leen. Los crea `k8s/kind/create-secrets.sh`, que genera
 > cada password en el momento: un objeto Secret commiteado es el archivo que alguien aplica por
 > costumbre, y base64 no es cifrado. Correrlo dos veces no cambia nada, y rotar una password es
@@ -406,10 +406,10 @@ kubectl get pods -n life-control  # los ocho workloads aterrizan acá
 >
 > La red también está cerrada por defecto. `k8s/manifests/network-policy.yml` deniega ingress y egress
 > en todo el namespace y habilita **sólo** los flujos que los manifests declaran —Grafana a sus tres
-> datasources, Prometheus al actuator del gateway, el gateway a Keycloak, Loki y Tempo, Keycloak a su
-> MySQL, y DNS de clúster en el puerto 53 para todos—, cada uno con su regla de entrada y su regla de
-> salida: una NetworkPolicy es direccional, y media regla no habilita nada. Un pod que no es uno de
-> esos destinos no llega a MySQL.
+> datasources, Prometheus al actuator del gateway, el gateway a Keycloak, Loki y Tempo, Keycloak a
+> `keycloak-mysql`, y DNS de clúster en el puerto 53 para todos—, cada uno con su regla de entrada y
+> su regla de salida: una NetworkPolicy es direccional, y media regla no habilita nada. Un pod que no
+> es uno de esos destinos no llega a MySQL.
 
 ---
 
