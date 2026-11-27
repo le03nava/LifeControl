@@ -2,7 +2,7 @@
 # ============================================
 # LifeControl - create the k8s Secrets from outside the repository
 # ============================================
-# The manifests under `k8s/manifests/` read three Secrets through `secretKeyRef` and no longer contain
+# The manifests under `k8s/manifests/` read two Secrets through `secretKeyRef` and no longer contain
 # them. This script is the replacement, and it is the only thing that writes those values.
 #
 # Why they are not committed: a `kind: Secret` object in git is the file that gets applied by habit,
@@ -124,10 +124,6 @@ create_secret() {
 create_namespace
 
 echo "creating the Secrets the k8s manifests read, in namespace $NAMESPACE"
-
-# `mysql-secrets` is read by `manifests/infra/mysql.yml`.
-create_secret mysql-secrets \
-	--from-literal=mysql_root_password="$(generate_password)"
 
 # `keycloak-mysql-secrets` is read by `manifests/infra/keycloak-mysql.yml`.
 create_secret keycloak-mysql-secrets \

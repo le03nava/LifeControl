@@ -8,8 +8,8 @@
 #
 # There is deliberately no "everything in this namespace may talk to everything in this namespace"
 # policy. That one line would make the boundary unprovable: any pod added here could reach MySQL, and
-# MySQL is the flow this file exists to keep narrow -- `keycloak-mysql` is a second MySQL in the same
-# tree that no manifest reads, and it stays unreachable.
+# MySQL is the flow this file exists to keep narrow -- `keycloak-mysql` is the only MySQL this tree
+# runs, and only the pod whose `DB_ADDR` names it may open it.
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -142,7 +142,7 @@ spec:
         - protocol: TCP
           port: 9411
 ---
-# keycloak -> mysql:3306 -- `DB_ADDR` in its ConfigMap names the Service.
+# keycloak -> keycloak-mysql:3306 -- `DB_ADDR` in its ConfigMap names the Service.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -157,7 +157,7 @@ spec:
     - to:
         - podSelector:
             matchLabels:
-              app: mysql
+              app: keycloak-mysql
       ports:
         - protocol: TCP
           port: 3306
@@ -278,16 +278,16 @@ spec:
         - protocol: TCP
           port: 8080
 ---
-# mysql:3306 <- keycloak, and nobody else. This is the flow a pod without business here must fail to
-# open: `keycloak-mysql` is not named by this rule at all.
+# keycloak-mysql:3306 <- keycloak, and nobody else. This is the flow a pod without business here must
+# fail to open: no other peer is named by this rule at all.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: mysql-ingress
+  name: keycloak-mysql-ingress
 spec:
   podSelector:
     matchLabels:
-      app: mysql
+      app: keycloak-mysql
   policyTypes:
     - Ingress
   ingress:

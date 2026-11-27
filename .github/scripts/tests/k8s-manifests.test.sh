@@ -32,6 +32,12 @@
 #      policy file writes exists in both directions, because a NetworkPolicy that allows one side
 #      alone allows nothing at all and fails as a broken pod rather than as a bad policy.
 #
+#   6. **A workload wired to a database that does not declare its database.** Keycloak's ConfigMap
+#      said `DB_ADDR: "mysql"`, and that Service did exist -- so a check that only looked for the
+#      Service called it clean. The MySQL behind it creates `order_service` and `inventory_service`,
+#      and the database Keycloak asks for is `keycloak`. Nothing fails at apply time: the pod
+#      schedules, Keycloak connects, and the database it needs is not there.
+#
 # A reader that matched nothing would print the same green line as a reader that matched everything,
 # so every checker below also runs against a fixture that must be rejected. The float and directory
 # checks are the two the tree could regress into without anybody typing a credential, which is why
@@ -346,6 +352,217 @@ deployment_count() {
 		total=$((total + ${n:-0}))
 	done <<< "$(kustomization_listed "$1")"
 	printf '%s\n' "$total"
+}
+
+# ------------------------------------------
+# The database a workload is wired to
+# ------------------------------------------
+
+# db_addr_facts <root>: one `<file><TAB><record><TAB>...` line per fact the reader below needs:
+#
+#   configmap   <configmap> <key> <value>          -- one per key of a ConfigMap's `data:` block
+#   service     <service> <label> <value>          -- one per `spec.selector.matchLabels` entry
+#   deployment  <deployment> <label> <value>       -- one per label of its pod template
+#   configref   <deployment> <EnvVar> <configmap> <key>
+#                                                  -- one per `configMapKeyRef` of its containers
+#
+# A Service document also emits one record with no label, so that "this Service does not exist" and "this
+# Service selects nothing" stay two different findings.
+#
+# The reader understands exactly the shape this tree writes, the same bargain `policy_flows` and
+# `deployment_facts` make: a stack of the keys above each line, so nothing depends on a fixed indent.
+# Block scalars are skipped whole, and that is not cosmetic: `keycloak-realm-config` carries a realm
+# document whose lines look like keys and are not ones, and a reader that invented records would call a
+# wired tree clean for the wrong reason.
+db_addr_facts() {
+	local f
+	find "$1" -type f \( -name '*.yml' -o -name '*.yaml' \) | sort | while IFS= read -r f; do
+		awk -v file="${f#"$1"/}" '
+			function unquote(s) { gsub(/"/, "", s); return s }
+			function emit(kind, a, b, c, d) { printf "%s\t%s\t%s\t%s\t%s\t%s\n", file, kind, a, b, c, d }
+			function flush_doc() {
+				if (kind == "Service" && name != "") emit("service", name, "", "", "")
+			}
+			function reset_doc() {
+				flush_doc()
+				kind = ""
+				name = ""
+				split("", path)
+				in_block = 0
+				env_ind = -1
+				envvar = ""
+				in_ref = 0
+				ref_ind = -1
+				refkey = ""
+				refname = ""
+			}
+			{
+				ind = match($0, /[^ ]/) - 1
+				if (ind < 0) ind = 0
+				line = substr($0, ind + 1)
+				sub(/[ \t]+$/, "", line)
+				if (line == "" || line ~ /^#/) next
+				if (in_block && ind > block_ind) next
+				in_block = 0
+				if (ind == 0 && line ~ /^---/) {
+					reset_doc()
+					next
+				}
+				if (ind == 0 && line ~ /^kind:/) {
+					reset_doc()
+					kind = line
+					sub(/^kind:[[:space:]]*/, "", kind)
+					next
+				}
+				if (kind == "") next
+				kv = line
+				if (kv ~ /^- /) sub(/^- /, "", kv)
+				if (kv !~ /^[^:]+:/) next
+				key = kv
+				sub(/:.*/, "", key)
+				val = ""
+				if (kv ~ /: /) {
+					val = kv
+					sub(/^[^:]*: /, "", val)
+					val = unquote(val)
+				}
+				for (d = ind + 1; d < 256; d++) path[d] = ""
+				path[ind] = key
+				if (val == "|" || val == "|-" || val == ">" || val == ">-") {
+					in_block = 1
+					block_ind = ind
+					next
+				}
+				if (ind == 2 && path[0] == "metadata" && key == "name" && val != "") {
+					name = val
+					next
+				}
+				if (kind == "ConfigMap") {
+					if (ind == 2 && path[0] == "data" && val != "") emit("configmap", name, key, val, "")
+					next
+				}
+				if (kind == "Service") {
+					if (ind == 4 && path[2] == "selector" && val != "") emit("service", name, key, val, "")
+					next
+				}
+				if (kind == "Deployment") {
+					if (ind == 8 && path[2] == "template" && path[4] == "metadata" && path[6] == "labels" && val != "") {
+						emit("deployment", name, key, val, "")
+						next
+					}
+					if (env_ind >= 0 && ind <= env_ind) {
+						env_ind = -1
+						envvar = ""
+						in_ref = 0
+						ref_ind = -1
+						refkey = ""
+						refname = ""
+					}
+					if (in_ref && ind <= ref_ind) {
+						in_ref = 0
+						refkey = ""
+						refname = ""
+					}
+					if (key == "env" && val == "") {
+						env_ind = ind
+						next
+					}
+					if (env_ind < 0 || ind <= env_ind) next
+					if (key == "configMapKeyRef" && val == "") {
+						in_ref = 1
+						ref_ind = ind
+						refkey = ""
+						refname = ""
+						next
+					}
+					if (ind == env_ind + 2 && key == "name" && val != "") {
+						envvar = val
+						next
+					}
+					if (!in_ref) next
+					if (key == "key") refkey = val
+					else if (key == "name") refname = val
+					if (refkey != "" && refname != "" && envvar != "") {
+						emit("configref", name, envvar, refname, refkey)
+						refkey = ""
+						refname = ""
+					}
+					next
+				}
+			}
+			END { reset_doc() }
+		' "$f"
+	done
+}
+
+# db_addr_findings <root>: a ConfigMap that names a database server which (a) does not exist in the tree
+# as a Service, or (b) exists but has no ConfigMap behind that Service's Deployment declaring
+# `MYSQL_DATABASE` equal to the `DB_DATABASE` the first ConfigMap asks for. Both halves are needed: the
+# Service that defect (b) describes did exist, so a check that only looked for the Service read the tree
+# as clean while the database a workload asked for was never created.
+db_addr_findings() {
+	local facts pairs cm addr database svc selector deployments deployment refs probe declared found
+	facts="$(db_addr_facts "$1")"
+	# Only a ConfigMap carrying both keys is judged: `DB_ADDR` alone names nothing to compare against and
+	# `DB_DATABASE` alone names no server.
+	pairs="$(printf '%s\n' "$facts" | awk -F'\t' '
+		$2 == "configmap" {
+			seen[$3] = 1
+			if ($4 == "DB_ADDR") addr[$3] = $5
+			else if ($4 == "DB_DATABASE") database[$3] = $5
+		}
+		END {
+			for (c in seen)
+				if ((c in addr) && (c in database)) printf "%s\t%s\t%s\n", c, addr[c], database[c]
+		}
+	' | sort)"
+	if [ -z "$pairs" ]; then
+		printf '%s\n' "no ConfigMap declares both DB_ADDR and DB_DATABASE, so the database a workload is wired to cannot be read from this tree"
+		return 0
+	fi
+	while IFS=$'\t' read -r cm addr database; do
+		[ -n "$cm" ] || continue
+		svc="$(printf '%s\n' "$facts" | awk -F'\t' -v s="$addr" '$2 == "service" && $3 == s { print s; exit }')"
+		if [ -z "$svc" ]; then
+			printf 'ConfigMap %s names DB_ADDR "%s" and no Service of that name exists in this tree\n' "$cm" "$addr"
+			continue
+		fi
+		selector="$(printf '%s\n' "$facts" | awk -F'\t' -v s="$addr" '$2 == "service" && $3 == s && $4 != "" { print $4 "=" $5 }')"
+		if [ -z "$selector" ]; then
+			printf 'ConfigMap %s asks Service %s for DB_DATABASE "%s" and that Service selects no pod, so no ConfigMap behind it can declare the database\n' \
+				"$cm" "$addr" "$database"
+			continue
+		fi
+		deployments="$(printf '%s\n' "$facts" | awk -F'\t' -v sel="$selector" '
+			$2 == "deployment" { labels[$3] = labels[$3] " " $4 "=" $5 }
+			END {
+				n = split(sel, want, "\n")
+				for (d in labels) {
+					ok = 1
+					for (i = 1; i <= n; i++) {
+						if (want[i] == "") continue
+						if (index(labels[d] " ", " " want[i] " ") == 0) ok = 0
+					}
+					if (ok) print d
+				}
+			}
+		' | sort)"
+		refs=""
+		for deployment in $deployments; do
+			refs="$refs $(printf '%s\n' "$facts" | awk -F'\t' -v d="$deployment" '$2 == "configref" && $3 == d { print $5 }' | sort -u | tr '\n' ' ')"
+		done
+		found=""
+		for probe in $refs; do
+			declared="$(printf '%s\n' "$facts" | awk -F'\t' -v c="$probe" '$2 == "configmap" && $3 == c && $4 == "MYSQL_DATABASE" { print $5; exit }')"
+			if [ -n "$declared" ] && [ "$declared" = "$database" ]; then
+				found="$probe"
+			fi
+		done
+		if [ -z "$found" ]; then
+			printf 'ConfigMap %s asks Service %s for DB_DATABASE "%s" and no ConfigMap behind that Service declares MYSQL_DATABASE "%s"\n' \
+				"$cm" "$addr" "$database" "$database"
+		fi
+	done <<< "$pairs"
 }
 
 # ------------------------------------------
@@ -696,7 +913,7 @@ app=api-gateway -> app=tempo TCP/9411
 app=grafana -> app=loki TCP/3100
 app=grafana -> app=prometheus TCP/9090
 app=grafana -> app=tempo TCP/3200
-app=keycloak -> app=mysql TCP/3306
+app=keycloak -> app=keycloak-mysql TCP/3306
 app=prometheus -> app=api-gateway TCP/9000"
 
 # declared_flow_findings <file>: the intra-namespace flows the file allows are exactly the eight
@@ -765,11 +982,14 @@ else
 		"$(kustomization_findings "$MANIFESTS")"
 
 	deployments="$(deployment_count "$MANIFESTS")"
-	if [ "$deployments" = "8" ]; then
-		pass "the kustomization renders 8 Deployments (7 infra + api-gateway)"
+	if [ "$deployments" = "7" ]; then
+		pass "the kustomization renders 7 Deployments (6 infra + api-gateway)"
 	else
-		fail "the kustomization renders $deployments Deployments, and the frozen count is 8"
+		fail "the kustomization renders $deployments Deployments, and the frozen count is 7"
 	fi
+
+	check_clean "every ConfigMap's DB_ADDR names a Service whose MySQL declares the database it asks for" \
+		"$(db_addr_findings "$MANIFESTS")"
 fi
 
 echo
@@ -793,10 +1013,10 @@ else
 
 	produced="$(secret_producers "$SECRETS_SCRIPT")"
 	produced_count="$(printf '%s\n' "$produced" | grep -c . || true)"
-	if [ "${produced_count:-0}" = "5" ]; then
-		pass "create-secrets.sh produces the five Secret/key pairs the manifests read"
+	if [ "${produced_count:-0}" = "4" ]; then
+		pass "create-secrets.sh produces the four Secret/key pairs the manifests read"
 	else
-		fail "create-secrets.sh produces ${produced_count:-0} pairs, and the manifests read five"
+		fail "create-secrets.sh produces ${produced_count:-0} pairs, and the manifests read four"
 	fi
 	check_clean "every secretKeyRef names a Secret and a key that create-secrets.sh creates" \
 		"$(unproduced_secrets "$MANIFESTS")"
@@ -903,7 +1123,7 @@ fi
 # read past.
 
 # The identity each image actually supports. `docker image inspect` for the images that declare a user,
-# `docker run --entrypoint id` for the two MySQL images whose entrypoint drops to one, and `Config.User`
+# `docker run --entrypoint id` for the MySQL image whose entrypoint drops to one, and `Config.User`
 # for the gateway, whose image is arm64-only: since #1056 the emulator lets it run on an amd64 node, but
 # the image carries no `id` either (`exec: "id": executable file not found in $PATH`), so the
 # declaration is still the only reading -- and the pod sets the same pair explicitly, which is what the
@@ -913,21 +1133,18 @@ grafana 472 0
 keycloak 1000 0
 keycloak-mysql 999 999
 loki 10001 10001
-mysql 999 999
 prometheus 65534 65534
 tempo 65534 65534"
 
-# The five images whose read-only root filesystem works, and every path each run named. Two of them
+# The four images whose read-only root filesystem works, and every path each run named. One of them
 # named a second path once the first was writable -- read-only, MySQL stops at `/tmp` and, with `/tmp`
-# as a tmpfs, at `/var/run/mysqld` -- which is why mysql and keycloak-mysql take two lines and the rest
-# one. The pair is the assertion: `readOnlyRootFilesystem: true` without the tmpfs is a workload that
-# cannot start.
+# as a tmpfs, at `/var/run/mysqld` -- which is why keycloak-mysql takes two lines and the rest one. The
+# pair is the assertion: `readOnlyRootFilesystem: true` without the tmpfs is a workload that cannot
+# start.
 READ_ONLY_ROOTFS="grafana /var/lib/grafana
 keycloak-mysql /tmp
 keycloak-mysql /var/run/mysqld
 loki /loki
-mysql /tmp
-mysql /var/run/mysqld
 prometheus /prometheus"
 
 # The three that keep a writable root filesystem, each carrying its measured reason at the container.
@@ -947,16 +1164,14 @@ grafana httpGet /api/health 3000
 keycloak tcpSocket - 8080
 keycloak-mysql tcpSocket - 3306
 loki httpGet /ready 3100
-mysql tcpSocket - 3306
 prometheus httpGet /-/ready 9090
 tempo httpGet /ready 3200"
 
-# The three hostPath-backed workloads and the uid `prepare-data` has to hand the directory to. Those
-# three are the whole reason an init container exists in this tree: `hostPath` is the one volume type
-# the kubelet does not hand to `fsGroup`, so a non-root workload cannot open its own datadir until
-# somebody chowns it.
+# The two hostPath-backed workloads and the uid `prepare-data` has to hand the directory to. Those two
+# are the whole reason an init container exists in this tree: `hostPath` is the one volume type the
+# kubelet does not hand to `fsGroup`, so a non-root workload cannot open its own datadir until somebody
+# chowns it.
 PREPARE_DATA="keycloak-mysql 999
-mysql 999
 tempo 65534"
 
 # deployment_facts <root>: one `<workload><TAB><path><TAB><value>` record per hardening fact of every
@@ -970,8 +1185,8 @@ tempo 65534"
 # shape would report nothing and print the same green line as a clean tree.
 #
 # The naming assumption is worth stating: the workload container is the one named after the Deployment,
-# so `container.mysql.*` is MySQL's container and a rename makes every check below report rather than
-# read a different container by accident.
+# so `container.keycloak-mysql.*` is MySQL's container and a rename makes every check below report rather
+# than read a different container by accident.
 deployment_facts() {
 	local f
 	find "$1" -type f \( -name '*.yml' -o -name '*.yaml' \) | sort | while IFS= read -r f; do
@@ -1325,7 +1540,7 @@ root_filesystem_findings() {
 	done <<< "$WRITABLE_ROOTFS"
 }
 
-# prepare_data_findings <facts>: exactly the three hostPath-backed workloads carry the init container,
+# prepare_data_findings <facts>: exactly the two hostPath-backed workloads carry the init container,
 # it runs as uid 0 with every capability dropped but CHOWN, it mounts nothing but the directory it
 # fixes, and it hands that directory to the uid the workload runs as.
 prepare_data_findings() {
@@ -1358,13 +1573,13 @@ prepare_data_findings() {
 		printf '%s\n' "$args_value" | grep -qE "chown -R ${uid}:[0-9]+ " ||
 			printf '%s: prepare-data does not chown the directory to uid %s\n' "$wl" "$uid"
 	done <<< "$PREPARE_DATA"
-	# The other five Deployments declare no init container at all: the three hostPath volumes are the
-	# whole reason one exists in this tree, so a fourth is a mechanism nobody measured.
+	# The other four Deployments declare no init container at all: the two hostPath volumes are the
+	# whole reason one exists in this tree, so a third is a mechanism nobody measured.
 	printf '%s\n' "$facts" |
 		awk -F'\t' -v expected="$(printf '%s\n' "$PREPARE_DATA" | awk '{ print $1 }' | tr '\n' ' ')" '
 			$2 ~ /^init\./ {
 				if (index(" " expected " ", " " $1 " ") == 0) {
-					printf "%s declares an init container (%s) and only the three hostPath volumes need one\n", $1, $2
+					printf "%s declares an init container (%s) and only the two hostPath volumes need one\n", $1, $2
 				}
 			}
 		' | sort -u
@@ -1384,7 +1599,7 @@ else
 	declared_workloads="$(printf '%s\n' "$FACTS" | awk -F'\t' '$2 == "file" { print $1 }' | sort | tr '\n' ' ' | sed 's/ $//')"
 	measured_workloads="$(printf '%s\n' "$MEASURED_IDENTITIES" | awk '{ print $1 }' | sort | tr '\n' ' ' | sed 's/ $//')"
 	if [ -n "$FACTS" ] && [ "$declared_workloads" = "$measured_workloads" ]; then
-		pass "the measured table names exactly the 8 Deployments the tree declares"
+		pass "the measured table names exactly the 7 Deployments the tree declares"
 	else
 		fail "the measured table names '$measured_workloads' and the tree declares '$declared_workloads'"
 	fi
@@ -1410,10 +1625,10 @@ else
 	check_clean "every workload says at the probe site what a livenessProbe would have to prove" \
 		"$(liveness_comment_findings "$FACTS")"
 
-	check_clean "readOnlyRootFilesystem is true on exactly the five measured workloads, each with its tmpfs" \
+	check_clean "readOnlyRootFilesystem is true on exactly the four measured workloads, each with its tmpfs" \
 		"$(root_filesystem_findings "$FACTS")"
 
-	check_clean "prepare-data hands the three hostPath volumes over and takes nothing but CHOWN" \
+	check_clean "prepare-data hands the two hostPath volumes over and takes nothing but CHOWN" \
 		"$(prepare_data_findings "$FACTS")"
 fi
 
@@ -1467,6 +1682,20 @@ if [ -d "$MANIFESTS" ]; then
 	printf '            - name: X\n              valueFrom:\n                secretKeyRef:\n                  key: MISSING\n                  name: not-created\n' \
 		>>"$TMP/fx-producer/infra/loki.yml"
 	check_rejected "a secretKeyRef with no producer" "$(unproduced_secrets "$TMP/fx-producer")"
+
+	# The two shapes the database wiring check exists for, each as one edit of the real tree: the
+	# Service the ConfigMap names is gone, and the Service is there but its MySQL declares a different
+	# database. The second one is the shape that shipped -- the Service existed, so a check that only
+	# looked for it called the tree clean.
+	cp -R "$MANIFESTS" "$TMP/fx-db-absent"
+	sed -i 's/^  DB_ADDR: "keycloak-mysql"$/  DB_ADDR: "keycloak-db-absent"/' "$TMP/fx-db-absent/infra/keycloak.yml"
+	check_rejected "a ConfigMap that names a database Service the tree does not have" \
+		"$(db_addr_findings "$TMP/fx-db-absent")"
+
+	cp -R "$MANIFESTS" "$TMP/fx-db-mismatch"
+	sed -i 's/^  DB_DATABASE: "keycloak"$/  DB_DATABASE: "not_the_declared_database"/' "$TMP/fx-db-mismatch/infra/keycloak.yml"
+	check_rejected "a Service whose MySQL declares a different database" \
+		"$(db_addr_findings "$TMP/fx-db-mismatch")"
 
 	if [ -f "$README" ]; then
 		cp "$README" "$TMP/fx-readme.md"
@@ -1584,7 +1813,7 @@ if [ -d "$MANIFESTS" ]; then
 			'              kubernetes.io/metadata.name: default' \
 			'          podSelector:' \
 			'            matchLabels:' \
-			'              app: mysql' \
+			'              app: keycloak-mysql' \
 			'      ports:' \
 			'        - protocol: TCP' \
 			'          port: 3306' \
@@ -1599,7 +1828,7 @@ if [ -d "$MANIFESTS" ]; then
 	# tree cannot also prove itself: a reader that had stopped understanding the manifests would print
 	# the same green line for the tree and for the defect.
 	cp -R "$MANIFESTS" "$TMP/fx-hard-uid"
-	sed -i '0,/^        runAsUser: 999$/s//        runAsUser: 1000/' "$TMP/fx-hard-uid/infra/mysql.yml"
+	sed -i '0,/^        runAsUser: 999$/s//        runAsUser: 1000/' "$TMP/fx-hard-uid/infra/keycloak-mysql.yml"
 	check_rejected "a pod uid that disagrees with the measured one" \
 		"$(identity_findings "$(deployment_facts "$TMP/fx-hard-uid")")"
 
@@ -1658,7 +1887,7 @@ if [ -d "$MANIFESTS" ]; then
 		"$(root_filesystem_findings "$(deployment_facts "$TMP/fx-hard-writable")")"
 
 	cp -R "$MANIFESTS" "$TMP/fx-hard-notmpfs"
-	sed -i '/^            medium: Memory$/d' "$TMP/fx-hard-notmpfs/infra/mysql.yml"
+	sed -i '/^            medium: Memory$/d' "$TMP/fx-hard-notmpfs/infra/keycloak-mysql.yml"
 	check_rejected "a read-only root filesystem with no tmpfs on the path the image named" \
 		"$(root_filesystem_findings "$(deployment_facts "$TMP/fx-hard-notmpfs")")"
 
@@ -1679,7 +1908,7 @@ if [ -d "$MANIFESTS" ]; then
 		"$(root_filesystem_findings "$(deployment_facts "$TMP/fx-hard-shadow")")"
 
 	cp -R "$MANIFESTS" "$TMP/fx-hard-chown"
-	sed -i 's|chown -R 999:999 /var/lib/mysql|chown -R 1000:1000 /var/lib/mysql|' "$TMP/fx-hard-chown/infra/mysql.yml"
+	sed -i 's|chown -R 999:999 /var/lib/mysql|chown -R 1000:1000 /var/lib/mysql|' "$TMP/fx-hard-chown/infra/keycloak-mysql.yml"
 	check_rejected "a prepare-data that hands the directory to the wrong uid" \
 		"$(prepare_data_findings "$(deployment_facts "$TMP/fx-hard-chown")")"
 
