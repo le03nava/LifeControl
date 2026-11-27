@@ -380,9 +380,11 @@ kubectl get pods -n life-control  # los ocho workloads aterrizan acá
 > `docker/scripts/tests/image-pins.test.sh`) **antes** de crear el clúster: el registro vive en el
 > kernel del host y el nodo lo hereda sin instalar nada adentro. El script **lee el registro de vuelta**
 > y aborta si no quedó, porque un emulador que no se registró es el mismo pod que no arranca, una hora
-> después y en otro script. Bajo emulación el arranque es lento y variable —el `Started
-> ApiGatewayApplication` apareció a los **165 s** y a los **884 s** en dos corridas medidas—, así que un
-> pod `NotReady` los primeros minutos es lo esperado y no un cuelgue.
+> después y en otro script. Bajo emulación el arranque es lento y **el criterio de «los ocho pods
+> `Ready` en 10 minutos» no está garantizado**: dos corridas medidas tardaron el `Started
+> ApiGatewayApplication` **165 s** y **884 s**, y la segunda pasa del límite. Un pod `NotReady` esos
+> minutos es lo esperado y no un cuelgue; que el playground cumpla el criterio depende de un host arm64
+> nativo, no de éste.
 >
 > Y el `readinessProbe` del gateway apunta a **`/actuator/prometheus`**, no a `/actuator/health`: la
 > imagen contesta `401` en `/`, `/actuator`, `/actuator/health`, sus hijos y `/actuator/info`, y el

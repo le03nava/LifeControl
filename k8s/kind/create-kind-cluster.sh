@@ -20,6 +20,10 @@ if [ -e "$ARM64_REGISTRATION" ]; then
 	echo "arm64 emulation is already registered"
 else
 	echo "Registering arm64 emulation, which the arm64-only gateway image needs on an amd64 host"
+	# Pulled explicitly so the reference under `k8s/` is a `docker pull` line, which is one of the two
+	# forms `docker/scripts/tests/image-pins.test.sh` freezes. A `docker run` is not read there: a text
+	# reader cannot tell `-p 19000:9000` from an image name.
+	docker pull tonistiigi/binfmt:qemu-v10.2.3
 	if ! docker run --rm --privileged tonistiigi/binfmt:qemu-v10.2.3 --install arm64; then
 		echo "could not register arm64 emulation: the api-gateway pod would fail with exec format error" >&2
 		exit 1

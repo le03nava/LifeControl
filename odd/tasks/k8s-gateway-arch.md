@@ -6,7 +6,9 @@ emulator is a frozen pin like every other image the tree names), plus the probe 
 actually answer: the path the tree declared answers `401` and could never have passed. Both halves are
 asserted by `k8s-manifests.test.sh` with their rejecting fixtures. The `readOnlyRootFilesystem` verdict
 that #1035 left unmeasurable is still unmeasured on purpose: this unit makes it measurable, and
-deciding it is that unit's leftover. The cluster half of S1 was **not run** here — see L10.
+deciding it is that unit's leftover. The cluster half of S1 was **not run** here — see L10 — and the
+playground's 10-minute expectation does not hold under emulation, stated in L13 instead of averaged
+away.
 
 ## Specs
 
@@ -42,6 +44,7 @@ deciding it is that unit's leftover. The cluster half of S1 was **not run** here
 | T4  | S1,S3 | inline — the suite and its fixture | this slice |
 | T5  | S5    | inline — README and AGENTS         | this slice |
 | T6  | S6    | inline — the readiness path        | this slice |
+| T7  | S4,S6 | inline — the verifier's findings   | this slice |
 
 ## Log
 
@@ -53,11 +56,12 @@ deciding it is that unit's leftover. The cluster half of S1 was **not run** here
   #1034/#1035 true instead of swapping in a previous generation of the app behind an older name.
 - **L3** — measured, `https://hub.docker.com/v2/repositories/saiupadhyayula007/new-api-gateway/tags`:
   `count 1`, tag `latest`, images `arm64/linux`. There is no amd64 build to pin.
-- **L4** — measured, the alternative S2 would have preferred: `saiupadhyayula007/api-gateway:v1` is
-  `amd64/linux`, runs (`Netty started on port 8080`, `Started ApiGatewayApplication in 4.456
-  seconds`) and answers `401` on every path — `/`, `/login`, `/actuator/health`. Its readiness probe
-  would have to become `tcpSocket`, its `Config.User` is empty, and it is the previous generation of
-  the app: three downgrades to satisfy one criterion literally.
+- **L4** — measured in this session's own runs (outside the job-1..4 logs, and re-read as structure by the
+  independent verification: `amd64/linux`, empty `Config.User`), the alternative S2 would have preferred:
+  `saiupadhyayula007/api-gateway:v1` is `amd64/linux`, runs (`Netty started on port 8080`, `Started
+  ApiGatewayApplication in 4.456 seconds`) and answers `401` on every path — `/`, `/login`,
+  `/actuator/health`. Its readiness probe would have to become `tcpSocket`, its `Config.User` is empty, and
+  it is the previous generation of the app: three downgrades to satisfy one criterion literally.
 - **L5** — `./docker/scripts/tests/image-pins.test.sh`: `88 passed, 0 failed`, naming
   `tonistiigi/binfmt:qemu-v10.2.3` as a frozen k8s pin, found by the new third reader in the
   `docker run` line.
@@ -68,12 +72,13 @@ deciding it is that unit's leftover. The cluster half of S1 was **not run** here
   because `tonistiigi/binfmt --install` exiting 0 and the kernel naming the interpreter are two
   different facts and only the second one makes the pod start.
 - **L8** — measured on this amd64 host, RED then GREEN, which is S3: without the registration
-  `docker run --rm saiupadhyayula007/new-api-gateway:latest` exits `exec /cnb/process/web: exec format
-  error`; with it, `Tomcat started on port 9000 (http)` and `Started ApiGatewayApplication`. Two
-  measured boots: **165 s** and **884 s**, so the playground's timing expectation is about a slow boot,
-  not a hang.
+  `docker run --rm saiupadhyayula007/new-api-gateway:latest` prints `exec /cnb/process/web: exec format
+  error` and never starts (the *text* is the evidence; the exit code was not captured, because the
+  command was piped and the log's `exit=0` is the pipeline's); with it, `Tomcat started on port 9000
+  (http)` and `Started ApiGatewayApplication`. Two measured boots: **165 s** and **884 s** — see L13.
 - **L9** — measured, the path matrix that makes S6 a defect and not a hypothesis, all unauthenticated
-  on that same running container: `/` `401`, `/actuator` `401`, `/actuator/health` `401`,
+  on a second run of the same image (job-4, `Up 2 minutes`; not the container of the 165 s boot in
+  job-3): `/` `401`, `/actuator` `401`, `/actuator/health` `401`,
   `/actuator/health/liveness` `401`, `/actuator/health/readiness` `401`, `/actuator/info` `401`,
   `/favicon.ico` `401`, and `/actuator/prometheus` **`200`**. The tree's `readinessProbe` declared
   `/actuator/health`, which the kubelet reads as a failed probe forever; it now declares
@@ -86,5 +91,19 @@ deciding it is that unit's leftover. The cluster half of S1 was **not run** here
   default-deny ingress (#1034) governs traffic from pods — whether `kindnet` lets that node-originated
   probe through was **not** measured, and if it does not, the eight workloads' probes fail together.
 - **L11** — the gateway's identity keeps `Config.User` as its source even now that the image runs: it
-  carries no `id` (`exec: "id": executable file not found in $PATH`), so the declaration is the only
-  reading, and the pod pins the same pair explicitly.
+  carries no `id` (observed in this session's run: `exec: "id": executable file not found in $PATH`), so
+  the declaration is the only reading, and the pod pins the same pair explicitly.
+- **L12** — the independent verification ran against the first slice of this branch and found three
+  things it fixed in the
+  second slice: the new `docker run` reader was a text matcher that read `-p 19000:9000` as an image and
+  missed an image on a continuation line — **removed**, and the entry point now *pulls* the emulator image
+  so the reference the freeze sees is a `docker pull` line; the emulator checker was satisfied by a
+  sentence, since a `docker run` written in a comment matched the same regex — the checker now strips
+  comments and a second fixture rejects a script that only names the emulator in a comment; and the
+  10-minute bound of S1 contradicted this record's own 884 s boot. It confirmed S3, S4, S5, the measured
+  half of S6, and that the cluster half is unrun rather than green.
+- **L13** — the bound, stated instead of averaged: S1's verbatim "every pod reaches `Ready` in 10
+  minutes" does **not** hold under emulation — one measured boot took 884 s, longer than the bound,
+  while another took 165 s. What is claimed is the shape of the thing: the emulator makes the workload
+  startable on an amd64 host and the probe answerable, and the timing is the price of emulation, written
+  in `README.md` beside the prerequisite rather than left for an operator to infer from a `NotReady` pod.

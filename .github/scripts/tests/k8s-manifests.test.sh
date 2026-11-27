@@ -226,6 +226,15 @@ readme_path_findings() {
 	done
 }
 
+# strip_comments <path>: the script with every comment removed, lines and lines-in-place preserved.
+# A checker that greps for a command has to read the commands: a sentence about `docker run ...
+# --install arm64` on its own line satisfies the same regex as the command, and the fixture that only
+# deletes a line cannot see that difference (it was measured: a script whose emulator call was
+# commented out still printed PASS).
+strip_comments() {
+	sed -E 's/(^|[[:space:]])#.*$//' "$1" 2>/dev/null
+}
+
 # arm64_emulation_findings <cluster_script> <gateway_manifest>: the cluster entry point registers the
 # arm64 emulator the gateway image needs, reads the registration back, and does both before the
 # cluster exists -- and the manifest says at the image why a third-party image published for one
@@ -235,20 +244,21 @@ readme_path_findings() {
 # nor a tag can fix a missing architecture (issue #1056). The registration is host-level, so the entry
 # point is the only place in the tree that can hold it, which is why it is asserted instead of trusted.
 arm64_emulation_findings() {
-	local script="$1" manifest="$2" name emulator_line cluster_line
+	local script="$1" manifest="$2" name emulator_line cluster_line code
 	name="${script#"$REPO_ROOT"/}"
 	if [ ! -f "$script" ]; then
 		printf '%s is missing, so nothing registers the emulator the gateway image needs\n' "$name"
 		return 0
 	fi
-	grep -qE 'docker run[^|]*tonistiigi/binfmt:[^ ]+.*--install arm64' "$script" ||
+	code="$(strip_comments "$script")"
+	printf '%s\n' "$code" | grep -qE 'docker run[^|]*tonistiigi/binfmt:[^ ]+.*--install arm64' ||
 		printf '%s never registers the arm64 emulator, so the arm64-only gateway image cannot start\n' "$name"
-	grep -q '/proc/sys/fs/binfmt_misc' "$script" ||
+	printf '%s\n' "$code" | grep -q '/proc/sys/fs/binfmt_misc' ||
 		printf '%s never reads the registration back, so an install that did nothing would go unnoticed\n' "$name"
 	# The order is the contract: the emulator has to be in the kernel before the node that runs the
 	# image exists, or the kubelet is what discovers it is missing.
-	emulator_line="$(grep -nE 'docker run[^|]*tonistiigi/binfmt:' "$script" | head -n1 | cut -d: -f1)"
-	cluster_line="$(grep -nE 'kind create cluster' "$script" | head -n1 | cut -d: -f1)"
+	emulator_line="$(printf '%s\n' "$code" | grep -nE 'docker run[^|]*tonistiigi/binfmt:' | head -n1 | cut -d: -f1)"
+	cluster_line="$(printf '%s\n' "$code" | grep -nE 'kind create cluster' | head -n1 | cut -d: -f1)"
 	if [ -n "$emulator_line" ] && [ -n "$cluster_line" ] && [ "$emulator_line" -gt "$cluster_line" ]; then
 		printf '%s registers the emulator after creating the cluster, and the node runs the image before that\n' "$name"
 	fi
@@ -1493,6 +1503,21 @@ if [ -d "$MANIFESTS" ]; then
 	sed -i '/docker run[^|]*tonistiigi\/binfmt:/d' "$TMP/fx-no-emulator/kind/create-kind-cluster.sh"
 	check_rejected "a cluster entry point that never registers the arm64 emulator" \
 		"$(arm64_emulation_findings "$TMP/fx-no-emulator/kind/create-kind-cluster.sh" "$GATEWAY_MANIFEST")"
+
+	# The command turned into a sentence: the emulator is named, and named in a comment, so a checker
+	# that greps the file instead of the commands calls this clean. The block is removed and the mention
+	# appended as a comment rather than edited in place, because the call sits inside `if ! ...; then`
+	# and a half-commented block would not parse.
+	cp -R "$REPO_ROOT/k8s" "$TMP/fx-emulator-comment"
+	awk '
+		/^[[:space:]]*if ! docker run .*binfmt/ { skip = 1; next }
+		skip && /^[[:space:]]*fi[[:space:]]*$/ { skip = 0; next }
+		{ print }
+	' "$TMP/fx-no-emulator/kind/create-kind-cluster.sh" >"$TMP/fx-emulator-comment/kind/create-kind-cluster.sh"
+	printf '# docker run --rm --privileged tonistiigi/binfmt:qemu-v10.2.3 --install arm64\n' \
+		>>"$TMP/fx-emulator-comment/kind/create-kind-cluster.sh"
+	check_rejected "a cluster entry point that only names the emulator in a comment" \
+		"$(arm64_emulation_findings "$TMP/fx-emulator-comment/kind/create-kind-cluster.sh" "$GATEWAY_MANIFEST")"
 
 	declared_for_fixture="$(declared_namespace "$MANIFESTS")"
 	if [ -n "$declared_for_fixture" ]; then

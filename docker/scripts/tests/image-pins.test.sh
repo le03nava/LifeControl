@@ -419,6 +419,12 @@ fi
 #     and why the frozen table below is its pin source instead. The exception is named, with its
 #     reason, rather than filtered out by a pattern: an image with a single published tag cannot be
 #     materialized, and hiding it in a regex is how the next floating tag goes unnoticed too.
+#     Two readers, not three: `image:` and `docker pull`/`kind load docker-image`. `docker run` is
+#     deliberately not read, because a text reader cannot tell a flag's value from an image name --
+#     a first attempt matched `-p 19000:9000` as an image while missing an image on a continuation
+#     line, which is a reader that invents references and loses real ones at the same time. So the
+#     cluster entry point *pulls* the emulator image before running it, and the reference this
+#     section freezes is the `docker pull` line.
 # ------------------------------------------
 EXPECTED_K8S_IMAGES="grafana/grafana:10.1.0
 grafana/loki:3.7.8
@@ -440,12 +446,6 @@ k8s_image_refs() {
 	{
 		grep -rhoE 'image:[[:space:]]+[^[:space:]]+' "$REPO_ROOT/k8s" 2>/dev/null | sed -E 's/.*image:[[:space:]]+//'
 		grep -rhoE 'docker pull[[:space:]]+[^[:space:]]+|kind load docker-image -n [A-Za-z0-9_-]+[[:space:]]+[^[:space:]]+' "$REPO_ROOT/k8s" 2>/dev/null | awk '{print $NF}'
-		# `docker run` is the third way this tree names an image, and the arm64 emulator is the one
-		# reference that is neither declared by a manifest nor loaded into the node: the cluster entry
-		# point runs it on the host before the cluster exists (issue #1056). Read literally from the
-		# command line, like the two readers above, so the next `docker run` enters the freeze by
-		# existing instead of by being remembered.
-		grep -rhoE 'docker run([[:space:]]+--?[^[:space:]]+)*[[:space:]]+[A-Za-z0-9._/-]+:[A-Za-z0-9._-]+' "$REPO_ROOT/k8s" 2>/dev/null | awk '{print $NF}'
 	} | sed '/^$/d' | sort -u
 }
 
