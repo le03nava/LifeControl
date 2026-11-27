@@ -419,6 +419,12 @@ fi
 #     and why the frozen table below is its pin source instead. The exception is named, with its
 #     reason, rather than filtered out by a pattern: an image with a single published tag cannot be
 #     materialized, and hiding it in a regex is how the next floating tag goes unnoticed too.
+#     Two readers, not three: `image:` and `docker pull`/`kind load docker-image`. `docker run` is
+#     deliberately not read, because a text reader cannot tell a flag's value from an image name --
+#     a first attempt matched `-p 19000:9000` as an image while missing an image on a continuation
+#     line, which is a reader that invents references and loses real ones at the same time. So the
+#     cluster entry point *pulls* the emulator image before running it, and the reference this
+#     section freezes is the `docker pull` line.
 # ------------------------------------------
 EXPECTED_K8S_IMAGES="grafana/grafana:10.1.0
 grafana/loki:3.7.8
@@ -426,11 +432,14 @@ grafana/tempo:2.2.2
 mysql:8.3.0
 prom/prometheus:v2.46.0
 quay.io/keycloak/keycloak:24.0.1
-saiupadhyayula007/new-api-gateway:latest"
+saiupadhyayula007/new-api-gateway:latest
+tonistiigi/binfmt:qemu-v10.2.3"
 
 # The one documented exception: a third-party image this repository does not build, published under a
-# single tag (Docker Hub, last updated 2024-08-03), inside a tutorial manifest tree that no deploy here
-# reads.
+# single tag (Docker Hub, last updated 2024-08-03) **and a single architecture, `linux/arm64`**, inside a
+# tutorial manifest tree that no deploy here reads. The architecture is why `k8s/kind/create-kind-cluster.sh`
+# registers the arm64 emulator before it creates the node (issue #1056): the exception stays, and what
+# changed is the node's ability to execute it.
 K8S_DOCUMENTED_EXCEPTION="saiupadhyayula007/new-api-gateway:latest"
 
 k8s_image_refs() {
